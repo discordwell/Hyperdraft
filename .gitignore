@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Environment
+.env
+.env.local
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Generated content
+data/generated_cards/
+data/generated_metas/
+data/playtest_results/
+*.json.backup
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+test_results/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Game assets (if large)
+assets/images/generated/
+assets/cache/
+
+# API Keys
+credentials.json
+*.key
+*.pem
