@@ -66,6 +66,7 @@ class Game:
         self.priority_system.stack = self.stack
         self.priority_system.turn_manager = self.turn_manager
         self.priority_system.mana_system = self.mana_system
+        self.priority_system.pipeline = self.pipeline
 
         # Turn manager needs priority and combat
         self.turn_manager.priority_system = self.priority_system
