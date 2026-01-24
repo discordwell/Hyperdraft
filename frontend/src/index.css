@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+:root {
+  font-family: 'Inter', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: #1a1a2e;
+  color: #ffffff;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #16213e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4a5568;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #718096;
+}
+
+/* Font for headings */
+h1, h2, h3, .title-font {
+  font-family: 'Cinzel', serif;
+}
+
+/* Card aspect ratio */
+.card-aspect {
+  aspect-ratio: 5 / 7;
+}
+
+/* Animation utilities */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Mana symbol styles */
+.mana-symbol {
+  @apply w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold;
+}
+
+.mana-w { @apply bg-amber-100 text-amber-800; }
+.mana-u { @apply bg-blue-500 text-white; }
+.mana-b { @apply bg-gray-800 text-white; }
+.mana-r { @apply bg-red-500 text-white; }
+.mana-g { @apply bg-green-600 text-white; }
+.mana-c { @apply bg-gray-300 text-gray-800; }
+
+/* Card frame colors */
+.card-frame-white { @apply bg-gradient-to-b from-amber-50 to-amber-100; }
+.card-frame-blue { @apply bg-gradient-to-b from-blue-100 to-blue-200; }
+.card-frame-black { @apply bg-gradient-to-b from-gray-600 to-gray-700 text-white; }
+.card-frame-red { @apply bg-gradient-to-b from-red-100 to-red-200; }
+.card-frame-green { @apply bg-gradient-to-b from-green-100 to-green-200; }
+.card-frame-colorless { @apply bg-gradient-to-b from-gray-100 to-gray-200; }
+.card-frame-land { @apply bg-gradient-to-b from-stone-200 to-stone-300; }
+.card-frame-gold { @apply bg-gradient-to-b from-yellow-100 to-yellow-200; }
+
+/* Game zone backgrounds */
+.zone-battlefield {
+  @apply bg-gradient-to-b from-green-900/30 to-green-800/20;
+}
+
+.zone-hand {
+  @apply bg-game-surface;
+}
+
+.zone-stack {
+  @apply bg-purple-900/20;
+}
+
+/* Pulse animation for priority indicator */
+@keyframes priority-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(233, 69, 96, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(233, 69, 96, 0);
+  }
+}
+
+.priority-pulse {
+  animation: priority-pulse 2s infinite;
+}
+
+/* Selection glow */
+.selection-glow {
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5), 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+/* Target highlight */
+.target-highlight {
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.5), 0 0 20px rgba(34, 197, 94, 0.3);
+}

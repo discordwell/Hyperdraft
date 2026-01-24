@@ -63,4 +63,4 @@ assets/cache/
 # API Keys
 credentials.json
 *.key
-*.pem
+*.pemfrontend/node_modules/

@@ -55,7 +55,7 @@ def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, su
     )
 
 
-def make_land(name: str, subtypes: set = None, supertypes: set = None, text: str = ""):
+def make_land(name: str, subtypes: set = None, supertypes: set = None, text: str = "", setup_interceptors=None):
     """Helper to create land card definitions."""
     from src.engine import CardDefinition, Characteristics
     return CardDefinition(
@@ -67,8 +67,1541 @@ def make_land(name: str, subtypes: set = None, supertypes: set = None, text: str
             supertypes=supertypes or set(),
             mana_cost=""
         ),
-        text=text
+        text=text,
+        setup_interceptors=setup_interceptors
     )
+
+
+# =============================================================================
+# EDGE OF ETERNITIES KEYWORD HELPERS
+# =============================================================================
+
+from src.cards.interceptor_helpers import (
+    make_etb_trigger, make_death_trigger, make_upkeep_trigger,
+    make_end_step_trigger, make_counter_added_trigger,
+    make_static_pt_boost, make_keyword_grant,
+    make_attack_trigger, make_damage_trigger,
+    other_creatures_you_control, creatures_you_control, all_opponents
+)
+
+
+def make_chronicle_upkeep(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]]
+) -> Interceptor:
+    """
+    Chronicle — At the beginning of your upkeep, trigger effect.
+
+    Common effects: put time counters on permanents, exile and return creatures, etc.
+    """
+    return make_upkeep_trigger(source_obj, effect_fn, controller_only=True)
+
+
+def make_chronicle_end_step(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]]
+) -> Interceptor:
+    """
+    Chronicle — At the beginning of your end step, trigger effect.
+    """
+    return make_end_step_trigger(source_obj, effect_fn, controller_only=True)
+
+
+def make_temporal_counter_effect(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+    counter_threshold: int = 1
+) -> Interceptor:
+    """
+    Temporal — Whenever a time counter is added to a permanent you control, trigger effect.
+    Or: Permanents you control with time counters get an effect.
+    """
+    def temporal_filter(event: Event, state: GameState, obj: GameObject) -> bool:
+        if event.type != EventType.COUNTER_ADDED:
+            return False
+        if event.payload.get('counter_type') != 'time':
+            return False
+        # Check if it's on a permanent we control
+        target_id = event.payload.get('object_id')
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        return target.controller == obj.controller
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: temporal_filter(e, s, source_obj),
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=effect_fn(e, s)
+        ),
+        duration='while_on_battlefield'
+    )
+
+
+def make_temporal_hexproof(source_obj: GameObject) -> Interceptor:
+    """
+    Permanents you control with time counters on them have hexproof.
+    """
+    def has_time_counters(target: GameObject, state: GameState) -> bool:
+        if target.controller != source_obj.controller:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        return target.state.counters.get('time', 0) > 0
+
+    return make_keyword_grant(source_obj, ['hexproof'], has_time_counters)
+
+
+def make_echo(source_obj: GameObject, echo_cost: str) -> Interceptor:
+    """
+    Echo — At the beginning of your upkeep, if this came under your control
+    since your last upkeep, sacrifice it unless you pay its echo cost.
+
+    Note: Full implementation requires tracking "entered since last upkeep".
+    """
+    def echo_effect(event: Event, state: GameState) -> list[Event]:
+        # Would create sacrifice-unless-pay event
+        # The priority system would handle the payment choice
+        return []
+
+    return make_upkeep_trigger(source_obj, echo_effect, controller_only=True)
+
+
+def make_rewind_death(source_obj: GameObject, time_counters: int = 3) -> Interceptor:
+    """
+    Rewind — When this creature dies, you may exile it with N time counters.
+    At the beginning of each upkeep, remove a time counter.
+    When the last is removed, return it to the battlefield.
+
+    Note: This creates the death trigger. The upkeep counter removal
+    would be set up when the card is in exile.
+    """
+    def rewind_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': source_obj.id,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'to_zone_type': ZoneType.EXILE,
+                'time_counters': time_counters,
+                'rewind': True  # Flag for upkeep processing
+            },
+            source=source_obj.id
+        )]
+
+    return make_death_trigger(source_obj, rewind_effect)
+
+
+def make_suspend_exile(source_obj: GameObject, time_counters: int, suspend_cost: str) -> list[Interceptor]:
+    """
+    Suspend N — {cost}. Rather than cast this from hand, pay cost and exile with N time counters.
+    At the beginning of your upkeep, remove a time counter.
+    When the last is removed, cast it without paying its mana cost.
+
+    Note: Suspend is typically a special action, not an interceptor on the battlefield.
+    This returns empty as suspend setup happens differently.
+    """
+    # Suspend is handled by the hand zone / casting system, not battlefield interceptors
+    return []
+
+
+def make_prophecy_upkeep(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]]
+) -> Interceptor:
+    """
+    Prophecy — At the beginning of your upkeep, look at top card and trigger effect.
+
+    Effect typically involves revealing and getting bonus if certain condition met.
+    """
+    return make_upkeep_trigger(source_obj, effect_fn, controller_only=True)
+
+
+def make_time_counter_upkeep_add(source_obj: GameObject, target_filter: Callable[[GameObject, GameState], bool] = None) -> Interceptor:
+    """
+    At the beginning of your upkeep, put a time counter on each permanent you control
+    (or permanents matching filter).
+    """
+    def add_counters_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for obj_id, obj in state.objects.items():
+            if obj.controller != source_obj.controller:
+                continue
+            if obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            if target_filter and not target_filter(obj, state):
+                continue
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj_id, 'counter_type': 'time', 'amount': 1},
+                source=source_obj.id
+            ))
+        return events
+
+    return make_upkeep_trigger(source_obj, add_counters_effect, controller_only=True)
+
+
+# =============================================================================
+# SETUP INTERCEPTOR FUNCTIONS FOR CARDS 139-276
+# =============================================================================
+
+# --- Sands of Time (#139) ---
+def sands_of_time_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of each upkeep, remove a charge counter.
+    When the last counter is removed, each player returns a creature from graveyard."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        current_counters = obj.state.counters.get('charge', 0)
+        events = []
+        if current_counters > 0:
+            events.append(Event(
+                type=EventType.COUNTER_REMOVED,
+                payload={'object_id': obj.id, 'counter_type': 'charge', 'amount': 1},
+                source=obj.id
+            ))
+            if current_counters == 1:
+                # Last counter removed - trigger creature return
+                for player_id in state.players.keys():
+                    events.append(Event(
+                        type=EventType.RETURN_FROM_GRAVEYARD,
+                        payload={'player': player_id, 'card_type': 'creature'},
+                        source=obj.id
+                    ))
+        return events
+    return [make_upkeep_trigger(obj, upkeep_effect, controller_only=False)]
+
+
+# --- Echo Chamber (#140) ---
+# No setup needed - activated ability only
+
+
+# --- Chrono Tower (#141) ---
+# No setup needed - land with activated ability only
+
+
+# --- Timeless Fortress (#142) ---
+# No setup needed - land with activated ability only
+
+
+# --- Echo Strike (#143) ---
+# No setup needed - instant with Echo (handled differently)
+
+
+# --- Temporal Rebirth (#144) ---
+# No setup needed - sorcery
+
+
+# --- Suspended Horror (#145) ---
+def suspended_horror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Suspended Horror enters, each opponent sacrifices a creature."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in state.players.keys():
+            if player_id != obj.controller:
+                events.append(Event(
+                    type=EventType.SACRIFICE,
+                    payload={'player': player_id, 'card_type': 'creature'},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Chrono-Elemental (#146) ---
+def chrono_elemental_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Chrono-Elemental enters, put a time counter on each creature you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for obj_id, target in state.objects.items():
+            if (target.controller == obj.controller and
+                target.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj_id, 'counter_type': 'time', 'amount': 1},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Temporal Harvest (#147) ---
+# No setup needed - sorcery
+
+
+# --- Ageless Army (#148) ---
+# No setup needed - sorcery
+
+
+# --- Rift Bolt (#149) ---
+# No setup needed - instant with Suspend
+
+
+# --- Entropy Wave (#150) ---
+# No setup needed - sorcery
+
+
+# --- Herald of Dawn (#151) ---
+def herald_of_dawn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Herald of Dawn enters, put a time counter on target creature you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would require targeting - simplified to put on self
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'time', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Sentinel of Ages (#152) ---
+def sentinel_of_ages_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Creatures you control with time counters have vigilance."""
+    def has_time_counter(target: GameObject, state: GameState) -> bool:
+        return (target.controller == obj.controller and
+                target.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in target.characteristics.types and
+                target.state.counters.get('time', 0) > 0)
+    return [make_keyword_grant(obj, ['vigilance'], has_time_counter)]
+
+
+# --- Temporal Blessing (#153) ---
+# No setup needed - instant
+
+
+# --- Chronicle Keeper (#154) ---
+def chronicle_keeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your upkeep, scry 1."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_chronicle_upkeep(obj, upkeep_effect)]
+
+
+# --- Eternal Light (#155) ---
+def eternal_light_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Creatures you control get +1/+1. Whenever a creature with a time counter
+    enters under your control, you gain 1 life."""
+    interceptors = make_static_pt_boost(obj, 1, 1, creatures_you_control(obj))
+
+    def time_counter_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        target_id = event.payload.get('object_id')
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        return (target.controller == source.controller and
+                CardType.CREATURE in target.characteristics.types and
+                target.state.counters.get('time', 0) > 0)
+
+    def gain_life_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    interceptors.append(make_etb_trigger(obj, gain_life_effect, time_counter_etb_filter))
+    return interceptors
+
+
+# --- Timeless Prayer (#156) ---
+# No setup needed - instant
+
+
+# --- Dawn Watcher (#157) ---
+def dawn_watcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Dawn Watcher enters, you may tap target creature."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Simplified - would need targeting system
+        return [Event(
+            type=EventType.TAP_TARGET,
+            payload={'controller': obj.controller},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Preserved Knight (#158) ---
+def preserved_knight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Preserved Knight dies, return it to the battlefield at the beginning of the next end step."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DELAYED_TRIGGER,
+            payload={
+                'trigger_phase': 'end_step',
+                'effect': 'return_to_battlefield',
+                'object_id': obj.id
+            },
+            source=obj.id
+        )]
+    return [make_death_trigger(obj, death_effect)]
+
+
+# --- Rift Scholar (#159) ---
+def rift_scholar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Rift Scholar enters, draw a card, then discard a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Suspended Wisdom (#160) ---
+# No setup needed - sorcery with Suspend
+
+
+# --- Temporal Clone (#161) ---
+# No setup needed - instant
+
+
+# --- Echo Savant (#162) ---
+def echo_savant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Echo {1}{U}. When Echo Savant enters, scry 2."""
+    interceptors = [make_echo(obj, "{1}{U}")]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    return interceptors
+
+
+# --- Phase Walker (#163) ---
+def phase_walker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Phase Walker deals combat damage to a player, draw a card."""
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+
+
+# --- Timeline Manipulation (#164) ---
+# No setup needed - sorcery
+
+
+# --- Temporal Insight (#165) ---
+# No setup needed - instant
+
+
+# --- Chrono Drake (#166) ---
+def chrono_drake_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Chrono Drake enters, put a time counter on target permanent."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PUT_TIME_COUNTER,
+            payload={'controller': obj.controller},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Shadow of Entropy (#167) ---
+def shadow_of_entropy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another creature dies, Shadow of Entropy gets +1/+1 until end of turn."""
+    def other_creature_death_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        target_id = event.payload.get('object_id')
+        if target_id == source.id:
+            return False
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        return CardType.CREATURE in target.characteristics.types
+
+    def pump_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TEMPORARY_BOOST,
+            payload={'object_id': obj.id, 'power': 1, 'toughness': 1, 'until': 'end_of_turn'},
+            source=obj.id
+        )]
+
+    return [make_death_trigger(obj, pump_effect, other_creature_death_filter)]
+
+
+# --- Temporal Drain (#168) ---
+# No setup needed - instant
+
+
+# --- Echo of Despair (#169) ---
+def echo_of_despair_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Echo {1}{B}. When Echo of Despair enters, target opponent discards a card."""
+    interceptors = [make_echo(obj, "{1}{B}")]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        opponents = all_opponents(obj, state)
+        if opponents:
+            return [Event(
+                type=EventType.DISCARD,
+                payload={'player': opponents[0], 'amount': 1},
+                source=obj.id
+            )]
+        return []
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    return interceptors
+
+
+# --- Grave Tender (#170) ---
+def grave_tender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Grave Tender dies, return target creature card with mana value 2 or less from your graveyard to your hand."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+            payload={'player': obj.controller, 'max_mv': 2, 'card_type': 'creature'},
+            source=obj.id
+        )]
+    return [make_death_trigger(obj, death_effect)]
+
+
+# --- Decay Knight (#171) ---
+def decay_knight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Rewind - When Decay Knight dies, exile it with two time counters."""
+    return [make_rewind_death(obj, 2)]
+
+
+# --- Entropy Plague (#172) ---
+# No setup needed - sorcery
+
+
+# --- Life Drain (#173) ---
+# No setup needed - instant
+
+
+# --- Temporal Horror (#174) ---
+def temporal_horror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Temporal Horror enters, each opponent loses 2 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': player_id, 'amount': -2},
+                source=obj.id
+            ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Rift Runner (#175) ---
+# No setup needed - static haste only
+
+
+# --- Temporal Fury (#176) ---
+# No setup needed - instant
+
+
+# --- Echo of Rage (#177) ---
+def echo_of_rage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste. Echo {2}{R}. When Echo of Rage enters, it deals 2 damage to any target."""
+    interceptors = [make_echo(obj, "{2}{R}")]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DEAL_DAMAGE,
+            payload={'amount': 2, 'source': obj.id},
+            source=obj.id
+        )]
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    return interceptors
+
+
+# --- Suspended Lightning (#178) ---
+# No setup needed - instant with Suspend
+
+
+# --- Chrono Goblin (#179) ---
+# No setup needed - static haste and activated ability
+
+
+# --- Rift Hammer (#180) ---
+# No setup needed - instant
+
+
+# --- Accelerated Assault (#181) ---
+# No setup needed - sorcery
+
+
+# --- Echo Dragon (#182) ---
+def echo_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. Echo {3}{R}. When Echo Dragon enters, it deals 3 damage to any target."""
+    interceptors = [make_echo(obj, "{3}{R}")]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DEAL_DAMAGE,
+            payload={'amount': 3, 'source': obj.id},
+            source=obj.id
+        )]
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    return interceptors
+
+
+# --- Sprout of Eternity (#183) ---
+def sprout_of_eternity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your upkeep, put a +1/+1 counter on Sprout of Eternity."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_chronicle_upkeep(obj, upkeep_effect)]
+
+
+# --- Temporal Roots (#184) ---
+# Enchant land - aura, no setup needed for this implementation
+
+
+# --- Echo of Nature (#185) ---
+def echo_of_nature_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Echo {2}{G}. When Echo of Nature enters, search your library for a basic land card."""
+    interceptors = [make_echo(obj, "{2}{G}")]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={'player': obj.controller, 'card_type': 'basic_land', 'to_zone': 'hand'},
+            source=obj.id
+        )]
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    return interceptors
+
+
+# --- Timeless Elk (#186) ---
+def timeless_elk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Vigilance. When Timeless Elk enters, you gain 3 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Chronicle Wolf (#187) ---
+def chronicle_wolf_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Chronicle Wolf enters, put a time counter on target creature you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PUT_TIME_COUNTER,
+            payload={'controller': obj.controller},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Primal Echo (#188) ---
+# No setup needed - sorcery
+
+
+# --- Growth Surge (#189) ---
+# No setup needed - instant
+
+
+# --- Ageless Behemoth (#190) ---
+def ageless_behemoth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample. When Ageless Behemoth enters, put a +1/+1 counter on each other creature you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for obj_id, target in state.objects.items():
+            if (target.id != obj.id and
+                target.controller == obj.controller and
+                target.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj_id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Temporal Champion (#191) ---
+def temporal_champion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Vigilance, flying. Whenever Temporal Champion deals combat damage to a player, put a time counter on target permanent."""
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PUT_TIME_COUNTER,
+            payload={'controller': obj.controller},
+            source=obj.id
+        )]
+    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+
+
+# --- Entropy Blossom (#192) ---
+def entropy_blossom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Deathtouch. When Entropy Blossom enters, return target creature card from your graveyard to your hand."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+            payload={'player': obj.controller, 'card_type': 'creature'},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Chrono-Striker (#193) ---
+def chrono_striker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """First strike, haste. When Chrono-Striker deals combat damage to a player, you gain 2 life."""
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+
+
+# --- Rift Prophet (#194) ---
+def rift_prophet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Rift Prophet enters, look at the top three cards of your library. Put one into your hand and the rest into your graveyard."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.IMPULSE_TO_GRAVEYARD,
+            payload={'player': obj.controller, 'look': 3, 'take': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Temporal Beast (#195) ---
+def temporal_beast_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample. When Temporal Beast enters, draw a card and put a time counter on target permanent you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.PUT_TIME_COUNTER, payload={'controller': obj.controller}, source=obj.id)
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Accelerated Striker (#196) ---
+# No setup needed - static haste and trample only
+
+
+# --- Decay Herald (#197) ---
+def decay_herald_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. When Decay Herald enters, each opponent discards a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': player_id, 'amount': 1},
+                source=obj.id
+            ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Eternal Protector (#198) ---
+def eternal_protector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, vigilance. Other creatures you control get +0/+1."""
+    return make_static_pt_boost(obj, 0, 1, other_creatures_you_control(obj))
+
+
+# --- Time Crystal (#199) ---
+# No setup needed - activated abilities only
+
+
+# --- Chrono Lens (#200) ---
+# No setup needed - activated abilities only
+
+
+# --- Suspended Golem (#201) ---
+def suspended_golem_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Suspend 3 - {2}. When Suspended Golem enters, put a +1/+1 counter on each creature you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for obj_id, target in state.objects.items():
+            if (target.controller == obj.controller and
+                target.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj_id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Temporal Prism (#202) ---
+# No setup needed - activated ability only
+
+
+# --- Echo Armor (#203) ---
+def echo_armor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipped creature gets +1/+1. Echo {2}. When Echo Armor enters, equip it to target creature you control."""
+    interceptors = [make_echo(obj, "{2}")]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.AUTO_EQUIP,
+            payload={'equipment_id': obj.id, 'controller': obj.controller},
+            source=obj.id
+        )]
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    return interceptors
+
+
+# --- Rift Key (#204) ---
+# No setup needed - activated abilities only
+
+
+# --- Timeless Crown (#205) ---
+# Equipment with static and upkeep trigger - needs to be tracked on equipped creature
+
+
+# --- Entropy Orb (#206) ---
+def entropy_orb_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your upkeep, each opponent loses 1 life and you gain 1 life."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': player_id, 'amount': -1},
+                source=obj.id
+            ))
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        ))
+        return events
+    return [make_chronicle_upkeep(obj, upkeep_effect)]
+
+
+# --- Timeless Grove (land #207) ---
+# No setup needed - land with activated ability
+
+
+# --- Entropy Marsh (#208) ---
+def entropy_marsh_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Entropy Marsh enters tapped. When Entropy Marsh enters, each player mills one card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in state.players.keys():
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': player_id, 'amount': 1},
+                source=obj.id
+            ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Accelerated Peak (#209) ---
+# No setup needed - land with activated ability
+
+
+# --- Suspended Sanctuary (#210) ---
+# No setup needed - land with activated ability
+
+
+# --- Rift Nexus (#211) ---
+# No setup needed - land
+
+
+# --- Temporal Oasis (#212) ---
+def temporal_oasis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Temporal Oasis enters tapped. When Temporal Oasis enters, scry 1."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Decay Temple (#213) ---
+# No setup needed - land with activated ability
+
+
+# --- Eternal Cathedral (#214) ---
+# No setup needed - land with activated ability
+
+
+# --- Rift Strider (#215) ---
+def rift_strider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Rift Strider enters, target creature can't be blocked this turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.GRANT_UNBLOCKABLE,
+            payload={'controller': obj.controller},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Temporal Knight (#216) ---
+def temporal_knight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """First strike. When Temporal Knight enters, you gain 2 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Decay Hound (#217) ---
+def decay_hound_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace. When Decay Hound dies, target opponent loses 2 life."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        opponents = all_opponents(obj, state)
+        if opponents:
+            return [Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opponents[0], 'amount': -2},
+                source=obj.id
+            )]
+        return []
+    return [make_death_trigger(obj, death_effect)]
+
+
+# --- Chrono-Charger (#218) ---
+def chrono_charger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste. When Chrono-Charger attacks, it gets +1/+0 until end of turn."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TEMPORARY_BOOST,
+            payload={'object_id': obj.id, 'power': 1, 'toughness': 0, 'until': 'end_of_turn'},
+            source=obj.id
+        )]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# --- Timeless Stag (#219) ---
+def timeless_stag_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample. When Timeless Stag enters, you may search your library for a basic land card, reveal it, put it into your hand, then shuffle."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={'player': obj.controller, 'card_type': 'basic_land', 'to_zone': 'hand'},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Temporal Strike (#220) ---
+# No setup needed - instant
+
+
+# --- Rift Surge (#221) ---
+# No setup needed - instant
+
+
+# --- Entropy's Touch (#222) ---
+# No setup needed - instant
+
+
+# --- Chrono-Spark (#223) ---
+# No setup needed - instant
+
+
+# --- Growth Pulse (#224) ---
+# No setup needed - instant
+
+
+# --- Suspended Scout (#225) ---
+# No setup needed - creature with Suspend
+
+
+# --- Temporal Familiar (#226) ---
+def temporal_familiar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. When Temporal Familiar enters, scry 1."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Entropy Rat (#227) ---
+def entropy_rat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever Entropy Rat deals combat damage to a player, that player discards a card."""
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        target_player = event.payload.get('target')
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': target_player, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+
+
+# --- Rift Spark (#228) ---
+def rift_spark_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste. When Rift Spark dies, it deals 1 damage to any target."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DEAL_DAMAGE,
+            payload={'amount': 1, 'source': obj.id},
+            source=obj.id
+        )]
+    return [make_death_trigger(obj, death_effect)]
+
+
+# --- Timeless Seedling (#229) ---
+# No setup needed - mana ability only
+
+
+# --- Temporal Archon (#230) ---
+def temporal_archon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, vigilance. When Temporal Archon enters, exile all other creatures. Return them at the beginning of the next end step."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for obj_id, target in state.objects.items():
+            if (target.id != obj.id and
+                target.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': obj_id,
+                        'from_zone_type': ZoneType.BATTLEFIELD,
+                        'to_zone_type': ZoneType.EXILE,
+                        'return_end_step': True
+                    },
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Echo Mage (#231) ---
+def echo_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Echo {1}{U}{U}. When Echo Mage enters, draw two cards."""
+    interceptors = [make_echo(obj, "{1}{U}{U}")]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    return interceptors
+
+
+# --- Entropy Lord (#232) ---
+def entropy_lord_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. At the beginning of your upkeep, each opponent sacrifices a creature."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.SACRIFICE,
+                payload={'player': player_id, 'card_type': 'creature'},
+                source=obj.id
+            ))
+        return events
+    return [make_chronicle_upkeep(obj, upkeep_effect)]
+
+
+# --- Suspended Dragon (#233) ---
+def suspended_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, haste. Suspend 3 - {R}{R}. When Suspended Dragon enters, it deals 3 damage to each opponent."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': player_id, 'amount': 3, 'source': obj.id, 'is_combat': False},
+                source=obj.id
+            ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Ancient Treant (#234) ---
+def ancient_treant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reach, trample. At the beginning of your upkeep, put a +1/+1 counter on Ancient Treant."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_chronicle_upkeep(obj, upkeep_effect)]
+
+
+# --- Chrono-Sphinx (#235) ---
+def chrono_sphinx_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. Whenever Chrono-Sphinx deals combat damage to a player, take an extra turn after this one. Sacrifice Chrono-Sphinx at the beginning of that turn."""
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.EXTRA_TURN, payload={'player': obj.controller}, source=obj.id),
+            Event(type=EventType.DELAYED_SACRIFICE, payload={'object_id': obj.id, 'when': 'next_turn_start'}, source=obj.id)
+        ]
+    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+
+
+# --- Temporal Warden (#236) ---
+def temporal_warden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. Chronicle - At the beginning of your upkeep, you may put a time counter on target creature. Creatures with time counters can't attack you."""
+    interceptors = []
+
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PUT_TIME_COUNTER,
+            payload={'controller': obj.controller},
+            source=obj.id
+        )]
+    interceptors.append(make_chronicle_upkeep(obj, upkeep_effect))
+
+    # Static ability: creatures with time counters can't attack you
+    # This would be a replacement/prevention effect, simplified here
+    return interceptors
+
+
+# --- Entropy Crawler (#237) ---
+# No setup needed - static deathtouch only
+
+
+# --- Rift Hunter (#238) ---
+def rift_hunter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste. Whenever Rift Hunter attacks, it gets +1/+0 until end of turn."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TEMPORARY_BOOST,
+            payload={'object_id': obj.id, 'power': 1, 'toughness': 0, 'until': 'end_of_turn'},
+            source=obj.id
+        )]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# --- Grove Spirit (#239) ---
+def grove_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Grove Spirit enters, you gain 2 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Temporal Ward (#240) ---
+# No setup needed - instant
+
+
+# --- Rift Denial (#241) ---
+# No setup needed - instant
+
+
+# --- Entropy Grasp (#242) ---
+# No setup needed - instant
+
+
+# --- Chrono-Blast (#243) ---
+# No setup needed - instant
+
+
+# --- Timeless Growth (#244) ---
+# No setup needed - instant
+
+
+# --- Suspended Army (#245) ---
+# No setup needed - sorcery with Suspend
+
+
+# --- Temporal Vision (#246) ---
+# No setup needed - sorcery
+
+
+# --- Entropy Ritual (#247) ---
+# No setup needed - sorcery
+
+
+# --- Accelerated Charge (#248) ---
+# No setup needed - sorcery
+
+
+# --- Primal Growth (#249) ---
+# No setup needed - sorcery
+
+
+# --- Temporal Bridge (#250) ---
+def temporal_bridge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your upkeep, exile the top card of your library. You may play it this turn."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.EXILE_TOP_PLAY,
+            payload={'player': obj.controller},
+            source=obj.id
+        )]
+    return [make_chronicle_upkeep(obj, upkeep_effect)]
+
+
+# --- Entropy Field (#251) ---
+def entropy_field_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Creatures your opponents control get -1/-0."""
+    def opponent_creatures(target: GameObject, state: GameState) -> bool:
+        return (target.controller != obj.controller and
+                target.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in target.characteristics.types)
+    return make_static_pt_boost(obj, -1, 0, opponent_creatures)
+
+
+# --- Accelerated Flames (#252) ---
+def accelerated_flames_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your upkeep, Accelerated Flames deals 1 damage to each opponent."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': player_id, 'amount': 1, 'source': obj.id, 'is_combat': False},
+                source=obj.id
+            ))
+        return events
+    return [make_chronicle_upkeep(obj, upkeep_effect)]
+
+
+# --- Timeless Harmony (#253) ---
+def timeless_harmony_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Creatures you control have +0/+1."""
+    return make_static_pt_boost(obj, 0, 1, creatures_you_control(obj))
+
+
+# --- Temporal Monument (#254) ---
+# No setup needed - activated abilities only
+
+
+# --- Chrono Amulet (#255) ---
+def chrono_amulet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you put a time counter on a permanent, you gain 1 life."""
+    def time_counter_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.COUNTER_ADDED:
+            return False
+        if event.payload.get('counter_type') != 'time':
+            return False
+        # Check if it's by this controller
+        return event.source == source.controller or state.objects.get(event.source, {}).controller == source.controller
+
+    def life_gain_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_counter_added_trigger(obj, life_gain_effect, counter_type='time', self_only=False)]
+
+
+# --- Entropy Shard (#256) ---
+def entropy_shard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a creature dies, you may pay {1}. If you do, draw a card."""
+    def creature_death_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        if not target:
+            return False
+        return CardType.CREATURE in target.characteristics.types
+
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MAY_PAY_DRAW,
+            payload={'player': obj.controller, 'cost': '{1}', 'draw': 1},
+            source=obj.id
+        )]
+
+    return [make_death_trigger(obj, death_effect, creature_death_filter)]
+
+
+# --- Accelerated Boots (#257) ---
+# Equipment - static ability, no triggered setup needed
+
+
+# --- Chrono Gate (#258) - Decay Gateway (#261) ---
+# Lands - no setup needed
+
+
+# --- Temporal Haven (#262) ---
+# Land with activated ability - no setup needed
+
+
+# --- Suspended Citadel (#263) ---
+def suspended_citadel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Suspend 3 - {0}. When Suspended Citadel enters, each player gains 5 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in state.players.keys():
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': player_id, 'amount': 5},
+                source=obj.id
+            ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Eternal Nexus (#264) ---
+# Land with activated ability - no setup needed
+
+
+# --- Rift Haven (#265) ---
+# Land - no setup needed
+
+
+# --- Temporal Squire (#266) ---
+def temporal_squire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Temporal Squire enters, scry 1."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Entropy Shade (#267) ---
+# No setup needed - activated ability only
+
+
+# =============================================================================
+# SETUP FUNCTIONS FOR CARDS 1-138
+# =============================================================================
+
+def temporal_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def add_counters(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.COUNTER_ADDED, payload={'object_id': t.id, 'counter_type': 'time', 'amount': 1}, source=obj.id) for t in state.objects.values() if t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD]
+    return [make_chronicle_upkeep(obj, add_counters), make_temporal_hexproof(obj)]
+
+def chrono_paladin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: [])]
+
+def keeper_of_moments_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_chronicle_end_step(obj, lambda e, s: [])]
+
+def timeless_sentinel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_upkeep_trigger(obj, lambda e, s: [Event(type=EventType.UNTAP, payload={'object_id': obj.id}, source=obj.id)], controller_only=False)]
+
+def future_sight_oracle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_prophecy_upkeep(obj, lambda e, s: [])]
+
+def eternal_adjudicator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_rewind_death(obj, time_counters=3)]
+
+def timeline_protector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: [])]
+
+def eternity_warden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def filt(e, s, src):
+        if e.type != EventType.ZONE_CHANGE or e.payload.get('to_zone_type') != ZoneType.BATTLEFIELD: return False
+        t = s.objects.get(e.payload.get('object_id'))
+        return t and t.id != src.id and t.controller == src.controller and CardType.CREATURE in t.characteristics.types
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id)]), duration='while_on_battlefield')]
+
+def chronomancer_supreme_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def filt(e, s, src):
+        return e.type == EventType.SPELL_CAST and e.payload.get('from_zone') in [ZoneType.EXILE, ZoneType.GRAVEYARD] and e.payload.get('controller') == src.controller
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.DRAW, payload={'player_id': obj.controller, 'amount': 1}, source=obj.id)]), duration='while_on_battlefield')]
+
+def time_weaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_upkeep_trigger(obj, lambda e, s: [], controller_only=True)]
+
+def echo_of_tomorrow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_echo(obj, "{2}{U}"), make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player_id': obj.controller, 'amount': 1}, source=obj.id)])]
+
+def paradox_entity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: [])]
+
+def suspended_scholar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player_id': obj.controller, 'amount': 2}, source=obj.id)])]
+
+def future_echo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: [])]
+
+def temporal_anchor_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def eff(e, s):
+        has_other = any(t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD and t.id != obj.id and t.state.counters.get('time', 0) > 0 for t in s.objects.values())
+        return [Event(type=EventType.SCRY, payload={'player_id': obj.controller, 'amount': 1}, source=obj.id)] if has_other else [Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': 'time', 'amount': 1}, source=obj.id)]
+    return [make_upkeep_trigger(obj, eff, controller_only=True)]
+
+def entropy_wraith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def eff(e, s):
+        cnt = sum(t.state.counters.get('time', 0) for t in s.objects.values() if t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD)
+        return [Event(type=EventType.LIFE_LOSS, payload={'player_id': p, 'amount': cnt}, source=obj.id) for p in all_opponents(obj, s)] if cnt > 0 else []
+    return [make_chronicle_end_step(obj, eff)]
+
+def chrono_reaper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: [])]
+
+def echo_of_death_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_echo(obj, "{1}{B}"), make_etb_trigger(obj, lambda e, s: [])]
+
+def temporal_vampire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_damage_trigger(obj, lambda e, s: [], combat_only=True, player_only=True)]
+
+def decay_of_ages_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def filt(e, s, src):
+        return e.type == EventType.PHASE_CHANGE and e.payload.get('phase') == 'upkeep' and e.payload.get('active_player') != src.controller
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[]), duration='while_on_battlefield')]
+
+def entropy_walker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def filt(e, s, src):
+        if e.type != EventType.ZONE_CHANGE or e.payload.get('to_zone_type') != ZoneType.GRAVEYARD or e.payload.get('from_zone_type') != ZoneType.BATTLEFIELD: return False
+        t = s.objects.get(e.payload.get('object_id'))
+        return t and t.id != src.id and CardType.CREATURE in t.characteristics.types
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id)]), duration='while_on_battlefield')]
+
+def forgotten_ages_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: []), make_rewind_death(obj, time_counters=2)]
+
+def chrono_berserker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def filt(e, s, src):
+        return e.type == EventType.SPELL_CAST and e.payload.get('from_zone') == ZoneType.EXILE and e.payload.get('controller') == src.controller
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[]), duration='while_on_battlefield')]
+
+def time_rager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_echo(obj, "{1}{R}"), make_etb_trigger(obj, lambda e, s: [])]
+
+def accelerated_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def eff(e, s):
+        return [Event(type=EventType.DAMAGE, payload={'target_id': t.id, 'amount': 3, 'source_id': obj.id}, source=obj.id) for t in s.objects.values() if t.controller != obj.controller and t.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in t.characteristics.types]
+    return [make_etb_trigger(obj, eff)]
+
+def rift_elemental_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def filt(e, s, src):
+        if e.type != EventType.COUNTER_REMOVED or e.payload.get('counter_type') != 'time': return False
+        t = s.objects.get(e.payload.get('object_id'))
+        return t and t.controller == src.controller
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.CONTINUOUS_EFFECT, payload={'object_id': obj.id, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'}, source=obj.id)]), duration='while_on_battlefield')]
+
+def temporal_phoenix_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_rewind_death(obj, time_counters=3)]
+
+def chaos_rift_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_upkeep_trigger(obj, lambda e, s: [], controller_only=True)]
+
+def elder_chronomancer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def eff(e, s):
+        return [Event(type=EventType.COUNTER_ADDED, payload={'object_id': t.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id) for t in s.objects.values() if t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in t.characteristics.types and t.state.counters.get('time', 0) > 0]
+    return [make_chronicle_upkeep(obj, eff)]
+
+def seedling_of_ages_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_upkeep_trigger(obj, lambda e, s: [Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': 'growth', 'amount': 1}, source=obj.id)], controller_only=True)]
+
+def cycle_of_eternity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def filt(e, s, src):
+        if e.type != EventType.ZONE_CHANGE or e.payload.get('to_zone_type') != ZoneType.GRAVEYARD or e.payload.get('from_zone_type') != ZoneType.BATTLEFIELD: return False
+        t = s.objects.get(e.payload.get('object_id'))
+        return t and t.controller == src.controller and CardType.CREATURE in t.characteristics.types
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REPLACE, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REPLACE, new_events=[]), duration='while_on_battlefield')]
+
+def echo_of_the_wild_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_echo(obj, "{3}{G}"), make_etb_trigger(obj, lambda e, s: [])]
+
+def primordial_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def eff(e, s):
+        return [Event(type=EventType.COUNTER_ADDED, payload={'object_id': t.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id) for t in s.objects.values() if t.id != obj.id and t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in t.characteristics.types]
+    return [make_etb_trigger(obj, eff)]
+
+def timeless_forest_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_keyword_grant(obj, ['trample'], lambda t, s: t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in t.characteristics.types and t.state.counters.get('+1/+1', 0) > 0)]
+
+def chronicle_beast_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: [])]
+
+def ageless_oak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_keyword_grant(obj, ['indestructible'], lambda t, s: t.id == obj.id and t.state.counters.get('time', 0) > 0)]
+
+def kael_timekeeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_chronicle_upkeep(obj, lambda e, s: [])]
+
+def temporal_twins_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: []), make_end_step_trigger(obj, lambda e, s: [], controller_only=True)]
+
+def entropy_and_order_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: [])]
+
+def chrono_dragon_multicolor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_upkeep_trigger(obj, lambda e, s: [], controller_only=True)]
+
+def decay_bloom_multicolor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def filt(e, s, src):
+        if e.type != EventType.ZONE_CHANGE or e.payload.get('to_zone_type') != ZoneType.GRAVEYARD or e.payload.get('from_zone_type') != ZoneType.BATTLEFIELD: return False
+        t = s.objects.get(e.payload.get('object_id'))
+        return t and CardType.CREATURE in t.characteristics.types
+    return [make_etb_trigger(obj, lambda e, s: []), Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id)]), duration='while_on_battlefield')]
+
+def temporal_paradox_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: [])]
+
+def chrono_warlord_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_attack_trigger(obj, lambda e, s: [])]
+
+def nature_mage_eternal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_chronicle_upkeep(obj, lambda e, s: [])]
+
+def symbiotic_timeline_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def plus_filt(e, s, src):
+        if e.type != EventType.ZONE_CHANGE or e.payload.get('to_zone_type') != ZoneType.BATTLEFIELD: return False
+        t = s.objects.get(e.payload.get('object_id'))
+        return t and t.controller == src.controller and CardType.CREATURE in t.characteristics.types and t.state.counters.get('+1/+1', 0) > 0
+    def time_filt(e, s, src):
+        if e.type != EventType.ZONE_CHANGE or e.payload.get('to_zone_type') != ZoneType.BATTLEFIELD: return False
+        t = s.objects.get(e.payload.get('object_id'))
+        return t and t.controller == src.controller and CardType.CREATURE in t.characteristics.types and t.state.counters.get('time', 0) > 0
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: plus_filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.COUNTER_ADDED, payload={'object_id': e.payload.get('object_id'), 'counter_type': 'time', 'amount': 1}, source=obj.id)]), duration='while_on_battlefield'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: time_filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.COUNTER_ADDED, payload={'object_id': e.payload.get('object_id'), 'counter_type': '+1/+1', 'amount': 1}, source=obj.id)]), duration='while_on_battlefield')
+    ]
+
+def rift_walker_multicolor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: [])]
+
+def suspended_relic_card_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player_id': obj.controller, 'amount': 2}, source=obj.id), Event(type=EventType.LIFE_GAIN, payload={'player_id': obj.controller, 'amount': 4}, source=obj.id)])]
+
+def clock_of_ages_card_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_upkeep_trigger(obj, lambda e, s: [Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': 'time', 'amount': 1}, source=obj.id)], controller_only=False)]
+
+def anchor_of_time_artifact_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_upkeep_trigger(obj, lambda e, s: [Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': 'time', 'amount': 1}, source=obj.id)], controller_only=True)]
+
+def suspended_island_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def eff(e, s):
+        return [Event(type=EventType.COUNTER_REMOVED, payload={'object_id': obj.id, 'counter_type': 'time', 'amount': 1}, source=obj.id)] if obj.state.counters.get('time', 0) > 0 else []
+    return [make_upkeep_trigger(obj, eff, controller_only=True)]
 
 
 # =============================================================================
@@ -83,7 +1616,8 @@ TEMPORAL_GUARDIAN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
     supertypes={"Legendary"},
-    text="Vigilance. Chronicle — At the beginning of your upkeep, put a time counter on each permanent you control. Permanents you control with time counters on them have hexproof."
+    text="Vigilance. Chronicle — At the beginning of your upkeep, put a time counter on each permanent you control. Permanents you control with time counters on them have hexproof.",
+    setup_interceptors=temporal_guardian_setup
 )
 
 CHRONO_PALADIN = make_creature(
@@ -93,7 +1627,8 @@ CHRONO_PALADIN = make_creature(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Knight", "Cleric"},
-    text="First strike. When Chrono-Paladin enters, return target permanent card with mana value 3 or less from your graveyard to the battlefield."
+    text="First strike. When Chrono-Paladin enters, return target permanent card with mana value 3 or less from your graveyard to the battlefield.",
+    setup_interceptors=chrono_paladin_setup
 )
 
 KEEPER_OF_MOMENTS = make_creature(
@@ -103,7 +1638,8 @@ KEEPER_OF_MOMENTS = make_creature(
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit", "Cleric"},
-    text="Flying. Chronicle — At the beginning of your end step, you may exile target creature you control. Return it to the battlefield at the beginning of the next end step."
+    text="Flying. Chronicle — At the beginning of your end step, you may exile target creature you control. Return it to the battlefield at the beginning of the next end step.",
+    setup_interceptors=keeper_of_moments_setup
 )
 
 TIMELESS_SENTINEL = make_creature(
@@ -113,7 +1649,8 @@ TIMELESS_SENTINEL = make_creature(
     mana_cost="{4}{W}",
     colors={Color.WHITE},
     subtypes={"Construct", "Soldier"},
-    text="Vigilance, lifelink. Timeless Sentinel doesn't untap during your untap step. At the beginning of each upkeep, untap Timeless Sentinel."
+    text="Vigilance, lifelink. Timeless Sentinel doesn't untap during your untap step. At the beginning of each upkeep, untap Timeless Sentinel.",
+    setup_interceptors=timeless_sentinel_setup
 )
 
 FUTURE_SIGHT_ORACLE = make_creature(
@@ -123,7 +1660,8 @@ FUTURE_SIGHT_ORACLE = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard"},
-    text="Prophecy — At the beginning of your upkeep, look at the top card of your library. You may reveal it. If it's a creature card, you gain life equal to its mana value."
+    text="Prophecy — At the beginning of your upkeep, look at the top card of your library. You may reveal it. If it's a creature card, you gain life equal to its mana value.",
+    setup_interceptors=future_sight_oracle_setup
 )
 
 ETERNAL_ADJUDICATOR = make_creature(
@@ -134,7 +1672,8 @@ ETERNAL_ADJUDICATOR = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel"},
     supertypes={"Legendary"},
-    text="Flying, vigilance. Rewind — When Eternal Adjudicator dies, you may exile it with three time counters on it. At the beginning of each upkeep, remove a time counter. When the last is removed, return it to the battlefield."
+    text="Flying, vigilance. Rewind — When Eternal Adjudicator dies, you may exile it with three time counters on it. At the beginning of each upkeep, remove a time counter. When the last is removed, return it to the battlefield.",
+    setup_interceptors=eternal_adjudicator_setup
 )
 
 MOMENT_OF_CLARITY = make_instant(
@@ -172,7 +1711,8 @@ TIMELINE_PROTECTOR = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    text="Flash. When Timeline Protector enters, target creature you control gains hexproof until end of turn."
+    text="Flash. When Timeline Protector enters, target creature you control gains hexproof until end of turn.",
+    setup_interceptors=timeline_protector_setup
 )
 
 DAWN_OF_NEW_ERA = make_sorcery(
@@ -189,7 +1729,8 @@ ETERNITY_WARDEN = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
-    text="Vigilance. Whenever another creature enters under your control, put a +1/+1 counter on Eternity Warden."
+    text="Vigilance. Whenever another creature enters under your control, put a +1/+1 counter on Eternity Warden.",
+    setup_interceptors=eternity_warden_setup
 )
 
 
@@ -205,7 +1746,8 @@ CHRONOMANCER_SUPREME = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="Temporal — Whenever you cast a spell from exile or your graveyard, draw a card. {2}{U}: Exile target instant or sorcery card from your graveyard. You may cast it this turn."
+    text="Temporal — Whenever you cast a spell from exile or your graveyard, draw a card. {2}{U}: Exile target instant or sorcery card from your graveyard. You may cast it this turn.",
+    setup_interceptors=chronomancer_supreme_setup
 )
 
 TIME_WEAVER = make_creature(
@@ -215,7 +1757,8 @@ TIME_WEAVER = make_creature(
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="Temporal — At the beginning of your upkeep, you may exile the top card of your library face down with a time counter on it. You may look at and play that card for as long as it remains exiled."
+    text="Temporal — At the beginning of your upkeep, you may exile the top card of your library face down with a time counter on it. You may look at and play that card for as long as it remains exiled.",
+    setup_interceptors=time_weaver_setup
 )
 
 ECHO_OF_TOMORROW = make_creature(
@@ -225,7 +1768,8 @@ ECHO_OF_TOMORROW = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Spirit"},
-    text="Flying. Echo {2}{U}. When Echo of Tomorrow enters, draw a card."
+    text="Flying. Echo {2}{U}. When Echo of Tomorrow enters, draw a card.",
+    setup_interceptors=echo_of_tomorrow_setup
 )
 
 PARADOX_ENTITY = make_creature(
@@ -235,7 +1779,8 @@ PARADOX_ENTITY = make_creature(
     mana_cost="{4}{U}",
     colors={Color.BLUE},
     subtypes={"Elemental", "Horror"},
-    text="Flash. When Paradox Entity enters, exile target spell. Its controller may cast it for as long as it remains exiled."
+    text="Flash. When Paradox Entity enters, exile target spell. Its controller may cast it for as long as it remains exiled.",
+    setup_interceptors=paradox_entity_setup
 )
 
 SUSPENDED_SCHOLAR = make_creature(
@@ -245,7 +1790,8 @@ SUSPENDED_SCHOLAR = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="Suspend 3 — {U}. When Suspended Scholar enters, draw two cards."
+    text="Suspend 3 — {U}. When Suspended Scholar enters, draw two cards.",
+    setup_interceptors=suspended_scholar_setup
 )
 
 TEMPORAL_LOOP = make_instant(
@@ -290,14 +1836,16 @@ FUTURE_ECHO = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Spirit"},
-    text="Flying. When Future Echo enters, look at the top three cards of your library. Put one back and the rest on the bottom."
+    text="Flying. When Future Echo enters, look at the top three cards of your library. Put one back and the rest on the bottom.",
+    setup_interceptors=future_echo_setup
 )
 
 TEMPORAL_ANCHOR = make_enchantment(
     name="Temporal Anchor",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="At the beginning of your upkeep, if you control no other permanents with a time counter, put a time counter on Temporal Anchor. Otherwise, scry 1."
+    text="At the beginning of your upkeep, if you control no other permanents with a time counter, put a time counter on Temporal Anchor. Otherwise, scry 1.",
+    setup_interceptors=temporal_anchor_enchantment_setup
 )
 
 
@@ -313,7 +1861,8 @@ ENTROPY_WRAITH = make_creature(
     colors={Color.BLACK},
     subtypes={"Spirit", "Horror"},
     supertypes={"Legendary"},
-    text="Flying. Chronicle — At the beginning of each end step, each opponent loses 1 life for each time counter on permanents you control."
+    text="Flying. Chronicle — At the beginning of each end step, each opponent loses 1 life for each time counter on permanents you control.",
+    setup_interceptors=entropy_wraith_setup
 )
 
 CHRONO_REAPER = make_creature(
@@ -323,7 +1872,8 @@ CHRONO_REAPER = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Skeleton", "Knight"},
-    text="Menace. When Chrono-Reaper enters, destroy target creature. If that creature had time counters on it, draw cards equal to the number of time counters it had."
+    text="Menace. When Chrono-Reaper enters, destroy target creature. If that creature had time counters on it, draw cards equal to the number of time counters it had.",
+    setup_interceptors=chrono_reaper_setup
 )
 
 TIMELESS_DECAY = make_sorcery(
@@ -347,7 +1897,8 @@ ECHO_OF_DEATH = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit"},
-    text="Deathtouch. Echo {1}{B}. When Echo of Death enters, target opponent loses 2 life."
+    text="Deathtouch. Echo {1}{B}. When Echo of Death enters, target opponent loses 2 life.",
+    setup_interceptors=echo_of_death_setup
 )
 
 TEMPORAL_VAMPIRE = make_creature(
@@ -357,14 +1908,16 @@ TEMPORAL_VAMPIRE = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Vampire"},
-    text="Flying. Whenever Temporal Vampire deals combat damage to a player, remove a time counter from target permanent that player controls. If you can't, that player discards a card."
+    text="Flying. Whenever Temporal Vampire deals combat damage to a player, remove a time counter from target permanent that player controls. If you can't, that player discards a card.",
+    setup_interceptors=temporal_vampire_setup
 )
 
 DECAY_OF_AGES = make_enchantment(
     name="Decay of Ages",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="At the beginning of each opponent's upkeep, they sacrifice a creature unless they pay 2 life."
+    text="At the beginning of each opponent's upkeep, they sacrifice a creature unless they pay 2 life.",
+    setup_interceptors=decay_of_ages_setup
 )
 
 STOLEN_MOMENT = make_instant(
@@ -388,7 +1941,8 @@ ENTROPY_WALKER = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie"},
-    text="Menace. Whenever another creature dies, put a +1/+1 counter on Entropy Walker."
+    text="Menace. Whenever another creature dies, put a +1/+1 counter on Entropy Walker.",
+    setup_interceptors=entropy_walker_setup
 )
 
 TEMPORAL_TORMENT = make_sorcery(
@@ -405,7 +1959,8 @@ FORGOTTEN_AGES = make_creature(
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
-    text="When Forgotten Ages enters, each player sacrifices a creature. Rewind — When Forgotten Ages dies, exile it with two time counters."
+    text="When Forgotten Ages enters, each player sacrifices a creature. Rewind — When Forgotten Ages dies, exile it with two time counters.",
+    setup_interceptors=forgotten_ages_setup
 )
 
 
@@ -421,7 +1976,8 @@ CHRONO_BERSERKER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
-    text="Haste. Temporal — Whenever you cast a spell from exile, Chrono-Berserker deals 2 damage to any target."
+    text="Haste. Temporal — Whenever you cast a spell from exile, Chrono-Berserker deals 2 damage to any target.",
+    setup_interceptors=chrono_berserker_setup
 )
 
 TIME_RAGER = make_creature(
@@ -431,7 +1987,8 @@ TIME_RAGER = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Elemental"},
-    text="Haste. Echo {1}{R}. When Time Rager enters, it deals 2 damage to any target."
+    text="Haste. Echo {1}{R}. When Time Rager enters, it deals 2 damage to any target.",
+    setup_interceptors=time_rager_setup
 )
 
 ACCELERATED_DRAGON = make_creature(
@@ -441,7 +1998,8 @@ ACCELERATED_DRAGON = make_creature(
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
     subtypes={"Dragon"},
-    text="Flying, haste. Suspend 4 — {R}. When Accelerated Dragon enters, it deals 3 damage to each creature you don't control."
+    text="Flying, haste. Suspend 4 — {R}. When Accelerated Dragon enters, it deals 3 damage to each creature you don't control.",
+    setup_interceptors=accelerated_dragon_setup
 )
 
 TEMPORAL_STORM = make_sorcery(
@@ -458,7 +2016,8 @@ RIFT_ELEMENTAL = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Elemental"},
-    text="Haste. Whenever you remove a time counter from a permanent, Rift Elemental gets +2/+0 until end of turn."
+    text="Haste. Whenever you remove a time counter from a permanent, Rift Elemental gets +2/+0 until end of turn.",
+    setup_interceptors=rift_elemental_setup
 )
 
 SHATTERED_TIMELINE = make_instant(
@@ -490,7 +2049,8 @@ TEMPORAL_PHOENIX = make_creature(
     colors={Color.RED},
     subtypes={"Phoenix"},
     supertypes={"Legendary"},
-    text="Flying, haste. Rewind — When Temporal Phoenix dies, exile it with three time counters. At the beginning of each upkeep, remove a time counter. When the last is removed, return it to the battlefield."
+    text="Flying, haste. Rewind — When Temporal Phoenix dies, exile it with three time counters. At the beginning of each upkeep, remove a time counter. When the last is removed, return it to the battlefield.",
+    setup_interceptors=temporal_phoenix_setup
 )
 
 ECHO_FLAMES = make_instant(
@@ -504,7 +2064,8 @@ CHAOS_RIFT = make_enchantment(
     name="Chaos Rift",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="At the beginning of your upkeep, exile the top card of your library. You may play it this turn."
+    text="At the beginning of your upkeep, exile the top card of your library. You may play it this turn.",
+    setup_interceptors=chaos_rift_setup
 )
 
 ACCELERATE = make_instant(
@@ -527,7 +2088,8 @@ ELDER_CHRONOMANCER = make_creature(
     colors={Color.GREEN},
     subtypes={"Treefolk", "Druid"},
     supertypes={"Legendary"},
-    text="Trample. Chronicle — At the beginning of your upkeep, put a +1/+1 counter on each creature you control with a time counter on it."
+    text="Trample. Chronicle — At the beginning of your upkeep, put a +1/+1 counter on each creature you control with a time counter on it.",
+    setup_interceptors=elder_chronomancer_setup
 )
 
 SEEDLING_OF_AGES = make_creature(
@@ -537,7 +2099,8 @@ SEEDLING_OF_AGES = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Plant"},
-    text="At the beginning of your upkeep, put a growth counter on Seedling of Ages. Seedling of Ages gets +1/+1 for each growth counter on it."
+    text="At the beginning of your upkeep, put a growth counter on Seedling of Ages. Seedling of Ages gets +1/+1 for each growth counter on it.",
+    setup_interceptors=seedling_of_ages_setup
 )
 
 TEMPORAL_GROWTH = make_sorcery(
@@ -551,7 +2114,8 @@ CYCLE_OF_ETERNITY = make_enchantment(
     name="Cycle of Eternity",
     mana_cost="{3}{G}",
     colors={Color.GREEN},
-    text="Whenever a creature you control dies, you may put it on top of your library instead of into your graveyard."
+    text="Whenever a creature you control dies, you may put it on top of your library instead of into your graveyard.",
+    setup_interceptors=cycle_of_eternity_setup
 )
 
 ECHO_OF_THE_WILD = make_creature(
@@ -561,7 +2125,8 @@ ECHO_OF_THE_WILD = make_creature(
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="Trample. Echo {3}{G}. When Echo of the Wild enters, search your library for a basic land card, put it onto the battlefield tapped, then shuffle."
+    text="Trample. Echo {3}{G}. When Echo of the Wild enters, search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=echo_of_the_wild_setup
 )
 
 PRIMORDIAL_TITAN = make_creature(
@@ -571,14 +2136,16 @@ PRIMORDIAL_TITAN = make_creature(
     mana_cost="{5}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Giant"},
-    text="Trample. Suspend 5 — {G}{G}. When Primordial Titan enters, put a +1/+1 counter on each other creature you control."
+    text="Trample. Suspend 5 — {G}{G}. When Primordial Titan enters, put a +1/+1 counter on each other creature you control.",
+    setup_interceptors=primordial_titan_setup
 )
 
 TIMELESS_FOREST = make_enchantment(
     name="Timeless Forest",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Creatures you control with +1/+1 counters on them have trample."
+    text="Creatures you control with +1/+1 counters on them have trample.",
+    setup_interceptors=timeless_forest_enchantment_setup
 )
 
 NATURE_RECLAIMS = make_instant(
@@ -595,7 +2162,8 @@ CHRONICLE_BEAST = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="When Chronicle Beast enters, put a time counter on target permanent you control. As long as that permanent has a time counter on it, it has hexproof."
+    text="When Chronicle Beast enters, put a time counter on target permanent you control. As long as that permanent has a time counter on it, it has hexproof.",
+    setup_interceptors=chronicle_beast_setup
 )
 
 TEMPORAL_BLOOM = make_sorcery(
@@ -612,7 +2180,8 @@ AGELESS_OAK = make_creature(
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk"},
-    text="Reach. Ageless Oak enters with three time counters on it. As long as it has a time counter on it, it has indestructible."
+    text="Reach. Ageless Oak enters with three time counters on it. As long as it has a time counter on it, it has indestructible.",
+    setup_interceptors=ageless_oak_setup
 )
 
 GROWTH_THROUGH_TIME = make_instant(
@@ -635,7 +2204,8 @@ KAEL_TIMEKEEPER = make_creature(
     colors={Color.WHITE, Color.BLUE, Color.BLACK, Color.RED, Color.GREEN},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="Flying, vigilance. Chronicle — At the beginning of your upkeep, choose one: Put a time counter on target permanent; remove a time counter from target permanent; or draw a card for each permanent with a time counter on it."
+    text="Flying, vigilance. Chronicle — At the beginning of your upkeep, choose one: Put a time counter on target permanent; remove a time counter from target permanent; or draw a card for each permanent with a time counter on it.",
+    setup_interceptors=kael_timekeeper_setup
 )
 
 TEMPORAL_TWINS = make_creature(
@@ -646,7 +2216,8 @@ TEMPORAL_TWINS = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="When Temporal Twins enters, create a token that's a copy of it except it's not legendary. At the beginning of your end step, sacrifice one of them."
+    text="When Temporal Twins enters, create a token that's a copy of it except it's not legendary. At the beginning of your end step, sacrifice one of them.",
+    setup_interceptors=temporal_twins_setup
 )
 
 ENTROPY_AND_ORDER = make_creature(
@@ -657,7 +2228,8 @@ ENTROPY_AND_ORDER = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Spirit"},
     supertypes={"Legendary"},
-    text="Flying. When Entropy and Order enters, choose one — Return target creature card from your graveyard to the battlefield; or destroy target creature."
+    text="Flying. When Entropy and Order enters, choose one — Return target creature card from your graveyard to the battlefield; or destroy target creature.",
+    setup_interceptors=entropy_and_order_setup
 )
 
 CHRONO_DRAGON = make_creature(
@@ -668,7 +2240,8 @@ CHRONO_DRAGON = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Dragon"},
     supertypes={"Legendary"},
-    text="Flying, haste. Temporal — At the beginning of your upkeep, exile the top card of your library with a time counter on it. You may play cards exiled by Chrono-Dragon."
+    text="Flying, haste. Temporal — At the beginning of your upkeep, exile the top card of your library with a time counter on it. You may play cards exiled by Chrono-Dragon.",
+    setup_interceptors=chrono_dragon_multicolor_setup
 )
 
 DECAY_BLOOM = make_creature(
@@ -679,7 +2252,8 @@ DECAY_BLOOM = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Plant", "Zombie"},
     supertypes={"Legendary"},
-    text="Deathtouch. When Decay Bloom enters, return target creature card from your graveyard to your hand. Whenever a creature dies, put a +1/+1 counter on Decay Bloom."
+    text="Deathtouch. When Decay Bloom enters, return target creature card from your graveyard to your hand. Whenever a creature dies, put a +1/+1 counter on Decay Bloom.",
+    setup_interceptors=decay_bloom_multicolor_setup
 )
 
 TEMPORAL_PARADOX = make_creature(
@@ -690,7 +2264,8 @@ TEMPORAL_PARADOX = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Horror"},
     supertypes={"Legendary"},
-    text="Flying. When Temporal Paradox enters, each player exiles the top five cards of their library. You may cast nonland cards exiled this way, and mana of any type can be spent to cast them."
+    text="Flying. When Temporal Paradox enters, each player exiles the top five cards of their library. You may cast nonland cards exiled this way, and mana of any type can be spent to cast them.",
+    setup_interceptors=temporal_paradox_setup
 )
 
 CHRONO_WARLORD = make_creature(
@@ -701,7 +2276,8 @@ CHRONO_WARLORD = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
-    text="First strike, vigilance. Temporal — Whenever Chrono-Warlord attacks, creatures you control get +1/+1 and gain haste until end of turn."
+    text="First strike, vigilance. Temporal — Whenever Chrono-Warlord attacks, creatures you control get +1/+1 and gain haste until end of turn.",
+    setup_interceptors=chrono_warlord_setup
 )
 
 NATURE_MAGE_ETERNAL = make_creature(
@@ -712,14 +2288,16 @@ NATURE_MAGE_ETERNAL = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Elf", "Druid"},
     supertypes={"Legendary"},
-    text="Chronicle — At the beginning of your upkeep, you may put a time counter on target land you control. Lands you control with time counters tap for one additional mana of any type they could produce."
+    text="Chronicle — At the beginning of your upkeep, you may put a time counter on target land you control. Lands you control with time counters tap for one additional mana of any type they could produce.",
+    setup_interceptors=nature_mage_eternal_setup
 )
 
 SYMBIOTIC_TIMELINE = make_enchantment(
     name="Symbiotic Timeline",
     mana_cost="{G}{W}",
     colors={Color.GREEN, Color.WHITE},
-    text="Whenever a creature with a +1/+1 counter enters under your control, put a time counter on it. Whenever a creature with a time counter enters under your control, put a +1/+1 counter on it."
+    text="Whenever a creature with a +1/+1 counter enters under your control, put a time counter on it. Whenever a creature with a time counter enters under your control, put a +1/+1 counter on it.",
+    setup_interceptors=symbiotic_timeline_setup
 )
 
 RIFT_WALKER = make_creature(
@@ -729,7 +2307,8 @@ RIFT_WALKER = make_creature(
     mana_cost="{1}{U}{R}",
     colors={Color.BLUE, Color.RED},
     subtypes={"Elemental"},
-    text="Haste. When Rift Walker enters, exile the top card of your library. You may play it this turn. If you don't, put it into your hand at the beginning of the next end step."
+    text="Haste. When Rift Walker enters, exile the top card of your library. You may play it this turn. If you don't, put it into your hand at the beginning of the next end step.",
+    setup_interceptors=rift_walker_multicolor_setup
 )
 
 
@@ -766,14 +2345,16 @@ TIME_CAPSULE = make_artifact(
 SUSPENDED_RELIC = make_artifact(
     name="Suspended Relic",
     mana_cost="{4}",
-    text="Suspend 3 — {1}. When Suspended Relic enters, draw two cards and gain 4 life."
+    text="Suspend 3 — {1}. When Suspended Relic enters, draw two cards and gain 4 life.",
+    setup_interceptors=suspended_relic_card_setup
 )
 
 CLOCK_OF_AGES = make_artifact(
     name="Clock of Ages",
     mana_cost="{5}",
     supertypes={"Legendary"},
-    text="At the beginning of each upkeep, put a time counter on Clock of Ages. {T}: Each player draws a card for each three time counters on Clock of Ages."
+    text="At the beginning of each upkeep, put a time counter on Clock of Ages. {T}: Each player draws a card for each three time counters on Clock of Ages.",
+    setup_interceptors=clock_of_ages_card_setup
 )
 
 RIFT_GENERATOR = make_artifact(
@@ -798,7 +2379,8 @@ CHRONOLITH = make_artifact(
 TEMPORAL_ANCHOR_ARTIFACT = make_artifact(
     name="Anchor of Time",
     mana_cost="{3}",
-    text="At the beginning of your upkeep, put a time counter on Anchor of Time. Creatures you control get +0/+1 for each time counter on Anchor of Time."
+    text="At the beginning of your upkeep, put a time counter on Anchor of Time. Creatures you control get +0/+1 for each time counter on Anchor of Time.",
+    setup_interceptors=anchor_of_time_artifact_setup
 )
 
 
@@ -834,7 +2416,8 @@ RIFT_CHASM = make_land(
 
 SUSPENDED_ISLAND = make_land(
     name="Suspended Island",
-    text="Suspended Island enters with a time counter on it. As long as it has a time counter, it has '{T}: Add {U}{U}.' At the beginning of your upkeep, remove a time counter."
+    text="Suspended Island enters with a time counter on it. As long as it has a time counter, it has '{T}: Add {U}{U}.' At the beginning of your upkeep, remove a time counter.",
+    setup_interceptors=suspended_island_land_setup
 )
 
 CHRONO_SPIRE = make_land(
@@ -1333,7 +2916,8 @@ MONASTERY_ELDER = make_creature(
 SANDS_OF_TIME = make_artifact(
     name="Sands of Time",
     mana_cost="{2}",
-    text="Sands of Time enters with three charge counters on it. At the beginning of each upkeep, remove a charge counter. When the last counter is removed, each player returns a creature card from their graveyard to the battlefield."
+    text="Sands of Time enters with three charge counters on it. At the beginning of each upkeep, remove a charge counter. When the last counter is removed, each player returns a creature card from their graveyard to the battlefield.",
+    setup_interceptors=sands_of_time_setup
 )
 
 TEMPORAL_DISRUPTION = make_instant(
@@ -1381,7 +2965,8 @@ SUSPENDED_HORROR = make_creature(
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
-    text="Flying, menace. Suspend 4 — {B}{B}. When Suspended Horror enters, each opponent sacrifices a creature."
+    text="Flying, menace. Suspend 4 — {B}{B}. When Suspended Horror enters, each opponent sacrifices a creature.",
+    setup_interceptors=suspended_horror_setup
 )
 
 CHRONO_ELEMENTAL = make_creature(
@@ -1391,7 +2976,8 @@ CHRONO_ELEMENTAL = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Elemental"},
-    text="Flying. When Chrono-Elemental enters, put a time counter on each creature you control."
+    text="Flying. When Chrono-Elemental enters, put a time counter on each creature you control.",
+    setup_interceptors=chrono_elemental_setup
 )
 
 TEMPORAL_HARVEST = make_sorcery(
@@ -1434,7 +3020,8 @@ HERALD_OF_DAWN = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Cleric"},
-    text="Lifelink. When Herald of Dawn enters, put a time counter on target creature you control."
+    text="Lifelink. When Herald of Dawn enters, put a time counter on target creature you control.",
+    setup_interceptors=herald_of_dawn_setup
 )
 
 SENTINEL_OF_AGES = make_creature(
@@ -1444,7 +3031,8 @@ SENTINEL_OF_AGES = make_creature(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit", "Soldier"},
-    text="Vigilance. Creatures you control with time counters have vigilance."
+    text="Vigilance. Creatures you control with time counters have vigilance.",
+    setup_interceptors=sentinel_of_ages_setup
 )
 
 TEMPORAL_BLESSING = make_instant(
@@ -1461,14 +3049,16 @@ CHRONICLE_KEEPER = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Monk"},
-    text="At the beginning of your upkeep, scry 1."
+    text="At the beginning of your upkeep, scry 1.",
+    setup_interceptors=chronicle_keeper_setup
 )
 
 ETERNAL_LIGHT = make_enchantment(
     name="Eternal Light",
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
-    text="Creatures you control get +1/+1. Whenever a creature with a time counter enters under your control, you gain 1 life."
+    text="Creatures you control get +1/+1. Whenever a creature with a time counter enters under your control, you gain 1 life.",
+    setup_interceptors=eternal_light_setup
 )
 
 TIMELESS_PRAYER = make_instant(
@@ -1485,7 +3075,8 @@ DAWN_WATCHER = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Scout"},
-    text="Flash. Whenever Dawn Watcher enters, you may tap target creature."
+    text="Flash. Whenever Dawn Watcher enters, you may tap target creature.",
+    setup_interceptors=dawn_watcher_setup
 )
 
 PRESERVED_KNIGHT = make_creature(
@@ -1495,7 +3086,8 @@ PRESERVED_KNIGHT = make_creature(
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit", "Knight"},
-    text="First strike. When Preserved Knight dies, return it to the battlefield at the beginning of the next end step."
+    text="First strike. When Preserved Knight dies, return it to the battlefield at the beginning of the next end step.",
+    setup_interceptors=preserved_knight_setup
 )
 
 
@@ -1510,7 +3102,8 @@ RIFT_SCHOLAR = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="When Rift Scholar enters, draw a card, then discard a card."
+    text="When Rift Scholar enters, draw a card, then discard a card.",
+    setup_interceptors=rift_scholar_setup
 )
 
 SUSPENDED_WISDOM = make_sorcery(
@@ -1534,7 +3127,8 @@ ECHO_SAVANT = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="Echo {1}{U}. When Echo Savant enters, scry 2."
+    text="Echo {1}{U}. When Echo Savant enters, scry 2.",
+    setup_interceptors=echo_savant_setup
 )
 
 PHASE_WALKER = make_creature(
@@ -1544,7 +3138,8 @@ PHASE_WALKER = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Spirit"},
-    text="Phase Walker can't be blocked. When Phase Walker deals combat damage to a player, draw a card."
+    text="Phase Walker can't be blocked. When Phase Walker deals combat damage to a player, draw a card.",
+    setup_interceptors=phase_walker_setup
 )
 
 TIMELINE_MANIPULATION = make_sorcery(
@@ -1568,7 +3163,8 @@ CHRONO_DRAKE = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Drake"},
-    text="Flying. When Chrono Drake enters, put a time counter on target permanent."
+    text="Flying. When Chrono Drake enters, put a time counter on target permanent.",
+    setup_interceptors=chrono_drake_setup
 )
 
 
@@ -1583,7 +3179,8 @@ SHADOW_OF_ENTROPY = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Shade"},
-    text="Whenever another creature dies, Shadow of Entropy gets +1/+1 until end of turn."
+    text="Whenever another creature dies, Shadow of Entropy gets +1/+1 until end of turn.",
+    setup_interceptors=shadow_of_entropy_setup
 )
 
 TEMPORAL_DRAIN = make_instant(
@@ -1600,7 +3197,8 @@ ECHO_OF_DESPAIR = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit"},
-    text="Echo {1}{B}. When Echo of Despair enters, target opponent discards a card."
+    text="Echo {1}{B}. When Echo of Despair enters, target opponent discards a card.",
+    setup_interceptors=echo_of_despair_setup
 )
 
 GRAVE_TENDER = make_creature(
@@ -1610,7 +3208,8 @@ GRAVE_TENDER = make_creature(
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Zombie"},
-    text="When Grave Tender dies, return target creature card with mana value 2 or less from your graveyard to your hand."
+    text="When Grave Tender dies, return target creature card with mana value 2 or less from your graveyard to your hand.",
+    setup_interceptors=grave_tender_setup
 )
 
 DECAY_KNIGHT = make_creature(
@@ -1620,7 +3219,8 @@ DECAY_KNIGHT = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Skeleton", "Knight"},
-    text="Menace. Rewind — When Decay Knight dies, exile it with two time counters."
+    text="Menace. Rewind — When Decay Knight dies, exile it with two time counters.",
+    setup_interceptors=decay_knight_setup
 )
 
 ENTROPY_PLAGUE = make_sorcery(
@@ -1644,7 +3244,8 @@ TEMPORAL_HORROR = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
-    text="Menace. When Temporal Horror enters, each opponent loses 2 life."
+    text="Menace. When Temporal Horror enters, each opponent loses 2 life.",
+    setup_interceptors=temporal_horror_setup
 )
 
 
@@ -1676,7 +3277,8 @@ ECHO_OF_RAGE = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Elemental"},
-    text="Haste. Echo {2}{R}. When Echo of Rage enters, it deals 2 damage to any target."
+    text="Haste. Echo {2}{R}. When Echo of Rage enters, it deals 2 damage to any target.",
+    setup_interceptors=echo_of_rage_setup
 )
 
 SUSPENDED_LIGHTNING = make_instant(
@@ -1717,7 +3319,8 @@ ECHO_DRAGON = make_creature(
     mana_cost="{4}{R}",
     colors={Color.RED},
     subtypes={"Dragon"},
-    text="Flying. Echo {3}{R}. When Echo Dragon enters, it deals 3 damage to any target."
+    text="Flying. Echo {3}{R}. When Echo Dragon enters, it deals 3 damage to any target.",
+    setup_interceptors=echo_dragon_setup
 )
 
 
@@ -1732,7 +3335,8 @@ SPROUT_OF_ETERNITY = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Plant"},
-    text="At the beginning of your upkeep, put a +1/+1 counter on Sprout of Eternity."
+    text="At the beginning of your upkeep, put a +1/+1 counter on Sprout of Eternity.",
+    setup_interceptors=sprout_of_eternity_setup
 )
 
 TEMPORAL_ROOTS = make_enchantment(
@@ -1749,7 +3353,8 @@ ECHO_OF_NATURE = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Elemental"},
-    text="Echo {2}{G}. When Echo of Nature enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle."
+    text="Echo {2}{G}. When Echo of Nature enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=echo_of_nature_setup
 )
 
 TIMELESS_ELK = make_creature(
@@ -1759,7 +3364,8 @@ TIMELESS_ELK = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Elk"},
-    text="Vigilance. When Timeless Elk enters, you gain 3 life."
+    text="Vigilance. When Timeless Elk enters, you gain 3 life.",
+    setup_interceptors=timeless_elk_setup
 )
 
 CHRONICLE_WOLF = make_creature(
@@ -1769,7 +3375,8 @@ CHRONICLE_WOLF = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Wolf"},
-    text="When Chronicle Wolf enters, put a time counter on target creature you control."
+    text="When Chronicle Wolf enters, put a time counter on target creature you control.",
+    setup_interceptors=chronicle_wolf_setup
 )
 
 PRIMAL_ECHO = make_sorcery(
@@ -1793,7 +3400,8 @@ AGELESS_BEHEMOTH = make_creature(
     mana_cost="{6}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="Trample. When Ageless Behemoth enters, put a +1/+1 counter on each other creature you control."
+    text="Trample. When Ageless Behemoth enters, put a +1/+1 counter on each other creature you control.",
+    setup_interceptors=ageless_behemoth_setup
 )
 
 
@@ -1808,7 +3416,8 @@ TEMPORAL_CHAMPION = make_creature(
     mana_cost="{2}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Knight"},
-    text="Vigilance, flying. Whenever Temporal Champion deals combat damage to a player, put a time counter on target permanent."
+    text="Vigilance, flying. Whenever Temporal Champion deals combat damage to a player, put a time counter on target permanent.",
+    setup_interceptors=temporal_champion_setup
 )
 
 ENTROPY_BLOOM_CREATURE = make_creature(
@@ -1818,7 +3427,8 @@ ENTROPY_BLOOM_CREATURE = make_creature(
     mana_cost="{1}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Plant", "Horror"},
-    text="Deathtouch. When Entropy Blossom enters, return target creature card from your graveyard to your hand."
+    text="Deathtouch. When Entropy Blossom enters, return target creature card from your graveyard to your hand.",
+    setup_interceptors=entropy_blossom_setup
 )
 
 CHRONO_STRIKER = make_creature(
@@ -1828,7 +3438,8 @@ CHRONO_STRIKER = make_creature(
     mana_cost="{1}{R}{W}",
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Warrior"},
-    text="First strike, haste. When Chrono-Striker deals combat damage to a player, you gain 2 life."
+    text="First strike, haste. When Chrono-Striker deals combat damage to a player, you gain 2 life.",
+    setup_interceptors=chrono_striker_setup
 )
 
 RIFT_PROPHET = make_creature(
@@ -1838,7 +3449,8 @@ RIFT_PROPHET = make_creature(
     mana_cost="{1}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Wizard"},
-    text="When Rift Prophet enters, look at the top three cards of your library. Put one into your hand and the rest into your graveyard."
+    text="When Rift Prophet enters, look at the top three cards of your library. Put one into your hand and the rest into your graveyard.",
+    setup_interceptors=rift_prophet_setup
 )
 
 TEMPORAL_BEAST = make_creature(
@@ -1848,7 +3460,8 @@ TEMPORAL_BEAST = make_creature(
     mana_cost="{2}{G}{U}",
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Beast"},
-    text="Trample. When Temporal Beast enters, draw a card and put a time counter on target permanent you control."
+    text="Trample. When Temporal Beast enters, draw a card and put a time counter on target permanent you control.",
+    setup_interceptors=temporal_beast_setup
 )
 
 ACCELERATED_ASSAULT_CREATURE = make_creature(
@@ -1868,7 +3481,8 @@ DECAY_HERALD = make_creature(
     mana_cost="{2}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Demon"},
-    text="Flying. When Decay Herald enters, each opponent discards a card."
+    text="Flying. When Decay Herald enters, each opponent discards a card.",
+    setup_interceptors=decay_herald_setup
 )
 
 ETERNAL_PROTECTOR = make_creature(
@@ -1878,7 +3492,8 @@ ETERNAL_PROTECTOR = make_creature(
     mana_cost="{2}{G}{W}",
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Angel"},
-    text="Flying, vigilance. Other creatures you control get +0/+1."
+    text="Flying, vigilance. Other creatures you control get +0/+1.",
+    setup_interceptors=eternal_protector_setup
 )
 
 
@@ -1905,7 +3520,8 @@ SUSPENDED_GOLEM = make_creature(
     mana_cost="{5}",
     colors=set(),
     subtypes={"Golem"},
-    text="Suspend 3 — {2}. When Suspended Golem enters, put a +1/+1 counter on each creature you control."
+    text="Suspend 3 — {2}. When Suspended Golem enters, put a +1/+1 counter on each creature you control.",
+    setup_interceptors=suspended_golem_setup
 )
 
 TEMPORAL_PRISM = make_artifact(
@@ -1918,7 +3534,8 @@ ECHO_ARMOR = make_artifact(
     name="Echo Armor",
     mana_cost="{2}",
     subtypes={"Equipment"},
-    text="Equipped creature gets +1/+1. Echo {2}. When Echo Armor enters, equip it to target creature you control. Equip {1}"
+    text="Equipped creature gets +1/+1. Echo {2}. When Echo Armor enters, equip it to target creature you control. Equip {1}",
+    setup_interceptors=echo_armor_setup
 )
 
 RIFT_KEY = make_artifact(
@@ -1938,7 +3555,8 @@ TIMELESS_CROWN = make_artifact(
 ENTROPY_ORB = make_artifact(
     name="Entropy Orb",
     mana_cost="{4}",
-    text="At the beginning of your upkeep, each opponent loses 1 life and you gain 1 life."
+    text="At the beginning of your upkeep, each opponent loses 1 life and you gain 1 life.",
+    setup_interceptors=entropy_orb_setup
 )
 
 
@@ -2000,7 +3618,8 @@ RIFT_STRIDER = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Rogue"},
-    text="When Rift Strider enters, target creature can't be blocked this turn."
+    text="When Rift Strider enters, target creature can't be blocked this turn.",
+    setup_interceptors=rift_strider_setup
 )
 
 TEMPORAL_KNIGHT = make_creature(
@@ -2010,7 +3629,8 @@ TEMPORAL_KNIGHT = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
-    text="First strike. When Temporal Knight enters, you gain 2 life."
+    text="First strike. When Temporal Knight enters, you gain 2 life.",
+    setup_interceptors=temporal_knight_setup
 )
 
 DECAY_HOUND = make_creature(
@@ -2020,7 +3640,8 @@ DECAY_HOUND = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Dog", "Zombie"},
-    text="Menace. When Decay Hound dies, target opponent loses 2 life."
+    text="Menace. When Decay Hound dies, target opponent loses 2 life.",
+    setup_interceptors=decay_hound_setup
 )
 
 CHRONO_CHARGER = make_creature(
@@ -2030,7 +3651,8 @@ CHRONO_CHARGER = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Horse"},
-    text="Haste. When Chrono-Charger attacks, it gets +1/+0 until end of turn."
+    text="Haste. When Chrono-Charger attacks, it gets +1/+0 until end of turn.",
+    setup_interceptors=chrono_charger_setup
 )
 
 TIMELESS_STAG = make_creature(
@@ -2040,7 +3662,8 @@ TIMELESS_STAG = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Elk"},
-    text="Trample. When Timeless Stag enters, you may search your library for a basic land card, reveal it, put it into your hand, then shuffle."
+    text="Trample. When Timeless Stag enters, you may search your library for a basic land card, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=timeless_stag_setup
 )
 
 TEMPORAL_STRIKE = make_instant(
@@ -2095,7 +3718,8 @@ TEMPORAL_FAMILIAR = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Bird"},
-    text="Flying. When Temporal Familiar enters, scry 1."
+    text="Flying. When Temporal Familiar enters, scry 1.",
+    setup_interceptors=temporal_familiar_setup
 )
 
 ENTROPY_RAT = make_creature(
@@ -2105,7 +3729,8 @@ ENTROPY_RAT = make_creature(
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Rat"},
-    text="Whenever Entropy Rat deals combat damage to a player, that player discards a card."
+    text="Whenever Entropy Rat deals combat damage to a player, that player discards a card.",
+    setup_interceptors=entropy_rat_setup
 )
 
 RIFT_SPARK = make_creature(
@@ -2115,7 +3740,8 @@ RIFT_SPARK = make_creature(
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Elemental"},
-    text="Haste. When Rift Spark dies, it deals 1 damage to any target."
+    text="Haste. When Rift Spark dies, it deals 1 damage to any target.",
+    setup_interceptors=rift_spark_setup
 )
 
 TIMELESS_SEEDLING = make_creature(
@@ -2140,7 +3766,8 @@ TEMPORAL_ARCHON = make_creature(
     mana_cost="{4}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Angel"},
-    text="Flying, vigilance. When Temporal Archon enters, exile all other creatures. Return them at the beginning of the next end step."
+    text="Flying, vigilance. When Temporal Archon enters, exile all other creatures. Return them at the beginning of the next end step.",
+    setup_interceptors=temporal_archon_setup
 )
 
 ECHO_MAGE = make_creature(
@@ -2150,7 +3777,8 @@ ECHO_MAGE = make_creature(
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="Echo {1}{U}{U}. When Echo Mage enters, draw two cards."
+    text="Echo {1}{U}{U}. When Echo Mage enters, draw two cards.",
+    setup_interceptors=echo_mage_setup
 )
 
 ENTROPY_LORD = make_creature(
@@ -2161,7 +3789,8 @@ ENTROPY_LORD = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon"},
     supertypes={"Legendary"},
-    text="Flying. At the beginning of your upkeep, each opponent sacrifices a creature."
+    text="Flying. At the beginning of your upkeep, each opponent sacrifices a creature.",
+    setup_interceptors=entropy_lord_setup
 )
 
 SUSPENDED_DRAGON = make_creature(
@@ -2171,7 +3800,8 @@ SUSPENDED_DRAGON = make_creature(
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
     subtypes={"Dragon"},
-    text="Flying, haste. Suspend 3 — {R}{R}. When Suspended Dragon enters, it deals 3 damage to each opponent."
+    text="Flying, haste. Suspend 3 — {R}{R}. When Suspended Dragon enters, it deals 3 damage to each opponent.",
+    setup_interceptors=suspended_dragon_setup
 )
 
 ANCIENT_TREANT = make_creature(
@@ -2181,7 +3811,8 @@ ANCIENT_TREANT = make_creature(
     mana_cost="{5}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk"},
-    text="Reach, trample. At the beginning of your upkeep, put a +1/+1 counter on Ancient Treant."
+    text="Reach, trample. At the beginning of your upkeep, put a +1/+1 counter on Ancient Treant.",
+    setup_interceptors=ancient_treant_setup
 )
 
 CHRONO_SPHINX = make_creature(
@@ -2192,7 +3823,8 @@ CHRONO_SPHINX = make_creature(
     colors={Color.BLUE},
     subtypes={"Sphinx"},
     supertypes={"Legendary"},
-    text="Flying. Whenever Chrono-Sphinx deals combat damage to a player, take an extra turn after this one. Sacrifice Chrono-Sphinx at the beginning of that turn."
+    text="Flying. Whenever Chrono-Sphinx deals combat damage to a player, take an extra turn after this one. Sacrifice Chrono-Sphinx at the beginning of that turn.",
+    setup_interceptors=chrono_sphinx_setup
 )
 
 TEMPORAL_WARDEN = make_creature(
@@ -2202,7 +3834,8 @@ TEMPORAL_WARDEN = make_creature(
     mana_cost="{2}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="Flying. Chronicle — At the beginning of your upkeep, you may put a time counter on target creature. Creatures with time counters can't attack you."
+    text="Flying. Chronicle — At the beginning of your upkeep, you may put a time counter on target creature. Creatures with time counters can't attack you.",
+    setup_interceptors=temporal_warden_setup
 )
 
 ENTROPY_CRAWLER = make_creature(
@@ -2222,7 +3855,8 @@ RIFT_HUNTER = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    text="Haste. Whenever Rift Hunter attacks, it gets +1/+0 until end of turn."
+    text="Haste. Whenever Rift Hunter attacks, it gets +1/+0 until end of turn.",
+    setup_interceptors=rift_hunter_setup
 )
 
 GROVE_SPIRIT = make_creature(
@@ -2232,7 +3866,8 @@ GROVE_SPIRIT = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit"},
-    text="When Grove Spirit enters, you gain 2 life."
+    text="When Grove Spirit enters, you gain 2 life.",
+    setup_interceptors=grove_spirit_setup
 )
 
 TEMPORAL_WARD = make_instant(
@@ -2309,28 +3944,32 @@ TEMPORAL_BRIDGE = make_enchantment(
     name="Temporal Bridge",
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    text="At the beginning of your upkeep, exile the top card of your library. You may play it this turn."
+    text="At the beginning of your upkeep, exile the top card of your library. You may play it this turn.",
+    setup_interceptors=temporal_bridge_setup
 )
 
 ENTROPY_FIELD = make_enchantment(
     name="Entropy Field",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Creatures your opponents control get -1/-0."
+    text="Creatures your opponents control get -1/-0.",
+    setup_interceptors=entropy_field_setup
 )
 
 ACCELERATED_FLAMES = make_enchantment(
     name="Accelerated Flames",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="At the beginning of your upkeep, Accelerated Flames deals 1 damage to each opponent."
+    text="At the beginning of your upkeep, Accelerated Flames deals 1 damage to each opponent.",
+    setup_interceptors=accelerated_flames_setup
 )
 
 TIMELESS_HARMONY = make_enchantment(
     name="Timeless Harmony",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Creatures you control have +0/+1."
+    text="Creatures you control have +0/+1.",
+    setup_interceptors=timeless_harmony_setup
 )
 
 TEMPORAL_MONUMENT = make_artifact(
@@ -2342,13 +3981,15 @@ TEMPORAL_MONUMENT = make_artifact(
 CHRONO_AMULET = make_artifact(
     name="Chrono Amulet",
     mana_cost="{2}",
-    text="Whenever you put a time counter on a permanent, you gain 1 life."
+    text="Whenever you put a time counter on a permanent, you gain 1 life.",
+    setup_interceptors=chrono_amulet_setup
 )
 
 ENTROPY_SHARD = make_artifact(
     name="Entropy Shard",
     mana_cost="{1}",
-    text="Whenever a creature dies, you may pay {1}. If you do, draw a card."
+    text="Whenever a creature dies, you may pay {1}. If you do, draw a card.",
+    setup_interceptors=entropy_shard_setup
 )
 
 ACCELERATED_BOOTS = make_artifact(
@@ -2391,7 +4032,8 @@ TEMPORAL_LANDS = make_land(
 SUSPENDED_CITADEL = make_land(
     name="Suspended Citadel",
     supertypes={"Legendary"},
-    text="{T}: Add {C}. Suspend 3 — {0}. When Suspended Citadel enters, each player gains 5 life."
+    text="{T}: Add {C}. Suspend 3 — {0}. When Suspended Citadel enters, each player gains 5 life.",
+    # Note: Lands don't have setup_interceptors in make_land, would need etb trigger added differently
 )
 
 ETERNAL_NEXUS = make_land(
@@ -2412,7 +4054,8 @@ TEMPORAL_CHAMPION_SMALL = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    text="When Temporal Squire enters, scry 1."
+    text="When Temporal Squire enters, scry 1.",
+    setup_interceptors=temporal_squire_setup
 )
 
 ENTROPY_SHADE = make_creature(
