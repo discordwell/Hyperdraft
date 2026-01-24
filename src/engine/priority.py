@@ -20,6 +20,7 @@ import asyncio
 from .types import GameState, Event, EventType, CardType
 from .stack import StackManager, StackItem, StackItemType
 from .mana import ManaSystem, ManaCost
+from .pipeline import EventPipeline
 
 if TYPE_CHECKING:
     from .turn import TurnManager
@@ -79,6 +80,7 @@ class PrioritySystem:
         self.stack: Optional[StackManager] = None
         self.turn_manager: Optional['TurnManager'] = None
         self.mana_system: Optional[ManaSystem] = None
+        self.pipeline: Optional[EventPipeline] = None
 
         # Priority state
         self.priority_player: Optional[str] = None
@@ -297,7 +299,12 @@ class PrioritySystem:
         """Execute a player action."""
         handler = self._action_handlers.get(action.type)
         if handler:
-            return await handler(action)
+            events = await handler(action)
+            # Emit each event through the pipeline to actually apply changes
+            if self.pipeline:
+                for event in events:
+                    self.pipeline.emit(event)
+            return events
         return []
 
     async def _handle_pass(self, action: PlayerAction) -> list[Event]:

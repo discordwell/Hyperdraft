@@ -433,10 +433,39 @@ class ManaPool:
         return f"ManaPool({counts})"
 
 
+@dataclass
+class LandManaSource:
+    """Represents an untapped land that can produce mana."""
+    land_id: str
+    land_name: str
+    produces: list[ManaType]  # What colors this land can produce
+    is_snow: bool = False
+
+
+@dataclass
+class TapSolution:
+    """A solution for how to tap lands to pay a cost."""
+    lands_to_tap: list[str]  # Land IDs to tap
+    mana_produced: dict[ManaType, int]  # What mana is produced
+    is_unique: bool = True  # Whether this is the only valid solution
+
+
 class ManaSystem:
     """
     High-level mana system that integrates with the game.
+
+    Supports auto-tapping lands when there's no ambiguity,
+    or prompting for land selection when multiple options exist.
     """
+
+    # Basic land type to mana color mapping
+    BASIC_LAND_MANA: dict[str, ManaType] = {
+        'Plains': ManaType.WHITE,
+        'Island': ManaType.BLUE,
+        'Swamp': ManaType.BLACK,
+        'Mountain': ManaType.RED,
+        'Forest': ManaType.GREEN,
+    }
 
     def __init__(self, game_state: GameState):
         self.state = game_state
@@ -448,15 +477,319 @@ class ManaSystem:
             self.pools[player_id] = ManaPool()
         return self.pools[player_id]
 
-    def can_cast(self, player_id: str, cost: ManaCost, x_value: int = 0) -> bool:
-        """Check if a player can pay a mana cost."""
-        pool = self.get_pool(player_id)
-        return pool.can_pay(cost, x_value)
+    def get_untapped_lands(self, player_id: str) -> list[LandManaSource]:
+        """Get all untapped lands a player controls that can produce mana."""
+        sources = []
+        battlefield = self.state.zones.get('battlefield')
+        if not battlefield:
+            return sources
 
-    def pay_cost(self, player_id: str, cost: ManaCost, x_value: int = 0) -> bool:
-        """Pay a mana cost from a player's pool."""
+        for obj_id in battlefield.objects:
+            obj = self.state.objects.get(obj_id)
+            if not obj:
+                continue
+
+            # Check if it's a land controlled by this player
+            from .types import CardType
+            if CardType.LAND not in obj.characteristics.types:
+                continue
+            if obj.controller != player_id:
+                continue
+
+            # Check if untapped
+            if obj.state.tapped:
+                continue
+
+            # Determine what mana it produces
+            produces = self._get_land_mana_production(obj)
+            if produces:
+                sources.append(LandManaSource(
+                    land_id=obj.id,
+                    land_name=obj.name,
+                    produces=produces,
+                    is_snow='Snow' in obj.characteristics.supertypes
+                ))
+
+        return sources
+
+    def _get_land_mana_production(self, land_obj) -> list[ManaType]:
+        """Determine what mana a land can produce."""
+        produces = []
+
+        # Check for basic land types in subtypes
+        for subtype in land_obj.characteristics.subtypes:
+            if subtype in self.BASIC_LAND_MANA:
+                produces.append(self.BASIC_LAND_MANA[subtype])
+
+        # If no subtypes found, check the name for basic lands
+        if not produces:
+            if land_obj.name in self.BASIC_LAND_MANA:
+                produces.append(self.BASIC_LAND_MANA[land_obj.name])
+
+        # TODO: Handle non-basic lands with mana abilities
+        # This would require parsing the land's abilities
+
+        return produces
+
+    def get_available_mana(self, player_id: str) -> dict[ManaType, int]:
+        """Get total available mana from untapped lands (potential, not in pool)."""
+        sources = self.get_untapped_lands(player_id)
+        available = {mt: 0 for mt in ManaType}
+
+        for source in sources:
+            # For lands that produce multiple colors, count each possibility
+            # This is optimistic - actual payment may require choices
+            for mana_type in source.produces:
+                available[mana_type] += 1
+
+        return available
+
+    def can_cast(self, player_id: str, cost: ManaCost, x_value: int = 0) -> bool:
+        """
+        Check if a player can pay a mana cost using their untapped lands.
+
+        This checks potential mana from lands, not just the mana pool.
+        """
+        # First check if pool already has enough
+        pool = self.get_pool(player_id)
+        if pool.can_pay(cost, x_value):
+            return True
+
+        # Check if untapped lands can provide enough mana
+        sources = self.get_untapped_lands(player_id)
+        return self._can_pay_with_lands(sources, cost, x_value)
+
+    def _can_pay_with_lands(self, sources: list[LandManaSource], cost: ManaCost, x_value: int = 0) -> bool:
+        """Check if the given land sources can pay a cost."""
+        # Build a simple availability count
+        # For single-color lands, this is straightforward
+        # For multi-color lands, we need to be smarter
+
+        single_color_counts = {mt: 0 for mt in ManaType}
+        multi_color_lands = []
+
+        for source in sources:
+            if len(source.produces) == 1:
+                single_color_counts[source.produces[0]] += 1
+            else:
+                multi_color_lands.append(source)
+
+        # Calculate what we need
+        needed = {
+            ManaType.WHITE: cost.white,
+            ManaType.BLUE: cost.blue,
+            ManaType.BLACK: cost.black,
+            ManaType.RED: cost.red,
+            ManaType.GREEN: cost.green,
+            ManaType.COLORLESS: cost.colorless,
+        }
+
+        # Add X cost
+        generic_needed = cost.generic + (cost.x_count * x_value)
+
+        # First, try to pay colored costs with single-color lands
+        remaining_single = dict(single_color_counts)
+        for mana_type, amount in needed.items():
+            if amount > 0:
+                available = remaining_single[mana_type]
+                used = min(available, amount)
+                remaining_single[mana_type] -= used
+                needed[mana_type] -= used
+
+        # Check if we still need colored mana
+        colored_still_needed = sum(needed.values())
+
+        # Try to cover remaining colored needs with multi-color lands
+        multi_available = len(multi_color_lands)
+
+        # Total mana available for generic
+        total_remaining = sum(remaining_single.values()) + multi_available - colored_still_needed
+
+        # Can we cover colored needs with multi-color lands?
+        if colored_still_needed > multi_available:
+            return False
+
+        # Can we cover generic needs?
+        if generic_needed > total_remaining:
+            return False
+
+        return True
+
+    def find_auto_tap_solution(self, player_id: str, cost: ManaCost, x_value: int = 0) -> Optional[TapSolution]:
+        """
+        Find lands to tap to pay a cost. Returns None if impossible.
+
+        If there's only one way to pay, returns that solution with is_unique=True.
+        If there are multiple ways, returns one solution with is_unique=False.
+        """
+        sources = self.get_untapped_lands(player_id)
+        if not self._can_pay_with_lands(sources, cost, x_value):
+            return None
+
+        # Separate single-color and multi-color lands
+        single_color: dict[ManaType, list[LandManaSource]] = {mt: [] for mt in ManaType}
+        multi_color: list[LandManaSource] = []
+
+        for source in sources:
+            if len(source.produces) == 1:
+                single_color[source.produces[0]].append(source)
+            else:
+                multi_color.append(source)
+
+        lands_to_tap = []
+        mana_produced = {mt: 0 for mt in ManaType}
+        has_choices = False
+
+        # Pay colored costs first, using single-color lands when possible
+        color_needs = [
+            (ManaType.WHITE, cost.white),
+            (ManaType.BLUE, cost.blue),
+            (ManaType.BLACK, cost.black),
+            (ManaType.RED, cost.red),
+            (ManaType.GREEN, cost.green),
+        ]
+
+        for mana_type, amount in color_needs:
+            remaining = amount
+
+            # Use single-color lands first
+            while remaining > 0 and single_color[mana_type]:
+                source = single_color[mana_type].pop(0)
+                lands_to_tap.append(source.land_id)
+                mana_produced[mana_type] += 1
+                remaining -= 1
+
+            # Use multi-color lands if needed
+            while remaining > 0 and multi_color:
+                # Find a multi-color land that produces this color
+                for i, source in enumerate(multi_color):
+                    if mana_type in source.produces:
+                        lands_to_tap.append(source.land_id)
+                        mana_produced[mana_type] += 1
+                        multi_color.pop(i)
+                        remaining -= 1
+                        # Using multi-color for colored = potential choice
+                        if len(source.produces) > 1:
+                            has_choices = True
+                        break
+                else:
+                    # No multi-color land produces this color - shouldn't happen if can_pay was true
+                    return None
+
+        # Pay colorless cost (C specifically)
+        remaining_colorless = cost.colorless
+        # Would need lands that produce specifically colorless - skip for now
+
+        # Pay generic cost with any remaining lands
+        generic_needed = cost.generic + (cost.x_count * x_value)
+
+        # Use remaining single-color lands
+        for mana_type in ManaType:
+            while generic_needed > 0 and single_color[mana_type]:
+                source = single_color[mana_type].pop(0)
+                lands_to_tap.append(source.land_id)
+                mana_produced[mana_type] += 1
+                generic_needed -= 1
+
+        # Use remaining multi-color lands
+        while generic_needed > 0 and multi_color:
+            source = multi_color.pop(0)
+            lands_to_tap.append(source.land_id)
+            # For generic, just pick first color
+            mana_produced[source.produces[0]] += 1
+            generic_needed -= 1
+            if len(source.produces) > 1:
+                has_choices = True
+
+        # Check for ambiguity: if we have unused lands of the same colors we used,
+        # there might be multiple valid solutions
+        total_unused = sum(len(lands) for lands in single_color.values()) + len(multi_color)
+        if total_unused > 0:
+            # Check if any unused land produces colors we're using
+            colors_used = {mt for mt, count in mana_produced.items() if count > 0}
+            for mt in colors_used:
+                if single_color[mt]:
+                    has_choices = True
+                    break
+
+        return TapSolution(
+            lands_to_tap=lands_to_tap,
+            mana_produced=mana_produced,
+            is_unique=not has_choices
+        )
+
+    def auto_tap_and_pay(self, player_id: str, cost: ManaCost, x_value: int = 0) -> tuple[bool, Optional[TapSolution]]:
+        """
+        Automatically tap lands and pay a cost if there's no ambiguity.
+
+        Returns (success, solution).
+        - If successful and unambiguous: (True, solution with is_unique=True)
+        - If successful but ambiguous: (False, solution with is_unique=False) - caller should prompt
+        - If impossible: (False, None)
+        """
+        solution = self.find_auto_tap_solution(player_id, cost, x_value)
+        if not solution:
+            return (False, None)
+
+        if not solution.is_unique:
+            # Ambiguous - let caller decide whether to prompt or accept default
+            return (False, solution)
+
+        # Unambiguous - execute the taps and add mana to pool
+        self._execute_tap_solution(player_id, solution)
+
+        # Pay from pool
+        pool = self.get_pool(player_id)
+        pool.pay(cost, x_value)
+
+        return (True, solution)
+
+    def execute_tap_solution(self, player_id: str, solution: TapSolution, cost: ManaCost, x_value: int = 0) -> bool:
+        """Execute a specific tap solution (used when player selects lands manually)."""
+        self._execute_tap_solution(player_id, solution)
+
+        # Pay from pool
         pool = self.get_pool(player_id)
         return pool.pay(cost, x_value)
+
+    def _execute_tap_solution(self, player_id: str, solution: TapSolution):
+        """Actually tap the lands and add mana to pool."""
+        pool = self.get_pool(player_id)
+
+        for land_id in solution.lands_to_tap:
+            obj = self.state.objects.get(land_id)
+            if obj and not obj.state.tapped:
+                # Tap the land
+                obj.state.tapped = True
+
+        # Add produced mana to pool
+        for mana_type, amount in solution.mana_produced.items():
+            if amount > 0:
+                pool.add(mana_type, amount)
+
+    def pay_cost(self, player_id: str, cost: ManaCost, x_value: int = 0) -> bool:
+        """
+        Pay a mana cost, auto-tapping lands if needed.
+
+        For simple cases, this auto-taps. For complex cases,
+        the caller should use find_auto_tap_solution and execute_tap_solution.
+        """
+        # First try to pay from existing pool
+        pool = self.get_pool(player_id)
+        if pool.can_pay(cost, x_value):
+            return pool.pay(cost, x_value)
+
+        # Try auto-tap
+        success, solution = self.auto_tap_and_pay(player_id, cost, x_value)
+        if success:
+            return True
+
+        # If we got a solution but it's ambiguous, use it anyway (default behavior)
+        if solution:
+            self._execute_tap_solution(player_id, solution)
+            return pool.pay(cost, x_value)
+
+        return False
 
     def produce_mana(
         self,
