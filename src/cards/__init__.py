@@ -9,6 +9,9 @@ from .edge_of_eternities import EDGE_OF_ETERNITIES_CARDS
 from .avatar_tla import AVATAR_TLA_CARDS
 from .lorwyn_eclipsed import LORWYN_ECLIPSED_CARDS
 from .spider_man import SPIDER_MAN_CARDS
+from .star_wars import STAR_WARS_CARDS
+from .demon_slayer import DEMON_SLAYER_CARDS
+from .one_piece import ONE_PIECE_CARDS
 from .test_cards import TEST_CARDS
 
 
@@ -27,6 +30,9 @@ def build_combined_registry() -> dict:
     registry.update(AVATAR_TLA_CARDS)
     registry.update(LORWYN_ECLIPSED_CARDS)
     registry.update(SPIDER_MAN_CARDS)
+    registry.update(STAR_WARS_CARDS)
+    registry.update(DEMON_SLAYER_CARDS)
+    registry.update(ONE_PIECE_CARDS)
 
     return registry
 
@@ -39,6 +45,9 @@ __all__ = [
     'AVATAR_TLA_CARDS',
     'LORWYN_ECLIPSED_CARDS',
     'SPIDER_MAN_CARDS',
+    'STAR_WARS_CARDS',
+    'DEMON_SLAYER_CARDS',
+    'ONE_PIECE_CARDS',
     'TEST_CARDS',
     'ALL_CARDS',
     'build_combined_registry',
