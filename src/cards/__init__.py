@@ -12,6 +12,8 @@ from .spider_man import SPIDER_MAN_CARDS
 from .star_wars import STAR_WARS_CARDS
 from .demon_slayer import DEMON_SLAYER_CARDS
 from .one_piece import ONE_PIECE_CARDS
+from .pokemon_horizons import POKEMON_HORIZONS_CARDS
+from .legend_of_zelda import LEGEND_OF_ZELDA_CARDS
 from .test_cards import TEST_CARDS
 
 
@@ -33,6 +35,8 @@ def build_combined_registry() -> dict:
     registry.update(STAR_WARS_CARDS)
     registry.update(DEMON_SLAYER_CARDS)
     registry.update(ONE_PIECE_CARDS)
+    registry.update(POKEMON_HORIZONS_CARDS)
+    registry.update(LEGEND_OF_ZELDA_CARDS)
 
     return registry
 
@@ -48,6 +52,8 @@ __all__ = [
     'STAR_WARS_CARDS',
     'DEMON_SLAYER_CARDS',
     'ONE_PIECE_CARDS',
+    'POKEMON_HORIZONS_CARDS',
+    'LEGEND_OF_ZELDA_CARDS',
     'TEST_CARDS',
     'ALL_CARDS',
     'build_combined_registry',
