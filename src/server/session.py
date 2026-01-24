@@ -1,0 +1,500 @@
+"""
+Game Session Management
+
+Manages active game sessions, player connections, and game state.
+"""
+
+import asyncio
+from dataclasses import dataclass, field
+from typing import Optional, Callable, Any
+from uuid import uuid4
+import time
+
+from src.engine import (
+    Game, GameState, Player, PlayerAction, ActionType, LegalAction,
+    Phase, Step, ZoneType, CardType,
+    AttackDeclaration, BlockDeclaration
+)
+from src.engine.types import CardDefinition
+
+from .models import (
+    GameStateResponse, PlayerData, CardData, StackItemData,
+    LegalActionData, CombatData, PlayerActionRequest, ReplayFrame
+)
+
+
+def generate_id() -> str:
+    """Generate a short unique ID."""
+    return str(uuid4())[:8]
+
+
+@dataclass
+class GameSession:
+    """
+    Manages a single game session.
+
+    Wraps the engine Game class and provides:
+    - Player socket tracking
+    - State serialization for clients
+    - Action handling with validation
+    - Replay recording
+    """
+    id: str
+    game: Game
+    mode: str  # human_vs_bot, bot_vs_bot, human_vs_human
+
+    # Player tracking
+    player_ids: list[str] = field(default_factory=list)
+    player_names: dict[str, str] = field(default_factory=dict)
+    player_sockets: dict[str, str] = field(default_factory=dict)  # player_id -> socket_id
+    human_players: set[str] = field(default_factory=set)
+
+    # Game state
+    is_started: bool = False
+    is_finished: bool = False
+    winner_id: Optional[str] = None
+
+    # Replay recording
+    replay_frames: list[ReplayFrame] = field(default_factory=list)
+
+    # Callbacks
+    on_state_change: Optional[Callable[[str, dict], Any]] = None
+
+    # Pending human action
+    _pending_action_future: Optional[asyncio.Future] = None
+    _pending_player_id: Optional[str] = None
+
+    def __post_init__(self):
+        """Set up game callbacks."""
+        self.game.set_human_action_handler(self._get_human_action)
+        self.game.set_ai_action_handler(self._get_ai_action)
+        self.game.set_attack_handler(self._get_attacks)
+        self.game.set_block_handler(self._get_blocks)
+
+    def add_player(self, name: str, is_ai: bool = False) -> str:
+        """Add a player to the session."""
+        player = self.game.add_player(name)
+        self.player_ids.append(player.id)
+        self.player_names[player.id] = name
+
+        if is_ai:
+            self.game.set_ai_player(player.id)
+        else:
+            self.human_players.add(player.id)
+
+        return player.id
+
+    def connect_socket(self, player_id: str, socket_id: str) -> None:
+        """Connect a player's socket."""
+        self.player_sockets[player_id] = socket_id
+
+    def disconnect_socket(self, socket_id: str) -> Optional[str]:
+        """Disconnect a socket and return the player_id if found."""
+        for pid, sid in list(self.player_sockets.items()):
+            if sid == socket_id:
+                del self.player_sockets[pid]
+                return pid
+        return None
+
+    def add_cards_to_deck(self, player_id: str, card_defs: list[CardDefinition]) -> None:
+        """Add cards to a player's library."""
+        for card_def in card_defs:
+            self.game.add_card_to_library(player_id, card_def)
+        self.game.shuffle_library(player_id)
+
+    async def start_game(self) -> None:
+        """Start the game."""
+        if self.is_started:
+            return
+
+        self.is_started = True
+        await self.game.start_game()
+
+        # Record initial state
+        self._record_frame(action=None)
+
+    async def run_until_human_input(self) -> None:
+        """Run the game until human input is needed or game ends."""
+        try:
+            while not self.is_finished:
+                # Run one priority cycle
+                await self.game.turn_manager.run_turn()
+
+                # Check if game is over
+                if self.game.is_game_over():
+                    self.is_finished = True
+                    self.winner_id = self.game.get_winner()
+                    break
+
+        except asyncio.CancelledError:
+            pass
+
+    def get_client_state(self, player_id: Optional[str] = None) -> GameStateResponse:
+        """
+        Get game state formatted for a client.
+
+        Hides hidden information appropriately.
+        """
+        game_state = self.game.state
+
+        # Get player data
+        players = {}
+        for pid, player in game_state.players.items():
+            players[pid] = PlayerData(
+                id=pid,
+                name=self.player_names.get(pid, player.name),
+                life=player.life,
+                has_lost=player.has_lost,
+                hand_size=len(self.game.get_hand(pid)),
+                library_size=self.game.get_library_size(pid)
+            )
+
+        # Get battlefield
+        battlefield = []
+        for obj in self.game.get_battlefield():
+            battlefield.append(self._serialize_permanent(obj))
+
+        # Get stack
+        stack = []
+        for item in self.game.stack.get_items():
+            stack.append(self._serialize_stack_item(item))
+
+        # Get hand (only for requesting player)
+        hand = []
+        if player_id:
+            for obj in self.game.get_hand(player_id):
+                hand.append(self._serialize_card(obj))
+
+        # Get graveyards
+        graveyards = {}
+        for pid in game_state.players:
+            graveyards[pid] = [
+                self._serialize_card(obj)
+                for obj in self.game.get_graveyard(pid)
+            ]
+
+        # Get legal actions (only for priority player)
+        legal_actions = []
+        if player_id == self.game.get_priority_player():
+            for action in self.game.priority_system.get_legal_actions(player_id):
+                legal_actions.append(self._serialize_legal_action(action))
+
+        # Get combat state
+        combat = None
+        if self.game.get_current_phase() == Phase.COMBAT:
+            combat_state = self.game.combat_manager.combat_state
+            combat = CombatData(
+                attackers=[
+                    {"attacker_id": a.attacker_id, "defending_player": a.defending_player_id}
+                    for a in combat_state.attackers
+                ],
+                blockers=[
+                    {"blocker_id": b.blocker_id, "attacker_id": b.blocking_attacker_id}
+                    for b in combat_state.blockers
+                ],
+                blocked_attackers=list(combat_state.blocked_attackers)
+            )
+
+        return GameStateResponse(
+            match_id=self.id,
+            turn_number=self.game.turn_manager.turn_number,
+            phase=self.game.get_current_phase().name,
+            step=self.game.get_current_step().name,
+            active_player=self.game.get_active_player(),
+            priority_player=self.game.get_priority_player(),
+            players=players,
+            battlefield=battlefield,
+            stack=stack,
+            hand=hand,
+            graveyard=graveyards,
+            legal_actions=legal_actions,
+            combat=combat,
+            is_game_over=self.is_finished,
+            winner=self.winner_id
+        )
+
+    async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
+        """
+        Handle a player action request.
+
+        Returns (success, message).
+        """
+        # Validate it's this player's turn to act
+        priority_player = self.game.get_priority_player()
+        if request.player_id != priority_player:
+            return False, "Not your turn to act"
+
+        # Build PlayerAction from request
+        action = self._build_action(request)
+
+        # If we're waiting for this player's input, resolve the future
+        if (self._pending_action_future and
+            self._pending_player_id == request.player_id):
+            self._pending_action_future.set_result(action)
+            self._pending_action_future = None
+            self._pending_player_id = None
+
+            # Record the action
+            self._record_frame(action=request.model_dump())
+
+            return True, "Action accepted"
+
+        return False, "No pending action expected"
+
+    def _build_action(self, request: PlayerActionRequest) -> PlayerAction:
+        """Convert API request to engine PlayerAction."""
+        action_type_map = {
+            "PASS": ActionType.PASS,
+            "CAST_SPELL": ActionType.CAST_SPELL,
+            "ACTIVATE_ABILITY": ActionType.ACTIVATE_ABILITY,
+            "PLAY_LAND": ActionType.PLAY_LAND,
+            "SPECIAL_ACTION": ActionType.SPECIAL_ACTION,
+        }
+
+        return PlayerAction(
+            type=action_type_map.get(request.action_type, ActionType.PASS),
+            player_id=request.player_id,
+            card_id=request.card_id,
+            targets=request.targets,
+            x_value=request.x_value,
+            ability_id=request.ability_id,
+            source_id=request.source_id,
+        )
+
+    async def _get_human_action(
+        self,
+        player_id: str,
+        legal_actions: list[LegalAction]
+    ) -> PlayerAction:
+        """Handler for getting human player actions."""
+        # Create a future to wait for the action
+        loop = asyncio.get_event_loop()
+        self._pending_action_future = loop.create_future()
+        self._pending_player_id = player_id
+
+        # Notify the client they need to act
+        if self.on_state_change:
+            state = self.get_client_state(player_id)
+            await self.on_state_change(player_id, state.model_dump())
+
+        # Wait for the action
+        try:
+            action = await asyncio.wait_for(self._pending_action_future, timeout=300.0)
+            return action
+        except asyncio.TimeoutError:
+            # Timeout - pass priority
+            return PlayerAction(type=ActionType.PASS, player_id=player_id)
+
+    def _get_ai_action(
+        self,
+        player_id: str,
+        state: GameState,
+        legal_actions: list[LegalAction]
+    ) -> PlayerAction:
+        """Handler for AI player actions."""
+        # Try to import AI engine (assume it exists)
+        try:
+            from src.ai import AIEngine
+            ai = AIEngine()
+            return ai.get_action(player_id, state, legal_actions)
+        except ImportError:
+            # AI not available - use simple fallback
+            return self._simple_ai_action(player_id, legal_actions)
+
+    def _simple_ai_action(
+        self,
+        player_id: str,
+        legal_actions: list[LegalAction]
+    ) -> PlayerAction:
+        """Simple fallback AI that plays cards when possible."""
+        # Look for castable spells or lands to play
+        for action in legal_actions:
+            if action.type == ActionType.PLAY_LAND:
+                return PlayerAction(
+                    type=ActionType.PLAY_LAND,
+                    player_id=player_id,
+                    card_id=action.card_id
+                )
+            elif action.type == ActionType.CAST_SPELL and not action.requires_mana:
+                return PlayerAction(
+                    type=ActionType.CAST_SPELL,
+                    player_id=player_id,
+                    card_id=action.card_id
+                )
+
+        # Default: pass
+        return PlayerAction(type=ActionType.PASS, player_id=player_id)
+
+    def _get_attacks(
+        self,
+        player_id: str,
+        legal_attackers: list[str]
+    ) -> list[AttackDeclaration]:
+        """Handler for getting attack declarations."""
+        # For AI, attack with everything
+        if player_id not in self.human_players:
+            defending_players = [
+                pid for pid in self.player_ids if pid != player_id
+            ]
+            if not defending_players:
+                return []
+
+            defender = defending_players[0]
+            return [
+                AttackDeclaration(
+                    attacker_id=aid,
+                    defending_player_id=defender
+                )
+                for aid in legal_attackers
+            ]
+
+        # For humans, this is handled via the action system
+        return []
+
+    def _get_blocks(
+        self,
+        player_id: str,
+        attackers: list[AttackDeclaration],
+        legal_blockers: list[str]
+    ) -> list[BlockDeclaration]:
+        """Handler for getting block declarations."""
+        # For AI, simple blocking strategy
+        if player_id not in self.human_players:
+            blocks = []
+            available_blockers = list(legal_blockers)
+
+            for attacker in attackers:
+                if available_blockers:
+                    blocker = available_blockers.pop(0)
+                    blocks.append(BlockDeclaration(
+                        blocker_id=blocker,
+                        blocking_attacker_id=attacker.attacker_id
+                    ))
+
+            return blocks
+
+        # For humans, handled via action system
+        return []
+
+    def _serialize_permanent(self, obj) -> CardData:
+        """Serialize a permanent for the client."""
+        from src.engine.queries import get_power, get_toughness, is_creature
+
+        return CardData(
+            id=obj.id,
+            name=obj.name,
+            mana_cost=obj.characteristics.mana_cost,
+            types=[t.name for t in obj.characteristics.types],
+            subtypes=list(obj.characteristics.subtypes),
+            power=get_power(obj, self.game.state) if is_creature(obj, self.game.state) else None,
+            toughness=get_toughness(obj, self.game.state) if is_creature(obj, self.game.state) else None,
+            text=obj.card_def.text if obj.card_def else "",
+            tapped=obj.state.tapped,
+            counters=dict(obj.state.counters),
+            damage=obj.state.damage,
+            controller=obj.controller,
+            owner=obj.owner
+        )
+
+    def _serialize_card(self, obj) -> CardData:
+        """Serialize a card for the client."""
+        return CardData(
+            id=obj.id,
+            name=obj.name,
+            mana_cost=obj.characteristics.mana_cost,
+            types=[t.name for t in obj.characteristics.types],
+            subtypes=list(obj.characteristics.subtypes),
+            power=obj.characteristics.power,
+            toughness=obj.characteristics.toughness,
+            text=obj.card_def.text if obj.card_def else "",
+            controller=obj.controller,
+            owner=obj.owner
+        )
+
+    def _serialize_stack_item(self, item) -> StackItemData:
+        """Serialize a stack item for the client."""
+        source = self.game.state.objects.get(item.source_id)
+        return StackItemData(
+            id=item.id,
+            type=item.type.name,
+            source_id=item.source_id,
+            source_name=source.name if source else "Unknown",
+            controller=item.controller_id
+        )
+
+    def _serialize_legal_action(self, action: LegalAction) -> LegalActionData:
+        """Serialize a legal action for the client."""
+        return LegalActionData(
+            type=action.type.name,
+            card_id=action.card_id,
+            ability_id=action.ability_id,
+            source_id=action.source_id,
+            description=action.description,
+            requires_targets=action.requires_targets,
+            requires_mana=action.requires_mana
+        )
+
+    def _record_frame(self, action: Optional[dict]) -> None:
+        """Record a replay frame."""
+        state = self.get_client_state()
+        frame = ReplayFrame(
+            turn=state.turn_number,
+            phase=state.phase,
+            step=state.step,
+            action=action,
+            state=state.model_dump(),
+            timestamp=time.time()
+        )
+        self.replay_frames.append(frame)
+
+
+class SessionManager:
+    """
+    Manages all active game sessions.
+    """
+
+    def __init__(self):
+        self.sessions: dict[str, GameSession] = {}
+        self._lock = asyncio.Lock()
+
+    async def create_session(
+        self,
+        mode: str = "human_vs_bot",
+        player_name: str = "Player",
+        ai_difficulty: str = "medium"
+    ) -> GameSession:
+        """Create a new game session."""
+        async with self._lock:
+            session_id = generate_id()
+            game = Game()
+
+            session = GameSession(
+                id=session_id,
+                game=game,
+                mode=mode
+            )
+
+            self.sessions[session_id] = session
+            return session
+
+    def get_session(self, session_id: str) -> Optional[GameSession]:
+        """Get a session by ID."""
+        return self.sessions.get(session_id)
+
+    async def remove_session(self, session_id: str) -> None:
+        """Remove a session."""
+        async with self._lock:
+            if session_id in self.sessions:
+                del self.sessions[session_id]
+
+    def get_session_by_socket(self, socket_id: str) -> Optional[tuple[GameSession, str]]:
+        """Find a session by socket ID, returning (session, player_id)."""
+        for session in self.sessions.values():
+            for pid, sid in session.player_sockets.items():
+                if sid == socket_id:
+                    return session, pid
+        return None
+
+
+# Global session manager instance
+session_manager = SessionManager()

@@ -48,6 +48,7 @@ class EventType(Enum):
     DRAW = auto()
     DISCARD = auto()
     CAST = auto()
+    SPELL_CAST = auto()  # Alias for card files using this name
     ACTIVATE = auto()
 
     # Turn structure
@@ -193,6 +194,7 @@ class Characteristics:
     mana_cost: Optional[str] = None
     power: Optional[int] = None
     toughness: Optional[int] = None
+    abilities: list[dict] = field(default_factory=list)  # Keyword abilities and other static abilities
 
 
 @dataclass
