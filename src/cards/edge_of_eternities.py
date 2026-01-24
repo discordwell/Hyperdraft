@@ -1469,7 +1469,7 @@ def echo_of_death_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_echo(obj, "{1}{B}"), make_etb_trigger(obj, lambda e, s: [])]
 
 def temporal_vampire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_damage_trigger(obj, lambda e, s: [], combat_only=True, player_only=True)]
+    return [make_damage_trigger(obj, lambda e, s: [], combat_only=True)]
 
 def decay_of_ages_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def filt(e, s, src):

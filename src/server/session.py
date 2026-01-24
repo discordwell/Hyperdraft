@@ -63,6 +63,7 @@ class GameSession:
     # Pending human action
     _pending_action_future: Optional[asyncio.Future] = None
     _pending_player_id: Optional[str] = None
+    _action_processed_event: Optional[asyncio.Event] = None
 
     def __post_init__(self):
         """Set up game callbacks."""
@@ -70,6 +71,13 @@ class GameSession:
         self.game.set_ai_action_handler(self._get_ai_action)
         self.game.set_attack_handler(self._get_attacks)
         self.game.set_block_handler(self._get_blocks)
+        # Set up action processed callback for synchronization
+        self.game.priority_system.on_action_processed = self._on_action_processed
+
+    def _on_action_processed(self):
+        """Called when an action is fully processed by the game loop."""
+        if self._action_processed_event:
+            self._action_processed_event.set()
 
     def add_player(self, name: str, is_ai: bool = False) -> str:
         """Add a player to the session."""
@@ -230,12 +238,23 @@ class GameSession:
         # If we're waiting for this player's input, resolve the future
         if (self._pending_action_future and
             self._pending_player_id == request.player_id):
+            # Save reference to the processed event before clearing
+            processed_event = self._action_processed_event
+
             self._pending_action_future.set_result(action)
             self._pending_action_future = None
             self._pending_player_id = None
 
             # Record the action
             self._record_frame(action=request.model_dump())
+
+            # Wait for the game loop to process the action
+            if processed_event:
+                try:
+                    await asyncio.wait_for(processed_event.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    pass  # Continue anyway if timeout
+                self._action_processed_event = None
 
             return True, "Action accepted"
 
@@ -271,6 +290,8 @@ class GameSession:
         loop = asyncio.get_event_loop()
         self._pending_action_future = loop.create_future()
         self._pending_player_id = player_id
+        # Create event that will be signaled by on_action_processed callback
+        self._action_processed_event = asyncio.Event()
 
         # Notify the client they need to act
         if self.on_state_change:
@@ -282,7 +303,9 @@ class GameSession:
             action = await asyncio.wait_for(self._pending_action_future, timeout=300.0)
             return action
         except asyncio.TimeoutError:
-            # Timeout - pass priority
+            # Timeout - pass priority, signal event so handle_action doesn't hang
+            if self._action_processed_event:
+                self._action_processed_event.set()
             return PlayerAction(type=ActionType.PASS, player_id=player_id)
 
     def _get_ai_action(

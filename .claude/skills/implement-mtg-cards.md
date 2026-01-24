@@ -27,8 +27,12 @@ EventType.DAMAGE           # Damage triggers, lifelink
 EventType.LIFE_CHANGE      # Life gain/loss triggers
 EventType.COUNTER_ADDED    # +1/+1, -1/-1, time counters
 EventType.CAST             # Spell cast triggers
+EventType.SPELL_CAST       # Alias for CAST (use either)
 EventType.TAP / UNTAP      # Tap triggers
 EventType.PHASE_START      # Upkeep, end step triggers
+EventType.MANA_PRODUCED    # Mana ability triggers
+EventType.DRAW             # Draw triggers
+EventType.DISCARD          # Discard triggers
 EventType.QUERY_POWER      # P/T modifications
 EventType.QUERY_TOUGHNESS  # P/T modifications
 EventType.QUERY_ABILITIES  # Keyword grants
@@ -338,6 +342,81 @@ make_artifact(name, mana_cost, text, subtypes=None, setup_interceptors=None)
 
 # Land
 make_land(name, subtypes=None, supertypes=None, text="")
+```
+
+## Spell Resolution (for Instants/Sorceries)
+
+Use the `resolve` parameter with spell builder helpers:
+
+```python
+from src.engine import (
+    create_damage_spell, create_draw_spell,
+    create_destroy_spell, create_counter_spell,
+    target_creature, target_any, target_player
+)
+
+# "Deal 3 damage to any target"
+LIGHTNING_BOLT = make_instant(
+    name="Lightning Bolt",
+    mana_cost="{R}",
+    colors={Color.RED},
+    text="Deal 3 damage to any target.",
+    resolve=create_damage_spell(3, target_any())
+)
+
+# "Destroy target creature"
+MURDER = make_instant(
+    name="Murder",
+    mana_cost="{1}{B}{B}",
+    colors={Color.BLACK},
+    text="Destroy target creature.",
+    resolve=create_destroy_spell(target_creature())
+)
+
+# "Draw 2 cards"
+DIVINATION = make_sorcery(
+    name="Divination",
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    text="Draw two cards.",
+    resolve=create_draw_spell(2)
+)
+```
+
+### Targeting Filters
+
+Pre-made filters available from `src.engine`:
+```python
+target_creature()      # Target creature
+target_any()           # Any target (creature, player, planeswalker)
+target_player()        # Target player
+target_spell()         # Target spell on stack
+creature_filter()      # TargetFilter for creatures
+permanent_filter()     # TargetFilter for permanents
+player_filter()        # TargetFilter for players
+```
+
+Custom targeting with TargetFilter:
+```python
+from src.engine import TargetFilter, CardType, Color, ZoneType
+
+# "Target red creature you control"
+red_creature_you_control = TargetFilter(
+    types={CardType.CREATURE},
+    colors={Color.RED},
+    controller='you'
+)
+
+# "Target creature with power 3 or less"
+small_creature = TargetFilter(
+    types={CardType.CREATURE},
+    power_max=3
+)
+
+# "Target card in a graveyard"
+graveyard_card = TargetFilter(
+    zones=[ZoneType.GRAVEYARD]
+)
 ```
 
 ## Testing Cards

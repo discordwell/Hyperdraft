@@ -92,6 +92,9 @@ class PrioritySystem:
         # For AI players - callback to get their action
         self.get_ai_action: Optional[Callable[[str, GameState, list[LegalAction]], PlayerAction]] = None
 
+        # Callback invoked after action is processed (for synchronization)
+        self.on_action_processed: Optional[Callable[[], None]] = None
+
         # Player type tracking
         self.ai_players: set[str] = set()
 
@@ -148,6 +151,9 @@ class PrioritySystem:
 
             if action.type == ActionType.PASS:
                 self.passed_players.add(self.priority_player)
+                # Signal action was processed (for API synchronization)
+                if self.on_action_processed:
+                    self.on_action_processed()
 
                 if self._all_players_passed():
                     if self.stack and self.stack.is_empty():
@@ -170,6 +176,9 @@ class PrioritySystem:
                 # Player took an action - reset passes
                 self.passed_players.clear()
                 await self._execute_action(action)
+                # Signal action was processed (for API synchronization)
+                if self.on_action_processed:
+                    self.on_action_processed()
                 # Player retains priority after acting (rule 116.3c)
                 continue
 
