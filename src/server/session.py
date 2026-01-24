@@ -256,6 +256,10 @@ class GameSession:
                     pass  # Continue anyway if timeout
                 self._action_processed_event = None
 
+            # Give the game loop a chance to advance (AI actions, phase changes)
+            # by yielding control briefly
+            await asyncio.sleep(0.05)
+
             return True, "Action accepted"
 
         return False, "No pending action expected"

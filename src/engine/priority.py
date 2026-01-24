@@ -446,8 +446,8 @@ class PrioritySystem:
 
     def _emit_event(self, event: Event) -> None:
         """Emit an event through the game's event pipeline."""
-        # This would be connected to the main event pipeline
-        pass
+        if self.pipeline:
+            self.pipeline.emit(event)
 
 
 class ActionValidator:
