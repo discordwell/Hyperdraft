@@ -274,13 +274,47 @@ class CardDefinition:
     name: str
     mana_cost: Optional[str]
     characteristics: Characteristics
-    text: str
+    text: str = ""
+
+    # NEW: Declarative abilities - single source of truth for text and behavior
+    abilities: list = field(default_factory=list)
 
     # Function to set up interceptors when this card enters play
     setup_interceptors: Optional[Callable[['GameObject', 'GameState'], list[Interceptor]]] = None
 
     # Function for spell/ability resolution
     resolve: Optional[Callable[['Event', 'GameState'], list[Event]]] = None
+
+    def __post_init__(self):
+        """Auto-generate text and setup_interceptors from abilities if provided."""
+        if self.abilities:
+            # Generate text if not provided
+            if not self.text:
+                self.text = self._generate_text()
+            # Generate setup_interceptors if not provided
+            if not self.setup_interceptors:
+                self.setup_interceptors = self._generate_setup()
+
+    def _generate_text(self) -> str:
+        """Generate rules text from abilities."""
+        texts = []
+        for ability in self.abilities:
+            if hasattr(ability, 'render_text'):
+                texts.append(ability.render_text(self.name))
+        return " ".join(texts)
+
+    def _generate_setup(self) -> Callable[['GameObject', 'GameState'], list[Interceptor]]:
+        """Generate setup_interceptors function from abilities."""
+        abilities = self.abilities
+
+        def setup(obj: 'GameObject', state: 'GameState') -> list[Interceptor]:
+            interceptors = []
+            for ability in abilities:
+                if hasattr(ability, 'generate_interceptors'):
+                    interceptors.extend(ability.generate_interceptors(obj, state))
+            return interceptors
+
+        return setup
 
 
 # =============================================================================
