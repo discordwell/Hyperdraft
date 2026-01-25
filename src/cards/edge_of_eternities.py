@@ -15,6 +15,15 @@ from src.engine import (
 )
 from typing import Optional, Callable
 
+from src.cards.interceptor_helpers import (
+    make_etb_trigger, make_death_trigger, make_attack_trigger,
+    make_static_pt_boost, make_keyword_grant, make_upkeep_trigger,
+    make_end_step_trigger, make_life_gain_trigger, make_tap_trigger,
+    make_spell_cast_trigger, make_damage_trigger,
+    other_creatures_you_control, other_creatures_with_subtype,
+    creatures_you_control, all_opponents
+)
+
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -128,6 +137,1982 @@ def make_planeswalker(name: str, mana_cost: str, colors: set, loyalty: int,
 
 
 # =============================================================================
+# INTERCEPTOR SETUP FUNCTIONS
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# WHITE CREATURE INTERCEPTORS
+# -----------------------------------------------------------------------------
+
+def honored_knightcaptain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, create a 1/1 white Human Soldier creature token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Human Soldier Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Human', 'Soldier'],
+                'colors': [Color.WHITE]
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def knight_luminary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, create a 1/1 white Human Soldier creature token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Human Soldier Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Human', 'Soldier'],
+                'colors': [Color.WHITE]
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def dockworker_drone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """This creature enters with a +1/+1 counter on it. When dies, put counters on target."""
+    interceptors = []
+
+    # ETB: enters with +1/+1 counter
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    # Death trigger (counter transfer would require target selection)
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    interceptors.append(make_death_trigger(obj, death_effect))
+
+    return interceptors
+
+
+def rayblade_trooper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, put +1/+1 counter on target creature you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need target selection - creates counter event for self as placeholder
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def weftblade_enhancer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, put +1/+1 counter on each of up to two target creatures."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def haliya_guided_by_light_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever Haliya or another creature or artifact enters, gain 1 life."""
+    def etb_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        # Must be creature or artifact
+        types = entering_obj.characteristics.types
+        return CardType.CREATURE in types or CardType.ARTIFACT in types
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_etb_trigger(obj, etb_effect, filter_fn=etb_filter)]
+
+
+def flightdeck_coordinator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your end step, if you control two or more tapped creatures, gain 2 life."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # Count tapped creatures you control
+        tapped_count = sum(1 for o in state.objects.values()
+                         if o.controller == obj.controller
+                         and CardType.CREATURE in o.characteristics.types
+                         and o.zone == ZoneType.BATTLEFIELD
+                         and o.state.tapped)
+        if tapped_count >= 2:
+            return [Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id
+            )]
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def wedgelight_rammer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, create a 2/2 colorless Robot artifact creature token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Robot Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.ARTIFACT, CardType.CREATURE],
+                'subtypes': ['Robot'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def auxiliary_boosters_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, create a 2/2 Robot token and attach this Equipment to it."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Robot Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.ARTIFACT, CardType.CREATURE],
+                'subtypes': ['Robot'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# -----------------------------------------------------------------------------
+# BLUE CREATURE INTERCEPTORS
+# -----------------------------------------------------------------------------
+
+def codecracker_hound_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, look at top two cards, put one in hand, one in graveyard."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def quantum_riddler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, draw a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def mouth_of_the_storm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, creatures opponents control get -3/-0 until your next turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need to create temporary P/T modifying interceptors
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def mechanozoa_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, tap target artifact or creature and put a stun counter on it."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def sinister_cryologist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, target creature opponent controls gets -3/-0 until end of turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def starbreach_whale_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, surveil 2."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def mechan_assembler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another artifact you control enters, create a 2/2 Robot token (once per turn)."""
+    triggered_this_turn = [False]
+
+    def artifact_etb_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if triggered_this_turn[0]:
+            return False
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj or entering_id == source_obj.id:
+            return False
+        return (entering_obj.controller == source_obj.controller and
+                CardType.ARTIFACT in entering_obj.characteristics.types)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        triggered_this_turn[0] = True
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Robot Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.ARTIFACT, CardType.CREATURE],
+                'subtypes': ['Robot'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+
+    return [make_etb_trigger(obj, effect_fn, filter_fn=artifact_etb_filter)]
+
+
+def mechan_navigator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature becomes tapped, draw a card, then discard a card."""
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
+        ]
+    return [make_tap_trigger(obj, tap_effect)]
+
+
+def illvoi_infiltrator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature deals combat damage to a player, draw a card."""
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+
+
+def uthros_scanship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, draw two cards, then discard a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 2}, source=obj.id),
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def cryogen_relic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters or leaves, draw a card."""
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    # Leave trigger would need special handling
+    return interceptors
+
+
+# -----------------------------------------------------------------------------
+# BLACK CREATURE INTERCEPTORS
+# -----------------------------------------------------------------------------
+
+def virus_beetle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, each opponent discards a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in state.players.keys():
+            if player_id != obj.controller:
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': player_id, 'amount': 1},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def beamsaw_prospector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When dies, create a Lander token."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Lander Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Lander'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_death_trigger(obj, death_effect)]
+
+
+def gravpack_monoist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When dies, create a tapped 2/2 Robot token."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Robot Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.ARTIFACT, CardType.CREATURE],
+                'subtypes': ['Robot'],
+                'colors': [],
+                'tapped': True
+            },
+            source=obj.id
+        )]
+    return [make_death_trigger(obj, death_effect)]
+
+
+def susurian_voidborn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this or another creature/artifact you control dies, opponent loses 1 life, you gain 1."""
+    def death_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        dying_obj = state.objects.get(dying_id)
+        if not dying_obj:
+            return False
+        if dying_obj.controller != source_obj.controller:
+            return False
+        types = dying_obj.characteristics.types
+        return CardType.CREATURE in types or CardType.ARTIFACT in types
+
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in state.players.keys():
+            if player_id != obj.controller:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': player_id, 'amount': -1},
+                    source=obj.id
+                ))
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        ))
+        return events
+
+    return [make_death_trigger(obj, death_effect, filter_fn=death_filter)]
+
+
+def lightless_evangel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you sacrifice another creature or artifact, put a +1/+1 counter on this."""
+    def sacrifice_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        if event.payload.get('cause') != 'sacrifice':
+            return False
+        sacrificed_id = event.payload.get('object_id')
+        sacrificed_obj = state.objects.get(sacrificed_id)
+        if not sacrificed_obj or sacrificed_id == obj.id:
+            return False
+        if sacrificed_obj.controller != obj.controller:
+            return False
+        types = sacrificed_obj.characteristics.types
+        return CardType.CREATURE in types or CardType.ARTIFACT in types
+
+    def sacrifice_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=sacrifice_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=sacrifice_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def fell_gravship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, mill 3, then return creature/Spacecraft from graveyard to hand."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def monoist_circuitfeeder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, target creature you control gets +X/+0, target opponent creature gets -0/-X."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def elegy_acolyte_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever one or more creatures deal combat damage to player, draw a card, lose 1 life."""
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        source_id = event.payload.get('source')
+        source_obj = state.objects.get(source_id)
+        if not source_obj:
+            return False
+        if source_obj.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in source_obj.characteristics.types:
+            return False
+        target_id = event.payload.get('target')
+        return target_id in state.players  # Damage to a player
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': -1}, source=obj.id)
+        ]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=damage_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# -----------------------------------------------------------------------------
+# RED CREATURE INTERCEPTORS
+# -----------------------------------------------------------------------------
+
+def nebula_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, deal 3 damage to any target."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def nova_hellkite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, deal 1 damage to target creature opponent controls."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def debris_field_crusher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, deal 3 damage to any target."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def kav_landseeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, create a Lander token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Lander Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Lander'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def melded_moxite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, you may discard a card. If you do, draw two cards."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Simplified: just the draw effect (choice system required)
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def memorial_team_leader_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """During your turn, other creatures you control get +1/+0."""
+    def affects_filter(target: GameObject, state: GameState) -> bool:
+        if target.id == obj.id:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        # Only during your turn
+        return state.active_player == obj.controller
+
+    return make_static_pt_boost(obj, 1, 0, affects_filter)
+
+
+def tannuk_steadfast_second_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Other creatures you control have haste."""
+    def affects_filter(target: GameObject, state: GameState) -> bool:
+        return (target.id != obj.id and
+                target.controller == obj.controller and
+                CardType.CREATURE in target.characteristics.types and
+                target.zone == ZoneType.BATTLEFIELD)
+
+    return [make_keyword_grant(obj, ['haste'], affects_filter)]
+
+
+def warmaker_gunship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, deal damage equal to artifacts you control to target creature opponent controls."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def weftstalker_ardent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another creature or artifact enters, deal 1 damage to each opponent."""
+    def etb_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj or entering_id == source_obj.id:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        types = entering_obj.characteristics.types
+        return CardType.CREATURE in types or CardType.ARTIFACT in types
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in state.players.keys():
+            if player_id != obj.controller:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': player_id, 'amount': 1, 'source': obj.id},
+                    source=obj.id
+                ))
+        return events
+
+    return [make_etb_trigger(obj, effect_fn, filter_fn=etb_filter)]
+
+
+def molecular_modifier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At beginning of combat, target creature gets +1/+0 and first strike until end of turn."""
+    def combat_start_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.PHASE_START and
+                event.payload.get('phase') == 'combat' and
+                state.active_player == obj.controller)
+
+    def combat_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_start_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# -----------------------------------------------------------------------------
+# GREEN CREATURE INTERCEPTORS
+# -----------------------------------------------------------------------------
+
+def galactic_wayfarer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, create a Lander token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Lander Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Lander'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def biomechan_engineer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, create a Lander token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Lander Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Lander'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def biotech_specialist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, create a Lander token. Whenever sacrifice artifact, deal 2 to opponent."""
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Lander Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Lander'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    return interceptors
+
+
+def germinating_wurm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, gain 2 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def blooming_stinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, another target creature you control gains deathtouch until end of turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def drix_fatemaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, put a +1/+1 counter on target creature. Each creature with counter has trample."""
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    # Grant trample to creatures with +1/+1 counters
+    def trample_filter(target: GameObject, state: GameState) -> bool:
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        counters = getattr(target.state, 'counters', {})
+        return counters.get('+1/+1', 0) > 0
+
+    interceptors.append(make_keyword_grant(obj, ['trample'], trample_filter))
+
+    return interceptors
+
+
+def edge_rover_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When dies, each player creates a Lander token."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in state.players.keys():
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Lander Token',
+                    'controller': player_id,
+                    'types': [CardType.ARTIFACT],
+                    'subtypes': ['Lander'],
+                    'colors': []
+                },
+                source=obj.id
+            ))
+        return events
+    return [make_death_trigger(obj, death_effect)]
+
+
+def atmospheric_greenhouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, put a +1/+1 counter on each creature you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for o in state.objects.values():
+            if (o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def glacier_godmaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, create a Lander token. Landfall gives +1/+1, vigilance, haste until EOT."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Lander Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Lander'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def meltstrider_eulogist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a creature you control with +1/+1 counter dies, draw a card."""
+    def death_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        dying_obj = state.objects.get(dying_id)
+        if not dying_obj:
+            return False
+        if dying_obj.controller != source_obj.controller:
+            return False
+        if CardType.CREATURE not in dying_obj.characteristics.types:
+            return False
+        counters = getattr(dying_obj.state, 'counters', {})
+        return counters.get('+1/+1', 0) > 0
+
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_death_trigger(obj, death_effect, filter_fn=death_filter)]
+
+
+def thawbringer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters or dies, surveil 1."""
+    interceptors = []
+
+    def surveil_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    interceptors.append(make_etb_trigger(obj, surveil_effect))
+    interceptors.append(make_death_trigger(obj, surveil_effect))
+    return interceptors
+
+
+def seedship_broodtender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, mill 3."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# -----------------------------------------------------------------------------
+# MULTICOLOR/GOLD CREATURE INTERCEPTORS
+# -----------------------------------------------------------------------------
+
+def interceptor_mechan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, return target artifact or creature card from graveyard to hand."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def mmmenon_uthros_exile_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever an artifact enters, put a +1/+1 counter on target creature."""
+    def artifact_etb_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.ARTIFACT in entering_obj.characteristics.types
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+
+    return [make_etb_trigger(obj, effect_fn, filter_fn=artifact_etb_filter)]
+
+
+def syr_vondam_sunstar_exemplar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another creature dies or is exiled, put +1/+1 counter on Syr Vondam, gain 1 life."""
+    def death_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        to_zone = event.payload.get('to_zone_type')
+        if to_zone not in (ZoneType.GRAVEYARD, ZoneType.EXILE):
+            return False
+        dying_id = event.payload.get('object_id')
+        dying_obj = state.objects.get(dying_id)
+        if not dying_obj or dying_id == source_obj.id:
+            return False
+        if dying_obj.controller != source_obj.controller:
+            return False
+        return CardType.CREATURE in dying_obj.characteristics.types
+
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id),
+            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
+        ]
+
+    return [make_death_trigger(obj, death_effect, filter_fn=death_filter)]
+
+
+def syr_vondam_the_lucent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever enters or attacks, other creatures you control get +1/+0 and deathtouch until EOT."""
+    interceptors = []
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # Would need temporary P/T modifying interceptors
+        return []
+
+    interceptors.append(make_etb_trigger(obj, effect_fn))
+    interceptors.append(make_attack_trigger(obj, effect_fn))
+    return interceptors
+
+
+def haliya_ascendant_cadet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever enters or attacks, put +1/+1 counter on target creature. Draw on combat damage."""
+    interceptors = []
+
+    def etb_attack_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+
+    interceptors.append(make_etb_trigger(obj, etb_attack_effect))
+    interceptors.append(make_attack_trigger(obj, etb_attack_effect))
+    return interceptors
+
+
+def alpharael_dreaming_acolyte_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, draw two cards. Then discard two unless you discard an artifact."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 2}, source=obj.id),
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 2}, source=obj.id)
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def sami_ships_engineer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At end step, if you control two or more tapped creatures, create a 2/2 Robot token."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        tapped_count = sum(1 for o in state.objects.values()
+                         if o.controller == obj.controller
+                         and CardType.CREATURE in o.characteristics.types
+                         and o.zone == ZoneType.BATTLEFIELD
+                         and o.state.tapped)
+        if tapped_count >= 2:
+            return [Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Robot Token',
+                    'controller': obj.controller,
+                    'power': 2,
+                    'toughness': 2,
+                    'types': [CardType.ARTIFACT, CardType.CREATURE],
+                    'subtypes': ['Robot'],
+                    'colors': [],
+                    'tapped': True
+                },
+                source=obj.id
+            )]
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def station_monitor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast your second spell each turn, create a 1/1 Drone token."""
+    spells_this_turn = [0]
+
+    def spell_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != source_obj.controller:
+            return False
+        spells_this_turn[0] += 1
+        return spells_this_turn[0] == 2
+
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Drone Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.ARTIFACT, CardType.CREATURE],
+                'subtypes': ['Drone'],
+                'colors': [],
+                'abilities': ['flying']
+            },
+            source=obj.id
+        )]
+
+    return [make_spell_cast_trigger(obj, spell_effect)]
+
+
+def pinnacle_emissary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast an artifact spell, create a 1/1 Drone token."""
+    def artifact_cast_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != source_obj.controller:
+            return False
+        spell_types = set(event.payload.get('types', []))
+        return CardType.ARTIFACT in spell_types
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Drone Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.ARTIFACT, CardType.CREATURE],
+                'subtypes': ['Drone'],
+                'colors': [],
+                'abilities': ['flying']
+            },
+            source=obj.id
+        )]
+
+    return [make_spell_cast_trigger(obj, effect_fn)]
+
+
+# -----------------------------------------------------------------------------
+# COLORLESS ARTIFACT CREATURE INTERCEPTORS
+# -----------------------------------------------------------------------------
+
+def chrome_companion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever becomes tapped, gain 1 life."""
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_tap_trigger(obj, tap_effect)]
+
+
+def dauntless_scrapbot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, exile each opponent's graveyard. Create a Lander token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Lander Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Lander'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def extinguisher_battleship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, destroy target noncreature permanent, deal 4 damage to each creature."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        # Deal 4 damage to each creature
+        for o in state.objects.values():
+            if (CardType.CREATURE in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': o.id, 'amount': 4, 'source': obj.id},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def pinnacle_killship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, deal 10 damage to up to one target creature."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def wurmwall_sweeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, surveil 2."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def virulent_silencer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a nontoken artifact creature deals combat damage to player, give 2 poison counters."""
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        source_id = event.payload.get('source')
+        source_obj = state.objects.get(source_id)
+        if not source_obj:
+            return False
+        if source_obj.controller != obj.controller:
+            return False
+        types = source_obj.characteristics.types
+        if CardType.ARTIFACT not in types or CardType.CREATURE not in types:
+            return False
+        if getattr(source_obj.state, 'is_token', False):
+            return False
+        target_id = event.payload.get('target')
+        return target_id in state.players
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        target_id = event.payload.get('target')
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'player': target_id, 'counter_type': 'poison', 'amount': 2},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=damage_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def thrumming_hivepool_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slivers you control have double strike and haste. At upkeep, create two 1/1 Sliver tokens."""
+    interceptors = []
+
+    # Grant double strike and haste to Slivers
+    def sliver_filter(target: GameObject, state: GameState) -> bool:
+        return (target.controller == obj.controller and
+                CardType.CREATURE in target.characteristics.types and
+                'Sliver' in target.characteristics.subtypes and
+                target.zone == ZoneType.BATTLEFIELD)
+
+    interceptors.append(make_keyword_grant(obj, ['double_strike', 'haste'], sliver_filter))
+
+    # Upkeep trigger
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.OBJECT_CREATED, payload={
+                'name': 'Sliver Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Sliver'],
+                'colors': []
+            }, source=obj.id),
+            Event(type=EventType.OBJECT_CREATED, payload={
+                'name': 'Sliver Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Sliver'],
+                'colors': []
+            }, source=obj.id)
+        ]
+    interceptors.append(make_upkeep_trigger(obj, upkeep_effect))
+
+    return interceptors
+
+
+# -----------------------------------------------------------------------------
+# ADDITIONAL INTERCEPTORS
+# -----------------------------------------------------------------------------
+
+def brightspear_zealot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """This creature gets +2/+0 as long as you've cast two or more spells this turn."""
+    def affects_filter(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        # Check if two or more spells cast this turn (simplified check)
+        return getattr(state, 'spells_cast_this_turn', {}).get(obj.controller, 0) >= 2
+
+    return make_static_pt_boost(obj, 2, 0, affects_filter)
+
+
+def cosmogrand_zenith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast your second spell each turn, create tokens or put counters."""
+    spells_this_turn = [0]
+
+    def spell_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != source_obj.controller:
+            return False
+        spells_this_turn[0] += 1
+        return spells_this_turn[0] == 2
+
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        # Create two 1/1 white Human Soldier tokens
+        return [
+            Event(type=EventType.OBJECT_CREATED, payload={
+                'name': 'Human Soldier Token', 'controller': obj.controller,
+                'power': 1, 'toughness': 1, 'types': [CardType.CREATURE],
+                'subtypes': ['Human', 'Soldier'], 'colors': [Color.WHITE]
+            }, source=obj.id),
+            Event(type=EventType.OBJECT_CREATED, payload={
+                'name': 'Human Soldier Token', 'controller': obj.controller,
+                'power': 1, 'toughness': 1, 'types': [CardType.CREATURE],
+                'subtypes': ['Human', 'Soldier'], 'colors': [Color.WHITE]
+            }, source=obj.id)
+        ]
+
+    return [make_spell_cast_trigger(obj, spell_effect)]
+
+
+def dawnstrike_vanguard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At end step, if you control 2+ tapped creatures, put +1/+1 counter on each other creature."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        tapped_count = sum(1 for o in state.objects.values()
+                         if o.controller == obj.controller
+                         and CardType.CREATURE in o.characteristics.types
+                         and o.zone == ZoneType.BATTLEFIELD
+                         and o.state.tapped)
+        if tapped_count >= 2:
+            events = []
+            for o in state.objects.values():
+                if (o.id != obj.id and o.controller == obj.controller and
+                    CardType.CREATURE in o.characteristics.types and
+                    o.zone == ZoneType.BATTLEFIELD):
+                    events.append(Event(
+                        type=EventType.COUNTER_ADDED,
+                        payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+                        source=obj.id
+                    ))
+            return events
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def exosuit_savior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, return up to one other target permanent you control to hand."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def lightstall_inquisitor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, each opponent exiles a card from their hand."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Simplified - just trigger discard/exile for opponents
+        events = []
+        for player_id in state.players.keys():
+            if player_id != obj.controller:
+                events.append(Event(
+                    type=EventType.DISCARD,  # Using discard as placeholder for exile from hand
+                    payload={'player': player_id, 'amount': 1},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def lumenclass_frigate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Other creatures you control get +1/+1 when charged."""
+    def affects_filter(target: GameObject, state: GameState) -> bool:
+        if target.id == obj.id:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        # Check if this spacecraft has 2+ charge counters
+        counters = getattr(obj.state, 'counters', {})
+        return counters.get('charge', 0) >= 2
+
+    return make_static_pt_boost(obj, 1, 1, affects_filter)
+
+
+def pulsar_squadron_ace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, look at top 5 cards for Spacecraft or put +1/+1 counter."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Simplified - put a +1/+1 counter on self
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def starfighter_pilot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature becomes tapped, surveil 1."""
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_tap_trigger(obj, tap_effect)]
+
+
+def sunstar_chaplain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At end step, if you control 2+ tapped creatures, put +1/+1 counter on target creature."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        tapped_count = sum(1 for o in state.objects.values()
+                         if o.controller == obj.controller
+                         and CardType.CREATURE in o.characteristics.types
+                         and o.zone == ZoneType.BATTLEFIELD
+                         and o.state.tapped)
+        if tapped_count >= 2:
+            return []  # Target selection required
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def sunstar_lightsmith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast your second spell each turn, put +1/+1 counter and draw a card."""
+    spells_this_turn = [0]
+
+    def spell_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != source_obj.controller:
+            return False
+        spells_this_turn[0] += 1
+        return spells_this_turn[0] == 2
+
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id),
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
+        ]
+
+    return [make_spell_cast_trigger(obj, spell_effect)]
+
+
+def cloudsculpt_technician_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """As long as you control an artifact, this creature gets +1/+0."""
+    def affects_filter(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        # Check if controller controls an artifact
+        for o in state.objects.values():
+            if (o.controller == obj.controller and
+                CardType.ARTIFACT in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD):
+                return True
+        return False
+
+    return make_static_pt_boost(obj, 1, 0, affects_filter)
+
+
+def emissary_escort_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """This creature gets +X/+0 where X is greatest MV among other artifacts you control."""
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        return event.payload.get('object_id') == obj.id
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        # Find greatest mana value among other artifacts
+        max_mv = 0
+        for o in state.objects.values():
+            if (o.id != obj.id and
+                o.controller == obj.controller and
+                CardType.ARTIFACT in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD):
+                mv = getattr(o.characteristics, 'mana_value', 0) or 0
+                if mv > max_mv:
+                    max_mv = mv
+        current = event.payload.get('value', 0)
+        new_event = event.copy()
+        new_event.payload['value'] = current + max_mv
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=power_filter,
+        handler=power_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+def illvoi_operative_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast your second spell each turn, put a +1/+1 counter on this."""
+    spells_this_turn = [0]
+
+    def spell_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != source_obj.controller:
+            return False
+        spells_this_turn[0] += 1
+        return spells_this_turn[0] == 2
+
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_spell_cast_trigger(obj, spell_effect)]
+
+
+def nanoform_sentinel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature becomes tapped, untap another target permanent (once per turn)."""
+    triggered_this_turn = [False]
+
+    def tap_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if triggered_this_turn[0]:
+            return False
+        return (event.type == EventType.TAP and
+                event.payload.get('object_id') == source_obj.id)
+
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        triggered_this_turn[0] = True
+        return []  # Target selection required
+    return [make_tap_trigger(obj, tap_effect)]
+
+
+def gravblade_heavy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """As long as you control an artifact, this creature gets +1/+0 and has deathtouch."""
+    interceptors = []
+
+    def has_artifact(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        for o in state.objects.values():
+            if (o.controller == obj.controller and
+                CardType.ARTIFACT in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD):
+                return True
+        return False
+
+    interceptors.extend(make_static_pt_boost(obj, 1, 0, has_artifact))
+    interceptors.append(make_keyword_grant(obj, ['deathtouch'], has_artifact))
+
+    return interceptors
+
+
+def swarm_culler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature becomes tapped, you may sacrifice another creature/artifact to draw."""
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        # Simplified - just draw a card (sacrifice choice needed)
+        return []  # Requires sacrifice choice
+    return [make_tap_trigger(obj, tap_effect)]
+
+
+def frontline_warrager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At end step, if you control 2+ tapped creatures, put +1/+1 counter on this."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        tapped_count = sum(1 for o in state.objects.values()
+                         if o.controller == obj.controller
+                         and CardType.CREATURE in o.characteristics.types
+                         and o.zone == ZoneType.BATTLEFIELD
+                         and o.state.tapped)
+        if tapped_count >= 2:
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id
+            )]
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def kavaron_harrier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature attacks, you may pay 2 to create a tapped attacking Robot token."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Robot Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.ARTIFACT, CardType.CREATURE],
+                'subtypes': ['Robot'],
+                'colors': [],
+                'tapped': True
+            },
+            source=obj.id
+        )]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def oreplate_pangolin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another artifact enters, you may pay 1 to put +1/+1 counter on this."""
+    def artifact_etb_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj or entering_id == source_obj.id:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.ARTIFACT in entering_obj.characteristics.types
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_etb_trigger(obj, effect_fn, filter_fn=artifact_etb_filter)]
+
+
+def vaultguard_trooper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At end step, if you control 2+ tapped creatures, you may discard hand to draw 2."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        tapped_count = sum(1 for o in state.objects.values()
+                         if o.controller == obj.controller
+                         and CardType.CREATURE in o.characteristics.types
+                         and o.zone == ZoneType.BATTLEFIELD
+                         and o.state.tapped)
+        if tapped_count >= 2:
+            return [Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id
+            )]
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def eumidian_terrabotanist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Landfall - Whenever a land you control enters, you gain 1 life."""
+    def landfall_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter)]
+
+
+def harmonious_grovestrider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Power/toughness equal to number of lands you control."""
+    def pt_filter(event: Event, state: GameState) -> bool:
+        return (event.type in (EventType.QUERY_POWER, EventType.QUERY_TOUGHNESS) and
+                event.payload.get('object_id') == obj.id)
+
+    def pt_handler(event: Event, state: GameState) -> InterceptorResult:
+        # Count lands controller controls
+        land_count = sum(1 for o in state.objects.values()
+                        if o.controller == obj.controller
+                        and CardType.LAND in o.characteristics.types
+                        and o.zone == ZoneType.BATTLEFIELD)
+        new_event = event.copy()
+        new_event.payload['value'] = land_count
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=pt_filter,
+        handler=pt_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+def hemosymbic_mite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature becomes tapped, another target creature gets +X/+X."""
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_tap_trigger(obj, tap_effect)]
+
+
+def icecave_crasher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Landfall - Whenever a land you control enters, this gets +1/+0 until end of turn."""
+    def landfall_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need temporary P/T boost
+        return []
+
+    return [make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter)]
+
+
+def remnant_elemental_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Landfall - Whenever a land you control enters, this gets +2/+0 until end of turn."""
+    def landfall_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Would need temporary P/T boost
+
+    return [make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter)]
+
+
+def ouroboroid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At beginning of combat on your turn, put X +1/+1 counters on each creature you control."""
+    def combat_start_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.PHASE_START and
+                event.payload.get('phase') == 'combat' and
+                state.active_player == obj.controller)
+
+    def combat_effect(event: Event, state: GameState) -> list[Event]:
+        # Get this creature's power
+        power = get_power(obj, state)
+        events = []
+        for o in state.objects.values():
+            if (o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': power},
+                    source=obj.id
+                ))
+        return events
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_start_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def seedship_agrarian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature becomes tapped, create a Lander token. Landfall - +1/+1 counter."""
+    interceptors = []
+
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Lander Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Lander'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    interceptors.append(make_tap_trigger(obj, tap_effect))
+
+    def landfall_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    interceptors.append(make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter))
+
+    return interceptors
+
+
+def skystinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature blocks a creature with flying, this gets +5/+0 until end of turn."""
+    def block_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.BLOCK_DECLARED:
+            return False
+        if event.payload.get('blocker_id') != source_obj.id:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return False
+        # Check if attacker has flying
+        abilities = getattr(attacker.characteristics, 'abilities', [])
+        return 'flying' in abilities
+
+    def block_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Would need temporary P/T boost
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: block_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=block_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def tapestry_warden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Each creature you control with toughness greater than power assigns combat damage equal to toughness."""
+    # This is a complex static ability that modifies combat damage calculation
+    return []
+
+
+def cosmogoyf_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Power is equal to cards you own in exile, toughness is that plus 1."""
+    def pt_filter(event: Event, state: GameState) -> bool:
+        return (event.type in (EventType.QUERY_POWER, EventType.QUERY_TOUGHNESS) and
+                event.payload.get('object_id') == obj.id)
+
+    def pt_handler(event: Event, state: GameState) -> InterceptorResult:
+        # Count cards in exile owned by controller
+        exile_count = sum(1 for o in state.objects.values()
+                        if o.owner == obj.controller
+                        and o.zone == ZoneType.EXILE)
+        new_event = event.copy()
+        if event.type == EventType.QUERY_POWER:
+            new_event.payload['value'] = exile_count
+        else:  # toughness
+            new_event.payload['value'] = exile_count + 1
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=pt_filter,
+        handler=pt_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+def tannuk_memorial_ensign_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Landfall - Whenever a land you control enters, deal 1 damage to each opponent."""
+    landfall_count_this_turn = [0]
+
+    def landfall_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        landfall_count_this_turn[0] += 1
+        events = []
+        for player_id in state.players.keys():
+            if player_id != obj.controller:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': player_id, 'amount': 1, 'source': obj.id},
+                    source=obj.id
+                ))
+        # Draw card on second trigger
+        if landfall_count_this_turn[0] == 2:
+            events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id))
+        return events
+
+    return [make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter)]
+
+
+def starfield_shepherd_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, search for basic Plains or creature with MV 1 or less."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,  # Simplified search effect
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def starwinder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a creature you control deals combat damage to a player, you may draw that many cards."""
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        source_id = event.payload.get('source')
+        source_obj = state.objects.get(source_id)
+        if not source_obj:
+            return False
+        if source_obj.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in source_obj.characteristics.types:
+            return False
+        target_id = event.payload.get('target')
+        return target_id in state.players
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        amount = event.payload.get('amount', 0)
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': amount},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=damage_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def selfcraft_mechan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, you may sacrifice an artifact. When you do, put +1/+1 counter and draw."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Requires sacrifice choice
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def comet_crawler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature attacks, you may sacrifice another creature/artifact for +2/+0."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Requires sacrifice choice
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def rescue_skiff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, return target creature or enchantment from graveyard to battlefield."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # Target selection required
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def susurian_dirgecraft_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, each opponent sacrifices a nontoken creature."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in state.players.keys():
+            if player_id != obj.controller:
+                events.append(Event(
+                    type=EventType.SACRIFICE,
+                    payload={'player': player_id, 'type': 'creature'},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def weapons_manufacturing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a nontoken artifact you control enters, create a Munitions token."""
+    def artifact_etb_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        if getattr(entering_obj.state, 'is_token', False):
+            return False
+        return CardType.ARTIFACT in entering_obj.characteristics.types
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Munitions Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'colors': []
+            },
+            source=obj.id
+        )]
+
+    return [make_etb_trigger(obj, effect_fn, filter_fn=artifact_etb_filter)]
+
+
+def sothera_the_supervoid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a creature you control dies, each opponent chooses and exiles a creature they control."""
+    def death_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        dying_obj = state.objects.get(dying_id)
+        if not dying_obj:
+            return False
+        if dying_obj.controller != source_obj.controller:
+            return False
+        return CardType.CREATURE in dying_obj.characteristics.types
+
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        # Each opponent exiles a creature (simplified)
+        return []
+
+    return [make_death_trigger(obj, death_effect, filter_fn=death_filter)]
+
+
+def nutrient_block_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this artifact is put into a graveyard from the battlefield, draw a card."""
+    def death_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        return (event.type == EventType.ZONE_CHANGE and
+                event.payload.get('object_id') == source_obj.id and
+                event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD and
+                event.payload.get('to_zone_type') == ZoneType.GRAVEYARD)
+
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
+
+    return [make_death_trigger(obj, death_effect, filter_fn=death_filter)]
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -196,6 +2181,7 @@ BRIGHTSPEAR_ZEALOT = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Vigilance\nThis creature gets +2/+0 as long as you've cast two or more spells this turn.",
+    setup_interceptors=brightspear_zealot_setup
 )
 
 COSMOGRAND_ZENITH = make_creature(
@@ -205,6 +2191,7 @@ COSMOGRAND_ZENITH = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Whenever you cast your second spell each turn, choose one —\n• Create two 1/1 white Human Soldier creature tokens.\n• Put a +1/+1 counter on each creature you control.",
+    setup_interceptors=cosmogrand_zenith_setup
 )
 
 DAWNSTRIKE_VANGUARD = make_creature(
@@ -214,6 +2201,7 @@ DAWNSTRIKE_VANGUARD = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
     text="Lifelink\nAt the beginning of your end step, if you control two or more tapped creatures, put a +1/+1 counter on each creature you control other than this creature.",
+    setup_interceptors=dawnstrike_vanguard_setup
 )
 
 DOCKWORKER_DRONE = make_artifact_creature(
@@ -223,6 +2211,7 @@ DOCKWORKER_DRONE = make_artifact_creature(
     colors={Color.WHITE},
     subtypes={"Robot"},
     text="This creature enters with a +1/+1 counter on it.\nWhen this creature dies, put its counters on target creature you control.",
+    setup_interceptors=dockworker_drone_setup
 )
 
 DUALSUN_ADEPTS = make_creature(
@@ -264,6 +2253,7 @@ EXOSUIT_SAVIOR = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Flying\nWhen this creature enters, return up to one other target permanent you control to its owner's hand.",
+    setup_interceptors=exosuit_savior_setup
 )
 
 FLIGHTDECK_COORDINATOR = make_creature(
@@ -273,6 +2263,7 @@ FLIGHTDECK_COORDINATOR = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="At the beginning of your end step, if you control two or more tapped creatures, you gain 2 life.",
+    setup_interceptors=flightdeck_coordinator_setup
 )
 
 FOCUS_FIRE = make_instant(
@@ -290,6 +2281,7 @@ HALIYA_GUIDED_BY_LIGHT = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="Whenever Haliya or another creature or artifact you control enters, you gain 1 life.\nAt the beginning of your end step, draw a card if you've gained 3 or more life this turn.\nWarp {W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=haliya_guided_by_light_setup
 )
 
 HARDLIGHT_CONTAINMENT = make_enchantment(
