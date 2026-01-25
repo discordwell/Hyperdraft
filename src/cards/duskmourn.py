@@ -1,9 +1,8 @@
 """
-Duskmourn: House of Horror (DSK) Card Implementations
+Duskmourn (DSK) Card Implementations
 
-Set released September 2024. ~250 cards.
-Features mechanics: Rooms, Delirium, Manifest Dread, Survival, Eerie
-Horror house theme with Valgavoth as main villain.
+Real card data fetched from Scryfall API.
+277 cards in set.
 """
 
 from src.engine import (
@@ -11,23 +10,32 @@ from src.engine import (
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
     GameObject, GameState, ZoneType, CardType, Color,
     Characteristics, ObjectState, CardDefinition,
-    make_creature, make_instant, make_enchantment,
+    make_creature, make_enchantment,
     new_id, get_power, get_toughness
 )
 from typing import Optional, Callable
-from src.cards.interceptor_helpers import (
-    make_etb_trigger, make_death_trigger, make_attack_trigger,
-    make_damage_trigger, make_static_pt_boost, make_keyword_grant,
-    other_creatures_you_control, creatures_with_subtype,
-    make_spell_cast_trigger, make_upkeep_trigger, make_end_step_trigger,
-    make_life_gain_trigger, make_life_loss_trigger, creatures_you_control,
-    other_creatures_with_subtype, all_opponents
-)
 
 
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+def make_instant(name: str, mana_cost: str, colors: set, text: str, subtypes: set = None, supertypes: set = None, resolve=None):
+    """Helper to create instant card definitions."""
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.INSTANT},
+            subtypes=subtypes or set(),
+            supertypes=supertypes or set(),
+            colors=colors,
+            mana_cost=mana_cost
+        ),
+        text=text,
+        resolve=resolve
+    )
+
 
 def make_sorcery(name: str, mana_cost: str, colors: set, text: str, subtypes: set = None, supertypes: set = None, resolve=None):
     """Helper to create sorcery card definitions."""
@@ -62,8 +70,8 @@ def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, su
     )
 
 
-def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str, colors: set, text: str,
-                           subtypes: set = None, supertypes: set = None, setup_interceptors=None):
+def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str, colors: set,
+                           subtypes: set = None, supertypes: set = None, text: str = "", setup_interceptors=None):
     """Helper to create artifact creature card definitions."""
     return CardDefinition(
         name=name,
@@ -73,16 +81,16 @@ def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str
             subtypes=subtypes or set(),
             supertypes=supertypes or set(),
             colors=colors,
-            mana_cost=mana_cost,
             power=power,
-            toughness=toughness
+            toughness=toughness,
+            mana_cost=mana_cost
         ),
         text=text,
         setup_interceptors=setup_interceptors
     )
 
 
-def make_land(name: str, text: str = "", subtypes: set = None, supertypes: set = None):
+def make_land(name: str, text: str = "", subtypes: set = None, supertypes: set = None, setup_interceptors=None):
     """Helper to create land card definitions."""
     return CardDefinition(
         name=name,
@@ -93,3332 +101,2563 @@ def make_land(name: str, text: str = "", subtypes: set = None, supertypes: set =
             supertypes=supertypes or set(),
             mana_cost=""
         ),
-        text=text
-    )
-
-
-def make_room(name: str, mana_cost: str, colors: set, text: str, supertypes: set = None, setup_interceptors=None):
-    """Helper to create Room enchantment card definitions."""
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.ENCHANTMENT},
-            subtypes={"Room"},
-            supertypes=supertypes or set(),
-            colors=colors,
-            mana_cost=mana_cost
-        ),
         text=text,
         setup_interceptors=setup_interceptors
     )
 
 
-# =============================================================================
-# DUSKMOURN KEYWORD MECHANICS
-# =============================================================================
-
-def check_delirium(state: GameState, player_id: str) -> bool:
-    """Check if player has delirium (4+ card types in graveyard)."""
-    player = state.players.get(player_id)
-    if not player:
-        return False
-
-    types_in_grave = set()
-    for card_id in player.graveyard:
-        card = state.objects.get(card_id)
-        if card:
-            types_in_grave.update(card.characteristics.types)
-
-    return len(types_in_grave) >= 4
-
-
-def check_survival(state: GameState, player_id: str, source_obj: GameObject) -> bool:
-    """Check if player has survival (creature with power 2+ greater than base)."""
-    for obj_id, obj in state.objects.items():
-        if obj.controller != player_id:
-            continue
-        if CardType.CREATURE not in obj.characteristics.types:
-            continue
-        if obj.zone != ZoneType.BATTLEFIELD:
-            continue
-
-        base_power = obj.characteristics.power or 0
-        current_power = get_power(obj, state)
-        if current_power >= base_power + 2:
-            return True
-
-    return False
-
-
-def make_delirium_bonus(source_obj: GameObject, power_bonus: int, toughness_bonus: int) -> list[Interceptor]:
-    """Delirium - This creature gets +X/+Y if you have 4+ card types in graveyard."""
-    def delirium_filter(target: GameObject, state: GameState) -> bool:
-        if target.id != source_obj.id:
-            return False
-        return check_delirium(state, source_obj.controller)
-
-    return make_static_pt_boost(source_obj, power_bonus, toughness_bonus, delirium_filter)
-
-
-def make_survival_bonus(source_obj: GameObject, power_bonus: int, toughness_bonus: int) -> list[Interceptor]:
-    """Survival - This creature gets +X/+Y if you control a creature with power 2+ greater than base."""
-    def survival_filter(target: GameObject, state: GameState) -> bool:
-        if target.id != source_obj.id:
-            return False
-        return check_survival(state, source_obj.controller, source_obj)
-
-    return make_static_pt_boost(source_obj, power_bonus, toughness_bonus, survival_filter)
-
-
-def make_eerie_trigger(source_obj: GameObject, effect_fn: Callable[[Event, GameState], list[Event]]) -> Interceptor:
-    """Eerie - Whenever an enchantment enters or you unlock a Room, trigger effect."""
-    def eerie_filter(event: Event, state: GameState) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            obj_id = event.payload.get('object_id')
-            obj = state.objects.get(obj_id)
-            if not obj:
-                return False
-            if obj.controller != source_obj.controller:
-                return False
-            return CardType.ENCHANTMENT in obj.characteristics.types
-
-        if event.type == EventType.UNLOCK_ROOM:
-            return event.payload.get('controller') == source_obj.controller
-
-        return False
-
-    def eerie_handler(event: Event, state: GameState) -> InterceptorResult:
-        new_events = effect_fn(event, state)
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=new_events
-        )
-
-    return Interceptor(
-        id=new_id(),
-        source=source_obj.id,
-        controller=source_obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=eerie_filter,
-        handler=eerie_handler,
-        duration='while_on_battlefield'
+def make_planeswalker(name: str, mana_cost: str, colors: set, loyalty: int,
+                      subtypes: set = None, supertypes: set = None, text: str = "", setup_interceptors=None):
+    """Helper to create planeswalker card definitions."""
+    base_supertypes = supertypes or set()
+    # Note: loyalty is prepended to text since Characteristics doesn't have loyalty field
+    loyalty_text = f"[Loyalty: {loyalty}] " + text if text else f"[Loyalty: {loyalty}]"
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.PLANESWALKER},
+            subtypes=subtypes or set(),
+            supertypes=base_supertypes,
+            colors=colors,
+            mana_cost=mana_cost
+        ),
+        text=loyalty_text,
+        setup_interceptors=setup_interceptors
     )
 
 
-def make_manifest_dread_etb(source_obj: GameObject) -> Interceptor:
-    """Manifest Dread - Look at top 2 cards, put one face-down as 2/2, other in graveyard."""
-    def manifest_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANIFEST_DREAD,
-            payload={'controller': source_obj.controller},
-            source=source_obj.id
-        )]
-    return make_etb_trigger(source_obj, manifest_effect)
-
-
-def survivor_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Survivor creatures you control."""
-    return creatures_with_subtype(source, "Survivor")
-
-
-def spirit_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Spirit creatures you control."""
-    return creatures_with_subtype(source, "Spirit")
-
-
-def demon_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Demon creatures you control."""
-    return creatures_with_subtype(source, "Demon")
-
-
-def nightmare_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Nightmare creatures you control."""
-    return creatures_with_subtype(source, "Nightmare")
-
-
-def horror_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Horror creatures you control."""
-    return creatures_with_subtype(source, "Horror")
-
-
 # =============================================================================
-# WHITE CARDS - SURVIVORS, PROTECTION, LIGHT
+# CARD DEFINITIONS
 # =============================================================================
 
-# --- Legendary Creatures ---
-
-def winter_cedric_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survivors you control get +1/+1, Eerie draw"""
-    interceptors = []
-    interceptors.extend(make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Survivor")))
-
-    def eerie_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
-
-    interceptors.append(make_eerie_trigger(obj, eerie_effect))
-    return interceptors
-
-WINTER_CEDRIC = make_creature(
-    name="Winter, Cynical Opportunist",
-    power=3, toughness=3,
-    mana_cost="{2}{W}{W}",
-    colors={Color.WHITE},
-    subtypes={"Human", "Survivor"},
-    supertypes={"Legendary"},
-    text="Vigilance. Other Survivor creatures you control get +1/+1. Eerie - Whenever an enchantment enters or you unlock a Room, draw a card.",
-    setup_interceptors=winter_cedric_setup
-)
-
-
-def niko_aris_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB create Shard tokens, attack trigger scry"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(type=EventType.CREATE_TOKEN, payload={
-                'controller': obj.controller,
-                'token': {'name': 'Shard', 'types': {CardType.ENCHANTMENT}, 'subtypes': {'Shard'}, 'colors': {Color.WHITE}}
-            }, source=obj.id),
-            Event(type=EventType.CREATE_TOKEN, payload={
-                'controller': obj.controller,
-                'token': {'name': 'Shard', 'types': {CardType.ENCHANTMENT}, 'subtypes': {'Shard'}, 'colors': {Color.WHITE}}
-            }, source=obj.id)
-        ]
-
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SCRY, payload={'player': obj.controller, 'count': 2}, source=obj.id)]
-
-    return [make_etb_trigger(obj, etb_effect), make_attack_trigger(obj, attack_effect)]
-
-NIKO_ARIS = make_creature(
-    name="Niko Aris, Bound and Battling",
-    power=2, toughness=3,
-    mana_cost="{1}{W}{U}",
-    colors={Color.WHITE, Color.BLUE},
-    subtypes={"Human", "Survivor"},
-    supertypes={"Legendary"},
-    text="When Niko Aris enters, create two Shard enchantment tokens. Whenever Niko attacks, scry 2.",
-    setup_interceptors=niko_aris_setup
-)
-
-
-def aminatou_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie surveil 2, manifest dread on upkeep"""
-    def eerie_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'count': 2}, source=obj.id)]
-
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.MANIFEST_DREAD, payload={'controller': obj.controller}, source=obj.id)]
-
-    return [make_eerie_trigger(obj, eerie_effect), make_upkeep_trigger(obj, upkeep_effect)]
-
-AMINATOU_VEIL_PIERCER = make_creature(
-    name="Aminatou, Veil Piercer",
-    power=2, toughness=4,
-    mana_cost="{2}{W}{B}",
-    colors={Color.WHITE, Color.BLACK},
-    subtypes={"Human", "Warlock"},
-    supertypes={"Legendary"},
-    text="Eerie - Whenever an enchantment enters or you unlock a Room, surveil 2. At the beginning of your upkeep, manifest dread.",
-    setup_interceptors=aminatou_setup
-)
-
-
-# --- White Creatures ---
-
-def glimmerburst_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB gain 3 life"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
-GLIMMERBURST_GUIDE = make_creature(
-    name="Glimmerburst Guide",
+ACROBATIC_CHEERLEADER = make_creature(
+    name="Acrobatic Cheerleader",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Spirit", "Scout"},
-    text="Flying. When Glimmerburst Guide enters, you gain 3 life.",
-    setup_interceptors=glimmerburst_guide_setup
+    subtypes={"Human", "Survivor"},
+    text="Survival — At the beginning of your second main phase, if this creature is tapped, put a flying counter on it. This ability triggers only once.",
 )
 
-
-def sanctuary_seeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival - gains +1/+1 and vigilance"""
-    interceptors = make_survival_bonus(obj, 1, 1)
-
-    def survival_keyword_filter(target: GameObject, state: GameState) -> bool:
-        if target.id != obj.id:
-            return False
-        return check_survival(state, obj.controller, obj)
-
-    interceptors.append(make_keyword_grant(obj, ['vigilance'], survival_keyword_filter))
-    return interceptors
-
-SANCTUARY_SEEKER = make_creature(
-    name="Sanctuary Seeker",
-    power=2, toughness=2,
+CULT_HEALER = make_creature(
+    name="Cult Healer",
+    power=3, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Survivor"},
-    text="Survival - As long as you control a creature with power 2 or more greater than its base power, Sanctuary Seeker gets +1/+1 and has vigilance.",
-    setup_interceptors=sanctuary_seeker_setup
+    subtypes={"Doctor", "Human"},
+    text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, this creature gains lifelink until end of turn.",
 )
 
+DAZZLING_THEATER = make_enchantment(
+    name="Dazzling Theater",
+    mana_cost="{3}{W} // {2}{W}",
+    colors={Color.WHITE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
 
-def ethereal_armor_bearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie trigger - put +1/+1 counter on self"""
-    def eerie_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.COUNTER_ADDED, payload={
-            'object_id': obj.id, 'counter_type': '+1/+1', 'count': 1
-        }, source=obj.id)]
-    return [make_eerie_trigger(obj, eerie_effect)]
+DOLLMAKERS_SHOP = make_enchantment(
+    name="Dollmaker's Shop",
+    mana_cost="{1}{W} // {4}{W}{W}",
+    colors={Color.WHITE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
 
-ETHEREAL_ARMOR_BEARER = make_creature(
-    name="Ethereal Armor Bearer",
-    power=1, toughness=2,
+EMERGE_FROM_THE_COCOON = make_sorcery(
+    name="Emerge from the Cocoon",
+    mana_cost="{4}{W}",
+    colors={Color.WHITE},
+    text="Return target creature card from your graveyard to the battlefield. You gain 3 life.",
+)
+
+ENDURING_INNOCENCE = make_creature(
+    name="Enduring Innocence",
+    power=2, toughness=1,
+    mana_cost="{1}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"Glimmer", "Sheep"},
+    text="Lifelink\nWhenever one or more other creatures you control with power 2 or less enter, draw a card. This ability triggers only once each turn.\nWhen Enduring Innocence dies, if it was a creature, return it to the battlefield under its owner's control. It's an enchantment. (It's not a creature.)",
+)
+
+ETHEREAL_ARMOR = make_enchantment(
+    name="Ethereal Armor",
     mana_cost="{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Soldier"},
-    text="Eerie - Whenever an enchantment enters or you unlock a Room, put a +1/+1 counter on Ethereal Armor Bearer.",
-    setup_interceptors=ethereal_armor_bearer_setup
+    text="Enchant creature\nEnchanted creature gets +1/+1 for each enchantment you control and has first strike.",
+    subtypes={"Aura"},
 )
 
-
-SHELTERED_WANDERER = make_creature(
-    name="Sheltered Wanderer",
-    power=3, toughness=2,
-    mana_cost="{2}{W}",
+EXORCISE = make_sorcery(
+    name="Exorcise",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Survivor"},
-    text="Vigilance. When Sheltered Wanderer enters, you may search your library for a Room card, reveal it, and put it into your hand."
+    text="Exile target artifact, enchantment, or creature with power 4 or greater.",
 )
 
-
-def fear_of_exposure_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Enchantment creature with flash"""
-    return []
-
-FEAR_OF_EXPOSURE = make_creature(
-    name="Fear of Exposure",
-    power=2, toughness=3,
-    mana_cost="{2}{W}",
+FEAR_OF_ABDUCTION = make_creature(
+    name="Fear of Abduction",
+    power=5, toughness=5,
+    mana_cost="{4}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Nightmare"},
-    text="Flash. Enchantment creature. When Fear of Exposure enters, tap target creature an opponent controls."
+    text="As an additional cost to cast this spell, exile a creature you control.\nFlying\nWhen this creature enters, exile target creature an opponent controls.\nWhen this creature leaves the battlefield, put each card exiled with it into its owner's hand.",
 )
 
+FEAR_OF_IMMOBILITY = make_creature(
+    name="Fear of Immobility",
+    power=4, toughness=4,
+    mana_cost="{4}{W}",
+    colors={Color.WHITE},
+    subtypes={"Nightmare"},
+    text="When this creature enters, tap up to one target creature. If an opponent controls that creature, put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
+)
 
-def hallowed_respite_keeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB exile target creature until this leaves"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.EXILE_UNTIL, payload={
-            'source': obj.id, 'reason': 'enters'
-        }, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
+FEAR_OF_SURVEILLANCE = make_creature(
+    name="Fear of Surveillance",
+    power=2, toughness=2,
+    mana_cost="{1}{W}",
+    colors={Color.WHITE},
+    subtypes={"Nightmare"},
+    text="Vigilance\nWhenever this creature attacks, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+)
 
-HALLOWED_RESPITE_KEEPER = make_creature(
-    name="Hallowed Respite Keeper",
+FRIENDLY_GHOST = make_creature(
+    name="Friendly Ghost",
     power=2, toughness=4,
     mana_cost="{3}{W}",
     colors={Color.WHITE},
-    subtypes={"Spirit", "Cleric"},
-    text="When Hallowed Respite Keeper enters, exile target creature an opponent controls until Hallowed Respite Keeper leaves the battlefield.",
-    setup_interceptors=hallowed_respite_keeper_setup
+    subtypes={"Spirit"},
+    text="Flying\nWhen this creature enters, target creature gets +2/+4 until end of turn.",
 )
 
-
-LIGHT_OF_THE_HOUSE = make_creature(
-    name="Light of the House",
-    power=4, toughness=4,
+GHOSTLY_DANCERS = make_creature(
+    name="Ghostly Dancers",
+    power=2, toughness=5,
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
-    subtypes={"Angel"},
-    text="Flying, vigilance. Other creatures you control have ward {1}."
+    subtypes={"Spirit"},
+    text="Flying\nWhen this creature enters, return an enchantment card from your graveyard to your hand or unlock a locked door of a Room you control.\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, create a 3/1 white Spirit creature token with flying.",
 )
 
-
-def trapped_angel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Escape from graveyard"""
-    return []
-
-TRAPPED_ANGEL = make_creature(
-    name="Trapped Angel",
+GLIMMER_SEEKER = make_creature(
+    name="Glimmer Seeker",
     power=3, toughness=3,
-    mana_cost="{2}{W}{W}",
-    colors={Color.WHITE},
-    subtypes={"Angel"},
-    text="Flying. Escape - {4}{W}{W}, Exile four other cards from your graveyard."
-)
-
-
-FLICKERING_SURVIVOR = make_creature(
-    name="Flickering Survivor",
-    power=2, toughness=1,
-    mana_cost="{W}",
-    colors={Color.WHITE},
-    subtypes={"Human", "Survivor"},
-    text="When Flickering Survivor enters, you may exile another creature you control, then return it to the battlefield."
-)
-
-
-def house_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Other creatures you control get +0/+1"""
-    return make_static_pt_boost(obj, 0, 1, other_creatures_you_control(obj))
-
-HOUSE_GUARDIAN = make_creature(
-    name="House Guardian",
-    power=1, toughness=4,
-    mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    subtypes={"Spirit", "Knight"},
-    text="Defender. Other creatures you control get +0/+1.",
-    setup_interceptors=house_guardian_setup
-)
-
-
-# --- White Instants/Sorceries ---
-
-FINAL_LIGHT = make_instant(
-    name="Final Light",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Exile target creature with power 4 or greater."
+    subtypes={"Human", "Survivor"},
+    text="Survival — At the beginning of your second main phase, if this creature is tapped, draw a card if you control a Glimmer creature. If you don't control a Glimmer creature, create a 1/1 white Glimmer enchantment creature token.",
 )
 
-SURVIVAL_INSTINCT = make_instant(
-    name="Survival Instinct",
+GRAND_ENTRYWAY = make_enchantment(
+    name="Grand Entryway",
+    mana_cost="{1}{W} // {2}{W}",
+    colors={Color.WHITE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+HARDENED_ESCORT = make_creature(
+    name="Hardened Escort",
+    power=2, toughness=4,
+    mana_cost="{2}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Soldier"},
+    text="Whenever this creature attacks, another target creature you control gets +1/+0 and gains indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)",
+)
+
+JUMP_SCARE = make_instant(
+    name="Jump Scare",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Target creature gets +2/+2 until end of turn. If you have survival, it also gains indestructible until end of turn."
+    text="Until end of turn, target creature gets +2/+2, gains flying, and becomes a Horror enchantment creature in addition to its other types.",
 )
 
-SHELTER_IN_LIGHT = make_sorcery(
-    name="Shelter in Light",
-    mana_cost="{1}{W}",
+LEYLINE_OF_HOPE = make_enchantment(
+    name="Leyline of Hope",
+    mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="Create a 1/1 white Spirit creature token with flying. If an opponent controls more creatures than you, create two tokens instead."
+    text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nIf you would gain life, you gain that much life plus 1 instead.\nAs long as you have at least 7 life more than your starting life total, creatures you control get +2/+2.",
 )
 
-BLESSED_SANCTUARY = make_enchantment(
-    name="Blessed Sanctuary",
+LIONHEART_GLIMMER = make_creature(
+    name="Lionheart Glimmer",
+    power=2, toughness=5,
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
-    text="Prevent all noncombat damage that would be dealt to you and creatures you control. Whenever a creature enters under your control, you gain 2 life."
+    subtypes={"Cat", "Glimmer"},
+    text="Ward {2} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.)\nWhenever you attack, creatures you control get +1/+1 until end of turn.",
 )
 
-
-# =============================================================================
-# BLUE CARDS - SPIRITS, ILLUSIONS, INVESTIGATION
-# =============================================================================
-
-# --- Blue Legendary Creatures ---
-
-def zimone_mystery_unraveler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Draw triggers investigate"""
-    def draw_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Clue', 'types': {CardType.ARTIFACT}, 'subtypes': {'Clue'}}
-        }, source=obj.id)]
-
-    def draw_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.DRAW:
-            return False
-        return event.payload.get('player') == obj.controller
-
-    def draw_handler(event: Event, state: GameState) -> InterceptorResult:
-        new_events = draw_effect(event, state)
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=new_events)
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=draw_filter,
-        handler=draw_handler,
-        duration='while_on_battlefield'
-    )]
-
-ZIMONE_MYSTERY_UNRAVELER = make_creature(
-    name="Zimone, Mystery Unraveler",
-    power=2, toughness=3,
-    mana_cost="{1}{U}{G}",
-    colors={Color.BLUE, Color.GREEN},
-    subtypes={"Human", "Survivor", "Wizard"},
-    supertypes={"Legendary"},
-    text="Whenever you draw a card, if it's the second card you've drawn this turn, investigate.",
-    setup_interceptors=zimone_mystery_unraveler_setup
-)
-
-
-def kaito_dancing_shadow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ninjutsu-like, unblockable"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
-
-KAITO_DANCING_SHADOW = make_creature(
-    name="Kaito, Dancing Shadow",
-    power=3, toughness=4,
-    mana_cost="{2}{U}{B}",
-    colors={Color.BLUE, Color.BLACK},
-    subtypes={"Human", "Ninja"},
-    supertypes={"Legendary"},
-    text="Whenever Kaito deals combat damage to a player, draw a card. {2}{U}{B}: Return Kaito to its owner's hand. Activate only during combat.",
-    setup_interceptors=kaito_dancing_shadow_setup
-)
-
-
-# --- Blue Creatures ---
-
-def phantom_investigator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB investigate"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Clue', 'types': {CardType.ARTIFACT}, 'subtypes': {'Clue'}}
-        }, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
-PHANTOM_INVESTIGATOR = make_creature(
-    name="Phantom Investigator",
-    power=1, toughness=3,
-    mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    subtypes={"Spirit"},
-    text="Flying. When Phantom Investigator enters, investigate.",
-    setup_interceptors=phantom_investigator_setup
-)
-
-
-def thought_stalker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - target player mills 2"""
-    def eerie_effect(event: Event, state: GameState) -> list[Event]:
-        opponents = all_opponents(obj, state)
-        if opponents:
-            return [Event(type=EventType.MILL, payload={
-                'player': opponents[0], 'count': 2
-            }, source=obj.id)]
-        return []
-    return [make_eerie_trigger(obj, eerie_effect)]
-
-THOUGHT_STALKER = make_creature(
-    name="Thought Stalker",
-    power=3, toughness=2,
-    mana_cost="{2}{U}",
-    colors={Color.BLUE},
-    subtypes={"Nightmare"},
-    text="Flying. Eerie - Whenever an enchantment enters or you unlock a Room, target player mills two cards.",
-    setup_interceptors=thought_stalker_setup
-)
-
-
-def mirror_echo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB copy a creature"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CLONE_CREATURE, payload={
-            'source': obj.id, 'controller': obj.controller
-        }, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
-MIRROR_ECHO = make_creature(
-    name="Mirror Echo",
-    power=0, toughness=0,
-    mana_cost="{3}{U}",
-    colors={Color.BLUE},
-    subtypes={"Shapeshifter"},
-    text="You may have Mirror Echo enter as a copy of any creature on the battlefield.",
-    setup_interceptors=mirror_echo_setup
-)
-
-
-FEAR_OF_IMPOSTORS = make_creature(
-    name="Fear of Impostors",
-    power=3, toughness=3,
-    mana_cost="{2}{U}{U}",
-    colors={Color.BLUE},
-    subtypes={"Nightmare"},
-    text="Flash. Enchantment creature. When Fear of Impostors enters, gain control of target creature until end of turn. Untap it. It gains haste."
-)
-
-
-def wandering_apparition_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Damage trigger - bounce a permanent"""
-    def damage_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.BOUNCE, payload={
-            'controller': obj.controller
-        }, source=obj.id)]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
-
-WANDERING_APPARITION = make_creature(
-    name="Wandering Apparition",
+LIVING_PHONE = make_artifact_creature(
+    name="Living Phone",
     power=2, toughness=1,
-    mana_cost="{2}{U}",
-    colors={Color.BLUE},
-    subtypes={"Spirit"},
-    text="Flying. Whenever Wandering Apparition deals combat damage to a player, you may return target nonland permanent to its owner's hand.",
-    setup_interceptors=wandering_apparition_setup
+    mana_cost="{2}{W}",
+    colors={Color.WHITE},
+    subtypes={"Toy"},
+    text="When this creature dies, look at the top five cards of your library. You may reveal a creature card with power 2 or less from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
 )
 
-
-LOST_IN_THE_MAZE = make_creature(
-    name="Lost in the Maze",
-    power=1, toughness=4,
-    mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    subtypes={"Illusion"},
-    text="Defender. When Lost in the Maze dies, draw two cards."
-)
-
-
-DREAD_SPECTER = make_creature(
-    name="Dread Specter",
-    power=2, toughness=2,
-    mana_cost="{3}{U}",
-    colors={Color.BLUE},
-    subtypes={"Spirit", "Horror"},
-    text="Flying. Delirium - Dread Specter has hexproof if there are four or more card types among cards in your graveyard."
-)
-
-
-def manifest_dread_seer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB manifest dread"""
-    return [make_manifest_dread_etb(obj)]
-
-MANIFEST_DREAD_SEER = make_creature(
-    name="Manifest Dread Seer",
-    power=2, toughness=3,
-    mana_cost="{2}{U}",
-    colors={Color.BLUE},
-    subtypes={"Human", "Wizard"},
-    text="When Manifest Dread Seer enters, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard.)",
-    setup_interceptors=manifest_dread_seer_setup
-)
-
-
-ECHO_OF_DESPAIR = make_creature(
-    name="Echo of Despair",
-    power=4, toughness=3,
-    mana_cost="{4}{U}",
-    colors={Color.BLUE},
-    subtypes={"Spirit", "Horror"},
-    text="Flying. When Echo of Despair enters, each opponent returns a creature they control to its owner's hand."
-)
-
-
-# --- Blue Instants/Sorceries ---
-
-TERROR_REFLECTED = make_instant(
-    name="Terror Reflected",
-    mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    text="Counter target spell unless its controller pays {3}. If you have delirium, counter it unless its controller pays {5} instead."
-)
-
-UNSETTLING_VISION = make_sorcery(
-    name="Unsettling Vision",
-    mana_cost="{2}{U}",
-    colors={Color.BLUE},
-    text="Draw two cards. If you have delirium, draw three cards instead."
-)
-
-DISTURBING_REVELATION = make_instant(
-    name="Disturbing Revelation",
-    mana_cost="{U}",
-    colors={Color.BLUE},
-    text="Target player mills three cards. You may put one of those cards into their hand."
-)
-
-
-# =============================================================================
-# BLACK CARDS - DEMONS, NIGHTMARES, DEATH
-# =============================================================================
-
-# --- Black Legendary Creatures ---
-
-def valgavoth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """The main villain - drains on death, grows from enchantments"""
-    def death_trigger(event: Event, state: GameState) -> bool:
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
-            return False
-        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
-            return False
-        target_id = event.payload.get('object_id')
-        target = state.objects.get(target_id)
-        if not target:
-            return False
-        if CardType.CREATURE not in target.characteristics.types:
-            return False
-        return target.controller != obj.controller
-
-    def death_handler(event: Event, state: GameState) -> InterceptorResult:
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[
-                Event(type=EventType.COUNTER_ADDED, payload={
-                    'object_id': obj.id, 'counter_type': '+1/+1', 'count': 1
-                }, source=obj.id),
-                Event(type=EventType.LIFE_CHANGE, payload={
-                    'player': obj.controller, 'amount': 1
-                }, source=obj.id)
-            ]
-        )
-
-    interceptor = Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=death_trigger,
-        handler=death_handler,
-        duration='while_on_battlefield'
-    )
-
-    return [interceptor]
-
-VALGAVOTH_HARROWER_OF_SOULS = make_creature(
-    name="Valgavoth, Harrower of Souls",
-    power=6, toughness=6,
-    mana_cost="{4}{B}{B}{B}",
-    colors={Color.BLACK},
-    subtypes={"Elder", "Demon"},
-    supertypes={"Legendary"},
-    text="Flying, trample. Whenever another creature dies, put a +1/+1 counter on Valgavoth and you gain 1 life. At the beginning of your end step, each opponent sacrifices a creature.",
-    setup_interceptors=valgavoth_setup
-)
-
-
-def valgavoth_terror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cheaper version - lifelink and deathtouch"""
-    return []
-
-VALGAVOTH_TERROR_EATER = make_creature(
-    name="Valgavoth, Terror Eater",
-    power=4, toughness=4,
-    mana_cost="{3}{B}{B}",
-    colors={Color.BLACK},
-    subtypes={"Demon"},
-    supertypes={"Legendary"},
-    text="Flying, lifelink, deathtouch. Whenever you sacrifice a creature, draw a card and lose 1 life.",
-    setup_interceptors=valgavoth_terror_setup
-)
-
-
-def razorkin_needlehead_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie drain"""
-    def eerie_effect(event: Event, state: GameState) -> list[Event]:
-        opponents = all_opponents(obj, state)
-        events = []
-        for opp in opponents:
-            events.append(Event(type=EventType.LIFE_CHANGE, payload={
-                'player': opp, 'amount': -1
-            }, source=obj.id))
-        events.append(Event(type=EventType.LIFE_CHANGE, payload={
-            'player': obj.controller, 'amount': len(opponents)
-        }, source=obj.id))
-        return events
-    return [make_eerie_trigger(obj, eerie_effect)]
-
-RAZORKIN_NEEDLEHEAD = make_creature(
-    name="Razorkin Needlehead",
-    power=3, toughness=2,
-    mana_cost="{1}{B}{B}",
-    colors={Color.BLACK},
-    subtypes={"Demon"},
-    supertypes={"Legendary"},
-    text="Flying. Eerie - Whenever an enchantment enters or you unlock a Room, each opponent loses 1 life and you gain that much life.",
-    setup_interceptors=razorkin_needlehead_setup
-)
-
-
-# --- Black Creatures ---
-
-def devouring_horror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Delirium +2/+2"""
-    return make_delirium_bonus(obj, 2, 2)
-
-DEVOURING_HORROR = make_creature(
-    name="Devouring Horror",
-    power=3, toughness=3,
-    mana_cost="{2}{B}",
-    colors={Color.BLACK},
-    subtypes={"Horror"},
-    text="Deathtouch. Delirium - Devouring Horror gets +2/+2 if there are four or more card types among cards in your graveyard.",
-    setup_interceptors=devouring_horror_setup
-)
-
-
-def skullsnatcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB opponent discards"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        opponents = all_opponents(obj, state)
-        if opponents:
-            return [Event(type=EventType.DISCARD, payload={
-                'player': opponents[0], 'count': 1
-            }, source=obj.id)]
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-SKULLSNATCHER = make_creature(
-    name="Skullsnatcher",
-    power=2, toughness=1,
-    mana_cost="{1}{B}",
-    colors={Color.BLACK},
-    subtypes={"Nightmare"},
-    text="Menace. When Skullsnatcher enters, target opponent discards a card.",
-    setup_interceptors=skullsnatcher_setup
-)
-
-
-FEAR_OF_LOST_TEETH = make_creature(
-    name="Fear of Lost Teeth",
-    power=4, toughness=3,
-    mana_cost="{3}{B}",
-    colors={Color.BLACK},
-    subtypes={"Nightmare"},
-    text="Enchantment creature. When Fear of Lost Teeth enters, each player sacrifices a creature."
-)
-
-
-def gravewaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB return creature from graveyard"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={
-            'controller': obj.controller, 'type': 'creature'
-        }, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
-GRAVEWAKER = make_creature(
-    name="Gravewaker",
-    power=3, toughness=3,
-    mana_cost="{4}{B}",
-    colors={Color.BLACK},
-    subtypes={"Spirit", "Horror"},
-    text="When Gravewaker enters, return target creature card from your graveyard to your hand.",
-    setup_interceptors=gravewaker_setup
-)
-
-
-def soul_shredder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack - opponent loses life equal to cards in graveyard"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        opponents = all_opponents(obj, state)
-        player = state.players.get(obj.controller)
-        if not player or not opponents:
-            return []
-        grave_count = min(len(player.graveyard), 5)
-        return [Event(type=EventType.LIFE_CHANGE, payload={
-            'player': opponents[0], 'amount': -grave_count
-        }, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
-
-SOUL_SHREDDER = make_creature(
-    name="Soul Shredder",
-    power=2, toughness=3,
-    mana_cost="{2}{B}",
-    colors={Color.BLACK},
-    subtypes={"Demon"},
-    text="Flying. Whenever Soul Shredder attacks, target opponent loses life equal to the number of cards in your graveyard, up to 5.",
-    setup_interceptors=soul_shredder_setup
-)
-
-
-BLOOD_CURDLE_IMP = make_creature(
-    name="Blood-Curdle Imp",
+OPTIMISTIC_SCAVENGER = make_creature(
+    name="Optimistic Scavenger",
     power=1, toughness=1,
-    mana_cost="{B}",
-    colors={Color.BLACK},
-    subtypes={"Imp"},
-    text="Flying. When Blood-Curdle Imp dies, each opponent loses 1 life."
+    mana_cost="{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Scout"},
+    text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, put a +1/+1 counter on target creature.",
 )
 
-
-def lurking_fear_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cant be blocked except by 2+ creatures"""
-    return []
-
-LURKING_FEAR = make_creature(
-    name="Lurking Fear",
-    power=4, toughness=2,
-    mana_cost="{3}{B}",
-    colors={Color.BLACK},
-    subtypes={"Nightmare"},
-    text="Lurking Fear can't be blocked except by two or more creatures.",
-    setup_interceptors=lurking_fear_setup
-)
-
-
-CORPSE_COLLECTOR = make_creature(
-    name="Corpse Collector",
-    power=2, toughness=4,
-    mana_cost="{2}{B}{B}",
-    colors={Color.BLACK},
-    subtypes={"Zombie"},
-    text="Deathtouch. {2}{B}, Sacrifice another creature: Draw a card."
-)
-
-
-MANIFEST_DARKNESS = make_creature(
-    name="Manifest Darkness",
-    power=3, toughness=2,
-    mana_cost="{1}{B}",
-    colors={Color.BLACK},
-    subtypes={"Horror"},
-    text="When Manifest Darkness enters, manifest dread."
-)
-
-
-# --- Black Instants/Sorceries ---
-
-FINAL_VENGEANCE = make_instant(
-    name="Final Vengeance",
-    mana_cost="{B}",
-    colors={Color.BLACK},
-    text="As an additional cost to cast this spell, sacrifice a creature or pay 4 life. Destroy target creature."
-)
-
-SOUL_HARVEST = make_sorcery(
-    name="Soul Harvest",
-    mana_cost="{2}{B}{B}",
-    colors={Color.BLACK},
-    text="Each opponent sacrifices a creature. You gain life equal to the total toughness of creatures sacrificed this way."
-)
-
-INESCAPABLE_DOOM = make_sorcery(
-    name="Inescapable Doom",
-    mana_cost="{3}{B}",
-    colors={Color.BLACK},
-    text="Destroy target creature. If you have delirium, return it to the battlefield under your control instead."
-)
-
-
-# =============================================================================
-# RED CARDS - DESTRUCTION, AGGRESSION, FIRE
-# =============================================================================
-
-# --- Red Legendary Creatures ---
-
-def arna_kennerud_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Double damage from Rooms"""
-    return []
-
-ARNA_KENNERUD = make_creature(
-    name="Arna Kennerud, Skycaptain",
-    power=4, toughness=4,
-    mana_cost="{3}{R}{W}",
-    colors={Color.RED, Color.WHITE},
-    subtypes={"Human", "Soldier"},
-    supertypes={"Legendary"},
-    text="Flying, vigilance. Whenever an enchantment you control is put into a graveyard from the battlefield, Arna Kennerud deals 3 damage to any target.",
-    setup_interceptors=arna_kennerud_setup
-)
-
-
-def hellraiser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack trigger - deal damage to each opponent"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        opponents = all_opponents(obj, state)
-        return [Event(type=EventType.DAMAGE, payload={
-            'target': opp, 'amount': 2, 'source': obj.id
-        }, source=obj.id) for opp in opponents]
-    return [make_attack_trigger(obj, attack_effect)]
-
-HELLRAISER_SPAWN = make_creature(
-    name="Hellraiser Spawn",
-    power=4, toughness=3,
-    mana_cost="{2}{R}{R}",
-    colors={Color.RED},
-    subtypes={"Demon"},
-    supertypes={"Legendary"},
-    text="Haste. Whenever Hellraiser Spawn attacks, it deals 2 damage to each opponent.",
-    setup_interceptors=hellraiser_setup
-)
-
-
-# --- Red Creatures ---
-
-def inferno_elemental_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival - gets haste and +2/+0"""
-    interceptors = make_survival_bonus(obj, 2, 0)
-
-    def survival_keyword_filter(target: GameObject, state: GameState) -> bool:
-        if target.id != obj.id:
-            return False
-        return check_survival(state, obj.controller, obj)
-
-    interceptors.append(make_keyword_grant(obj, ['haste'], survival_keyword_filter))
-    return interceptors
-
-INFERNO_ELEMENTAL = make_creature(
-    name="Inferno Elemental",
-    power=3, toughness=2,
-    mana_cost="{2}{R}",
-    colors={Color.RED},
-    subtypes={"Elemental"},
-    text="Survival - As long as you control a creature with power 2 or more greater than its base power, Inferno Elemental gets +2/+0 and has haste.",
-    setup_interceptors=inferno_elemental_setup
-)
-
-
-def pyroclasm_horror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB deal 2 to each creature"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE_ALL_CREATURES, payload={
-            'amount': 2, 'source': obj.id
-        }, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
-PYROCLASM_HORROR = make_creature(
-    name="Pyroclasm Horror",
-    power=4, toughness=4,
-    mana_cost="{3}{R}{R}",
-    colors={Color.RED},
-    subtypes={"Elemental", "Horror"},
-    text="When Pyroclasm Horror enters, it deals 2 damage to each other creature.",
-    setup_interceptors=pyroclasm_horror_setup
-)
-
-
-FEAR_OF_BURNING_ALIVE = make_creature(
-    name="Fear of Burning Alive",
-    power=3, toughness=2,
-    mana_cost="{2}{R}",
-    colors={Color.RED},
-    subtypes={"Nightmare"},
-    text="Enchantment creature. When Fear of Burning Alive enters, it deals 3 damage to target creature or planeswalker."
-)
-
-
-def reckless_survivor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack trigger - +2/+0"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.PUMP, payload={
-            'object_id': obj.id, 'power': 2, 'toughness': 0, 'duration': 'end_of_turn'
-        }, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
-
-RECKLESS_SURVIVOR = make_creature(
-    name="Reckless Survivor",
-    power=2, toughness=2,
-    mana_cost="{1}{R}",
-    colors={Color.RED},
-    subtypes={"Human", "Survivor"},
-    text="Whenever Reckless Survivor attacks, it gets +2/+0 until end of turn.",
-    setup_interceptors=reckless_survivor_setup
-)
-
-
-HOUSE_DEMOLISHER = make_creature(
-    name="House Demolisher",
-    power=5, toughness=4,
-    mana_cost="{4}{R}",
-    colors={Color.RED},
-    subtypes={"Giant"},
-    text="Trample. When House Demolisher enters, destroy target artifact or enchantment."
-)
-
-
-def ember_screamer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Delirium - gains menace"""
-    def delirium_filter(target: GameObject, state: GameState) -> bool:
-        if target.id != obj.id:
-            return False
-        return check_delirium(state, obj.controller)
-    return [make_keyword_grant(obj, ['menace'], delirium_filter)]
-
-EMBER_SCREAMER = make_creature(
-    name="Ember Screamer",
-    power=3, toughness=1,
-    mana_cost="{R}",
-    colors={Color.RED},
-    subtypes={"Elemental"},
-    text="Delirium - Ember Screamer has menace if there are four or more card types among cards in your graveyard.",
-    setup_interceptors=ember_screamer_setup
-)
-
-
-FURIOUS_SPECTER = make_creature(
-    name="Furious Specter",
+ORPHANS_OF_THE_WHEAT = make_creature(
+    name="Orphans of the Wheat",
     power=2, toughness=1,
-    mana_cost="{1}{R}",
-    colors={Color.RED},
-    subtypes={"Spirit"},
-    text="Haste. When Furious Specter enters, it deals 1 damage to any target."
+    mana_cost="{1}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human"},
+    text="Whenever this creature attacks, tap any number of untapped creatures you control. This creature gets +1/+1 until end of turn for each creature tapped this way.",
 )
 
+OVERLORD_OF_THE_MISTMOORS = make_creature(
+    name="Overlord of the Mistmoors",
+    power=6, toughness=6,
+    mana_cost="{5}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"Avatar", "Horror"},
+    text="Impending 4—{2}{W}{W} (If you cast this spell for its impending cost, it enters with four time counters and isn't a creature until the last is removed. At the beginning of your end step, remove a time counter from it.)\nWhenever this permanent enters or attacks, create two 2/1 white Insect creature tokens with flying.",
+)
 
-CHAOTIC_MANIFESTATION = make_creature(
-    name="Chaotic Manifestation",
+PATCHED_PLAYTHING = make_artifact_creature(
+    name="Patched Plaything",
     power=4, toughness=3,
-    mana_cost="{3}{R}",
-    colors={Color.RED},
-    subtypes={"Elemental", "Horror"},
-    text="Trample. When Chaotic Manifestation dies, it deals damage equal to its power to any target."
+    mana_cost="{2}{W}",
+    colors={Color.WHITE},
+    subtypes={"Toy"},
+    text="Double strike\nThis creature enters with two -1/-1 counters on it if you cast it from your hand.",
 )
 
-
-# --- Red Instants/Sorceries ---
-
-VOLCANIC_SPITE = make_instant(
-    name="Volcanic Spite",
-    mana_cost="{1}{R}",
-    colors={Color.RED},
-    text="Volcanic Spite deals 3 damage to target creature or planeswalker. You may discard a card. If you do, draw a card."
+POSSESSED_GOAT = make_creature(
+    name="Possessed Goat",
+    power=1, toughness=1,
+    mana_cost="{W}",
+    colors={Color.WHITE},
+    subtypes={"Goat"},
+    text="{3}, Discard a card: Put three +1/+1 counters on this creature and it becomes a black Demon in addition to its other colors and types. Activate only once.",
 )
 
-BURN_DOWN_THE_HOUSE = make_sorcery(
-    name="Burn Down the House",
-    mana_cost="{3}{R}{R}",
-    colors={Color.RED},
-    text="Choose one - Burn Down the House deals 5 damage divided as you choose among any number of target creatures and/or planeswalkers; or create three 1/1 red Devil creature tokens with 'When this creature dies, it deals 1 damage to any target.'"
-)
-
-DESPERATE_ESCAPE = make_instant(
-    name="Desperate Escape",
-    mana_cost="{R}",
-    colors={Color.RED},
-    text="Target creature you control gets +2/+0 and gains haste until end of turn. If you have survival, it also gains first strike."
-)
-
-
-# =============================================================================
-# GREEN CARDS - GROWTH, NATURE, BEASTS
-# =============================================================================
-
-# --- Green Legendary Creatures ---
-
-def tyvar_forest_protector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Elves get +1/+1, untap on creature ETB"""
-    interceptors = []
-    interceptors.extend(make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Elf")))
-
-    def creature_etb_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-            return False
-        obj_id = event.payload.get('object_id')
-        target = state.objects.get(obj_id)
-        if not target:
-            return False
-        return (target.controller == obj.controller and
-                CardType.CREATURE in target.characteristics.types)
-
-    def creature_etb_handler(event: Event, state: GameState) -> InterceptorResult:
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
-            Event(type=EventType.ADD_MANA, payload={
-                'player': obj.controller, 'color': 'G', 'amount': 1
-            }, source=obj.id)
-        ])
-
-    interceptors.append(Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=creature_etb_filter,
-        handler=creature_etb_handler,
-        duration='while_on_battlefield'
-    ))
-
-    return interceptors
-
-TYVAR_FOREST_PROTECTOR = make_creature(
-    name="Tyvar, Roaming Hero",
-    power=3, toughness=4,
-    mana_cost="{2}{G}{G}",
-    colors={Color.GREEN},
-    subtypes={"Elf", "Warrior"},
-    supertypes={"Legendary"},
-    text="Other Elf creatures you control get +1/+1. Whenever a creature enters under your control, add {G}.",
-    setup_interceptors=tyvar_forest_protector_setup
-)
-
-
-def overgrown_survivor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival - gets trample and +3/+3"""
-    interceptors = make_survival_bonus(obj, 3, 3)
-
-    def survival_keyword_filter(target: GameObject, state: GameState) -> bool:
-        if target.id != obj.id:
-            return False
-        return check_survival(state, obj.controller, obj)
-
-    interceptors.append(make_keyword_grant(obj, ['trample'], survival_keyword_filter))
-    return interceptors
-
-OVERGROWN_SURVIVOR = make_creature(
-    name="Overgrown Survivor",
+RELUCTANT_ROLE_MODEL = make_creature(
+    name="Reluctant Role Model",
     power=2, toughness=2,
-    mana_cost="{1}{G}",
-    colors={Color.GREEN},
+    mana_cost="{1}{W}",
+    colors={Color.WHITE},
     subtypes={"Human", "Survivor"},
-    supertypes={"Legendary"},
-    text="Survival - As long as you control a creature with power 2 or more greater than its base power, Overgrown Survivor gets +3/+3 and has trample.",
-    setup_interceptors=overgrown_survivor_setup
+    text="Survival — At the beginning of your second main phase, if this creature is tapped, put a flying, lifelink, or +1/+1 counter on it.\nWhenever this creature or another creature you control dies, if it had counters on it, put those counters on up to one target creature.",
 )
 
-
-# --- Green Creatures ---
-
-def vine_creeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB put +1/+1 counter on target creature"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.COUNTER_ADDED, payload={
-            'object_id': 'target', 'counter_type': '+1/+1', 'count': 1
-        }, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
-VINE_CREEPER = make_creature(
-    name="Vine Creeper",
-    power=2, toughness=2,
-    mana_cost="{1}{G}",
-    colors={Color.GREEN},
-    subtypes={"Plant", "Horror"},
-    text="When Vine Creeper enters, put a +1/+1 counter on target creature.",
-    setup_interceptors=vine_creeper_setup
-)
-
-
-def root_horror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Delirium +3/+3"""
-    return make_delirium_bonus(obj, 3, 3)
-
-ROOT_HORROR = make_creature(
-    name="Root Horror",
-    power=3, toughness=3,
-    mana_cost="{3}{G}",
-    colors={Color.GREEN},
-    subtypes={"Plant", "Horror"},
-    text="Trample. Delirium - Root Horror gets +3/+3 if there are four or more card types among cards in your graveyard.",
-    setup_interceptors=root_horror_setup
-)
-
-
-FEAR_OF_BEING_HUNTED = make_creature(
-    name="Fear of Being Hunted",
-    power=4, toughness=2,
-    mana_cost="{2}{G}",
-    colors={Color.GREEN},
-    subtypes={"Nightmare"},
-    text="Enchantment creature. Flash. When Fear of Being Hunted enters, it fights target creature you don't control."
-)
-
-
-def undergrowth_beast_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Gets +1/+1 for each card in graveyard"""
-    def graveyard_boost_filter(target: GameObject, state: GameState) -> bool:
-        return target.id == obj.id
-
-    def power_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.QUERY_POWER:
-            return False
-        return event.payload.get('object_id') == obj.id
-
-    def toughness_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.QUERY_TOUGHNESS:
-            return False
-        return event.payload.get('object_id') == obj.id
-
-    def get_graveyard_count(state: GameState) -> int:
-        player = state.players.get(obj.controller)
-        return len(player.graveyard) if player else 0
-
-    def power_handler(event: Event, state: GameState) -> InterceptorResult:
-        current = event.payload.get('value', 0)
-        new_event = event.copy()
-        new_event.payload['value'] = current + get_graveyard_count(state)
-        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
-
-    def toughness_handler(event: Event, state: GameState) -> InterceptorResult:
-        current = event.payload.get('value', 0)
-        new_event = event.copy()
-        new_event.payload['value'] = current + get_graveyard_count(state)
-        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
-
-    return [
-        Interceptor(
-            id=new_id(),
-            source=obj.id,
-            controller=obj.controller,
-            priority=InterceptorPriority.QUERY,
-            filter=power_filter,
-            handler=power_handler,
-            duration='while_on_battlefield'
-        ),
-        Interceptor(
-            id=new_id(),
-            source=obj.id,
-            controller=obj.controller,
-            priority=InterceptorPriority.QUERY,
-            filter=toughness_filter,
-            handler=toughness_handler,
-            duration='while_on_battlefield'
-        )
-    ]
-
-UNDERGROWTH_BEAST = make_creature(
-    name="Undergrowth Beast",
-    power=0, toughness=0,
-    mana_cost="{4}{G}{G}",
-    colors={Color.GREEN},
-    subtypes={"Plant", "Beast"},
-    text="Trample. Undergrowth Beast gets +1/+1 for each creature card in your graveyard.",
-    setup_interceptors=undergrowth_beast_setup
-)
-
-
-HIDDEN_PREDATOR = make_creature(
-    name="Hidden Predator",
-    power=4, toughness=3,
-    mana_cost="{3}{G}",
-    colors={Color.GREEN},
-    subtypes={"Beast"},
-    text="Flash. Reach. When Hidden Predator enters, you may have it fight target creature an opponent controls."
-)
-
-
-def sprouting_terror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death trigger - create two 1/1 tokens"""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(type=EventType.CREATE_TOKEN, payload={
-                'controller': obj.controller,
-                'token': {'name': 'Saproling', 'power': 1, 'toughness': 1, 'colors': {Color.GREEN}, 'subtypes': {'Saproling'}}
-            }, source=obj.id),
-            Event(type=EventType.CREATE_TOKEN, payload={
-                'controller': obj.controller,
-                'token': {'name': 'Saproling', 'power': 1, 'toughness': 1, 'colors': {Color.GREEN}, 'subtypes': {'Saproling'}}
-            }, source=obj.id)
-        ]
-    return [make_death_trigger(obj, death_effect)]
-
-SPROUTING_TERROR = make_creature(
-    name="Sprouting Terror",
-    power=3, toughness=2,
-    mana_cost="{2}{G}",
-    colors={Color.GREEN},
-    subtypes={"Plant", "Horror"},
-    text="When Sprouting Terror dies, create two 1/1 green Saproling creature tokens.",
-    setup_interceptors=sprouting_terror_setup
-)
-
-
-ANCIENT_GROVE_KEEPER = make_creature(
-    name="Ancient Grove Keeper",
-    power=5, toughness=6,
-    mana_cost="{4}{G}{G}",
-    colors={Color.GREEN},
-    subtypes={"Treefolk"},
-    text="Reach, vigilance. Other creatures you control have vigilance."
-)
-
-
-MANIFEST_UNDERGROWTH = make_creature(
-    name="Manifest Undergrowth",
-    power=2, toughness=2,
-    mana_cost="{G}",
-    colors={Color.GREEN},
-    subtypes={"Plant"},
-    text="When Manifest Undergrowth enters, manifest dread."
-)
-
-
-# --- Green Instants/Sorceries ---
-
-NATURE_RECLAIMS = make_instant(
-    name="Nature Reclaims",
-    mana_cost="{1}{G}",
-    colors={Color.GREEN},
-    text="Destroy target artifact or enchantment. Its controller gains 3 life."
-)
-
-PRIMAL_SURGE = make_sorcery(
-    name="Primal Surge",
-    mana_cost="{X}{G}{G}",
-    colors={Color.GREEN},
-    text="Distribute X +1/+1 counters among any number of target creatures you control."
-)
-
-OVERGROWTH = make_instant(
-    name="Overgrowth",
-    mana_cost="{G}",
-    colors={Color.GREEN},
-    text="Target creature gets +3/+3 until end of turn. If you have survival, it also gains trample."
-)
-
-
-# =============================================================================
-# MULTICOLOR CARDS
-# =============================================================================
-
-# --- Legendary Multicolor Creatures ---
-
-def tyvar_zimone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Draw and counters synergy"""
-    def draw_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.COUNTER_ADDED, payload={
-            'object_id': obj.id, 'counter_type': '+1/+1', 'count': 1
-        }, source=obj.id)]
-
-    def draw_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.DRAW:
-            return False
-        return event.payload.get('player') == obj.controller
-
-    def draw_handler(event: Event, state: GameState) -> InterceptorResult:
-        new_events = draw_effect(event, state)
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=new_events)
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=draw_filter,
-        handler=draw_handler,
-        duration='while_on_battlefield'
-    )]
-
-TYVAR_AND_ZIMONE = make_creature(
-    name="Tyvar and Zimone, Partners",
+SAVIOR_OF_THE_SMALL = make_creature(
+    name="Savior of the Small",
     power=3, toughness=4,
-    mana_cost="{1}{G}{U}",
-    colors={Color.GREEN, Color.BLUE},
-    subtypes={"Elf", "Human", "Warrior", "Wizard"},
-    supertypes={"Legendary"},
-    text="Whenever you draw a card, if it's your second draw this turn, put a +1/+1 counter on Tyvar and Zimone. {T}: Draw a card, then discard a card.",
-    setup_interceptors=tyvar_zimone_setup
+    mana_cost="{3}{W}",
+    colors={Color.WHITE},
+    subtypes={"Kor", "Survivor"},
+    text="Survival — At the beginning of your second main phase, if this creature is tapped, return target creature card with mana value 3 or less from your graveyard to your hand.",
 )
 
-
-def marina_skovos_witch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie triggers deal damage"""
-    def eerie_effect(event: Event, state: GameState) -> list[Event]:
-        opponents = all_opponents(obj, state)
-        return [Event(type=EventType.DAMAGE, payload={
-            'target': opp, 'amount': 2, 'source': obj.id
-        }, source=obj.id) for opp in opponents]
-    return [make_eerie_trigger(obj, eerie_effect)]
-
-MARINA_SKOVOS_WITCH = make_creature(
-    name="Marina Vendrell, Gloom Witch",
-    power=3, toughness=3,
-    mana_cost="{2}{B}{G}",
-    colors={Color.BLACK, Color.GREEN},
-    subtypes={"Human", "Warlock"},
-    supertypes={"Legendary"},
-    text="Deathtouch. Eerie - Whenever an enchantment enters or you unlock a Room, Marina deals 2 damage to each opponent.",
-    setup_interceptors=marina_skovos_witch_setup
+SEIZED_FROM_SLUMBER = make_instant(
+    name="Seized from Slumber",
+    mana_cost="{4}{W}",
+    colors={Color.WHITE},
+    text="This spell costs {3} less to cast if it targets a tapped creature.\nDestroy target creature.",
 )
 
-
-def the_master_of_keys_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Rooms enter with both sides unlocked"""
-    return []
-
-THE_MASTER_OF_KEYS = make_creature(
-    name="The Master of Keys",
-    power=4, toughness=4,
-    mana_cost="{2}{W}{U}",
-    colors={Color.WHITE, Color.BLUE},
-    subtypes={"Spirit", "Noble"},
-    supertypes={"Legendary"},
-    text="Flying. Room enchantments you control enter with both doors unlocked. Whenever you unlock a Room, draw a card.",
-    setup_interceptors=the_master_of_keys_setup
+SHARDMAGES_RESCUE = make_enchantment(
+    name="Shardmage's Rescue",
+    mana_cost="{W}",
+    colors={Color.WHITE},
+    text="Flash\nEnchant creature you control\nAs long as this Aura entered this turn, enchanted creature has hexproof.\nEnchanted creature gets +1/+1.",
+    subtypes={"Aura"},
 )
 
+SHELTERED_BY_GHOSTS = make_enchantment(
+    name="Sheltered by Ghosts",
+    mana_cost="{1}{W}",
+    colors={Color.WHITE},
+    text="Enchant creature you control\nWhen this Aura enters, exile target nonland permanent an opponent controls until this Aura leaves the battlefield.\nEnchanted creature gets +1/+0 and has lifelink and ward {2}.",
+    subtypes={"Aura"},
+)
 
-def overlord_of_the_balemurk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB mill 4, return creature"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(type=EventType.MILL, payload={
-                'player': obj.controller, 'count': 4
-            }, source=obj.id),
-            Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={
-                'controller': obj.controller, 'type': 'creature'
-            }, source=obj.id)
-        ]
-    return [make_etb_trigger(obj, etb_effect)]
-
-OVERLORD_OF_THE_BALEMURK = make_creature(
-    name="Overlord of the Balemurk",
+SHEPHERDING_SPIRITS = make_creature(
+    name="Shepherding Spirits",
     power=4, toughness=5,
-    mana_cost="{3}{B}{G}",
-    colors={Color.BLACK, Color.GREEN},
-    subtypes={"Elemental", "Horror"},
-    supertypes={"Legendary"},
-    text="Trample. When Overlord of the Balemurk enters, mill four cards, then return a creature card from your graveyard to your hand.",
-    setup_interceptors=overlord_of_the_balemurk_setup
+    mana_cost="{4}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"Spirit"},
+    text="Flying\nPlainscycling {2} ({2}, Discard this card: Search your library for a Plains card, reveal it, put it into your hand, then shuffle.)",
 )
 
+SPLIT_UP = make_sorcery(
+    name="Split Up",
+    mana_cost="{1}{W}{W}",
+    colors={Color.WHITE},
+    text="Choose one —\n• Destroy all tapped creatures.\n• Destroy all untapped creatures.",
+)
 
-def the_wandering_rescuer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Exile and return creatures"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.FLICKER, payload={
-            'controller': obj.controller, 'type': 'creature'
-        }, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
+SPLITSKIN_DOLL = make_artifact_creature(
+    name="Splitskin Doll",
+    power=2, toughness=1,
+    mana_cost="{1}{W}",
+    colors={Color.WHITE},
+    subtypes={"Toy"},
+    text="When this creature enters, draw a card. Then discard a card unless you control another creature with power 2 or less.",
+)
+
+SURGICAL_SUITE = make_enchantment(
+    name="Surgical Suite",
+    mana_cost="{1}{W} // {3}{W}",
+    colors={Color.WHITE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+TOBY_BEASTIE_BEFRIENDER = make_creature(
+    name="Toby, Beastie Befriender",
+    power=1, toughness=1,
+    mana_cost="{2}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Wizard"},
+    supertypes={"Legendary"},
+    text="When Toby enters, create a 4/4 white Beast creature token with \"This token can't attack or block alone.\"\nAs long as you control four or more creature tokens, creature tokens you control have flying.",
+)
+
+TRAPPED_IN_THE_SCREEN = make_enchantment(
+    name="Trapped in the Screen",
+    mana_cost="{2}{W}",
+    colors={Color.WHITE},
+    text="Ward {2} (Whenever this enchantment becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.)\nWhen this enchantment enters, exile target artifact, creature, or enchantment an opponent controls until this enchantment leaves the battlefield.",
+)
+
+UNIDENTIFIED_HOVERSHIP = make_artifact(
+    name="Unidentified Hovership",
+    mana_cost="{1}{W}{W}",
+    text="Flying\nWhen this Vehicle enters, exile up to one target creature with toughness 5 or less.\nWhen this Vehicle leaves the battlefield, the exiled card's owner manifests dread.\nCrew 1",
+    subtypes={"Vehicle"},
+)
+
+UNSETTLING_TWINS = make_creature(
+    name="Unsettling Twins",
+    power=2, toughness=2,
+    mana_cost="{3}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human"},
+    text="When this creature enters, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+)
+
+UNWANTED_REMAKE = make_instant(
+    name="Unwanted Remake",
+    mana_cost="{W}",
+    colors={Color.WHITE},
+    text="Destroy target creature. Its controller manifests dread. (That player looks at the top two cards of their library, then puts one onto the battlefield face down as a 2/2 creature and the other into their graveyard. If it's a creature card, it can be turned face up any time for its mana cost.)",
+)
+
+VETERAN_SURVIVOR = make_creature(
+    name="Veteran Survivor",
+    power=2, toughness=1,
+    mana_cost="{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Survivor"},
+    text="Survival — At the beginning of your second main phase, if this creature is tapped, exile up to one target card from a graveyard.\nAs long as there are three or more cards exiled with this creature, it gets +3/+3 and has hexproof. (It can't be the target of spells or abilities your opponents control.)",
+)
 
 THE_WANDERING_RESCUER = make_creature(
     name="The Wandering Rescuer",
     power=3, toughness=4,
-    mana_cost="{2}{W}{U}",
-    colors={Color.WHITE, Color.BLUE},
-    subtypes={"Spirit", "Knight"},
-    supertypes={"Legendary"},
-    text="Vigilance. Whenever The Wandering Rescuer attacks, exile another creature you control, then return it to the battlefield.",
-    setup_interceptors=the_wandering_rescuer_setup
-)
-
-
-# --- Other Multicolor Creatures ---
-
-def spectral_hunter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Delirium - flying and lifelink"""
-    def delirium_filter(target: GameObject, state: GameState) -> bool:
-        if target.id != obj.id:
-            return False
-        return check_delirium(state, obj.controller)
-    return [make_keyword_grant(obj, ['flying', 'lifelink'], delirium_filter)]
-
-SPECTRAL_HUNTER = make_creature(
-    name="Spectral Hunter",
-    power=3, toughness=2,
-    mana_cost="{W}{B}",
-    colors={Color.WHITE, Color.BLACK},
-    subtypes={"Spirit", "Assassin"},
-    text="Delirium - Spectral Hunter has flying and lifelink if there are four or more card types among cards in your graveyard.",
-    setup_interceptors=spectral_hunter_setup
-)
-
-
-GLOOM_STALKER = make_creature(
-    name="Gloom Stalker",
-    power=2, toughness=3,
-    mana_cost="{U}{B}",
-    colors={Color.BLUE, Color.BLACK},
-    subtypes={"Horror"},
-    text="Menace. When Gloom Stalker enters, target opponent reveals their hand. You choose a nonland card from it. That player discards that card."
-)
-
-
-def bloodthorn_survivor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival - menace and deathtouch"""
-    def survival_filter(target: GameObject, state: GameState) -> bool:
-        if target.id != obj.id:
-            return False
-        return check_survival(state, obj.controller, obj)
-    return [make_keyword_grant(obj, ['menace', 'deathtouch'], survival_filter)]
-
-BLOODTHORN_SURVIVOR = make_creature(
-    name="Bloodthorn Survivor",
-    power=3, toughness=2,
-    mana_cost="{B}{R}",
-    colors={Color.BLACK, Color.RED},
-    subtypes={"Human", "Survivor", "Warrior"},
-    text="Survival - Bloodthorn Survivor has menace and deathtouch if you control a creature with power 2 or more greater than its base power.",
-    setup_interceptors=bloodthorn_survivor_setup
-)
-
-
-WILDFIRE_ELEMENTAL = make_creature(
-    name="Wildfire Elemental",
-    power=4, toughness=3,
-    mana_cost="{R}{G}",
-    colors={Color.RED, Color.GREEN},
-    subtypes={"Elemental"},
-    text="Trample, haste. When Wildfire Elemental enters, it deals damage to any target equal to the number of lands you control."
-)
-
-
-def twin_terror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack trigger - create copy token"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Twin Terror Copy', 'power': 2, 'toughness': 2,
-                     'colors': {Color.BLUE, Color.RED}, 'subtypes': {'Illusion'},
-                     'abilities': ['haste', 'exile_end_of_turn']}
-        }, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
-
-TWIN_TERROR = make_creature(
-    name="Twin Terror",
-    power=2, toughness=2,
-    mana_cost="{U}{R}",
-    colors={Color.BLUE, Color.RED},
-    subtypes={"Illusion", "Horror"},
-    text="Whenever Twin Terror attacks, create a token that's a copy of it. That token is tapped and attacking. Exile it at end of combat.",
-    setup_interceptors=twin_terror_setup
-)
-
-
-EERIE_INTERLUDE_KEEPER = make_creature(
-    name="Eerie Interlude Keeper",
-    power=2, toughness=4,
-    mana_cost="{G}{W}",
-    colors={Color.GREEN, Color.WHITE},
-    subtypes={"Spirit", "Druid"},
-    text="Reach. Eerie - Whenever an enchantment enters or you unlock a Room, you gain 2 life."
-)
-
-
-# --- Multicolor Instants/Sorceries ---
-
-HOUSE_DIVIDED = make_sorcery(
-    name="House Divided",
-    mana_cost="{2}{W}{B}",
-    colors={Color.WHITE, Color.BLACK},
-    text="Destroy all creatures. Each player creates a 1/1 white and black Spirit creature token with flying for each creature they controlled that was destroyed this way."
-)
-
-TERROR_OF_THE_PEAKS = make_instant(
-    name="Terror of the Peaks",
-    mana_cost="{U}{R}",
-    colors={Color.BLUE, Color.RED},
-    text="Terror of the Peaks deals 3 damage to any target. Draw a card."
-)
-
-ROOTS_OF_DESPAIR = make_sorcery(
-    name="Roots of Despair",
-    mana_cost="{B}{G}",
-    colors={Color.BLACK, Color.GREEN},
-    text="Mill four cards. Return a creature card from your graveyard to the battlefield. It gains haste until end of turn."
-)
-
-
-# =============================================================================
-# ROOM ENCHANTMENTS
-# =============================================================================
-
-def abandoned_nursery_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room - creatures get +1/+0, or create token"""
-    def eerie_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Spirit', 'power': 1, 'toughness': 1, 'colors': {Color.WHITE},
-                     'subtypes': {'Spirit'}, 'abilities': ['flying']}
-        }, source=obj.id)]
-    return [make_eerie_trigger(obj, eerie_effect)]
-
-ABANDONED_NURSERY = make_room(
-    name="Abandoned Nursery // Ghostly Playroom",
-    mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    text="Creatures you control get +1/+0. // {2}{W}: Unlock. When you unlock this Room, create a 1/1 white Spirit creature token with flying.",
-    setup_interceptors=abandoned_nursery_setup
-)
-
-
-def bleeding_walls_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room - drain life"""
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        opponents = all_opponents(obj, state)
-        events = []
-        for opp in opponents:
-            events.append(Event(type=EventType.LIFE_CHANGE, payload={
-                'player': opp, 'amount': -1
-            }, source=obj.id))
-        events.append(Event(type=EventType.LIFE_CHANGE, payload={
-            'player': obj.controller, 'amount': len(opponents)
-        }, source=obj.id))
-        return events
-    return [make_upkeep_trigger(obj, upkeep_effect)]
-
-BLEEDING_WALLS = make_room(
-    name="Bleeding Walls // Dripping Ceiling",
-    mana_cost="{1}{B}",
-    colors={Color.BLACK},
-    text="At the beginning of your upkeep, each opponent loses 1 life and you gain that much life. // {2}{B}: Unlock. Creatures get -1/-1 until end of turn.",
-    setup_interceptors=bleeding_walls_setup
-)
-
-
-GRAND_BALLROOM = make_room(
-    name="Grand Ballroom // Haunted Mirror",
-    mana_cost="{2}{W}{U}",
-    colors={Color.WHITE, Color.BLUE},
-    text="Creatures you control have vigilance. // {3}{W}{U}: Unlock. When you unlock this Room, create a token that's a copy of target creature you control."
-)
-
-
-BURNING_KITCHEN = make_room(
-    name="Burning Kitchen // Exploding Oven",
-    mana_cost="{1}{R}",
-    colors={Color.RED},
-    text="Whenever a creature you control attacks, it gets +1/+0 until end of turn. // {2}{R}: Unlock. When you unlock this Room, deal 3 damage to any target."
-)
-
-
-OVERGROWN_GREENHOUSE = make_room(
-    name="Overgrown Greenhouse // Carnivorous Garden",
-    mana_cost="{1}{G}",
-    colors={Color.GREEN},
-    text="Creatures you control get +0/+1. // {2}{G}: Unlock. When you unlock this Room, put two +1/+1 counters on target creature."
-)
-
-
-FLOODED_BASEMENT = make_room(
-    name="Flooded Basement // Drowned Cellar",
-    mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    text="Whenever you cast an instant or sorcery spell, scry 1. // {2}{U}: Unlock. When you unlock this Room, draw two cards, then discard a card."
-)
-
-
-DARK_LIBRARY = make_room(
-    name="Dark Library // Forbidden Archives",
-    mana_cost="{2}{B}",
-    colors={Color.BLACK},
-    text="At the beginning of your upkeep, surveil 1. // {3}{B}: Unlock. When you unlock this Room, return target creature card from your graveyard to your hand."
-)
-
-
-PANIC_ROOM = make_room(
-    name="Panic Room // Safe Haven",
-    mana_cost="{W}",
-    colors={Color.WHITE},
-    text="Creatures you control have ward {1}. // {2}{W}: Unlock. Creatures you control are indestructible until end of turn."
-)
-
-
-TORTURE_CHAMBER = make_room(
-    name="Torture Chamber // Execution Room",
-    mana_cost="{2}{B}{R}",
-    colors={Color.BLACK, Color.RED},
-    text="Whenever a creature an opponent controls dies, that player loses 1 life. // {3}{B}{R}: Unlock. Destroy target creature. Its controller loses life equal to its power."
-)
-
-
-FORGOTTEN_ATTIC = make_room(
-    name="Forgotten Attic // Hidden Treasure",
-    mana_cost="{2}",
-    colors=set(),
-    text="At the beginning of your upkeep, scry 1. // {3}: Unlock. When you unlock this Room, draw two cards."
-)
-
-
-SHATTERED_CONSERVATORY = make_room(
-    name="Shattered Conservatory // Thorny Ruins",
-    mana_cost="{G}{W}",
-    colors={Color.GREEN, Color.WHITE},
-    text="Whenever a creature enters under your control, you gain 1 life. // {2}{G}{W}: Unlock. Create two 2/2 green and white Elemental creature tokens."
-)
-
-
-HAUNTED_THEATER = make_room(
-    name="Haunted Theater // Phantom Stage",
-    mana_cost="{U}{B}",
-    colors={Color.BLUE, Color.BLACK},
-    text="Creatures you control have menace. // {3}{U}{B}: Unlock. Target creature becomes a copy of another target creature until end of turn."
-)
-
-
-# =============================================================================
-# ARTIFACTS
-# =============================================================================
-
-def skeleton_key_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipped creature is unblockable, unlock discount"""
-    return []
-
-SKELETON_KEY = make_artifact(
-    name="Skeleton Key",
-    mana_cost="{1}",
-    text="Equipped creature can't be blocked. Unlocking a Room costs {1} less. Equip {2}",
-    setup_interceptors=skeleton_key_setup
-)
-
-
-HAUNTED_PORTRAIT = make_artifact(
-    name="Haunted Portrait",
-    mana_cost="{2}",
-    text="When Haunted Portrait enters, create a 1/1 white Spirit creature token with flying. {3}, Sacrifice Haunted Portrait: Draw two cards."
-)
-
-
-TRAPPED_SOUL_VESSEL = make_artifact(
-    name="Trapped Soul Vessel",
-    mana_cost="{3}",
-    text="When a creature dies, put a soul counter on Trapped Soul Vessel. {T}, Remove three soul counters: Draw a card and gain 3 life."
-)
-
-
-MYSTERIOUS_MUSIC_BOX = make_artifact(
-    name="Mysterious Music Box",
-    mana_cost="{2}",
-    text="{T}: Add one mana of any color. If you control an enchantment, add two mana of any one color instead."
-)
-
-
-BLOODSTAINED_AXE = make_artifact(
-    name="Bloodstained Axe",
-    mana_cost="{2}",
-    subtypes={"Equipment"},
-    text="Equipped creature gets +2/+1. When equipped creature dies, draw a card. Equip {2}"
-)
-
-
-SURVEYORS_LANTERN = make_artifact(
-    name="Surveyor's Lantern",
-    mana_cost="{1}",
-    text="{T}: Add one mana of any color. Activate only if you control two or more enchantments."
-)
-
-
-CANDELABRA_OF_SOULS = make_artifact(
-    name="Candelabra of Souls",
-    mana_cost="{3}",
-    text="Whenever an enchantment enters under your control, you may pay {1}. If you do, draw a card."
-)
-
-
-FEAR_COLLECTOR = make_artifact(
-    name="Fear Collector",
-    mana_cost="{4}",
-    text="Whenever a creature an opponent controls dies, create a 2/2 black Nightmare creature token."
-)
-
-
-def dread_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipped creature has menace and intimidate"""
-    return []
-
-DREAD_MASK = make_artifact(
-    name="Dread Mask",
-    mana_cost="{1}",
-    subtypes={"Equipment"},
-    text="Equipped creature gets +1/+0 and has menace. Equip {1}",
-    setup_interceptors=dread_mask_setup
-)
-
-
-VALGAVOTHS_ALTAR = make_artifact(
-    name="Valgavoth's Altar",
-    mana_cost="{3}",
-    text="Sacrifice a creature: Add two mana of any one color. If you sacrificed an enchantment creature, add three mana of any one color instead."
-)
-
-
-# =============================================================================
-# LANDS
-# =============================================================================
-
-DUSKMOURN_MANOR = make_land(
-    name="Duskmourn Manor",
-    text="{T}: Add {C}. {2}, {T}: Add one mana of any color. Activate only if you control an enchantment."
-)
-
-
-HAUNTED_THRESHOLD = make_land(
-    name="Haunted Threshold",
-    text="Haunted Threshold enters tapped. When it enters, scry 1. {T}: Add {W} or {B}.",
-    subtypes={"Plains", "Swamp"}
-)
-
-
-FORGOTTEN_HALLWAY = make_land(
-    name="Forgotten Hallway",
-    text="Forgotten Hallway enters tapped. When it enters, you may mill two cards. {T}: Add {U} or {B}.",
-    subtypes={"Island", "Swamp"}
-)
-
-
-OVERGROWN_COURTYARD = make_land(
-    name="Overgrown Courtyard",
-    text="Overgrown Courtyard enters tapped. When it enters, you gain 1 life. {T}: Add {G} or {W}.",
-    subtypes={"Forest", "Plains"}
-)
-
-
-BURNING_RUINS = make_land(
-    name="Burning Ruins",
-    text="Burning Ruins enters tapped. When it enters, deal 1 damage to any target. {T}: Add {R} or {B}.",
-    subtypes={"Mountain", "Swamp"}
-)
-
-
-TWISTED_GARDEN = make_land(
-    name="Twisted Garden",
-    text="Twisted Garden enters tapped. When it enters, put a +1/+1 counter on target creature. {T}: Add {G} or {B}.",
-    subtypes={"Forest", "Swamp"}
-)
-
-
-SPECTRAL_CHAPEL = make_land(
-    name="Spectral Chapel",
-    text="Spectral Chapel enters tapped. {T}: Add {W}. {1}{W}, {T}: Create a 1/1 white Spirit creature token with flying. Activate only if you control an enchantment."
-)
-
-
-NIGHTMARE_POOL = make_land(
-    name="Nightmare Pool",
-    text="Nightmare Pool enters tapped. {T}: Add {U} or {B}. {2}{U}{B}, {T}, Sacrifice Nightmare Pool: Draw two cards."
-)
-
-
-BLOODFIRE_HEARTH = make_land(
-    name="Bloodfire Hearth",
-    text="Bloodfire Hearth enters tapped. {T}: Add {B} or {R}. {2}{B}{R}, {T}: Each player sacrifices a creature."
-)
-
-
-THORNWOOD_GROVE = make_land(
-    name="Thornwood Grove",
-    text="Thornwood Grove enters tapped. {T}: Add {R} or {G}. Whenever you cast a creature spell, you may untap Thornwood Grove."
-)
-
-
-EERIE_GATEWAY = make_land(
-    name="Eerie Gateway",
-    text="{T}: Add {C}. {T}, Pay 3 life: Add one mana of any color."
-)
-
-
-# Basic lands
-PLAINS_DSK = make_land("Plains", "{T}: Add {W}.", subtypes={"Plains"}, supertypes={"Basic"})
-ISLAND_DSK = make_land("Island", "{T}: Add {U}.", subtypes={"Island"}, supertypes={"Basic"})
-SWAMP_DSK = make_land("Swamp", "{T}: Add {B}.", subtypes={"Swamp"}, supertypes={"Basic"})
-MOUNTAIN_DSK = make_land("Mountain", "{T}: Add {R}.", subtypes={"Mountain"}, supertypes={"Basic"})
-FOREST_DSK = make_land("Forest", "{T}: Add {G}.", subtypes={"Forest"}, supertypes={"Basic"})
-
-
-# =============================================================================
-# ADDITIONAL WHITE CARDS
-# =============================================================================
-
-SANCTUARY_WARDEN = make_creature(
-    name="Sanctuary Warden",
-    power=5, toughness=5,
-    mana_cost="{4}{W}{W}",
-    colors={Color.WHITE},
-    subtypes={"Angel"},
-    text="Flying. When Sanctuary Warden enters, create two Shield counters on target creatures you control. Remove a shield counter from a creature you control: Draw a card."
-)
-
-
-FAITH_OF_THE_DEVOTED = make_enchantment(
-    name="Faith of the Devoted",
-    mana_cost="{2}{W}",
-    colors={Color.WHITE},
-    text="Whenever you discard a card, you may pay {1}. If you do, each opponent loses 2 life and you gain 2 life."
-)
-
-
-ETHEREAL_ESCORT = make_creature(
-    name="Ethereal Escort",
-    power=2, toughness=2,
-    mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    subtypes={"Spirit"},
-    text="Flying. When Ethereal Escort enters, target creature you control gains protection from the color of your choice until end of turn."
-)
-
-
-BEACON_OF_HOPE = make_instant(
-    name="Beacon of Hope",
-    mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    text="You gain 4 life. If you have survival, create a 1/1 white Spirit creature token with flying."
-)
-
-
-# =============================================================================
-# ADDITIONAL BLUE CARDS
-# =============================================================================
-
-SPECTRAL_SCHOLAR = make_creature(
-    name="Spectral Scholar",
-    power=1, toughness=3,
-    mana_cost="{2}{U}",
-    colors={Color.BLUE},
-    subtypes={"Spirit", "Wizard"},
-    text="Flying. Whenever you cast an instant or sorcery spell, scry 1."
-)
-
-
-MIND_DRAIN = make_sorcery(
-    name="Mind Drain",
-    mana_cost="{2}{U}{U}",
-    colors={Color.BLUE},
-    text="Each opponent mills five cards. For each card milled this way, if it shares a card type with a card in your graveyard, draw a card."
-)
-
-
-ILLUSORY_GUARDIAN = make_creature(
-    name="Illusory Guardian",
-    power=4, toughness=4,
-    mana_cost="{3}{U}",
-    colors={Color.BLUE},
-    subtypes={"Illusion"},
-    text="When Illusory Guardian becomes the target of a spell or ability, sacrifice it. When Illusory Guardian dies, draw two cards."
-)
-
-
-GLIMPSE_THE_UNKNOWN = make_instant(
-    name="Glimpse the Unknown",
-    mana_cost="{U}",
-    colors={Color.BLUE},
-    text="Look at the top three cards of your library. Put one into your hand and the rest into your graveyard."
-)
-
-
-# =============================================================================
-# ADDITIONAL BLACK CARDS
-# =============================================================================
-
-NIGHTMARE_SHEPHERD = make_creature(
-    name="Nightmare Shepherd",
-    power=4, toughness=4,
-    mana_cost="{2}{B}{B}",
-    colors={Color.BLACK},
-    subtypes={"Demon"},
-    text="Flying. Whenever another nontoken creature you control dies, you may exile it. If you do, create a token that's a copy of that creature, except it's 1/1."
-)
-
-
-FEAST_ON_FEAR = make_sorcery(
-    name="Feast on Fear",
-    mana_cost="{2}{B}",
-    colors={Color.BLACK},
-    text="Target player discards two cards and loses 2 life. If you have delirium, they discard three cards instead."
-)
-
-
-SHADOW_REAPER = make_creature(
-    name="Shadow Reaper",
-    power=2, toughness=2,
-    mana_cost="{B}",
-    colors={Color.BLACK},
-    subtypes={"Spirit", "Assassin"},
-    text="Deathtouch. When Shadow Reaper enters, you lose 2 life."
-)
-
-
-DARK_BARGAIN = make_instant(
-    name="Dark Bargain",
-    mana_cost="{3}{B}",
-    colors={Color.BLACK},
-    text="Look at the top three cards of your library. Put two into your hand and one into your graveyard. You lose 2 life."
-)
-
-
-# =============================================================================
-# ADDITIONAL RED CARDS
-# =============================================================================
-
-RAGE_INCARNATE = make_creature(
-    name="Rage Incarnate",
-    power=5, toughness=3,
-    mana_cost="{3}{R}{R}",
-    colors={Color.RED},
-    subtypes={"Elemental", "Avatar"},
-    text="Trample, haste. At the beginning of your end step, sacrifice Rage Incarnate unless you attacked with three or more creatures this turn."
-)
-
-
-INFERNAL_OUTBURST = make_sorcery(
-    name="Infernal Outburst",
-    mana_cost="{X}{R}{R}",
-    colors={Color.RED},
-    text="Infernal Outburst deals X damage to each creature and each player."
-)
-
-
-PYROCLASTIC_SPECTER = make_creature(
-    name="Pyroclastic Specter",
-    power=3, toughness=2,
-    mana_cost="{2}{R}",
-    colors={Color.RED},
-    subtypes={"Spirit"},
-    text="Flying. When Pyroclastic Specter deals combat damage to a player, it deals that much damage to target creature that player controls."
-)
-
-
-FIERY_TEMPER = make_instant(
-    name="Fiery Temper",
-    mana_cost="{1}{R}{R}",
-    colors={Color.RED},
-    text="Fiery Temper deals 3 damage to any target. Madness {R}"
-)
-
-
-# =============================================================================
-# ADDITIONAL GREEN CARDS
-# =============================================================================
-
-ANCIENT_HORROR = make_creature(
-    name="Ancient Horror",
-    power=7, toughness=7,
-    mana_cost="{5}{G}{G}",
-    colors={Color.GREEN},
-    subtypes={"Horror", "Beast"},
-    text="Reach, trample. When Ancient Horror enters, destroy target artifact or enchantment."
-)
-
-
-NATURE_CLAIMS_ALL = make_sorcery(
-    name="Nature Claims All",
-    mana_cost="{2}{G}{G}",
-    colors={Color.GREEN},
-    text="Destroy all artifacts and enchantments. Each player creates a 1/1 green Saproling creature token for each permanent destroyed this way."
-)
-
-
-WILD_SURVIVOR = make_creature(
-    name="Wild Survivor",
-    power=3, toughness=3,
-    mana_cost="{2}{G}",
-    colors={Color.GREEN},
-    subtypes={"Human", "Survivor", "Scout"},
-    text="Reach. Survival - Wild Survivor gets +2/+2 as long as you control a creature with power 2 or more greater than its base power."
-)
-
-
-VERDANT_EMBRACE = make_enchantment(
-    name="Verdant Embrace",
-    mana_cost="{3}{G}{G}",
-    colors={Color.GREEN},
-    text="Enchant creature. Enchanted creature gets +3/+3 and has trample. At the beginning of your upkeep, create a 1/1 green Saproling creature token."
-)
-
-
-# =============================================================================
-# ADDITIONAL MULTICOLOR CARDS
-# =============================================================================
-
-DOOM_PORTENT = make_creature(
-    name="Doom Portent",
-    power=4, toughness=4,
-    mana_cost="{2}{U}{B}",
-    colors={Color.BLUE, Color.BLACK},
-    subtypes={"Horror"},
-    text="Flying. When Doom Portent enters, each opponent reveals their hand. You choose a nonland card from each hand. Those players discard those cards."
-)
-
-
-VENGEFUL_SPIRIT = make_creature(
-    name="Vengeful Spirit",
-    power=3, toughness=3,
-    mana_cost="{1}{W}{B}",
-    colors={Color.WHITE, Color.BLACK},
-    subtypes={"Spirit"},
-    text="Flying, lifelink. When Vengeful Spirit dies, exile target creature an opponent controls."
-)
-
-
-PRIMAL_NIGHTMARE = make_creature(
-    name="Primal Nightmare",
-    power=5, toughness=5,
-    mana_cost="{2}{B}{G}",
-    colors={Color.BLACK, Color.GREEN},
-    subtypes={"Nightmare", "Beast"},
-    text="Trample. When Primal Nightmare enters, mill four cards. Then return a creature card from your graveyard to the battlefield."
-)
-
-
-EMBER_TWINS = make_creature(
-    name="Ember Twins",
-    power=2, toughness=2,
-    mana_cost="{R}{W}",
-    colors={Color.RED, Color.WHITE},
-    subtypes={"Human", "Survivor"},
-    text="When Ember Twins enters, create a 2/2 red and white Human Survivor creature token."
-)
-
-
-ARCANE_INVESTIGATOR = make_creature(
-    name="Arcane Investigator",
-    power=2, toughness=3,
-    mana_cost="{G}{U}",
-    colors={Color.GREEN, Color.BLUE},
-    subtypes={"Human", "Detective"},
-    text="Whenever you draw your second card each turn, put a +1/+1 counter on Arcane Investigator."
-)
-
-
-CHAOS_HORROR = make_creature(
-    name="Chaos Horror",
-    power=4, toughness=4,
-    mana_cost="{2}{R}{B}",
-    colors={Color.RED, Color.BLACK},
-    subtypes={"Nightmare", "Horror"},
-    text="Menace. At the beginning of your end step, each player sacrifices a creature. You gain 2 life for each creature sacrificed this way."
-)
-
-
-# =============================================================================
-# ADDITIONAL COMMON/UNCOMMON WHITE
-# =============================================================================
-
-STEADFAST_SURVIVOR = make_creature(
-    name="Steadfast Survivor",
-    power=2, toughness=3,
-    mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    subtypes={"Human", "Survivor"},
-    text="When Steadfast Survivor enters, you gain 2 life."
-)
-
-GHOSTLY_ESCORT = make_creature(
-    name="Ghostly Escort",
-    power=1, toughness=1,
-    mana_cost="{W}",
-    colors={Color.WHITE},
-    subtypes={"Spirit"},
-    text="Flying. When Ghostly Escort dies, create a 1/1 white Spirit creature token with flying."
-)
-
-PROTECTIVE_SPIRIT = make_creature(
-    name="Protective Spirit",
-    power=0, toughness=4,
-    mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    subtypes={"Spirit"},
-    text="Defender. Other creatures you control have ward {1}."
-)
-
-DAWN_BRINGER = make_creature(
-    name="Dawn Bringer",
-    power=3, toughness=2,
-    mana_cost="{2}{W}",
-    colors={Color.WHITE},
-    subtypes={"Angel"},
-    text="Flying. When Dawn Bringer enters, exile target enchantment an opponent controls until Dawn Bringer leaves the battlefield."
-)
-
-SANCTIFIED_CHARGE = make_instant(
-    name="Sanctified Charge",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
-    text="Creatures you control get +2/+1 and gain first strike until end of turn."
+    subtypes={"Human", "Noble", "Samurai"},
+    supertypes={"Legendary"},
+    text="Flash\nConvoke (Your creatures can help cast this spell. Each creature you tap while casting this spell pays for {1} or one mana of that creature's color.)\nDouble strike\nOther tapped creatures you control have hexproof.",
 )
 
-GUIDING_LIGHT = make_instant(
-    name="Guiding Light",
-    mana_cost="{W}",
-    colors={Color.WHITE},
-    text="Target creature gains indestructible until end of turn. Scry 1."
+ABHORRENT_OCULUS = make_creature(
+    name="Abhorrent Oculus",
+    power=5, toughness=5,
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    subtypes={"Eye"},
+    text="As an additional cost to cast this spell, exile six cards from your graveyard.\nFlying\nAt the beginning of each opponent's upkeep, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
 )
 
-HOPE_AGAINST_DARKNESS = make_enchantment(
-    name="Hope Against Darkness",
-    mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    text="Whenever a creature enters under your control, you gain 1 life. {3}{W}: Create a 1/1 white Spirit creature token with flying."
+BOTTOMLESS_POOL = make_enchantment(
+    name="Bottomless Pool",
+    mana_cost="{U} // {4}{U}",
+    colors={Color.BLUE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
 )
 
-ANGELIC_OBSERVER = make_creature(
-    name="Angelic Observer",
-    power=2, toughness=4,
-    mana_cost="{3}{W}",
-    colors={Color.WHITE},
-    subtypes={"Angel"},
-    text="Flying, vigilance."
+CENTRAL_ELEVATOR = make_enchantment(
+    name="Central Elevator",
+    mana_cost="{3}{U} // {2}{U}",
+    colors={Color.BLUE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
 )
 
-HOUSE_WARDEN = make_creature(
-    name="House Warden",
-    power=3, toughness=3,
-    mana_cost="{2}{W}{W}",
-    colors={Color.WHITE},
-    subtypes={"Spirit", "Knight"},
-    text="First strike. When House Warden enters, exile target creature an opponent controls with power 3 or less until House Warden leaves the battlefield."
+CLAMMY_PROWLER = make_creature(
+    name="Clammy Prowler",
+    power=2, toughness=5,
+    mana_cost="{3}{U}",
+    colors={Color.BLUE},
+    subtypes={"Horror"},
+    text="Whenever this creature attacks, another target attacking creature can't be blocked this turn.",
 )
 
-
-# =============================================================================
-# ADDITIONAL COMMON/UNCOMMON BLUE
-# =============================================================================
-
-FLEETING_MEMORY = make_creature(
-    name="Fleeting Memory",
+CREEPING_PEEPER = make_creature(
+    name="Creeping Peeper",
     power=2, toughness=1,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    subtypes={"Spirit"},
-    text="Flying. When Fleeting Memory enters, scry 2."
+    subtypes={"Eye"},
+    text="{T}: Add {U}. Spend this mana only to cast an enchantment spell, unlock a door, or turn a permanent face up.",
 )
 
-PHANTOM_THIEF = make_creature(
-    name="Phantom Thief",
+CURSED_WINDBREAKER = make_artifact(
+    name="Cursed Windbreaker",
+    mana_cost="{2}{U}",
+    text="When this Equipment enters, manifest dread, then attach this Equipment to that creature. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)\nEquipped creature has flying.\nEquip {3}",
+    subtypes={"Equipment"},
+)
+
+DAGGERMAW_MEGALODON = make_creature(
+    name="Daggermaw Megalodon",
+    power=5, toughness=7,
+    mana_cost="{4}{U}{U}",
+    colors={Color.BLUE},
+    subtypes={"Shark"},
+    text="Vigilance\nIslandcycling {2} ({2}, Discard this card: Search your library for an Island card, reveal it, put it into your hand, then shuffle.)",
+)
+
+DONT_MAKE_A_SOUND = make_instant(
+    name="Don't Make a Sound",
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    text="Counter target spell unless its controller pays {2}. If they do, surveil 2. (Look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)",
+)
+
+DUSKMOURNS_DOMINATION = make_enchantment(
+    name="Duskmourn's Domination",
+    mana_cost="{4}{U}{U}",
+    colors={Color.BLUE},
+    text="Enchant creature\nYou control enchanted creature.\nEnchanted creature gets -3/-0 and loses all abilities.",
+    subtypes={"Aura"},
+)
+
+ENDURING_CURIOSITY = make_creature(
+    name="Enduring Curiosity",
+    power=4, toughness=3,
+    mana_cost="{2}{U}{U}",
+    colors={Color.BLUE},
+    subtypes={"Cat", "Glimmer"},
+    text="Flash\nWhenever a creature you control deals combat damage to a player, draw a card.\nWhen Enduring Curiosity dies, if it was a creature, return it to the battlefield under its owner's control. It's an enchantment. (It's not a creature.)",
+)
+
+ENTER_THE_ENIGMA = make_sorcery(
+    name="Enter the Enigma",
+    mana_cost="{U}",
+    colors={Color.BLUE},
+    text="Target creature can't be blocked this turn.\nDraw a card.",
+)
+
+ENTITY_TRACKER = make_creature(
+    name="Entity Tracker",
+    power=2, toughness=3,
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Scout"},
+    text="Flash\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, draw a card.",
+)
+
+ERRATIC_APPARITION = make_creature(
+    name="Erratic Apparition",
     power=1, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Spirit", "Rogue"},
-    text="Whenever Phantom Thief deals combat damage to a player, draw a card."
+    subtypes={"Spirit"},
+    text="Flying, vigilance\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, this creature gets +1/+1 until end of turn.",
 )
 
-REALITY_FRACTURE = make_instant(
-    name="Reality Fracture",
+FEAR_OF_FAILED_TESTS = make_creature(
+    name="Fear of Failed Tests",
+    power=2, toughness=7,
+    mana_cost="{4}{U}",
+    colors={Color.BLUE},
+    subtypes={"Nightmare"},
+    text="Whenever this creature deals combat damage to a player, draw that many cards.",
+)
+
+FEAR_OF_FALLING = make_creature(
+    name="Fear of Falling",
+    power=4, toughness=4,
+    mana_cost="{3}{U}{U}",
+    colors={Color.BLUE},
+    subtypes={"Nightmare"},
+    text="Flying\nWhenever this creature attacks, target creature defending player controls gets -2/-0 and loses flying until your next turn.",
+)
+
+FEAR_OF_IMPOSTORS = make_creature(
+    name="Fear of Impostors",
+    power=3, toughness=2,
+    mana_cost="{1}{U}{U}",
+    colors={Color.BLUE},
+    subtypes={"Nightmare"},
+    text="Flash\nWhen this creature enters, counter target spell. Its controller manifests dread. (That player looks at the top two cards of their library, then puts one onto the battlefield face down as a 2/2 creature and the other into their graveyard. If it's a creature card, it can be turned face up any time for its mana cost.)",
+)
+
+FEAR_OF_ISOLATION = make_creature(
+    name="Fear of Isolation",
+    power=2, toughness=3,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Return target creature to its owner's hand. If that creature was an enchantment, draw a card."
+    subtypes={"Nightmare"},
+    text="As an additional cost to cast this spell, return a permanent you control to its owner's hand.\nFlying",
 )
 
-THOUGHT_ERASURE = make_sorcery(
-    name="Thought Erasure",
-    mana_cost="{U}{B}",
-    colors={Color.BLUE, Color.BLACK},
-    text="Target opponent reveals their hand. You choose a nonland card from it. That player discards that card. Surveil 1."
-)
-
-SPECTRAL_SILENCE = make_instant(
-    name="Spectral Silence",
-    mana_cost="{U}",
+FLOODPITS_DROWNER = make_creature(
+    name="Floodpits Drowner",
+    power=2, toughness=1,
+    mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Counter target activated or triggered ability."
+    subtypes={"Merfolk"},
+    text="Flash\nVigilance\nWhen this creature enters, tap target creature an opponent controls and put a stun counter on it.\n{1}{U}, {T}: Shuffle this creature and target creature with a stun counter on it into their owners' libraries.",
 )
 
-EERIE_INTUITION = make_sorcery(
-    name="Eerie Intuition",
+GET_OUT = make_instant(
+    name="Get Out",
+    mana_cost="{U}{U}",
+    colors={Color.BLUE},
+    text="Choose one —\n• Counter target creature or enchantment spell.\n• Return one or two target creatures and/or enchantments you own to your hand.",
+)
+
+GHOSTLY_KEYBEARER = make_creature(
+    name="Ghostly Keybearer",
+    power=3, toughness=3,
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    text="Draw three cards, then discard a card. If you discard an enchantment card, draw another card."
+    subtypes={"Spirit"},
+    text="Flying\nWhenever this creature deals combat damage to a player, unlock a locked door of up to one target Room you control.",
 )
 
-HOUSE_SPECTER = make_creature(
-    name="House Specter",
-    power=3, toughness=1,
+GLIMMERBURST = make_instant(
+    name="Glimmerburst",
+    mana_cost="{3}{U}",
+    colors={Color.BLUE},
+    text="Draw two cards. Create a 1/1 white Glimmer enchantment creature token.",
+)
+
+LEYLINE_OF_TRANSFORMATION = make_enchantment(
+    name="Leyline of Transformation",
+    mana_cost="{2}{U}{U}",
+    colors={Color.BLUE},
+    text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nAs this enchantment enters, choose a creature type.\nCreatures you control are the chosen type in addition to their other types. The same is true for creature spells you control and creature cards you own that aren't on the battlefield.",
+)
+
+MARINA_VENDRELLS_GRIMOIRE = make_artifact(
+    name="Marina Vendrell's Grimoire",
+    mana_cost="{5}{U}",
+    text="When Marina Vendrell's Grimoire enters, if you cast it, draw five cards.\nYou have no maximum hand size and don't lose the game for having 0 or less life.\nWhenever you gain life, draw that many cards.\nWhenever you lose life, discard that many cards. Then if you have no cards in hand, you lose the game.",
+    supertypes={"Legendary"},
+)
+
+MEAT_LOCKER = make_enchantment(
+    name="Meat Locker",
+    mana_cost="{2}{U} // {3}{U}{U}",
+    colors={Color.BLUE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+THE_MINDSKINNER = make_creature(
+    name="The Mindskinner",
+    power=10, toughness=1,
+    mana_cost="{U}{U}{U}",
+    colors={Color.BLUE},
+    subtypes={"Nightmare"},
+    supertypes={"Legendary"},
+    text="The Mindskinner can't be blocked.\nIf a source you control would deal damage to an opponent, prevent that damage and each opponent mills that many cards.",
+)
+
+MIRROR_ROOM = make_enchantment(
+    name="Mirror Room",
+    mana_cost="{2}{U} // {5}{U}{U}",
+    colors={Color.BLUE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+OVERLORD_OF_THE_FLOODPITS = make_creature(
+    name="Overlord of the Floodpits",
+    power=5, toughness=3,
+    mana_cost="{3}{U}{U}",
+    colors={Color.BLUE},
+    subtypes={"Avatar", "Horror"},
+    text="Impending 4—{1}{U}{U} (If you cast this spell for its impending cost, it enters with four time counters and isn't a creature until the last is removed. At the beginning of your end step, remove a time counter from it.)\nFlying\nWhenever this permanent enters or attacks, draw two cards, then discard a card.",
+)
+
+PARANORMAL_ANALYST = make_creature(
+    name="Paranormal Analyst",
+    power=1, toughness=3,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Detective", "Human"},
+    text="Whenever you manifest dread, put a card you put into your graveyard this way into your hand.",
+)
+
+PIRANHA_FLY = make_creature(
+    name="Piranha Fly",
+    power=2, toughness=1,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Fish", "Insect"},
+    text="Flying\nThis creature enters tapped.",
+)
+
+SCRABBLING_SKULLCRAB = make_creature(
+    name="Scrabbling Skullcrab",
+    power=0, toughness=3,
+    mana_cost="{U}",
+    colors={Color.BLUE},
+    subtypes={"Crab", "Skeleton"},
+    text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, target player mills two cards. (They put the top two cards of their library into their graveyard.)",
+)
+
+SILENT_HALLCREEPER = make_creature(
+    name="Silent Hallcreeper",
+    power=1, toughness=1,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Horror"},
+    text="This creature can't be blocked.\nWhenever this creature deals combat damage to a player, choose one that hasn't been chosen —\n• Put two +1/+1 counters on this creature.\n• Draw a card.\n• This creature becomes a copy of another target creature you control.",
+)
+
+STALKED_RESEARCHER = make_creature(
+    name="Stalked Researcher",
+    power=3, toughness=3,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Wizard"},
+    text="Defender\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, this creature can attack this turn as though it didn't have defender.",
+)
+
+STAY_HIDDEN_STAY_SILENT = make_enchantment(
+    name="Stay Hidden, Stay Silent",
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    text="Enchant creature\nWhen this Aura enters, tap enchanted creature.\nEnchanted creature doesn't untap during its controller's untap step.\n{4}{U}{U}: Shuffle enchanted creature into its owner's library, then manifest dread. Activate only as a sorcery.",
+    subtypes={"Aura"},
+)
+
+THE_TALE_OF_TAMIYO = make_enchantment(
+    name="The Tale of Tamiyo",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Spirit"},
-    text="Flying. House Specter can't be blocked as long as you control an enchantment."
+    text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after IV.)\nI, II, III — Mill two cards. If two cards that share a card type were milled this way, draw a card and repeat this process.\nIV — Exile any number of target instant, sorcery, and/or Tamiyo planeswalker cards from your graveyard. Copy them. You may cast any number of the copies.",
+    subtypes={"Saga"},
+    supertypes={"Legendary"},
 )
 
-MANIFEST_REFLECTION = make_creature(
-    name="Manifest Reflection",
-    power=1, toughness=1,
+TUNNEL_SURVEYOR = make_creature(
+    name="Tunnel Surveyor",
+    power=2, toughness=2,
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    subtypes={"Detective", "Human"},
+    text="When this creature enters, create a 1/1 white Glimmer enchantment creature token.",
+)
+
+TWIST_REALITY = make_instant(
+    name="Twist Reality",
+    mana_cost="{1}{U}{U}",
+    colors={Color.BLUE},
+    text="Choose one —\n• Counter target spell.\n• Manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+)
+
+UNABLE_TO_SCREAM = make_enchantment(
+    name="Unable to Scream",
     mana_cost="{U}",
     colors={Color.BLUE},
-    subtypes={"Illusion"},
-    text="When Manifest Reflection enters, manifest dread."
+    text="Enchant creature\nEnchanted creature loses all abilities and is a Toy artifact creature with base power and toughness 0/2 in addition to its other types.\nAs long as enchanted creature is face down, it can't be turned face up.",
+    subtypes={"Aura"},
 )
 
-UNSEEN_WATCHER = make_creature(
-    name="Unseen Watcher",
-    power=2, toughness=3,
+UNDERWATER_TUNNEL = make_enchantment(
+    name="Underwater Tunnel",
+    mana_cost="{U} // {3}{U}",
+    colors={Color.BLUE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+UNNERVING_GRASP = make_sorcery(
+    name="Unnerving Grasp",
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    text="Return up to one target nonland permanent to its owner's hand. Manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+)
+
+UNWILLING_VESSEL = make_creature(
+    name="Unwilling Vessel",
+    power=3, toughness=2,
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Wizard"},
+    text="Vigilance\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, put a possession counter on this creature.\nWhen this creature dies, create an X/X blue Spirit creature token with flying, where X is the number of counters on this creature.",
+)
+
+VANISH_FROM_SIGHT = make_instant(
+    name="Vanish from Sight",
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    subtypes={"Spirit"},
-    text="Flash. Flying. When Unseen Watcher enters, tap target creature an opponent controls. It doesn't untap during its controller's next untap step."
+    text="Target nonland permanent's owner puts it on their choice of the top or bottom of their library. Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
 )
 
-
-# =============================================================================
-# ADDITIONAL COMMON/UNCOMMON BLACK
-# =============================================================================
-
-DREAD_HARVESTER = make_creature(
-    name="Dread Harvester",
-    power=2, toughness=1,
-    mana_cost="{B}",
-    colors={Color.BLACK},
-    subtypes={"Human", "Warlock"},
-    text="When Dread Harvester dies, each opponent loses 1 life and you gain 1 life."
-)
-
-NIGHTMARE_SPAWN = make_creature(
-    name="Nightmare Spawn",
+APPENDAGE_AMALGAM = make_creature(
+    name="Appendage Amalgam",
     power=3, toughness=2,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    subtypes={"Nightmare"},
-    text="Menace. Delirium - Nightmare Spawn gets +1/+1 if there are four or more card types among cards in your graveyard."
+    subtypes={"Horror"},
+    text="Flash\nWhenever this creature attacks, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
 )
 
-GRIM_AWAKENING = make_sorcery(
-    name="Grim Awakening",
+BALEMURK_LEECH = make_creature(
+    name="Balemurk Leech",
+    power=2, toughness=2,
+    mana_cost="{1}{B}",
+    colors={Color.BLACK},
+    subtypes={"Leech"},
+    text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, each opponent loses 1 life.",
+)
+
+CACKLING_SLASHER = make_creature(
+    name="Cackling Slasher",
+    power=3, toughness=3,
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    text="Return target creature card from your graveyard to the battlefield. It gains haste. Sacrifice it at the beginning of the next end step."
+    subtypes={"Assassin", "Human"},
+    text="Deathtouch\nThis creature enters with a +1/+1 counter on it if a creature died this turn.",
 )
 
-TERROR_WITHIN = make_instant(
-    name="Terror Within",
-    mana_cost="{1}{B}",
-    colors={Color.BLACK},
-    text="Target creature gets -3/-3 until end of turn. If that creature would die this turn, exile it instead."
-)
-
-SOUL_DRAIN = make_sorcery(
-    name="Soul Drain",
-    mana_cost="{1}{B}",
-    colors={Color.BLACK},
-    text="Target creature gets -2/-2 until end of turn. You gain 2 life."
-)
-
-HOUSE_OF_DECAY = make_enchantment(
-    name="House of Decay",
+COME_BACK_WRONG = make_sorcery(
+    name="Come Back Wrong",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Whenever a creature dies, its controller loses 1 life."
+    text="Destroy target creature. If a creature card is put into a graveyard this way, return it to the battlefield under your control. Sacrifice it at the beginning of your next end step.",
 )
 
-CONSUMING_SHADOWS = make_creature(
-    name="Consuming Shadows",
-    power=4, toughness=3,
-    mana_cost="{3}{B}",
+COMMUNE_WITH_EVIL = make_sorcery(
+    name="Commune with Evil",
+    mana_cost="{2}{B}",
     colors={Color.BLACK},
-    subtypes={"Horror"},
-    text="Menace. When Consuming Shadows enters, target opponent discards a card."
+    text="Look at the top four cards of your library. Put one of them into your hand and the rest into your graveyard. You gain 3 life.",
 )
 
-CORPSE_CRAWLER = make_creature(
-    name="Corpse Crawler",
-    power=2, toughness=3,
+CRACKED_SKULL = make_enchantment(
+    name="Cracked Skull",
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    text="Enchant creature\nWhen this Aura enters, look at target player's hand. You may choose a nonland card from it. That player discards that card.\nWhen enchanted creature is dealt damage, destroy it.",
+    subtypes={"Aura"},
+)
+
+CYNICAL_LONER = make_creature(
+    name="Cynical Loner",
+    power=3, toughness=1,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Zombie"},
-    text="Deathtouch. {2}{B}, Exile a creature card from your graveyard: Draw a card."
+    subtypes={"Human", "Survivor"},
+    text="This creature can't be blocked by Glimmers.\nSurvival — At the beginning of your second main phase, if this creature is tapped, you may search your library for a card, put it into your graveyard, then shuffle.",
 )
 
-ENDLESS_NIGHTMARE = make_creature(
-    name="Endless Nightmare",
+DASHING_BLOODSUCKER = make_creature(
+    name="Dashing Bloodsucker",
+    power=2, toughness=5,
+    mana_cost="{3}{B}",
+    colors={Color.BLACK},
+    subtypes={"Vampire", "Warrior"},
+    text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, this creature gets +2/+0 and gains lifelink until end of turn.",
+)
+
+DEFILED_CRYPT = make_enchantment(
+    name="Defiled Crypt",
+    mana_cost="{3}{B} // {B}",
+    colors={Color.BLACK},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+DEMONIC_COUNSEL = make_sorcery(
+    name="Demonic Counsel",
+    mana_cost="{1}{B}",
+    colors={Color.BLACK},
+    text="Search your library for a Demon card, reveal it, put it into your hand, then shuffle.\nDelirium — If there are four or more card types among cards in your graveyard, instead search your library for any card, put it into your hand, then shuffle.",
+)
+
+DERELICT_ATTIC = make_enchantment(
+    name="Derelict Attic",
+    mana_cost="{2}{B} // {3}{B}",
+    colors={Color.BLACK},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+DOOMSDAY_EXCRUCIATOR = make_creature(
+    name="Doomsday Excruciator",
+    power=6, toughness=6,
+    mana_cost="{B}{B}{B}{B}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Demon"},
+    text="Flying\nWhen this creature enters, if it was cast, each player exiles all but the bottom six cards of their library face down.\nAt the beginning of your upkeep, draw a card.",
+)
+
+ENDURING_TENACITY = make_creature(
+    name="Enduring Tenacity",
+    power=4, toughness=3,
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Glimmer", "Snake"},
+    text="Whenever you gain life, target opponent loses that much life.\nWhen Enduring Tenacity dies, if it was a creature, return it to the battlefield under its owner's control. It's an enchantment. (It's not a creature.)",
+)
+
+FANATIC_OF_THE_HARROWING = make_creature(
+    name="Fanatic of the Harrowing",
+    power=2, toughness=2,
+    mana_cost="{3}{B}",
+    colors={Color.BLACK},
+    subtypes={"Cleric", "Human"},
+    text="When this creature enters, each player discards a card. If you discarded a card this way, draw a card.",
+)
+
+FEAR_OF_LOST_TEETH = make_creature(
+    name="Fear of Lost Teeth",
+    power=1, toughness=1,
+    mana_cost="{B}",
+    colors={Color.BLACK},
+    subtypes={"Nightmare"},
+    text="When this creature dies, it deals 1 damage to any target and you gain 1 life.",
+)
+
+FEAR_OF_THE_DARK = make_creature(
+    name="Fear of the Dark",
+    power=5, toughness=5,
+    mana_cost="{4}{B}",
+    colors={Color.BLACK},
+    subtypes={"Nightmare"},
+    text="Whenever this creature attacks, if defending player controls no Glimmer creatures, it gains menace and deathtouch until end of turn. (A creature with menace can't be blocked except by two or more creatures.)",
+)
+
+FINAL_VENGEANCE = make_sorcery(
+    name="Final Vengeance",
+    mana_cost="{B}",
+    colors={Color.BLACK},
+    text="As an additional cost to cast this spell, sacrifice a creature or enchantment.\nExile target creature.",
+)
+
+FUNERAL_ROOM = make_enchantment(
+    name="Funeral Room",
+    mana_cost="{2}{B} // {6}{B}{B}",
+    colors={Color.BLACK},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+GIVE_IN_TO_VIOLENCE = make_instant(
+    name="Give In to Violence",
+    mana_cost="{1}{B}",
+    colors={Color.BLACK},
+    text="Target creature gets +2/+2 and gains lifelink until end of turn.",
+)
+
+GRIEVOUS_WOUND = make_enchantment(
+    name="Grievous Wound",
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    text="Enchant player\nEnchanted player can't gain life.\nWhenever enchanted player is dealt damage, they lose half their life, rounded up.",
+    subtypes={"Aura"},
+)
+
+INNOCUOUS_RAT = make_creature(
+    name="Innocuous Rat",
+    power=1, toughness=1,
+    mana_cost="{1}{B}",
+    colors={Color.BLACK},
+    subtypes={"Rat"},
+    text="When this creature dies, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+)
+
+KILLERS_MASK = make_artifact(
+    name="Killer's Mask",
+    mana_cost="{2}{B}",
+    text="When this Equipment enters, manifest dread, then attach this Equipment to that creature. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)\nEquipped creature has menace.\nEquip {2}",
+    subtypes={"Equipment"},
+)
+
+LETS_PLAY_A_GAME = make_sorcery(
+    name="Let's Play a Game",
+    mana_cost="{3}{B}",
+    colors={Color.BLACK},
+    text="Delirium — Choose one. If there are four or more card types among cards in your graveyard, choose one or more instead.\n• Creatures your opponents control get -1/-1 until end of turn.\n• Each opponent discards two cards.\n• Each opponent loses 3 life and you gain 3 life.",
+)
+
+LEYLINE_OF_THE_VOID = make_enchantment(
+    name="Leyline of the Void",
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nIf a card would be put into an opponent's graveyard from anywhere, exile it instead.",
+)
+
+LIVE_OR_DIE = make_instant(
+    name="Live or Die",
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    text="Choose one —\n• Return target creature card from your graveyard to the battlefield.\n• Destroy target creature.",
+)
+
+MEATHOOK_MASSACRE_II = make_enchantment(
+    name="Meathook Massacre II",
+    mana_cost="{X}{X}{B}{B}{B}{B}",
+    colors={Color.BLACK},
+    text="When Meathook Massacre II enters, each player sacrifices X creatures of their choice.\nWhenever a creature you control dies, you may pay 3 life. If you do, return that card under your control with a finality counter on it.\nWhenever a creature an opponent controls dies, they may pay 3 life. If they don't, return that card under your control with a finality counter on it.",
+    supertypes={"Legendary"},
+)
+
+MIASMA_DEMON = make_creature(
+    name="Miasma Demon",
     power=5, toughness=4,
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
-    subtypes={"Nightmare", "Horror"},
-    text="Deathtouch. Whenever Endless Nightmare attacks, defending player discards a card."
+    subtypes={"Demon"},
+    text="Flying\nWhen this creature enters, you may discard any number of cards. When you do, up to that many target creatures each get -2/-2 until end of turn.",
 )
 
-
-# =============================================================================
-# ADDITIONAL COMMON/UNCOMMON RED
-# =============================================================================
-
-RAGING_SPECTER = make_creature(
-    name="Raging Specter",
-    power=3, toughness=1,
-    mana_cost="{1}{R}",
-    colors={Color.RED},
-    subtypes={"Spirit"},
-    text="Haste. When Raging Specter enters, it deals 1 damage to any target."
-)
-
-INFERNAL_SURGE = make_instant(
-    name="Infernal Surge",
-    mana_cost="{R}",
-    colors={Color.RED},
-    text="Target creature gets +3/+0 and gains first strike until end of turn."
-)
-
-WRATHFUL_ERUPTION = make_sorcery(
-    name="Wrathful Eruption",
-    mana_cost="{2}{R}{R}",
-    colors={Color.RED},
-    text="Wrathful Eruption deals 4 damage divided as you choose among any number of target creatures and/or planeswalkers."
-)
-
-BLAZING_HORROR = make_creature(
-    name="Blazing Horror",
-    power=4, toughness=2,
-    mana_cost="{2}{R}",
-    colors={Color.RED},
-    subtypes={"Elemental", "Horror"},
-    text="Trample. When Blazing Horror dies, it deals 2 damage to any target."
-)
-
-CHAOTIC_IMPULSE = make_instant(
-    name="Chaotic Impulse",
-    mana_cost="{1}{R}",
-    colors={Color.RED},
-    text="Exile the top two cards of your library. Until end of turn, you may play those cards."
-)
-
-FIRE_OF_DUSKMOURN = make_sorcery(
-    name="Fire of Duskmourn",
-    mana_cost="{3}{R}",
-    colors={Color.RED},
-    text="Fire of Duskmourn deals 4 damage to target creature or planeswalker. If you control an enchantment, it deals 5 damage instead."
-)
-
-BLOODFIRE_ELEMENTAL = make_creature(
-    name="Bloodfire Elemental",
-    power=4, toughness=1,
-    mana_cost="{2}{R}",
-    colors={Color.RED},
-    subtypes={"Elemental"},
-    text="Haste. Sacrifice Bloodfire Elemental: It deals 4 damage to any target."
-)
-
-DESTRUCTIVE_RAMPAGE = make_sorcery(
-    name="Destructive Rampage",
-    mana_cost="{1}{R}",
-    colors={Color.RED},
-    text="Destroy target artifact. Destructive Rampage deals 2 damage to that artifact's controller."
-)
-
-HOUSE_ARSONIST = make_creature(
-    name="House Arsonist",
-    power=3, toughness=2,
-    mana_cost="{1}{R}{R}",
-    colors={Color.RED},
-    subtypes={"Human", "Survivor"},
-    text="When House Arsonist enters, destroy target artifact or enchantment."
-)
-
-
-# =============================================================================
-# ADDITIONAL COMMON/UNCOMMON GREEN
-# =============================================================================
-
-FOREST_CREEPER = make_creature(
-    name="Forest Creeper",
-    power=2, toughness=2,
-    mana_cost="{G}",
-    colors={Color.GREEN},
-    subtypes={"Plant"},
-    text="Forest Creeper gets +1/+1 as long as you control an enchantment."
-)
-
-OVERGROWN_HORROR = make_creature(
-    name="Overgrown Horror",
-    power=5, toughness=4,
-    mana_cost="{3}{G}{G}",
-    colors={Color.GREEN},
-    subtypes={"Plant", "Horror"},
-    text="Trample. When Overgrown Horror enters, you may destroy target artifact or enchantment."
-)
-
-NATURE_FURY = make_instant(
-    name="Nature's Fury",
-    mana_cost="{G}",
-    colors={Color.GREEN},
-    text="Target creature you control gets +2/+2 and gains trample until end of turn."
-)
-
-VERDANT_GROWTH = make_sorcery(
-    name="Verdant Growth",
-    mana_cost="{2}{G}",
-    colors={Color.GREEN},
-    text="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. You gain 3 life."
-)
-
-THORNWOOD_GUARDIAN = make_creature(
-    name="Thornwood Guardian",
-    power=3, toughness=4,
-    mana_cost="{2}{G}{G}",
-    colors={Color.GREEN},
-    subtypes={"Treefolk"},
-    text="Reach. When Thornwood Guardian enters, put a +1/+1 counter on each other creature you control."
-)
-
-PRIMAL_ROAR = make_instant(
-    name="Primal Roar",
-    mana_cost="{1}{G}",
-    colors={Color.GREEN},
-    text="Target creature you control fights target creature you don't control. If you have survival, your creature gets +2/+2 until end of turn first."
-)
-
-WILD_OVERGROWTH = make_enchantment(
-    name="Wild Overgrowth",
-    mana_cost="{2}{G}",
-    colors={Color.GREEN},
-    text="Creatures you control have +1/+1. Whenever a creature enters under your control, if it has power 4 or greater, draw a card."
-)
-
-GROVE_TENDER = make_creature(
-    name="Grove Tender",
-    power=1, toughness=1,
-    mana_cost="{G}",
-    colors={Color.GREEN},
-    subtypes={"Elf", "Druid"},
-    text="{T}: Add {G}. If you control an enchantment, add {G}{G} instead."
-)
-
-LURKING_VINES = make_creature(
-    name="Lurking Vines",
-    power=3, toughness=3,
-    mana_cost="{2}{G}",
-    colors={Color.GREEN},
-    subtypes={"Plant"},
-    text="Flash. Reach. When Lurking Vines enters, you may have it fight target creature with flying."
-)
-
-
-# =============================================================================
-# ADDITIONAL MULTICOLOR COMMON/UNCOMMON
-# =============================================================================
-
-SPIRIT_GUIDE = make_creature(
-    name="Spirit Guide",
-    power=2, toughness=2,
-    mana_cost="{W}{U}",
-    colors={Color.WHITE, Color.BLUE},
-    subtypes={"Spirit"},
-    text="Flying. When Spirit Guide enters, draw a card, then discard a card."
-)
-
-SHADOWBLOOD_CULTIST = make_creature(
-    name="Shadowblood Cultist",
-    power=3, toughness=1,
-    mana_cost="{B}{R}",
-    colors={Color.BLACK, Color.RED},
-    subtypes={"Human", "Warlock"},
-    text="Menace. When Shadowblood Cultist dies, it deals 2 damage to any target."
-)
-
-NATURE_SPIRIT = make_creature(
-    name="Nature's Spirit",
-    power=3, toughness=3,
-    mana_cost="{G}{W}",
-    colors={Color.GREEN, Color.WHITE},
-    subtypes={"Spirit"},
-    text="Vigilance. When Nature's Spirit enters, you gain 3 life."
-)
-
-STORM_WRAITH = make_creature(
-    name="Storm Wraith",
-    power=3, toughness=2,
-    mana_cost="{U}{R}",
-    colors={Color.BLUE, Color.RED},
-    subtypes={"Elemental", "Spirit"},
-    text="Flying, haste. When Storm Wraith enters, it deals 1 damage to any target."
-)
-
-DEATH_BLOOM = make_creature(
-    name="Death Bloom",
-    power=2, toughness=2,
-    mana_cost="{B}{G}",
-    colors={Color.BLACK, Color.GREEN},
-    subtypes={"Plant", "Zombie"},
-    text="Deathtouch. When Death Bloom dies, return target creature card with mana value 3 or less from your graveyard to your hand."
-)
-
-EERIE_MANIFESTATION = make_instant(
-    name="Eerie Manifestation",
-    mana_cost="{W}{B}",
-    colors={Color.WHITE, Color.BLACK},
-    text="Exile target creature. Its controller creates a 1/1 white and black Spirit creature token with flying."
-)
-
-CHAOTIC_GROWTH = make_sorcery(
-    name="Chaotic Growth",
-    mana_cost="{R}{G}",
-    colors={Color.RED, Color.GREEN},
-    text="Target creature gets +4/+4 and gains trample and haste until end of turn."
-)
-
-MIND_TERROR = make_sorcery(
-    name="Mind Terror",
-    mana_cost="{1}{U}{B}",
-    colors={Color.BLUE, Color.BLACK},
-    text="Target player discards two cards. You draw a card."
-)
-
-BLAZING_SPIRIT = make_creature(
-    name="Blazing Spirit",
-    power=2, toughness=1,
-    mana_cost="{R}{W}",
-    colors={Color.RED, Color.WHITE},
-    subtypes={"Spirit"},
-    text="Flying, haste. When Blazing Spirit enters, it deals 1 damage to target creature or planeswalker."
-)
-
-CORRUPTED_GROWTH = make_creature(
-    name="Corrupted Growth",
-    power=4, toughness=3,
-    mana_cost="{2}{B}{G}",
-    colors={Color.BLACK, Color.GREEN},
-    subtypes={"Plant", "Horror"},
-    text="Trample. When Corrupted Growth enters, mill four cards. Return a creature card from your graveyard to your hand."
-)
-
-
-# =============================================================================
-# ADDITIONAL ROOMS
-# =============================================================================
-
-CRUMBLING_STAIRCASE = make_room(
-    name="Crumbling Staircase // Collapsed Landing",
-    mana_cost="{1}{R}",
-    colors={Color.RED},
-    text="Whenever a creature attacks, it gets +1/+0 until end of turn. // {2}{R}: Unlock. When you unlock this Room, Crumbling Staircase deals 2 damage to each creature."
-)
-
-SILENT_NURSERY = make_room(
-    name="Silent Nursery // Awakened Crib",
-    mana_cost="{2}{B}",
-    colors={Color.BLACK},
-    text="Creature tokens you control get +1/+0. // {3}{B}: Unlock. When you unlock this Room, create two 1/1 black Spirit creature tokens."
-)
-
-MISTY_CONSERVATORY = make_room(
-    name="Misty Conservatory // Toxic Garden",
-    mana_cost="{1}{G}",
-    colors={Color.GREEN},
-    text="Creatures you control have reach. // {2}{G}: Unlock. When you unlock this Room, target creature gets +3/+3 until end of turn."
-)
-
-ECHOING_HALLS = make_room(
-    name="Echoing Halls // Chamber of Whispers",
-    mana_cost="{2}{U}",
-    colors={Color.BLUE},
-    text="Whenever you cast an instant or sorcery, draw a card, then discard a card. // {3}{U}: Unlock. Draw two cards."
-)
-
-
-# =============================================================================
-# ADDITIONAL ARTIFACTS
-# =============================================================================
-
-SURVIVORS_PACK = make_artifact(
-    name="Survivor's Pack",
-    mana_cost="{2}",
-    text="{T}: Add one mana of any color. {2}, {T}, Sacrifice Survivor's Pack: Draw a card."
-)
-
-CURSED_MIRROR = make_artifact(
-    name="Cursed Mirror",
-    mana_cost="{3}",
-    text="When Cursed Mirror enters, create a token that's a copy of target creature you control except it's an artifact in addition to its other types."
-)
-
-DUSKMOURN_RELIC = make_artifact(
-    name="Duskmourn Relic",
-    mana_cost="{1}",
-    text="When Duskmourn Relic enters, scry 1. {2}, Sacrifice Duskmourn Relic: Draw a card."
-)
-
-RUSTED_CHAINS = make_artifact(
-    name="Rusted Chains",
-    mana_cost="{2}",
-    subtypes={"Equipment"},
-    text="Equipped creature gets +1/+2. Equipped creature can't attack alone. Equip {1}"
-)
-
-SPIRIT_LANTERN = make_artifact(
-    name="Spirit Lantern",
-    mana_cost="{2}",
-    text="{T}: Add {C}. {3}, {T}: Create a 1/1 white Spirit creature token with flying."
-)
-
-
-# =============================================================================
-# ADDITIONAL LANDS
-# =============================================================================
-
-HIDDEN_CHAMBER = make_land(
-    name="Hidden Chamber",
-    text="Hidden Chamber enters tapped. {T}: Add {W} or {U}. {4}{W}{U}, {T}, Sacrifice Hidden Chamber: Create a 4/4 white and blue Spirit creature token with flying."
-)
-
-TWISTED_CORRIDOR = make_land(
-    name="Twisted Corridor",
-    text="Twisted Corridor enters tapped. {T}: Add {U} or {R}. When Twisted Corridor enters, scry 1."
-)
-
-BLOOD_STAINED_FLOOR = make_land(
-    name="Blood-Stained Floor",
-    text="Blood-Stained Floor enters tapped. {T}: Add {B} or {R}. {3}{B}{R}, {T}: Each player sacrifices a creature."
-)
-
-OVERGROWN_WING = make_land(
-    name="Overgrown Wing",
-    text="Overgrown Wing enters tapped. {T}: Add {G} or {W}. When Overgrown Wing enters, you gain 1 life."
-)
-
-
-# =============================================================================
-# MORE WHITE CARDS
-# =============================================================================
-
-CLEANSING_LIGHT = make_instant(
-    name="Cleansing Light",
-    mana_cost="{1}{W}{W}",
-    colors={Color.WHITE},
-    text="Exile target creature or enchantment."
-)
-
-SPIRIT_CONGREGATION = make_sorcery(
-    name="Spirit Congregation",
-    mana_cost="{3}{W}",
-    colors={Color.WHITE},
-    text="Create three 1/1 white Spirit creature tokens with flying."
-)
-
-DUSKMOURN_KNIGHT = make_creature(
-    name="Duskmourn Knight",
-    power=3, toughness=2,
-    mana_cost="{1}{W}{W}",
-    colors={Color.WHITE},
-    subtypes={"Spirit", "Knight"},
-    text="First strike, vigilance. Duskmourn Knight gets +1/+1 as long as you control an enchantment."
-)
-
-BANISHING_LIGHT = make_enchantment(
-    name="Banishing Light",
-    mana_cost="{2}{W}",
-    colors={Color.WHITE},
-    text="When Banishing Light enters, exile target nonland permanent an opponent controls until Banishing Light leaves the battlefield."
-)
-
-
-# =============================================================================
-# MORE BLUE CARDS
-# =============================================================================
-
-MEMORY_DELUGE = make_instant(
-    name="Memory Deluge",
-    mana_cost="{2}{U}{U}",
-    colors={Color.BLUE},
-    text="Look at the top four cards of your library. Put two into your hand and two into your graveyard. Flashback {5}{U}{U}"
-)
-
-SPECTRAL_BINDING = make_enchantment(
-    name="Spectral Binding",
-    mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    text="Enchant creature. Enchanted creature doesn't untap during its controller's untap step. {3}{U}: Return Spectral Binding to its owner's hand."
-)
-
-GHOSTFORM = make_instant(
-    name="Ghostform",
-    mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    text="Up to two target creatures can't be blocked this turn."
-)
-
-HAUNTING_ECHO = make_creature(
-    name="Haunting Echo",
-    power=3, toughness=3,
-    mana_cost="{3}{U}",
-    colors={Color.BLUE},
-    subtypes={"Spirit"},
-    text="Flying. When Haunting Echo enters, return target instant or sorcery card from your graveyard to your hand."
-)
-
-
-# =============================================================================
-# MORE BLACK CARDS
-# =============================================================================
-
-VILE_ENTOMBMENT = make_sorcery(
-    name="Vile Entombment",
-    mana_cost="{2}{B}",
-    colors={Color.BLACK},
-    text="Destroy target creature. Its controller loses 2 life."
-)
-
-NIGHTMARE_EMBRACE = make_enchantment(
-    name="Nightmare Embrace",
+MURDER = make_instant(
+    name="Murder",
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
-    text="Enchant creature. Enchanted creature gets -3/-3. When enchanted creature dies, return Nightmare Embrace to its owner's hand."
+    text="Destroy target creature.",
 )
 
-DESPAIR_INCARNATE = make_creature(
-    name="Despair Incarnate",
-    power=4, toughness=3,
-    mana_cost="{3}{B}",
+NOWHERE_TO_RUN = make_enchantment(
+    name="Nowhere to Run",
+    mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Nightmare", "Horror"},
-    text="Menace. At the beginning of your upkeep, each opponent discards a card. If a player can't, you draw a card."
+    text="Flash\nWhen this enchantment enters, target creature an opponent controls gets -3/-3 until end of turn.\nCreatures your opponents control can be the targets of spells and abilities as though they didn't have hexproof. Ward abilities of those creatures don't trigger.",
 )
 
-DREAD_RETURN = make_sorcery(
-    name="Dread Return",
-    mana_cost="{2}{B}{B}",
+OSSEOUS_STICKTWISTER = make_artifact_creature(
+    name="Osseous Sticktwister",
+    power=2, toughness=2,
+    mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Return target creature card from your graveyard to the battlefield. Flashback - Sacrifice three creatures."
+    subtypes={"Scarecrow"},
+    text="Lifelink\nDelirium — At the beginning of your end step, if there are four or more card types among cards in your graveyard, each opponent may sacrifice a nonland permanent of their choice or discard a card. Then this creature deals damage equal to its power to each opponent who didn't sacrifice a permanent or discard a card this way.",
 )
 
-
-# =============================================================================
-# MORE RED CARDS
-# =============================================================================
-
-INFERNAL_GRASP = make_instant(
-    name="Infernal Grasp",
-    mana_cost="{R}{R}",
-    colors={Color.RED},
-    text="Infernal Grasp deals 5 damage to target creature or planeswalker."
+OVERLORD_OF_THE_BALEMURK = make_creature(
+    name="Overlord of the Balemurk",
+    power=5, toughness=5,
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Avatar", "Horror"},
+    text="Impending 5—{1}{B} (If you cast this spell for its impending cost, it enters with five time counters and isn't a creature until the last is removed. At the beginning of your end step, remove a time counter from it.)\nWhenever this permanent enters or attacks, mill four cards, then you may return a non-Avatar creature card or a planeswalker card from your graveyard to your hand.",
 )
 
-BURNING_VENGEANCE = make_enchantment(
-    name="Burning Vengeance",
-    mana_cost="{2}{R}",
-    colors={Color.RED},
-    text="Whenever you cast a spell from your graveyard, Burning Vengeance deals 2 damage to any target."
+POPULAR_EGOTIST = make_creature(
+    name="Popular Egotist",
+    power=3, toughness=2,
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Rogue"},
+    text="{1}{B}, Sacrifice another creature or enchantment: This creature gains indestructible until end of turn. Tap it. (Damage and effects that say \"destroy\" don't destroy it.)\nWhenever you sacrifice a permanent, target opponent loses 1 life and you gain 1 life.",
 )
 
-LIGHTNING_STRIKE = make_instant(
-    name="Lightning Strike",
-    mana_cost="{1}{R}",
-    colors={Color.RED},
-    text="Lightning Strike deals 3 damage to any target."
+RESURRECTED_CULTIST = make_creature(
+    name="Resurrected Cultist",
+    power=4, toughness=1,
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    subtypes={"Cleric", "Human"},
+    text="Delirium — {2}{B}{B}: Return this card from your graveyard to the battlefield with a finality counter on it. Activate only if there are four or more card types among cards in your graveyard and only as a sorcery. (If a creature with a finality counter on it would die, exile it instead.)",
 )
 
-HELLFIRE_ELEMENTAL = make_creature(
-    name="Hellfire Elemental",
-    power=5, toughness=4,
+SPECTRAL_SNATCHER = make_creature(
+    name="Spectral Snatcher",
+    power=6, toughness=5,
+    mana_cost="{4}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Spirit"},
+    text="Ward—Discard a card. (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player discards a card.)\nSwampcycling {2} ({2}, Discard this card: Search your library for a Swamp card, reveal it, put it into your hand, then shuffle.)",
+)
+
+SPOROGENIC_INFECTION = make_enchantment(
+    name="Sporogenic Infection",
+    mana_cost="{1}{B}",
+    colors={Color.BLACK},
+    text="Enchant creature\nWhen this Aura enters, target player sacrifices a creature of their choice other than enchanted creature.\nWhen enchanted creature is dealt damage, destroy it.",
+    subtypes={"Aura"},
+)
+
+UNHOLY_ANNEX = make_enchantment(
+    name="Unholy Annex",
+    mana_cost="{2}{B} // {3}{B}{B}",
+    colors={Color.BLACK},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+UNSTOPPABLE_SLASHER = make_creature(
+    name="Unstoppable Slasher",
+    power=2, toughness=3,
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    subtypes={"Assassin", "Zombie"},
+    text="Deathtouch\nWhenever this creature deals combat damage to a player, they lose half their life, rounded up.\nWhen this creature dies, if it had no counters on it, return it to the battlefield tapped under its owner's control with two stun counters on it.",
+)
+
+VALGAVOTH_TERROR_EATER = make_creature(
+    name="Valgavoth, Terror Eater",
+    power=9, toughness=9,
+    mana_cost="{6}{B}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Demon", "Elder"},
+    supertypes={"Legendary"},
+    text="Flying, lifelink\nWard—Sacrifice three nonland permanents.\nIf a card you didn't control would be put into an opponent's graveyard from anywhere, exile it instead.\nDuring your turn, you may play cards exiled with Valgavoth. If you cast a spell this way, pay life equal to its mana value rather than pay its mana cost.",
+)
+
+VALGAVOTHS_FAITHFUL = make_creature(
+    name="Valgavoth's Faithful",
+    power=1, toughness=1,
+    mana_cost="{B}",
+    colors={Color.BLACK},
+    subtypes={"Cleric", "Human"},
+    text="{3}{B}, Sacrifice this creature: Return target creature card from your graveyard to the battlefield. Activate only as a sorcery.",
+)
+
+VILE_MUTILATOR = make_creature(
+    name="Vile Mutilator",
+    power=6, toughness=5,
+    mana_cost="{5}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Demon"},
+    text="As an additional cost to cast this spell, sacrifice a creature or enchantment.\nFlying, trample\nWhen this creature enters, each opponent sacrifices a nontoken enchantment of their choice, then sacrifices a nontoken creature of their choice.",
+)
+
+WINTERS_INTERVENTION = make_instant(
+    name="Winter's Intervention",
+    mana_cost="{1}{B}",
+    colors={Color.BLACK},
+    text="Winter's Intervention deals 2 damage to target creature. You gain 2 life.",
+)
+
+WITHERING_TORMENT = make_instant(
+    name="Withering Torment",
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    text="Destroy target creature or enchantment. You lose 2 life.",
+)
+
+BEDHEAD_BEASTIE = make_creature(
+    name="Bedhead Beastie",
+    power=5, toughness=6,
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
-    subtypes={"Elemental"},
-    text="Trample. When Hellfire Elemental enters, it deals 3 damage to each other creature."
+    subtypes={"Beast"},
+    text="Menace (This creature can't be blocked except by two or more creatures.)\nMountaincycling {2} ({2}, Discard this card: Search your library for a Mountain card, reveal it, put it into your hand, then shuffle.)",
 )
 
+BETRAYERS_BARGAIN = make_instant(
+    name="Betrayer's Bargain",
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    text="As an additional cost to cast this spell, sacrifice a creature or enchantment or pay {2}.\nBetrayer's Bargain deals 5 damage to target creature. If that creature would die this turn, exile it instead.",
+)
 
-# =============================================================================
-# MORE GREEN CARDS
-# =============================================================================
+BOILERBILGES_RIPPER = make_creature(
+    name="Boilerbilges Ripper",
+    power=4, toughness=4,
+    mana_cost="{4}{R}",
+    colors={Color.RED},
+    subtypes={"Assassin", "Human"},
+    text="When this creature enters, you may sacrifice another creature or enchantment. When you do, this creature deals 2 damage to any target.",
+)
 
-BEAST_WITHIN = make_instant(
-    name="Beast Within",
+CHAINSAW = make_artifact(
+    name="Chainsaw",
+    mana_cost="{1}{R}",
+    text="When this Equipment enters, it deals 3 damage to up to one target creature.\nWhenever one or more creatures die, put a rev counter on this Equipment.\nEquipped creature gets +X/+0, where X is the number of rev counters on this Equipment.\nEquip {3}",
+    subtypes={"Equipment"},
+)
+
+CHARRED_FOYER = make_enchantment(
+    name="Charred Foyer",
+    mana_cost="{3}{R} // {4}{R}{R}",
+    colors={Color.RED},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+CLOCKWORK_PERCUSSIONIST = make_artifact_creature(
+    name="Clockwork Percussionist",
+    power=1, toughness=1,
+    mana_cost="{R}",
+    colors={Color.RED},
+    subtypes={"Monkey", "Toy"},
+    text="Haste\nWhen this creature dies, exile the top card of your library. You may play it until the end of your next turn.",
+)
+
+CURSED_RECORDING = make_artifact(
+    name="Cursed Recording",
+    mana_cost="{2}{R}{R}",
+    text="Whenever you cast an instant or sorcery spell, put a time counter on this artifact. Then if there are seven or more time counters on it, remove those counters and it deals 20 damage to you.\n{T}: When you next cast an instant or sorcery spell this turn, copy that spell. You may choose new targets for the copy.",
+)
+
+DIVERSION_SPECIALIST = make_creature(
+    name="Diversion Specialist",
+    power=4, toughness=3,
+    mana_cost="{3}{R}",
+    colors={Color.RED},
+    subtypes={"Human", "Warrior"},
+    text="Menace (This creature can't be blocked except by two or more creatures.)\n{1}, Sacrifice another creature or enchantment: Exile the top card of your library. You may play it this turn.",
+)
+
+ENDURING_COURAGE = make_creature(
+    name="Enduring Courage",
+    power=3, toughness=3,
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Dog", "Glimmer"},
+    text="Whenever another creature you control enters, it gets +2/+0 and gains haste until end of turn.\nWhen Enduring Courage dies, if it was a creature, return it to the battlefield under its owner's control. It's an enchantment. (It's not a creature.)",
+)
+
+FEAR_OF_BEING_HUNTED = make_creature(
+    name="Fear of Being Hunted",
+    power=4, toughness=2,
+    mana_cost="{1}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Nightmare"},
+    text="Haste\nThis creature must be blocked if able.",
+)
+
+FEAR_OF_BURNING_ALIVE = make_creature(
+    name="Fear of Burning Alive",
+    power=4, toughness=4,
+    mana_cost="{4}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Nightmare"},
+    text="When this creature enters, it deals 4 damage to each opponent.\nDelirium — Whenever a source you control deals noncombat damage to an opponent, if there are four or more card types among cards in your graveyard, this creature deals that amount of damage to target creature that player controls.",
+)
+
+FEAR_OF_MISSING_OUT = make_creature(
+    name="Fear of Missing Out",
+    power=2, toughness=3,
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    subtypes={"Nightmare"},
+    text="When this creature enters, discard a card, then draw a card.\nDelirium — Whenever this creature attacks for the first time each turn, if there are four or more card types among cards in your graveyard, untap target creature. After this phase, there is an additional combat phase.",
+)
+
+GLASSWORKS = make_enchantment(
+    name="Glassworks",
+    mana_cost="{2}{R} // {4}{R}",
+    colors={Color.RED},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+GRAB_THE_PRIZE = make_sorcery(
+    name="Grab the Prize",
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    text="As an additional cost to cast this spell, discard a card.\nDraw two cards. If the discarded card wasn't a land card, Grab the Prize deals 2 damage to each opponent.",
+)
+
+HAND_THAT_FEEDS = make_creature(
+    name="Hand That Feeds",
+    power=2, toughness=2,
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    subtypes={"Mutant"},
+    text="Delirium — Whenever this creature attacks while there are four or more card types among cards in your graveyard, it gets +2/+0 and gains menace until end of turn. (It can't be blocked except by two or more creatures.)",
+)
+
+IMPOSSIBLE_INFERNO = make_instant(
+    name="Impossible Inferno",
+    mana_cost="{4}{R}",
+    colors={Color.RED},
+    text="Impossible Inferno deals 6 damage to target creature.\nDelirium — If there are four or more card types among cards in your graveyard, exile the top card of your library. You may play it until the end of your next turn.",
+)
+
+INFERNAL_PHANTOM = make_creature(
+    name="Infernal Phantom",
+    power=2, toughness=3,
+    mana_cost="{3}{R}",
+    colors={Color.RED},
+    subtypes={"Spirit"},
+    text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, this creature gets +2/+0 until end of turn.\nWhen this creature dies, it deals damage equal to its power to any target.",
+)
+
+IRREVERENT_GREMLIN = make_creature(
+    name="Irreverent Gremlin",
+    power=2, toughness=2,
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    subtypes={"Gremlin"},
+    text="Menace (This creature can't be blocked except by two or more creatures.)\nWhenever another creature you control with power 2 or less enters, you may discard a card. If you do, draw a card. Do this only once each turn.",
+)
+
+LEYLINE_OF_RESONANCE = make_enchantment(
+    name="Leyline of Resonance",
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nWhenever you cast an instant or sorcery spell that targets only a single creature you control, copy that spell. You may choose new targets for the copy.",
+)
+
+ALEYLINE_OF_RESONANCE = make_enchantment(
+    name="A-Leyline of Resonance",
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nWhenever you cast an instant or sorcery spell that targets only a single creature you control, you may pay {1}. If you do, copy that spell. You may choose new targets for the copy.",
+)
+
+MOST_VALUABLE_SLAYER = make_creature(
+    name="Most Valuable Slayer",
+    power=2, toughness=4,
+    mana_cost="{3}{R}",
+    colors={Color.RED},
+    subtypes={"Human", "Warrior"},
+    text="Whenever you attack, target attacking creature gets +1/+0 and gains first strike until end of turn.",
+)
+
+NORIN_SWIFT_SURVIVALIST = make_creature(
+    name="Norin, Swift Survivalist",
+    power=2, toughness=1,
+    mana_cost="{R}",
+    colors={Color.RED},
+    subtypes={"Coward", "Human"},
+    supertypes={"Legendary"},
+    text="Norin can't block.\nWhenever a creature you control becomes blocked, you may exile it. You may play that card from exile this turn.",
+)
+
+OVERLORD_OF_THE_BOILERBILGES = make_creature(
+    name="Overlord of the Boilerbilges",
+    power=5, toughness=5,
+    mana_cost="{4}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Avatar", "Horror"},
+    text="Impending 4—{2}{R}{R} (If you cast this spell for its impending cost, it enters with four time counters and isn't a creature until the last is removed. At the beginning of your end step, remove a time counter from it.)\nWhenever this permanent enters or attacks, it deals 4 damage to any target.",
+)
+
+PAINTERS_STUDIO = make_enchantment(
+    name="Painter's Studio",
+    mana_cost="{2}{R} // {1}{R}",
+    colors={Color.RED},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+PIGGY_BANK = make_artifact_creature(
+    name="Piggy Bank",
+    power=3, toughness=2,
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    subtypes={"Boar", "Toy"},
+    text="When this creature dies, create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+)
+
+PYROCLASM = make_sorcery(
+    name="Pyroclasm",
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    text="Pyroclasm deals 2 damage to each creature.",
+)
+
+RAGGED_PLAYMATE = make_artifact_creature(
+    name="Ragged Playmate",
+    power=2, toughness=2,
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    subtypes={"Toy"},
+    text="{1}, {T}: Target creature with power 2 or less can't be blocked this turn.",
+)
+
+RAMPAGING_SOULRAGER = make_creature(
+    name="Rampaging Soulrager",
+    power=1, toughness=4,
+    mana_cost="{2}{R}",
+    colors={Color.RED},
+    subtypes={"Spirit"},
+    text="This creature gets +3/+0 as long as there are two or more unlocked doors among Rooms you control.",
+)
+
+RAZORKIN_HORDECALLER = make_creature(
+    name="Razorkin Hordecaller",
+    power=4, toughness=4,
+    mana_cost="{4}{R}",
+    colors={Color.RED},
+    subtypes={"Berserker", "Clown", "Human"},
+    text="Haste\nWhenever you attack, create a 1/1 red Gremlin creature token.",
+)
+
+RAZORKIN_NEEDLEHEAD = make_creature(
+    name="Razorkin Needlehead",
+    power=2, toughness=2,
+    mana_cost="{R}{R}",
+    colors={Color.RED},
+    subtypes={"Assassin", "Human"},
+    text="This creature has first strike during your turn.\nWhenever an opponent draws a card, this creature deals 1 damage to them.",
+)
+
+RIPCHAIN_RAZORKIN = make_creature(
+    name="Ripchain Razorkin",
+    power=5, toughness=3,
+    mana_cost="{3}{R}",
+    colors={Color.RED},
+    subtypes={"Berserker", "Human"},
+    text="Reach\n{2}{R}, Sacrifice a land: Draw a card.",
+)
+
+THE_ROLLERCRUSHER_RIDE = make_enchantment(
+    name="The Rollercrusher Ride",
+    mana_cost="{X}{2}{R}",
+    colors={Color.RED},
+    text="Delirium — If a source you control would deal noncombat damage to a permanent or player while there are four or more card types among cards in your graveyard, it deals double that damage instead.\nWhen The Rollercrusher Ride enters, it deals X damage to each of up to X target creatures.",
+    supertypes={"Legendary"},
+)
+
+SCORCHING_DRAGONFIRE = make_instant(
+    name="Scorching Dragonfire",
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    text="Scorching Dragonfire deals 3 damage to target creature or planeswalker. If that creature or planeswalker would die this turn, exile it instead.",
+)
+
+SCREAMING_NEMESIS = make_creature(
+    name="Screaming Nemesis",
+    power=3, toughness=3,
+    mana_cost="{2}{R}",
+    colors={Color.RED},
+    subtypes={"Spirit"},
+    text="Haste\nWhenever this creature is dealt damage, it deals that much damage to any other target. If a player is dealt damage this way, they can't gain life for the rest of the game.",
+)
+
+TICKET_BOOTH = make_enchantment(
+    name="Ticket Booth",
+    mana_cost="{2}{R} // {4}{R}{R}",
+    colors={Color.RED},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+TRIAL_OF_AGONY = make_sorcery(
+    name="Trial of Agony",
+    mana_cost="{R}",
+    colors={Color.RED},
+    text="Choose two target creatures controlled by the same opponent. That player chooses one of those creatures. Trial of Agony deals 5 damage to that creature, and the other can't block this turn.",
+)
+
+TURN_INSIDE_OUT = make_instant(
+    name="Turn Inside Out",
+    mana_cost="{R}",
+    colors={Color.RED},
+    text="Target creature gets +3/+0 until end of turn. When it dies this turn, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+)
+
+UNTIMELY_MALFUNCTION = make_instant(
+    name="Untimely Malfunction",
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    text="Choose one —\n• Destroy target artifact.\n• Change the target of target spell or ability with a single target.\n• One or two target creatures can't block this turn.",
+)
+
+VENGEFUL_POSSESSION = make_sorcery(
+    name="Vengeful Possession",
+    mana_cost="{2}{R}",
+    colors={Color.RED},
+    text="Gain control of target creature until end of turn. Untap it. It gains haste until end of turn. You may discard a card. If you do, draw a card.",
+)
+
+VICIOUS_CLOWN = make_creature(
+    name="Vicious Clown",
+    power=2, toughness=3,
+    mana_cost="{2}{R}",
+    colors={Color.RED},
+    subtypes={"Clown", "Human"},
+    text="Whenever another creature you control with power 2 or less enters, this creature gets +2/+0 until end of turn.",
+)
+
+VIOLENT_URGE = make_instant(
+    name="Violent Urge",
+    mana_cost="{R}",
+    colors={Color.RED},
+    text="Target creature gets +1/+0 and gains first strike until end of turn.\nDelirium — If there are four or more card types among cards in your graveyard, that creature gains double strike until end of turn.",
+)
+
+WALTZ_OF_RAGE = make_sorcery(
+    name="Waltz of Rage",
+    mana_cost="{3}{R}{R}",
+    colors={Color.RED},
+    text="Target creature you control deals damage equal to its power to each other creature. Until end of turn, whenever a creature you control dies, exile the top card of your library. You may play it until the end of your next turn.",
+)
+
+ALTANAK_THE_THRICECALLED = make_creature(
+    name="Altanak, the Thrice-Called",
+    power=9, toughness=9,
+    mana_cost="{5}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Beast", "Insect"},
+    supertypes={"Legendary"},
+    text="Trample\nWhenever Altanak becomes the target of a spell or ability an opponent controls, draw a card.\n{1}{G}, Discard this card: Return target land card from your graveyard to the battlefield tapped.",
+)
+
+ANTHROPEDE = make_creature(
+    name="Anthropede",
+    power=3, toughness=4,
+    mana_cost="{3}{G}",
+    colors={Color.GREEN},
+    subtypes={"Insect"},
+    text="Reach\nWhen this creature enters, you may discard a card or pay {2}. When you do, destroy target Room.",
+)
+
+BALUSTRADE_WURM = make_creature(
+    name="Balustrade Wurm",
+    power=5, toughness=5,
+    mana_cost="{3}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Wurm"},
+    text="This spell can't be countered.\nTrample, haste\nDelirium — {2}{G}{G}: Return this card from your graveyard to the battlefield with a finality counter on it. Activate only if there are four or more card types among cards in your graveyard and only as a sorcery.",
+)
+
+BASHFUL_BEASTIE = make_creature(
+    name="Bashful Beastie",
+    power=5, toughness=4,
+    mana_cost="{4}{G}",
+    colors={Color.GREEN},
+    subtypes={"Beast"},
+    text="When this creature dies, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+)
+
+BREAK_DOWN_THE_DOOR = make_instant(
+    name="Break Down the Door",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Destroy target permanent. Its controller creates a 3/3 green Beast creature token."
+    text="Choose one —\n• Exile target artifact.\n• Exile target enchantment.\n• Manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
 )
 
-ABUNDANT_GROWTH = make_enchantment(
-    name="Abundant Growth",
-    mana_cost="{G}",
-    colors={Color.GREEN},
-    text="Enchant land. When Abundant Growth enters, draw a card. Enchanted land has '{T}: Add one mana of any color.'"
-)
-
-TITANIC_GROWTH = make_instant(
-    name="Titanic Growth",
+CATHARTIC_PARTING = make_sorcery(
+    name="Cathartic Parting",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Target creature gets +4/+4 until end of turn."
+    text="The owner of target artifact or enchantment an opponent controls shuffles it into their library. You may shuffle up to four target cards from your graveyard into your library.",
 )
 
-PRIMORDIAL_HORROR = make_creature(
-    name="Primordial Horror",
-    power=6, toughness=6,
+CAUTIOUS_SURVIVOR = make_creature(
+    name="Cautious Survivor",
+    power=4, toughness=4,
+    mana_cost="{3}{G}",
+    colors={Color.GREEN},
+    subtypes={"Elf", "Survivor"},
+    text="Survival — At the beginning of your second main phase, if this creature is tapped, you gain 2 life.",
+)
+
+COORDINATED_CLOBBERING = make_sorcery(
+    name="Coordinated Clobbering",
+    mana_cost="{G}",
+    colors={Color.GREEN},
+    text="Tap one or two target untapped creatures you control. They each deal damage equal to their power to target creature an opponent controls.",
+)
+
+CRYPTID_INSPECTOR = make_creature(
+    name="Cryptid Inspector",
+    power=2, toughness=3,
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    subtypes={"Elf", "Warrior"},
+    text="Vigilance\nWhenever a face-down permanent you control enters and whenever this creature or another permanent you control is turned face up, put a +1/+1 counter on this creature.",
+)
+
+DEFIANT_SURVIVOR = make_creature(
+    name="Defiant Survivor",
+    power=3, toughness=2,
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    subtypes={"Human", "Survivor"},
+    text="Survival — At the beginning of your second main phase, if this creature is tapped, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+)
+
+ENDURING_VITALITY = make_creature(
+    name="Enduring Vitality",
+    power=3, toughness=3,
+    mana_cost="{1}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Elk", "Glimmer"},
+    text="Vigilance\nCreatures you control have \"{T}: Add one mana of any color.\"\nWhen Enduring Vitality dies, if it was a creature, return it to the battlefield under its owner's control. It's an enchantment. (It's not a creature.)",
+)
+
+FEAR_OF_EXPOSURE = make_creature(
+    name="Fear of Exposure",
+    power=5, toughness=4,
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    subtypes={"Nightmare"},
+    text="As an additional cost to cast this spell, tap two untapped creatures and/or lands you control.\nTrample",
+)
+
+FLESH_BURROWER = make_creature(
+    name="Flesh Burrower",
+    power=2, toughness=2,
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    subtypes={"Insect"},
+    text="Deathtouch\nWhenever this creature attacks, another target creature you control gains deathtouch until end of turn.",
+)
+
+FRANTIC_STRENGTH = make_enchantment(
+    name="Frantic Strength",
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    text="Flash\nEnchant creature\nEnchanted creature gets +2/+2 and has trample.",
+    subtypes={"Aura"},
+)
+
+GRASPING_LONGNECK = make_creature(
+    name="Grasping Longneck",
+    power=4, toughness=2,
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    subtypes={"Horror"},
+    text="Reach\nWhen this creature dies, you gain 2 life.",
+)
+
+GREENHOUSE = make_enchantment(
+    name="Greenhouse",
+    mana_cost="{2}{G} // {3}{G}",
+    colors={Color.GREEN},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+HAUNTWOODS_SHRIEKER = make_creature(
+    name="Hauntwoods Shrieker",
+    power=3, toughness=3,
+    mana_cost="{1}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Beast", "Mutant"},
+    text="Whenever this creature attacks, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)\n{1}{G}: Reveal target face-down permanent. If it's a creature card, you may turn it face up.",
+)
+
+HEDGE_SHREDDER = make_artifact(
+    name="Hedge Shredder",
+    mana_cost="{2}{G}{G}",
+    text="Whenever this Vehicle attacks, you may mill two cards.\nWhenever one or more land cards are put into your graveyard from your library, put them onto the battlefield tapped.\nCrew 1 (Tap any number of creatures you control with total power 1 or more: This Vehicle becomes an artifact creature until end of turn.)",
+    subtypes={"Vehicle"},
+)
+
+HORRID_VIGOR = make_instant(
+    name="Horrid Vigor",
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    text="Target creature gains deathtouch and indestructible until end of turn.",
+)
+
+HOUSE_CARTOGRAPHER = make_creature(
+    name="House Cartographer",
+    power=2, toughness=2,
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    subtypes={"Human", "Scout", "Survivor"},
+    text="Survival — At the beginning of your second main phase, if this creature is tapped, reveal cards from the top of your library until you reveal a land card. Put that card into your hand and the rest on the bottom of your library in a random order.",
+)
+
+INSIDIOUS_FUNGUS = make_creature(
+    name="Insidious Fungus",
+    power=1, toughness=2,
+    mana_cost="{G}",
+    colors={Color.GREEN},
+    subtypes={"Fungus"},
+    text="{2}, Sacrifice this creature: Choose one —\n• Destroy target artifact.\n• Destroy target enchantment.\n• Draw a card. Then you may put a land card from your hand onto the battlefield tapped.",
+)
+
+KONA_RESCUE_BEASTIE = make_creature(
+    name="Kona, Rescue Beastie",
+    power=4, toughness=3,
+    mana_cost="{3}{G}",
+    colors={Color.GREEN},
+    subtypes={"Beast", "Survivor"},
+    supertypes={"Legendary"},
+    text="Survival — At the beginning of your second main phase, if Kona is tapped, you may put a permanent card from your hand onto the battlefield.",
+)
+
+LEYLINE_OF_MUTATION = make_enchantment(
+    name="Leyline of Mutation",
+    mana_cost="{2}{G}{G}",
+    colors={Color.GREEN},
+    text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nYou may pay {W}{U}{B}{R}{G} rather than pay the mana cost for spells you cast.",
+)
+
+MANIFEST_DREAD = make_sorcery(
+    name="Manifest Dread",
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    text="Manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+)
+
+MOLDERING_GYM = make_enchantment(
+    name="Moldering Gym",
+    mana_cost="{2}{G} // {5}{G}",
+    colors={Color.GREEN},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+MONSTROUS_EMERGENCE = make_sorcery(
+    name="Monstrous Emergence",
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    text="As an additional cost to cast this spell, choose a creature you control or reveal a creature card from your hand.\nMonstrous Emergence deals damage equal to the power of the creature you chose or the card you revealed to target creature.",
+)
+
+OMNIVOROUS_FLYTRAP = make_creature(
+    name="Omnivorous Flytrap",
+    power=2, toughness=4,
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    subtypes={"Plant"},
+    text="Delirium — Whenever this creature enters or attacks, if there are four or more card types among cards in your graveyard, distribute two +1/+1 counters among one or two target creatures. Then if there are six or more card types among cards in your graveyard, double the number of +1/+1 counters on those creatures.",
+)
+
+OVERGROWN_ZEALOT = make_creature(
+    name="Overgrown Zealot",
+    power=0, toughness=4,
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    subtypes={"Druid", "Elf"},
+    text="{T}: Add one mana of any color.\n{T}: Add two mana of any one color. Spend this mana only to turn permanents face up.",
+)
+
+OVERLORD_OF_THE_HAUNTWOODS = make_creature(
+    name="Overlord of the Hauntwoods",
+    power=6, toughness=5,
+    mana_cost="{3}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Avatar", "Horror"},
+    text="Impending 4—{1}{G}{G} (If you cast this spell for its impending cost, it enters with four time counters and isn't a creature until the last is removed. At the beginning of your end step, remove a time counter from it.)\nWhenever this permanent enters or attacks, create a tapped colorless land token named Everywhere that is every basic land type.",
+)
+
+PATCHWORK_BEASTIE = make_artifact_creature(
+    name="Patchwork Beastie",
+    power=3, toughness=3,
+    mana_cost="{G}",
+    colors={Color.GREEN},
+    subtypes={"Beast"},
+    text="Delirium — This creature can't attack or block unless there are four or more card types among cards in your graveyard.\nAt the beginning of your upkeep, you may mill a card. (You may put the top card of your library into your graveyard.)",
+)
+
+ROOTWISE_SURVIVOR = make_creature(
+    name="Rootwise Survivor",
+    power=3, toughness=4,
+    mana_cost="{3}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Human", "Survivor"},
+    text="Haste\nSurvival — At the beginning of your second main phase, if this creature is tapped, put three +1/+1 counters on up to one target land you control. That land becomes a 0/0 Elemental creature in addition to its other types. It gains haste until your next turn.",
+)
+
+SAY_ITS_NAME = make_sorcery(
+    name="Say Its Name",
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    text="Mill three cards. Then you may return a creature or land card from your graveyard to your hand.\nExile this card and two other cards named Say Its Name from your graveyard: Search your graveyard, hand, and/or library for a card named Altanak, the Thrice-Called and put it onto the battlefield. If you search your library this way, shuffle. Activate only as a sorcery.",
+)
+
+SLAVERING_BRANCHSNAPPER = make_creature(
+    name="Slavering Branchsnapper",
+    power=7, toughness=6,
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
-    subtypes={"Beast", "Horror"},
-    text="Trample, reach. When Primordial Horror enters, destroy target artifact or enchantment an opponent controls."
+    subtypes={"Lizard"},
+    text="Trample\nForestcycling {2} ({2}, Discard this card: Search your library for a Forest card, reveal it, put it into your hand, then shuffle.)",
 )
 
-
-# =============================================================================
-# MORE MULTICOLOR CARDS
-# =============================================================================
-
-DIMIR_INFILTRATOR = make_creature(
-    name="Dimir Infiltrator",
-    power=1, toughness=3,
-    mana_cost="{U}{B}",
-    colors={Color.BLUE, Color.BLACK},
-    subtypes={"Spirit"},
-    text="Dimir Infiltrator can't be blocked. Transmute {1}{U}{B}"
+SPINESEEKER_CENTIPEDE = make_creature(
+    name="Spineseeker Centipede",
+    power=2, toughness=1,
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    subtypes={"Insect"},
+    text="When this creature enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle.\nDelirium — This creature gets +1/+2 and has vigilance as long as there are four or more card types among cards in your graveyard.",
 )
 
-RAKDOS_HEADLINER = make_creature(
-    name="Rakdos Headliner",
+THREATS_AROUND_EVERY_CORNER = make_enchantment(
+    name="Threats Around Every Corner",
+    mana_cost="{3}{G}",
+    colors={Color.GREEN},
+    text="When this enchantment enters, manifest dread.\nWhenever a face-down permanent you control enters, search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+)
+
+TWITCHING_DOLL = make_artifact_creature(
+    name="Twitching Doll",
+    power=2, toughness=2,
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    subtypes={"Spider", "Toy"},
+    text="{T}: Add one mana of any color. Put a nest counter on this creature.\n{T}, Sacrifice this creature: Create a 2/2 green Spider creature token with reach for each counter on this creature. Activate only as a sorcery.",
+)
+
+TYVAR_THE_PUMMELER = make_creature(
+    name="Tyvar, the Pummeler",
     power=3, toughness=3,
-    mana_cost="{B}{R}",
-    colors={Color.BLACK, Color.RED},
-    subtypes={"Devil"},
-    text="Haste. Echo - Discard a card."
+    mana_cost="{1}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Elf", "Warrior"},
+    supertypes={"Legendary"},
+    text="Tap another untapped creature you control: Tyvar gains indestructible until end of turn. Tap it.\n{3}{G}{G}: Creatures you control get +X/+X until end of turn, where X is the greatest power among creatures you control.",
 )
 
-SIMIC_ASCENDANCY = make_enchantment(
-    name="Simic Ascendancy",
-    mana_cost="{G}{U}",
-    colors={Color.GREEN, Color.BLUE},
-    text="Whenever you put one or more +1/+1 counters on a creature, put that many growth counters on Simic Ascendancy. At the beginning of your upkeep, if Simic Ascendancy has twenty or more growth counters, you win the game."
+UNDER_THE_SKIN = make_sorcery(
+    name="Under the Skin",
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    text="Manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)\nYou may return a permanent card from your graveyard to your hand.",
 )
 
-AZORIUS_CHARM = make_instant(
-    name="Azorius Charm",
-    mana_cost="{W}{U}",
-    colors={Color.WHITE, Color.BLUE},
-    text="Choose one - Creatures you control gain lifelink until end of turn; or draw a card; or put target attacking or blocking creature on top of its owner's library."
+VALGAVOTHS_ONSLAUGHT = make_sorcery(
+    name="Valgavoth's Onslaught",
+    mana_cost="{X}{X}{G}",
+    colors={Color.GREEN},
+    text="Manifest dread X times, then put X +1/+1 counters on each of those creatures. (To manifest dread, look at the top two cards of your library, then put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
 )
 
-ORZHOV_ENFORCER = make_creature(
-    name="Orzhov Enforcer",
-    power=1, toughness=2,
-    mana_cost="{1}{W}{B}",
-    colors={Color.WHITE, Color.BLACK},
-    subtypes={"Human", "Rogue"},
-    text="Deathtouch. Afterlife 1"
+WALKIN_CLOSET = make_enchantment(
+    name="Walk-In Closet",
+    mana_cost="{2}{G} // {3}{G}{G}",
+    colors={Color.GREEN},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
 )
 
-GRUUL_SPELLBREAKER = make_creature(
-    name="Gruul Spellbreaker",
-    power=3, toughness=3,
-    mana_cost="{1}{R}{G}",
-    colors={Color.RED, Color.GREEN},
-    subtypes={"Ogre", "Warrior"},
-    text="Riot. Trample. As long as it's your turn, you and Gruul Spellbreaker have hexproof."
+WARY_WATCHDOG = make_creature(
+    name="Wary Watchdog",
+    power=3, toughness=1,
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    subtypes={"Dog"},
+    text="When this creature enters or dies, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
 )
 
-SELESNYA_EVANGEL = make_creature(
-    name="Selesnya Evangel",
-    power=1, toughness=2,
-    mana_cost="{G}{W}",
-    colors={Color.GREEN, Color.WHITE},
-    subtypes={"Elf", "Cleric"},
-    text="{1}, {T}: Create a 1/1 green Saproling creature token."
-)
-
-IZZET_CHARM = make_instant(
-    name="Izzet Charm",
-    mana_cost="{U}{R}",
-    colors={Color.BLUE, Color.RED},
-    text="Choose one - Counter target noncreature spell unless its controller pays {2}; or Izzet Charm deals 2 damage to target creature; or draw two cards, then discard two cards."
-)
-
-GOLGARI_ROTWURM = make_creature(
-    name="Golgari Rotwurm",
+WICKERFOLK_THRESHER = make_artifact_creature(
+    name="Wickerfolk Thresher",
     power=5, toughness=4,
-    mana_cost="{3}{B}{G}",
-    colors={Color.BLACK, Color.GREEN},
-    subtypes={"Zombie", "Wurm"},
-    text="{B}, Sacrifice a creature: Target player loses 1 life."
+    mana_cost="{3}{G}",
+    colors={Color.GREEN},
+    subtypes={"Scarecrow"},
+    text="Delirium — Whenever this creature attacks, if there are four or more card types among cards in your graveyard, look at the top card of your library. If it's a land card, you may put it onto the battlefield. If you don't put the card onto the battlefield, put it into your hand.",
 )
 
-BOROS_CHALLENGER = make_creature(
-    name="Boros Challenger",
-    power=2, toughness=3,
+ARABELLA_ABANDONED_DOLL = make_artifact_creature(
+    name="Arabella, Abandoned Doll",
+    power=1, toughness=3,
     mana_cost="{R}{W}",
     colors={Color.RED, Color.WHITE},
-    subtypes={"Human", "Soldier"},
-    text="Mentor. {2}{R}{W}: Boros Challenger gets +1/+1 until end of turn."
+    subtypes={"Toy"},
+    supertypes={"Legendary"},
+    text="Whenever Arabella attacks, it deals X damage to each opponent and you gain X life, where X is the number of creatures you control with power 2 or less.",
 )
 
+BASEBALL_BAT = make_artifact(
+    name="Baseball Bat",
+    mana_cost="{G}{W}",
+    text="When this Equipment enters, attach it to target creature you control.\nEquipped creature gets +1/+1.\nWhenever equipped creature attacks, tap up to one target creature.\nEquip {3} ({3}: Attach to target creature you control. Equip only as a sorcery.)",
+    subtypes={"Equipment"},
+)
+
+BEASTIE_BEATDOWN = make_sorcery(
+    name="Beastie Beatdown",
+    mana_cost="{R}{G}",
+    colors={Color.GREEN, Color.RED},
+    text="Choose target creature you control and target creature an opponent controls.\nDelirium — If there are four or more card types among cards in your graveyard, put two +1/+1 counters on the creature you control.\nThe creature you control deals damage equal to its power to the creature an opponent controls.",
+)
+
+BROODSPINNER = make_creature(
+    name="Broodspinner",
+    power=2, toughness=3,
+    mana_cost="{B}{G}",
+    colors={Color.BLACK, Color.GREEN},
+    subtypes={"Spider"},
+    text="Reach\nWhen this creature enters, surveil 2. (Look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)\n{4}{B}{G}, {T}, Sacrifice this creature: Create a number of 1/1 black and green Insect creature tokens with flying equal to the number of card types among cards in your graveyard.",
+)
+
+DISTURBING_MIRTH = make_enchantment(
+    name="Disturbing Mirth",
+    mana_cost="{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    text="When this enchantment enters, you may sacrifice another enchantment or creature. If you do, draw two cards.\nWhen you sacrifice this enchantment, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+)
+
+DRAG_TO_THE_ROOTS = make_instant(
+    name="Drag to the Roots",
+    mana_cost="{2}{B}{G}",
+    colors={Color.BLACK, Color.GREEN},
+    text="Delirium — This spell costs {2} less to cast as long as there are four or more card types among cards in your graveyard.\nDestroy target nonland permanent.",
+)
+
+FEAR_OF_INFINITY = make_creature(
+    name="Fear of Infinity",
+    power=2, toughness=2,
+    mana_cost="{1}{U}{B}",
+    colors={Color.BLACK, Color.BLUE},
+    subtypes={"Nightmare"},
+    text="Flying, lifelink\nThis creature can't block.\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, you may return this card from your graveyard to your hand.",
+)
+
+GREMLIN_TAMER = make_creature(
+    name="Gremlin Tamer",
+    power=2, toughness=2,
+    mana_cost="{W}{U}",
+    colors={Color.BLUE, Color.WHITE},
+    subtypes={"Human", "Scout"},
+    text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, create a 1/1 red Gremlin creature token.",
+)
+
+GROWING_DREAD = make_enchantment(
+    name="Growing Dread",
+    mana_cost="{G}{U}",
+    colors={Color.GREEN, Color.BLUE},
+    text="Flash\nWhen this enchantment enters, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)\nWhenever you turn a permanent face up, put a +1/+1 counter on it.",
+)
+
+INQUISITIVE_GLIMMER = make_creature(
+    name="Inquisitive Glimmer",
+    power=2, toughness=3,
+    mana_cost="{W}{U}",
+    colors={Color.BLUE, Color.WHITE},
+    subtypes={"Fox", "Glimmer"},
+    text="Enchantment spells you cast cost {1} less to cast.\nUnlock costs you pay cost {1} less.",
+)
+
+INTRUDING_SOULRAGER = make_creature(
+    name="Intruding Soulrager",
+    power=2, toughness=2,
+    mana_cost="{U}{R}",
+    colors={Color.RED, Color.BLUE},
+    subtypes={"Spirit"},
+    text="Vigilance\n{T}, Sacrifice a Room: This creature deals 2 damage to each opponent. Draw a card.",
+)
+
+THE_JOLLY_BALLOON_MAN = make_creature(
+    name="The Jolly Balloon Man",
+    power=1, toughness=4,
+    mana_cost="{1}{R}{W}",
+    colors={Color.RED, Color.WHITE},
+    subtypes={"Clown", "Human"},
+    supertypes={"Legendary"},
+    text="Haste\n{1}, {T}: Create a token that's a copy of another target creature you control, except it's a 1/1 red Balloon creature in addition to its other colors and types and it has flying and haste. Sacrifice it at the beginning of the next end step. Activate only as a sorcery.",
+)
+
+KAITO_BANE_OF_NIGHTMARES = make_planeswalker(
+    name="Kaito, Bane of Nightmares",
+    mana_cost="{2}{U}{B}",
+    colors={Color.BLACK, Color.BLUE},
+    loyalty=4,
+    subtypes={"Kaito"},
+    supertypes={"Legendary"},
+    text="Ninjutsu {1}{U}{B} ({1}{U}{B}, Return an unblocked attacker you control to hand: Put this card onto the battlefield from your hand tapped and attacking.)\nDuring your turn, as long as Kaito has one or more loyalty counters on him, he's a 3/4 Ninja creature and has hexproof.\n+1: You get an emblem with \"Ninjas you control get +1/+1.\"\n0: Surveil 2. Then draw a card for each opponent who lost life this turn.\n−2: Tap target creature. Put two stun counters on it.",
+)
+
+MARINA_VENDRELL = make_creature(
+    name="Marina Vendrell",
+    power=3, toughness=5,
+    mana_cost="{W}{U}{B}{R}{G}",
+    colors={Color.BLACK, Color.GREEN, Color.RED, Color.BLUE, Color.WHITE},
+    subtypes={"Human", "Warlock"},
+    supertypes={"Legendary"},
+    text="When Marina Vendrell enters, reveal the top seven cards of your library. Put all enchantment cards from among them into your hand and the rest on the bottom of your library in a random order.\n{T}: Lock or unlock a door of target Room you control. Activate only as a sorcery.",
+)
+
+MIDNIGHT_MAYHEM = make_sorcery(
+    name="Midnight Mayhem",
+    mana_cost="{2}{R}{W}",
+    colors={Color.RED, Color.WHITE},
+    text="Create three 1/1 red Gremlin creature tokens. Gremlins you control gain menace, lifelink, and haste until end of turn. (A creature with menace can't be blocked except by two or more creatures.)",
+)
+
+NASHI_SEARCHER_IN_THE_DARK = make_creature(
+    name="Nashi, Searcher in the Dark",
+    power=2, toughness=2,
+    mana_cost="{U}{B}",
+    colors={Color.BLACK, Color.BLUE},
+    subtypes={"Ninja", "Rat", "Wizard"},
+    supertypes={"Legendary"},
+    text="Menace\nWhenever Nashi deals combat damage to a player, you mill that many cards. You may put any number of legendary and/or enchantment cards from among them into your hand. If you put no cards into your hand this way, put a +1/+1 counter on Nashi.",
+)
+
+NIKO_LIGHT_OF_HOPE = make_creature(
+    name="Niko, Light of Hope",
+    power=3, toughness=4,
+    mana_cost="{2}{W}{U}",
+    colors={Color.BLUE, Color.WHITE},
+    subtypes={"Human", "Wizard"},
+    supertypes={"Legendary"},
+    text="When Niko enters, create two Shard tokens. (They're enchantments with \"{2}, Sacrifice this token: Scry 1, then draw a card.\")\n{2}, {T}: Exile target nonlegendary creature you control. Shards you control become copies of it until the next end step. Return it to the battlefield under its owner's control at the beginning of the next end step.",
+)
+
+OBLIVIOUS_BOOKWORM = make_creature(
+    name="Oblivious Bookworm",
+    power=2, toughness=3,
+    mana_cost="{G}{U}",
+    colors={Color.GREEN, Color.BLUE},
+    subtypes={"Human", "Wizard"},
+    text="At the beginning of your end step, you may draw a card. If you do, discard a card unless a permanent entered the battlefield face down under your control this turn or you turned a permanent face up this turn.",
+)
+
+PEER_PAST_THE_VEIL = make_instant(
+    name="Peer Past the Veil",
+    mana_cost="{2}{R}{G}",
+    colors={Color.GREEN, Color.RED},
+    text="Discard your hand. Then draw X cards, where X is the number of card types among cards in your graveyard.",
+)
+
+RESTRICTED_OFFICE = make_enchantment(
+    name="Restricted Office",
+    mana_cost="{2}{W}{W} // {5}{U}{U}",
+    colors={Color.BLUE, Color.WHITE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+RIP_SPAWN_HUNTER = make_creature(
+    name="Rip, Spawn Hunter",
+    power=4, toughness=4,
+    mana_cost="{2}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Survivor"},
+    supertypes={"Legendary"},
+    text="Survival — At the beginning of your second main phase, if Rip is tapped, reveal the top X cards of your library, where X is its power. Put any number of creature and/or Vehicle cards with different powers from among them into your hand. Put the rest on the bottom of your library in a random order.",
+)
+
+RITE_OF_THE_MOTH = make_sorcery(
+    name="Rite of the Moth",
+    mana_cost="{1}{W}{B}{B}",
+    colors={Color.BLACK, Color.WHITE},
+    text="Return target creature card from your graveyard to the battlefield with a finality counter on it. (If a creature with a finality counter on it would die, exile it instead.)\nFlashback {3}{W}{W}{B} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+)
+
+ROARING_FURNACE = make_enchantment(
+    name="Roaring Furnace",
+    mana_cost="{1}{R} // {3}{U}{U}",
+    colors={Color.RED, Color.BLUE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+SAWBLADE_SKINRIPPER = make_creature(
+    name="Sawblade Skinripper",
+    power=3, toughness=2,
+    mana_cost="{1}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Assassin", "Human"},
+    text="Menace\n{2}, Sacrifice another creature or enchantment: Put a +1/+1 counter on this creature.\nAt the beginning of your end step, if you sacrificed one or more permanents this turn, this creature deals that much damage to any target.",
+)
+
+SHREWD_STORYTELLER = make_creature(
+    name="Shrewd Storyteller",
+    power=3, toughness=3,
+    mana_cost="{1}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Survivor"},
+    text="Survival — At the beginning of your second main phase, if this creature is tapped, put a +1/+1 counter on target creature.",
+)
+
+SHROUDSTOMPER = make_creature(
+    name="Shroudstomper",
+    power=5, toughness=5,
+    mana_cost="{3}{W}{W}{B}{B}",
+    colors={Color.BLACK, Color.WHITE},
+    subtypes={"Elemental"},
+    text="Deathtouch\nWhenever this creature enters or attacks, each opponent loses 2 life. You gain 2 life and draw a card.",
+)
+
+SKULLSNAP_NUISANCE = make_creature(
+    name="Skullsnap Nuisance",
+    power=1, toughness=4,
+    mana_cost="{U}{B}",
+    colors={Color.BLACK, Color.BLUE},
+    subtypes={"Insect", "Skeleton"},
+    text="Flying\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+)
+
+SMOKY_LOUNGE = make_enchantment(
+    name="Smoky Lounge",
+    mana_cost="{2}{R} // {3}{U}",
+    colors={Color.RED, Color.BLUE},
+    text="",
+    subtypes={"//", "Enchantment", "Room"},
+)
+
+THE_SWARMWEAVER = make_artifact_creature(
+    name="The Swarmweaver",
+    power=2, toughness=3,
+    mana_cost="{2}{B}{G}",
+    colors={Color.BLACK, Color.GREEN},
+    subtypes={"Scarecrow"},
+    supertypes={"Legendary"},
+    text="When The Swarmweaver enters, create two 1/1 black and green Insect creature tokens with flying.\nDelirium — As long as there are four or more card types among cards in your graveyard, Insects and Spiders you control get +1/+1 and have deathtouch.",
+)
+
+UNDEAD_SPRINTER = make_creature(
+    name="Undead Sprinter",
+    power=2, toughness=2,
+    mana_cost="{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Zombie"},
+    text="Trample, haste\nYou may cast this card from your graveyard if a non-Zombie creature died this turn. If you do, this creature enters with a +1/+1 counter on it.",
+)
+
+VICTOR_VALGAVOTHS_SENESCHAL = make_creature(
+    name="Victor, Valgavoth's Seneschal",
+    power=3, toughness=3,
+    mana_cost="{1}{W}{B}",
+    colors={Color.BLACK, Color.WHITE},
+    subtypes={"Human", "Warlock"},
+    supertypes={"Legendary"},
+    text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, surveil 2 if this is the first time this ability has resolved this turn. If it's the second time, each opponent discards a card. If it's the third time, put a creature card from a graveyard onto the battlefield under your control.",
+)
+
+WILDFIRE_WICKERFOLK = make_artifact_creature(
+    name="Wildfire Wickerfolk",
+    power=3, toughness=2,
+    mana_cost="{R}{G}",
+    colors={Color.GREEN, Color.RED},
+    subtypes={"Scarecrow"},
+    text="Haste\nDelirium — This creature gets +1/+1 and has trample as long as there are four or more card types among cards in your graveyard.",
+)
+
+WINTER_MISANTHROPIC_GUIDE = make_creature(
+    name="Winter, Misanthropic Guide",
+    power=3, toughness=4,
+    mana_cost="{1}{B}{R}{G}",
+    colors={Color.BLACK, Color.GREEN, Color.RED},
+    subtypes={"Human", "Warlock"},
+    supertypes={"Legendary"},
+    text="Ward {2}\nAt the beginning of your upkeep, each player draws two cards.\nDelirium — As long as there are four or more card types among cards in your graveyard, each opponent's maximum hand size is equal to seven minus the number of those card types.",
+)
+
+ZIMONE_ALLQUESTIONING = make_creature(
+    name="Zimone, All-Questioning",
+    power=1, toughness=1,
+    mana_cost="{1}{G}{U}",
+    colors={Color.GREEN, Color.BLUE},
+    subtypes={"Human", "Wizard"},
+    supertypes={"Legendary"},
+    text="At the beginning of your end step, if a land entered the battlefield under your control this turn and you control a prime number of lands, create Primo, the Indivisible, a legendary 0/0 green and blue Fractal creature token, then put that many +1/+1 counters on it. (2, 3, 5, 7, 11, 13, 17, 19, 23, 29, and 31 are prime numbers.)",
+)
+
+ATTACKINTHEBOX = make_artifact_creature(
+    name="Attack-in-the-Box",
+    power=2, toughness=4,
+    mana_cost="{3}",
+    colors=set(),
+    subtypes={"Toy"},
+    text="Whenever this creature attacks, you may have it get +4/+0 until end of turn. If you do, sacrifice it at the beginning of the next end step.",
+)
+
+BEAR_TRAP = make_artifact(
+    name="Bear Trap",
+    mana_cost="{1}",
+    text="Flash\n{3}, {T}, Sacrifice this artifact: It deals 3 damage to target creature.",
+)
+
+CONDUCTIVE_MACHETE = make_artifact(
+    name="Conductive Machete",
+    mana_cost="{4}",
+    text="When this Equipment enters, manifest dread, then attach this Equipment to that creature. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)\nEquipped creature gets +2/+1.\nEquip {4}",
+    subtypes={"Equipment"},
+)
+
+DISSECTION_TOOLS = make_artifact(
+    name="Dissection Tools",
+    mana_cost="{5}",
+    text="When this Equipment enters, manifest dread, then attach this Equipment to that creature.\nEquipped creature gets +2/+2 and has deathtouch and lifelink.\nEquip—Sacrifice a creature.",
+    subtypes={"Equipment"},
+)
+
+FOUND_FOOTAGE = make_artifact(
+    name="Found Footage",
+    mana_cost="{1}",
+    text="You may look at face-down creatures your opponents control any time.\n{2}, Sacrifice this artifact: Surveil 2, then draw a card. (To surveil 2, look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)",
+    subtypes={"Clue"},
+)
+
+FRIENDLY_TEDDY = make_artifact_creature(
+    name="Friendly Teddy",
+    power=2, toughness=2,
+    mana_cost="{2}",
+    colors=set(),
+    subtypes={"Bear", "Toy"},
+    text="When this creature dies, each player draws a card.",
+)
+
+GHOST_VACUUM = make_artifact(
+    name="Ghost Vacuum",
+    mana_cost="{1}",
+    text="{T}: Exile target card from a graveyard.\n{6}, {T}, Sacrifice this artifact: Put each creature card exiled with this artifact onto the battlefield under your control with a flying counter on it. Each of them is a 1/1 Spirit in addition to its other types. Activate only as a sorcery.",
+)
+
+GLIMMERLIGHT = make_artifact(
+    name="Glimmerlight",
+    mana_cost="{2}",
+    text="When this Equipment enters, create a 1/1 white Glimmer enchantment creature token.\nEquipped creature gets +1/+1.\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)",
+    subtypes={"Equipment"},
+)
+
+HAUNTED_SCREEN = make_artifact(
+    name="Haunted Screen",
+    mana_cost="{3}",
+    text="{T}: Add {W} or {B}.\n{T}, Pay 1 life: Add {G}, {U}, or {R}.\n{7}: Put seven +1/+1 counters on this artifact. It becomes a 0/0 Spirit creature in addition to its other types. Activate only once.",
+)
+
+KEYS_TO_THE_HOUSE = make_artifact(
+    name="Keys to the House",
+    mana_cost="{1}",
+    text="{1}, {T}, Sacrifice this artifact: Search your library for a basic land card, reveal it, put it into your hand, then shuffle.\n{3}, {T}, Sacrifice this artifact: Lock or unlock a door of target Room you control. Activate only as a sorcery.",
+)
+
+MALEVOLENT_CHANDELIER = make_artifact_creature(
+    name="Malevolent Chandelier",
+    power=4, toughness=4,
+    mana_cost="{6}",
+    colors=set(),
+    subtypes={"Construct"},
+    text="Flying\n{2}: Put target card from a graveyard on the bottom of its owner's library. Activate only as a sorcery.",
+)
+
+MARVIN_MURDEROUS_MIMIC = make_artifact_creature(
+    name="Marvin, Murderous Mimic",
+    power=2, toughness=2,
+    mana_cost="{2}",
+    colors=set(),
+    subtypes={"Toy"},
+    supertypes={"Legendary"},
+    text="Marvin has all activated abilities of creatures you control that don't have the same name as this creature.",
+)
+
+SAW = make_artifact(
+    name="Saw",
+    mana_cost="{2}",
+    text="Equipped creature gets +2/+0.\nWhenever equipped creature attacks, you may sacrifice a permanent other than that creature or this Equipment. If you do, draw a card.\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
+    subtypes={"Equipment"},
+)
+
+ABANDONED_CAMPGROUND = make_land(
+    name="Abandoned Campground",
+    text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {W} or {U}.",
+)
+
+BLAZEMIRE_VERGE = make_land(
+    name="Blazemire Verge",
+    text="{T}: Add {B}.\n{T}: Add {R}. Activate only if you control a Swamp or a Mountain.",
+)
+
+BLEEDING_WOODS = make_land(
+    name="Bleeding Woods",
+    text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {R} or {G}.",
+)
+
+ETCHED_CORNFIELD = make_land(
+    name="Etched Cornfield",
+    text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {G} or {W}.",
+)
+
+FLOODFARM_VERGE = make_land(
+    name="Floodfarm Verge",
+    text="{T}: Add {W}.\n{T}: Add {U}. Activate only if you control a Plains or an Island.",
+)
+
+GLOOMLAKE_VERGE = make_land(
+    name="Gloomlake Verge",
+    text="{T}: Add {U}.\n{T}: Add {B}. Activate only if you control an Island or a Swamp.",
+)
+
+HUSHWOOD_VERGE = make_land(
+    name="Hushwood Verge",
+    text="{T}: Add {G}.\n{T}: Add {W}. Activate only if you control a Forest or a Plains.",
+)
+
+LAKESIDE_SHACK = make_land(
+    name="Lakeside Shack",
+    text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {G} or {U}.",
+)
+
+MURKY_SEWER = make_land(
+    name="Murky Sewer",
+    text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {U} or {B}.",
+)
+
+NEGLECTED_MANOR = make_land(
+    name="Neglected Manor",
+    text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {W} or {B}.",
+)
+
+PECULIAR_LIGHTHOUSE = make_land(
+    name="Peculiar Lighthouse",
+    text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {U} or {R}.",
+)
+
+RAUCOUS_CARNIVAL = make_land(
+    name="Raucous Carnival",
+    text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {R} or {W}.",
+)
+
+RAZORTRAP_GORGE = make_land(
+    name="Razortrap Gorge",
+    text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {B} or {R}.",
+)
+
+STRANGLED_CEMETERY = make_land(
+    name="Strangled Cemetery",
+    text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {B} or {G}.",
+)
+
+TERRAMORPHIC_EXPANSE = make_land(
+    name="Terramorphic Expanse",
+    text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+)
+
+THORNSPIRE_VERGE = make_land(
+    name="Thornspire Verge",
+    text="{T}: Add {R}.\n{T}: Add {G}. Activate only if you control a Mountain or a Forest.",
+)
+
+VALGAVOTHS_LAIR = make_enchantment(
+    name="Valgavoth's Lair",
+    mana_cost="",
+    colors=set(),
+    text="Hexproof\nThis land enters tapped. As it enters, choose a color.\n{T}: Add one mana of the chosen color.",
+)
+
+PLAINS = make_land(
+    name="Plains",
+    text="({T}: Add {W}.)",
+    subtypes={"Plains"},
+    supertypes={"Basic"},
+)
+
+ISLAND = make_land(
+    name="Island",
+    text="({T}: Add {U}.)",
+    subtypes={"Island"},
+    supertypes={"Basic"},
+)
+
+SWAMP = make_land(
+    name="Swamp",
+    text="({T}: Add {B}.)",
+    subtypes={"Swamp"},
+    supertypes={"Basic"},
+)
+
+MOUNTAIN = make_land(
+    name="Mountain",
+    text="({T}: Add {R}.)",
+    subtypes={"Mountain"},
+    supertypes={"Basic"},
+)
+
+FOREST = make_land(
+    name="Forest",
+    text="({T}: Add {G}.)",
+    subtypes={"Forest"},
+    supertypes={"Basic"},
+)
 
 # =============================================================================
-# EXPORT DICTIONARY
+# CARD REGISTRY
 # =============================================================================
 
 DUSKMOURN_CARDS = {
-    # WHITE LEGENDARY
-    "Winter, Cynical Opportunist": WINTER_CEDRIC,
-    "Niko Aris, Bound and Battling": NIKO_ARIS,
-    "Aminatou, Veil Piercer": AMINATOU_VEIL_PIERCER,
-
-    # WHITE CREATURES
-    "Glimmerburst Guide": GLIMMERBURST_GUIDE,
-    "Sanctuary Seeker": SANCTUARY_SEEKER,
-    "Ethereal Armor Bearer": ETHEREAL_ARMOR_BEARER,
-    "Sheltered Wanderer": SHELTERED_WANDERER,
-    "Fear of Exposure": FEAR_OF_EXPOSURE,
-    "Hallowed Respite Keeper": HALLOWED_RESPITE_KEEPER,
-    "Light of the House": LIGHT_OF_THE_HOUSE,
-    "Trapped Angel": TRAPPED_ANGEL,
-    "Flickering Survivor": FLICKERING_SURVIVOR,
-    "House Guardian": HOUSE_GUARDIAN,
-    "Sanctuary Warden": SANCTUARY_WARDEN,
-    "Ethereal Escort": ETHEREAL_ESCORT,
-
-    # WHITE SPELLS
-    "Final Light": FINAL_LIGHT,
-    "Survival Instinct": SURVIVAL_INSTINCT,
-    "Shelter in Light": SHELTER_IN_LIGHT,
-    "Blessed Sanctuary": BLESSED_SANCTUARY,
-    "Faith of the Devoted": FAITH_OF_THE_DEVOTED,
-    "Beacon of Hope": BEACON_OF_HOPE,
-
-    # BLUE LEGENDARY
-    "Zimone, Mystery Unraveler": ZIMONE_MYSTERY_UNRAVELER,
-    "Kaito, Dancing Shadow": KAITO_DANCING_SHADOW,
-
-    # BLUE CREATURES
-    "Phantom Investigator": PHANTOM_INVESTIGATOR,
-    "Thought Stalker": THOUGHT_STALKER,
-    "Mirror Echo": MIRROR_ECHO,
-    "Fear of Impostors": FEAR_OF_IMPOSTORS,
-    "Wandering Apparition": WANDERING_APPARITION,
-    "Lost in the Maze": LOST_IN_THE_MAZE,
-    "Dread Specter": DREAD_SPECTER,
-    "Manifest Dread Seer": MANIFEST_DREAD_SEER,
-    "Echo of Despair": ECHO_OF_DESPAIR,
-    "Spectral Scholar": SPECTRAL_SCHOLAR,
-    "Illusory Guardian": ILLUSORY_GUARDIAN,
-
-    # BLUE SPELLS
-    "Terror Reflected": TERROR_REFLECTED,
-    "Unsettling Vision": UNSETTLING_VISION,
-    "Disturbing Revelation": DISTURBING_REVELATION,
-    "Mind Drain": MIND_DRAIN,
-    "Glimpse the Unknown": GLIMPSE_THE_UNKNOWN,
-
-    # BLACK LEGENDARY
-    "Valgavoth, Harrower of Souls": VALGAVOTH_HARROWER_OF_SOULS,
-    "Valgavoth, Terror Eater": VALGAVOTH_TERROR_EATER,
-    "Razorkin Needlehead": RAZORKIN_NEEDLEHEAD,
-
-    # BLACK CREATURES
-    "Devouring Horror": DEVOURING_HORROR,
-    "Skullsnatcher": SKULLSNATCHER,
-    "Fear of Lost Teeth": FEAR_OF_LOST_TEETH,
-    "Gravewaker": GRAVEWAKER,
-    "Soul Shredder": SOUL_SHREDDER,
-    "Blood-Curdle Imp": BLOOD_CURDLE_IMP,
-    "Lurking Fear": LURKING_FEAR,
-    "Corpse Collector": CORPSE_COLLECTOR,
-    "Manifest Darkness": MANIFEST_DARKNESS,
-    "Nightmare Shepherd": NIGHTMARE_SHEPHERD,
-    "Shadow Reaper": SHADOW_REAPER,
-
-    # BLACK SPELLS
-    "Final Vengeance": FINAL_VENGEANCE,
-    "Soul Harvest": SOUL_HARVEST,
-    "Inescapable Doom": INESCAPABLE_DOOM,
-    "Feast on Fear": FEAST_ON_FEAR,
-    "Dark Bargain": DARK_BARGAIN,
-
-    # RED LEGENDARY
-    "Arna Kennerud, Skycaptain": ARNA_KENNERUD,
-    "Hellraiser Spawn": HELLRAISER_SPAWN,
-
-    # RED CREATURES
-    "Inferno Elemental": INFERNO_ELEMENTAL,
-    "Pyroclasm Horror": PYROCLASM_HORROR,
-    "Fear of Burning Alive": FEAR_OF_BURNING_ALIVE,
-    "Reckless Survivor": RECKLESS_SURVIVOR,
-    "House Demolisher": HOUSE_DEMOLISHER,
-    "Ember Screamer": EMBER_SCREAMER,
-    "Furious Specter": FURIOUS_SPECTER,
-    "Chaotic Manifestation": CHAOTIC_MANIFESTATION,
-    "Rage Incarnate": RAGE_INCARNATE,
-    "Pyroclastic Specter": PYROCLASTIC_SPECTER,
-
-    # RED SPELLS
-    "Volcanic Spite": VOLCANIC_SPITE,
-    "Burn Down the House": BURN_DOWN_THE_HOUSE,
-    "Desperate Escape": DESPERATE_ESCAPE,
-    "Infernal Outburst": INFERNAL_OUTBURST,
-    "Fiery Temper": FIERY_TEMPER,
-
-    # GREEN LEGENDARY
-    "Tyvar, Roaming Hero": TYVAR_FOREST_PROTECTOR,
-    "Overgrown Survivor": OVERGROWN_SURVIVOR,
-
-    # GREEN CREATURES
-    "Vine Creeper": VINE_CREEPER,
-    "Root Horror": ROOT_HORROR,
-    "Fear of Being Hunted": FEAR_OF_BEING_HUNTED,
-    "Undergrowth Beast": UNDERGROWTH_BEAST,
-    "Hidden Predator": HIDDEN_PREDATOR,
-    "Sprouting Terror": SPROUTING_TERROR,
-    "Ancient Grove Keeper": ANCIENT_GROVE_KEEPER,
-    "Manifest Undergrowth": MANIFEST_UNDERGROWTH,
-    "Ancient Horror": ANCIENT_HORROR,
-    "Wild Survivor": WILD_SURVIVOR,
-
-    # GREEN SPELLS
-    "Nature Reclaims": NATURE_RECLAIMS,
-    "Primal Surge": PRIMAL_SURGE,
-    "Overgrowth": OVERGROWTH,
-    "Nature Claims All": NATURE_CLAIMS_ALL,
-    "Verdant Embrace": VERDANT_EMBRACE,
-
-    # MULTICOLOR LEGENDARY
-    "Tyvar and Zimone, Partners": TYVAR_AND_ZIMONE,
-    "Marina Vendrell, Gloom Witch": MARINA_SKOVOS_WITCH,
-    "The Master of Keys": THE_MASTER_OF_KEYS,
-    "Overlord of the Balemurk": OVERLORD_OF_THE_BALEMURK,
+    "Acrobatic Cheerleader": ACROBATIC_CHEERLEADER,
+    "Cult Healer": CULT_HEALER,
+    "Dazzling Theater": DAZZLING_THEATER,
+    "Dollmaker's Shop": DOLLMAKERS_SHOP,
+    "Emerge from the Cocoon": EMERGE_FROM_THE_COCOON,
+    "Enduring Innocence": ENDURING_INNOCENCE,
+    "Ethereal Armor": ETHEREAL_ARMOR,
+    "Exorcise": EXORCISE,
+    "Fear of Abduction": FEAR_OF_ABDUCTION,
+    "Fear of Immobility": FEAR_OF_IMMOBILITY,
+    "Fear of Surveillance": FEAR_OF_SURVEILLANCE,
+    "Friendly Ghost": FRIENDLY_GHOST,
+    "Ghostly Dancers": GHOSTLY_DANCERS,
+    "Glimmer Seeker": GLIMMER_SEEKER,
+    "Grand Entryway": GRAND_ENTRYWAY,
+    "Hardened Escort": HARDENED_ESCORT,
+    "Jump Scare": JUMP_SCARE,
+    "Leyline of Hope": LEYLINE_OF_HOPE,
+    "Lionheart Glimmer": LIONHEART_GLIMMER,
+    "Living Phone": LIVING_PHONE,
+    "Optimistic Scavenger": OPTIMISTIC_SCAVENGER,
+    "Orphans of the Wheat": ORPHANS_OF_THE_WHEAT,
+    "Overlord of the Mistmoors": OVERLORD_OF_THE_MISTMOORS,
+    "Patched Plaything": PATCHED_PLAYTHING,
+    "Possessed Goat": POSSESSED_GOAT,
+    "Reluctant Role Model": RELUCTANT_ROLE_MODEL,
+    "Savior of the Small": SAVIOR_OF_THE_SMALL,
+    "Seized from Slumber": SEIZED_FROM_SLUMBER,
+    "Shardmage's Rescue": SHARDMAGES_RESCUE,
+    "Sheltered by Ghosts": SHELTERED_BY_GHOSTS,
+    "Shepherding Spirits": SHEPHERDING_SPIRITS,
+    "Split Up": SPLIT_UP,
+    "Splitskin Doll": SPLITSKIN_DOLL,
+    "Surgical Suite": SURGICAL_SUITE,
+    "Toby, Beastie Befriender": TOBY_BEASTIE_BEFRIENDER,
+    "Trapped in the Screen": TRAPPED_IN_THE_SCREEN,
+    "Unidentified Hovership": UNIDENTIFIED_HOVERSHIP,
+    "Unsettling Twins": UNSETTLING_TWINS,
+    "Unwanted Remake": UNWANTED_REMAKE,
+    "Veteran Survivor": VETERAN_SURVIVOR,
     "The Wandering Rescuer": THE_WANDERING_RESCUER,
-
-    # MULTICOLOR CREATURES
-    "Spectral Hunter": SPECTRAL_HUNTER,
-    "Gloom Stalker": GLOOM_STALKER,
-    "Bloodthorn Survivor": BLOODTHORN_SURVIVOR,
-    "Wildfire Elemental": WILDFIRE_ELEMENTAL,
-    "Twin Terror": TWIN_TERROR,
-    "Eerie Interlude Keeper": EERIE_INTERLUDE_KEEPER,
-    "Doom Portent": DOOM_PORTENT,
-    "Vengeful Spirit": VENGEFUL_SPIRIT,
-    "Primal Nightmare": PRIMAL_NIGHTMARE,
-    "Ember Twins": EMBER_TWINS,
-    "Arcane Investigator": ARCANE_INVESTIGATOR,
-    "Chaos Horror": CHAOS_HORROR,
-
-    # MULTICOLOR SPELLS
-    "House Divided": HOUSE_DIVIDED,
-    "Terror of the Peaks": TERROR_OF_THE_PEAKS,
-    "Roots of Despair": ROOTS_OF_DESPAIR,
-
-    # ROOMS
-    "Abandoned Nursery // Ghostly Playroom": ABANDONED_NURSERY,
-    "Bleeding Walls // Dripping Ceiling": BLEEDING_WALLS,
-    "Grand Ballroom // Haunted Mirror": GRAND_BALLROOM,
-    "Burning Kitchen // Exploding Oven": BURNING_KITCHEN,
-    "Overgrown Greenhouse // Carnivorous Garden": OVERGROWN_GREENHOUSE,
-    "Flooded Basement // Drowned Cellar": FLOODED_BASEMENT,
-    "Dark Library // Forbidden Archives": DARK_LIBRARY,
-    "Panic Room // Safe Haven": PANIC_ROOM,
-    "Torture Chamber // Execution Room": TORTURE_CHAMBER,
-    "Forgotten Attic // Hidden Treasure": FORGOTTEN_ATTIC,
-    "Shattered Conservatory // Thorny Ruins": SHATTERED_CONSERVATORY,
-    "Haunted Theater // Phantom Stage": HAUNTED_THEATER,
-
-    # ARTIFACTS
-    "Skeleton Key": SKELETON_KEY,
-    "Haunted Portrait": HAUNTED_PORTRAIT,
-    "Trapped Soul Vessel": TRAPPED_SOUL_VESSEL,
-    "Mysterious Music Box": MYSTERIOUS_MUSIC_BOX,
-    "Bloodstained Axe": BLOODSTAINED_AXE,
-    "Surveyor's Lantern": SURVEYORS_LANTERN,
-    "Candelabra of Souls": CANDELABRA_OF_SOULS,
-    "Fear Collector": FEAR_COLLECTOR,
-    "Dread Mask": DREAD_MASK,
-    "Valgavoth's Altar": VALGAVOTHS_ALTAR,
-
-    # LANDS
-    "Duskmourn Manor": DUSKMOURN_MANOR,
-    "Haunted Threshold": HAUNTED_THRESHOLD,
-    "Forgotten Hallway": FORGOTTEN_HALLWAY,
-    "Overgrown Courtyard": OVERGROWN_COURTYARD,
-    "Burning Ruins": BURNING_RUINS,
-    "Twisted Garden": TWISTED_GARDEN,
-    "Spectral Chapel": SPECTRAL_CHAPEL,
-    "Nightmare Pool": NIGHTMARE_POOL,
-    "Bloodfire Hearth": BLOODFIRE_HEARTH,
-    "Thornwood Grove": THORNWOOD_GROVE,
-    "Eerie Gateway": EERIE_GATEWAY,
-
-    # BASIC LANDS
-    "Plains": PLAINS_DSK,
-    "Island": ISLAND_DSK,
-    "Swamp": SWAMP_DSK,
-    "Mountain": MOUNTAIN_DSK,
-    "Forest": FOREST_DSK,
-
-    # ADDITIONAL WHITE
-    "Steadfast Survivor": STEADFAST_SURVIVOR,
-    "Ghostly Escort": GHOSTLY_ESCORT,
-    "Protective Spirit": PROTECTIVE_SPIRIT,
-    "Dawn Bringer": DAWN_BRINGER,
-    "Sanctified Charge": SANCTIFIED_CHARGE,
-    "Guiding Light": GUIDING_LIGHT,
-    "Hope Against Darkness": HOPE_AGAINST_DARKNESS,
-    "Angelic Observer": ANGELIC_OBSERVER,
-    "House Warden": HOUSE_WARDEN,
-
-    # ADDITIONAL BLUE
-    "Fleeting Memory": FLEETING_MEMORY,
-    "Phantom Thief": PHANTOM_THIEF,
-    "Reality Fracture": REALITY_FRACTURE,
-    "Thought Erasure": THOUGHT_ERASURE,
-    "Spectral Silence": SPECTRAL_SILENCE,
-    "Eerie Intuition": EERIE_INTUITION,
-    "House Specter": HOUSE_SPECTER,
-    "Manifest Reflection": MANIFEST_REFLECTION,
-    "Unseen Watcher": UNSEEN_WATCHER,
-
-    # ADDITIONAL BLACK
-    "Dread Harvester": DREAD_HARVESTER,
-    "Nightmare Spawn": NIGHTMARE_SPAWN,
-    "Grim Awakening": GRIM_AWAKENING,
-    "Terror Within": TERROR_WITHIN,
-    "Soul Drain": SOUL_DRAIN,
-    "House of Decay": HOUSE_OF_DECAY,
-    "Consuming Shadows": CONSUMING_SHADOWS,
-    "Corpse Crawler": CORPSE_CRAWLER,
-    "Endless Nightmare": ENDLESS_NIGHTMARE,
-
-    # ADDITIONAL RED
-    "Raging Specter": RAGING_SPECTER,
-    "Infernal Surge": INFERNAL_SURGE,
-    "Wrathful Eruption": WRATHFUL_ERUPTION,
-    "Blazing Horror": BLAZING_HORROR,
-    "Chaotic Impulse": CHAOTIC_IMPULSE,
-    "Fire of Duskmourn": FIRE_OF_DUSKMOURN,
-    "Bloodfire Elemental": BLOODFIRE_ELEMENTAL,
-    "Destructive Rampage": DESTRUCTIVE_RAMPAGE,
-    "House Arsonist": HOUSE_ARSONIST,
-
-    # ADDITIONAL GREEN
-    "Forest Creeper": FOREST_CREEPER,
-    "Overgrown Horror": OVERGROWN_HORROR,
-    "Nature's Fury": NATURE_FURY,
-    "Verdant Growth": VERDANT_GROWTH,
-    "Thornwood Guardian": THORNWOOD_GUARDIAN,
-    "Primal Roar": PRIMAL_ROAR,
-    "Wild Overgrowth": WILD_OVERGROWTH,
-    "Grove Tender": GROVE_TENDER,
-    "Lurking Vines": LURKING_VINES,
-
-    # ADDITIONAL MULTICOLOR
-    "Spirit Guide": SPIRIT_GUIDE,
-    "Shadowblood Cultist": SHADOWBLOOD_CULTIST,
-    "Nature's Spirit": NATURE_SPIRIT,
-    "Storm Wraith": STORM_WRAITH,
-    "Death Bloom": DEATH_BLOOM,
-    "Eerie Manifestation": EERIE_MANIFESTATION,
-    "Chaotic Growth": CHAOTIC_GROWTH,
-    "Mind Terror": MIND_TERROR,
-    "Blazing Spirit": BLAZING_SPIRIT,
-    "Corrupted Growth": CORRUPTED_GROWTH,
-
-    # ADDITIONAL ROOMS
-    "Crumbling Staircase // Collapsed Landing": CRUMBLING_STAIRCASE,
-    "Silent Nursery // Awakened Crib": SILENT_NURSERY,
-    "Misty Conservatory // Toxic Garden": MISTY_CONSERVATORY,
-    "Echoing Halls // Chamber of Whispers": ECHOING_HALLS,
-
-    # ADDITIONAL ARTIFACTS
-    "Survivor's Pack": SURVIVORS_PACK,
-    "Cursed Mirror": CURSED_MIRROR,
-    "Duskmourn Relic": DUSKMOURN_RELIC,
-    "Rusted Chains": RUSTED_CHAINS,
-    "Spirit Lantern": SPIRIT_LANTERN,
-
-    # ADDITIONAL LANDS
-    "Hidden Chamber": HIDDEN_CHAMBER,
-    "Twisted Corridor": TWISTED_CORRIDOR,
-    "Blood-Stained Floor": BLOOD_STAINED_FLOOR,
-    "Overgrown Wing": OVERGROWN_WING,
-
-    # MORE WHITE
-    "Cleansing Light": CLEANSING_LIGHT,
-    "Spirit Congregation": SPIRIT_CONGREGATION,
-    "Duskmourn Knight": DUSKMOURN_KNIGHT,
-    "Banishing Light": BANISHING_LIGHT,
-
-    # MORE BLUE
-    "Memory Deluge": MEMORY_DELUGE,
-    "Spectral Binding": SPECTRAL_BINDING,
-    "Ghostform": GHOSTFORM,
-    "Haunting Echo": HAUNTING_ECHO,
-
-    # MORE BLACK
-    "Vile Entombment": VILE_ENTOMBMENT,
-    "Nightmare Embrace": NIGHTMARE_EMBRACE,
-    "Despair Incarnate": DESPAIR_INCARNATE,
-    "Dread Return": DREAD_RETURN,
-
-    # MORE RED
-    "Infernal Grasp": INFERNAL_GRASP,
-    "Burning Vengeance": BURNING_VENGEANCE,
-    "Lightning Strike": LIGHTNING_STRIKE,
-    "Hellfire Elemental": HELLFIRE_ELEMENTAL,
-
-    # MORE GREEN
-    "Beast Within": BEAST_WITHIN,
-    "Abundant Growth": ABUNDANT_GROWTH,
-    "Titanic Growth": TITANIC_GROWTH,
-    "Primordial Horror": PRIMORDIAL_HORROR,
-
-    # MORE MULTICOLOR
-    "Dimir Infiltrator": DIMIR_INFILTRATOR,
-    "Rakdos Headliner": RAKDOS_HEADLINER,
-    "Simic Ascendancy": SIMIC_ASCENDANCY,
-    "Azorius Charm": AZORIUS_CHARM,
-    "Orzhov Enforcer": ORZHOV_ENFORCER,
-    "Gruul Spellbreaker": GRUUL_SPELLBREAKER,
-    "Selesnya Evangel": SELESNYA_EVANGEL,
-    "Izzet Charm": IZZET_CHARM,
-    "Golgari Rotwurm": GOLGARI_ROTWURM,
-    "Boros Challenger": BOROS_CHALLENGER,
+    "Abhorrent Oculus": ABHORRENT_OCULUS,
+    "Bottomless Pool": BOTTOMLESS_POOL,
+    "Central Elevator": CENTRAL_ELEVATOR,
+    "Clammy Prowler": CLAMMY_PROWLER,
+    "Creeping Peeper": CREEPING_PEEPER,
+    "Cursed Windbreaker": CURSED_WINDBREAKER,
+    "Daggermaw Megalodon": DAGGERMAW_MEGALODON,
+    "Don't Make a Sound": DONT_MAKE_A_SOUND,
+    "Duskmourn's Domination": DUSKMOURNS_DOMINATION,
+    "Enduring Curiosity": ENDURING_CURIOSITY,
+    "Enter the Enigma": ENTER_THE_ENIGMA,
+    "Entity Tracker": ENTITY_TRACKER,
+    "Erratic Apparition": ERRATIC_APPARITION,
+    "Fear of Failed Tests": FEAR_OF_FAILED_TESTS,
+    "Fear of Falling": FEAR_OF_FALLING,
+    "Fear of Impostors": FEAR_OF_IMPOSTORS,
+    "Fear of Isolation": FEAR_OF_ISOLATION,
+    "Floodpits Drowner": FLOODPITS_DROWNER,
+    "Get Out": GET_OUT,
+    "Ghostly Keybearer": GHOSTLY_KEYBEARER,
+    "Glimmerburst": GLIMMERBURST,
+    "Leyline of Transformation": LEYLINE_OF_TRANSFORMATION,
+    "Marina Vendrell's Grimoire": MARINA_VENDRELLS_GRIMOIRE,
+    "Meat Locker": MEAT_LOCKER,
+    "The Mindskinner": THE_MINDSKINNER,
+    "Mirror Room": MIRROR_ROOM,
+    "Overlord of the Floodpits": OVERLORD_OF_THE_FLOODPITS,
+    "Paranormal Analyst": PARANORMAL_ANALYST,
+    "Piranha Fly": PIRANHA_FLY,
+    "Scrabbling Skullcrab": SCRABBLING_SKULLCRAB,
+    "Silent Hallcreeper": SILENT_HALLCREEPER,
+    "Stalked Researcher": STALKED_RESEARCHER,
+    "Stay Hidden, Stay Silent": STAY_HIDDEN_STAY_SILENT,
+    "The Tale of Tamiyo": THE_TALE_OF_TAMIYO,
+    "Tunnel Surveyor": TUNNEL_SURVEYOR,
+    "Twist Reality": TWIST_REALITY,
+    "Unable to Scream": UNABLE_TO_SCREAM,
+    "Underwater Tunnel": UNDERWATER_TUNNEL,
+    "Unnerving Grasp": UNNERVING_GRASP,
+    "Unwilling Vessel": UNWILLING_VESSEL,
+    "Vanish from Sight": VANISH_FROM_SIGHT,
+    "Appendage Amalgam": APPENDAGE_AMALGAM,
+    "Balemurk Leech": BALEMURK_LEECH,
+    "Cackling Slasher": CACKLING_SLASHER,
+    "Come Back Wrong": COME_BACK_WRONG,
+    "Commune with Evil": COMMUNE_WITH_EVIL,
+    "Cracked Skull": CRACKED_SKULL,
+    "Cynical Loner": CYNICAL_LONER,
+    "Dashing Bloodsucker": DASHING_BLOODSUCKER,
+    "Defiled Crypt": DEFILED_CRYPT,
+    "Demonic Counsel": DEMONIC_COUNSEL,
+    "Derelict Attic": DERELICT_ATTIC,
+    "Doomsday Excruciator": DOOMSDAY_EXCRUCIATOR,
+    "Enduring Tenacity": ENDURING_TENACITY,
+    "Fanatic of the Harrowing": FANATIC_OF_THE_HARROWING,
+    "Fear of Lost Teeth": FEAR_OF_LOST_TEETH,
+    "Fear of the Dark": FEAR_OF_THE_DARK,
+    "Final Vengeance": FINAL_VENGEANCE,
+    "Funeral Room": FUNERAL_ROOM,
+    "Give In to Violence": GIVE_IN_TO_VIOLENCE,
+    "Grievous Wound": GRIEVOUS_WOUND,
+    "Innocuous Rat": INNOCUOUS_RAT,
+    "Killer's Mask": KILLERS_MASK,
+    "Let's Play a Game": LETS_PLAY_A_GAME,
+    "Leyline of the Void": LEYLINE_OF_THE_VOID,
+    "Live or Die": LIVE_OR_DIE,
+    "Meathook Massacre II": MEATHOOK_MASSACRE_II,
+    "Miasma Demon": MIASMA_DEMON,
+    "Murder": MURDER,
+    "Nowhere to Run": NOWHERE_TO_RUN,
+    "Osseous Sticktwister": OSSEOUS_STICKTWISTER,
+    "Overlord of the Balemurk": OVERLORD_OF_THE_BALEMURK,
+    "Popular Egotist": POPULAR_EGOTIST,
+    "Resurrected Cultist": RESURRECTED_CULTIST,
+    "Spectral Snatcher": SPECTRAL_SNATCHER,
+    "Sporogenic Infection": SPOROGENIC_INFECTION,
+    "Unholy Annex": UNHOLY_ANNEX,
+    "Unstoppable Slasher": UNSTOPPABLE_SLASHER,
+    "Valgavoth, Terror Eater": VALGAVOTH_TERROR_EATER,
+    "Valgavoth's Faithful": VALGAVOTHS_FAITHFUL,
+    "Vile Mutilator": VILE_MUTILATOR,
+    "Winter's Intervention": WINTERS_INTERVENTION,
+    "Withering Torment": WITHERING_TORMENT,
+    "Bedhead Beastie": BEDHEAD_BEASTIE,
+    "Betrayer's Bargain": BETRAYERS_BARGAIN,
+    "Boilerbilges Ripper": BOILERBILGES_RIPPER,
+    "Chainsaw": CHAINSAW,
+    "Charred Foyer": CHARRED_FOYER,
+    "Clockwork Percussionist": CLOCKWORK_PERCUSSIONIST,
+    "Cursed Recording": CURSED_RECORDING,
+    "Diversion Specialist": DIVERSION_SPECIALIST,
+    "Enduring Courage": ENDURING_COURAGE,
+    "Fear of Being Hunted": FEAR_OF_BEING_HUNTED,
+    "Fear of Burning Alive": FEAR_OF_BURNING_ALIVE,
+    "Fear of Missing Out": FEAR_OF_MISSING_OUT,
+    "Glassworks": GLASSWORKS,
+    "Grab the Prize": GRAB_THE_PRIZE,
+    "Hand That Feeds": HAND_THAT_FEEDS,
+    "Impossible Inferno": IMPOSSIBLE_INFERNO,
+    "Infernal Phantom": INFERNAL_PHANTOM,
+    "Irreverent Gremlin": IRREVERENT_GREMLIN,
+    "Leyline of Resonance": LEYLINE_OF_RESONANCE,
+    "A-Leyline of Resonance": ALEYLINE_OF_RESONANCE,
+    "Most Valuable Slayer": MOST_VALUABLE_SLAYER,
+    "Norin, Swift Survivalist": NORIN_SWIFT_SURVIVALIST,
+    "Overlord of the Boilerbilges": OVERLORD_OF_THE_BOILERBILGES,
+    "Painter's Studio": PAINTERS_STUDIO,
+    "Piggy Bank": PIGGY_BANK,
+    "Pyroclasm": PYROCLASM,
+    "Ragged Playmate": RAGGED_PLAYMATE,
+    "Rampaging Soulrager": RAMPAGING_SOULRAGER,
+    "Razorkin Hordecaller": RAZORKIN_HORDECALLER,
+    "Razorkin Needlehead": RAZORKIN_NEEDLEHEAD,
+    "Ripchain Razorkin": RIPCHAIN_RAZORKIN,
+    "The Rollercrusher Ride": THE_ROLLERCRUSHER_RIDE,
+    "Scorching Dragonfire": SCORCHING_DRAGONFIRE,
+    "Screaming Nemesis": SCREAMING_NEMESIS,
+    "Ticket Booth": TICKET_BOOTH,
+    "Trial of Agony": TRIAL_OF_AGONY,
+    "Turn Inside Out": TURN_INSIDE_OUT,
+    "Untimely Malfunction": UNTIMELY_MALFUNCTION,
+    "Vengeful Possession": VENGEFUL_POSSESSION,
+    "Vicious Clown": VICIOUS_CLOWN,
+    "Violent Urge": VIOLENT_URGE,
+    "Waltz of Rage": WALTZ_OF_RAGE,
+    "Altanak, the Thrice-Called": ALTANAK_THE_THRICECALLED,
+    "Anthropede": ANTHROPEDE,
+    "Balustrade Wurm": BALUSTRADE_WURM,
+    "Bashful Beastie": BASHFUL_BEASTIE,
+    "Break Down the Door": BREAK_DOWN_THE_DOOR,
+    "Cathartic Parting": CATHARTIC_PARTING,
+    "Cautious Survivor": CAUTIOUS_SURVIVOR,
+    "Coordinated Clobbering": COORDINATED_CLOBBERING,
+    "Cryptid Inspector": CRYPTID_INSPECTOR,
+    "Defiant Survivor": DEFIANT_SURVIVOR,
+    "Enduring Vitality": ENDURING_VITALITY,
+    "Fear of Exposure": FEAR_OF_EXPOSURE,
+    "Flesh Burrower": FLESH_BURROWER,
+    "Frantic Strength": FRANTIC_STRENGTH,
+    "Grasping Longneck": GRASPING_LONGNECK,
+    "Greenhouse": GREENHOUSE,
+    "Hauntwoods Shrieker": HAUNTWOODS_SHRIEKER,
+    "Hedge Shredder": HEDGE_SHREDDER,
+    "Horrid Vigor": HORRID_VIGOR,
+    "House Cartographer": HOUSE_CARTOGRAPHER,
+    "Insidious Fungus": INSIDIOUS_FUNGUS,
+    "Kona, Rescue Beastie": KONA_RESCUE_BEASTIE,
+    "Leyline of Mutation": LEYLINE_OF_MUTATION,
+    "Manifest Dread": MANIFEST_DREAD,
+    "Moldering Gym": MOLDERING_GYM,
+    "Monstrous Emergence": MONSTROUS_EMERGENCE,
+    "Omnivorous Flytrap": OMNIVOROUS_FLYTRAP,
+    "Overgrown Zealot": OVERGROWN_ZEALOT,
+    "Overlord of the Hauntwoods": OVERLORD_OF_THE_HAUNTWOODS,
+    "Patchwork Beastie": PATCHWORK_BEASTIE,
+    "Rootwise Survivor": ROOTWISE_SURVIVOR,
+    "Say Its Name": SAY_ITS_NAME,
+    "Slavering Branchsnapper": SLAVERING_BRANCHSNAPPER,
+    "Spineseeker Centipede": SPINESEEKER_CENTIPEDE,
+    "Threats Around Every Corner": THREATS_AROUND_EVERY_CORNER,
+    "Twitching Doll": TWITCHING_DOLL,
+    "Tyvar, the Pummeler": TYVAR_THE_PUMMELER,
+    "Under the Skin": UNDER_THE_SKIN,
+    "Valgavoth's Onslaught": VALGAVOTHS_ONSLAUGHT,
+    "Walk-In Closet": WALKIN_CLOSET,
+    "Wary Watchdog": WARY_WATCHDOG,
+    "Wickerfolk Thresher": WICKERFOLK_THRESHER,
+    "Arabella, Abandoned Doll": ARABELLA_ABANDONED_DOLL,
+    "Baseball Bat": BASEBALL_BAT,
+    "Beastie Beatdown": BEASTIE_BEATDOWN,
+    "Broodspinner": BROODSPINNER,
+    "Disturbing Mirth": DISTURBING_MIRTH,
+    "Drag to the Roots": DRAG_TO_THE_ROOTS,
+    "Fear of Infinity": FEAR_OF_INFINITY,
+    "Gremlin Tamer": GREMLIN_TAMER,
+    "Growing Dread": GROWING_DREAD,
+    "Inquisitive Glimmer": INQUISITIVE_GLIMMER,
+    "Intruding Soulrager": INTRUDING_SOULRAGER,
+    "The Jolly Balloon Man": THE_JOLLY_BALLOON_MAN,
+    "Kaito, Bane of Nightmares": KAITO_BANE_OF_NIGHTMARES,
+    "Marina Vendrell": MARINA_VENDRELL,
+    "Midnight Mayhem": MIDNIGHT_MAYHEM,
+    "Nashi, Searcher in the Dark": NASHI_SEARCHER_IN_THE_DARK,
+    "Niko, Light of Hope": NIKO_LIGHT_OF_HOPE,
+    "Oblivious Bookworm": OBLIVIOUS_BOOKWORM,
+    "Peer Past the Veil": PEER_PAST_THE_VEIL,
+    "Restricted Office": RESTRICTED_OFFICE,
+    "Rip, Spawn Hunter": RIP_SPAWN_HUNTER,
+    "Rite of the Moth": RITE_OF_THE_MOTH,
+    "Roaring Furnace": ROARING_FURNACE,
+    "Sawblade Skinripper": SAWBLADE_SKINRIPPER,
+    "Shrewd Storyteller": SHREWD_STORYTELLER,
+    "Shroudstomper": SHROUDSTOMPER,
+    "Skullsnap Nuisance": SKULLSNAP_NUISANCE,
+    "Smoky Lounge": SMOKY_LOUNGE,
+    "The Swarmweaver": THE_SWARMWEAVER,
+    "Undead Sprinter": UNDEAD_SPRINTER,
+    "Victor, Valgavoth's Seneschal": VICTOR_VALGAVOTHS_SENESCHAL,
+    "Wildfire Wickerfolk": WILDFIRE_WICKERFOLK,
+    "Winter, Misanthropic Guide": WINTER_MISANTHROPIC_GUIDE,
+    "Zimone, All-Questioning": ZIMONE_ALLQUESTIONING,
+    "Attack-in-the-Box": ATTACKINTHEBOX,
+    "Bear Trap": BEAR_TRAP,
+    "Conductive Machete": CONDUCTIVE_MACHETE,
+    "Dissection Tools": DISSECTION_TOOLS,
+    "Found Footage": FOUND_FOOTAGE,
+    "Friendly Teddy": FRIENDLY_TEDDY,
+    "Ghost Vacuum": GHOST_VACUUM,
+    "Glimmerlight": GLIMMERLIGHT,
+    "Haunted Screen": HAUNTED_SCREEN,
+    "Keys to the House": KEYS_TO_THE_HOUSE,
+    "Malevolent Chandelier": MALEVOLENT_CHANDELIER,
+    "Marvin, Murderous Mimic": MARVIN_MURDEROUS_MIMIC,
+    "Saw": SAW,
+    "Abandoned Campground": ABANDONED_CAMPGROUND,
+    "Blazemire Verge": BLAZEMIRE_VERGE,
+    "Bleeding Woods": BLEEDING_WOODS,
+    "Etched Cornfield": ETCHED_CORNFIELD,
+    "Floodfarm Verge": FLOODFARM_VERGE,
+    "Gloomlake Verge": GLOOMLAKE_VERGE,
+    "Hushwood Verge": HUSHWOOD_VERGE,
+    "Lakeside Shack": LAKESIDE_SHACK,
+    "Murky Sewer": MURKY_SEWER,
+    "Neglected Manor": NEGLECTED_MANOR,
+    "Peculiar Lighthouse": PECULIAR_LIGHTHOUSE,
+    "Raucous Carnival": RAUCOUS_CARNIVAL,
+    "Razortrap Gorge": RAZORTRAP_GORGE,
+    "Strangled Cemetery": STRANGLED_CEMETERY,
+    "Terramorphic Expanse": TERRAMORPHIC_EXPANSE,
+    "Thornspire Verge": THORNSPIRE_VERGE,
+    "Valgavoth's Lair": VALGAVOTHS_LAIR,
+    "Plains": PLAINS,
+    "Island": ISLAND,
+    "Swamp": SWAMP,
+    "Mountain": MOUNTAIN,
+    "Forest": FOREST,
 }
 
-print(f"Loaded {len(DUSKMOURN_CARDS)} Duskmourn: House of Horror cards")
+print(f"Loaded {len(DUSKMOURN_CARDS)} Duskmourn cards")
