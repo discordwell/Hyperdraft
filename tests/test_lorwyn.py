@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
 
 from src.engine import Game, Event, EventType, ZoneType, get_power, get_toughness
-from src.cards.lorwyn_eclipsed import LORWYN_ECLIPSED_CARDS
+from src.cards.custom.lorwyn_custom import LORWYN_CUSTOM_CARDS
 
 
 def test_burdened_stoneback_counters():
@@ -16,7 +16,7 @@ def test_burdened_stoneback_counters():
     game = Game()
     p1 = game.add_player("Alice")
 
-    card_def = LORWYN_ECLIPSED_CARDS["Burdened Stoneback"]
+    card_def = LORWYN_CUSTOM_CARDS["Burdened Stoneback"]
 
     # Create the creature
     creature = game.create_object(
@@ -60,7 +60,7 @@ def test_champion_of_clachan_lord():
     p1 = game.add_player("Alice")
 
     # Create Champion first
-    champion_def = LORWYN_ECLIPSED_CARDS["Champion of the Clachan"]
+    champion_def = LORWYN_CUSTOM_CARDS["Champion of the Clachan"]
     champion = game.create_object(
         name="Champion of the Clachan",
         owner_id=p1.id,
@@ -70,7 +70,7 @@ def test_champion_of_clachan_lord():
     )
 
     # Create a Kithkin
-    kithkin_def = LORWYN_ECLIPSED_CARDS["Goldmeadow Nomad"]
+    kithkin_def = LORWYN_CUSTOM_CARDS["Goldmeadow Nomad"]
     kithkin = game.create_object(
         name="Goldmeadow Nomad",
         owner_id=p1.id,
@@ -106,7 +106,7 @@ def test_encumbered_reejerey_tap_trigger():
     game = Game()
     p1 = game.add_player("Alice")
 
-    card_def = LORWYN_ECLIPSED_CARDS["Encumbered Reejerey"]
+    card_def = LORWYN_CUSTOM_CARDS["Encumbered Reejerey"]
 
     creature = game.create_object(
         name="Encumbered Reejerey",
@@ -164,7 +164,7 @@ def test_rooftop_percher_life_gain():
 
     print(f"Starting life: {p1.life}")
 
-    card_def = LORWYN_ECLIPSED_CARDS["Rooftop Percher"]
+    card_def = LORWYN_CUSTOM_CARDS["Rooftop Percher"]
 
     creature = game.create_object(
         name="Rooftop Percher",

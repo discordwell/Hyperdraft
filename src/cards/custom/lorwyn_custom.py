@@ -1,7 +1,10 @@
 """
-Lorwyn Eclipsed (ECL) Card Implementations
+Lorwyn Custom - Custom Card Set
 
-Set released January 23, 2026. 408 cards.
+Custom/fan-made set with 408 cards inspired by the Lorwyn plane.
+
+NOTE: This is a custom set. The real "Lorwyn Eclipsed" MTG set was released
+after my knowledge cutoff and may have different cards.
 """
 
 from src.engine import (
@@ -7323,7 +7326,7 @@ WANDERBRINE_ROOTCUTTERS = make_creature(
 # REGISTRY
 # =============================================================================
 
-LORWYN_ECLIPSED_CARDS = {
+LORWYN_CUSTOM_CARDS = {
     # WHITE CARDS
     "Changeling Wayfinder": CHANGELING_WAYFINDER,
     "Rooftop Percher": ROOFTOP_PERCHER,
@@ -7785,4 +7788,4 @@ LORWYN_ECLIPSED_CARDS = {
     "Wanderbrine Rootcutters": WANDERBRINE_ROOTCUTTERS,
 }
 
-print(f"Loaded {len(LORWYN_ECLIPSED_CARDS)} Lorwyn Eclipsed cards")
+print(f"Loaded {len(LORWYN_CUSTOM_CARDS)} Lorwyn Custom cards")

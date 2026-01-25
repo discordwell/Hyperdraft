@@ -1,8 +1,11 @@
 """
-Marvel's Spider-Man (SPM) Card Implementations
+Marvel's Spider-Man - Custom Card Set
 
-Set released December 2025. 198 cards.
+Custom/fan-made set with 198 cards.
 Features mechanics: Web, Sinister, Heroic, Spider-Sense, Symbiote
+
+NOTE: This is a custom set. A real "Spider-Man" MTG set was released
+after my knowledge cutoff and may have different cards.
 """
 
 from src.engine import (
@@ -3563,7 +3566,7 @@ BEN_REILLY = make_creature(
 # REGISTRY
 # =============================================================================
 
-SPIDER_MAN_CARDS = {
+SPIDER_MAN_CUSTOM_CARDS = {
     # WHITE - HEROES
     "Spider-Man, Friendly Neighbor": SPIDER_MAN_FRIENDLY_NEIGHBOR,
     "Spider-Man, With Great Power": SPIDER_MAN_WITH_GREAT_POWER,
@@ -3785,4 +3788,4 @@ SPIDER_MAN_CARDS = {
     "Ben Reilly": BEN_REILLY,
 }
 
-print(f"Loaded {len(SPIDER_MAN_CARDS)} Marvel's Spider-Man cards")
+print(f"Loaded {len(SPIDER_MAN_CUSTOM_CARDS)} Marvel's Spider-Man cards")

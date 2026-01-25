@@ -1,9 +1,12 @@
 """
-Edge of Eternities (EOE) Card Implementations
+Temporal Horizons - Custom Card Set
 
-Set released January 2026. 276 cards.
+Custom/fan-made set with 276 cards.
 Features mechanics: Chronicle, Time Counter, Suspend, Echo, Rewind, Temporal, Prophecy
 Theme: Time manipulation, ancient civilizations, and temporal paradoxes
+
+NOTE: This is a custom set. The real "Edge of Eternities" MTG set was released
+after my knowledge cutoff and has different cards with a space opera theme.
 """
 
 from src.engine import (
@@ -4073,7 +4076,7 @@ ENTROPY_SHADE = make_creature(
 # REGISTRY
 # =============================================================================
 
-EDGE_OF_ETERNITIES_CARDS = {
+TEMPORAL_HORIZONS_CARDS = {
     # WHITE
     "Temporal Guardian": TEMPORAL_GUARDIAN,
     "Chrono-Paladin": CHRONO_PALADIN,
@@ -4389,4 +4392,4 @@ EDGE_OF_ETERNITIES_CARDS = {
     "Entropy Shade": ENTROPY_SHADE,
 }
 
-print(f"Loaded {len(EDGE_OF_ETERNITIES_CARDS)} Edge of Eternities cards")
+print(f"Loaded {len(TEMPORAL_HORIZONS_CARDS)} Temporal Horizons cards")
