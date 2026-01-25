@@ -11,7 +11,7 @@ from src.engine import (
     CardType, AttackDeclaration, BlockDeclaration
 )
 from src.cards import ALL_CARDS
-from src.decks import load_deck, get_deck, STANDARD_DECKS
+from src.decks import load_deck, get_deck, STANDARD_DECKS, NETDECKS, get_netdeck
 
 
 def simple_ai_action(player_id: str, state: GameState, legal_actions: list[LegalAction]) -> PlayerAction:
@@ -71,6 +71,16 @@ def get_blocks(
     return blocks
 
 
+def _get_deck(deck_id: str):
+    """Get a deck from either STANDARD_DECKS or NETDECKS."""
+    if deck_id in STANDARD_DECKS:
+        return STANDARD_DECKS[deck_id]
+    elif deck_id in NETDECKS:
+        return NETDECKS[deck_id]
+    else:
+        raise ValueError(f"Unknown deck: {deck_id}")
+
+
 async def run_game(deck1_id: str, deck2_id: str, max_turns: int = 30, verbose: bool = False) -> dict:
     """Run a game between two decks."""
     game = Game()
@@ -89,8 +99,8 @@ async def run_game(deck1_id: str, deck2_id: str, max_turns: int = 30, verbose: b
     game.combat_manager.get_block_declarations = get_blocks
 
     # Load and add decks
-    deck1 = load_deck(ALL_CARDS, get_deck(deck1_id))
-    deck2 = load_deck(ALL_CARDS, get_deck(deck2_id))
+    deck1 = load_deck(ALL_CARDS, _get_deck(deck1_id))
+    deck2 = load_deck(ALL_CARDS, _get_deck(deck2_id))
 
     for card in deck1:
         game.add_card_to_library(p1.id, card)
@@ -183,17 +193,21 @@ def test_matchup(deck1_id: str, deck2_id: str, games: int = 5, verbose: bool = F
     return {"p1_wins": p1_wins, "p2_wins": p2_wins, "draws": draws}
 
 
-def test_all_matchups(games_per: int = 3):
+def test_all_matchups(games_per: int = 3, netdecks_only: bool = False):
     """Test all deck matchups."""
-    # Complete decks (all cards available)
-    complete_decks = [
-        "mono_red_aggro",
-        "mono_green_ramp",
-        "dimir_control",
-        "boros_aggro",
-        "simic_tempo",
-        "lorwyn_faeries",
-    ]
+    if netdecks_only:
+        # Use tournament netdecks
+        complete_decks = list(NETDECKS.keys())
+    else:
+        # Use standard decks
+        complete_decks = [
+            "mono_red_aggro",
+            "mono_green_ramp",
+            "dimir_control",
+            "boros_aggro",
+            "simic_tempo",
+            "lorwyn_faeries",
+        ]
 
     results = {}
     for d1 in complete_decks:
@@ -215,20 +229,24 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Direct deck testing")
-    parser.add_argument("--deck1", "-d1", default="mono_red_aggro", help="First deck")
-    parser.add_argument("--deck2", "-d2", default="dimir_control", help="Second deck")
+    parser.add_argument("--deck1", "-d1", default="mono_red_netdeck", help="First deck")
+    parser.add_argument("--deck2", "-d2", default="dimir_midrange_netdeck", help="Second deck")
     parser.add_argument("--games", "-g", type=int, default=5, help="Number of games")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument("--all", action="store_true", help="Test all matchups")
+    parser.add_argument("--netdecks", action="store_true", help="Use netdecks for --all")
     parser.add_argument("--list", "-l", action="store_true", help="List available decks")
 
     args = parser.parse_args()
 
     if args.list:
-        print("Available decks:")
+        print("Standard Decks:")
         for deck_id, deck in STANDARD_DECKS.items():
             print(f"  {deck_id}: {deck.name} ({deck.archetype})")
+        print("\nNetdecks (Tournament):")
+        for deck_id, deck in NETDECKS.items():
+            print(f"  {deck_id}: {deck.name} ({deck.archetype})")
     elif args.all:
-        test_all_matchups(games_per=args.games)
+        test_all_matchups(games_per=args.games, netdecks_only=args.netdecks)
     else:
         test_matchup(args.deck1, args.deck2, games=args.games, verbose=args.verbose)

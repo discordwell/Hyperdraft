@@ -1,17 +1,28 @@
 #!/usr/bin/env python3
 """
-Fetch card data from Scryfall and generate Python card definitions.
+Fetch card data from Scryfall and generate/update Python card definitions.
+
+PRODUCTION-READY: Preserves existing interceptors when updating card data.
 
 Usage:
+    # Fresh fetch (creates new file, warns if exists)
     python scripts/fetch_scryfall_set.py blb bloomburrow "Bloomburrow"
-    python scripts/fetch_scryfall_set.py eoe edge_of_eternities "Edge of Eternities"
+
+    # Update existing file (preserves interceptors)
+    python scripts/fetch_scryfall_set.py blb bloomburrow "Bloomburrow" --update
+
+    # Force overwrite (destroys interceptors!)
+    python scripts/fetch_scryfall_set.py blb bloomburrow "Bloomburrow" --force
+
+    # Dry run (show what would change)
+    python scripts/fetch_scryfall_set.py blb bloomburrow "Bloomburrow" --dry-run
 
 Handles all MTG card layouts:
 - normal: Standard single-faced cards
 - adventure: Cards with Adventure spell (e.g., Bonecrusher Giant // Stomp)
 - transform: Double-faced cards that transform (e.g., Delver of Secrets)
 - modal_dfc: Modal double-faced cards (e.g., Kazandu Mammoth // Kazandu Valley)
-- split: Split cards (e.g., Fire // Ice)
+- split: Split cards AND Room cards (e.g., Fire // Ice, Dazzling Theater // Prop Room)
 - flip: Flip cards (e.g., Nezumi Shortfang)
 - meld: Meld cards (e.g., Bruna, the Fading Light)
 - saga, class, case: Enchantment subtypes
@@ -20,17 +31,26 @@ Handles all MTG card layouts:
 """
 
 import sys
+import os
 import json
 import time
 import re
+import argparse
 import urllib.request
 import urllib.error
-from typing import Optional
+from typing import Optional, Dict, Set, Tuple, List
+from pathlib import Path
 
-# Scryfall API base
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
 SCRYFALL_API = "https://api.scryfall.com"
+REQUEST_DELAY = 0.1  # Scryfall asks for 50-100ms between requests
+MAX_RETRIES = 3
+RETRY_DELAY = 1.0
 
-# Color mapping
 COLOR_MAP = {
     'W': 'Color.WHITE',
     'U': 'Color.BLUE',
@@ -39,7 +59,6 @@ COLOR_MAP = {
     'G': 'Color.GREEN',
 }
 
-# Card type mapping
 TYPE_MAP = {
     'creature': 'CardType.CREATURE',
     'instant': 'CardType.INSTANT',
@@ -64,31 +83,70 @@ SKIP_LAYOUTS = {
 }
 
 
-def fetch_json(url: str) -> dict:
-    """Fetch JSON from URL with rate limiting."""
-    time.sleep(0.1)  # Scryfall asks for 50-100ms between requests
-    req = urllib.request.Request(url, headers={'User-Agent': 'Hyperdraft/1.0'})
-    with urllib.request.urlopen(req) as response:
-        return json.loads(response.read().decode())
+# =============================================================================
+# API FUNCTIONS
+# =============================================================================
+
+def fetch_json(url: str, retries: int = MAX_RETRIES) -> dict:
+    """Fetch JSON from URL with rate limiting and retries."""
+    time.sleep(REQUEST_DELAY)
+
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Hyperdraft/1.0'})
+            with urllib.request.urlopen(req, timeout=30) as response:
+                return json.loads(response.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code == 429:  # Rate limited
+                wait_time = RETRY_DELAY * (attempt + 1) * 2
+                print(f"  Rate limited, waiting {wait_time}s...")
+                time.sleep(wait_time)
+            elif e.code == 404:
+                raise ValueError(f"Not found: {url}")
+            else:
+                if attempt < retries - 1:
+                    print(f"  HTTP {e.code}, retrying...")
+                    time.sleep(RETRY_DELAY)
+                else:
+                    raise
+        except Exception as e:
+            if attempt < retries - 1:
+                print(f"  Error: {e}, retrying...")
+                time.sleep(RETRY_DELAY)
+            else:
+                raise
+
+    raise RuntimeError(f"Failed to fetch {url} after {retries} attempts")
 
 
-def fetch_all_cards(set_code: str) -> list[dict]:
+def fetch_all_cards(set_code: str) -> List[dict]:
     """Fetch all cards from a set, handling pagination."""
     cards = []
     url = f"{SCRYFALL_API}/cards/search?q=set:{set_code}&unique=cards&order=set"
 
+    page = 1
     while url:
-        print(f"  Fetching: {url[:80]}...")
-        data = fetch_json(url)
-        cards.extend(data.get('data', []))
-        url = data.get('next_page')
+        print(f"  Page {page}: {url[:70]}...")
+        try:
+            data = fetch_json(url)
+            cards.extend(data.get('data', []))
+            url = data.get('next_page')
+            page += 1
+        except ValueError as e:
+            if "Not found" in str(e) and not cards:
+                raise ValueError(f"Set '{set_code}' not found on Scryfall")
+            break
 
     return cards
 
 
+# =============================================================================
+# PARSING FUNCTIONS
+# =============================================================================
+
 def sanitize_name(name: str) -> str:
     """Convert card name to Python variable name."""
-    # Handle split cards
+    # Handle split cards - use first part
     name = name.split(' // ')[0]
     # Remove special characters
     name = re.sub(r"[^a-zA-Z0-9\s]", "", name)
@@ -102,7 +160,7 @@ def parse_colors(colors: list) -> str:
     if not colors:
         return "set()"
     mapped = [COLOR_MAP.get(c, f"'{c}'") for c in colors]
-    return "{" + ", ".join(mapped) + "}"
+    return "{" + ", ".join(sorted(mapped)) + "}"
 
 
 def parse_mana_cost(mana_cost: Optional[str]) -> str:
@@ -112,7 +170,7 @@ def parse_mana_cost(mana_cost: Optional[str]) -> str:
     return f'"{mana_cost}"'
 
 
-def parse_types(type_line: str) -> tuple[set, set, set]:
+def parse_types(type_line: str) -> Tuple[Set[str], Set[str], Set[str]]:
     """Parse type line into supertypes, types, subtypes."""
     supertypes = set()
     types = set()
@@ -140,17 +198,15 @@ def parse_types(type_line: str) -> tuple[set, set, set]:
     if len(parts) > 1:
         for subtype in parts[1].strip().split():
             # Filter out junk from multi-face parsing
-            if subtype not in ('/', '//', 'Creature', 'Instant', 'Sorcery', 'Enchantment', 'Artifact', 'Land'):
+            if subtype not in ('/', '//', 'Creature', 'Instant', 'Sorcery',
+                              'Enchantment', 'Artifact', 'Land', 'Planeswalker'):
                 subtypes.add(subtype)
 
     return supertypes, types, subtypes
 
 
 def get_front_face(card: dict) -> dict:
-    """
-    Extract front face data from multi-faced cards.
-    For single-faced cards, returns the card itself.
-    """
+    """Extract front face data from multi-faced cards."""
     layout = card.get('layout', 'normal')
 
     if layout not in MULTI_FACE_LAYOUTS:
@@ -173,83 +229,76 @@ def get_front_face(card: dict) -> dict:
 
 
 def get_combined_text(card: dict) -> str:
-    """
-    Get combined oracle text for multi-faced cards.
-    Single-faced cards return their oracle_text directly.
-    """
+    """Get combined oracle text for multi-faced cards."""
     layout = card.get('layout', 'normal')
+    faces = card.get('card_faces', [])
+
+    if not faces or len(faces) < 2:
+        return card.get('oracle_text', '')
 
     if layout == 'adventure':
         # Adventure cards: Main card text + Adventure spell
-        faces = card.get('card_faces', [])
-        if len(faces) >= 2:
-            main_text = faces[0].get('oracle_text', '')
-            adv_name = faces[1].get('name', 'Adventure')
-            adv_cost = faces[1].get('mana_cost', '')
-            adv_type = faces[1].get('type_line', '').split('—')[-1].strip() if '—' in faces[1].get('type_line', '') else 'Adventure'
-            adv_text = faces[1].get('oracle_text', '')
-            return f"{main_text}\n// Adventure — {adv_name} {adv_cost}\n{adv_text}"
-        return card.get('oracle_text', '')
+        main_text = faces[0].get('oracle_text', '')
+        adv_name = faces[1].get('name', 'Adventure')
+        adv_cost = faces[1].get('mana_cost', '')
+        adv_type_line = faces[1].get('type_line', '')
+        # Extract Adventure subtype (Instant/Sorcery)
+        adv_spell_type = 'Instant' if 'Instant' in adv_type_line else 'Sorcery'
+        adv_text = faces[1].get('oracle_text', '').split('(Then exile')[0].strip()
+        return f"{main_text}\n// Adventure — {adv_name} {adv_cost} ({adv_spell_type})\n{adv_text}"
 
     elif layout == 'transform':
         # Transform cards: Front face text + back face info
-        faces = card.get('card_faces', [])
-        if len(faces) >= 2:
-            front_text = faces[0].get('oracle_text', '')
-            back_name = faces[1].get('name', '')
-            back_type = faces[1].get('type_line', '')
-            back_text = faces[1].get('oracle_text', '')
-            back_pt = ""
-            if 'power' in faces[1] and 'toughness' in faces[1]:
-                back_pt = f" ({faces[1]['power']}/{faces[1]['toughness']})"
-            return f"{front_text}\n// Transforms into: {back_name}{back_pt}\n{back_text}"
-        return card.get('oracle_text', '')
+        front_text = faces[0].get('oracle_text', '')
+        back_name = faces[1].get('name', '')
+        back_text = faces[1].get('oracle_text', '')
+        back_pt = ""
+        if 'power' in faces[1] and 'toughness' in faces[1]:
+            back_pt = f" ({faces[1]['power']}/{faces[1]['toughness']})"
+        return f"{front_text}\n// Transforms into: {back_name}{back_pt}\n{back_text}"
 
     elif layout == 'modal_dfc':
         # Modal DFCs: Front + back as separate modes
-        faces = card.get('card_faces', [])
-        if len(faces) >= 2:
-            front_text = faces[0].get('oracle_text', '')
-            back_name = faces[1].get('name', '')
-            back_type = faces[1].get('type_line', '')
-            back_text = faces[1].get('oracle_text', '')
-            return f"{front_text}\n// Back face: {back_name} — {back_type}\n{back_text}"
-        return card.get('oracle_text', '')
+        front_text = faces[0].get('oracle_text', '')
+        back_name = faces[1].get('name', '')
+        back_type = faces[1].get('type_line', '')
+        back_text = faces[1].get('oracle_text', '')
+        back_pt = ""
+        if 'power' in faces[1] and 'toughness' in faces[1]:
+            back_pt = f" ({faces[1]['power']}/{faces[1]['toughness']})"
+        return f"{front_text}\n// Back face: {back_name}{back_pt} — {back_type}\n{back_text}"
 
     elif layout == 'split':
-        # Split cards: Both halves
-        faces = card.get('card_faces', [])
-        if len(faces) >= 2:
-            left_name = faces[0].get('name', '')
-            left_cost = faces[0].get('mana_cost', '')
-            left_text = faces[0].get('oracle_text', '')
-            right_name = faces[1].get('name', '')
-            right_cost = faces[1].get('mana_cost', '')
-            right_text = faces[1].get('oracle_text', '')
+        # Split cards: Both halves (includes Room cards)
+        left_name = faces[0].get('name', '')
+        left_cost = faces[0].get('mana_cost', '')
+        left_type = faces[0].get('type_line', '')
+        left_text = faces[0].get('oracle_text', '').split('(You may cast')[0].strip()
+        right_name = faces[1].get('name', '')
+        right_cost = faces[1].get('mana_cost', '')
+        right_text = faces[1].get('oracle_text', '').split('(You may cast')[0].strip()
+
+        # Check if it's a Room card
+        if 'Room' in left_type:
+            return f"{left_name} {left_cost}:\n{left_text}\n//\n{right_name} {right_cost}:\n{right_text}"
+        else:
             return f"{left_name} {left_cost}: {left_text}\n//\n{right_name} {right_cost}: {right_text}"
-        return card.get('oracle_text', '')
 
     elif layout == 'flip':
         # Flip cards: Normal + flipped version
-        faces = card.get('card_faces', [])
-        if len(faces) >= 2:
-            normal_text = faces[0].get('oracle_text', '')
-            flip_name = faces[1].get('name', '')
-            flip_type = faces[1].get('type_line', '')
-            flip_text = faces[1].get('oracle_text', '')
-            flip_pt = ""
-            if 'power' in faces[1] and 'toughness' in faces[1]:
-                flip_pt = f" {faces[1]['power']}/{faces[1]['toughness']}"
-            return f"{normal_text}\n// Flips into: {flip_name} — {flip_type}{flip_pt}\n{flip_text}"
-        return card.get('oracle_text', '')
+        normal_text = faces[0].get('oracle_text', '')
+        flip_name = faces[1].get('name', '')
+        flip_type = faces[1].get('type_line', '')
+        flip_text = faces[1].get('oracle_text', '')
+        flip_pt = ""
+        if 'power' in faces[1] and 'toughness' in faces[1]:
+            flip_pt = f" {faces[1]['power']}/{faces[1]['toughness']}"
+        return f"{normal_text}\n// Flips into: {flip_name} — {flip_type}{flip_pt}\n{flip_text}"
 
     # Default: use root oracle_text or first face
     if 'oracle_text' in card:
         return card['oracle_text']
-    faces = card.get('card_faces', [])
-    if faces:
-        return faces[0].get('oracle_text', '')
-    return ''
+    return faces[0].get('oracle_text', '')
 
 
 def escape_text(text: Optional[str]) -> str:
@@ -263,367 +312,281 @@ def escape_text(text: Optional[str]) -> str:
     return f'"{text}"'
 
 
-def generate_creature(card: dict, var_name: str, combined_text: str = None) -> str:
-    """Generate creature card definition."""
-    # Use front face for multi-faced cards
-    face = get_front_face(card)
-    name = face.get('name', card['name']).split(' // ')[0]
-    mana_cost = parse_mana_cost(face.get('mana_cost', card.get('mana_cost')))
-    colors = parse_colors(face.get('colors', card.get('colors', [])))
-    supertypes, types, subtypes = parse_types(face.get('type_line', card.get('type_line', '')))
+# =============================================================================
+# EXISTING FILE PARSING
+# =============================================================================
 
-    # Use combined text for multi-faced cards
-    if combined_text is not None:
-        text = escape_text(combined_text)
-    else:
-        text = escape_text(face.get('oracle_text', card.get('oracle_text', '')))
+def extract_interceptors(file_path: str) -> Dict[str, str]:
+    """
+    Extract existing interceptor setup functions from a card file.
+    Returns dict mapping card variable name to its setup function name.
+    """
+    if not os.path.exists(file_path):
+        return {}
 
-    power = face.get('power', card.get('power', '0'))
-    toughness = face.get('toughness', card.get('toughness', '0'))
+    interceptors = {}
+    setup_functions = {}
 
-    # Handle */*, X/X type P/T
-    try:
-        power = int(power)
-    except:
-        power = 0
-    try:
-        toughness = int(toughness)
-    except:
-        toughness = 0
+    with open(file_path, 'r') as f:
+        content = f.read()
 
-    subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else "set()"
-    supertypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(supertypes)) + "}" if supertypes else None
+    # Find all setup function definitions
+    # Pattern: def card_name_setup(obj: GameObject, state: GameState)
+    setup_pattern = re.compile(
+        r'^def\s+(\w+_setup)\s*\([^)]*\)\s*(?:->.*?)?\s*:\s*\n((?:[ \t]+.+\n)*)',
+        re.MULTILINE
+    )
 
-    lines = [
-        f'{var_name} = make_creature(',
-        f'    name="{name}",',
-        f'    power={power}, toughness={toughness},',
-        f'    mana_cost={mana_cost},',
-        f'    colors={colors},',
-        f'    subtypes={subtypes_str},',
-    ]
-    if supertypes_str:
-        lines.append(f'    supertypes={supertypes_str},')
-    lines.append(f'    text={text},')
-    lines.append(')')
+    for match in setup_pattern.finditer(content):
+        func_name = match.group(1)
+        func_body = match.group(0)
+        setup_functions[func_name] = func_body
 
-    return '\n'.join(lines)
+    # Find card definitions that reference setup functions
+    # We need a different approach since card defs span multiple lines with many ')'
+    # Split content into card definition blocks and check each for setup_interceptors
 
+    # Pattern to find card variable definitions
+    card_def_pattern = re.compile(
+        r'^([A-Z][A-Z0-9_]*)\s*=\s*make_\w+\(',
+        re.MULTILINE
+    )
 
-def generate_enchantment_creature(card: dict, var_name: str, combined_text: str = None) -> str:
-    """Generate enchantment creature card definition."""
-    face = get_front_face(card)
-    name = face.get('name', card['name']).split(' // ')[0]
-    mana_cost = parse_mana_cost(face.get('mana_cost', card.get('mana_cost')))
-    colors = parse_colors(face.get('colors', card.get('colors', [])))
-    supertypes, types, subtypes = parse_types(face.get('type_line', card.get('type_line', '')))
+    for match in card_def_pattern.finditer(content):
+        var_name = match.group(1)
+        start_pos = match.start()
 
-    if combined_text is not None:
-        text = escape_text(combined_text)
-    else:
-        text = escape_text(face.get('oracle_text', card.get('oracle_text', '')))
+        # Find the closing paren of this card definition
+        # Count parens from the opening '(' after make_xxx
+        paren_start = content.find('(', match.end() - 1)
+        paren_depth = 1
+        pos = paren_start + 1
 
-    power = face.get('power', card.get('power', '0'))
-    toughness = face.get('toughness', card.get('toughness', '0'))
+        while pos < len(content) and paren_depth > 0:
+            char = content[pos]
+            if char == '(':
+                paren_depth += 1
+            elif char == ')':
+                paren_depth -= 1
+            pos += 1
 
-    try:
-        power = int(power)
-    except:
-        power = 0
-    try:
-        toughness = int(toughness)
-    except:
-        toughness = 0
+        card_def = content[start_pos:pos]
 
-    subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else "set()"
-    supertypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(supertypes)) + "}" if supertypes else None
+        # Check for setup_interceptors in this card definition
+        setup_match = re.search(r'setup_interceptors\s*=\s*(\w+)', card_def)
+        if setup_match:
+            setup_name = setup_match.group(1)
+            if setup_name in setup_functions:
+                interceptors[var_name] = {
+                    'setup_name': setup_name,
+                    'setup_code': setup_functions[setup_name]
+                }
 
-    lines = [
-        f'{var_name} = make_enchantment_creature(',
-        f'    name="{name}",',
-        f'    power={power}, toughness={toughness},',
-        f'    mana_cost={mana_cost},',
-        f'    colors={colors},',
-        f'    subtypes={subtypes_str},',
-    ]
-    if supertypes_str:
-        lines.append(f'    supertypes={supertypes_str},')
-    lines.append(f'    text={text},')
-    lines.append(')')
-
-    return '\n'.join(lines)
+    return interceptors
 
 
-def generate_instant_or_sorcery(card: dict, var_name: str, card_type: str, combined_text: str = None) -> str:
-    """Generate instant or sorcery card definition."""
-    face = get_front_face(card)
-    name = face.get('name', card['name']).split(' // ')[0]
-    mana_cost = parse_mana_cost(face.get('mana_cost', card.get('mana_cost')))
-    colors = parse_colors(face.get('colors', card.get('colors', [])))
-    supertypes, types, subtypes = parse_types(face.get('type_line', card.get('type_line', '')))
+def extract_imports_and_helpers(file_path: str) -> Tuple[str, str]:
+    """Extract custom imports and helper functions from existing file."""
+    if not os.path.exists(file_path):
+        return "", ""
 
-    if combined_text is not None:
-        text = escape_text(combined_text)
-    else:
-        text = escape_text(face.get('oracle_text', card.get('oracle_text', '')))
+    with open(file_path, 'r') as f:
+        content = f.read()
 
-    subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else None
-    supertypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(supertypes)) + "}" if supertypes else None
+    # Find imports from interceptor_helpers
+    helper_import_match = re.search(
+        r'from src\.cards\.interceptor_helpers import \([^)]+\)',
+        content,
+        re.DOTALL
+    )
+    helper_imports = helper_import_match.group(0) if helper_import_match else ""
 
-    func_name = 'make_instant' if card_type == 'instant' else 'make_sorcery'
-
-    lines = [
-        f'{var_name} = {func_name}(',
-        f'    name="{name}",',
-        f'    mana_cost={mana_cost},',
-        f'    colors={colors},',
-        f'    text={text},',
-    ]
-    if subtypes_str:
-        lines.append(f'    subtypes={subtypes_str},')
-    if supertypes_str:
-        lines.append(f'    supertypes={supertypes_str},')
-    lines.append(')')
-
-    return '\n'.join(lines)
+    return helper_imports, ""
 
 
-def generate_enchantment(card: dict, var_name: str, combined_text: str = None) -> str:
-    """Generate enchantment card definition."""
-    face = get_front_face(card)
-    name = face.get('name', card['name']).split(' // ')[0]
-    mana_cost = parse_mana_cost(face.get('mana_cost', card.get('mana_cost')))
-    colors = parse_colors(face.get('colors', card.get('colors', [])))
-    supertypes, types, subtypes = parse_types(face.get('type_line', card.get('type_line', '')))
+# =============================================================================
+# CODE GENERATION
+# =============================================================================
 
-    if combined_text is not None:
-        text = escape_text(combined_text)
-    else:
-        text = escape_text(face.get('oracle_text', card.get('oracle_text', '')))
-
-    subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else None
-    supertypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(supertypes)) + "}" if supertypes else None
-
-    lines = [
-        f'{var_name} = make_enchantment(',
-        f'    name="{name}",',
-        f'    mana_cost={mana_cost},',
-        f'    colors={colors},',
-        f'    text={text},',
-    ]
-    if subtypes_str:
-        lines.append(f'    subtypes={subtypes_str},')
-    if supertypes_str:
-        lines.append(f'    supertypes={supertypes_str},')
-    lines.append(')')
-
-    return '\n'.join(lines)
-
-
-def generate_artifact(card: dict, var_name: str, combined_text: str = None) -> str:
-    """Generate artifact card definition."""
-    face = get_front_face(card)
-    name = face.get('name', card['name']).split(' // ')[0]
-    mana_cost = parse_mana_cost(face.get('mana_cost', card.get('mana_cost')))
-    supertypes, types, subtypes = parse_types(face.get('type_line', card.get('type_line', '')))
-
-    if combined_text is not None:
-        text = escape_text(combined_text)
-    else:
-        text = escape_text(face.get('oracle_text', card.get('oracle_text', '')))
-
-    subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else None
-    supertypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(supertypes)) + "}" if supertypes else None
-
-    # Check if it's also a creature
-    if 'creature' in types:
-        return generate_artifact_creature(card, var_name, combined_text)
-
-    lines = [
-        f'{var_name} = make_artifact(',
-        f'    name="{name}",',
-        f'    mana_cost={mana_cost},',
-        f'    text={text},',
-    ]
-    if subtypes_str:
-        lines.append(f'    subtypes={subtypes_str},')
-    if supertypes_str:
-        lines.append(f'    supertypes={supertypes_str},')
-    lines.append(')')
-
-    return '\n'.join(lines)
-
-
-def generate_artifact_creature(card: dict, var_name: str, combined_text: str = None) -> str:
-    """Generate artifact creature card definition."""
-    face = get_front_face(card)
-    name = face.get('name', card['name']).split(' // ')[0]
-    mana_cost = parse_mana_cost(face.get('mana_cost', card.get('mana_cost')))
-    colors = parse_colors(face.get('colors', card.get('colors', [])))
-    supertypes, types, subtypes = parse_types(face.get('type_line', card.get('type_line', '')))
-
-    if combined_text is not None:
-        text = escape_text(combined_text)
-    else:
-        text = escape_text(face.get('oracle_text', card.get('oracle_text', '')))
-
-    power = face.get('power', card.get('power', '0'))
-    toughness = face.get('toughness', card.get('toughness', '0'))
-
-    try:
-        power = int(power)
-    except:
-        power = 0
-    try:
-        toughness = int(toughness)
-    except:
-        toughness = 0
-
-    subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else "set()"
-    supertypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(supertypes)) + "}" if supertypes else None
-
-    lines = [
-        f'{var_name} = make_artifact_creature(',
-        f'    name="{name}",',
-        f'    power={power}, toughness={toughness},',
-        f'    mana_cost={mana_cost},',
-        f'    colors={colors},',
-        f'    subtypes={subtypes_str},',
-    ]
-    if supertypes_str:
-        lines.append(f'    supertypes={supertypes_str},')
-    lines.append(f'    text={text},')
-    lines.append(')')
-
-    return '\n'.join(lines)
-
-
-def generate_land(card: dict, var_name: str, combined_text: str = None) -> str:
-    """Generate land card definition."""
-    face = get_front_face(card)
-    name = face.get('name', card['name']).split(' // ')[0]
-    supertypes, types, subtypes = parse_types(face.get('type_line', card.get('type_line', '')))
-
-    if combined_text is not None:
-        text = escape_text(combined_text)
-    else:
-        text = escape_text(face.get('oracle_text', card.get('oracle_text', '')))
-
-    subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else None
-    supertypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(supertypes)) + "}" if supertypes else None
-
-    lines = [
-        f'{var_name} = make_land(',
-        f'    name="{name}",',
-        f'    text={text},',
-    ]
-    if subtypes_str:
-        lines.append(f'    subtypes={subtypes_str},')
-    if supertypes_str:
-        lines.append(f'    supertypes={supertypes_str},')
-    lines.append(')')
-
-    return '\n'.join(lines)
-
-
-def generate_planeswalker(card: dict, var_name: str, combined_text: str = None) -> str:
-    """Generate planeswalker card definition."""
-    face = get_front_face(card)
-    name = face.get('name', card['name']).split(' // ')[0]
-    mana_cost = parse_mana_cost(face.get('mana_cost', card.get('mana_cost')))
-    colors = parse_colors(face.get('colors', card.get('colors', [])))
-    supertypes, types, subtypes = parse_types(face.get('type_line', card.get('type_line', '')))
-
-    if combined_text is not None:
-        text = escape_text(combined_text)
-    else:
-        text = escape_text(face.get('oracle_text', card.get('oracle_text', '')))
-
-    loyalty = face.get('loyalty', card.get('loyalty', '0'))
-
-    try:
-        loyalty = int(loyalty)
-    except:
-        loyalty = 0
-
-    subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else "set()"
-    supertypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(supertypes)) + "}" if supertypes else None
-
-    lines = [
-        f'{var_name} = make_planeswalker(',
-        f'    name="{name}",',
-        f'    mana_cost={mana_cost},',
-        f'    colors={colors},',
-        f'    loyalty={loyalty},',
-        f'    subtypes={subtypes_str},',
-    ]
-    if supertypes_str:
-        lines.append(f'    supertypes={supertypes_str},')
-    lines.append(f'    text={text},')
-    lines.append(')')
-
-    return '\n'.join(lines)
-
-
-def generate_card(card: dict) -> Optional[tuple[str, str, str]]:
-    """Generate card definition. Returns (var_name, code, card_name) or None."""
-    # Skip tokens, emblems, etc.
+def generate_card_code(card: dict, var_name: str, existing_setup: Optional[str] = None) -> str:
+    """Generate card definition code."""
     layout = card.get('layout', 'normal')
-    if layout in SKIP_LAYOUTS:
-        return None
-
-    # Skip cards without names
-    name = card.get('name')
-    if not name:
-        return None
-
-    var_name = sanitize_name(name)
-    if not var_name:
-        return None
 
     # Get combined text for multi-faced cards
     combined_text = get_combined_text(card) if layout in MULTI_FACE_LAYOUTS else None
 
-    # Get front face for type checking on multi-faced cards
+    # Get front face for type checking
     face = get_front_face(card)
     type_line = face.get('type_line', card.get('type_line', '')).lower()
 
-    # Handle split type lines (e.g., "Creature — Human // Land — Forest")
+    # Handle split type lines
     if ' // ' in type_line:
         type_line = type_line.split(' // ')[0]
 
-    # Determine primary type with proper priority
-    if 'creature' in type_line:
-        if 'artifact' in type_line:
-            code = generate_artifact_creature(card, var_name, combined_text)
-        elif 'enchantment' in type_line:
-            code = generate_enchantment_creature(card, var_name, combined_text)
-        else:
-            code = generate_creature(card, var_name, combined_text)
-    elif 'instant' in type_line:
-        code = generate_instant_or_sorcery(card, var_name, 'instant', combined_text)
-    elif 'sorcery' in type_line:
-        code = generate_instant_or_sorcery(card, var_name, 'sorcery', combined_text)
-    elif 'enchantment' in type_line:
-        code = generate_enchantment(card, var_name, combined_text)
-    elif 'artifact' in type_line:
-        code = generate_artifact(card, var_name, combined_text)
-    elif 'land' in type_line:
-        code = generate_land(card, var_name, combined_text)
-    elif 'planeswalker' in type_line:
-        code = generate_planeswalker(card, var_name, combined_text)
+    # Extract card attributes
+    name = face.get('name', card['name']).split(' // ')[0]
+    mana_cost = parse_mana_cost(face.get('mana_cost', card.get('mana_cost')))
+    colors = parse_colors(face.get('colors', card.get('colors', [])))
+    supertypes, types, subtypes = parse_types(face.get('type_line', card.get('type_line', '')))
+
+    if combined_text is not None:
+        text = escape_text(combined_text)
     else:
-        # Unknown type, skip
+        text = escape_text(face.get('oracle_text', card.get('oracle_text', '')))
+
+    subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else "set()"
+    supertypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(supertypes)) + "}" if supertypes else None
+
+    # Determine card type and generate appropriate code
+    if 'creature' in type_line:
+        power = face.get('power', card.get('power', '0'))
+        toughness = face.get('toughness', card.get('toughness', '0'))
+        try:
+            power = int(power)
+        except:
+            power = 0
+        try:
+            toughness = int(toughness)
+        except:
+            toughness = 0
+
+        if 'artifact' in type_line:
+            func = 'make_artifact_creature'
+        elif 'enchantment' in type_line:
+            func = 'make_enchantment_creature'
+        else:
+            func = 'make_creature'
+
+        lines = [
+            f'{var_name} = {func}(',
+            f'    name="{name}",',
+            f'    power={power}, toughness={toughness},',
+            f'    mana_cost={mana_cost},',
+            f'    colors={colors},',
+            f'    subtypes={subtypes_str},',
+        ]
+        if supertypes_str:
+            lines.append(f'    supertypes={supertypes_str},')
+        lines.append(f'    text={text},')
+        if existing_setup:
+            lines.append(f'    setup_interceptors={existing_setup}')
+        lines.append(')')
+
+    elif 'planeswalker' in type_line:
+        loyalty = face.get('loyalty', card.get('loyalty', '0'))
+        try:
+            loyalty = int(loyalty)
+        except:
+            loyalty = 0
+
+        lines = [
+            f'{var_name} = make_planeswalker(',
+            f'    name="{name}",',
+            f'    mana_cost={mana_cost},',
+            f'    colors={colors},',
+            f'    loyalty={loyalty},',
+            f'    subtypes={subtypes_str},',
+        ]
+        if supertypes_str:
+            lines.append(f'    supertypes={supertypes_str},')
+        lines.append(f'    text={text},')
+        if existing_setup:
+            lines.append(f'    setup_interceptors={existing_setup}')
+        lines.append(')')
+
+    elif 'instant' in type_line:
+        subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else None
+        lines = [
+            f'{var_name} = make_instant(',
+            f'    name="{name}",',
+            f'    mana_cost={mana_cost},',
+            f'    colors={colors},',
+            f'    text={text},',
+        ]
+        if subtypes_str:
+            lines.append(f'    subtypes={subtypes_str},')
+        if supertypes_str:
+            lines.append(f'    supertypes={supertypes_str},')
+        lines.append(')')
+
+    elif 'sorcery' in type_line:
+        subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else None
+        lines = [
+            f'{var_name} = make_sorcery(',
+            f'    name="{name}",',
+            f'    mana_cost={mana_cost},',
+            f'    colors={colors},',
+            f'    text={text},',
+        ]
+        if subtypes_str:
+            lines.append(f'    subtypes={subtypes_str},')
+        if supertypes_str:
+            lines.append(f'    supertypes={supertypes_str},')
+        lines.append(')')
+
+    elif 'enchantment' in type_line:
+        subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else None
+        lines = [
+            f'{var_name} = make_enchantment(',
+            f'    name="{name}",',
+            f'    mana_cost={mana_cost},',
+            f'    colors={colors},',
+            f'    text={text},',
+        ]
+        if subtypes_str:
+            lines.append(f'    subtypes={subtypes_str},')
+        if supertypes_str:
+            lines.append(f'    supertypes={supertypes_str},')
+        if existing_setup:
+            lines.append(f'    setup_interceptors={existing_setup}')
+        lines.append(')')
+
+    elif 'artifact' in type_line:
+        subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else None
+        lines = [
+            f'{var_name} = make_artifact(',
+            f'    name="{name}",',
+            f'    mana_cost={mana_cost},',
+            f'    text={text},',
+        ]
+        if subtypes_str:
+            lines.append(f'    subtypes={subtypes_str},')
+        if supertypes_str:
+            lines.append(f'    supertypes={supertypes_str},')
+        if existing_setup:
+            lines.append(f'    setup_interceptors={existing_setup}')
+        lines.append(')')
+
+    elif 'land' in type_line:
+        subtypes_str = "{" + ", ".join(f'"{s}"' for s in sorted(subtypes)) + "}" if subtypes else None
+        lines = [
+            f'{var_name} = make_land(',
+            f'    name="{name}",',
+            f'    text={text},',
+        ]
+        if subtypes_str:
+            lines.append(f'    subtypes={subtypes_str},')
+        if supertypes_str:
+            lines.append(f'    supertypes={supertypes_str},')
+        if existing_setup:
+            lines.append(f'    setup_interceptors={existing_setup}')
+        lines.append(')')
+
+    else:
         return None
 
-    # Use front face name for registry
-    display_name = face.get('name', name).split(' // ')[0]
-
-    return var_name, code, display_name
+    return '\n'.join(lines)
 
 
-def generate_file(set_code: str, module_name: str, set_name: str, cards: list[dict]) -> str:
+def generate_file(set_code: str, module_name: str, set_name: str,
+                  cards: List[dict], existing_interceptors: Dict[str, dict],
+                  helper_imports: str) -> str:
     """Generate complete Python file for a card set."""
+
+    # Collect all setup functions that we need to preserve
+    setup_functions_code = []
+    for var_name, info in existing_interceptors.items():
+        setup_functions_code.append(info['setup_code'])
 
     header = f'''"""
 {set_name} ({set_code.upper()}) Card Implementations
@@ -641,7 +604,23 @@ from src.engine import (
     new_id, get_power, get_toughness
 )
 from typing import Optional, Callable
+'''
 
+    # Add interceptor helper imports if they exist
+    if helper_imports:
+        header += f"\n{helper_imports}\n"
+    elif existing_interceptors:
+        # Default imports if we have interceptors but no explicit imports
+        header += '''
+from src.cards.interceptor_helpers import (
+    make_etb_trigger, make_death_trigger, make_attack_trigger, make_damage_trigger,
+    make_static_pt_boost, make_keyword_grant, make_upkeep_trigger,
+    make_life_gain_trigger, make_draw_trigger,
+    other_creatures_you_control, creatures_you_control, other_creatures_with_subtype
+)
+'''
+
+    header += '''
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -653,7 +632,7 @@ def make_instant(name: str, mana_cost: str, colors: set, text: str, subtypes: se
         name=name,
         mana_cost=mana_cost,
         characteristics=Characteristics(
-            types={{CardType.INSTANT}},
+            types={CardType.INSTANT},
             subtypes=subtypes or set(),
             supertypes=supertypes or set(),
             colors=colors,
@@ -670,7 +649,7 @@ def make_sorcery(name: str, mana_cost: str, colors: set, text: str, subtypes: se
         name=name,
         mana_cost=mana_cost,
         characteristics=Characteristics(
-            types={{CardType.SORCERY}},
+            types={CardType.SORCERY},
             subtypes=subtypes or set(),
             supertypes=supertypes or set(),
             colors=colors,
@@ -687,7 +666,7 @@ def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, su
         name=name,
         mana_cost=mana_cost,
         characteristics=Characteristics(
-            types={{CardType.ARTIFACT}},
+            types={CardType.ARTIFACT},
             subtypes=subtypes or set(),
             supertypes=supertypes or set(),
             mana_cost=mana_cost
@@ -704,7 +683,7 @@ def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str
         name=name,
         mana_cost=mana_cost,
         characteristics=Characteristics(
-            types={{CardType.ARTIFACT, CardType.CREATURE}},
+            types={CardType.ARTIFACT, CardType.CREATURE},
             subtypes=subtypes or set(),
             supertypes=supertypes or set(),
             colors=colors,
@@ -724,7 +703,7 @@ def make_enchantment_creature(name: str, power: int, toughness: int, mana_cost: 
         name=name,
         mana_cost=mana_cost,
         characteristics=Characteristics(
-            types={{CardType.ENCHANTMENT, CardType.CREATURE}},
+            types={CardType.ENCHANTMENT, CardType.CREATURE},
             subtypes=subtypes or set(),
             supertypes=supertypes or set(),
             colors=colors,
@@ -743,7 +722,7 @@ def make_land(name: str, text: str = "", subtypes: set = None, supertypes: set =
         name=name,
         mana_cost="",
         characteristics=Characteristics(
-            types={{CardType.LAND}},
+            types={CardType.LAND},
             subtypes=subtypes or set(),
             supertypes=supertypes or set(),
             mana_cost=""
@@ -757,13 +736,12 @@ def make_planeswalker(name: str, mana_cost: str, colors: set, loyalty: int,
                       subtypes: set = None, supertypes: set = None, text: str = "", setup_interceptors=None):
     """Helper to create planeswalker card definitions."""
     base_supertypes = supertypes or set()
-    # Note: loyalty is prepended to text since Characteristics doesn't have loyalty field
-    loyalty_text = f"[Loyalty: {{loyalty}}] " + text if text else f"[Loyalty: {{loyalty}}]"
+    loyalty_text = f"[Loyalty: {loyalty}] " + text if text else f"[Loyalty: {loyalty}]"
     return CardDefinition(
         name=name,
         mana_cost=mana_cost,
         characteristics=Characteristics(
-            types={{CardType.PLANESWALKER}},
+            types={CardType.PLANESWALKER},
             subtypes=subtypes or set(),
             supertypes=base_supertypes,
             colors=colors,
@@ -773,7 +751,20 @@ def make_planeswalker(name: str, mana_cost: str, colors: set, loyalty: int,
         setup_interceptors=setup_interceptors
     )
 
+'''
 
+    # Add preserved setup functions
+    if setup_functions_code:
+        header += '''
+# =============================================================================
+# INTERCEPTOR SETUP FUNCTIONS (Preserved from previous version)
+# =============================================================================
+
+'''
+        header += '\n\n'.join(setup_functions_code)
+        header += '\n'
+
+    header += '''
 # =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
@@ -783,21 +774,47 @@ def make_planeswalker(name: str, mana_cost: str, colors: set, loyalty: int,
     card_defs = []
     registry_entries = []
     seen_vars = set()
+    stats = {'total': 0, 'with_interceptors': 0, 'skipped': 0}
 
     for card in cards:
-        result = generate_card(card)
-        if result:
-            var_name, code, card_name = result
-            # Handle duplicate variable names
-            original_var = var_name
-            counter = 2
-            while var_name in seen_vars:
-                var_name = f"{original_var}_{counter}"
-                code = code.replace(f"{original_var} =", f"{var_name} =", 1)
-                counter += 1
-            seen_vars.add(var_name)
+        layout = card.get('layout', 'normal')
+        if layout in SKIP_LAYOUTS:
+            stats['skipped'] += 1
+            continue
+
+        name = card.get('name')
+        if not name:
+            stats['skipped'] += 1
+            continue
+
+        var_name = sanitize_name(name)
+        if not var_name:
+            stats['skipped'] += 1
+            continue
+
+        # Handle duplicate variable names
+        original_var = var_name
+        counter = 2
+        while var_name in seen_vars:
+            var_name = f"{original_var}_{counter}"
+            counter += 1
+        seen_vars.add(var_name)
+
+        # Check if this card has an existing interceptor
+        existing_setup = None
+        if original_var in existing_interceptors:
+            existing_setup = existing_interceptors[original_var]['setup_name']
+            stats['with_interceptors'] += 1
+        elif var_name in existing_interceptors:
+            existing_setup = existing_interceptors[var_name]['setup_name']
+            stats['with_interceptors'] += 1
+
+        code = generate_card_code(card, var_name, existing_setup)
+        if code:
             card_defs.append(code)
-            registry_entries.append(f'    "{card_name}": {var_name},')
+            display_name = get_front_face(card).get('name', name).split(' // ')[0]
+            registry_entries.append(f'    "{display_name}": {var_name},')
+            stats['total'] += 1
 
     registry_name = module_name.upper() + "_CARDS"
 
@@ -814,31 +831,90 @@ def make_planeswalker(name: str, mana_cost: str, colors: set, loyalty: int,
 print(f"Loaded {{len({registry_name})}} {set_name} cards")
 '''
 
-    return header + '\n\n'.join(card_defs) + footer
+    return header + '\n\n'.join(card_defs) + footer, stats
 
+
+# =============================================================================
+# MAIN
+# =============================================================================
 
 def main():
-    if len(sys.argv) < 4:
-        print("Usage: python fetch_scryfall_set.py <set_code> <module_name> <set_name>")
-        print("Example: python fetch_scryfall_set.py blb bloomburrow \"Bloomburrow\"")
+    parser = argparse.ArgumentParser(
+        description='Fetch MTG card data from Scryfall and generate Python definitions.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  %(prog)s blb bloomburrow "Bloomburrow"           # Fresh fetch
+  %(prog)s blb bloomburrow "Bloomburrow" --update  # Preserve interceptors
+  %(prog)s blb bloomburrow "Bloomburrow" --dry-run # Preview changes
+        '''
+    )
+    parser.add_argument('set_code', help='Scryfall set code (e.g., blb, dsk)')
+    parser.add_argument('module_name', help='Python module name (e.g., bloomburrow)')
+    parser.add_argument('set_name', help='Display name (e.g., "Bloomburrow")')
+    parser.add_argument('--update', '-u', action='store_true',
+                       help='Update existing file, preserving interceptors')
+    parser.add_argument('--force', '-f', action='store_true',
+                       help='Force overwrite (destroys existing interceptors!)')
+    parser.add_argument('--dry-run', '-n', action='store_true',
+                       help='Show what would be done without writing')
+    parser.add_argument('--output', '-o', help='Output path (default: src/cards/<module_name>.py)')
+
+    args = parser.parse_args()
+
+    output_path = args.output or f"src/cards/{args.module_name}.py"
+
+    # Check if file exists
+    file_exists = os.path.exists(output_path)
+
+    if file_exists and not args.update and not args.force and not args.dry_run:
+        print(f"ERROR: {output_path} already exists!")
+        print("Use --update to preserve interceptors, --force to overwrite, or --dry-run to preview")
         sys.exit(1)
 
-    set_code = sys.argv[1]
-    module_name = sys.argv[2]
-    set_name = sys.argv[3]
+    # Extract existing interceptors if updating
+    existing_interceptors = {}
+    helper_imports = ""
+    if file_exists and (args.update or args.dry_run):
+        print(f"Reading existing file: {output_path}")
+        existing_interceptors = extract_interceptors(output_path)
+        helper_imports, _ = extract_imports_and_helpers(output_path)
+        print(f"  Found {len(existing_interceptors)} existing interceptors to preserve")
 
-    print(f"Fetching {set_name} ({set_code}) from Scryfall...")
-    cards = fetch_all_cards(set_code)
+    # Fetch cards from Scryfall
+    print(f"Fetching {args.set_name} ({args.set_code}) from Scryfall...")
+    try:
+        cards = fetch_all_cards(args.set_code)
+    except ValueError as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
     print(f"Found {len(cards)} cards")
 
+    # Generate file content
     print("Generating Python file...")
-    content = generate_file(set_code, module_name, set_name, cards)
+    content, stats = generate_file(
+        args.set_code, args.module_name, args.set_name,
+        cards, existing_interceptors, helper_imports
+    )
 
-    output_path = f"src/cards/{module_name}.py"
-    with open(output_path, 'w') as f:
-        f.write(content)
+    print(f"\nStats:")
+    print(f"  Total cards: {stats['total']}")
+    print(f"  With interceptors: {stats['with_interceptors']}")
+    print(f"  Skipped (tokens/emblems): {stats['skipped']}")
 
-    print(f"Written to {output_path}")
+    if args.dry_run:
+        print(f"\nDry run - would write {len(content)} bytes to {output_path}")
+        print("First 500 chars of output:")
+        print("-" * 40)
+        print(content[:500])
+        print("-" * 40)
+    else:
+        with open(output_path, 'w') as f:
+            f.write(content)
+        print(f"\nWritten to {output_path}")
+
+        if args.update:
+            print(f"Preserved {stats['with_interceptors']} interceptors")
 
 
 if __name__ == "__main__":
