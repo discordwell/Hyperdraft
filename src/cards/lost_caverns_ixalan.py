@@ -1,5 +1,5 @@
 """
-Lost_Caverns_of_Ixalan (LCI) Card Implementations
+Lost Caverns of Ixalan (LCI) Card Implementations
 
 Real card data fetched from Scryfall API.
 292 cards in set.
@@ -14,1192 +14,6 @@ from src.engine import (
     new_id, get_power, get_toughness
 )
 from typing import Optional, Callable
-from src.cards.interceptor_helpers import (
-    make_etb_trigger, make_death_trigger, make_attack_trigger,
-    make_static_pt_boost, make_keyword_grant, make_upkeep_trigger,
-    make_end_step_trigger, make_life_gain_trigger, make_tap_trigger,
-    make_damage_trigger, make_spell_cast_trigger,
-    other_creatures_you_control, other_creatures_with_subtype,
-    creatures_you_control, creatures_with_subtype
-)
-
-
-# =============================================================================
-# INTERCEPTOR SETUP FUNCTIONS
-# =============================================================================
-
-# --- WHITE CARDS ---
-
-def ironpaw_aspirant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, put a +1/+1 counter on target creature."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting - for now, put counter on self as placeholder
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def malamet_war_scribe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, creatures you control get +2/+1 until end of turn."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # This would need temporary P/T boost - simplified as a placeholder
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def market_gnome_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, you gain 1 life and draw a card."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': obj.controller, 'amount': 1},
-                source=obj.id
-            ),
-            Event(
-                type=EventType.DRAW,
-                payload={'player': obj.controller, 'amount': 1},
-                source=obj.id
-            )
-        ]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def miners_guidewing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, target creature you control explores."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        # Explore effect - simplified placeholder
-        return [Event(
-            type=EventType.EXPLORE,
-            payload={'controller': obj.controller},
-            source=obj.id
-        )]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def oltec_cloud_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, create a 1/1 colorless Gnome artifact creature token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Gnome Token',
-                'controller': obj.controller,
-                'power': 1,
-                'toughness': 1,
-                'types': [CardType.ARTIFACT, CardType.CREATURE],
-                'subtypes': ['Gnome'],
-                'colors': []
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def sanguine_evangelist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters or dies, create a 1/1 black Bat creature token with flying."""
-    def create_bat(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Bat Token',
-                'controller': obj.controller,
-                'power': 1,
-                'toughness': 1,
-                'types': [CardType.CREATURE],
-                'subtypes': ['Bat'],
-                'colors': [Color.BLACK],
-                'keywords': ['flying']
-            },
-            source=obj.id
-        )]
-    return [
-        make_etb_trigger(obj, create_bat),
-        make_death_trigger(obj, create_bat)
-    ]
-
-
-def soaring_sandwing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, you gain 3 life."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.LIFE_CHANGE,
-            payload={'player': obj.controller, 'amount': 3},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def tinkers_tote_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this artifact enters, create two 1/1 colorless Gnome artifact creature tokens."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(
-                type=EventType.OBJECT_CREATED,
-                payload={
-                    'name': 'Gnome Token',
-                    'controller': obj.controller,
-                    'power': 1,
-                    'toughness': 1,
-                    'types': [CardType.ARTIFACT, CardType.CREATURE],
-                    'subtypes': ['Gnome'],
-                    'colors': []
-                },
-                source=obj.id
-            ),
-            Event(
-                type=EventType.OBJECT_CREATED,
-                payload={
-                    'name': 'Gnome Token',
-                    'controller': obj.controller,
-                    'power': 1,
-                    'toughness': 1,
-                    'types': [CardType.ARTIFACT, CardType.CREATURE],
-                    'subtypes': ['Gnome'],
-                    'colors': []
-                },
-                source=obj.id
-            )
-        ]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- BLUE CARDS ---
-
-def cogwork_wrestler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, target creature an opponent controls gets -2/-0 until end of turn."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting and temporary effect
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def council_of_echoes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, if descend 4, return up to one target nonland permanent to its owner's hand."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require descend check and targeting
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def didact_echo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, draw a card."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DRAW,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def river_herald_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, it explores."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.EXPLORE,
-            payload={'object_id': obj.id, 'controller': obj.controller},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def sage_of_days_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, look at the top three cards of your library."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 3},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def spyglass_siren_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, create a Map token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Map Token',
-                'controller': obj.controller,
-                'types': [CardType.ARTIFACT],
-                'subtypes': ['Map'],
-                'colors': []
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def staunch_crewmate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, look at the top four cards of your library."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.LOOK_AT_TOP,
-            payload={'player': obj.controller, 'amount': 4},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def waylaying_pirates_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, if you control an artifact, tap target artifact or creature and put a stun counter on it."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require checking artifact control and targeting
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def waterwind_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, create a Map token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Map Token',
-                'controller': obj.controller,
-                'types': [CardType.ARTIFACT],
-                'subtypes': ['Map'],
-                'colors': []
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- BLACK CARDS ---
-
-def abyssal_gorestalker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, each player sacrifices two creatures of their choice."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for player_id in state.players.keys():
-            events.append(Event(
-                type=EventType.SACRIFICE,
-                payload={'player': player_id, 'count': 2, 'type': 'creature'},
-                source=obj.id
-            ))
-        return events
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def chupacabra_echo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, target creature an opponent controls gets -X/-X until end of turn."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Fathomless descent - X is number of permanent cards in graveyard
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def corpses_of_the_lost_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this enchantment enters, create a 2/2 black Skeleton Pirate creature token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Skeleton Pirate Token',
-                'controller': obj.controller,
-                'power': 2,
-                'toughness': 2,
-                'types': [CardType.CREATURE],
-                'subtypes': ['Skeleton', 'Pirate'],
-                'colors': [Color.BLACK]
-            },
-            source=obj.id
-        )]
-    # Also gives Skeletons +1/+0 and haste
-    def skeleton_filter(target: GameObject, gs: GameState) -> bool:
-        return (target.controller == obj.controller and
-                CardType.CREATURE in target.characteristics.types and
-                'Skeleton' in target.characteristics.subtypes and
-                target.zone == ZoneType.BATTLEFIELD)
-    interceptors = [make_etb_trigger(obj, etb_effect)]
-    interceptors.extend(make_static_pt_boost(obj, 1, 0, skeleton_filter))
-    interceptors.append(make_keyword_grant(obj, ['haste'], skeleton_filter))
-    return interceptors
-
-
-def greedy_freebooter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, scry 1 and create a Treasure token."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(
-                type=EventType.SCRY,
-                payload={'player': obj.controller, 'amount': 1},
-                source=obj.id
-            ),
-            Event(
-                type=EventType.OBJECT_CREATED,
-                payload={
-                    'name': 'Treasure Token',
-                    'controller': obj.controller,
-                    'types': [CardType.ARTIFACT],
-                    'subtypes': ['Treasure'],
-                    'colors': []
-                },
-                source=obj.id
-            )
-        ]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def mephitic_draught_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this artifact enters or is put into a graveyard from the battlefield, you draw a card and lose 1 life."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(
-                type=EventType.DRAW,
-                payload={'player': obj.controller, 'amount': 1},
-                source=obj.id
-            ),
-            Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': obj.controller, 'amount': -1},
-                source=obj.id
-            )
-        ]
-    return [
-        make_etb_trigger(obj, effect_fn),
-        make_death_trigger(obj, effect_fn)
-    ]
-
-
-def primordial_gnawer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, discover 3."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DISCOVER,
-            payload={'player': obj.controller, 'value': 3},
-            source=obj.id
-        )]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def skullcap_snail_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, target opponent exiles a card from their hand."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting opponent
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def synapse_necromage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, create two 1/1 black Fungus creature tokens with 'This token can't block.'"""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(
-                type=EventType.OBJECT_CREATED,
-                payload={
-                    'name': 'Fungus Token',
-                    'controller': obj.controller,
-                    'power': 1,
-                    'toughness': 1,
-                    'types': [CardType.CREATURE],
-                    'subtypes': ['Fungus'],
-                    'colors': [Color.BLACK]
-                },
-                source=obj.id
-            ),
-            Event(
-                type=EventType.OBJECT_CREATED,
-                payload={
-                    'name': 'Fungus Token',
-                    'controller': obj.controller,
-                    'power': 1,
-                    'toughness': 1,
-                    'types': [CardType.CREATURE],
-                    'subtypes': ['Fungus'],
-                    'colors': [Color.BLACK]
-                },
-                source=obj.id
-            )
-        ]
-    return [make_death_trigger(obj, death_effect)]
-
-
-# --- RED CARDS ---
-
-def dinotomaton_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, target creature you control gains menace until end of turn."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def geological_appraiser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, if you cast it, discover 3."""
-    def etb_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
-        return (event.type == EventType.ZONE_CHANGE and
-                event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD and
-                event.payload.get('object_id') == source_obj.id and
-                event.payload.get('was_cast', False))
-
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DISCOVER,
-            payload={'player': obj.controller, 'value': 3},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect, etb_filter)]
-
-
-def magmatic_galleon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this Vehicle enters, it deals 5 damage to target creature an opponent controls."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def plundering_pirate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, create a Treasure token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Treasure Token',
-                'controller': obj.controller,
-                'types': [CardType.ARTIFACT],
-                'subtypes': ['Treasure'],
-                'colors': []
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def rampaging_spiketail_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, target creature you control gets +2/+0 and gains indestructible until end of turn."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting and temporary effects
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def trumpeting_carnosaur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, discover 5."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DISCOVER,
-            payload={'player': obj.controller, 'value': 5},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- GREEN CARDS ---
-
-def armored_kincaller_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, you may reveal a Dinosaur card from your hand. If you do or if you control another Dinosaur, you gain 3 life."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Check if we control another Dinosaur
-        for obj_id, game_obj in state.objects.items():
-            if (obj_id != obj.id and
-                game_obj.controller == obj.controller and
-                game_obj.zone == ZoneType.BATTLEFIELD and
-                CardType.CREATURE in game_obj.characteristics.types and
-                'Dinosaur' in game_obj.characteristics.subtypes):
-                return [Event(
-                    type=EventType.LIFE_CHANGE,
-                    payload={'player': obj.controller, 'amount': 3},
-                    source=obj.id
-                )]
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def cavern_stomper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, scry 2."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 2},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def cenote_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, it explores."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.EXPLORE,
-            payload={'object_id': obj.id, 'controller': obj.controller},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def coati_scavenger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, if descend 4, return target permanent card from your graveyard to your hand."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Descend 4 check - would need graveyard tracking
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def earthshaker_dreadmaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, draw a card for each other Dinosaur you control."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        dino_count = 0
-        for obj_id, game_obj in state.objects.items():
-            if (obj_id != obj.id and
-                game_obj.controller == obj.controller and
-                game_obj.zone == ZoneType.BATTLEFIELD and
-                CardType.CREATURE in game_obj.characteristics.types and
-                'Dinosaur' in game_obj.characteristics.subtypes):
-                dino_count += 1
-        if dino_count > 0:
-            return [Event(
-                type=EventType.DRAW,
-                payload={'player': obj.controller, 'amount': dino_count},
-                source=obj.id
-            )]
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def mineshaft_spider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, you may mill two cards."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MILL,
-            payload={'player': obj.controller, 'amount': 2},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def nurturing_bristleback_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, create a 3/3 green Dinosaur creature token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Dinosaur Token',
-                'controller': obj.controller,
-                'power': 3,
-                'toughness': 3,
-                'types': [CardType.CREATURE],
-                'subtypes': ['Dinosaur'],
-                'colors': [Color.GREEN]
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def pathfinding_axejaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, it explores."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.EXPLORE,
-            payload={'object_id': obj.id, 'controller': obj.controller},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def river_herald_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, it explores."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.EXPLORE,
-            payload={'object_id': obj.id, 'controller': obj.controller},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def sentinel_of_the_nameless_city_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature enters or attacks, create a Map token."""
-    def create_map(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Map Token',
-                'controller': obj.controller,
-                'types': [CardType.ARTIFACT],
-                'subtypes': ['Map'],
-                'colors': []
-            },
-            source=obj.id
-        )]
-    return [
-        make_etb_trigger(obj, create_map),
-        make_attack_trigger(obj, create_map)
-    ]
-
-
-# --- MULTICOLOR CARDS ---
-
-def palanis_hatcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Other Dinosaurs you control have haste. When this creature enters, create two 0/1 green Dinosaur Egg creature tokens."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(
-                type=EventType.OBJECT_CREATED,
-                payload={
-                    'name': 'Dinosaur Egg Token',
-                    'controller': obj.controller,
-                    'power': 0,
-                    'toughness': 1,
-                    'types': [CardType.CREATURE],
-                    'subtypes': ['Dinosaur', 'Egg'],
-                    'colors': [Color.GREEN]
-                },
-                source=obj.id
-            ),
-            Event(
-                type=EventType.OBJECT_CREATED,
-                payload={
-                    'name': 'Dinosaur Egg Token',
-                    'controller': obj.controller,
-                    'power': 0,
-                    'toughness': 1,
-                    'types': [CardType.CREATURE],
-                    'subtypes': ['Dinosaur', 'Egg'],
-                    'colors': [Color.GREEN]
-                },
-                source=obj.id
-            )
-        ]
-    # Grant haste to other Dinosaurs
-    def dino_filter(target: GameObject, gs: GameState) -> bool:
-        return (target.id != obj.id and
-                target.controller == obj.controller and
-                CardType.CREATURE in target.characteristics.types and
-                'Dinosaur' in target.characteristics.subtypes and
-                target.zone == ZoneType.BATTLEFIELD)
-    return [
-        make_etb_trigger(obj, etb_effect),
-        make_keyword_grant(obj, ['haste'], dino_filter)
-    ]
-
-
-def captain_storm_cosmium_raider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever an artifact you control enters, put a +1/+1 counter on target Pirate you control."""
-    def artifact_etb_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-            return False
-        entering_id = event.payload.get('object_id')
-        entering_obj = state.objects.get(entering_id)
-        if not entering_obj:
-            return False
-        return (entering_obj.controller == source_obj.controller and
-                CardType.ARTIFACT in entering_obj.characteristics.types)
-
-    def artifact_etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Find a Pirate to put counter on (simplified - puts on self if Pirate)
-        if 'Pirate' in obj.characteristics.subtypes:
-            return [Event(
-                type=EventType.COUNTER_ADDED,
-                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
-                source=obj.id
-            )]
-        return []
-    return [make_etb_trigger(obj, artifact_etb_effect, artifact_etb_filter)]
-
-
-def itzquinth_firstborn_of_gishath_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Itzquinth enters, you may pay {2}. When you do, target Dinosaur you control deals damage equal to its power to another target creature."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require mana payment and targeting
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- COLORLESS CARDS ---
-
-def cartographers_companion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, create a Map token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Map Token',
-                'controller': obj.controller,
-                'types': [CardType.ARTIFACT],
-                'subtypes': ['Map'],
-                'colors': []
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def compass_gnome_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, you may search your library for a basic land card or Cave card."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.SEARCH_LIBRARY,
-            payload={'player': obj.controller, 'card_type': 'land'},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def digsite_conservator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, you may pay {4}. If you do, discover 4."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require mana payment
-        return []
-    return [make_death_trigger(obj, death_effect)]
-
-
-def disruptor_wanderglyph_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, exile target card from an opponent's graveyard."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting
-        return []
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def runaway_boulder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this artifact enters, it deals 6 damage to target creature an opponent controls."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def scampering_surveyor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, search your library for a basic land card or Cave card, put it onto the battlefield tapped, then shuffle."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.SEARCH_LIBRARY,
-            payload={'player': obj.controller, 'card_type': 'land', 'put_on_battlefield': True, 'tapped': True},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def threefold_thunderhulk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """This creature enters with three +1/+1 counters on it. Whenever this creature enters or attacks, create Gnome tokens equal to its power."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 3},
-            source=obj.id
-        )]
-    # Also creates tokens on ETB/attack but would need power query
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- ADDITIONAL WHITE CARDS ---
-
-def kinjallis_dawnrunner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, it explores."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.EXPLORE,
-            payload={'object_id': obj.id, 'controller': obj.controller},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def kutzils_flanker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, you gain 2 life and scry 2."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': obj.controller, 'amount': 2},
-                source=obj.id
-            ),
-            Event(
-                type=EventType.SCRY,
-                payload={'player': obj.controller, 'amount': 2},
-                source=obj.id
-            )
-        ]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def mischievous_pup_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, return up to one other target permanent you control to its owner's hand."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting - placeholder
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def oltec_archaeologists_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, scry 3."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 3},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def glorifier_of_suffering_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, you may sacrifice another creature or artifact."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require sacrifice choice - placeholder
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- ADDITIONAL BLUE CARDS ---
-
-def kitesail_larcenist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, choose up to one target artifact or creature each player controls."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Complex targeting - placeholder
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def tishanas_tidebinder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, counter up to one target activated or triggered ability."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require ability targeting - placeholder
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def sinuous_benthisaur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, look at top X cards based on Caves."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Cave counting - simplified
-        return [Event(
-            type=EventType.LOOK_AT_TOP,
-            payload={'player': obj.controller, 'amount': 2},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- ADDITIONAL BLACK CARDS ---
-
-def deepcavern_bat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, look at target opponent's hand."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting - placeholder
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def deathcap_marionette_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, you may mill two cards."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MILL,
-            payload={'player': obj.controller, 'amount': 2},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def starving_revenant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, surveil 2."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.SURVEIL,
-            payload={'player': obj.controller, 'amount': 2},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def bringer_of_the_last_gift_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, each player sacrifices all other creatures."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for player_id in state.players.keys():
-            events.append(Event(
-                type=EventType.SACRIFICE_ALL,
-                payload={'player': player_id, 'type': 'creature', 'except': obj.id},
-                source=obj.id
-            ))
-        return events
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def queens_bay_paladin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature enters or attacks, return up to one target Vampire from graveyard."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # Graveyard return - placeholder
-        return []
-    return [
-        make_etb_trigger(obj, effect_fn),
-        make_attack_trigger(obj, effect_fn)
-    ]
-
-
-# --- ADDITIONAL RED CARDS ---
-
-def bonehoard_dracosaur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At the beginning of your upkeep, exile the top two cards."""
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.EXILE_TOP,
-            payload={'player': obj.controller, 'amount': 2},
-            source=obj.id
-        )]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
-
-
-def belligerent_yearling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever another Dinosaur you control enters, you may have this creature's base power become equal to that creature's power."""
-    def dino_etb_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-            return False
-        entering_id = event.payload.get('object_id')
-        if entering_id == source_obj.id:
-            return False
-        entering_obj = state.objects.get(entering_id)
-        if not entering_obj:
-            return False
-        return (entering_obj.controller == source_obj.controller and
-                CardType.CREATURE in entering_obj.characteristics.types and
-                'Dinosaur' in entering_obj.characteristics.subtypes)
-
-    def dino_effect(event: Event, state: GameState) -> list[Event]:
-        # Power change - placeholder
-        return []
-    return [make_etb_trigger(obj, dino_effect, dino_etb_filter)]
-
-
-def burning_sun_cavalry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks or blocks while you control a Dinosaur, gets +1/+1."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Check for dinosaur control - simplified
-        for obj_id, game_obj in state.objects.items():
-            if (game_obj.controller == obj.controller and
-                game_obj.zone == ZoneType.BATTLEFIELD and
-                CardType.CREATURE in game_obj.characteristics.types and
-                'Dinosaur' in game_obj.characteristics.subtypes):
-                return []  # Would apply +1/+1 boost
-        return []
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def etalis_favor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this Aura enters, discover 3."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DISCOVER,
-            payload={'player': obj.controller, 'value': 3},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- ADDITIONAL GREEN CARDS ---
-
-def jadelight_spelunker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, it explores X times."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # X is from mana spent - simplified to 1 explore
-        return [Event(
-            type=EventType.EXPLORE,
-            payload={'object_id': obj.id, 'controller': obj.controller},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def spelunking_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this enchantment enters, draw a card."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DRAW,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def malamet_brawler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, target attacking creature gains trample until end of turn."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Trample grant - placeholder
-        return []
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def malamet_scythe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this Equipment enters, attach it to target creature you control."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Auto-attach - placeholder
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- ADDITIONAL MULTICOLOR CARDS ---
-
-def anim_pakal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you attack with non-Gnome creatures, put a +1/+1 counter and create Gnome tokens."""
-    def attack_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
-        if event.type != EventType.ATTACK_DECLARED:
-            return False
-        # Check if we're attacking with non-Gnomes
-        return True
-
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def deepfathom_echo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At the beginning of combat on your turn, this creature explores."""
-    def combat_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.EXPLORE,
-            payload={'object_id': obj.id, 'controller': obj.controller},
-            source=obj.id
-        )]
-    # Combat start trigger - simplified as upkeep
-    return []
-
-
-def akawalli_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Descend 4 - gets +2/+2 and trample when 4+ permanent cards in graveyard."""
-    def descend_filter(target: GameObject, gs: GameState) -> bool:
-        # Count permanent cards in graveyard
-        return target.id == obj.id
-    # This is a static ability - would need graveyard checking
-    return []
-
-
-def zoyowa_lavatongue_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At the beginning of your end step, if you descended, opponents may discard or sacrifice."""
-    def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        # Descended check - simplified
-        return []
-    return [make_end_step_trigger(obj, end_step_effect)]
-
-
-def vito_fanatic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you sacrifice another permanent, you gain 2 life (first time)."""
-    # Sacrifice trigger - placeholder
-    return []
-
-
-# --- ADDITIONAL COLORLESS CARDS ---
-
-def roaming_throne_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Triggered abilities of creatures of the chosen type trigger an additional time."""
-    # Complex ability doubling - placeholder
-    return []
-
-
-def chimil_inner_sun_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At the beginning of your end step, discover 5."""
-    def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DISCOVER,
-            payload={'player': obj.controller, 'value': 5},
-            source=obj.id
-        )]
-    return [make_end_step_trigger(obj, end_step_effect)]
-
-
-def careening_mine_cart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this Vehicle attacks, create a Treasure token."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Treasure Token',
-                'controller': obj.controller,
-                'types': [CardType.ARTIFACT],
-                'subtypes': ['Treasure'],
-                'colors': []
-            },
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def hoverstone_pilgrim_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ward 2 - placeholder static ability."""
-    return []
-
-
-# --- LAND CARDS WITH ATTACK TRIGGERS ---
-
-def restless_anchorage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this land attacks, create a Map token."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Map Token',
-                'controller': obj.controller,
-                'types': [CardType.ARTIFACT],
-                'subtypes': ['Map'],
-                'colors': []
-            },
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def restless_prairie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this land attacks, other creatures you control get +1/+1 until end of turn."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Temporary P/T boost - placeholder
-        return []
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def restless_reef_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this land attacks, target player mills four cards."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting
-        return [Event(
-            type=EventType.MILL,
-            payload={'player': obj.controller, 'amount': 4},  # Simplified: mills self
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def restless_ridgeline_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this land attacks, another target attacking creature gets +2/+0."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Targeting + temporary boost - placeholder
-        return []
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def restless_vents_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this land attacks, you may discard a card. If you do, draw a card."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Discard/draw - simplified to just draw for placeholder
-        return [Event(
-            type=EventType.DRAW,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def pit_of_offerings_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this land enters, exile up to three target cards from graveyards."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Targeting graveyard cards - placeholder
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
 
 
 # =============================================================================
@@ -1264,6 +78,26 @@ def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str
         mana_cost=mana_cost,
         characteristics=Characteristics(
             types={CardType.ARTIFACT, CardType.CREATURE},
+            subtypes=subtypes or set(),
+            supertypes=supertypes or set(),
+            colors=colors,
+            power=power,
+            toughness=toughness,
+            mana_cost=mana_cost
+        ),
+        text=text,
+        setup_interceptors=setup_interceptors
+    )
+
+
+def make_enchantment_creature(name: str, power: int, toughness: int, mana_cost: str, colors: set,
+                              subtypes: set = None, supertypes: set = None, text: str = "", setup_interceptors=None):
+    """Helper to create enchantment creature card definitions."""
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.ENCHANTMENT, CardType.CREATURE},
             subtypes=subtypes or set(),
             supertypes=supertypes or set(),
             colors=colors,
@@ -1358,8 +192,8 @@ BAT_COLONY = make_enchantment(
 
 CLAYFIRED_BRICKS = make_artifact(
     name="Clay-Fired Bricks",
-    mana_cost="",
-    text="",
+    mana_cost="{1}{W}",
+    text="When this artifact enters, search your library for a basic Plains card, reveal it, put it into your hand, then shuffle. You gain 2 life.\nCraft with artifact {5}{W}{W} ({5}{W}{W}, Exile this artifact, Exile another artifact you control or an artifact card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Cosmium Kiln\nWhen this artifact enters, create two 1/1 colorless Gnome artifact creature tokens.\nCreatures you control get +1/+1.",
 )
 
 COSMIUM_BLAST = make_instant(
@@ -1427,7 +261,6 @@ GLORIFIER_OF_SUFFERING = make_creature(
     colors={Color.WHITE},
     subtypes={"Soldier", "Vampire"},
     text="When this creature enters, you may sacrifice another creature or artifact. When you do, put a +1/+1 counter on each of up to two target creatures.",
-    setup_interceptors=glorifier_of_suffering_setup
 )
 
 GUARDIAN_OF_THE_GREAT_DOOR = make_creature(
@@ -1453,7 +286,6 @@ IRONPAW_ASPIRANT = make_creature(
     colors={Color.WHITE},
     subtypes={"Cat", "Warrior"},
     text="When this creature enters, put a +1/+1 counter on target creature.",
-    setup_interceptors=ironpaw_aspirant_setup
 )
 
 KINJALLIS_DAWNRUNNER = make_creature(
@@ -1463,7 +295,6 @@ KINJALLIS_DAWNRUNNER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout"},
     text="Double strike\nWhen this creature enters, it explores. (Reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on this creature, then put the card back or put it into your graveyard.)",
-    setup_interceptors=kinjallis_dawnrunner_setup
 )
 
 KUTZILS_FLANKER = make_creature(
@@ -1473,7 +304,6 @@ KUTZILS_FLANKER = make_creature(
     colors={Color.WHITE},
     subtypes={"Cat", "Warrior"},
     text="Flash\nWhen this creature enters, choose one —\n• Put a +1/+1 counter on this creature for each creature that left the battlefield under your control this turn.\n• You gain 2 life and scry 2.\n• Exile target player's graveyard.",
-    setup_interceptors=kutzils_flanker_setup
 )
 
 MALAMET_WAR_SCRIBE = make_creature(
@@ -1483,7 +313,6 @@ MALAMET_WAR_SCRIBE = make_creature(
     colors={Color.WHITE},
     subtypes={"Cat", "Warrior"},
     text="When this creature enters, creatures you control get +2/+1 until end of turn.",
-    setup_interceptors=malamet_war_scribe_setup
 )
 
 MARKET_GNOME = make_artifact_creature(
@@ -1493,7 +322,6 @@ MARKET_GNOME = make_artifact_creature(
     colors={Color.WHITE},
     subtypes={"Gnome"},
     text="When this creature dies, you gain 1 life and draw a card.\nWhen this creature is exiled from the battlefield while you're activating a craft ability, you gain 1 life and draw a card.",
-    setup_interceptors=market_gnome_setup
 )
 
 MIGHT_OF_THE_ANCESTORS = make_enchantment(
@@ -1510,7 +338,6 @@ MINERS_GUIDEWING = make_creature(
     colors={Color.WHITE},
     subtypes={"Bird"},
     text="Flying, vigilance\nWhen this creature dies, target creature you control explores. (Reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on that creature, then put the card back or put it into your graveyard.)",
-    setup_interceptors=miners_guidewing_setup
 )
 
 MISCHIEVOUS_PUP = make_creature(
@@ -1520,17 +347,16 @@ MISCHIEVOUS_PUP = make_creature(
     colors={Color.WHITE},
     subtypes={"Dog"},
     text="Flash (You may cast this spell any time you could cast an instant.)\nWhen this creature enters, return up to one other target permanent you control to its owner's hand.",
-    setup_interceptors=mischievous_pup_setup
 )
 
 OJER_TAQ_DEEPEST_FOUNDATION = make_creature(
     name="Ojer Taq, Deepest Foundation",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"//", "God", "Land"},
+    power=6, toughness=6,
+    mana_cost="{4}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"God"},
     supertypes={"Legendary"},
-    text="",
+    text="Vigilance\nIf one or more creature tokens would be created under your control, three times that many of those tokens are created instead.\nWhen Ojer Taq dies, return it to the battlefield tapped and transformed under its owner's control.\n// Transforms into: Temple of Civilization\n(Transforms from Ojer Taq, Deepest Foundation.)\n{T}: Add {W}.\n{2}{W}, {T}: Transform this land. Activate only if you attacked with three or more creatures this turn and only as a sorcery.",
 )
 
 OLTEC_ARCHAEOLOGISTS = make_creature(
@@ -1540,7 +366,6 @@ OLTEC_ARCHAEOLOGISTS = make_creature(
     colors={Color.WHITE},
     subtypes={"Artificer", "Human", "Scout"},
     text="When this creature enters, choose one —\n• Return target artifact card from your graveyard to your hand.\n• Scry 3. (Look at the top three cards of your library, then put any number of them on the bottom and the rest on top in any order.)",
-    setup_interceptors=oltec_archaeologists_setup
 )
 
 OLTEC_CLOUD_GUARD = make_creature(
@@ -1550,16 +375,12 @@ OLTEC_CLOUD_GUARD = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Flying\nWhen this creature enters, create a 1/1 colorless Gnome artifact creature token.",
-    setup_interceptors=oltec_cloud_guard_setup
 )
 
-OTECLAN_LANDMARK = make_artifact_creature(
+OTECLAN_LANDMARK = make_artifact(
     name="Oteclan Landmark",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"Golem"},
-    text="",
+    mana_cost="{W}",
+    text="When this artifact enters, scry 2.\nCraft with artifact {2}{W} ({2}{W}, Exile this artifact, Exile another artifact you control or an artifact card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Oteclan Levitator (1/4)\nFlying\nWhenever this creature attacks, target attacking creature without flying gains flying until end of turn.",
 )
 
 PETRIFY = make_enchantment(
@@ -1602,7 +423,6 @@ SANGUINE_EVANGELIST = make_creature(
     colors={Color.WHITE},
     subtypes={"Cleric", "Vampire"},
     text="Battle cry (Whenever this creature attacks, each other attacking creature gets +1/+0 until end of turn.)\nWhen this creature enters or dies, create a 1/1 black Bat creature token with flying.",
-    setup_interceptors=sanguine_evangelist_setup
 )
 
 SOARING_SANDWING = make_creature(
@@ -1612,14 +432,12 @@ SOARING_SANDWING = make_creature(
     colors={Color.WHITE},
     subtypes={"Dinosaur"},
     text="Flying\nWhen this creature enters, you gain 3 life.\nPlainscycling {2} ({2}, Discard this card: Search your library for a Plains card, reveal it, put it into your hand, then shuffle.)",
-    setup_interceptors=soaring_sandwing_setup
 )
 
 SPRINGLOADED_SAWBLADES = make_artifact(
     name="Spring-Loaded Sawblades",
-    mana_cost="",
-    text="",
-    subtypes={"Vehicle"},
+    mana_cost="{1}{W}",
+    text="Flash\nWhen this artifact enters, it deals 5 damage to target tapped creature an opponent controls.\nCraft with artifact {3}{W} ({3}{W}, Exile this artifact, Exile another artifact you control or an artifact card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Bladewheel Chariot (5/5)\nTap two other untapped artifacts you control: This Vehicle becomes an artifact creature until end of turn.\nCrew 1 (Tap any number of creatures you control with total power 1 or more: This Vehicle becomes an artifact creature until end of turn.)",
 )
 
 THOUSAND_MOONS_CRACKSHOT = make_creature(
@@ -1642,8 +460,8 @@ THOUSAND_MOONS_INFANTRY = make_creature(
 
 THOUSAND_MOONS_SMITHY = make_artifact(
     name="Thousand Moons Smithy",
-    mana_cost="",
-    text="",
+    mana_cost="{2}{W}{W}",
+    text="When Thousand Moons Smithy enters, create a white Gnome Soldier artifact creature token with \"This token's power and toughness are each equal to the number of artifacts and/or creatures you control.\"\nAt the beginning of your first main phase, you may tap five untapped artifacts and/or creatures you control. If you do, transform Thousand Moons Smithy.\n// Transforms into: Barracks of the Thousand\n(Transforms from Thousand Moons Smithy.)\n{T}: Add {W}.\nWhenever you cast an artifact or creature spell using mana produced by Barracks of the Thousand, create a white Gnome Soldier artifact creature token with \"This token's power and toughness are each equal to the number of artifacts and/or creatures you control.\"",
     supertypes={"Legendary"},
 )
 
@@ -1651,16 +469,12 @@ TINKERS_TOTE = make_artifact(
     name="Tinker's Tote",
     mana_cost="{2}{W}",
     text="When this artifact enters, create two 1/1 colorless Gnome artifact creature tokens.\n{W}, Sacrifice this artifact: You gain 3 life.",
-    setup_interceptors=tinkers_tote_setup
 )
 
-UNSTABLE_GLYPHBRIDGE = make_artifact_creature(
+UNSTABLE_GLYPHBRIDGE = make_artifact(
     name="Unstable Glyphbridge",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"Golem"},
-    text="",
+    mana_cost="{3}{W}{W}",
+    text="When this artifact enters, if you cast it, for each player, choose a creature with power 2 or less that player controls. Then destroy all creatures except creatures chosen this way.\nCraft with artifact {3}{W}{W} ({3}{W}{W}, Exile this artifact, Exile another artifact you control or an artifact card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Sandswirl Wanderglyph (5/3)\nFlying\nWhenever an opponent casts a spell during their turn, they can't attack you or planeswalkers you control this turn.\nEach opponent who attacked you or a planeswalker you control this turn can't cast spells.",
 )
 
 VANGUARD_OF_THE_ROSE = make_creature(
@@ -1707,8 +521,8 @@ BRACKISH_BLUNDER = make_instant(
 
 BRAIDED_NET = make_artifact(
     name="Braided Net",
-    mana_cost="",
-    text="",
+    mana_cost="{2}{U}",
+    text="This artifact enters with three net counters on it.\n{T}, Remove a net counter from this artifact: Tap another target nonland permanent. Its activated abilities can't be activated for as long as it remains tapped.\nCraft with artifact {1}{U}\n// Transforms into: Braided Quipu\n{3}{U}, {T}: Draw a card for each artifact you control, then put this artifact into its owner's library third from the top.",
 )
 
 CHART_A_COURSE = make_sorcery(
@@ -1725,7 +539,6 @@ COGWORK_WRESTLER = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Gnome"},
     text="Flash\nWhen this creature enters, target creature an opponent controls gets -2/-0 until end of turn.",
-    setup_interceptors=cogwork_wrestler_setup
 )
 
 CONFOUNDING_RIDDLE = make_instant(
@@ -1742,7 +555,6 @@ COUNCIL_OF_ECHOES = make_creature(
     colors={Color.BLUE},
     subtypes={"Advisor", "Spirit"},
     text="Flying\nDescend 4 — When this creature enters, if there are four or more permanent cards in your graveyard, return up to one target nonland permanent other than this creature to its owner's hand.",
-    setup_interceptors=council_of_echoes_setup
 )
 
 DEEPROOT_PILGRIMAGE = make_enchantment(
@@ -1759,7 +571,6 @@ DIDACT_ECHO = make_creature(
     colors={Color.BLUE},
     subtypes={"Cleric", "Spirit"},
     text="When this creature enters, draw a card.\nDescend 4 — This creature has flying as long as there are four or more permanent cards in your graveyard.",
-    setup_interceptors=didact_echo_setup
 )
 
 EATEN_BY_PIRANHAS = make_enchantment(
@@ -1772,15 +583,15 @@ EATEN_BY_PIRANHAS = make_enchantment(
 
 THE_ENIGMA_JEWEL = make_artifact(
     name="The Enigma Jewel",
-    mana_cost="",
-    text="",
+    mana_cost="{U}",
+    text="The Enigma Jewel enters tapped.\n{T}: Add {C}{C}. Spend this mana only to activate abilities.\nCraft with four or more nonlands with activated abilities {8}{U} ({8}{U}, Exile this artifact, Exile the four or more from among other permanents you control and/or cards in your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Locus of Enlightenment\nLocus of Enlightenment has each activated ability of the exiled cards used to craft it. You may activate each of those abilities only once each turn.\nWhenever you activate an ability that isn't a mana ability, copy it. You may choose new targets for the copy.",
     supertypes={"Legendary"},
 )
 
 THE_EVERFLOWING_WELL = make_artifact(
     name="The Everflowing Well",
-    mana_cost="",
-    text="",
+    mana_cost="{2}{U}",
+    text="When The Everflowing Well enters, mill two cards, then draw two cards.\nDescend 8 — At the beginning of your upkeep, if there are eight or more permanent cards in your graveyard, transform The Everflowing Well.\n// Transforms into: The Myriad Pools\n(Transforms from The Everflowing Well.)\n{T}: Add {U}.\nWhenever you cast a permanent spell using mana produced by The Myriad Pools, up to one other target permanent you control becomes a copy of that spell until end of turn.",
     supertypes={"Legendary"},
 )
 
@@ -1809,13 +620,10 @@ HURL_INTO_HISTORY = make_instant(
     text="Counter target artifact or creature spell. Discover X, where X is that spell's mana value. (Exile cards from the top of your library until you exile a nonland card with that mana value or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)",
 )
 
-INVERTED_ICEBERG = make_artifact_creature(
+INVERTED_ICEBERG = make_artifact(
     name="Inverted Iceberg",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"Golem"},
-    text="",
+    mana_cost="{1}{U}",
+    text="When this artifact enters, mill a card, then draw a card. (To mill a card, put the top card of your library into your graveyard.)\nCraft with artifact {4}{U}{U} ({4}{U}{U}, Exile this artifact, Exile another artifact you control or an artifact card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Iceberg Titan (6/6)\nWhenever this creature attacks, you may tap or untap target artifact or creature.",
 )
 
 KITESAIL_LARCENIST = make_creature(
@@ -1825,13 +633,12 @@ KITESAIL_LARCENIST = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Pirate"},
     text="Flying, ward {1}\nWhen this creature enters, for each player, choose up to one other target artifact or creature that player controls. For as long as this creature remains on the battlefield, the chosen permanents become Treasure artifacts with \"{T}, Sacrifice this artifact: Add one mana of any color\" and lose all other abilities.",
-    setup_interceptors=kitesail_larcenist_setup
 )
 
 LODESTONE_NEEDLE = make_artifact(
     name="Lodestone Needle",
-    mana_cost="",
-    text="",
+    mana_cost="{1}{U}",
+    text="Flash\nWhen this artifact enters, tap up to one target artifact or creature and put two stun counters on it.\nCraft with artifact {2}{U} ({2}{U}, Exile this artifact, Exile another artifact you control or an artifact card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Guidestone Compass\n{1}, {T}: Target creature you control explores. Activate only as a sorcery. (Reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on that creature, then put the card back or put it into your graveyard.)",
 )
 
 MALCOLM_ALLURING_SCOUNDREL = make_creature(
@@ -1873,12 +680,12 @@ OAKEN_SIREN = make_artifact_creature(
 
 OJER_PAKPATIQ_DEEPEST_EPOCH = make_creature(
     name="Ojer Pakpatiq, Deepest Epoch",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"//", "God", "Land"},
+    power=4, toughness=3,
+    mana_cost="{2}{U}{U}",
+    colors={Color.BLUE},
+    subtypes={"God"},
     supertypes={"Legendary"},
-    text="",
+    text="Flying\nWhenever you cast an instant spell from your hand, it gains rebound. (Exile it as it resolves. At the beginning of your next upkeep, you may cast it from exile without paying its mana cost.)\nWhen Ojer Pakpatiq dies, return it to the battlefield tapped and transformed under its owner's control with three time counters on it.\n// Transforms into: Temple of Cyclical Time\n(Transforms from Ojer Pakpatiq, Deepest Epoch.)\n{T}: Add {U}. Remove a time counter from this land.\n{2}{U}, {T}: Transform this land. Activate only if it has no time counters on it and only as a sorcery.",
 )
 
 ORAZCA_PUZZLEDOOR = make_artifact(
@@ -1915,7 +722,6 @@ RIVER_HERALD_SCOUT = make_creature(
     colors={Color.BLUE},
     subtypes={"Merfolk", "Scout"},
     text="When this creature enters, it explores. (Reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on this creature, then put the card back or put it into your graveyard.)",
-    setup_interceptors=river_herald_scout_setup
 )
 
 SAGE_OF_DAYS = make_creature(
@@ -1925,7 +731,6 @@ SAGE_OF_DAYS = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     text="When this creature enters, look at the top three cards of your library. You may put one of those cards back on top of your library. Put the rest into your graveyard.",
-    setup_interceptors=sage_of_days_setup
 )
 
 SELFREFLECTION = make_sorcery(
@@ -1951,7 +756,6 @@ SINUOUS_BENTHISAUR = make_creature(
     colors={Color.BLUE},
     subtypes={"Dinosaur"},
     text="When this creature enters, look at the top X cards of your library, where X is the number of Caves you control plus the number of Cave cards in your graveyard. Put two of those cards into your hand and the rest on the bottom of your library in a random order.",
-    setup_interceptors=sinuous_benthisaur_setup
 )
 
 SONG_OF_STUPEFACTION = make_enchantment(
@@ -1969,7 +773,6 @@ SPYGLASS_SIREN = make_creature(
     colors={Color.BLUE},
     subtypes={"Pirate", "Siren"},
     text="Flying\nWhen this creature enters, create a Map token. (It's an artifact with \"{1}, {T}, Sacrifice this token: Target creature you control explores. Activate only as a sorcery.\")",
-    setup_interceptors=spyglass_siren_setup
 )
 
 STAUNCH_CREWMATE = make_creature(
@@ -1979,7 +782,6 @@ STAUNCH_CREWMATE = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Pirate"},
     text="When this creature enters, look at the top four cards of your library. You may reveal an artifact or Pirate card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
-    setup_interceptors=staunch_crewmate_setup
 )
 
 SUBTERRANEAN_SCHOONER = make_artifact(
@@ -1996,7 +798,6 @@ TISHANAS_TIDEBINDER = make_creature(
     colors={Color.BLUE},
     subtypes={"Merfolk", "Wizard"},
     text="Flash\nWhen this creature enters, counter up to one target activated or triggered ability. If an ability of an artifact, creature, or planeswalker is countered this way, that permanent loses all abilities for as long as this creature remains on the battlefield. (Mana abilities can't be targeted.)",
-    setup_interceptors=tishanas_tidebinder_setup
 )
 
 UNLUCKY_DROP = make_instant(
@@ -2008,9 +809,8 @@ UNLUCKY_DROP = make_instant(
 
 WATERLOGGED_HULK = make_artifact(
     name="Waterlogged Hulk",
-    mana_cost="",
-    text="",
-    subtypes={"Vehicle"},
+    mana_cost="{U}",
+    text="{T}: Mill a card. (Put the top card of your library into your graveyard.)\nCraft with Island {3}{U} ({3}{U}, Exile this artifact, Exile an Island you control or an Island card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Watertight Gondola (4/4)\nVigilance\nDescend 8 — This Vehicle can't be blocked as long as there are eight or more permanent cards in your graveyard.\nCrew 1 (Tap any number of creatures you control with total power 1 or more: This Vehicle becomes an artifact creature until end of turn.)",
 )
 
 WATERWIND_SCOUT = make_creature(
@@ -2020,7 +820,6 @@ WATERWIND_SCOUT = make_creature(
     colors={Color.BLUE},
     subtypes={"Merfolk", "Scout"},
     text="Flying\nWhen this creature enters, create a Map token. (It's an artifact with \"{1}, {T}, Sacrifice this token: Target creature you control explores. Activate only as a sorcery.\")",
-    setup_interceptors=waterwind_scout_setup
 )
 
 WAYLAYING_PIRATES = make_creature(
@@ -2030,7 +829,6 @@ WAYLAYING_PIRATES = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Pirate"},
     text="When this creature enters, if you control an artifact, tap target artifact or creature an opponent controls and put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
-    setup_interceptors=waylaying_pirates_setup
 )
 
 ZOETIC_GLYPH = make_enchantment(
@@ -2048,17 +846,16 @@ ABYSSAL_GORESTALKER = make_creature(
     colors={Color.BLACK},
     subtypes={"Horror"},
     text="When this creature enters, each player sacrifices two creatures of their choice.",
-    setup_interceptors=abyssal_gorestalker_setup
 )
 
 ACLAZOTZ_DEEPEST_BETRAYAL = make_creature(
     name="Aclazotz, Deepest Betrayal",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"//", "Bat", "God", "Land"},
+    power=4, toughness=4,
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Bat", "God"},
     supertypes={"Legendary"},
-    text="",
+    text="Flying, lifelink\nWhenever Aclazotz attacks, each opponent discards a card. For each opponent who can't, you draw a card.\nWhenever an opponent discards a land card, create a 1/1 black Bat creature token with flying.\nWhen Aclazotz dies, return it to the battlefield tapped and transformed under its owner's control.\n// Transforms into: Temple of the Dead\n(Transforms from Aclazotz, Deepest Betrayal.)\n{T}: Add {B}.\n{2}{B}, {T}: Transform this land. Activate only if a player has one or fewer cards in hand and only as a sorcery.",
 )
 
 ACOLYTE_OF_ACLAZOTZ = make_creature(
@@ -2107,7 +904,6 @@ BRINGER_OF_THE_LAST_GIFT = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon", "Vampire"},
     text="Flying\nWhen this creature enters, if you cast it, each player sacrifices all other creatures they control. Then each player returns all creature cards from their graveyard that weren't put there this way to the battlefield.",
-    setup_interceptors=bringer_of_the_last_gift_setup
 )
 
 BROODRAGE_MYCOID = make_creature(
@@ -2133,7 +929,6 @@ CHUPACABRA_ECHO = make_creature(
     colors={Color.BLACK},
     subtypes={"Beast", "Horror", "Spirit"},
     text="Fathomless descent — When this creature enters, target creature an opponent controls gets -X/-X until end of turn, where X is the number of permanent cards in your graveyard.",
-    setup_interceptors=chupacabra_echo_setup
 )
 
 CORPSES_OF_THE_LOST = make_enchantment(
@@ -2141,7 +936,6 @@ CORPSES_OF_THE_LOST = make_enchantment(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Skeletons you control get +1/+0 and have haste.\nWhen this enchantment enters, create a 2/2 black Skeleton Pirate creature token.\nAt the beginning of your end step, if you descended this turn, you may pay 1 life. If you do, return this enchantment to its owner's hand. (You descended if a permanent card was put into your graveyard from anywhere.)",
-    setup_interceptors=corpses_of_the_lost_setup
 )
 
 DEAD_WEIGHT = make_enchantment(
@@ -2159,7 +953,6 @@ DEATHCAP_MARIONETTE = make_creature(
     colors={Color.BLACK},
     subtypes={"Fungus"},
     text="Deathtouch\nWhen this creature enters, you may mill two cards. (You may put the top two cards of your library into your graveyard.)",
-    setup_interceptors=deathcap_marionette_setup
 )
 
 DEEP_GOBLIN_SKULLTAKER = make_creature(
@@ -2178,7 +971,6 @@ DEEPCAVERN_BAT = make_creature(
     colors={Color.BLACK},
     subtypes={"Bat"},
     text="Flying, lifelink\nWhen this creature enters, look at target opponent's hand. You may exile a nonland card from it until this creature leaves the battlefield.",
-    setup_interceptors=deepcavern_bat_setup
 )
 
 DEFOSSILIZE = make_sorcery(
@@ -2223,10 +1015,9 @@ GARGANTUAN_LEECH = make_creature(
 
 GRASPING_SHADOWS = make_enchantment(
     name="Grasping Shadows",
-    mana_cost="",
-    colors=set(),
-    text="",
-    subtypes={"Cave"},
+    mana_cost="{3}{B}",
+    colors={Color.BLACK},
+    text="Whenever a creature you control attacks alone, it gains deathtouch and lifelink until end of turn. Put a dread counter on this enchantment. Then if there are three or more dread counters on it, transform it.\n// Transforms into: Shadows' Lair\n(Transforms from Grasping Shadows.)\n{T}: Add {B}.\n{B}, {T}, Remove a dread counter from this land: You draw a card and you lose 1 life.",
 )
 
 GREEDY_FREEBOOTER = make_creature(
@@ -2236,7 +1027,6 @@ GREEDY_FREEBOOTER = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Pirate"},
     text="When this creature dies, scry 1 and create a Treasure token. (To scry 1, look at the top card of your library. You may put that card on the bottom. A Treasure token is an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
-    setup_interceptors=greedy_freebooter_setup
 )
 
 JOIN_THE_DEAD = make_instant(
@@ -2257,7 +1047,6 @@ MEPHITIC_DRAUGHT = make_artifact(
     name="Mephitic Draught",
     mana_cost="{1}{B}",
     text="When this artifact enters or is put into a graveyard from the battlefield, you draw a card and you lose 1 life.",
-    setup_interceptors=mephitic_draught_setup
 )
 
 PREACHER_OF_THE_SCHISM = make_creature(
@@ -2276,7 +1065,6 @@ PRIMORDIAL_GNAWER = make_creature(
     colors={Color.BLACK},
     subtypes={"Horror", "Insect"},
     text="When this creature dies, discover 3. (Exile cards from the top of your library until you exile a nonland card with mana value 3 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)",
-    setup_interceptors=primordial_gnawer_setup
 )
 
 QUEENS_BAY_PALADIN = make_creature(
@@ -2286,7 +1074,6 @@ QUEENS_BAY_PALADIN = make_creature(
     colors={Color.BLACK},
     subtypes={"Knight", "Vampire"},
     text="Whenever this creature enters or attacks, return up to one target Vampire card from your graveyard to the battlefield with a finality counter on it. You lose life equal to its mana value. (If a creature with a finality counter on it would die, exile it instead.)",
-    setup_interceptors=queens_bay_paladin_setup
 )
 
 RAMPAGING_SPIKETAIL = make_creature(
@@ -2296,7 +1083,6 @@ RAMPAGING_SPIKETAIL = make_creature(
     colors={Color.BLACK},
     subtypes={"Dinosaur"},
     text="When this creature enters, target creature you control gets +2/+0 and gains indestructible until end of turn.\nSwampcycling {2} ({2}, Discard this card: Search your library for a Swamp card, reveal it, put it into your hand, then shuffle.)",
-    setup_interceptors=rampaging_spiketail_setup
 )
 
 RAY_OF_RUIN = make_sorcery(
@@ -2322,7 +1108,6 @@ SKULLCAP_SNAIL = make_creature(
     colors={Color.BLACK},
     subtypes={"Fungus", "Snail"},
     text="When this creature enters, target opponent exiles a card from their hand.",
-    setup_interceptors=skullcap_snail_setup
 )
 
 SOULCOIL_VIPER = make_creature(
@@ -2359,7 +1144,6 @@ STARVING_REVENANT = make_creature(
     colors={Color.BLACK},
     subtypes={"Horror", "Spirit"},
     text="When this creature enters, surveil 2. Then for each card you put on top of your library, you draw a card and you lose 3 life.\nDescend 8 — Whenever you draw a card, if there are eight or more permanent cards in your graveyard, target opponent loses 1 life and you gain 1 life.",
-    setup_interceptors=starving_revenant_setup
 )
 
 STINGING_CAVE_CRAWLER = make_creature(
@@ -2378,14 +1162,12 @@ SYNAPSE_NECROMAGE = make_creature(
     colors={Color.BLACK},
     subtypes={"Fungus", "Wizard"},
     text="When this creature dies, create two 1/1 black Fungus creature tokens with \"This token can't block.\"",
-    setup_interceptors=synapse_necromage_setup
 )
 
 TARRIANS_JOURNAL = make_artifact(
     name="Tarrian's Journal",
-    mana_cost="",
-    text="",
-    subtypes={"Cave"},
+    mana_cost="{1}{B}",
+    text="{T}, Sacrifice another artifact or creature: Draw a card. Activate only as a sorcery.\n{2}, {T}, Discard your hand: Transform Tarrian's Journal.\n// Transforms into: The Tomb of Aclazotz\n(Transforms from Tarrian's Journal.)\n{T}: Add {B}.\n{T}: You may cast a creature spell from your graveyard this turn. If you do, it enters with a finality counter on it and is a Vampire in addition to its other types. (If a creature with a finality counter on it would die, exile it instead.)",
     supertypes={"Legendary"},
 )
 
@@ -2398,17 +1180,14 @@ TERROR_TIDE = make_sorcery(
 
 TITHING_BLADE = make_artifact(
     name="Tithing Blade",
-    mana_cost="",
-    text="",
+    mana_cost="{1}{B}",
+    text="When this artifact enters, each opponent sacrifices a creature of their choice.\nCraft with creature {4}{B} ({4}{B}, Exile this artifact, Exile a creature you control or a creature card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Consuming Sepulcher\nAt the beginning of your upkeep, each opponent loses 1 life and you gain 1 life.",
 )
 
-VISAGE_OF_DREAD = make_artifact_creature(
+VISAGE_OF_DREAD = make_artifact(
     name="Visage of Dread",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"Dinosaur", "Horror", "Skeleton"},
-    text="",
+    mana_cost="{1}{B}",
+    text="When this artifact enters, target opponent reveals their hand. You choose an artifact or creature card from it. That player discards that card.\nCraft with two creatures {5}{B} ({5}{B}, Exile this artifact, Exile the two from among creatures you control and/or creature cards in your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Dread Osseosaur (5/4)\nMenace\nWhenever this creature enters or attacks, you may mill two cards. (You may put the top two cards of your library into your graveyard.)",
 )
 
 VITOS_INQUISITOR = make_creature(
@@ -2441,7 +1220,6 @@ BELLIGERENT_YEARLING = make_creature(
     colors={Color.RED},
     subtypes={"Dinosaur"},
     text="Trample\nWhenever another Dinosaur you control enters, you may have this creature's base power become equal to that creature's power until end of turn.",
-    setup_interceptors=belligerent_yearling_setup
 )
 
 BONEHOARD_DRACOSAUR = make_creature(
@@ -2451,14 +1229,12 @@ BONEHOARD_DRACOSAUR = make_creature(
     colors={Color.RED},
     subtypes={"Dinosaur", "Dragon"},
     text="Flying, first strike\nAt the beginning of your upkeep, exile the top two cards of your library. You may play them this turn. If you exiled a land card this way, create a 3/1 red Dinosaur creature token. If you exiled a nonland card this way, create a Treasure token.",
-    setup_interceptors=bonehoard_dracosaur_setup
 )
 
 BRASSS_TUNNELGRINDER = make_artifact(
     name="Brass's Tunnel-Grinder",
-    mana_cost="",
-    text="",
-    subtypes={"Cave"},
+    mana_cost="{2}{R}",
+    text="When Brass's Tunnel-Grinder enters, discard any number of cards, then draw that many cards plus one.\nAt the beginning of your end step, if you descended this turn, put a bore counter on Brass's Tunnel-Grinder. Then if there are three or more bore counters on it, remove those counters and transform it. (You descended if a permanent card was put into your graveyard from anywhere.)\n// Transforms into: Tecutlan, the Searing Rift\n(Transforms from Brass's Tunnel-Grinder.)\n{T}: Add {R}.\nWhenever you cast a permanent spell using mana produced by Tecutlan, discover X, where X is that spell's mana value.",
     supertypes={"Legendary"},
 )
 
@@ -2488,7 +1264,6 @@ BURNING_SUN_CAVALRY = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Knight"},
     text="Whenever this creature attacks or blocks while you control a Dinosaur, this creature gets +1/+1 until end of turn.",
-    setup_interceptors=burning_sun_cavalry_setup
 )
 
 CALAMITOUS_CAVEIN = make_sorcery(
@@ -2537,21 +1312,19 @@ DINOTOMATON = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Dinosaur", "Gnome"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nWhen this creature enters, target creature you control gains menace until end of turn.",
-    setup_interceptors=dinotomaton_setup
 )
 
 DIRE_FLAIL = make_artifact(
     name="Dire Flail",
-    mana_cost="",
-    text="",
-    subtypes={"//", "Artifact", "Equipment"},
+    mana_cost="{R}",
+    text="Equipped creature gets +2/+0.\nEquip {1}\nCraft with artifact {3}{R}{R} ({3}{R}{R}, Exile this artifact, Exile another artifact you control or an artifact card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Dire Blunderbuss\nEquipped creature gets +3/+0 and has \"Whenever this creature attacks, you may sacrifice an artifact other than Dire Blunderbuss. When you do, this creature deals damage equal to its power to target creature.\"\nEquip {1}",
+    subtypes={"Equipment"},
 )
 
 DOWSING_DEVICE = make_artifact(
     name="Dowsing Device",
-    mana_cost="",
-    text="",
-    subtypes={"Cave"},
+    mana_cost="{1}{R}",
+    text="Whenever this artifact or another artifact you control enters, up to one target creature you control gets +1/+0 and gains haste until end of turn. Then transform this artifact if you control four or more artifacts.\n// Transforms into: Geode Grotto\n(Transforms from Dowsing Device.)\n{T}: Add {R}.\n{2}{R}, {T}: Until end of turn, target creature gains haste and gets +X/+0, where X is the number of artifacts you control. Activate only as a sorcery.",
 )
 
 DREADMAWS_IRE = make_instant(
@@ -2576,7 +1349,6 @@ ETALIS_FAVOR = make_enchantment(
     colors={Color.RED},
     text="Enchant creature you control\nWhen this Aura enters, discover 3. (Exile cards from the top of your library until you exile a nonland card with mana value 3 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)\nEnchanted creature gets +1/+1 and has trample.",
     subtypes={"Aura"},
-    setup_interceptors=etalis_favor_setup
 )
 
 GEOLOGICAL_APPRAISER = make_creature(
@@ -2586,7 +1358,6 @@ GEOLOGICAL_APPRAISER = make_creature(
     colors={Color.RED},
     subtypes={"Artificer", "Human"},
     text="When this creature enters, if you cast it, discover 3. (Exile cards from the top of your library until you exile a nonland card with mana value 3 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)",
-    setup_interceptors=geological_appraiser_setup
 )
 
 AGEOLOGICAL_APPRAISER = make_creature(
@@ -2634,9 +1405,8 @@ HOTFOOT_GNOME = make_artifact_creature(
 
 IDOL_OF_THE_DEEP_KING = make_artifact(
     name="Idol of the Deep King",
-    mana_cost="",
-    text="",
-    subtypes={"Equipment"},
+    mana_cost="{2}{R}",
+    text="Flash\nWhen this artifact enters, it deals 2 damage to any target.\nCraft with artifact {2}{R} ({2}{R}, Exile this artifact, Exile another artifact you control or an artifact card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Sovereign's Macuahuitl\nWhen this Equipment enters, attach it to target creature you control.\nEquipped creature gets +2/+0.\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
 )
 
 INTI_SENESCHAL_OF_THE_SUN = make_creature(
@@ -2654,17 +1424,16 @@ MAGMATIC_GALLEON = make_artifact(
     mana_cost="{3}{R}{R}",
     text="When this Vehicle enters, it deals 5 damage to target creature an opponent controls.\nWhenever one or more creatures your opponents control are dealt excess noncombat damage, create a Treasure token.\nCrew 2",
     subtypes={"Vehicle"},
-    setup_interceptors=magmatic_galleon_setup
 )
 
 OJER_AXONIL_DEEPEST_MIGHT = make_creature(
     name="Ojer Axonil, Deepest Might",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"//", "God", "Land"},
+    power=4, toughness=4,
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    subtypes={"God"},
     supertypes={"Legendary"},
-    text="",
+    text="Trample\nIf a red source you control would deal an amount of noncombat damage less than Ojer Axonil's power to an opponent, that source deals damage equal to Ojer Axonil's power instead.\nWhen Ojer Axonil dies, return it to the battlefield tapped and transformed under its owner's control.\n// Transforms into: Temple of Power\n(Transforms from Ojer Axonil, Deepest Might.)\n{T}: Add {R}.\n{2}{R}, {T}: Transform this land. Activate only if red sources you controlled dealt 4 or more noncombat damage this turn and only as a sorcery.",
 )
 
 PANICKED_ALTISAUR = make_creature(
@@ -2683,7 +1452,6 @@ PLUNDERING_PIRATE = make_creature(
     colors={Color.RED},
     subtypes={"Orc", "Pirate"},
     text="When this creature enters, create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
-    setup_interceptors=plundering_pirate_setup
 )
 
 POETIC_INGENUITY = make_enchantment(
@@ -2709,13 +1477,10 @@ RUMBLING_ROCKSLIDE = make_sorcery(
     text="Rumbling Rockslide deals damage to target creature equal to the number of lands you control.",
 )
 
-SAHEELIS_LATTICE = make_artifact_creature(
+SAHEELIS_LATTICE = make_artifact(
     name="Saheeli's Lattice",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"Dinosaur"},
-    text="",
+    mana_cost="{1}{R}",
+    text="When this artifact enters, you may discard a card. If you do, draw two cards.\nCraft with one or more Dinosaurs {4}{R} ({4}{R}, Exile this artifact, Exile one or more Dinosaurs you control and/or Dinosaur cards from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Mastercraft Raptor (*/4)\nMastercraft Raptor's power is equal to the total power of the exiled cards used to craft it.",
 )
 
 SCYTHECLAW_RAPTOR = make_creature(
@@ -2773,7 +1538,6 @@ TRUMPETING_CARNOSAUR = make_creature(
     colors={Color.RED},
     subtypes={"Dinosaur"},
     text="Trample\nWhen this creature enters, discover 5.\n{2}{R}, Discard this card: It deals 3 damage to target creature or planeswalker.",
-    setup_interceptors=trumpeting_carnosaur_setup
 )
 
 VOLATILE_WANDERGLYPH = make_artifact_creature(
@@ -2799,7 +1563,6 @@ ARMORED_KINCALLER = make_creature(
     colors={Color.GREEN},
     subtypes={"Dinosaur"},
     text="When this creature enters, you may reveal a Dinosaur card from your hand. If you do or if you control another Dinosaur, you gain 3 life.",
-    setup_interceptors=armored_kincaller_setup
 )
 
 BASKING_CAPYBARA = make_creature(
@@ -2827,7 +1590,6 @@ CAVERN_STOMPER = make_creature(
     colors={Color.GREEN},
     subtypes={"Dinosaur"},
     text="When this creature enters, scry 2. (Look at the top two cards of your library, then put any number of them on the bottom and the rest on top in any order.)\n{3}{G}: This creature can't be blocked by creatures with power 2 or less this turn.",
-    setup_interceptors=cavern_stomper_setup
 )
 
 CENOTE_SCOUT = make_creature(
@@ -2837,7 +1599,6 @@ CENOTE_SCOUT = make_creature(
     colors={Color.GREEN},
     subtypes={"Merfolk", "Scout"},
     text="When this creature enters, it explores. (Reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on this creature, then put the card back or put it into your graveyard.)",
-    setup_interceptors=cenote_scout_setup
 )
 
 COATI_SCAVENGER = make_creature(
@@ -2847,7 +1608,6 @@ COATI_SCAVENGER = make_creature(
     colors={Color.GREEN},
     subtypes={"Raccoon"},
     text="Descend 4 — When this creature enters, if there are four or more permanent cards in your graveyard, return target permanent card from your graveyard to your hand.",
-    setup_interceptors=coati_scavenger_setup
 )
 
 COLOSSADACTYL = make_creature(
@@ -2880,7 +1640,6 @@ EARTHSHAKER_DREADMAW = make_creature(
     colors={Color.GREEN},
     subtypes={"Dinosaur"},
     text="Trample\nWhen this creature enters, draw a card for each other Dinosaur you control.",
-    setup_interceptors=earthshaker_dreadmaw_setup
 )
 
 EXPLORERS_CACHE = make_artifact(
@@ -2915,20 +1674,20 @@ GLOWCAP_LANTERN = make_artifact(
 
 GROWING_RITES_OF_ITLIMOC = make_enchantment(
     name="Growing Rites of Itlimoc",
-    mana_cost="",
-    colors=set(),
-    text="",
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    text="When Growing Rites of Itlimoc enters, look at the top four cards of your library. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom of your library in any order.\nAt the beginning of your end step, if you control four or more creatures, transform Growing Rites of Itlimoc.\n// Transforms into: Itlimoc, Cradle of the Sun\n(Transforms from Growing Rites of Itlimoc.)\n{T}: Add {G}.\n{T}: Add {G} for each creature you control.",
     supertypes={"Legendary"},
 )
 
 HUATLI_POET_OF_UNITY = make_creature(
     name="Huatli, Poet of Unity",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"//", "Bard", "Enchantment", "Human", "Warrior"},
+    power=2, toughness=3,
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    subtypes={"Bard", "Human", "Warrior"},
     supertypes={"Legendary"},
-    text="",
+    text="When Huatli enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle.\n{3}{R/W}{R/W}: Exile Huatli, then return her to the battlefield transformed under her owner's control. Activate only as a sorcery.\n// Transforms into: Roar of the Fifth People\n(As this Saga enters and after your draw step, add a lore counter. Sacrifice after IV.)\nI — Create two 3/3 green Dinosaur creature tokens.\nII — This Saga gains \"Creatures you control have '{T}: Add {R}, {G}, or {W}.'\"\nIII — Search your library for a Dinosaur card, reveal it, put it into your hand, then shuffle.\nIV — Dinosaurs you control gain double strike and trample until end of turn.",
 )
 
 HUATLIS_FINAL_STRIKE = make_instant(
@@ -2972,13 +1731,10 @@ IXALLIS_LOREKEEPER = make_creature(
     text="{T}: Add one mana of any color. Spend this mana only to cast a Dinosaur spell or activate an ability of a Dinosaur source.",
 )
 
-JADE_SEEDSTONES = make_artifact_creature(
+JADE_SEEDSTONES = make_artifact(
     name="Jade Seedstones",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"Golem"},
-    text="",
+    mana_cost="{3}{G}",
+    text="When this artifact enters, distribute three +1/+1 counters among one, two, or three target creatures you control.\nCraft with creature {5}{G}{G} ({5}{G}{G}, Exile this artifact, Exile a creature you control or a creature card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Jadeheart Attendant (7/7)\nWhen this creature enters, you gain life equal to the mana value of the exiled card used to craft it.",
 )
 
 JADELIGHT_SPELUNKER = make_creature(
@@ -2988,16 +1744,12 @@ JADELIGHT_SPELUNKER = make_creature(
     colors={Color.GREEN},
     subtypes={"Merfolk", "Scout"},
     text="When this creature enters, it explores X times. (To have it explore, reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on that creature, then put the card back or put it into your graveyard.)",
-    setup_interceptors=jadelight_spelunker_setup
 )
 
-KASLEMS_STONETREE = make_artifact_creature(
+KASLEMS_STONETREE = make_artifact(
     name="Kaslem's Stonetree",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"Golem"},
-    text="",
+    mana_cost="{2}{G}",
+    text="When this artifact enters, look at the top six cards of your library. You may put a land card from among them onto the battlefield tapped. Put the rest on the bottom in a random order.\nCraft with Cave {5}{G} ({5}{G}, Exile this artifact, Exile a Cave you control or a Cave card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Kaslem's Strider (5/5)\n",
 )
 
 MALAMET_BATTLE_GLYPH = make_sorcery(
@@ -3014,7 +1766,6 @@ MALAMET_BRAWLER = make_creature(
     colors={Color.GREEN},
     subtypes={"Cat", "Warrior"},
     text="Whenever this creature attacks, target attacking creature gains trample until end of turn.",
-    setup_interceptors=malamet_brawler_setup
 )
 
 MALAMET_SCYTHE = make_artifact(
@@ -3022,7 +1773,6 @@ MALAMET_SCYTHE = make_artifact(
     mana_cost="{2}{G}",
     text="Flash\nWhen this Equipment enters, attach it to target creature you control.\nEquipped creature gets +2/+2.\nEquip {4} ({4}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
-    setup_interceptors=malamet_scythe_setup
 )
 
 MALAMET_VETERAN = make_creature(
@@ -3041,7 +1791,6 @@ MINESHAFT_SPIDER = make_creature(
     colors={Color.GREEN},
     subtypes={"Spider"},
     text="Reach\nWhen this creature enters, you may mill two cards. (You may put the top two cards of your library into your graveyard.)",
-    setup_interceptors=mineshaft_spider_setup
 )
 
 NURTURING_BRISTLEBACK = make_creature(
@@ -3051,17 +1800,16 @@ NURTURING_BRISTLEBACK = make_creature(
     colors={Color.GREEN},
     subtypes={"Dinosaur"},
     text="When this creature enters, create a 3/3 green Dinosaur creature token.\nForestcycling {2} ({2}, Discard this card: Search your library for a Forest card, reveal it, put it into your hand, then shuffle.)",
-    setup_interceptors=nurturing_bristleback_setup
 )
 
 OJER_KASLEM_DEEPEST_GROWTH = make_creature(
     name="Ojer Kaslem, Deepest Growth",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"//", "God", "Land"},
+    power=6, toughness=5,
+    mana_cost="{3}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"God"},
     supertypes={"Legendary"},
-    text="",
+    text="Trample\nWhenever Ojer Kaslem deals combat damage to a player, reveal that many cards from the top of your library. You may put a creature card and/or a land card from among them onto the battlefield. Put the rest on the bottom in a random order.\nWhen Ojer Kaslem dies, return it to the battlefield tapped and transformed under its owner's control.\n// Transforms into: Temple of Cultivation\n(Transforms from Ojer Kaslem, Deepest Growth.)\n{T}: Add {G}.\n{2}{G}, {T}: Transform this land. Activate only if you control ten or more permanents and only as a sorcery.",
 )
 
 OVER_THE_EDGE = make_sorcery(
@@ -3078,7 +1826,6 @@ PATHFINDING_AXEJAW = make_creature(
     colors={Color.GREEN},
     subtypes={"Dinosaur"},
     text="When this creature enters, it explores. (Reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on this creature, then put the card back or put it into your graveyard.)",
-    setup_interceptors=pathfinding_axejaw_setup
 )
 
 POISON_DART_FROG = make_creature(
@@ -3106,7 +1853,6 @@ RIVER_HERALD_GUIDE = make_creature(
     colors={Color.GREEN},
     subtypes={"Merfolk", "Scout"},
     text="Vigilance\nWhen this creature enters, it explores. (Reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on this creature, then put the card back or put it into your graveyard.)",
-    setup_interceptors=river_herald_guide_setup
 )
 
 SEEKER_OF_SUNLIGHT = make_creature(
@@ -3125,7 +1871,6 @@ SENTINEL_OF_THE_NAMELESS_CITY = make_creature(
     colors={Color.GREEN},
     subtypes={"Merfolk", "Scout", "Warrior"},
     text="Vigilance\nWhenever this creature enters or attacks, create a Map token. (It's an artifact with \"{1}, {T}, Sacrifice this token: Target creature you control explores. Activate only as a sorcery.\")",
-    setup_interceptors=sentinel_of_the_nameless_city_setup
 )
 
 THE_SKULLSPORE_NEXUS = make_artifact(
@@ -3140,7 +1885,6 @@ SPELUNKING = make_enchantment(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="When this enchantment enters, draw a card, then you may put a land card from your hand onto the battlefield. If you put a Cave onto the battlefield this way, you gain 4 life.\nLands you control enter untapped.",
-    setup_interceptors=spelunking_setup
 )
 
 STAGGERING_SIZE = make_instant(
@@ -3170,10 +1914,9 @@ THRASHING_BRONTODON = make_creature(
 
 TWISTS_AND_TURNS = make_enchantment(
     name="Twists and Turns",
-    mana_cost="",
-    colors=set(),
-    text="",
-    subtypes={"Cave"},
+    mana_cost="{G}",
+    colors={Color.GREEN},
+    text="If a creature you control would explore, instead you scry 1, then that creature explores.\nWhen this enchantment enters, target creature you control explores.\nWhen a land you control enters, if you control seven or more lands, transform this enchantment.\n// Transforms into: Mycoid Maze\n(Transforms from Twists and Turns.)\n{T}: Add {G}.\n{3}{G}, {T}: Look at the top four cards of your library. You may reveal a creature card from among them and put that card into your hand. Put the rest on the bottom of your library in a random order.",
 )
 
 WALK_WITH_THE_ANCESTORS = make_sorcery(
@@ -3231,7 +1974,6 @@ ANIM_PAKAL_THOUSANDTH_MOON = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="Whenever you attack with one or more non-Gnome creatures, put a +1/+1 counter on Anim Pakal, then create X 1/1 colorless Gnome artifact creature tokens that are tapped and attacking, where X is the number of +1/+1 counters on Anim Pakal.",
-    setup_interceptors=anim_pakal_setup
 )
 
 BARTOLOM_DEL_PRESIDIO = make_creature(
@@ -3270,7 +2012,6 @@ CAPTAIN_STORM_COSMIUM_RAIDER = make_creature(
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
     text="Whenever an artifact you control enters, put a +1/+1 counter on target Pirate you control.",
-    setup_interceptors=captain_storm_cosmium_raider_setup
 )
 
 DEEPFATHOM_ECHO = make_creature(
@@ -3300,17 +2041,16 @@ ITZQUINTH_FIRSTBORN_OF_GISHATH = make_creature(
     subtypes={"Dinosaur"},
     supertypes={"Legendary"},
     text="Haste\nWhen Itzquinth enters, you may pay {2}. When you do, target Dinosaur you control deals damage equal to its power to another target creature.",
-    setup_interceptors=itzquinth_firstborn_of_gishath_setup
 )
 
 KELLAN_DARING_TRAVELER = make_creature(
     name="Kellan, Daring Traveler",
     power=2, toughness=3,
-    mana_cost="{1}{W} // {G}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"//", "Faerie", "Human", "Scout", "Sorcery"},
+    subtypes={"Faerie", "Human", "Scout"},
     supertypes={"Legendary"},
-    text="",
+    text="Whenever Kellan attacks, reveal the top card of your library. If it's a creature card with mana value 3 or less, put it into your hand. Otherwise, you may put it into your graveyard.\n// Adventure — Journey On {G}\nCreate X Map tokens, where X is one plus the number of opponents who control an artifact. (Then exile this card. You may cast the creature later from exile.)",
 )
 
 KUTZIL_MALAMET_EXEMPLAR = make_creature(
@@ -3325,8 +2065,8 @@ KUTZIL_MALAMET_EXEMPLAR = make_creature(
 
 MASTERS_GUIDEMURAL = make_artifact(
     name="Master's Guide-Mural",
-    mana_cost="",
-    text="",
+    mana_cost="{3}{W}{U}",
+    text="When this artifact enters, create a 4/4 white and blue Golem artifact creature token.\nCraft with artifact {4}{W}{W}{U} ({4}{W}{W}{U}, Exile this artifact, Exile another artifact you control or an artifact card from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Master's Manufactory\n{T}: Create a 4/4 white and blue Golem artifact creature token. Activate only if this artifact or another artifact entered the battlefield under your control this turn.",
 )
 
 MOLTEN_COLLAPSE = make_sorcery(
@@ -3363,7 +2103,6 @@ PALANIS_HATCHER = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Dinosaur"},
     text="Other Dinosaurs you control have haste.\nWhen this creature enters, create two 0/1 green Dinosaur Egg creature tokens.\nAt the beginning of combat on your turn, if you control one or more Eggs, sacrifice an Egg, then create a 3/3 green Dinosaur creature token.",
-    setup_interceptors=palanis_hatcher_setup
 )
 
 QUINTORIUS_KAND = make_planeswalker(
@@ -3452,7 +2191,6 @@ CAREENING_MINE_CART = make_artifact(
     mana_cost="{3}",
     text="Whenever this Vehicle attacks, create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")\nCrew 1 (Tap any number of creatures you control with total power 1 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
-    setup_interceptors=careening_mine_cart_setup
 )
 
 CARTOGRAPHERS_COMPANION = make_artifact_creature(
@@ -3462,7 +2200,6 @@ CARTOGRAPHERS_COMPANION = make_artifact_creature(
     colors=set(),
     subtypes={"Gnome"},
     text="When this creature enters, create a Map token. (It's an artifact with \"{1}, {T}, Sacrifice this token: Target creature you control explores. Activate only as a sorcery.\")",
-    setup_interceptors=cartographers_companion_setup
 )
 
 CHIMIL_THE_INNER_SUN = make_artifact(
@@ -3470,7 +2207,6 @@ CHIMIL_THE_INNER_SUN = make_artifact(
     mana_cost="{6}",
     text="Spells you control can't be countered.\nAt the beginning of your end step, discover 5. (Exile cards from the top of your library until you exile a nonland card with mana value 5 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)",
     supertypes={"Legendary"},
-    setup_interceptors=chimil_inner_sun_setup
 )
 
 COMPASS_GNOME = make_artifact_creature(
@@ -3480,7 +2216,6 @@ COMPASS_GNOME = make_artifact_creature(
     colors=set(),
     subtypes={"Gnome"},
     text="When this creature enters, you may search your library for a basic land card or Cave card, reveal it, then shuffle and put that card on top.",
-    setup_interceptors=compass_gnome_setup
 )
 
 CONTESTED_GAME_BALL = make_artifact(
@@ -3496,7 +2231,6 @@ DIGSITE_CONSERVATOR = make_artifact_creature(
     colors=set(),
     subtypes={"Gnome"},
     text="Sacrifice this creature: Exile up to four target cards from a single graveyard. Activate only as a sorcery.\nWhen this creature dies, you may pay {4}. If you do, discover 4. (Exile cards from the top of your library until you exile a nonland card with mana value 4 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)",
-    setup_interceptors=digsite_conservator_setup
 )
 
 DISRUPTOR_WANDERGLYPH = make_artifact_creature(
@@ -3506,7 +2240,6 @@ DISRUPTOR_WANDERGLYPH = make_artifact_creature(
     colors=set(),
     subtypes={"Golem"},
     text="Whenever this creature attacks, exile target card from an opponent's graveyard.",
-    setup_interceptors=disruptor_wanderglyph_setup
 )
 
 HOVERSTONE_PILGRIM = make_artifact_creature(
@@ -3527,8 +2260,8 @@ HUNTERS_BLOWGUN = make_artifact(
 
 MATZALANTLI_THE_GREAT_DOOR = make_artifact(
     name="Matzalantli, the Great Door",
-    mana_cost="",
-    text="",
+    mana_cost="{3}",
+    text="{T}: Draw a card, then discard a card.\n{4}, {T}: Transform Matzalantli. Activate only if there are four or more permanent types among cards in your graveyard. (Artifact, battle, creature, enchantment, land, and planeswalker are permanent types.)\n// Transforms into: The Core\n(Transforms from Matzalantli.)\nFathomless descent — {T}: Add X mana of any one color, where X is the number of permanent cards in your graveyard.",
     supertypes={"Legendary"},
 )
 
@@ -3552,7 +2285,6 @@ RUNAWAY_BOULDER = make_artifact(
     name="Runaway Boulder",
     mana_cost="{6}",
     text="Flash\nWhen this artifact enters, it deals 6 damage to target creature an opponent controls.\nCycling {2} ({2}, Discard this card: Draw a card.)",
-    setup_interceptors=runaway_boulder_setup
 )
 
 SCAMPERING_SURVEYOR = make_artifact_creature(
@@ -3562,7 +2294,6 @@ SCAMPERING_SURVEYOR = make_artifact_creature(
     colors=set(),
     subtypes={"Gnome"},
     text="When this creature enters, search your library for a basic land card or Cave card, put it onto the battlefield tapped, then shuffle.",
-    setup_interceptors=scampering_surveyor_setup
 )
 
 SORCEROUS_SPYGLASS = make_artifact(
@@ -3571,13 +2302,10 @@ SORCEROUS_SPYGLASS = make_artifact(
     text="As this artifact enters, look at an opponent's hand, then choose any card name.\nActivated abilities of sources with the chosen name can't be activated unless they're mana abilities.",
 )
 
-SUNBIRD_STANDARD = make_artifact_creature(
+SUNBIRD_STANDARD = make_artifact(
     name="Sunbird Standard",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"Bird", "Construct"},
-    text="",
+    mana_cost="{3}",
+    text="{T}: Add one mana of any color.\nCraft with one or more {5} ({5}, Exile this artifact, Exile one or more other permanents you control and/or cards from your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: Sunbird Effigy (*/*)\nFlying, vigilance, haste\nSunbird Effigy's power and toughness are each equal to the number of colors among the exiled cards used to craft it.\n{T}: For each color among the exiled cards used to craft this creature, add one mana of that color.",
 )
 
 SWASHBUCKLERS_WHIP = make_artifact(
@@ -3602,23 +2330,19 @@ THREEFOLD_THUNDERHULK = make_artifact_creature(
     colors=set(),
     subtypes={"Gnome"},
     text="This creature enters with three +1/+1 counters on it.\nWhenever this creature enters or attacks, create a number of 1/1 colorless Gnome artifact creature tokens equal to its power.\n{2}, Sacrifice another artifact: Put a +1/+1 counter on this creature.",
-    setup_interceptors=threefold_thunderhulk_setup
 )
 
-THRONE_OF_THE_GRIM_CAPTAIN = make_artifact_creature(
+THRONE_OF_THE_GRIM_CAPTAIN = make_artifact(
     name="Throne of the Grim Captain",
-    power=0, toughness=0,
-    mana_cost="",
-    colors=set(),
-    subtypes={"Pirate", "Skeleton", "Spirit"},
+    mana_cost="{2}",
+    text="{T}: Mill two cards.\nCraft with a Dinosaur, a Merfolk, a Pirate, and a Vampire {4} ({4}, Exile this artifact, Exile the four from among permanents you control and/or cards in your graveyard: Return this card transformed under its owner's control. Craft only as a sorcery.)\n// Transforms into: The Grim Captain (7/7)\nMenace, trample, lifelink, hexproof\nWhenever The Grim Captain attacks, each opponent sacrifices a nonland permanent of their choice. Then you may put an exiled creature card used to craft The Grim Captain onto the battlefield under your control tapped and attacking.",
     supertypes={"Legendary"},
-    text="",
 )
 
 TREASURE_MAP = make_artifact(
     name="Treasure Map",
-    mana_cost="",
-    text="",
+    mana_cost="{2}",
+    text="{1}, {T}: Scry 1. Put a landmark counter on this artifact. Then if there are three or more landmark counters on it, remove those counters, transform this artifact, and create three Treasure tokens. (They're artifacts with \"{T}, Sacrifice this token: Add one mana of any color.\")\n// Transforms into: Treasure Cove\n(Transforms from Treasure Map.)\n{T}: Add {C}.\n{T}, Sacrifice a Treasure: Draw a card.",
 )
 
 CAPTIVATING_CAVE = make_land(
@@ -3684,7 +2408,6 @@ PIT_OF_OFFERINGS = make_land(
     name="Pit of Offerings",
     text="This land enters tapped.\nWhen this land enters, exile up to three target cards from graveyards.\n{T}: Add {C}.\n{T}: Add one mana of any of the exiled cards' colors.",
     subtypes={"Cave"},
-    setup_interceptors=pit_of_offerings_setup
 )
 
 PROMISING_VEIN = make_land(
@@ -3696,31 +2419,26 @@ PROMISING_VEIN = make_land(
 RESTLESS_ANCHORAGE = make_land(
     name="Restless Anchorage",
     text="This land enters tapped.\n{T}: Add {W} or {U}.\n{1}{W}{U}: Until end of turn, this land becomes a 2/3 white and blue Bird creature with flying. It's still a land.\nWhenever this land attacks, create a Map token.",
-    setup_interceptors=restless_anchorage_setup
 )
 
 RESTLESS_PRAIRIE = make_land(
     name="Restless Prairie",
     text="This land enters tapped.\n{T}: Add {G} or {W}.\n{2}{G}{W}: This land becomes a 3/3 green and white Llama creature until end of turn. It's still a land.\nWhenever this land attacks, other creatures you control get +1/+1 until end of turn.",
-    setup_interceptors=restless_prairie_setup
 )
 
 RESTLESS_REEF = make_land(
     name="Restless Reef",
     text="This land enters tapped.\n{T}: Add {U} or {B}.\n{2}{U}{B}: Until end of turn, this land becomes a 4/4 blue and black Shark creature with deathtouch. It's still a land.\nWhenever this land attacks, target player mills four cards.",
-    setup_interceptors=restless_reef_setup
 )
 
 RESTLESS_RIDGELINE = make_land(
     name="Restless Ridgeline",
     text="This land enters tapped.\n{T}: Add {R} or {G}.\n{2}{R}{G}: This land becomes a 3/4 red and green Dinosaur creature until end of turn. It's still a land.\nWhenever this land attacks, another target attacking creature gets +2/+0 until end of turn. Untap that creature.",
-    setup_interceptors=restless_ridgeline_setup
 )
 
 RESTLESS_VENTS = make_land(
     name="Restless Vents",
     text="This land enters tapped.\n{T}: Add {B} or {R}.\n{1}{B}{R}: Until end of turn, this land becomes a 2/3 black and red Insect creature with menace. It's still a land.\nWhenever this land attacks, you may discard a card. If you do, draw a card.",
-    setup_interceptors=restless_vents_setup
 )
 
 SUNKEN_CITADEL = make_land(
@@ -4069,4 +2787,4 @@ LOST_CAVERNS_IXALAN_CARDS = {
     "Forest": FOREST,
 }
 
-print(f"Loaded {len(LOST_CAVERNS_IXALAN_CARDS)} Lost_Caverns_of_Ixalan cards")
+print(f"Loaded {len(LOST_CAVERNS_IXALAN_CARDS)} Lost Caverns of Ixalan cards")
