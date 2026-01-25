@@ -1,8 +1,11 @@
 """
-Final Fantasy: Crystal Chronicles (FFX) Card Implementations
+Final Fantasy - Custom Card Set
 
-Set featuring iconic Final Fantasy characters and mechanics.
-~250 cards with mechanics: Job, Limit Break, Summon
+Custom/fan-made set featuring Final Fantasy characters and mechanics.
+~267 cards with mechanics: Job, Limit Break, Summon
+
+NOTE: This is a custom set. A real "Final Fantasy" MTG set was released
+after my knowledge cutoff and may have different cards.
 """
 
 from src.engine import (
@@ -3342,7 +3345,7 @@ OPERA_HOUSE = make_land(
 # EXPORT DICTIONARY
 # =============================================================================
 
-FINAL_FANTASY_CARDS = {
+FINAL_FANTASY_CUSTOM_CARDS = {
     # WHITE - WHITE MAGES, HOLY, HEALING
     "Aerith Gainsborough, Flower Girl": AERITH_GAINSBOROUGH,
     "Aerith, Great Gospel": AERITH_GREAT_GOSPEL,

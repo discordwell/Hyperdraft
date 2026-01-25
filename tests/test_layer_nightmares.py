@@ -19,7 +19,7 @@ from src.engine import (
     get_power, get_toughness, Characteristics,
     make_creature, make_enchantment, new_id
 )
-from src.cards.lorwyn_eclipsed import LORWYN_ECLIPSED_CARDS
+from src.cards.custom.lorwyn_custom import LORWYN_CUSTOM_CARDS
 from src.cards.test_cards import GLORIOUS_ANTHEM
 
 
@@ -126,7 +126,7 @@ def test_godhead_of_awe_baseline():
     print(f"Before Godhead: {get_power(big_creature, game.state)}/{get_toughness(big_creature, game.state)}")
 
     # Add Godhead of Awe
-    godhead_def = LORWYN_ECLIPSED_CARDS["Godhead of Awe"]
+    godhead_def = LORWYN_CUSTOM_CARDS["Godhead of Awe"]
     godhead = game.create_object(
         name="Godhead of Awe",
         owner_id=p1.id,
@@ -178,7 +178,7 @@ def test_godhead_plus_anthem():
     )
 
     # Add Godhead
-    godhead_def = LORWYN_ECLIPSED_CARDS["Godhead of Awe"]
+    godhead_def = LORWYN_CUSTOM_CARDS["Godhead of Awe"]
     game.create_object(
         name="Godhead of Awe",
         owner_id=p1.id,
@@ -235,7 +235,7 @@ def test_godhead_plus_counters():
     print(f"4/4 with 1 counter (no Godhead): {get_power(creature, game.state)}/{get_toughness(creature, game.state)}")
 
     # Add Godhead - now it's 1/1 base, -1 counter = 0/0!
-    godhead_def = LORWYN_ECLIPSED_CARDS["Godhead of Awe"]
+    godhead_def = LORWYN_CUSTOM_CARDS["Godhead of Awe"]
     game.create_object(
         name="Godhead of Awe",
         owner_id=p1.id,
@@ -576,7 +576,7 @@ def test_painter_servant_color():
 
     # With Painter's Servant choosing blue, everything should also be blue
     # We have Painter's Servant in our set
-    painter_def = LORWYN_ECLIPSED_CARDS["Painter's Servant"]
+    painter_def = LORWYN_CUSTOM_CARDS["Painter's Servant"]
     print(f"\nPainter's Servant text: {painter_def.text}")
 
     # Note: Our simple engine doesn't fully implement color-changing yet
@@ -592,7 +592,7 @@ def test_multiple_lords_on_single_creature():
     p1 = game.add_player("Alice")
 
     # Create a Kithkin
-    kithkin_def = LORWYN_ECLIPSED_CARDS["Goldmeadow Nomad"]
+    kithkin_def = LORWYN_CUSTOM_CARDS["Goldmeadow Nomad"]
     kithkin = game.create_object(
         name="Goldmeadow Nomad",
         owner_id=p1.id,
@@ -606,7 +606,7 @@ def test_multiple_lords_on_single_creature():
     print(f"Base Kithkin: {base_power}/{base_toughness}")
 
     # Add 5 Champions of the Clachan (each gives +1/+1 to other Kithkin)
-    champion_def = LORWYN_ECLIPSED_CARDS["Champion of the Clachan"]
+    champion_def = LORWYN_CUSTOM_CARDS["Champion of the Clachan"]
     for i in range(5):
         game.create_object(
             name=f"Champion {i+1}",

@@ -11,7 +11,7 @@ from src.engine import (
     Game, Event, EventType, ZoneType, CardType,
     get_power, get_toughness, Characteristics
 )
-from src.cards.lorwyn_eclipsed import LORWYN_ECLIPSED_CARDS
+from src.cards.custom.lorwyn_custom import LORWYN_CUSTOM_CARDS
 from src.cards.test_cards import (
     SOUL_WARDEN, GLORIOUS_ANTHEM, RHOX_FAITHMENDER, FOG_BANK
 )
@@ -186,7 +186,7 @@ def test_counter_shenanigans():
     p1 = game.add_player("Alice")
 
     # Burdened Stoneback is 4/4 that enters with two -1/-1 counters (becomes 2/2)
-    card_def = LORWYN_ECLIPSED_CARDS["Burdened Stoneback"]
+    card_def = LORWYN_CUSTOM_CARDS["Burdened Stoneback"]
 
     creature = game.create_object(
         name="Burdened Stoneback",
@@ -234,7 +234,7 @@ def test_lord_stacking():
     p1 = game.add_player("Alice")
 
     # Create a base Kithkin
-    goldmeadow = LORWYN_ECLIPSED_CARDS["Goldmeadow Nomad"]
+    goldmeadow = LORWYN_CUSTOM_CARDS["Goldmeadow Nomad"]
     kithkin = game.create_object(
         name="Goldmeadow Nomad",
         owner_id=p1.id,
@@ -248,7 +248,7 @@ def test_lord_stacking():
     print(f"Base Kithkin: {base_power}/{base_toughness}")
 
     # Add TWO Champion of the Clachan (each gives other Kithkin +1/+1)
-    champion_def = LORWYN_ECLIPSED_CARDS["Champion of the Clachan"]
+    champion_def = LORWYN_CUSTOM_CARDS["Champion of the Clachan"]
     for i in range(2):
         game.create_object(
             name=f"Champion of the Clachan {i+1}",
@@ -372,7 +372,7 @@ def test_encumbered_reejerey_tap_spam():
     game = Game()
     p1 = game.add_player("Alice")
 
-    card_def = LORWYN_ECLIPSED_CARDS["Encumbered Reejerey"]
+    card_def = LORWYN_CUSTOM_CARDS["Encumbered Reejerey"]
     creature = game.create_object(
         name="Encumbered Reejerey",
         owner_id=p1.id,
@@ -574,7 +574,7 @@ def test_anthem_plus_counters():
     )
 
     # Burdened Stoneback: base 4/4, enters with 2 counters, + anthem = 3/3
-    card_def = LORWYN_ECLIPSED_CARDS["Burdened Stoneback"]
+    card_def = LORWYN_CUSTOM_CARDS["Burdened Stoneback"]
     creature = game.create_object(
         name="Burdened Stoneback",
         owner_id=p1.id,

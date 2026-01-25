@@ -7,9 +7,7 @@ Main rotation includes MTG Standard-legal sets.
 Custom/themed sets available separately via .custom module.
 """
 
-# Original/test sets
-from .edge_of_eternities import EDGE_OF_ETERNITIES_CARDS
-from .lorwyn_eclipsed import LORWYN_ECLIPSED_CARDS
+# Test sets
 from .test_cards import TEST_CARDS
 
 # MTG Standard rotation sets
@@ -33,10 +31,8 @@ def build_combined_registry() -> dict:
     """
     registry = {}
 
-    # Test/original sets
+    # Test sets
     registry.update(TEST_CARDS)
-    registry.update(EDGE_OF_ETERNITIES_CARDS)
-    registry.update(LORWYN_ECLIPSED_CARDS)
 
     # MTG Standard rotation
     registry.update(WILDS_OF_ELDRAINE_CARDS)
@@ -54,9 +50,7 @@ def build_combined_registry() -> dict:
 ALL_CARDS = build_combined_registry()
 
 __all__ = [
-    # Original sets
-    'EDGE_OF_ETERNITIES_CARDS',
-    'LORWYN_ECLIPSED_CARDS',
+    # Test sets
     'TEST_CARDS',
     # MTG Standard
     'WILDS_OF_ELDRAINE_CARDS',

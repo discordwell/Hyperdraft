@@ -1,8 +1,11 @@
 """
-Avatar: The Last Airbender (TLA) Card Implementations
+Avatar: The Last Airbender - Custom Card Set
 
-Set released November 21, 2025. 286 cards.
+Custom/fan-made set with 286 cards.
 Features mechanics: Airbend, Waterbend, Earthbend, Firebend, Lesson spells, Allies
+
+NOTE: This is a custom set. A real "Avatar: The Last Airbender" MTG set was released
+after my knowledge cutoff and may have different cards.
 """
 
 from src.engine import (
@@ -5478,7 +5481,7 @@ FOREST_TLA = make_land(
 # REGISTRY
 # =============================================================================
 
-AVATAR_TLA_CARDS = {
+AVATAR_TLA_CUSTOM_CARDS = {
     # WHITE
     "Aang's Iceberg": AANGS_ICEBERG,
     "Aang, the Last Airbender": AANG_THE_LAST_AIRBENDER,
@@ -5788,4 +5791,4 @@ AVATAR_TLA_CARDS = {
     "Spirit Bomb": SPIRIT_BOMB,
 }
 
-print(f"Loaded {len(AVATAR_TLA_CARDS)} Avatar: The Last Airbender cards")
+print(f"Loaded {len(AVATAR_TLA_CUSTOM_CARDS)} Avatar: The Last Airbender cards")

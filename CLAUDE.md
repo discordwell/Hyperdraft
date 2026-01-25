@@ -62,12 +62,22 @@ CARD_NAME = make_creature(
 - `creatures_you_control(obj)`
 
 ## Card Sets
-| Set | Cards | With Interceptors |
-|-----|-------|-------------------|
-| Lorwyn Eclipsed | 408 | 202 |
-| Avatar TLA | 286 | 151 |
-| Spider-Man | 198 | 103 |
-| Edge of Eternities | 276 | 113 |
+
+### MTG Standard Rotation
+Located in `src/cards/`. These may have partial accuracy issues.
+
+### Custom Sets (Fan-Made)
+Located in `src/cards/custom/`. These are explicitly fan-made content:
+
+| Set | Cards | Notes |
+|-----|-------|-------|
+| Lorwyn Custom | 408 | Fan-made Lorwyn-inspired set |
+| Temporal Horizons | 276 | Fan-made time-themed set |
+| Avatar TLA Custom | 286 | Fan-made Avatar crossover |
+| Spider-Man Custom | 198 | Fan-made Spider-Man crossover |
+| Final Fantasy Custom | 267 | Fan-made Final Fantasy crossover |
+| Star Wars | 274 | Original crossover |
+| + 13 more anime/game crossovers | ~3,400 | Original crossovers |
 
 ## Running Tests
 ```bash

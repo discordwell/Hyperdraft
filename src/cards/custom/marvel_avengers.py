@@ -48,7 +48,7 @@ def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, su
         text=text, setup_interceptors=setup_interceptors
     )
 
-def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, setup_interceptors=None):
+def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
     base_subtypes = {"Equipment"}
     if subtypes:
         base_subtypes.update(subtypes)
@@ -56,7 +56,7 @@ def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtyp
         name=name, mana_cost=mana_cost,
         characteristics=Characteristics(
             types={CardType.ARTIFACT}, subtypes=base_subtypes,
-            supertypes=set(), mana_cost=mana_cost
+            supertypes=supertypes or set(), mana_cost=mana_cost
         ),
         text=f"{text}\nEquip {equip_cost}", setup_interceptors=setup_interceptors
     )
