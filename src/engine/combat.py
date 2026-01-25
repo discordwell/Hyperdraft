@@ -23,6 +23,7 @@ from .queries import get_power, get_toughness, is_creature, has_ability
 if TYPE_CHECKING:
     from .turn import TurnManager, Step
     from .priority import PrioritySystem
+    from .pipeline import EventPipeline
 
 
 @dataclass
@@ -77,6 +78,7 @@ class CombatManager:
         # Other systems (set by Game class)
         self.turn_manager: Optional['TurnManager'] = None
         self.priority_system: Optional['PrioritySystem'] = None
+        self.pipeline: Optional['EventPipeline'] = None
 
         # Callbacks for getting player decisions
         self.get_attack_declarations: Optional[Callable[[str, list[str]], list[AttackDeclaration]]] = None
@@ -150,20 +152,24 @@ class CombatManager:
             # Tap attacking creature (unless vigilance)
             attacker = self.state.objects.get(decl.attacker_id)
             if attacker and not has_ability(attacker, 'vigilance', self.state):
-                events.append(Event(
+                tap_event = Event(
                     type=EventType.TAP,
                     payload={'object_id': decl.attacker_id}
-                ))
+                )
+                self._emit_event(tap_event)
+                events.append(tap_event)
 
             # Emit attack declared event
-            events.append(Event(
+            attack_event = Event(
                 type=EventType.ATTACK_DECLARED,
                 payload={
                     'attacker_id': decl.attacker_id,
                     'defending_player': decl.defending_player_id,
                     'is_attacking_planeswalker': decl.is_attacking_planeswalker
                 }
-            ))
+            )
+            self._emit_event(attack_event)
+            events.append(attack_event)
 
         # Priority after attackers declared
         if self.priority_system:
@@ -274,6 +280,11 @@ class CombatManager:
 
         return events
 
+    def _emit_event(self, event: Event) -> None:
+        """Emit an event through the pipeline if available."""
+        if self.pipeline:
+            self.pipeline.emit(event)
+
     async def _deal_combat_damage(
         self,
         creature_ids: list[str],
@@ -312,7 +323,7 @@ class CombatManager:
 
                     for target_id, amount in assignments:
                         if amount > 0:
-                            events.append(Event(
+                            event = Event(
                                 type=EventType.DAMAGE,
                                 payload={
                                     'target': target_id,
@@ -321,14 +332,16 @@ class CombatManager:
                                     'is_combat': True
                                 },
                                 source=attacker_decl.attacker_id
-                            ))
+                            )
+                            self._emit_event(event)
+                            events.append(event)
 
                     # Trample - excess damage to defending player
                     if has_ability(attacker, 'trample', self.state):
                         total_assigned = sum(a[1] for a in assignments)
                         excess = power - total_assigned
                         if excess > 0:
-                            events.append(Event(
+                            event = Event(
                                 type=EventType.DAMAGE,
                                 payload={
                                     'target': attacker_decl.defending_player_id,
@@ -337,10 +350,12 @@ class CombatManager:
                                     'is_combat': True
                                 },
                                 source=attacker_decl.attacker_id
-                            ))
+                            )
+                            self._emit_event(event)
+                            events.append(event)
             else:
                 # Unblocked - damage defending player/planeswalker
-                events.append(Event(
+                event = Event(
                     type=EventType.DAMAGE,
                     payload={
                         'target': attacker_decl.defending_player_id,
@@ -349,7 +364,9 @@ class CombatManager:
                         'is_combat': True
                     },
                     source=attacker_decl.attacker_id
-                ))
+                )
+                self._emit_event(event)
+                events.append(event)
 
         # Blockers deal damage
         for block_decl in self.combat_state.blockers:
@@ -367,7 +384,7 @@ class CombatManager:
             # Blocker deals damage to the attacker it's blocking
             attacker = self.state.objects.get(block_decl.blocking_attacker_id)
             if attacker and attacker.zone == ZoneType.BATTLEFIELD:
-                events.append(Event(
+                event = Event(
                     type=EventType.DAMAGE,
                     payload={
                         'target': block_decl.blocking_attacker_id,
@@ -376,7 +393,9 @@ class CombatManager:
                         'is_combat': True
                     },
                     source=block_decl.blocker_id
-                ))
+                )
+                self._emit_event(event)
+                events.append(event)
 
         return events
 

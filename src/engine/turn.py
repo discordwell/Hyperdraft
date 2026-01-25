@@ -21,6 +21,7 @@ from .types import (
 if TYPE_CHECKING:
     from .priority import PrioritySystem
     from .combat import CombatManager
+    from .pipeline import EventPipeline
 
 
 class Phase(Enum):
@@ -90,6 +91,7 @@ class TurnManager:
         # These will be set by the Game class
         self.priority_system: Optional['PrioritySystem'] = None
         self.combat_manager: Optional['CombatManager'] = None
+        self.pipeline: Optional['EventPipeline'] = None
 
         # Callbacks for game integration
         self.on_phase_change: Optional[Callable[[Phase, Phase], None]] = None
@@ -326,22 +328,30 @@ class TurnManager:
                 obj = self.state.objects.get(obj_id)
                 if obj and obj.controller == active_player and obj.state.tapped:
                     # Check for "doesn't untap" effects (would be an interceptor)
-                    events.append(Event(
+                    event = Event(
                         type=EventType.UNTAP,
                         payload={'object_id': obj_id}
-                    ))
+                    )
+                    # Emit the event through the pipeline to actually untap
+                    if self.pipeline:
+                        self.pipeline.emit(event)
+                    events.append(event)
 
         return events
 
     async def _do_draw_step(self) -> list[Event]:
         """Perform draw step action."""
-        return [Event(
+        event = Event(
             type=EventType.DRAW,
             payload={
                 'player': self.turn_state.active_player_id,
                 'count': 1
             }
-        )]
+        )
+        # Emit the event through the pipeline to actually draw
+        if self.pipeline:
+            self.pipeline.emit(event)
+        return [event]
 
     async def _do_cleanup_step(self) -> list[Event]:
         """Perform cleanup step actions."""

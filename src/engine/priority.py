@@ -431,8 +431,56 @@ class PrioritySystem:
 
     async def _check_state_based_actions(self) -> None:
         """Check and process state-based actions."""
-        # This would call the game's SBA checker
-        pass
+        from .queries import get_toughness, is_creature
+
+        # Loop until no more SBAs
+        while True:
+            found_sba = False
+
+            # Check player life totals
+            for player in self.state.players.values():
+                if player.life <= 0 and not player.has_lost:
+                    event = Event(
+                        type=EventType.PLAYER_LOSES,
+                        payload={'player': player.id, 'reason': 'life'}
+                    )
+                    self._emit_event(event)
+                    found_sba = True
+
+            # Check creature toughness
+            battlefield = self.state.zones.get('battlefield')
+            if battlefield:
+                for obj_id in list(battlefield.objects):
+                    obj = self.state.objects.get(obj_id)
+                    if not obj:
+                        continue
+
+                    if not is_creature(obj, self.state):
+                        continue
+
+                    toughness = get_toughness(obj, self.state)
+
+                    # Zero or less toughness
+                    if toughness <= 0:
+                        event = Event(
+                            type=EventType.OBJECT_DESTROYED,
+                            payload={'object_id': obj_id, 'reason': 'zero_toughness'}
+                        )
+                        self._emit_event(event)
+                        found_sba = True
+                        continue
+
+                    # Lethal damage
+                    if obj.state.damage >= toughness:
+                        event = Event(
+                            type=EventType.OBJECT_DESTROYED,
+                            payload={'object_id': obj_id, 'reason': 'lethal_damage'}
+                        )
+                        self._emit_event(event)
+                        found_sba = True
+
+            if not found_sba:
+                break
 
     async def _put_triggers_on_stack(self) -> None:
         """Put any waiting triggered abilities on the stack."""

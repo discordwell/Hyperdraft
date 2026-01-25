@@ -68,13 +68,15 @@ class Game:
         self.priority_system.mana_system = self.mana_system
         self.priority_system.pipeline = self.pipeline
 
-        # Turn manager needs priority and combat
+        # Turn manager needs priority, combat, and pipeline
         self.turn_manager.priority_system = self.priority_system
         self.turn_manager.combat_manager = self.combat_manager
+        self.turn_manager.pipeline = self.pipeline
 
-        # Combat manager needs turn and priority
+        # Combat manager needs turn, priority, and pipeline
         self.combat_manager.turn_manager = self.turn_manager
         self.combat_manager.priority_system = self.priority_system
+        self.combat_manager.pipeline = self.pipeline
 
     def add_player(self, name: str, life: int = 20) -> Player:
         """Add a player to the game."""
