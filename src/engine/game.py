@@ -733,6 +733,7 @@ def make_creature(
     supertypes: set[str] = None,
     colors: set = None,
     text: str = "",
+    abilities: list = None,
     setup_interceptors = None
 ) -> 'CardDefinition':
     """Helper to create creature card definitions."""
@@ -751,6 +752,7 @@ def make_creature(
             toughness=toughness
         ),
         text=text,
+        abilities=abilities or [],
         setup_interceptors=setup_interceptors
     )
 
@@ -760,6 +762,7 @@ def make_instant(
     mana_cost: str = "",
     colors: set = None,
     text: str = "",
+    abilities: list = None,
     resolve = None
 ) -> 'CardDefinition':
     """Helper to create instant card definitions."""
@@ -774,6 +777,7 @@ def make_instant(
             mana_cost=mana_cost
         ),
         text=text,
+        abilities=abilities or [],
         resolve=resolve
     )
 
@@ -785,6 +789,7 @@ def make_enchantment(
     subtypes: set = None,
     supertypes: set = None,
     text: str = "",
+    abilities: list = None,
     setup_interceptors = None
 ) -> 'CardDefinition':
     """Helper to create enchantment card definitions."""
@@ -801,5 +806,6 @@ def make_enchantment(
             mana_cost=mana_cost
         ),
         text=text,
+        abilities=abilities or [],
         setup_interceptors=setup_interceptors
     )
