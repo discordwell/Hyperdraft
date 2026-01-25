@@ -526,8 +526,49 @@ class ManaSystem:
             if land_obj.name in self.BASIC_LAND_MANA:
                 produces.append(self.BASIC_LAND_MANA[land_obj.name])
 
-        # TODO: Handle non-basic lands with mana abilities
-        # This would require parsing the land's abilities
+        # If still no mana production, parse text for tap mana abilities
+        if not produces and land_obj.card_def and land_obj.card_def.text:
+            produces = self._parse_mana_abilities_from_text(land_obj.card_def.text)
+
+        return produces
+
+    def _parse_mana_abilities_from_text(self, text: str) -> list[ManaType]:
+        """Parse mana production from land's rules text."""
+        import re
+        produces = []
+
+        if not text:
+            return produces
+
+        # Map mana symbols to ManaType
+        MANA_SYMBOL_MAP = {
+            'W': ManaType.WHITE,
+            'U': ManaType.BLUE,
+            'B': ManaType.BLACK,
+            'R': ManaType.RED,
+            'G': ManaType.GREEN,
+            'C': ManaType.COLORLESS,
+        }
+
+        # Match tap abilities: {T}: Add {X} or {T}: Add {X}{Y}...
+        # Pattern matches: {T}: Add {R}, {T}: Add {G}{G}, etc.
+        tap_add_pattern = r'\{T\}:\s*Add\s+(\{[WUBRGC]\}(?:\{[WUBRGC]\})*)'
+        matches = re.findall(tap_add_pattern, text)
+
+        for match in matches:
+            # Extract individual mana symbols from the match
+            symbols = re.findall(r'\{([WUBRGC])\}', match)
+            for symbol in symbols:
+                if symbol in MANA_SYMBOL_MAP:
+                    mana_type = MANA_SYMBOL_MAP[symbol]
+                    if mana_type not in produces:
+                        produces.append(mana_type)
+
+        # Also match "Add one mana of any color" pattern
+        if re.search(r'Add one mana of any color', text, re.IGNORECASE):
+            for mt in [ManaType.WHITE, ManaType.BLUE, ManaType.BLACK, ManaType.RED, ManaType.GREEN]:
+                if mt not in produces:
+                    produces.append(mt)
 
         return produces
 
