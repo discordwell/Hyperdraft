@@ -71,6 +71,9 @@ class EventType(Enum):
     QUERY_COLORS = auto()
     QUERY_ABILITIES = auto()
 
+    # Targeting
+    TARGET_REQUIRED = auto()  # Card requires a target to be chosen
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to

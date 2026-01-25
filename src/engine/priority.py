@@ -264,6 +264,12 @@ class PrioritySystem:
         if CardType.LAND in card.characteristics.types:
             return False
 
+        # Cards without a mana cost cannot be cast (back faces of transform cards, etc.)
+        # Note: {0} is a valid free cost, but "" or None means no mana cost defined
+        mana_cost_str = card.characteristics.mana_cost
+        if not mana_cost_str or mana_cost_str.strip() == "":
+            return False
+
         # Check timing restrictions
         is_instant = CardType.INSTANT in card.characteristics.types
         has_flash = False  # Would check for flash ability
@@ -284,7 +290,7 @@ class PrioritySystem:
                 return False
 
         # Check mana cost
-        cost = ManaCost.parse(card.characteristics.mana_cost or "")
+        cost = ManaCost.parse(mana_cost_str)
         if self.mana_system and not cost.is_free():
             if not self.mana_system.can_cast(player_id, cost):
                 return False
