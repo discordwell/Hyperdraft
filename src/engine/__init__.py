@@ -29,7 +29,7 @@ from .types import (
     CardType, Color, ZoneType,
 
     # Other
-    Player, Zone, GameState, CardDefinition,
+    Player, Zone, GameState, CardDefinition, CardFace,
 )
 
 from .pipeline import EventPipeline
@@ -118,7 +118,7 @@ __all__ = [
     'CardType', 'Color', 'ZoneType',
 
     # Other
-    'Player', 'Zone', 'GameState', 'CardDefinition',
+    'Player', 'Zone', 'GameState', 'CardDefinition', 'CardFace',
 
     # Pipeline
     'EventPipeline',

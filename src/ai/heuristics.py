@@ -130,14 +130,63 @@ class Heuristics:
         - We would trade favorably
         - We're at low life and need to block
         - Blocker is worth less than the damage prevented
+
+        Considers:
+        - First strike: attacker kills blocker before blocker deals damage
+        - Deathtouch: any damage is lethal
+        - Trample: chump blocking only prevents toughness worth of damage
         """
+        from src.engine import has_ability
+
         blocker_power = Heuristics._get_creature_power(blocker, state)
         blocker_toughness = Heuristics._get_creature_toughness(blocker, state)
         attacker_power = Heuristics._get_creature_power(attacker, state)
         attacker_toughness = Heuristics._get_creature_toughness(attacker, state)
 
-        blocker_dies = attacker_power >= blocker_toughness
-        attacker_dies = blocker_power >= attacker_toughness
+        # Check for combat keywords
+        attacker_first_strike = has_ability(attacker, 'first strike', state) or has_ability(attacker, 'double strike', state)
+        blocker_first_strike = has_ability(blocker, 'first strike', state) or has_ability(blocker, 'double strike', state)
+        attacker_deathtouch = has_ability(attacker, 'deathtouch', state)
+        blocker_deathtouch = has_ability(blocker, 'deathtouch', state)
+        attacker_trample = has_ability(attacker, 'trample', state)
+
+        # Calculate if creatures die, accounting for deathtouch
+        # Deathtouch: any damage is lethal
+        if attacker_deathtouch:
+            blocker_dies = attacker_power >= 1  # Any damage kills
+        else:
+            blocker_dies = attacker_power >= blocker_toughness
+
+        if blocker_deathtouch:
+            attacker_dies = blocker_power >= 1  # Any damage kills
+        else:
+            attacker_dies = blocker_power >= attacker_toughness
+
+        # First strike check: if attacker has first strike and we don't,
+        # and attacker kills us, we die before dealing damage
+        if attacker_first_strike and not blocker_first_strike and blocker_dies:
+            # We die before dealing damage - only block if:
+            # 1. We're about to die anyway (lethal on board)
+            # 2. We have deathtouch and will trade (first strike doesn't help vs deathtouch if we have it too... wait, it does)
+            # Actually if attacker has first strike and kills us, we don't deal damage back
+            # So this is a bad block UNLESS we also have first strike
+            # Exception: if damage is lethal to us, we must chump
+            if attacker_power >= my_life:
+                return True  # Must block or die
+            return False  # Don't block into first strike
+
+        # Deathtouch blocker: always want to trade with big creatures
+        if blocker_deathtouch and blocker_power >= 1:
+            # We kill anything we deal damage to
+            # Block if attacker is valuable enough to trade for
+            attacker_value = Heuristics._creature_combat_value(attacker, state)
+            blocker_value = Heuristics._creature_combat_value(blocker, state)
+            # Deathtouch creatures WANT to trade up
+            if attacker_value > blocker_value:
+                return True
+            # Even trade is fine for deathtouch vs big creature
+            if attacker_power + attacker_toughness > blocker_power + blocker_toughness:
+                return True
 
         # Always block if we kill the attacker and survive
         if attacker_dies and not blocker_dies:
@@ -150,6 +199,17 @@ class Heuristics:
             blocker_value = Heuristics._creature_combat_value(blocker, state)
             if attacker_value >= blocker_value:
                 return True
+
+        # Trample consideration: chump blocking only prevents blocker_toughness damage
+        if attacker_trample and not attacker_dies:
+            damage_prevented = blocker_toughness
+            trample_damage = attacker_power - blocker_toughness
+            # Don't chump if we only prevent small damage and lose a creature
+            if damage_prevented <= 1 and blocker_dies:
+                # Only chump trample if lethal
+                if trample_damage >= my_life:
+                    return True  # Must reduce damage or die
+                return False  # Not worth losing creature for 1 life
 
         # Chump block if at low life
         if my_life <= Heuristics.CRITICAL_LIFE_THRESHOLD:
@@ -342,6 +402,10 @@ class Heuristics:
         if has_ability(creature, 'indestructible', state):
             value += 3.0
 
+        # Mana ability bonus - creatures that tap for mana are valuable
+        if Heuristics._has_mana_ability(creature):
+            value += 2.0  # Mana dorks are worth ~2 extra value
+
         return value
 
     @staticmethod
@@ -365,3 +429,28 @@ class Heuristics:
             value += 0.5
 
         return value
+
+    @staticmethod
+    def _has_mana_ability(card: 'GameObject') -> bool:
+        """Check if a card has a mana-producing ability."""
+        if not card.card_def or not card.card_def.text:
+            return False
+
+        text = card.card_def.text.lower()
+
+        # Common mana ability patterns
+        mana_patterns = [
+            '{t}: add {',      # {T}: Add {G}
+            '{t}: add one',    # {T}: Add one mana of any color
+            'tap: add',        # Tap: Add {G}
+            'for mana',        # "tap for mana"
+            'add one mana',    # Add one mana
+            'add {c}',         # Add colorless
+            'add {w}', 'add {u}', 'add {b}', 'add {r}', 'add {g}',
+        ]
+
+        for pattern in mana_patterns:
+            if pattern in text:
+                return True
+
+        return False
