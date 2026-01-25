@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+"""
+Test framework for playing netdecks against the AI.
+Simulates a human player making decisions against the hard AI.
+"""
+
+import urllib.request
+import json
+import time
+import sys
+
+BASE_URL = "http://localhost:8000/api/match"
+
+# Competitive Mono-Red Aggro deck (based on Standard RDW)
+MONO_RED_AGGRO = [
+    # 1-drops (16)
+    "Monastery Swiftspear", "Monastery Swiftspear", "Monastery Swiftspear", "Monastery Swiftspear",
+    "Goblin Guide", "Goblin Guide", "Goblin Guide", "Goblin Guide",
+    "Fervent Champion", "Fervent Champion", "Fervent Champion", "Fervent Champion",
+    "Raging Goblin", "Raging Goblin", "Raging Goblin", "Raging Goblin",
+    # 2-drops (8)
+    "Embereth Veteran", "Embereth Veteran", "Embereth Veteran", "Embereth Veteran",
+    "Torch Runner", "Torch Runner", "Torch Runner", "Torch Runner",
+    # Burn spells (16)
+    "Lightning Bolt", "Lightning Bolt", "Lightning Bolt", "Lightning Bolt",
+    "Shock", "Shock", "Shock", "Shock",
+    "Lightning Strike", "Lightning Strike", "Lightning Strike", "Lightning Strike",
+    "Monstrous Rage", "Monstrous Rage", "Monstrous Rage", "Monstrous Rage",
+    # Lands (20)
+    "Mountain", "Mountain", "Mountain", "Mountain", "Mountain",
+    "Mountain", "Mountain", "Mountain", "Mountain", "Mountain",
+    "Mountain", "Mountain", "Mountain", "Mountain", "Mountain",
+    "Mountain", "Mountain", "Mountain", "Mountain", "Mountain",
+]
+
+# Dimir Control deck
+DIMIR_CONTROL = [
+    # Creatures (8)
+    "Fog Bank", "Fog Bank", "Fog Bank", "Fog Bank",
+    "Slickshot Show-Off", "Slickshot Show-Off", "Slickshot Show-Off", "Slickshot Show-Off",
+    # Counterspells (12)
+    "Counterspell", "Counterspell", "Counterspell", "Counterspell",
+    "Mana Leak", "Mana Leak", "Mana Leak", "Mana Leak",
+    "Essence Scatter", "Essence Scatter", "Essence Scatter", "Essence Scatter",
+    # Removal (8)
+    "Go for the Throat", "Go for the Throat", "Go for the Throat", "Go for the Throat",
+    "Torch the Tower", "Torch the Tower", "Torch the Tower", "Torch the Tower",
+    # Card draw (8)
+    "Brainstorm", "Brainstorm", "Brainstorm", "Brainstorm",
+    "Deduce", "Deduce", "Deduce", "Deduce",
+    # Lands (24)
+    "Island", "Island", "Island", "Island", "Island",
+    "Island", "Island", "Island", "Island", "Island",
+    "Island", "Island",
+    "Swamp", "Swamp", "Swamp", "Swamp", "Swamp",
+    "Swamp", "Swamp", "Swamp", "Swamp", "Swamp",
+    "Swamp", "Swamp",
+]
+
+
+def create_match(player_deck, ai_deck):
+    """Create a new match with specified decks."""
+    payload = {
+        "player_name": "TestPlayer",
+        "player_deck": player_deck,
+        "ai_deck": ai_deck,
+    }
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(
+        f"{BASE_URL}/create",
+        data=data,
+        headers={'Content-Type': 'application/json'}
+    )
+    with urllib.request.urlopen(req) as response:
+        return json.loads(response.read().decode())
+
+
+def start_match(match_id):
+    """Start a match."""
+    req = urllib.request.Request(f"{BASE_URL}/{match_id}/start", method='POST')
+    with urllib.request.urlopen(req) as response:
+        return json.loads(response.read().decode())
+
+
+def get_state(match_id, player_id):
+    """Get current game state."""
+    url = f"{BASE_URL}/{match_id}/state?player_id={player_id}"
+    with urllib.request.urlopen(url) as response:
+        return json.loads(response.read().decode())
+
+
+def do_action(match_id, player_id, action_type, card_id=None, targets=None):
+    """Perform an action."""
+    payload = {
+        "action_type": action_type,
+        "player_id": player_id
+    }
+    if card_id:
+        payload["card_id"] = card_id
+    if targets:
+        payload["targets"] = targets
+
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(
+        f"{BASE_URL}/{match_id}/action",
+        data=data,
+        headers={'Content-Type': 'application/json'}
+    )
+    with urllib.request.urlopen(req) as response:
+        result = json.loads(response.read().decode())
+        return result.get("new_state", result)
+
+
+def print_state(state, player_id, verbose=True):
+    """Print game state summary."""
+    me = state["players"][player_id]
+    opp_id = [p for p in state["players"] if p != player_id][0]
+    opp = state["players"][opp_id]
+
+    print(f"\n{'='*60}")
+    print(f"Turn {state['turn_number']} | {state['phase']}/{state['step']}")
+    print(f"Active: {'ME' if state['active_player'] == player_id else 'OPP'} | Priority: {'ME' if state['priority_player'] == player_id else 'OPP'}")
+    print(f"{'='*60}")
+    print(f"LIFE: Me={me['life']} | Opp={opp['life']}")
+    print(f"LIBRARY: Me={me['library_size']} | Opp={opp['library_size']}")
+
+    # Battlefield
+    my_perms = [p for p in state["battlefield"] if p["controller"] == player_id]
+    opp_perms = [p for p in state["battlefield"] if p["controller"] == opp_id]
+
+    my_lands = [p for p in my_perms if "LAND" in p["types"]]
+    my_creatures = [p for p in my_perms if "CREATURE" in p["types"]]
+    opp_lands = [p for p in opp_perms if "LAND" in p["types"]]
+    opp_creatures = [p for p in opp_perms if "CREATURE" in p["types"]]
+
+    untapped_lands = len([l for l in my_lands if not l["tapped"]])
+    tapped_lands = len([l for l in my_lands if l["tapped"]])
+
+    print(f"\nMY BOARD:")
+    print(f"  Lands: {untapped_lands} untapped, {tapped_lands} tapped")
+    if my_creatures:
+        for c in my_creatures:
+            status = " (tapped)" if c["tapped"] else ""
+            print(f"  - {c['name']} {c['power']}/{c['toughness']}{status}")
+
+    print(f"\nOPP BOARD:")
+    print(f"  Lands: {len([l for l in opp_lands if not l['tapped']])} untapped, {len([l for l in opp_lands if l['tapped']])} tapped")
+    if opp_creatures:
+        for c in opp_creatures:
+            status = " (tapped)" if c["tapped"] else ""
+            print(f"  - {c['name']} {c['power']}/{c['toughness']}{status}")
+
+    # Hand
+    print(f"\nMY HAND ({len(state['hand'])}):")
+    for i, card in enumerate(state['hand']):
+        print(f"  [{i}] {card['name']} - {card['mana_cost']}")
+
+    # Stack
+    if state["stack"]:
+        print(f"\nSTACK:")
+        for item in state["stack"]:
+            print(f"  - {item.get('source_name', 'Unknown')}")
+
+    # Legal actions
+    if verbose and state["legal_actions"]:
+        print(f"\nLEGAL ACTIONS:")
+        for i, action in enumerate(state["legal_actions"]):
+            print(f"  [{i}] {action['type']}: {action['description']}")
+
+
+def smart_play(state, player_id):
+    """
+    Make intelligent plays for mono-red aggro.
+    Returns (action_type, card_id, targets) or None for pass.
+    """
+    if state["priority_player"] != player_id:
+        return ("PASS", None, None)
+
+    legal = state["legal_actions"]
+    action_types = [a["type"] for a in legal]
+    phase = state["phase"]
+    active = state["active_player"]
+
+    opp_id = [p for p in state["players"] if p != player_id][0]
+    opp_life = state["players"][opp_id]["life"]
+
+    # Get my available mana (count untapped lands)
+    my_lands = [p for p in state["battlefield"]
+                if p["controller"] == player_id and "LAND" in p["types"] and not p["tapped"]]
+    available_mana = len(my_lands)
+
+    # Main phase logic
+    if phase in ["PRECOMBAT_MAIN", "POSTCOMBAT_MAIN"] and active == player_id:
+        # Play a land first
+        land_actions = [a for a in legal if a["type"] == "PLAY_LAND"]
+        if land_actions:
+            return ("PLAY_LAND", land_actions[0]["card_id"], None)
+
+        # Cast creatures (prioritize by mana cost - play cheap ones first)
+        cast_actions = [a for a in legal if a["type"] == "CAST_SPELL"]
+        creature_casts = []
+        for ca in cast_actions:
+            card = next((c for c in state["hand"] if c["id"] == ca["card_id"]), None)
+            if card and "CREATURE" in card["types"]:
+                # Count mana cost
+                cost = card["mana_cost"].count('{')
+                creature_casts.append((cost, ca, card))
+
+        # Sort by cost (cheapest first)
+        creature_casts.sort(key=lambda x: x[0])
+        if creature_casts:
+            _, action, card = creature_casts[0]
+            return ("CAST_SPELL", action["card_id"], None)
+
+        # Cast burn at opponent's face if they're low
+        for ca in cast_actions:
+            card = next((c for c in state["hand"] if c["id"] == ca["card_id"]), None)
+            if card and "INSTANT" in card["types"]:
+                # Check if it's a burn spell
+                if "damage" in card.get("text", "").lower() or card["name"] in ["Lightning Bolt", "Shock", "Lightning Strike"]:
+                    # Target opponent
+                    return ("CAST_SPELL", ca["card_id"], [[opp_id]])
+
+    # Combat - attack with everything
+    # (Combat is handled automatically by the AI system for human players via callbacks)
+
+    return ("PASS", None, None)
+
+
+def run_game(verbose=True):
+    """Run a full game with smart plays."""
+    print("Creating match...")
+    result = create_match(MONO_RED_AGGRO, DIMIR_CONTROL)
+    match_id = result["match_id"]
+    player_id = result["player_id"]
+    print(f"Match ID: {match_id}, Player ID: {player_id}")
+
+    print("Starting match...")
+    start_match(match_id)
+    time.sleep(0.5)
+
+    state = get_state(match_id, player_id)
+    last_turn = 0
+    action_count = 0
+    max_actions = 500
+
+    print("\n" + "="*60)
+    print("GAME START - Mono-Red Aggro vs Dimir Control")
+    print("="*60)
+
+    while not state.get("is_game_over") and action_count < max_actions:
+        # Print state on turn change
+        if state["turn_number"] != last_turn:
+            if verbose:
+                print_state(state, player_id, verbose=False)
+            last_turn = state["turn_number"]
+
+        # Make a play
+        action_type, card_id, targets = smart_play(state, player_id)
+
+        if verbose and action_type != "PASS":
+            if card_id:
+                card = next((c for c in state["hand"] if c["id"] == card_id), None)
+                if card:
+                    print(f"  >> Playing: {card['name']}")
+                else:
+                    print(f"  >> Action: {action_type}")
+
+        try:
+            state = do_action(match_id, player_id, action_type, card_id, targets)
+        except Exception as e:
+            print(f"Error: {e}")
+            # Try to recover
+            state = do_action(match_id, player_id, "PASS")
+
+        action_count += 1
+        time.sleep(0.01)
+
+    # Final state
+    print("\n" + "="*60)
+    print("GAME OVER")
+    print("="*60)
+    print_state(state, player_id, verbose=True)
+
+    me = state["players"][player_id]
+    opp_id = [p for p in state["players"] if p != player_id][0]
+    opp = state["players"][opp_id]
+
+    if state.get("is_game_over"):
+        winner = state.get("winner")
+        if winner == player_id:
+            print("\n*** VICTORY! ***")
+        elif winner:
+            print("\n*** DEFEAT ***")
+        else:
+            print("\n*** DRAW ***")
+    else:
+        print(f"\nGame did not complete after {action_count} actions")
+
+    print(f"Final: Me={me['life']} vs Opp={opp['life']}")
+    print(f"Total actions: {action_count}")
+
+    return state
+
+
+if __name__ == "__main__":
+    run_game(verbose=True)

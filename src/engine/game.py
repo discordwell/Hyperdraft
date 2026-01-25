@@ -58,6 +58,9 @@ class Game:
         self.on_game_event: Optional[Callable[[Event], None]] = None
         self.on_state_change: Optional[Callable[[GameState], None]] = None
 
+        # Mulligan handler: (player_id, hand, mulligan_count) -> bool (True = keep)
+        self.get_mulligan_decision: Optional[Callable[[str, list[GameObject], int], bool]] = None
+
         self._setup_system_interceptors()
 
     def _connect_subsystems(self):
@@ -263,11 +266,119 @@ class Game:
         player_ids = list(self.state.players.keys())
         self.turn_manager.set_turn_order(player_ids)
 
-        # Draw starting hands (7 cards each)
+        # Draw starting hands and handle mulligans (London Mulligan)
         for player_id in player_ids:
-            self.draw_cards(player_id, 7)
+            await self._resolve_mulligans(player_id)
 
         await self.turn_manager.start_game()
+
+    async def _resolve_mulligans(self, player_id: str) -> None:
+        """
+        Handle mulligan decisions for a player using London Mulligan rules.
+
+        London Mulligan:
+        1. Draw 7 cards
+        2. Decide to keep or mulligan
+        3. If mulligan: shuffle hand back, draw 7, repeat
+        4. After keeping: put X cards on bottom (X = number of mulligans taken)
+        """
+        mulligan_count = 0
+        max_mulligans = 7  # Can't mulligan more than 7 times
+
+        while mulligan_count < max_mulligans:
+            # Draw 7 cards
+            self.draw_cards(player_id, 7)
+
+            # Get the hand
+            hand = self.get_hand(player_id)
+
+            # Check if player wants to mulligan
+            keep = True
+            if self.get_mulligan_decision:
+                keep = self.get_mulligan_decision(player_id, hand, mulligan_count)
+            else:
+                # Default: keep any hand with at least 2 lands and 1 spell
+                keep = self._default_mulligan_decision(hand, mulligan_count)
+
+            if keep:
+                # Put X cards on bottom of library (X = mulligan count)
+                if mulligan_count > 0:
+                    self._put_cards_on_bottom(player_id, mulligan_count)
+                break
+            else:
+                # Shuffle hand back into library
+                self._shuffle_hand_into_library(player_id)
+                mulligan_count += 1
+
+    def _default_mulligan_decision(self, hand: list[GameObject], mulligan_count: int) -> bool:
+        """Default mulligan logic: keep hands with 2-5 lands."""
+        if mulligan_count >= 4:
+            # Keep anything at 3 cards or fewer
+            return True
+
+        land_count = sum(1 for card in hand if CardType.LAND in card.characteristics.types)
+
+        # Keep hands with 2-5 lands
+        if 2 <= land_count <= 5:
+            return True
+
+        return False
+
+    def _shuffle_hand_into_library(self, player_id: str) -> None:
+        """Shuffle a player's hand back into their library."""
+        import random
+        hand_key = f"hand_{player_id}"
+        library_key = f"library_{player_id}"
+
+        hand = self.state.zones.get(hand_key)
+        library = self.state.zones.get(library_key)
+
+        if hand and library:
+            # Move all cards from hand to library
+            library.objects.extend(hand.objects)
+            hand.objects.clear()
+            # Shuffle library
+            random.shuffle(library.objects)
+
+    def _put_cards_on_bottom(self, player_id: str, count: int) -> None:
+        """
+        Let player put cards from hand on bottom of library.
+
+        For AI/auto: puts the worst cards (lands if too many, expensive spells otherwise).
+        """
+        hand_key = f"hand_{player_id}"
+        library_key = f"library_{player_id}"
+
+        hand = self.state.zones.get(hand_key)
+        library = self.state.zones.get(library_key)
+
+        if not hand or not library or count <= 0:
+            return
+
+        hand_cards = [self.state.objects[oid] for oid in hand.objects if oid in self.state.objects]
+
+        # Score cards (lower = bottom first)
+        # Lands are medium, cheap spells are good, expensive spells go to bottom
+        def card_score(card: GameObject) -> float:
+            if CardType.LAND in card.characteristics.types:
+                # Count lands in hand
+                land_count = sum(1 for c in hand_cards if CardType.LAND in c.characteristics.types)
+                if land_count > 3:
+                    return -10  # Too many lands, bottom them
+                return 5  # Keep lands
+
+            # Non-land: score by CMC (lower CMC = higher score)
+            cmc = card.characteristics.mana_cost.count('{')
+            return 10 - cmc
+
+        # Sort by score, take the worst ones
+        hand_cards.sort(key=card_score)
+        cards_to_bottom = hand_cards[:count]
+
+        for card in cards_to_bottom:
+            if card.id in hand.objects:
+                hand.objects.remove(card.id)
+                library.objects.insert(0, card.id)  # Insert at bottom
 
     async def run_game(self) -> str:
         """
@@ -331,6 +442,18 @@ class Game:
     ) -> None:
         """Set the handler for getting block declarations."""
         self.combat_manager.get_block_declarations = handler
+
+    def set_mulligan_handler(
+        self,
+        handler: Callable[[str, list[GameObject], int], bool]
+    ) -> None:
+        """
+        Set the handler for mulligan decisions.
+
+        Handler receives: (player_id, hand_cards, mulligan_count)
+        Returns: True to keep, False to mulligan
+        """
+        self.get_mulligan_decision = handler
 
     # =========================================================================
     # Deck Building
@@ -659,6 +782,8 @@ def make_enchantment(
     name: str,
     mana_cost: str = "",
     colors: set = None,
+    subtypes: set = None,
+    supertypes: set = None,
     text: str = "",
     setup_interceptors = None
 ) -> 'CardDefinition':
@@ -670,6 +795,8 @@ def make_enchantment(
         mana_cost=mana_cost,
         characteristics=Characteristics(
             types={CardType.ENCHANTMENT},
+            subtypes=subtypes or set(),
+            supertypes=supertypes or set(),
             colors=colors or set(),
             mana_cost=mana_cost
         ),
