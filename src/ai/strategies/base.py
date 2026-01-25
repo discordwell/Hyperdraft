@@ -30,6 +30,22 @@ class AIStrategy(ABC):
         """Return the strategy name."""
         pass
 
+    @property
+    def reactivity(self) -> float:
+        """
+        How reactive this strategy is (0.0-1.0).
+
+        Higher values mean the AI will:
+        - Hold mana for instant-speed responses
+        - Counter more spells
+        - Use instant removal more aggressively
+        - Value combat tricks higher
+
+        Returns:
+            Float from 0.0 (fully proactive) to 1.0 (fully reactive)
+        """
+        return 0.5  # Default: balanced
+
     @abstractmethod
     def evaluate_action(
         self,

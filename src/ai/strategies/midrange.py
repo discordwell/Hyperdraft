@@ -32,6 +32,11 @@ class MidrangeStrategy(AIStrategy):
     def name(self) -> str:
         return "Midrange"
 
+    @property
+    def reactivity(self) -> float:
+        """Midrange adapts - moderate reactivity."""
+        return 0.6
+
     def evaluate_action(
         self,
         action: 'LegalAction',

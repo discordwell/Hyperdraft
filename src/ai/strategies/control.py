@@ -33,6 +33,11 @@ class ControlStrategy(AIStrategy):
     def name(self) -> str:
         return "Control"
 
+    @property
+    def reactivity(self) -> float:
+        """Control is highly reactive - holds mana and counters threats."""
+        return 0.9
+
     def evaluate_action(
         self,
         action: 'LegalAction',

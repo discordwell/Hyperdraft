@@ -33,6 +33,11 @@ class AggroStrategy(AIStrategy):
     def name(self) -> str:
         return "Aggro"
 
+    @property
+    def reactivity(self) -> float:
+        """Aggro prefers proactive plays - minimal reaction."""
+        return 0.3
+
     def evaluate_action(
         self,
         action: 'LegalAction',
