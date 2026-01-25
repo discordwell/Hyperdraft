@@ -11,17 +11,18 @@ from src.engine import (
     GameObject, GameState, ZoneType, CardType, Color,
     Characteristics, ObjectState, CardDefinition,
     make_creature, make_instant, make_enchantment,
-    new_id, get_power, get_toughness
+    new_id, get_power, get_toughness,
+    # New ability system imports
+    TriggeredAbility, StaticAbility, KeywordAbility,
+    ETBTrigger, DeathTrigger, AttackTrigger, DealsDamageTrigger,
+    UpkeepTrigger, SpellCastTrigger, DrawTrigger,
+    GainLife, LoseLife, DrawCards, DealDamage, AddCounters, CompositeEffect,
+    DiscardCards, Scry, CreateToken,
+    PTBoost, KeywordGrant,
+    OtherCreaturesYouControlFilter, CreaturesWithSubtypeFilter, CreaturesYouControlFilter,
+    EachOpponentTarget,
 )
 from typing import Optional, Callable
-from src.cards.interceptor_helpers import (
-    make_etb_trigger, make_death_trigger, make_attack_trigger,
-    make_damage_trigger, make_static_pt_boost, make_keyword_grant,
-    other_creatures_you_control, creatures_with_subtype,
-    make_spell_cast_trigger, make_upkeep_trigger, make_end_step_trigger,
-    make_life_gain_trigger, make_life_loss_trigger, creatures_you_control,
-    other_creatures_with_subtype, all_opponents
-)
 
 
 # =============================================================================
@@ -44,7 +45,7 @@ def make_sorcery(name: str, mana_cost: str, colors: set, text: str, subtypes: se
     )
 
 
-def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
+def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, abilities: list = None):
     return CardDefinition(
         name=name,
         mana_cost=mana_cost,
@@ -55,12 +56,12 @@ def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, su
             mana_cost=mana_cost
         ),
         text=text,
-        setup_interceptors=setup_interceptors
+        abilities=abilities
     )
 
 
 def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str, colors: set, text: str,
-                           subtypes: set = None, supertypes: set = None, setup_interceptors=None):
+                           subtypes: set = None, supertypes: set = None, abilities: list = None):
     return CardDefinition(
         name=name,
         mana_cost=mana_cost,
@@ -74,11 +75,11 @@ def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str
             toughness=toughness
         ),
         text=text,
-        setup_interceptors=setup_interceptors
+        abilities=abilities
     )
 
 
-def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
+def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, supertypes: set = None, abilities: list = None):
     base_subtypes = {"Equipment"}
     if subtypes:
         base_subtypes.update(subtypes)
@@ -92,7 +93,7 @@ def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtyp
             mana_cost=mana_cost
         ),
         text=f"{text}\nEquip {equip_cost}",
-        setup_interceptors=setup_interceptors
+        abilities=abilities
     )
 
 
@@ -111,7 +112,7 @@ def make_land(name: str, text: str = "", subtypes: set = None, supertypes: set =
 
 
 # =============================================================================
-# ZELDA KEYWORD MECHANICS
+# ZELDA KEYWORD MECHANICS (Set-specific, kept as interceptor-based)
 # =============================================================================
 
 def make_dungeon_trigger(source_obj: GameObject, room_count: int, effect_fn: Callable[[Event, GameState], list[Event]]) -> Interceptor:
@@ -154,6 +155,7 @@ def make_dungeon_trigger(source_obj: GameObject, room_count: int, effect_fn: Cal
 def make_triforce_bonus(source_obj: GameObject, power_bonus: int, toughness_bonus: int, pieces_required: int = 3) -> list[Interceptor]:
     """
     Triforce - This creature gets +X/+Y as long as you control N or more artifacts with 'Triforce' in their name.
+    This is a set-specific mechanic that requires custom interceptor logic.
     """
     def triforce_filter(target: GameObject, state: GameState) -> bool:
         if target.id != source_obj.id:
@@ -165,38 +167,95 @@ def make_triforce_bonus(source_obj: GameObject, power_bonus: int, toughness_bonu
                             and 'Triforce' in obj.characteristics.name)
         return triforce_count >= pieces_required
 
-    return make_static_pt_boost(source_obj, power_bonus, toughness_bonus, triforce_filter)
+    # Manual interceptor creation for Triforce mechanic
+    interceptors = []
+
+    if power_bonus != 0:
+        def power_filter(event, state, src=source_obj, flt=triforce_filter):
+            if event.type != EventType.QUERY_POWER:
+                return False
+            target_id = event.payload.get('object_id')
+            target = state.objects.get(target_id)
+            if not target:
+                return False
+            return flt(target, state)
+
+        def power_handler(event, state, mod=power_bonus):
+            current = event.payload.get('value', 0)
+            new_event = event.copy()
+            new_event.payload['value'] = current + mod
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=source_obj.id,
+            controller=source_obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=power_filter,
+            handler=power_handler,
+            duration='while_on_battlefield'
+        ))
+
+    if toughness_bonus != 0:
+        def toughness_filter(event, state, src=source_obj, flt=triforce_filter):
+            if event.type != EventType.QUERY_TOUGHNESS:
+                return False
+            target_id = event.payload.get('object_id')
+            target = state.objects.get(target_id)
+            if not target:
+                return False
+            return flt(target, state)
+
+        def toughness_handler(event, state, mod=toughness_bonus):
+            current = event.payload.get('value', 0)
+            new_event = event.copy()
+            new_event.payload['value'] = current + mod
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=source_obj.id,
+            controller=source_obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=toughness_filter,
+            handler=toughness_handler,
+            duration='while_on_battlefield'
+        ))
+
+    return interceptors
 
 
-def make_heart_container(source_obj: GameObject, life_amount: int) -> Interceptor:
-    """
-    Heart Container - When this permanent enters, you gain N life.
-    """
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': source_obj.controller, 'amount': life_amount}, source=source_obj.id)]
-    return make_etb_trigger(source_obj, etb_effect)
+def make_heart_container_ability(life_amount: int) -> TriggeredAbility:
+    """Heart Container - When this permanent enters, you gain N life."""
+    return TriggeredAbility(
+        trigger=ETBTrigger(),
+        effect=GainLife(life_amount)
+    )
 
 
-def hylian_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Hylian")
+# Legacy setup function for cards that need Triforce or Dungeon mechanics
+def _triforce_and_etb_setup(triforce_power: int, triforce_toughness: int, triforce_required: int, etb_effect):
+    """Helper for cards with both Triforce bonus and ETB trigger."""
+    def setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        interceptors = []
+        interceptors.extend(make_triforce_bonus(obj, triforce_power, triforce_toughness, triforce_required))
+        # ETB effect handled by abilities system
+        return interceptors
+    return setup
 
-def zora_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Zora")
 
-def goron_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Goron")
+def _triforce_setup(triforce_power: int, triforce_toughness: int, triforce_required: int):
+    """Helper for cards with only Triforce bonus."""
+    def setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        return make_triforce_bonus(obj, triforce_power, triforce_toughness, triforce_required)
+    return setup
 
-def gerudo_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Gerudo")
 
-def kokiri_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Kokiri")
-
-def sheikah_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Sheikah")
-
-def rito_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Rito")
+def _dungeon_setup(room_count: int, effect_fn):
+    """Helper for cards with Dungeon mechanic."""
+    def setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        return [make_dungeon_trigger(obj, room_count, effect_fn)]
+    return setup
 
 
 # =============================================================================
@@ -205,14 +264,6 @@ def rito_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
 
 # --- Legendary Creatures ---
 
-def zelda_princess_of_hyrule_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors = []
-    interceptors.extend(make_triforce_bonus(obj, 2, 2, 2))
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3}, source=obj.id)]
-    interceptors.append(make_etb_trigger(obj, etb_effect))
-    return interceptors
-
 ZELDA_PRINCESS_OF_HYRULE = make_creature(
     name="Zelda, Princess of Hyrule",
     power=2, toughness=4,
@@ -220,15 +271,12 @@ ZELDA_PRINCESS_OF_HYRULE = make_creature(
     colors={Color.WHITE},
     subtypes={"Hylian", "Noble"},
     supertypes={"Legendary"},
-    text="Vigilance. Triforce - Zelda gets +2/+2 as long as you control two or more Triforce artifacts. When Zelda enters, you gain 3 life.",
-    setup_interceptors=zelda_princess_of_hyrule_setup
+    abilities=[
+        TriggeredAbility(trigger=ETBTrigger(), effect=GainLife(3))
+    ],
+    setup_interceptors=_triforce_setup(2, 2, 2)
 )
 
-
-def zelda_wielder_of_wisdom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def spell_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_spell_cast_trigger(obj, spell_effect, controller_only=True)]
 
 ZELDA_WIELDER_OF_WISDOM = make_creature(
     name="Zelda, Wielder of Wisdom",
@@ -237,13 +285,11 @@ ZELDA_WIELDER_OF_WISDOM = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Hylian", "Noble", "Wizard"},
     supertypes={"Legendary"},
-    text="Whenever you cast a noncreature spell, draw a card.",
-    setup_interceptors=zelda_wielder_of_wisdom_setup
+    abilities=[
+        TriggeredAbility(trigger=SpellCastTrigger(controller_only=True), effect=DrawCards(1))
+    ]
 )
 
-
-def impa_sheikah_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_keyword_grant(obj, ['hexproof'], other_creatures_with_subtype(obj, "Sheikah"))]
 
 IMPA_SHEIKAH_GUARDIAN = make_creature(
     name="Impa, Sheikah Guardian",
@@ -252,15 +298,14 @@ IMPA_SHEIKAH_GUARDIAN = make_creature(
     colors={Color.WHITE},
     subtypes={"Sheikah", "Warrior"},
     supertypes={"Legendary"},
-    text="Flash. Other Sheikah creatures you control have hexproof.",
-    setup_interceptors=impa_sheikah_guardian_setup
+    abilities=[
+        StaticAbility(
+            effect=KeywordGrant(['hexproof']),
+            filter=CreaturesWithSubtypeFilter("Sheikah", include_self=False)
+        )
+    ]
 )
 
-
-def rauru_sage_of_light_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 RAURU_SAGE_OF_LIGHT = make_creature(
     name="Rauru, Sage of Light",
@@ -269,15 +314,11 @@ RAURU_SAGE_OF_LIGHT = make_creature(
     colors={Color.WHITE},
     subtypes={"Spirit", "Cleric"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, you gain 2 life.",
-    setup_interceptors=rauru_sage_of_light_setup
+    abilities=[
+        TriggeredAbility(trigger=UpkeepTrigger(), effect=GainLife(2))
+    ]
 )
 
-
-def hylia_goddess_of_light_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors = []
-    interceptors.extend(make_static_pt_boost(obj, 1, 1, other_creatures_you_control(obj)))
-    return interceptors
 
 HYLIA_GODDESS_OF_LIGHT = make_creature(
     name="Hylia, Goddess of Light",
@@ -286,17 +327,13 @@ HYLIA_GODDESS_OF_LIGHT = make_creature(
     colors={Color.WHITE},
     subtypes={"God"},
     supertypes={"Legendary"},
-    text="Flying, lifelink. Other creatures you control get +1/+1.",
-    setup_interceptors=hylia_goddess_of_light_setup
+    abilities=[
+        StaticAbility(effect=PTBoost(1, 1), filter=OtherCreaturesYouControlFilter())
+    ]
 )
 
 
 # --- Regular Creatures ---
-
-def sheikah_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 SHEIKAH_WARRIOR = make_creature(
     name="Sheikah Warrior",
@@ -304,8 +341,9 @@ SHEIKAH_WARRIOR = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Sheikah", "Warrior"},
-    text="When Sheikah Warrior enters, you gain 2 life.",
-    setup_interceptors=sheikah_warrior_setup
+    abilities=[
+        TriggeredAbility(trigger=ETBTrigger(), effect=GainLife(2))
+    ]
 )
 
 
@@ -315,12 +353,8 @@ HYRULE_KNIGHT = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Knight"},
-    text="Vigilance, first strike."
 )
 
-
-def temple_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_heart_container(obj, 3)]
 
 TEMPLE_GUARDIAN = make_creature(
     name="Temple Guardian",
@@ -328,8 +362,9 @@ TEMPLE_GUARDIAN = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit", "Soldier"},
-    text="Defender. Heart Container - When Temple Guardian enters, you gain 3 life.",
-    setup_interceptors=temple_guardian_setup
+    abilities=[
+        make_heart_container_ability(3)
+    ]
 )
 
 
@@ -339,7 +374,6 @@ CASTLE_GUARD = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Soldier"},
-    text="Vigilance."
 )
 
 
@@ -349,7 +383,6 @@ LIGHT_SPIRIT = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Spirit"},
-    text="Flying. When Light Spirit dies, you gain 2 life."
 )
 
 
@@ -359,14 +392,8 @@ HYLIAN_PRIESTESS = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Cleric"},
-    text="Lifelink. {T}: You gain 1 life."
 )
 
-
-def sheikah_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 SHEIKAH_SCOUT = make_creature(
     name="Sheikah Scout",
@@ -374,8 +401,9 @@ SHEIKAH_SCOUT = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Sheikah", "Scout"},
-    text="When Sheikah Scout enters, scry 2.",
-    setup_interceptors=sheikah_scout_setup
+    abilities=[
+        TriggeredAbility(trigger=ETBTrigger(), effect=Scry(2))
+    ]
 )
 
 
@@ -385,7 +413,6 @@ COURAGE_FAIRY = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Fairy"},
-    text="Flying. Sacrifice Courage Fairy: Target creature gains indestructible until end of turn."
 )
 
 
@@ -395,7 +422,6 @@ HYRULE_CAPTAIN = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Knight"},
-    text="First strike. Other Soldier and Knight creatures you control get +1/+0."
 )
 
 
@@ -405,7 +431,6 @@ GREAT_FAIRY = make_creature(
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Fairy"},
-    text="Flying. When Great Fairy enters, you gain 5 life and create two 1/1 white Fairy creature tokens with flying."
 )
 
 
@@ -415,7 +440,6 @@ SACRED_REALM_GUARDIAN = make_creature(
     mana_cost="{4}{W}",
     colors={Color.WHITE},
     subtypes={"Angel"},
-    text="Flying, vigilance. Prevent all damage that would be dealt to other creatures you control."
 )
 
 
@@ -425,7 +449,6 @@ DINS_FIRE_SHIELD = make_instant(
     name="Din's Fire Shield",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Prevent all damage that would be dealt to you and creatures you control this turn."
 )
 
 
@@ -433,7 +456,6 @@ LIGHT_ARROW = make_instant(
     name="Light Arrow",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Exile target creature. Its controller gains life equal to its toughness."
 )
 
 
@@ -441,7 +463,6 @@ NAYRUS_LOVE = make_instant(
     name="Nayru's Love",
     mana_cost="{W}{W}",
     colors={Color.WHITE},
-    text="Creatures you control gain hexproof and indestructible until end of turn."
 )
 
 
@@ -467,11 +488,6 @@ BLESSING_OF_HYLIA = make_sorcery(
 
 # --- Legendary Creatures ---
 
-def mipha_zora_champion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
-
 MIPHA_ZORA_CHAMPION = make_creature(
     name="Mipha, Zora Champion",
     power=2, toughness=4,
@@ -479,15 +495,11 @@ MIPHA_ZORA_CHAMPION = make_creature(
     colors={Color.BLUE},
     subtypes={"Zora", "Champion"},
     supertypes={"Legendary"},
-    text="Lifelink. At the beginning of your upkeep, you gain 2 life. {2}{U}: Return target creature to its owner's hand.",
-    setup_interceptors=mipha_zora_champion_setup
+    abilities=[
+        TriggeredAbility(trigger=UpkeepTrigger(), effect=GainLife(2))
+    ]
 )
 
-
-def ruto_zora_princess_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors = []
-    interceptors.extend(make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Zora")))
-    return interceptors
 
 RUTO_ZORA_PRINCESS = make_creature(
     name="Ruto, Zora Princess",
@@ -496,15 +508,14 @@ RUTO_ZORA_PRINCESS = make_creature(
     colors={Color.BLUE},
     subtypes={"Zora", "Noble"},
     supertypes={"Legendary"},
-    text="Other Zora creatures you control get +1/+1. Zora creatures you control can't be blocked.",
-    setup_interceptors=ruto_zora_princess_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Zora", include_self=False)
+        )
+    ]
 )
 
-
-def king_zora_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 KING_ZORA = make_creature(
     name="King Zora, Domain Ruler",
@@ -513,15 +524,11 @@ KING_ZORA = make_creature(
     colors={Color.BLUE},
     subtypes={"Zora", "Noble"},
     supertypes={"Legendary"},
-    text="When King Zora enters, draw two cards. Zora creatures you control have '{T}: Add {U}.'",
-    setup_interceptors=king_zora_setup
+    abilities=[
+        TriggeredAbility(trigger=ETBTrigger(), effect=DrawCards(2))
+    ]
 )
 
-
-def nayru_oracle_of_wisdom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def draw_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_draw_trigger(obj, draw_effect)]
 
 NAYRU_ORACLE_OF_WISDOM = make_creature(
     name="Nayru, Oracle of Wisdom",
@@ -530,15 +537,11 @@ NAYRU_ORACLE_OF_WISDOM = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="Whenever you draw a card, scry 1.",
-    setup_interceptors=nayru_oracle_of_wisdom_setup
+    abilities=[
+        TriggeredAbility(trigger=DrawTrigger(), effect=Scry(1))
+    ]
 )
 
-
-def sidon_zora_prince_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
 
 SIDON_ZORA_PRINCE = make_creature(
     name="Sidon, Zora Prince",
@@ -547,8 +550,9 @@ SIDON_ZORA_PRINCE = make_creature(
     colors={Color.BLUE},
     subtypes={"Zora", "Noble", "Warrior"},
     supertypes={"Legendary"},
-    text="Whenever Sidon attacks, draw a card.",
-    setup_interceptors=sidon_zora_prince_setup
+    abilities=[
+        TriggeredAbility(trigger=AttackTrigger(), effect=DrawCards(1))
+    ]
 )
 
 
@@ -560,14 +564,8 @@ ZORA_WARRIOR = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Warrior"},
-    text="Zora Warrior can't be blocked."
 )
 
-
-def zora_scholar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 ZORA_SCHOLAR = make_creature(
     name="Zora Scholar",
@@ -575,8 +573,9 @@ ZORA_SCHOLAR = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Wizard"},
-    text="When Zora Scholar enters, draw a card.",
-    setup_interceptors=zora_scholar_setup
+    abilities=[
+        TriggeredAbility(trigger=ETBTrigger(), effect=DrawCards(1))
+    ]
 )
 
 
@@ -586,7 +585,6 @@ RIVER_ZORA = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Zora"},
-    text="River Zora can't be blocked as long as defending player controls an Island."
 )
 
 
@@ -596,7 +594,6 @@ WATER_SPIRIT = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Elemental", "Spirit"},
-    text="Hexproof."
 )
 
 
@@ -606,7 +603,6 @@ OCTOROK = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Beast"},
-    text="{T}: Octorok deals 1 damage to target creature or planeswalker."
 )
 
 
@@ -616,7 +612,6 @@ LIKE_LIKE = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Ooze"},
-    text="Whenever Like-Like deals combat damage to a player, you may attach target Equipment that player controls to Like-Like."
 )
 
 
@@ -626,7 +621,6 @@ GYORG = make_creature(
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Fish"},
-    text="Islandwalk. Whenever Gyorg deals combat damage to a player, draw a card."
 )
 
 
@@ -636,7 +630,6 @@ ZORA_DIVER = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Scout"},
-    text="When Zora Diver enters, scry 2."
 )
 
 
@@ -646,14 +639,8 @@ ZORA_SPEARMAN = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Warrior"},
-    text="Reach. Zora Spearman can block creatures with flying."
 )
 
-
-def zora_sage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def spell_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_spell_cast_trigger(obj, spell_effect)]
 
 ZORA_SAGE = make_creature(
     name="Zora Sage",
@@ -661,8 +648,9 @@ ZORA_SAGE = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Wizard"},
-    text="Whenever you cast a spell, scry 1.",
-    setup_interceptors=zora_sage_setup
+    abilities=[
+        TriggeredAbility(trigger=SpellCastTrigger(), effect=Scry(1))
+    ]
 )
 
 
@@ -672,7 +660,6 @@ ZORAS_SAPPHIRE_BLESSING = make_instant(
     name="Zora's Sapphire Blessing",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Target creature gains hexproof until end of turn. Draw a card."
 )
 
 
@@ -680,7 +667,6 @@ TORRENTIAL_WAVE = make_instant(
     name="Torrential Wave",
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
-    text="Return all nonland permanents to their owners' hands."
 )
 
 
@@ -704,7 +690,6 @@ COUNTER_MAGIC = make_instant(
     name="Counter Magic",
     mana_cost="{U}{U}",
     colors={Color.BLUE},
-    text="Counter target spell."
 )
 
 
@@ -714,16 +699,6 @@ COUNTER_MAGIC = make_instant(
 
 # --- Legendary Creatures ---
 
-def ganondorf_king_of_evil_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors = []
-    interceptors.extend(make_triforce_bonus(obj, 3, 3, 1))
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        for p_id in all_opponents(obj, state):
-            return [Event(type=EventType.LIFE_CHANGE, payload={'player': p_id, 'amount': -3}, source=obj.id)]
-        return []
-    interceptors.append(make_death_trigger(obj, death_effect))
-    return interceptors
-
 GANONDORF_KING_OF_EVIL = make_creature(
     name="Ganondorf, King of Evil",
     power=5, toughness=5,
@@ -731,18 +706,15 @@ GANONDORF_KING_OF_EVIL = make_creature(
     colors={Color.BLACK},
     subtypes={"Gerudo", "Warlock"},
     supertypes={"Legendary"},
-    text="Menace. Triforce - Ganondorf gets +3/+3 as long as you control a Triforce artifact. When Ganondorf dies, each opponent loses 3 life.",
-    setup_interceptors=ganondorf_king_of_evil_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=LoseLife(3, target=EachOpponentTarget())
+        )
+    ],
+    setup_interceptors=_triforce_setup(3, 3, 1)
 )
 
-
-def ganon_calamity_incarnate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for p_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.DISCARD, payload={'player': p_id, 'amount': 1}, source=obj.id))
-        return events
-    return [make_attack_trigger(obj, attack_effect)]
 
 GANON_CALAMITY_INCARNATE = make_creature(
     name="Ganon, Calamity Incarnate",
@@ -751,15 +723,14 @@ GANON_CALAMITY_INCARNATE = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon", "Beast"},
     supertypes={"Legendary"},
-    text="Trample, menace. Whenever Ganon attacks, each opponent discards a card.",
-    setup_interceptors=ganon_calamity_incarnate_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=DiscardCards(1, target=EachOpponentTarget())
+        )
+    ]
 )
 
-
-def zant_twilight_usurper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DESTROY, payload={'target': 'creature', 'controller': 'opponent'}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 ZANT_TWILIGHT_USURPER = make_creature(
     name="Zant, Twilight Usurper",
@@ -768,15 +739,8 @@ ZANT_TWILIGHT_USURPER = make_creature(
     colors={Color.BLACK},
     subtypes={"Twili", "Warlock"},
     supertypes={"Legendary"},
-    text="When Zant enters, destroy target creature an opponent controls.",
-    setup_interceptors=zant_twilight_usurper_setup
 )
 
-
-def midna_twilight_princess_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def damage_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
 
 MIDNA_TWILIGHT_PRINCESS = make_creature(
     name="Midna, Twilight Princess",
@@ -785,18 +749,14 @@ MIDNA_TWILIGHT_PRINCESS = make_creature(
     colors={Color.BLACK},
     subtypes={"Twili", "Noble"},
     supertypes={"Legendary"},
-    text="Deathtouch. Whenever Midna deals combat damage to a player, draw a card.",
-    setup_interceptors=midna_twilight_princess_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DealsDamageTrigger(combat_only=True, to_player=True),
+            effect=DrawCards(1)
+        )
+    ]
 )
 
-
-def vaati_wind_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for p_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': p_id, 'amount': -1}, source=obj.id))
-        return events
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 VAATI_WIND_MAGE = make_creature(
     name="Vaati, Wind Mage",
@@ -805,20 +765,16 @@ VAATI_WIND_MAGE = make_creature(
     colors={Color.BLACK},
     subtypes={"Minish", "Warlock"},
     supertypes={"Legendary"},
-    text="Flying. At the beginning of your upkeep, each opponent loses 1 life.",
-    setup_interceptors=vaati_wind_mage_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=LoseLife(1, target=EachOpponentTarget())
+        )
+    ]
 )
 
 
 # --- Regular Creatures ---
-
-def shadow_beast_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Shadow', 'power': 1, 'toughness': 1, 'colors': {Color.BLACK}, 'subtypes': {'Shadow'}}
-        }, source=obj.id)]
-    return [make_death_trigger(obj, death_effect)]
 
 SHADOW_BEAST = make_creature(
     name="Shadow Beast",
@@ -826,8 +782,12 @@ SHADOW_BEAST = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Beast", "Shadow"},
-    text="When Shadow Beast dies, create a 1/1 black Shadow creature token.",
-    setup_interceptors=shadow_beast_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=CreateToken(name="Shadow", power=1, toughness=1, colors={'B'}, subtypes={'Shadow'})
+        )
+    ]
 )
 
 
@@ -837,7 +797,6 @@ STALFOS_WARRIOR = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Skeleton", "Warrior"},
-    text="When Stalfos Warrior dies, return it to the battlefield tapped at the beginning of the next end step."
 )
 
 
@@ -847,7 +806,6 @@ REDEAD = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie"},
-    text="When ReDead enters, tap target creature an opponent controls. That creature doesn't untap during its controller's next untap step."
 )
 
 
@@ -857,7 +815,6 @@ GIBDO = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie"},
-    text="Lifelink. Other Zombie creatures you control have lifelink."
 )
 
 
@@ -867,7 +824,6 @@ POES = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit"},
-    text="Flying. When Poe dies, each opponent loses 1 life and you gain 1 life."
 )
 
 
@@ -877,7 +833,6 @@ DARK_NUT = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Knight"},
-    text="First strike. Darknut can't be the target of spells or abilities your opponents control."
 )
 
 
@@ -887,7 +842,6 @@ PHANTOM = make_creature(
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit", "Knight"},
-    text="Defender, menace. {2}{B}: Phantom can attack this turn as though it didn't have defender."
 )
 
 
@@ -897,7 +851,6 @@ FLOORMASTER = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
-    text="When Floormaster deals combat damage to a player, that player sacrifices a creature."
 )
 
 
@@ -907,7 +860,6 @@ DEAD_HAND = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie", "Horror"},
-    text="Defender. Whenever a creature blocks Dead Hand, tap that creature. It doesn't untap during its controller's next untap step."
 )
 
 
@@ -917,7 +869,6 @@ WALLMASTER = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
-    text="Flying. When Wallmaster deals combat damage to a player, exile target creature that player controls until Wallmaster leaves the battlefield."
 )
 
 
@@ -927,7 +878,6 @@ TWILIGHT_CURSE = make_instant(
     name="Twilight Curse",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Target creature gets -3/-3 until end of turn."
 )
 
 
@@ -951,7 +901,6 @@ SOUL_HARVEST = make_instant(
     name="Soul Harvest",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Destroy target creature that was dealt damage this turn."
 )
 
 
@@ -969,15 +918,6 @@ GANONS_WRATH = make_sorcery(
 
 # --- Legendary Creatures ---
 
-def daruk_goron_champion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def damage_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={
-            'target': event.payload.get('defending_player', ''),
-            'amount': 2,
-            'source': obj.id
-        }, source=obj.id)]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
-
 DARUK_GORON_CHAMPION = make_creature(
     name="Daruk, Goron Champion",
     power=5, toughness=5,
@@ -985,15 +925,14 @@ DARUK_GORON_CHAMPION = make_creature(
     colors={Color.RED},
     subtypes={"Goron", "Champion"},
     supertypes={"Legendary"},
-    text="Trample. Whenever Daruk deals combat damage to a player, Daruk deals 2 damage to that player.",
-    setup_interceptors=daruk_goron_champion_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DealsDamageTrigger(combat_only=True, to_player=True),
+            effect=DealDamage(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
-
-def darunia_goron_chief_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors = []
-    interceptors.extend(make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Goron")))
-    return interceptors
 
 DARUNIA_GORON_CHIEF = make_creature(
     name="Darunia, Goron Chief",
@@ -1002,15 +941,14 @@ DARUNIA_GORON_CHIEF = make_creature(
     colors={Color.RED},
     subtypes={"Goron", "Warrior"},
     supertypes={"Legendary"},
-    text="Other Goron creatures you control get +1/+1. Goron creatures you control have haste.",
-    setup_interceptors=darunia_goron_chief_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Goron", include_self=False)
+        )
+    ]
 )
 
-
-def din_oracle_of_power_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={'target': 'any', 'amount': 2}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
 
 DIN_ORACLE_OF_POWER = make_creature(
     name="Din, Oracle of Power",
@@ -1019,15 +957,14 @@ DIN_ORACLE_OF_POWER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="Haste. Whenever Din attacks, she deals 2 damage to any target.",
-    setup_interceptors=din_oracle_of_power_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=DealDamage(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
-
-def volvagia_fire_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={'target': 'each_opponent_creature', 'amount': 1}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
 
 VOLVAGIA_FIRE_DRAGON = make_creature(
     name="Volvagia, Fire Dragon",
@@ -1036,15 +973,8 @@ VOLVAGIA_FIRE_DRAGON = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     supertypes={"Legendary"},
-    text="Flying, haste. Whenever Volvagia attacks, it deals 1 damage to each creature defending player controls.",
-    setup_interceptors=volvagia_fire_dragon_setup
 )
 
-
-def yunobo_goron_descendant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={'target': 'any', 'amount': 3}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 YUNOBO_GORON_DESCENDANT = make_creature(
     name="Yunobo, Goron Descendant",
@@ -1053,8 +983,12 @@ YUNOBO_GORON_DESCENDANT = make_creature(
     colors={Color.RED},
     subtypes={"Goron", "Warrior"},
     supertypes={"Legendary"},
-    text="When Yunobo enters, he deals 3 damage to any target.",
-    setup_interceptors=yunobo_goron_descendant_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DealDamage(3, target=EachOpponentTarget())
+        )
+    ]
 )
 
 
@@ -1066,17 +1000,8 @@ GORON_WARRIOR = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Goron", "Warrior"},
-    text="Trample."
 )
 
-
-def goron_smith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Equipment Token', 'types': {CardType.ARTIFACT}, 'subtypes': {'Equipment'}}
-        }, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 GORON_SMITH = make_creature(
     name="Goron Smith",
@@ -1084,8 +1009,6 @@ GORON_SMITH = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Goron", "Artificer"},
-    text="When Goron Smith enters, create a colorless Equipment artifact token with 'Equipped creature gets +1/+1. Equip {1}.'",
-    setup_interceptors=goron_smith_setup
 )
 
 
@@ -1095,7 +1018,6 @@ DODONGO = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Lizard"},
-    text="Trample. Dodongo can't be dealt damage by red sources."
 )
 
 
@@ -1105,7 +1027,6 @@ FIRE_KEESE = make_creature(
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Bat"},
-    text="Flying, haste. When Fire Keese deals combat damage to a creature, destroy that creature at end of turn."
 )
 
 
@@ -1115,7 +1036,6 @@ LIZALFOS = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Lizard", "Warrior"},
-    text="First strike. {R}: Lizalfos gets +1/+0 until end of turn."
 )
 
 
@@ -1125,7 +1045,6 @@ LYNEL = make_creature(
     mana_cost="{4}{R}",
     colors={Color.RED},
     subtypes={"Beast", "Warrior"},
-    text="Trample, haste. When Lynel attacks, it deals 2 damage to target creature or planeswalker."
 )
 
 
@@ -1135,7 +1054,6 @@ MOBLIN = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Goblin", "Warrior"},
-    text="Menace."
 )
 
 
@@ -1145,7 +1063,6 @@ HINOX = make_creature(
     mana_cost="{4}{R}",
     colors={Color.RED},
     subtypes={"Giant"},
-    text="Trample. Hinox must attack each combat if able."
 )
 
 
@@ -1155,7 +1072,6 @@ GORON_ELDER = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Goron", "Cleric"},
-    text="Other Goron creatures you control have trample."
 )
 
 
@@ -1165,7 +1081,6 @@ FIRE_SPIRIT = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Spirit"},
-    text="Haste. When Fire Spirit dies, it deals 2 damage to any target."
 )
 
 
@@ -1175,7 +1090,6 @@ DINS_FIRE = make_instant(
     name="Din's Fire",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Din's Fire deals 2 damage to any target."
 )
 
 
@@ -1183,7 +1097,6 @@ FIRE_ARROW = make_instant(
     name="Fire Arrow",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Fire Arrow deals 3 damage to target creature. If that creature dies this turn, exile it."
 )
 
 
@@ -1199,7 +1112,6 @@ GORON_RAGE = make_instant(
     name="Goron Rage",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Target creature gets +3/+0 and gains trample until end of turn."
 )
 
 
@@ -1218,6 +1130,7 @@ BOMB_BARRAGE = make_sorcery(
 # --- Legendary Creatures ---
 
 def link_hero_of_time_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Link uses both Triforce and Dungeon mechanics."""
     interceptors = []
     interceptors.extend(make_triforce_bonus(obj, 2, 2, 1))
     def dungeon_effect(event: Event, state: GameState) -> list[Event]:
@@ -1232,17 +1145,9 @@ LINK_HERO_OF_TIME = make_creature(
     colors={Color.GREEN},
     subtypes={"Hylian", "Warrior"},
     supertypes={"Legendary"},
-    text="Vigilance. Triforce - Link gets +2/+2 as long as you control a Triforce artifact. Dungeon 3 - Whenever Link attacks, add a dungeon counter. At 3 counters, draw a card and reset.",
     setup_interceptors=link_hero_of_time_setup
 )
 
-
-def link_champion_of_hyrule_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.COUNTER_ADDED, payload={
-            'boost': 'link_boost', 'controller': obj.controller, 'duration': 'end_of_turn'
-        }, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
 
 LINK_CHAMPION_OF_HYRULE = make_creature(
     name="Link, Champion of Hyrule",
@@ -1251,15 +1156,8 @@ LINK_CHAMPION_OF_HYRULE = make_creature(
     colors={Color.GREEN},
     subtypes={"Hylian", "Champion"},
     supertypes={"Legendary"},
-    text="Double strike. Whenever Link attacks, other creatures you control get +1/+1 until end of turn.",
-    setup_interceptors=link_champion_of_hyrule_setup
 )
 
-
-def saria_forest_sage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors = []
-    interceptors.extend(make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Kokiri")))
-    return interceptors
 
 SARIA_FOREST_SAGE = make_creature(
     name="Saria, Forest Sage",
@@ -1268,15 +1166,14 @@ SARIA_FOREST_SAGE = make_creature(
     colors={Color.GREEN},
     subtypes={"Kokiri", "Druid"},
     supertypes={"Legendary"},
-    text="Other Kokiri creatures you control get +1/+1. {T}: Add {G}{G}.",
-    setup_interceptors=saria_forest_sage_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Kokiri", include_self=False)
+        )
+    ]
 )
 
-
-def revali_rito_champion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.TAP, payload={'target': 'creature'}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
 
 REVALI_RITO_CHAMPION = make_creature(
     name="Revali, Rito Champion",
@@ -1285,18 +1182,8 @@ REVALI_RITO_CHAMPION = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Rito", "Champion"},
     supertypes={"Legendary"},
-    text="Flying. Whenever Revali attacks, tap target creature an opponent controls.",
-    setup_interceptors=revali_rito_champion_setup
 )
 
-
-def great_deku_tree_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Deku Sprout', 'power': 1, 'toughness': 1, 'colors': {Color.GREEN}, 'subtypes': {'Plant'}}
-        }, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 GREAT_DEKU_TREE = make_creature(
     name="Great Deku Tree",
@@ -1305,18 +1192,14 @@ GREAT_DEKU_TREE = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant", "Treefolk"},
     supertypes={"Legendary"},
-    text="Defender. At the beginning of your upkeep, create a 1/1 green Plant creature token. {T}: Add {G} for each Plant you control.",
-    setup_interceptors=great_deku_tree_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=CreateToken(name="Deku Sprout", power=1, toughness=1, colors={'G'}, subtypes={'Plant'})
+        )
+    ]
 )
 
-
-def farore_oracle_of_courage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Spirit', 'power': 2, 'toughness': 2, 'colors': {Color.GREEN}, 'subtypes': {'Spirit'}}
-        }, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 FARORE_ORACLE_OF_COURAGE = make_creature(
     name="Farore, Oracle of Courage",
@@ -1325,8 +1208,12 @@ FARORE_ORACLE_OF_COURAGE = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Druid"},
     supertypes={"Legendary"},
-    text="When Farore enters, create a 2/2 green Spirit creature token. Creatures you control have trample.",
-    setup_interceptors=farore_oracle_of_courage_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=CreateToken(name="Spirit", power=2, toughness=2, colors={'G'}, subtypes={'Spirit'})
+        )
+    ]
 )
 
 
@@ -1338,7 +1225,6 @@ KOKIRI_CHILD = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Kokiri"},
-    text="When Kokiri Child enters, add {G}."
 )
 
 
@@ -1348,7 +1234,6 @@ KOKIRI_WARRIOR = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Kokiri", "Warrior"},
-    text="Forestwalk."
 )
 
 
@@ -1358,7 +1243,6 @@ SKULL_KID = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit"},
-    text="When Skull Kid enters, target creature can't block this turn."
 )
 
 
@@ -1368,7 +1252,6 @@ DEKU_SCRUB = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Plant"},
-    text="{T}: Deku Scrub deals 1 damage to target creature with flying."
 )
 
 
@@ -1378,7 +1261,6 @@ FOREST_FAIRY = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Fairy"},
-    text="Flying. {T}: Add {G}."
 )
 
 
@@ -1388,7 +1270,6 @@ WOLFOS = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Wolf"},
-    text="Vigilance. Wolfos gets +1/+1 as long as you control a Forest."
 )
 
 
@@ -1398,7 +1279,6 @@ FOREST_TEMPLE_GUARDIAN = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit", "Warrior"},
-    text="Vigilance, reach."
 )
 
 
@@ -1408,7 +1288,6 @@ DEKU_BABA = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Plant"},
-    text="Reach. When Deku Baba dies, create a 1/1 green Plant creature token."
 )
 
 
@@ -1418,7 +1297,6 @@ RITO_WARRIOR = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Rito", "Warrior"},
-    text="Flying."
 )
 
 
@@ -1428,7 +1306,6 @@ KOROKS = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Plant", "Spirit"},
-    text="When Korok enters, look at the top card of your library. You may put it on the bottom."
 )
 
 
@@ -1438,7 +1315,6 @@ FARORES_WIND = make_instant(
     name="Farore's Wind",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature gains hexproof and indestructible until end of turn. Untap it."
 )
 
 
@@ -1462,7 +1338,6 @@ DEKU_NUT_STUN = make_instant(
     name="Deku Nut Stun",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Tap target creature. It doesn't untap during its controller's next untap step."
 )
 
 
@@ -1470,18 +1345,12 @@ WILD_GROWTH = make_enchantment(
     name="Wild Growth",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Enchant land. Enchanted land has '{T}: Add {G}{G}.'"
 )
 
 
 # =============================================================================
 # MULTICOLOR CARDS
 # =============================================================================
-
-def urbosa_gerudo_champion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={'target': 'each_creature_opponent', 'amount': 2}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
 
 URBOSA_GERUDO_CHAMPION = make_creature(
     name="Urbosa, Gerudo Champion",
@@ -1490,15 +1359,14 @@ URBOSA_GERUDO_CHAMPION = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Gerudo", "Champion"},
     supertypes={"Legendary"},
-    text="Haste. Whenever Urbosa attacks, she deals 2 damage to each creature defending player controls.",
-    setup_interceptors=urbosa_gerudo_champion_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=DealDamage(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
-
-def fi_sword_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def spell_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_spell_cast_trigger(obj, spell_effect)]
 
 FI_SWORD_SPIRIT = make_creature(
     name="Fi, Sword Spirit",
@@ -1507,15 +1375,11 @@ FI_SWORD_SPIRIT = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Spirit"},
     supertypes={"Legendary"},
-    text="Flying. Whenever you cast a spell, scry 1. {T}: Target Equipment becomes attached to target creature you control.",
-    setup_interceptors=fi_sword_spirit_setup
+    abilities=[
+        TriggeredAbility(trigger=SpellCastTrigger(), effect=Scry(1))
+    ]
 )
 
-
-def nabooru_spirit_sage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.TAP, payload={'target': 'artifact'}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
 
 NABOORU_SPIRIT_SAGE = make_creature(
     name="Nabooru, Spirit Sage",
@@ -1524,18 +1388,8 @@ NABOORU_SPIRIT_SAGE = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Gerudo", "Cleric"},
     supertypes={"Legendary"},
-    text="First strike. Whenever Nabooru attacks, tap target artifact or creature.",
-    setup_interceptors=nabooru_spirit_sage_setup
 )
 
-
-def skull_kid_masked_menace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for p_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.DISCARD, payload={'player': p_id, 'amount': 1, 'random': True}, source=obj.id))
-        return events
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 SKULL_KID_MASKED_MENACE = make_creature(
     name="Skull Kid, Masked Menace",
@@ -1544,18 +1398,14 @@ SKULL_KID_MASKED_MENACE = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Spirit"},
     supertypes={"Legendary"},
-    text="Menace. At the beginning of your upkeep, each opponent discards a card at random.",
-    setup_interceptors=skull_kid_masked_menace_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=DiscardCards(1, target=EachOpponentTarget(), random=True)
+        )
+    ]
 )
 
-
-def tetra_pirate_princess_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def damage_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Treasure', 'types': {CardType.ARTIFACT}, 'subtypes': {'Treasure'}}
-        }, source=obj.id)]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
 
 TETRA_PIRATE_PRINCESS = make_creature(
     name="Tetra, Pirate Princess",
@@ -1564,15 +1414,14 @@ TETRA_PIRATE_PRINCESS = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Hylian", "Pirate"},
     supertypes={"Legendary"},
-    text="First strike. Whenever Tetra deals combat damage to a player, create a Treasure token.",
-    setup_interceptors=tetra_pirate_princess_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DealsDamageTrigger(combat_only=True, to_player=True),
+            effect=CreateToken(name="Treasure", power=0, toughness=0, subtypes={'Treasure'})
+        )
+    ]
 )
 
-
-def groose_skyloft_hero_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.PUMP, payload={'object_id': obj.id, 'power': 2, 'toughness': 0, 'duration': 'end_of_turn'}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
 
 GROOSE_SKYLOFT_HERO = make_creature(
     name="Groose, Skyloft Hero",
@@ -1581,8 +1430,6 @@ GROOSE_SKYLOFT_HERO = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Hylian", "Warrior"},
     supertypes={"Legendary"},
-    text="Flying. Whenever Groose attacks, he gets +2/+0 until end of turn.",
-    setup_interceptors=groose_skyloft_hero_setup
 )
 
 
@@ -1593,7 +1440,6 @@ MALON_RANCH_KEEPER = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Hylian", "Druid"},
     supertypes={"Legendary"},
-    text="When Malon enters, create two 1/1 green Horse creature tokens. Horses you control get +1/+1."
 )
 
 
@@ -1629,59 +1475,47 @@ TRIFORCE_OF_COURAGE = make_artifact(
 
 # --- Divine Beasts ---
 
-def divine_beast_vah_ruta_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
-
 DIVINE_BEAST_VAH_RUTA = make_artifact(
     name="Divine Beast Vah Ruta",
     mana_cost="{5}",
     text="At the beginning of your upkeep, you gain 2 life. {3}, {T}: Return target creature to its owner's hand.",
     supertypes={"Legendary"},
-    setup_interceptors=divine_beast_vah_ruta_setup
+    abilities=[
+        TriggeredAbility(trigger=UpkeepTrigger(), effect=GainLife(2))
+    ]
 )
 
-
-def divine_beast_vah_rudania_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={'target': 'any', 'amount': 2}, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 DIVINE_BEAST_VAH_RUDANIA = make_artifact(
     name="Divine Beast Vah Rudania",
     mana_cost="{5}",
     text="At the beginning of your upkeep, Divine Beast Vah Rudania deals 2 damage to any target. {3}, {T}: It deals 3 damage to target creature.",
     supertypes={"Legendary"},
-    setup_interceptors=divine_beast_vah_rudania_setup
+    abilities=[
+        TriggeredAbility(trigger=UpkeepTrigger(), effect=DealDamage(2, target=EachOpponentTarget()))
+    ]
 )
 
-
-def divine_beast_vah_medoh_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 DIVINE_BEAST_VAH_MEDOH = make_artifact(
     name="Divine Beast Vah Medoh",
     mana_cost="{5}",
     text="At the beginning of your upkeep, scry 2. {3}, {T}: Target creature gains flying until end of turn.",
     supertypes={"Legendary"},
-    setup_interceptors=divine_beast_vah_medoh_setup
+    abilities=[
+        TriggeredAbility(trigger=UpkeepTrigger(), effect=Scry(2))
+    ]
 )
 
-
-def divine_beast_vah_naboris_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={'target': 'each_opponent', 'amount': 1}, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 DIVINE_BEAST_VAH_NABORIS = make_artifact(
     name="Divine Beast Vah Naboris",
     mana_cost="{5}",
     text="At the beginning of your upkeep, Vah Naboris deals 1 damage to each opponent. {3}, {T}: Tap target creature.",
     supertypes={"Legendary"},
-    setup_interceptors=divine_beast_vah_naboris_setup
+    abilities=[
+        TriggeredAbility(trigger=UpkeepTrigger(), effect=DealDamage(1, target=EachOpponentTarget()))
+    ]
 )
 
 
@@ -1862,7 +1696,10 @@ HOOKSHOT = make_artifact(
 HEART_CONTAINER_ARTIFACT = make_artifact(
     name="Heart Container",
     mana_cost="{2}",
-    text="When Heart Container enters, you gain 4 life. Sacrifice Heart Container: You gain 2 life."
+    text="When Heart Container enters, you gain 4 life. Sacrifice Heart Container: You gain 2 life.",
+    abilities=[
+        TriggeredAbility(trigger=ETBTrigger(), effect=GainLife(4))
+    ]
 )
 
 
@@ -1895,7 +1732,6 @@ SACRED_PROTECTION = make_enchantment(
     name="Sacred Protection",
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
-    text="Creatures you control have hexproof."
 )
 
 
@@ -1903,7 +1739,6 @@ ZORAS_DOMAIN = make_enchantment(
     name="Zora's Domain",
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
-    text="Creatures you control can't be blocked."
 )
 
 
@@ -1911,7 +1746,6 @@ TWILIGHT_REALM = make_enchantment(
     name="Twilight Realm",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="Whenever a creature dies, each opponent loses 1 life and you gain 1 life."
 )
 
 
@@ -1919,7 +1753,6 @@ GORON_STRENGTH = make_enchantment(
     name="Goron Strength",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Creatures you control get +1/+0 and have trample."
 )
 
 
@@ -1927,7 +1760,6 @@ KOKIRI_FOREST = make_enchantment(
     name="Kokiri Forest",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="At the beginning of your upkeep, create a 1/1 green Plant creature token."
 )
 
 
@@ -1935,7 +1767,6 @@ HYLIA_BLESSING = make_enchantment(
     name="Hylia's Blessing",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Enchant creature. Enchanted creature gets +1/+2 and has lifelink."
 )
 
 
@@ -1943,7 +1774,6 @@ ANCIENT_TECHNOLOGY = make_enchantment(
     name="Ancient Technology",
     mana_cost="{2}",
     colors=set(),
-    text="Artifact spells you cast cost {1} less to cast."
 )
 
 
@@ -1951,7 +1781,6 @@ SPIRIT_TRACKS = make_enchantment(
     name="Spirit Tracks",
     mana_cost="{2}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
-    text="Creatures you control have vigilance. Whenever a creature you control attacks, scry 1."
 )
 
 
@@ -2140,7 +1969,6 @@ FAIRY_COMPANION = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Fairy"},
-    text="Flying. Sacrifice Fairy Companion: Prevent the next 3 damage that would be dealt to target creature this turn."
 )
 
 HYRULE_SOLDIER = make_creature(
@@ -2149,7 +1977,6 @@ HYRULE_SOLDIER = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Soldier"},
-    text="First strike."
 )
 
 LIGHT_SAGE = make_creature(
@@ -2158,7 +1985,6 @@ LIGHT_SAGE = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit", "Cleric"},
-    text="When Light Sage enters, you gain 3 life."
 )
 
 SACRED_KNIGHT = make_creature(
@@ -2167,7 +1993,6 @@ SACRED_KNIGHT = make_creature(
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Knight"},
-    text="Vigilance, lifelink."
 )
 
 # More Blue
@@ -2177,7 +2002,6 @@ ZORA_GUARD = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Soldier"},
-    text="Flash. When Zora Guard enters, tap target creature an opponent controls."
 )
 
 DEEP_SEA_ZORA = make_creature(
@@ -2186,7 +2010,6 @@ DEEP_SEA_ZORA = make_creature(
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Zora"},
-    text="Islandwalk. Whenever Deep Sea Zora deals combat damage to a player, draw two cards."
 )
 
 WISDOM_FAIRY = make_creature(
@@ -2195,7 +2018,6 @@ WISDOM_FAIRY = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Fairy"},
-    text="Flying. When Wisdom Fairy enters, scry 2."
 )
 
 RIVER_GUARDIAN = make_creature(
@@ -2204,7 +2026,6 @@ RIVER_GUARDIAN = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Elemental"},
-    text="Hexproof. River Guardian can block any number of creatures."
 )
 
 # More Black
@@ -2214,7 +2035,6 @@ SHADOW_LINK = make_creature(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Hylian", "Shadow"},
-    text="Deathtouch. Shadow Link can't be blocked except by legendary creatures."
 )
 
 DARK_INTERLOPERS = make_creature(
@@ -2223,7 +2043,6 @@ DARK_INTERLOPERS = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
-    text="When Dark Interlopers enters, each opponent sacrifices a creature."
 )
 
 TWILIGHT_MESSENGER = make_creature(
@@ -2232,7 +2051,6 @@ TWILIGHT_MESSENGER = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit"},
-    text="Flying. When Twilight Messenger dies, target opponent discards a card."
 )
 
 CURSED_BOKOBLIN = make_creature(
@@ -2241,7 +2059,6 @@ CURSED_BOKOBLIN = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Goblin", "Skeleton"},
-    text="When Cursed Bokoblin dies, return it to the battlefield tapped at the beginning of the next end step."
 )
 
 # More Red
@@ -2251,7 +2068,6 @@ FIRE_TEMPLE_GORON = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Goron", "Warrior"},
-    text="Trample. Fire Temple Goron can't be dealt damage by red sources."
 )
 
 BOKOBLIN_HORDE = make_creature(
@@ -2260,7 +2076,6 @@ BOKOBLIN_HORDE = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Goblin"},
-    text="When Bokoblin Horde attacks, create two 1/1 red Goblin creature tokens that are tapped and attacking."
 )
 
 VOLCANIC_KEESE = make_creature(
@@ -2269,7 +2084,6 @@ VOLCANIC_KEESE = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Bat"},
-    text="Flying, haste. When Volcanic Keese dies, it deals 2 damage to any target."
 )
 
 TALUS = make_creature(
@@ -2278,7 +2092,6 @@ TALUS = make_creature(
     mana_cost="{5}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Giant"},
-    text="Trample. When Stone Talus dies, create two Treasure tokens."
 )
 
 # More Green
@@ -2288,7 +2101,6 @@ FOREST_GUARDIAN = make_creature(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit", "Warrior"},
-    text="Vigilance, reach. Other green creatures you control get +1/+1."
 )
 
 DEKU_TREE_SPROUT = make_creature(
@@ -2297,7 +2109,6 @@ DEKU_TREE_SPROUT = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Plant", "Treefolk"},
-    text="When Deku Tree Sprout enters, create a 1/1 green Plant creature token."
 )
 
 WILD_HORSE = make_creature(
@@ -2306,7 +2117,6 @@ WILD_HORSE = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Horse"},
-    text="Haste. When Wild Horse enters, target creature you control gets +1/+1 until end of turn."
 )
 
 RITO_ELDER = make_creature(
@@ -2315,7 +2125,6 @@ RITO_ELDER = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Rito", "Druid"},
-    text="Flying. Other Rito creatures you control get +1/+1."
 )
 
 MASTER_KOHGA = make_creature(
@@ -2325,7 +2134,6 @@ MASTER_KOHGA = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Rogue"},
     supertypes={"Legendary"},
-    text="When Master Kohga enters, create two 1/1 red and black Yiga Clan creature tokens with menace."
 )
 
 GHIRAHIM_DEMON_LORD = make_creature(
@@ -2335,7 +2143,6 @@ GHIRAHIM_DEMON_LORD = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Demon"},
     supertypes={"Legendary"},
-    text="First strike, menace. Whenever Ghirahim deals combat damage to a player, that player discards a card."
 )
 
 DEMISE_DEMON_KING = make_creature(
@@ -2345,7 +2152,6 @@ DEMISE_DEMON_KING = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Demon", "God"},
     supertypes={"Legendary"},
-    text="Trample, menace. When Demise enters, destroy all other creatures."
 )
 
 KING_RHOAM = make_creature(
@@ -2355,7 +2161,6 @@ KING_RHOAM = make_creature(
     colors={Color.WHITE},
     subtypes={"Hylian", "Noble", "Spirit"},
     supertypes={"Legendary"},
-    text="Other Hylian creatures you control get +1/+1. When King Rhoam enters, search your library for a Champion creature card, reveal it, and put it into your hand."
 )
 
 KASS_RITO_BARD = make_creature(
@@ -2365,7 +2170,6 @@ KASS_RITO_BARD = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Rito", "Bard"},
     supertypes={"Legendary"},
-    text="Flying. At the beginning of your end step, if you cast two or more spells this turn, draw a card."
 )
 
 BEEDLE_TRAVELING_MERCHANT = make_creature(
@@ -2375,7 +2179,6 @@ BEEDLE_TRAVELING_MERCHANT = make_creature(
     colors=set(),
     subtypes={"Human", "Merchant"},
     supertypes={"Legendary"},
-    text="When Beedle enters, create a Treasure token. {T}: You may pay {2}. If you do, create a Treasure token."
 )
 
 PURAH_SHEIKAH_RESEARCHER = make_creature(
@@ -2385,7 +2188,6 @@ PURAH_SHEIKAH_RESEARCHER = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Sheikah", "Artificer"},
     supertypes={"Legendary"},
-    text="Artifact spells you cast cost {1} less. When Purah enters, create a colorless Equipment artifact token named Ancient Gear with 'Equipped creature gets +2/+0. Equip {2}.'"
 )
 
 ROBBIE_ANCIENT_TECH = make_creature(
@@ -2395,7 +2197,6 @@ ROBBIE_ANCIENT_TECH = make_creature(
     colors={Color.BLUE},
     subtypes={"Sheikah", "Artificer"},
     supertypes={"Legendary"},
-    text="When Robbie enters, look at the top five cards of your library. You may reveal an artifact card from among them and put it into your hand. Put the rest on the bottom in any order."
 )
 
 
@@ -2656,3 +2457,213 @@ LEGEND_OF_ZELDA_CARDS = {
 }
 
 print(f"Loaded {len(LEGEND_OF_ZELDA_CARDS)} Legend of Zelda: Hyrule Chronicles cards")
+
+
+# =============================================================================
+# CARDS EXPORT
+# =============================================================================
+
+CARDS = [
+    ZELDA_PRINCESS_OF_HYRULE,
+    ZELDA_WIELDER_OF_WISDOM,
+    IMPA_SHEIKAH_GUARDIAN,
+    RAURU_SAGE_OF_LIGHT,
+    HYLIA_GODDESS_OF_LIGHT,
+    SHEIKAH_WARRIOR,
+    HYRULE_KNIGHT,
+    TEMPLE_GUARDIAN,
+    CASTLE_GUARD,
+    LIGHT_SPIRIT,
+    HYLIAN_PRIESTESS,
+    SHEIKAH_SCOUT,
+    COURAGE_FAIRY,
+    HYRULE_CAPTAIN,
+    GREAT_FAIRY,
+    SACRED_REALM_GUARDIAN,
+    DINS_FIRE_SHIELD,
+    LIGHT_ARROW,
+    NAYRUS_LOVE,
+    SONG_OF_HEALING,
+    BLESSING_OF_HYLIA,
+    MIPHA_ZORA_CHAMPION,
+    RUTO_ZORA_PRINCESS,
+    KING_ZORA,
+    NAYRU_ORACLE_OF_WISDOM,
+    SIDON_ZORA_PRINCE,
+    ZORA_WARRIOR,
+    ZORA_SCHOLAR,
+    RIVER_ZORA,
+    WATER_SPIRIT,
+    OCTOROK,
+    LIKE_LIKE,
+    GYORG,
+    ZORA_DIVER,
+    ZORA_SPEARMAN,
+    ZORA_SAGE,
+    ZORAS_SAPPHIRE_BLESSING,
+    TORRENTIAL_WAVE,
+    WATER_TEMPLE_FLOOD,
+    WISDOM_OF_AGES,
+    COUNTER_MAGIC,
+    GANONDORF_KING_OF_EVIL,
+    GANON_CALAMITY_INCARNATE,
+    ZANT_TWILIGHT_USURPER,
+    MIDNA_TWILIGHT_PRINCESS,
+    VAATI_WIND_MAGE,
+    SHADOW_BEAST,
+    STALFOS_WARRIOR,
+    REDEAD,
+    GIBDO,
+    POES,
+    DARK_NUT,
+    PHANTOM,
+    FLOORMASTER,
+    DEAD_HAND,
+    WALLMASTER,
+    TWILIGHT_CURSE,
+    DARKNESS_FALLS,
+    MALICE_SPREAD,
+    SOUL_HARVEST,
+    GANONS_WRATH,
+    DARUK_GORON_CHAMPION,
+    DARUNIA_GORON_CHIEF,
+    DIN_ORACLE_OF_POWER,
+    VOLVAGIA_FIRE_DRAGON,
+    YUNOBO_GORON_DESCENDANT,
+    GORON_WARRIOR,
+    GORON_SMITH,
+    DODONGO,
+    FIRE_KEESE,
+    LIZALFOS,
+    LYNEL,
+    MOBLIN,
+    HINOX,
+    GORON_ELDER,
+    FIRE_SPIRIT,
+    DINS_FIRE,
+    FIRE_ARROW,
+    VOLCANIC_ERUPTION,
+    GORON_RAGE,
+    BOMB_BARRAGE,
+    LINK_HERO_OF_TIME,
+    LINK_CHAMPION_OF_HYRULE,
+    SARIA_FOREST_SAGE,
+    REVALI_RITO_CHAMPION,
+    GREAT_DEKU_TREE,
+    FARORE_ORACLE_OF_COURAGE,
+    KOKIRI_CHILD,
+    KOKIRI_WARRIOR,
+    SKULL_KID,
+    DEKU_SCRUB,
+    FOREST_FAIRY,
+    WOLFOS,
+    FOREST_TEMPLE_GUARDIAN,
+    DEKU_BABA,
+    RITO_WARRIOR,
+    KOROKS,
+    FARORES_WIND,
+    FOREST_BLESSING,
+    NATURES_FURY,
+    DEKU_NUT_STUN,
+    WILD_GROWTH,
+    URBOSA_GERUDO_CHAMPION,
+    FI_SWORD_SPIRIT,
+    NABOORU_SPIRIT_SAGE,
+    SKULL_KID_MASKED_MENACE,
+    TETRA_PIRATE_PRINCESS,
+    GROOSE_SKYLOFT_HERO,
+    MALON_RANCH_KEEPER,
+    TRIFORCE_OF_POWER,
+    TRIFORCE_OF_WISDOM,
+    TRIFORCE_OF_COURAGE,
+    DIVINE_BEAST_VAH_RUTA,
+    DIVINE_BEAST_VAH_RUDANIA,
+    DIVINE_BEAST_VAH_MEDOH,
+    DIVINE_BEAST_VAH_NABORIS,
+    MASTER_SWORD,
+    HYLIAN_SHIELD,
+    HEROS_BOW,
+    BIGGORONS_SWORD,
+    MIRROR_SHIELD,
+    ANCIENT_BOW,
+    KOKIRI_SWORD,
+    MAJORAS_MASK,
+    FIERCE_DEITY_MASK,
+    DEKU_MASK,
+    GORON_MASK,
+    ZORA_MASK,
+    BUNNY_HOOD,
+    STONE_MASK,
+    OCARINA_OF_TIME,
+    SHEIKAH_SLATE,
+    BOMB_BAG,
+    FAIRY_BOTTLE,
+    MAGIC_BOOMERANG,
+    HOOKSHOT,
+    HEART_CONTAINER_ARTIFACT,
+    LENS_OF_TRUTH,
+    ANCIENT_CORE,
+    GUARDIAN_PARTS,
+    SACRED_PROTECTION,
+    ZORAS_DOMAIN,
+    TWILIGHT_REALM,
+    GORON_STRENGTH,
+    KOKIRI_FOREST,
+    HYLIA_BLESSING,
+    ANCIENT_TECHNOLOGY,
+    SPIRIT_TRACKS,
+    HYRULE_CASTLE,
+    DEATH_MOUNTAIN,
+    ZORAS_DOMAIN_LAND,
+    LOST_WOODS,
+    GERUDO_DESERT,
+    TEMPLE_OF_TIME,
+    KAKARIKO_VILLAGE,
+    LAKE_HYLIA,
+    LON_LON_RANCH,
+    GREAT_PLATEAU,
+    AKKALA_CITADEL,
+    FARON_WOODS,
+    ELDIN_VOLCANO,
+    LANAYRU_WETLANDS,
+    LURELIN_VILLAGE,
+    SKYLOFT,
+    SHADOW_TEMPLE,
+    FIRE_TEMPLE,
+    WATER_TEMPLE,
+    FOREST_TEMPLE,
+    SPIRIT_TEMPLE,
+    PLAINS_LOZ,
+    ISLAND_LOZ,
+    SWAMP_LOZ,
+    MOUNTAIN_LOZ,
+    FOREST_LOZ,
+    FAIRY_COMPANION,
+    HYRULE_SOLDIER,
+    LIGHT_SAGE,
+    SACRED_KNIGHT,
+    ZORA_GUARD,
+    DEEP_SEA_ZORA,
+    WISDOM_FAIRY,
+    RIVER_GUARDIAN,
+    SHADOW_LINK,
+    DARK_INTERLOPERS,
+    TWILIGHT_MESSENGER,
+    CURSED_BOKOBLIN,
+    FIRE_TEMPLE_GORON,
+    BOKOBLIN_HORDE,
+    VOLCANIC_KEESE,
+    TALUS,
+    FOREST_GUARDIAN,
+    DEKU_TREE_SPROUT,
+    WILD_HORSE,
+    RITO_ELDER,
+    MASTER_KOHGA,
+    GHIRAHIM_DEMON_LORD,
+    DEMISE_DEMON_KING,
+    KING_RHOAM,
+    KASS_RITO_BARD,
+    BEEDLE_TRAVELING_MERCHANT,
+    PURAH_SHEIKAH_RESEARCHER,
+    ROBBIE_ANCIENT_TECH
+]
