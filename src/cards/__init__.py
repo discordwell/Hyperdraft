@@ -3,8 +3,8 @@
 Card Registry Module
 
 Exports all card registries from the different sets.
-Main rotation includes MTG Standard-legal sets.
-Custom/themed sets available separately via .custom module.
+All sets contain real card data fetched from Scryfall API.
+Custom/themed sets (fan-made) available separately via .custom module.
 """
 
 # Test sets
@@ -19,12 +19,19 @@ from .bloomburrow import BLOOMBURROW_CARDS
 from .duskmourn import DUSKMOURN_CARDS
 from .foundations import FOUNDATIONS_CARDS
 
+# Universes Beyond sets
+from .edge_of_eternities import EDGE_OF_ETERNITIES_CARDS
+from .lorwyn_eclipsed import LORWYN_ECLIPSED_CARDS
+from .spider_man import SPIDER_MAN_CARDS
+from .avatar_tla import AVATAR_TLA_CARDS
+from .final_fantasy import FINAL_FANTASY_CARDS
+
 # Custom sets available via: from src.cards.custom import CUSTOM_CARDS
 
 
 def build_combined_registry() -> dict:
     """
-    Build a combined card registry from all Standard sets.
+    Build a combined card registry from all real MTG sets.
 
     Returns a dictionary mapping card names to their CardDefinition objects.
     Later sets override earlier ones if there are name conflicts.
@@ -43,6 +50,13 @@ def build_combined_registry() -> dict:
     registry.update(DUSKMOURN_CARDS)
     registry.update(FOUNDATIONS_CARDS)
 
+    # Universes Beyond
+    registry.update(EDGE_OF_ETERNITIES_CARDS)
+    registry.update(LORWYN_ECLIPSED_CARDS)
+    registry.update(SPIDER_MAN_CARDS)
+    registry.update(AVATAR_TLA_CARDS)
+    registry.update(FINAL_FANTASY_CARDS)
+
     return registry
 
 
@@ -60,6 +74,12 @@ __all__ = [
     'BLOOMBURROW_CARDS',
     'DUSKMOURN_CARDS',
     'FOUNDATIONS_CARDS',
+    # Universes Beyond
+    'EDGE_OF_ETERNITIES_CARDS',
+    'LORWYN_ECLIPSED_CARDS',
+    'SPIDER_MAN_CARDS',
+    'AVATAR_TLA_CARDS',
+    'FINAL_FANTASY_CARDS',
     # Combined
     'ALL_CARDS',
     'build_combined_registry',

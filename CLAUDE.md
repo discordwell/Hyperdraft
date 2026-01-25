@@ -63,21 +63,37 @@ CARD_NAME = make_creature(
 
 ## Card Sets
 
-### MTG Standard Rotation
-Located in `src/cards/`. These may have partial accuracy issues.
+### Real MTG Sets (from Scryfall API)
+Located in `src/cards/`. ~3,450 cards with accurate data, no interceptors yet.
 
-### Custom Sets (Fan-Made)
-Located in `src/cards/custom/`. These are explicitly fan-made content:
+| Set | Code | Cards |
+|-----|------|-------|
+| Wilds of Eldraine | WOE | 281 |
+| Lost Caverns of Ixalan | LCI | 292 |
+| Murders at Karlov Manor | MKM | 279 |
+| Outlaws of Thunder Junction | OTJ | 276 |
+| Bloomburrow | BLB | 280 |
+| Duskmourn | DSK | 277 |
+| Foundations | FDN | 517 |
+| Edge of Eternities | EOE | 266 |
+| Lorwyn Eclipsed | ECL | 273 |
+| Spider-Man | SPM | 193 |
+| Avatar: TLA | TLA | 286 |
+| Final Fantasy | FIN | 313 |
+
+### Custom Sets (Fan-Made with Interceptors)
+Located in `src/cards/custom/`. ~4,400 cards with working interceptors for testing.
 
 | Set | Cards | Notes |
 |-----|-------|-------|
-| Lorwyn Custom | 408 | Fan-made Lorwyn-inspired set |
-| Temporal Horizons | 276 | Fan-made time-themed set |
-| Avatar TLA Custom | 286 | Fan-made Avatar crossover |
-| Spider-Man Custom | 198 | Fan-made Spider-Man crossover |
-| Final Fantasy Custom | 267 | Fan-made Final Fantasy crossover |
-| Star Wars | 274 | Original crossover |
-| + 13 more anime/game crossovers | ~3,400 | Original crossovers |
+| Lorwyn Custom | 408 | Has interceptors, used by tests |
+| Temporal Horizons | 276 | Has interceptors |
+| + 16 crossover sets | ~3,700 | Star Wars, anime, games |
+
+To regenerate real sets from Scryfall:
+```bash
+python scripts/fetch_scryfall_set.py <set_code> <module_name> "<Set Name>"
+```
 
 ## Running Tests
 ```bash
