@@ -305,33 +305,56 @@ class AIEngine:
         # Apply reactive modifiers for instant-speed plays
         if action.type == ActionType.CAST_SPELL and action.card_id:
             card = state.objects.get(action.card_id)
-            if card and CardType.INSTANT in card.characteristics.types:
-                # Classify and score the instant
-                if self._is_counterspell(card):
-                    base_score += reactive_eval.get_counterspell_bonus(
-                        context, self.strategy.reactivity
+            if card:
+                # Check for X spells and adjust score based on potential X value
+                x_bonus = self._get_x_spell_bonus(card, context.available_mana, state, player_id)
+                if x_bonus > 0:
+                    base_score += x_bonus
+
+                if CardType.INSTANT in card.characteristics.types:
+                    # Classify and score the instant
+                    if self._is_counterspell(card):
+                        base_score += reactive_eval.get_counterspell_bonus(
+                            context, self.strategy.reactivity
+                        )
+                    elif self._is_instant_removal(card):
+                        base_score += reactive_eval.get_removal_bonus(
+                            context, self.strategy.reactivity
+                        )
+                    elif self._is_combat_trick(card):
+                        # Pass the card so we can evaluate if the trick changes outcomes
+                        base_score += reactive_eval.get_combat_trick_bonus(
+                            context, self.strategy.reactivity, trick_card=card
+                        )
+                else:
+                    # Sorcery-speed: consider hold-mana penalty
+                    penalty = reactive_eval.get_hold_mana_penalty(
+                        card, context, self.strategy.reactivity
                     )
-                elif self._is_instant_removal(card):
-                    base_score += reactive_eval.get_removal_bonus(
-                        context, self.strategy.reactivity
-                    )
-                elif self._is_combat_trick(card):
-                    # Pass the card so we can evaluate if the trick changes outcomes
-                    base_score += reactive_eval.get_combat_trick_bonus(
-                        context, self.strategy.reactivity, trick_card=card
-                    )
-            elif card:
-                # Sorcery-speed: consider hold-mana penalty
-                penalty = reactive_eval.get_hold_mana_penalty(
-                    card, context, self.strategy.reactivity
-                )
-                base_score -= penalty
+                    base_score -= penalty
 
         # Pass gets bonus if holding for reaction
         if action.type == ActionType.PASS:
             if context.instants_in_hand and context.available_mana >= 2:
                 if context.stack_threats or not context.is_our_turn:
                     base_score += 0.3 * self.strategy.reactivity
+
+        # Adventure casting - evaluate the adventure spell portion
+        if action.type == ActionType.CAST_ADVENTURE and action.card_id:
+            card = state.objects.get(action.card_id)
+            if card:
+                base_score += self._get_adventure_bonus(card, context, state, player_id)
+
+        # Split card casting - evaluate the chosen half
+        if action.type == ActionType.CAST_SPLIT_LEFT and action.card_id:
+            card = state.objects.get(action.card_id)
+            if card:
+                base_score += self._get_split_bonus(card, 'left', context, state, player_id)
+
+        if action.type == ActionType.CAST_SPLIT_RIGHT and action.card_id:
+            card = state.objects.get(action.card_id)
+            if card:
+                base_score += self._get_split_bonus(card, 'right', context, state, player_id)
 
         return base_score
 
@@ -355,6 +378,162 @@ class AIEngine:
             return False
         text = (card.card_def.text or '').lower() if card.card_def else ''
         return '+' in text and '/' in text
+
+    def _get_x_spell_bonus(self, card, available_mana: int, state: 'GameState', player_id: str) -> float:
+        """
+        Calculate bonus for X spells based on how much mana we can spend.
+
+        X spells are more valuable when we have more mana to spend on X.
+        Returns 0 if not an X spell.
+        """
+        from src.engine import ManaCost
+
+        if not card.characteristics.mana_cost:
+            return 0.0
+
+        cost = ManaCost.parse(card.characteristics.mana_cost)
+        if cost.x_count == 0:
+            return 0.0  # Not an X spell
+
+        # Calculate the base cost (non-X part)
+        base_cost = cost.mana_value  # This includes colored and generic
+
+        # Calculate max X we can afford
+        max_x = max(0, available_mana - base_cost)
+
+        if max_x <= 0:
+            return -1.0  # Can't cast meaningfully, penalize
+
+        # Score based on X value and spell type
+        text = (card.card_def.text or '').lower() if card.card_def else ''
+
+        bonus = 0.0
+
+        # Damage spells: X damage is very valuable
+        if 'damage' in text:
+            # Check if opponent is low enough for lethal
+            opponent_id = self._get_opponent_id(player_id, state)
+            opponent = state.players.get(opponent_id) if opponent_id else None
+            if opponent and max_x >= opponent.life:
+                bonus += 3.0  # Lethal X spell!
+            else:
+                bonus += max_x * 0.3  # Scale with X
+
+        # Card draw: X cards is good
+        elif 'draw' in text:
+            bonus += max_x * 0.4
+
+        # Generic X spell
+        else:
+            bonus += max_x * 0.2
+
+        return bonus
+
+    def _get_opponent_id(self, player_id: str, state: 'GameState') -> str:
+        """Get the opponent's player ID."""
+        for pid in state.players:
+            if pid != player_id:
+                return pid
+        return None
+
+    def _has_adventure(self, card) -> bool:
+        """Check if card has an adventure face."""
+        if not card or not card.card_def:
+            return False
+        # Check for explicit adventure face
+        if hasattr(card.card_def, 'adventure') and card.card_def.adventure:
+            return True
+        # Check for adventure pattern in text (// Adventure)
+        if card.card_def.text and '// adventure' in card.card_def.text.lower():
+            return True
+        return False
+
+    def _has_split(self, card) -> bool:
+        """Check if card is a split card."""
+        if not card or not card.card_def:
+            return False
+        # Check for explicit split faces
+        if hasattr(card.card_def, 'split_left') and card.card_def.split_left:
+            return True
+        if hasattr(card.card_def, 'split_right') and card.card_def.split_right:
+            return True
+        # Check for split pattern in mana cost
+        if card.characteristics.mana_cost and '//' in card.characteristics.mana_cost:
+            return True
+        return False
+
+    def _get_adventure_bonus(self, card, context, state: 'GameState', player_id: str) -> float:
+        """
+        Calculate bonus for casting adventure side of a card.
+
+        Adventure spells are valuable because:
+        1. They give you a 2-for-1 (spell now, creature later)
+        2. The adventure often has useful instant/sorcery effects
+        """
+        if not self._has_adventure(card):
+            return 0.0
+
+        bonus = 0.5  # Base bonus for flexibility
+
+        # Parse adventure text if available
+        adventure_text = ""
+        if hasattr(card.card_def, 'adventure') and card.card_def.adventure:
+            adventure_text = card.card_def.adventure.text.lower()
+        elif card.card_def.text:
+            # Try to extract adventure portion after "// Adventure"
+            parts = card.card_def.text.lower().split('// adventure')
+            if len(parts) > 1:
+                adventure_text = parts[1]
+
+        # Evaluate adventure effect
+        if 'damage' in adventure_text:
+            bonus += 0.8  # Removal is good
+        elif 'destroy' in adventure_text or 'exile' in adventure_text:
+            bonus += 1.0  # Hard removal is great
+        elif 'draw' in adventure_text:
+            bonus += 0.7  # Card advantage
+        elif 'counter' in adventure_text:
+            bonus += 0.9 * self.strategy.reactivity  # Counterspells
+        elif 'create' in adventure_text and 'token' in adventure_text:
+            bonus += 0.6  # Token generation
+
+        return bonus
+
+    def _get_split_bonus(self, card, mode: str, context, state: 'GameState', player_id: str) -> float:
+        """
+        Calculate bonus for casting a specific side of a split card.
+
+        Args:
+            mode: 'left' or 'right'
+        """
+        if not self._has_split(card):
+            return 0.0
+
+        bonus = 0.3  # Base bonus for flexibility
+
+        # Get the appropriate face text
+        face_text = ""
+        if mode == 'left' and hasattr(card.card_def, 'split_left') and card.card_def.split_left:
+            face_text = card.card_def.split_left.text.lower()
+        elif mode == 'right' and hasattr(card.card_def, 'split_right') and card.card_def.split_right:
+            face_text = card.card_def.split_right.text.lower()
+        elif card.card_def.text:
+            # Try to parse from combined text
+            parts = card.card_def.text.split('//')
+            if len(parts) >= 2:
+                face_text = parts[0 if mode == 'left' else 1].lower()
+
+        # Evaluate effect
+        if 'damage' in face_text:
+            bonus += 0.6
+        elif 'destroy' in face_text or 'exile' in face_text:
+            bonus += 0.8
+        elif 'draw' in face_text:
+            bonus += 0.5
+        elif 'counter' in face_text:
+            bonus += 0.7 * self.strategy.reactivity
+
+        return bonus
 
     def _legal_to_player_action(
         self,

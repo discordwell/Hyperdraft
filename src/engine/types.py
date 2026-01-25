@@ -265,6 +265,28 @@ class Player:
 
 
 # =============================================================================
+# Card Face (for split/adventure cards)
+# =============================================================================
+
+@dataclass
+class CardFace:
+    """
+    Represents one face of a multi-face card (adventure, split, MDFC).
+
+    For adventure cards: the adventure spell portion
+    For split cards: left or right half
+    For MDFCs: front or back face
+    """
+    name: str
+    mana_cost: str
+    types: set['CardType'] = field(default_factory=set)
+    text: str = ""
+    power: Optional[int] = None
+    toughness: Optional[int] = None
+    resolve: Optional[Callable[['Event', 'GameState'], list['Event']]] = None
+
+
+# =============================================================================
 # Card Definition (template for creating objects)
 # =============================================================================
 
@@ -284,6 +306,12 @@ class CardDefinition:
 
     # Function for spell/ability resolution
     resolve: Optional[Callable[['Event', 'GameState'], list[Event]]] = None
+
+    # Multi-face card support
+    adventure: Optional[CardFace] = None      # Adventure spell portion
+    split_left: Optional[CardFace] = None     # Left half of split card
+    split_right: Optional[CardFace] = None    # Right half of split card
+    back_face: Optional[CardFace] = None      # Back face of MDFC
 
     def __post_init__(self):
         """Auto-generate text and setup_interceptors from abilities if provided."""

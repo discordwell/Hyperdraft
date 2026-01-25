@@ -33,6 +33,9 @@ class ActionType(Enum):
     ACTIVATE_ABILITY = auto()  # Activate an ability
     PLAY_LAND = auto()         # Play a land
     SPECIAL_ACTION = auto()    # Special actions (morph, suspend, etc.)
+    CAST_ADVENTURE = auto()    # Cast adventure side of a card
+    CAST_SPLIT_LEFT = auto()   # Cast left half of split card
+    CAST_SPLIT_RIGHT = auto()  # Cast right half of split card
 
 
 @dataclass
