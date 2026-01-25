@@ -12,7 +12,7 @@ import time
 
 from src.engine import (
     Game, GameState, Player, PlayerAction, ActionType, LegalAction,
-    Phase, Step, ZoneType, CardType,
+    Phase, Step, ZoneType, CardType, GameObject,
     AttackDeclaration, BlockDeclaration
 )
 from src.engine.types import CardDefinition
@@ -71,6 +71,7 @@ class GameSession:
         self.game.set_ai_action_handler(self._get_ai_action)
         self.game.set_attack_handler(self._get_attacks)
         self.game.set_block_handler(self._get_blocks)
+        self.game.set_mulligan_handler(self._get_mulligan_decision)
         # Set up action processed callback for synchronization
         self.game.priority_system.on_action_processed = self._on_action_processed
 
@@ -358,25 +359,22 @@ class GameSession:
         legal_attackers: list[str]
     ) -> list[AttackDeclaration]:
         """Handler for getting attack declarations."""
-        # For AI, attack with everything
-        if player_id not in self.human_players:
-            defending_players = [
-                pid for pid in self.player_ids if pid != player_id
-            ]
-            if not defending_players:
-                return []
+        # Attack with all legal attackers
+        # TODO: Implement action-based attack declaration for more control
+        defending_players = [
+            pid for pid in self.player_ids if pid != player_id
+        ]
+        if not defending_players:
+            return []
 
-            defender = defending_players[0]
-            return [
-                AttackDeclaration(
-                    attacker_id=aid,
-                    defending_player_id=defender
-                )
-                for aid in legal_attackers
-            ]
-
-        # For humans, this is handled via the action system
-        return []
+        defender = defending_players[0]
+        return [
+            AttackDeclaration(
+                attacker_id=aid,
+                defending_player_id=defender
+            )
+            for aid in legal_attackers
+        ]
 
     def _get_blocks(
         self,
@@ -385,23 +383,57 @@ class GameSession:
         legal_blockers: list[str]
     ) -> list[BlockDeclaration]:
         """Handler for getting block declarations."""
-        # For AI, simple blocking strategy
-        if player_id not in self.human_players:
-            blocks = []
-            available_blockers = list(legal_blockers)
+        # Simple blocking strategy - block with available creatures
+        # TODO: Implement action-based blocking for more control
+        blocks = []
+        available_blockers = list(legal_blockers)
 
-            for attacker in attackers:
-                if available_blockers:
-                    blocker = available_blockers.pop(0)
-                    blocks.append(BlockDeclaration(
-                        blocker_id=blocker,
-                        blocking_attacker_id=attacker.attacker_id
-                    ))
+        for attacker in attackers:
+            if available_blockers:
+                blocker = available_blockers.pop(0)
+                blocks.append(BlockDeclaration(
+                    blocker_id=blocker,
+                    blocking_attacker_id=attacker.attacker_id
+                ))
 
-            return blocks
+        return blocks
 
-        # For humans, handled via action system
-        return []
+    def _get_mulligan_decision(
+        self,
+        player_id: str,
+        hand: list,
+        mulligan_count: int
+    ) -> bool:
+        """
+        Handler for mulligan decisions.
+
+        Uses smart logic: keep hands with 2-5 lands for aggro, 2-4 for control.
+        Returns True to keep, False to mulligan.
+        """
+        # Always keep at 4+ mulligans (3 cards or fewer)
+        if mulligan_count >= 4:
+            return True
+
+        # Count lands in hand
+        land_count = sum(1 for card in hand if CardType.LAND in card.characteristics.types)
+
+        # Count playable cards (CMC <= 3)
+        playable_count = sum(
+            1 for card in hand
+            if CardType.LAND not in card.characteristics.types
+            and card.characteristics.mana_cost.count('{') <= 3
+        )
+
+        # Ideal hand: 2-4 lands with at least 1 playable spell
+        if 2 <= land_count <= 4 and playable_count >= 1:
+            return True
+
+        # At mulligan 3 (4 cards), be less picky
+        if mulligan_count >= 3 and 1 <= land_count <= 5:
+            return True
+
+        # Mulligan hands with 0-1 or 6+ lands
+        return False
 
     def _serialize_permanent(self, obj) -> CardData:
         """Serialize a permanent for the client."""

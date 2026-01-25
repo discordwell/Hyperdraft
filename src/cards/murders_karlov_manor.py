@@ -1308,7 +1308,7 @@ KRENKO_BARON_TIN_STREET = make_creature(
     subtypes={"Goblin", "Rogue"},
     supertypes={"Legendary"},
     text="Haste. Whenever Krenko attacks, create X 1/1 red Goblin creature tokens that are tapped and attacking, where X is the number of Goblins you control.",
-    setup_interceptors=krenko_baron_tin_street_setup
+    setup_interceptors=krenko_baron_of_tin_street_setup
 )
 
 
