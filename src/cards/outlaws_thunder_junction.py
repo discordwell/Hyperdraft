@@ -14,6 +14,13 @@ from src.engine import (
     new_id, get_power, get_toughness
 )
 from typing import Optional, Callable
+from src.cards.interceptor_helpers import (
+    make_etb_trigger, make_death_trigger, make_attack_trigger,
+    make_static_pt_boost, make_keyword_grant, make_spell_cast_trigger,
+    make_damage_trigger, make_upkeep_trigger, make_end_step_trigger,
+    other_creatures_you_control, other_creatures_with_subtype,
+    creatures_you_control
+)
 
 
 # =============================================================================
@@ -128,6 +135,1304 @@ def make_planeswalker(name: str, mana_cost: str, colors: set, loyalty: int,
 
 
 # =============================================================================
+# INTERCEPTOR SETUP FUNCTIONS
+# =============================================================================
+
+# Helper: Check if a creature is an outlaw (Assassin, Mercenary, Pirate, Rogue, Warlock)
+OUTLAW_TYPES = {"Assassin", "Mercenary", "Pirate", "Rogue", "Warlock"}
+
+def is_outlaw(obj: GameObject) -> bool:
+    """Check if a creature is an outlaw type."""
+    return bool(obj.characteristics.subtypes & OUTLAW_TYPES)
+
+
+def other_outlaws_you_control(source: GameObject):
+    """Filter: Other outlaws you control."""
+    def filter_fn(target: GameObject, state: GameState) -> bool:
+        return (target.id != source.id and
+                target.controller == source.controller and
+                CardType.CREATURE in target.characteristics.types and
+                is_outlaw(target) and
+                target.zone == ZoneType.BATTLEFIELD)
+    return filter_fn
+
+
+# -----------------------------------------------------------------------------
+# WHITE CARDS
+# -----------------------------------------------------------------------------
+
+def holy_cow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, you gain 2 life and scry 1."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def sterling_supplier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, put a +1/+1 counter on another target creature you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - placeholder creates counter event
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def prosperity_tycoon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, create a Mercenary token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Mercenary Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Mercenary'],
+                'colors': [Color.RED]
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def stagecoach_security_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, creatures you control get +1/+1 and vigilance until end of turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Creates temporary buff event
+        return [Event(
+            type=EventType.TEMPORARY_EFFECT,
+            payload={
+                'effect': 'pump_all',
+                'controller': obj.controller,
+                'power_mod': 1,
+                'toughness_mod': 1,
+                'keywords': ['vigilance'],
+                'duration': 'end_of_turn'
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def wanted_griffin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature dies, create a Mercenary token."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Mercenary Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Mercenary'],
+                'colors': [Color.RED]
+            },
+            source=obj.id
+        )]
+    return [make_death_trigger(obj, death_effect)]
+
+
+def outlaw_medic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature dies, draw a card."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_death_trigger(obj, death_effect)]
+
+
+def vengeful_townsfolk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever one or more other creatures you control die, put a +1/+1 counter on this creature."""
+    def other_creature_dies_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_obj_id = event.payload.get('object_id')
+        if dying_obj_id == source.id:
+            return False
+        dying_obj = state.objects.get(dying_obj_id)
+        if not dying_obj:
+            return False
+        return (dying_obj.controller == source.controller and
+                CardType.CREATURE in dying_obj.characteristics.types)
+
+    def death_trigger_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_death_trigger(obj, death_trigger_effect, other_creature_dies_filter)]
+
+
+def claim_jumper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, if opponent controls more lands, search for Plains."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Library search not fully implemented - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def frontier_seeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, look at top 5, may reveal Mount or Plains."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Library manipulation not fully implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def shepherd_of_clouds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, return target permanent card mv 3 or less from graveyard."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Graveyard recursion with targeting
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def fortune_loyal_steed_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Fortune enters, scry 2."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# -----------------------------------------------------------------------------
+# BLUE CARDS
+# -----------------------------------------------------------------------------
+
+def harrier_strix_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, tap target permanent."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def loan_shark_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, if you've cast two+ spells this turn, draw a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Check spell count this turn - simplified, always triggers for now
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def peerless_ropemaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, return up to one target tapped creature to its owner's hand."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Bounce effect - targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def outlaw_stitcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, create a Zombie Rogue token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Zombie Rogue Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Zombie', 'Rogue'],
+                'colors': [Color.BLUE, Color.BLACK]
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def geralf_the_fleshwright_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast a spell during your turn other than your first, create a Zombie Rogue."""
+    # Complex trigger - simplified placeholder
+    def spell_cast_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Zombie Rogue Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Zombie', 'Rogue'],
+                'colors': [Color.BLUE, Color.BLACK]
+            },
+            source=obj.id
+        )]
+    return [make_spell_cast_trigger(obj, spell_cast_effect)]
+
+
+def nimble_brigand_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature deals combat damage to a player, draw a card."""
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+
+
+def spring_splasher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature attacks, target creature defending player controls gets -3/-0."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # Targeting required
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# -----------------------------------------------------------------------------
+# BLACK CARDS
+# -----------------------------------------------------------------------------
+
+def ambush_gigapede_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, target creature an opponent controls gets -2/-2 until end of turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def desperate_bloodseeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, target player mills two cards."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Targeting required - mills opponent
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def nezumi_linkbreaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature dies, create a Mercenary token."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Mercenary Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Mercenary'],
+                'colors': [Color.RED]
+            },
+            source=obj.id
+        )]
+    return [make_death_trigger(obj, death_effect)]
+
+
+def vault_plunderer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, target player draws a card and loses 1 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Can target self or opponent - simplified to self
+        return [
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': -1},
+                source=obj.id
+            )
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def rictus_robber_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, if a creature died this turn, create a Zombie Rogue token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Check if creature died this turn - simplified, always triggers
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Zombie Rogue Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Zombie', 'Rogue'],
+                'colors': [Color.BLUE, Color.BLACK]
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def rooftop_assassin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, destroy target creature an opponent controls that was dealt damage this turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Conditional destruction - targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def gisa_the_hellraiser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Skeletons and Zombies you control get +1/+1 and have menace."""
+    def affects_zombie_or_skeleton(target: GameObject, state: GameState) -> bool:
+        return (target.controller == obj.controller and
+                CardType.CREATURE in target.characteristics.types and
+                ("Zombie" in target.characteristics.subtypes or
+                 "Skeleton" in target.characteristics.subtypes) and
+                target.zone == ZoneType.BATTLEFIELD)
+
+    interceptors = make_static_pt_boost(obj, 1, 1, affects_zombie_or_skeleton)
+    interceptors.append(make_keyword_grant(obj, ['menace'], affects_zombie_or_skeleton))
+    return interceptors
+
+
+def hollow_marauder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, target opponents each discard a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Discard targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def rakish_crew_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this enchantment enters, create a Mercenary token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Mercenary Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Mercenary'],
+                'colors': [Color.RED]
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def tinybones_joins_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Tinybones Joins Up enters, target players each discard a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Discard effect - targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# -----------------------------------------------------------------------------
+# RED CARDS
+# -----------------------------------------------------------------------------
+
+def cunning_coyote_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, another target creature gets +1/+1 and haste until end of turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def discerning_peddler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, you may discard a card. If you do, draw a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Looting effect
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def hellspur_posse_boss_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Other outlaws you control have haste. When this enters, create two Mercenary tokens."""
+    interceptors = []
+
+    # Grant haste to other outlaws
+    interceptors.append(make_keyword_grant(obj, ['haste'], other_outlaws_you_control(obj)))
+
+    # ETB: Create two Mercenary tokens
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Mercenary Token',
+                    'controller': obj.controller,
+                    'power': 1,
+                    'toughness': 1,
+                    'types': [CardType.CREATURE],
+                    'subtypes': ['Mercenary'],
+                    'colors': [Color.RED]
+                },
+                source=obj.id
+            ),
+            Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Mercenary Token',
+                    'controller': obj.controller,
+                    'power': 1,
+                    'toughness': 1,
+                    'types': [CardType.CREATURE],
+                    'subtypes': ['Mercenary'],
+                    'colors': [Color.RED]
+                },
+                source=obj.id
+            )
+        ]
+
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    return interceptors
+
+
+def prickly_pair_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, create a Mercenary token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Mercenary Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Mercenary'],
+                'colors': [Color.RED]
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def mine_raider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, if you control another outlaw, create a Treasure token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Check for other outlaw - simplified
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Treasure Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Treasure'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def irascible_wolverine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, exile the top card of your library. Until end of turn, you may play that card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Impulse draw - library manipulation required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def scalestorm_summoner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature attacks, create a 3/1 red Dinosaur token if you control a creature with power 4+."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # Check for power 4+ creature - simplified
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Dinosaur Token',
+                'controller': obj.controller,
+                'power': 3,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Dinosaur'],
+                'colors': [Color.RED]
+            },
+            source=obj.id
+        )]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def terror_of_the_peaks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another creature you control enters, this deals damage equal to that creature's power to any target."""
+    def creature_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        return (entering_obj.controller == source.controller and
+                CardType.CREATURE in entering_obj.characteristics.types)
+
+    def creature_etb_effect(event: Event, state: GameState) -> list[Event]:
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if entering_obj:
+            power = entering_obj.characteristics.power or 0
+            # Would need targeting - placeholder
+            return []
+        return []
+
+    return [make_etb_trigger(obj, creature_etb_effect, creature_etb_filter)]
+
+
+def ertha_jo_frontier_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Ertha Jo enters, create a Mercenary token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Mercenary Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Mercenary'],
+                'colors': [Color.RED]
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# -----------------------------------------------------------------------------
+# GREEN CARDS
+# -----------------------------------------------------------------------------
+
+def beastbond_outcaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, if you control a creature with power 4+, draw a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Check for power 4+ creature - simplified
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def goldvein_hydra_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature dies, create Treasure tokens equal to its power."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need to track power at death
+        power = obj.characteristics.power or 0
+        events = []
+        for _ in range(power):
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Treasure Token',
+                    'controller': obj.controller,
+                    'types': [CardType.ARTIFACT],
+                    'subtypes': ['Treasure'],
+                    'colors': []
+                },
+                source=obj.id
+            ))
+        return events
+    return [make_death_trigger(obj, death_effect)]
+
+
+def outcaster_greenblade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, search for a basic land or Desert card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Library search - not fully implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def outcaster_trailblazer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, add one mana of any color. Whenever another power 4+ creature enters, draw a card."""
+    interceptors = []
+
+    # ETB mana
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': 'any', 'amount': 1},
+            source=obj.id
+        )]
+
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    # Draw on big creature ETB
+    def big_creature_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        return (entering_obj.controller == source.controller and
+                CardType.CREATURE in entering_obj.characteristics.types and
+                (entering_obj.characteristics.power or 0) >= 4)
+
+    def big_creature_etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    interceptors.append(make_etb_trigger(obj, big_creature_etb_effect, big_creature_etb_filter))
+    return interceptors
+
+
+def patient_naturalist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, mill three cards. Put a land card from among them into your hand."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Mill effect
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def railway_brawler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another creature you control enters, put +1/+1 counters on it equal to its power."""
+    def creature_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        return (entering_obj.controller == source.controller and
+                CardType.CREATURE in entering_obj.characteristics.types)
+
+    def creature_etb_effect(event: Event, state: GameState) -> list[Event]:
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if entering_obj:
+            power = entering_obj.characteristics.power or 0
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': entering_id, 'counter_type': '+1/+1', 'amount': power},
+                source=obj.id
+            )]
+        return []
+
+    return [make_etb_trigger(obj, creature_etb_effect, creature_etb_filter)]
+
+
+def spinewoods_paladin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, you gain 3 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# -----------------------------------------------------------------------------
+# MULTICOLOR CARDS
+# -----------------------------------------------------------------------------
+
+def annie_flash_the_veteran_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Annie Flash enters, if you cast it, return target permanent card mv 3 or less from graveyard."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Graveyard recursion with targeting
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def annie_joins_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Annie Joins Up enters, it deals 5 damage to target creature or planeswalker an opponent controls."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def baron_bertram_graywater_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever one or more tokens you control enter, create a 1/1 Vampire Rogue with lifelink."""
+    def token_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        # Check if it's a token controlled by us
+        return (entering_obj.controller == source.controller and
+                entering_obj.state.is_token)
+
+    def token_etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Vampire Rogue Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Vampire', 'Rogue'],
+                'colors': [Color.BLACK],
+                'keywords': ['lifelink']
+            },
+            source=obj.id
+        )]
+
+    return [make_etb_trigger(obj, token_etb_effect, token_etb_filter)]
+
+
+def bonny_pall_clearcutter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Bonny Pall enters, create Beau, a legendary blue Ox creature token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Beau',
+                'controller': obj.controller,
+                'power': 0,  # Variable based on lands
+                'toughness': 0,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Ox'],
+                'supertypes': ['Legendary'],
+                'colors': [Color.BLUE]
+            },
+            source=obj.id
+        )]
+
+    interceptors = [make_etb_trigger(obj, etb_effect)]
+
+    # Whenever you attack, draw a card
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    interceptors.append(make_attack_trigger(obj, attack_effect))
+    return interceptors
+
+
+def bruse_tarl_roving_rancher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Oxen you control have double strike."""
+    def affects_oxen(target: GameObject, state: GameState) -> bool:
+        return (target.controller == obj.controller and
+                CardType.CREATURE in target.characteristics.types and
+                "Ox" in target.characteristics.subtypes and
+                target.zone == ZoneType.BATTLEFIELD)
+
+    return [make_keyword_grant(obj, ['double_strike'], affects_oxen)]
+
+
+def honest_rutstein_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Honest Rutstein enters, return target creature card from your graveyard to your hand."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Graveyard recursion - targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def intimidation_campaign_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this enchantment enters, each opponent loses 1 life, you gain 1 life, and you draw a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = [
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id
+            )
+        ]
+        # Each opponent loses 1 life
+        for player_id in state.players:
+            if player_id != obj.controller:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': player_id, 'amount': -1},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def jem_lightfoote_sky_explorer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your end step, if you haven't cast a spell from your hand this turn, draw a card."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # Check if no spell cast from hand - simplified
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def kellan_joins_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a legendary creature you control enters, put a +1/+1 counter on each creature you control."""
+    def legendary_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        return (entering_obj.controller == source.controller and
+                CardType.CREATURE in entering_obj.characteristics.types and
+                "Legendary" in (entering_obj.characteristics.supertypes or set()))
+
+    def legendary_etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for obj_id, target in state.objects.items():
+            if (target.controller == obj.controller and
+                CardType.CREATURE in target.characteristics.types and
+                target.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj_id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id
+                ))
+        return events
+
+    return [make_etb_trigger(obj, legendary_etb_effect, legendary_etb_filter)]
+
+
+def kraum_violent_cacophony_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast your second spell each turn, put a +1/+1 counter on Kraum and draw a card."""
+    def spell_cast_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id
+            ),
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id
+            )
+        ]
+    return [make_spell_cast_trigger(obj, spell_cast_effect)]
+
+
+def malcolm_the_eyes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast your second spell each turn, investigate."""
+    def spell_cast_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Clue Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Clue'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_spell_cast_trigger(obj, spell_cast_effect)]
+
+
+def miriam_herd_whisperer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a Mount or Vehicle you control attacks, put a +1/+1 counter on it."""
+    def mount_or_vehicle_attacks_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return False
+        return (attacker.controller == source.controller and
+                ("Mount" in attacker.characteristics.subtypes or
+                 CardType.VEHICLE in attacker.characteristics.types))
+
+    def mount_attack_effect(event: Event, state: GameState) -> list[Event]:
+        attacker_id = event.payload.get('attacker_id')
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': attacker_id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_attack_trigger(obj, mount_attack_effect, mount_or_vehicle_attacks_filter)]
+
+
+def ruthless_lawbringer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, you may sacrifice another creature. When you do, destroy target nonland permanent."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Sacrifice + destroy - targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def selvala_eager_trailblazer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast a creature spell, create a Mercenary token."""
+    def creature_cast_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Mercenary Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Mercenary'],
+                'colors': [Color.RED]
+            },
+            source=obj.id
+        )]
+    return [make_spell_cast_trigger(obj, creature_cast_effect, spell_type_filter={CardType.CREATURE})]
+
+
+def vial_smasher_gleeful_grenadier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another outlaw you control enters, Vial Smasher deals 1 damage to target opponent."""
+    def outlaw_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        return (entering_obj.controller == source.controller and
+                CardType.CREATURE in entering_obj.characteristics.types and
+                is_outlaw(entering_obj))
+
+    def outlaw_etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Targeting required - simplified to first opponent
+        for player_id in state.players:
+            if player_id != obj.controller:
+                return [Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': player_id, 'amount': 1, 'source': obj.id, 'is_combat': False},
+                    source=obj.id
+                )]
+        return []
+
+    return [make_etb_trigger(obj, outlaw_etb_effect, outlaw_etb_filter)]
+
+
+def vraska_joins_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Vraska Joins Up enters, put a deathtouch counter on each creature you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for obj_id, target in state.objects.items():
+            if (target.controller == obj.controller and
+                CardType.CREATURE in target.characteristics.types and
+                target.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj_id, 'counter_type': 'deathtouch', 'amount': 1},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def wrangler_of_the_damned_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your end step, if you haven't cast a spell from your hand this turn, create a Spirit token."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Spirit Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Spirit'],
+                'colors': [Color.WHITE],
+                'keywords': ['flying']
+            },
+            source=obj.id
+        )]
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+# -----------------------------------------------------------------------------
+# ARTIFACT CREATURES
+# -----------------------------------------------------------------------------
+
+def oasis_gardener_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, you gain 2 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def silver_deputy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, you may search for a basic land or Desert card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Library search not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def sterling_hound_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, surveil 2."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# -----------------------------------------------------------------------------
+# MORE SETUP FUNCTIONS
+# -----------------------------------------------------------------------------
+
+def slickshot_showoff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast a noncreature spell, this creature gets +2/+0 until end of turn."""
+    def noncreature_cast_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TEMPORARY_EFFECT,
+            payload={
+                'effect': 'pump',
+                'target': obj.id,
+                'power_mod': 2,
+                'toughness_mod': 0,
+                'duration': 'end_of_turn'
+            },
+            source=obj.id
+        )]
+
+    def is_noncreature_spell(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != source.controller:
+            return False
+        spell_types = set(event.payload.get('types', []))
+        return CardType.CREATURE not in spell_types
+
+    return [make_spell_cast_trigger(obj, noncreature_cast_effect, filter_fn=is_noncreature_spell)]
+
+
+def razzledazzler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast your second spell each turn, put a +1/+1 counter on this creature."""
+    def second_spell_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_spell_cast_trigger(obj, second_spell_effect)]
+
+
+def ironfist_pulverizer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast your second spell each turn, this deals 2 damage to target opponent."""
+    def second_spell_effect(event: Event, state: GameState) -> list[Event]:
+        for player_id in state.players:
+            if player_id != obj.controller:
+                return [Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': player_id, 'amount': 2, 'source': obj.id, 'is_combat': False},
+                    source=obj.id
+                )]
+        return []
+    return [make_spell_cast_trigger(obj, second_spell_effect)]
+
+
+def blacksnag_buzzard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """This creature enters with a +1/+1 counter on it if a creature died this turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Simplified - always adds counter
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def blood_hustler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you commit a crime, put a +1/+1 counter on this creature."""
+    # Simplified - triggers on targeting opponents
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return []  # Crime tracking not fully implemented
+
+
+def raven_of_fell_omens_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you commit a crime, each opponent loses 1 life and you gain 1 life."""
+    # Crime tracking not implemented - placeholder
+    return []
+
+
+def canyon_crab_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your end step, if you haven't cast a spell from your hand this turn, draw and discard."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id
+            )
+        ]
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def prairie_dog_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your end step, if you haven't cast a spell from your hand this turn, +1/+1 counter."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def inventive_wingsmith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your end step, if you haven't cast a spell from your hand this turn, put a flying counter."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'flying', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def shepherd_of_clouds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, return target permanent card mv 3 or less from your graveyard."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Graveyard recursion - targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def nurturing_pixie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature enters, return up to one target non-Faerie, nonland permanent you control to its owner's hand."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Bounce effect with counter - targeting required
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def magda_the_hoardmaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you commit a crime, create a tapped Treasure token."""
+    # Crime tracking not implemented - placeholder
+    return []
+
+
+def rodeo_pyromancers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast your first spell each turn, add RR."""
+    def first_spell_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': 'RR', 'amount': 2},
+            source=obj.id
+        )]
+    return [make_spell_cast_trigger(obj, first_spell_effect)]
+
+
+def trained_arynx_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature attacks while saddled, it gains first strike until end of turn. Scry 1."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def bridled_bighorn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature attacks while saddled, create a 1/1 white Sheep creature token."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Sheep Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Sheep'],
+                'colors': [Color.WHITE]
+            },
+            source=obj.id
+        )]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def bounding_felidar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature attacks while saddled, put a +1/+1 counter on each other creature you control."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for obj_id, target in state.objects.items():
+            if (target.id != obj.id and
+                target.controller == obj.controller and
+                CardType.CREATURE in target.characteristics.types and
+                target.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj_id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id
+                ))
+        return events
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def caustic_bronco_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature attacks, reveal the top card and put it into your hand."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def duelist_of_the_mind_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Power is equal to the number of cards drawn this turn."""
+    # Dynamic power tracking not fully implemented
+    return []
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -172,6 +1477,7 @@ BOUNDING_FELIDAR = make_creature(
     colors={Color.WHITE},
     subtypes={"Beast", "Cat", "Mount"},
     text="Whenever this creature attacks while saddled, put a +1/+1 counter on each other creature you control. You gain 1 life for each of those creatures.\nSaddle 2 (Tap any number of other creatures you control with total power 2 or more: This Mount becomes saddled until end of turn. Saddle only as a sorcery.)",
+    setup_interceptors=bounding_felidar_setup,
 )
 
 BOVINE_INTERVENTION = make_instant(
@@ -188,6 +1494,7 @@ BRIDLED_BIGHORN = make_creature(
     colors={Color.WHITE},
     subtypes={"Mount", "Sheep"},
     text="Vigilance\nWhenever this creature attacks while saddled, create a 1/1 white Sheep creature token.\nSaddle 2 (Tap any number of other creatures you control with total power 2 or more: This Mount becomes saddled until end of turn. Saddle only as a sorcery.)",
+    setup_interceptors=bridled_bighorn_setup,
 )
 
 CLAIM_JUMPER = make_creature(
@@ -197,6 +1504,7 @@ CLAIM_JUMPER = make_creature(
     colors={Color.WHITE},
     subtypes={"Mercenary", "Rabbit"},
     text="Vigilance\nWhen this creature enters, if an opponent controls more lands than you, you may search your library for a Plains card and put it onto the battlefield tapped. Then if an opponent controls more lands than you, repeat this process once. If you search your library this way, shuffle.",
+    setup_interceptors=claim_jumper_setup,
 )
 
 DUST_ANIMUS = make_creature(
@@ -230,6 +1538,7 @@ FORTUNE_LOYAL_STEED = make_creature(
     subtypes={"Beast", "Mount"},
     supertypes={"Legendary"},
     text="When Fortune enters, scry 2.\nWhenever Fortune attacks while saddled, at end of combat, exile it and up to one creature that saddled it this turn, then return those cards to the battlefield under their owner's control.\nSaddle 1",
+    setup_interceptors=fortune_loyal_steed_setup,
 )
 
 FRONTIER_SEEKER = make_creature(
@@ -239,6 +1548,7 @@ FRONTIER_SEEKER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout"},
     text="When this creature enters, look at the top five cards of your library. You may reveal a Mount creature card or a Plains card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+    setup_interceptors=frontier_seeker_setup,
 )
 
 GETAWAY_GLAMER = make_instant(
@@ -262,6 +1572,7 @@ HOLY_COW = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel", "Ox"},
     text="Flash\nFlying\nWhen this creature enters, you gain 2 life and scry 1. (Look at the top card of your library. You may put that card on the bottom.)",
+    setup_interceptors=holy_cow_setup,
 )
 
 INVENTIVE_WINGSMITH = make_creature(
@@ -271,6 +1582,7 @@ INVENTIVE_WINGSMITH = make_creature(
     colors={Color.WHITE},
     subtypes={"Artificer", "Dwarf"},
     text="At the beginning of your end step, if you haven't cast a spell from your hand this turn and this creature doesn't have a flying counter on it, put a flying counter on it.",
+    setup_interceptors=inventive_wingsmith_setup,
 )
 
 LASSOED_BY_THE_LAW = make_enchantment(
@@ -319,6 +1631,7 @@ OUTLAW_MEDIC = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Rogue"},
     text="Lifelink\nWhen this creature dies, draw a card.",
+    setup_interceptors=outlaw_medic_setup,
 )
 
 PRAIRIE_DOG = make_creature(
@@ -328,6 +1641,7 @@ PRAIRIE_DOG = make_creature(
     colors={Color.WHITE},
     subtypes={"Squirrel"},
     text="Lifelink\nAt the beginning of your end step, if you haven't cast a spell from your hand this turn, put a +1/+1 counter on this creature.\n{4}{W}: Until end of turn, if you would put one or more +1/+1 counters on a creature you control, put that many plus one +1/+1 counters on it instead.",
+    setup_interceptors=prairie_dog_setup,
 )
 
 PROSPERITY_TYCOON = make_creature(
@@ -337,6 +1651,7 @@ PROSPERITY_TYCOON = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Noble"},
     text="When this creature enters, create a 1/1 red Mercenary creature token with \"{T}: Target creature you control gets +1/+0 until end of turn. Activate only as a sorcery.\"\n{2}, Sacrifice a token: This creature gains indestructible until end of turn. Tap it. (Damage and effects that say \"destroy\" don't destroy it.)",
+    setup_interceptors=prosperity_tycoon_setup,
 )
 
 REQUISITION_RAID = make_sorcery(
@@ -378,6 +1693,7 @@ STAGECOACH_SECURITY = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="When this creature enters, creatures you control get +1/+1 and gain vigilance until end of turn.\nPlot {3}{W} (You may pay {3}{W} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=stagecoach_security_setup,
 )
 
 STEER_CLEAR = make_instant(
@@ -403,6 +1719,7 @@ STERLING_SUPPLIER = make_creature(
     colors={Color.WHITE},
     subtypes={"Bird", "Soldier"},
     text="Flying\nWhen this creature enters, put a +1/+1 counter on another target creature you control.",
+    setup_interceptors=sterling_supplier_setup,
 )
 
 TAKE_UP_THE_SHIELD = make_instant(
@@ -426,6 +1743,7 @@ TRAINED_ARYNX = make_creature(
     colors={Color.WHITE},
     subtypes={"Beast", "Cat", "Mount"},
     text="Whenever this creature attacks while saddled, it gains first strike until end of turn. Scry 1. (Look at the top card of your library. You may put that card on the bottom.)\nSaddle 2 (Tap any number of other creatures you control with total power 2 or more: This Mount becomes saddled until end of turn. Saddle only as a sorcery.)",
+    setup_interceptors=trained_arynx_setup,
 )
 
 VENGEFUL_TOWNSFOLK = make_creature(
@@ -435,6 +1753,7 @@ VENGEFUL_TOWNSFOLK = make_creature(
     colors={Color.WHITE},
     subtypes={"Citizen", "Human"},
     text="Whenever one or more other creatures you control die, put a +1/+1 counter on this creature.",
+    setup_interceptors=vengeful_townsfolk_setup,
 )
 
 WANTED_GRIFFIN = make_creature(
@@ -444,6 +1763,7 @@ WANTED_GRIFFIN = make_creature(
     colors={Color.WHITE},
     subtypes={"Griffin"},
     text="Flying\nWhen this creature dies, create a 1/1 red Mercenary creature token with \"{T}: Target creature you control gets +1/+0 until end of turn. Activate only as a sorcery.\"",
+    setup_interceptors=wanted_griffin_setup,
 )
 
 ARCHMAGES_NEWT = make_creature(
@@ -462,6 +1782,7 @@ CANYON_CRAB = make_creature(
     colors={Color.BLUE},
     subtypes={"Crab"},
     text="{1}{U}: This creature gets +2/-2 until end of turn.\nAt the beginning of your end step, if you haven't cast a spell from your hand this turn, draw a card, then discard a card.",
+    setup_interceptors=canyon_crab_setup,
 )
 
 DARING_THUNDERTHIEF = make_creature(
@@ -546,6 +1867,7 @@ GERALF_THE_FLESHWRIGHT = make_creature(
     subtypes={"Human", "Warlock"},
     supertypes={"Legendary"},
     text="Whenever you cast a spell during your turn other than your first spell that turn, create a 2/2 blue and black Zombie Rogue creature token.\nWhenever a Zombie you control enters, put a +1/+1 counter on it for each other Zombie that entered the battlefield under your control this turn.",
+    setup_interceptors=geralf_the_fleshwright_setup,
 )
 
 GEYSER_DRAKE = make_creature(
@@ -564,6 +1886,7 @@ HARRIER_STRIX = make_creature(
     colors={Color.BLUE},
     subtypes={"Bird"},
     text="Flying\nWhen this creature enters, tap target permanent.\n{2}{U}: Draw a card, then discard a card.",
+    setup_interceptors=harrier_strix_setup,
 )
 
 JAILBREAK_SCHEME = make_sorcery(
@@ -588,6 +1911,7 @@ LOAN_SHARK = make_creature(
     colors={Color.BLUE},
     subtypes={"Rogue", "Shark"},
     text="When this creature enters, if you've cast two or more spells this turn, draw a card.\nPlot {3}{U} (You may pay {3}{U} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=loan_shark_setup,
 )
 
 MARAUDING_SPHINX = make_creature(
@@ -613,6 +1937,7 @@ NIMBLE_BRIGAND = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Rogue"},
     text="This creature can't be blocked if you've committed a crime this turn. (Targeting opponents, anything they control, and/or cards in their graveyards is a crime.)\nWhenever this creature deals combat damage to a player, draw a card.",
+    setup_interceptors=nimble_brigand_setup,
 )
 
 OUTLAW_STITCHER = make_creature(
@@ -622,6 +1947,7 @@ OUTLAW_STITCHER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Warlock"},
     text="When this creature enters, create a 2/2 blue and black Zombie Rogue creature token, then put two +1/+1 counters on that token for each spell you've cast this turn other than the first.\nPlot {4}{U} (You may pay {4}{U} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=outlaw_stitcher_setup,
 )
 
 PEERLESS_ROPEMASTER = make_creature(
@@ -631,6 +1957,7 @@ PEERLESS_ROPEMASTER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Rogue"},
     text="When this creature enters, return up to one target tapped creature to its owner's hand.",
+    setup_interceptors=peerless_ropemaster_setup,
 )
 
 PHANTOM_INTERFERENCE = make_instant(
@@ -654,6 +1981,7 @@ RAZZLEDAZZLER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     text="Whenever you cast your second spell each turn, put a +1/+1 counter on this creature. It can't be blocked this turn.",
+    setup_interceptors=razzledazzler_setup,
 )
 
 SEIZE_THE_SECRETS = make_sorcery(
@@ -704,6 +2032,7 @@ SPRING_SPLASHER = make_creature(
     colors={Color.BLUE},
     subtypes={"Beast", "Frog"},
     text="Whenever this creature attacks, target creature defending player controls gets -3/-0 until end of turn.",
+    setup_interceptors=spring_splasher_setup,
 )
 
 STEP_BETWEEN_WORLDS = make_sorcery(
@@ -767,6 +2096,7 @@ AMBUSH_GIGAPEDE = make_creature(
     colors={Color.BLACK},
     subtypes={"Insect"},
     text="Flash\nWhen this creature enters, target creature an opponent controls gets -2/-2 until end of turn.",
+    setup_interceptors=ambush_gigapede_setup,
 )
 
 BINDING_NEGOTIATION = make_sorcery(
@@ -783,6 +2113,7 @@ BLACKSNAG_BUZZARD = make_creature(
     colors={Color.BLACK},
     subtypes={"Bird"},
     text="Flying\nThis creature enters with a +1/+1 counter on it if a creature died this turn.\nPlot {1}{B} (You may pay {1}{B} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=blacksnag_buzzard_setup,
 )
 
 BLOOD_HUSTLER = make_creature(
@@ -810,6 +2141,7 @@ CAUSTIC_BRONCO = make_creature(
     colors={Color.BLACK},
     subtypes={"Horse", "Mount", "Snake"},
     text="Whenever this creature attacks, reveal the top card of your library and put it into your hand. You lose life equal to that card's mana value if this creature isn't saddled. Otherwise, each opponent loses that much life.\nSaddle 3 (Tap any number of other creatures you control with total power 3 or more: This Mount becomes saddled until end of turn. Saddle only as a sorcery.)",
+    setup_interceptors=caustic_bronco_setup,
 )
 
 CONSUMING_ASHES = make_instant(
@@ -840,6 +2172,7 @@ DESPERATE_BLOODSEEKER = make_creature(
     colors={Color.BLACK},
     subtypes={"Vampire"},
     text="Lifelink\nWhen this creature enters, target player mills two cards. (They put the top two cards of their library into their graveyard.)",
+    setup_interceptors=desperate_bloodseeker_setup,
 )
 
 FAKE_YOUR_OWN_DEATH = make_instant(
@@ -866,6 +2199,7 @@ GISA_THE_HELLRAISER = make_creature(
     subtypes={"Human", "Warlock"},
     supertypes={"Legendary"},
     text="Ward—{2}, Pay 2 life.\nSkeletons and Zombies you control get +1/+1 and have menace.\nWhenever you commit a crime, create two tapped 2/2 blue and black Zombie Rogue creature tokens. This ability triggers only once each turn. (Targeting opponents, anything they control, and/or cards in their graveyards is a crime.)",
+    setup_interceptors=gisa_the_hellraiser_setup,
 )
 
 HOLLOW_MARAUDER = make_creature(
@@ -875,6 +2209,7 @@ HOLLOW_MARAUDER = make_creature(
     colors={Color.BLACK},
     subtypes={"Rogue", "Specter"},
     text="This spell costs {1} less to cast for each creature card in your graveyard.\nFlying\nWhen this creature enters, any number of target opponents each discard a card. For each of those opponents who didn't discard a card with mana value 4 or greater, draw a card.",
+    setup_interceptors=hollow_marauder_setup,
 )
 
 INSATIABLE_AVARICE = make_sorcery(
@@ -922,6 +2257,7 @@ NEZUMI_LINKBREAKER = make_creature(
     colors={Color.BLACK},
     subtypes={"Rat", "Warlock"},
     text="When this creature dies, create a 1/1 red Mercenary creature token with \"{T}: Target creature you control gets +1/+0 until end of turn. Activate only as a sorcery.\"",
+    setup_interceptors=nezumi_linkbreaker_setup,
 )
 
 OVERZEALOUS_MUSCLE = make_creature(
@@ -945,6 +2281,7 @@ RAKISH_CREW = make_enchantment(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="When this enchantment enters, create a 1/1 red Mercenary creature token with \"{T}: Target creature you control gets +1/+0 until end of turn. Activate only as a sorcery.\"\nWhenever an outlaw you control dies, each opponent loses 1 life and you gain 1 life. (Assassins, Mercenaries, Pirates, Rogues, and Warlocks are outlaws.)",
+    setup_interceptors=rakish_crew_setup,
 )
 
 RATTLEBACK_APOTHECARY = make_creature(
@@ -972,6 +2309,7 @@ RICTUS_ROBBER = make_creature(
     colors={Color.BLACK},
     subtypes={"Rogue", "Zombie"},
     text="When this creature enters, if a creature died this turn, create a 2/2 blue and black Zombie Rogue creature token.\nPlot {2}{B} (You may pay {2}{B} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=rictus_robber_setup,
 )
 
 ROOFTOP_ASSASSIN = make_creature(
@@ -981,6 +2319,7 @@ ROOFTOP_ASSASSIN = make_creature(
     colors={Color.BLACK},
     subtypes={"Assassin", "Vampire"},
     text="Flash\nFlying, lifelink\nWhen this creature enters, destroy target creature an opponent controls that was dealt damage this turn.",
+    setup_interceptors=rooftop_assassin_setup,
 )
 
 RUSH_OF_DREAD = make_sorcery(
@@ -1019,6 +2358,7 @@ TINYBONES_JOINS_UP = make_enchantment(
     colors={Color.BLACK},
     text="When Tinybones Joins Up enters, any number of target players each discard a card.\nWhenever a legendary creature you control enters, any number of target players each mill a card and lose 1 life.",
     supertypes={"Legendary"},
+    setup_interceptors=tinybones_joins_up_setup,
 )
 
 TINYBONES_THE_PICKPOCKET = make_creature(
@@ -1073,6 +2413,7 @@ VAULT_PLUNDERER = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Rogue"},
     text="When this creature enters, target player draws a card and loses 1 life.",
+    setup_interceptors=vault_plunderer_setup,
 )
 
 BRIMSTONE_ROUNDUP = make_enchantment(
@@ -1106,6 +2447,7 @@ CUNNING_COYOTE = make_creature(
     colors={Color.RED},
     subtypes={"Coyote"},
     text="Haste\nWhen this creature enters, another target creature you control gets +1/+1 and gains haste until end of turn.\nPlot {1}{R} (You may pay {1}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=cunning_coyote_setup,
 )
 
 DEADEYE_DUELIST = make_creature(
@@ -1132,6 +2474,7 @@ DISCERNING_PEDDLER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Rogue"},
     text="When this creature enters, you may discard a card. If you do, draw a card.",
+    setup_interceptors=discerning_peddler_setup,
 )
 
 EXPLOSIVE_DERAILMENT = make_instant(
@@ -1187,6 +2530,7 @@ HELLSPUR_POSSE_BOSS = make_creature(
     colors={Color.RED},
     subtypes={"Lizard", "Rogue"},
     text="Other outlaws you control have haste. (Assassins, Mercenaries, Pirates, Rogues, and Warlocks are outlaws.)\nWhen this creature enters, create two 1/1 red Mercenary creature tokens with \"{T}: Target creature you control gets +1/+0 until end of turn. Activate only as a sorcery.\"",
+    setup_interceptors=hellspur_posse_boss_setup,
 )
 
 HIGHWAY_ROBBERY = make_sorcery(
@@ -1203,6 +2547,7 @@ IRASCIBLE_WOLVERINE = make_creature(
     colors={Color.RED},
     subtypes={"Wolverine"},
     text="When this creature enters, exile the top card of your library. Until end of turn, you may play that card.\nPlot {2}{R} (You may pay {2}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=irascible_wolverine_setup,
 )
 
 IRONFIST_PULVERIZER = make_creature(
@@ -1212,6 +2557,7 @@ IRONFIST_PULVERIZER = make_creature(
     colors={Color.RED},
     subtypes={"Giant", "Warrior"},
     text="Reach\nWhenever you cast your second spell each turn, this creature deals 2 damage to target opponent. Scry 1. (Look at the top card of your library. You may put that card on the bottom.)",
+    setup_interceptors=ironfist_pulverizer_setup,
 )
 
 LONGHORN_SHARPSHOOTER = make_creature(
@@ -1249,6 +2595,7 @@ MINE_RAIDER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Rogue"},
     text="Trample\nWhen this creature enters, if you control another outlaw, create a Treasure token. (Assassins, Mercenaries, Pirates, Rogues, and Warlocks are outlaws. A Treasure token is an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+    setup_interceptors=mine_raider_setup,
 )
 
 OUTLAWS_FURY = make_instant(
@@ -1265,6 +2612,7 @@ PRICKLY_PAIR = make_creature(
     colors={Color.RED},
     subtypes={"Mercenary", "Plant"},
     text="When this creature enters, create a 1/1 red Mercenary creature token with \"{T}: Target creature you control gets +1/+0 until end of turn. Activate only as a sorcery.\"",
+    setup_interceptors=prickly_pair_setup,
 )
 
 QUICK_DRAW = make_instant(
@@ -1315,6 +2663,7 @@ RODEO_PYROMANCERS = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Mercenary"},
     text="Whenever you cast your first spell each turn, add {R}{R}.",
+    setup_interceptors=rodeo_pyromancers_setup,
 )
 
 SCALESTORM_SUMMONER = make_creature(
@@ -1324,6 +2673,7 @@ SCALESTORM_SUMMONER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Warlock"},
     text="Whenever this creature attacks, create a 3/1 red Dinosaur creature token if you control a creature with power 4 or greater.",
+    setup_interceptors=scalestorm_summoner_setup,
 )
 
 SCORCHING_SHOT = make_sorcery(
@@ -1340,6 +2690,7 @@ SLICKSHOT_SHOWOFF = make_creature(
     colors={Color.RED},
     subtypes={"Bird", "Wizard"},
     text="Flying, haste\nWhenever you cast a noncreature spell, this creature gets +2/+0 until end of turn.\nPlot {1}{R} (You may pay {1}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=slickshot_showoff_setup,
 )
 
 STINGERBACK_TERROR = make_creature(
@@ -1365,6 +2716,7 @@ TERROR_OF_THE_PEAKS = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Flying\nSpells your opponents cast that target this creature cost an additional 3 life to cast.\nWhenever another creature you control enters, this creature deals damage equal to that creature's power to any target.",
+    setup_interceptors=terror_of_the_peaks_setup,
 )
 
 THUNDER_SALVO = make_instant(
@@ -1406,6 +2758,7 @@ BEASTBOND_OUTCASTER = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Human"},
     text="When this creature enters, if you control a creature with power 4 or greater, draw a card.\nPlot {1}{G} (You may pay {1}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=beastbond_outcaster_setup,
 )
 
 BETRAYAL_AT_THE_VAULT = make_instant(
@@ -1516,6 +2869,7 @@ GOLDVEIN_HYDRA = make_creature(
     colors={Color.GREEN},
     subtypes={"Hydra"},
     text="Vigilance, trample, haste\nThis creature enters with X +1/+1 counters on it.\nWhen this creature dies, create a number of tapped Treasure tokens equal to its power.",
+    setup_interceptors=goldvein_hydra_setup,
 )
 
 HARDBRISTLE_BANDIT = make_creature(
@@ -1559,6 +2913,7 @@ OUTCASTER_GREENBLADE = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Mercenary"},
     text="When this creature enters, search your library for a basic land card or a Desert card, reveal it, put it into your hand, then shuffle.\nThis creature gets +1/+1 for each Desert you control.",
+    setup_interceptors=outcaster_greenblade_setup,
 )
 
 OUTCASTER_TRAILBLAZER = make_creature(
@@ -1568,6 +2923,7 @@ OUTCASTER_TRAILBLAZER = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Human"},
     text="When this creature enters, add one mana of any color.\nWhenever another creature you control with power 4 or greater enters, draw a card.\nPlot {2}{G} (You may pay {2}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=outcaster_trailblazer_setup,
 )
 
 PATIENT_NATURALIST = make_creature(
@@ -1577,6 +2933,7 @@ PATIENT_NATURALIST = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Scout"},
     text="When this creature enters, mill three cards. Put a land card from among the milled cards into your hand. If you can't, create a Treasure token. (To mill three cards, put the top three cards of your library into your graveyard.)",
+    setup_interceptors=patient_naturalist_setup,
 )
 
 RAILWAY_BRAWLER = make_creature(
@@ -1586,6 +2943,7 @@ RAILWAY_BRAWLER = make_creature(
     colors={Color.GREEN},
     subtypes={"Rhino", "Warrior"},
     text="Reach, trample\nWhenever another creature you control enters, put X +1/+1 counters on it, where X is its power.\nPlot {3}{G} (You may pay {3}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=railway_brawler_setup,
 )
 
 RAMBLING_POSSUM = make_creature(
@@ -1651,6 +3009,7 @@ SPINEWOODS_PALADIN = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Knight"},
     text="Trample\nWhen this creature enters, you gain 3 life.\nPlot {3}{G} (You may pay {3}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    setup_interceptors=spinewoods_paladin_setup,
 )
 
 STUBBORN_BURROWFIEND = make_creature(
@@ -1710,6 +3069,7 @@ ANNIE_FLASH_THE_VETERAN = make_creature(
     subtypes={"Human", "Rogue"},
     supertypes={"Legendary"},
     text="Flash\nWhen Annie Flash enters, if you cast it, return target permanent card with mana value 3 or less from your graveyard to the battlefield tapped.\nWhenever Annie Flash becomes tapped, exile the top two cards of your library. You may play those cards this turn.",
+    setup_interceptors=annie_flash_the_veteran_setup,
 )
 
 ANNIE_JOINS_UP = make_enchantment(
@@ -1718,6 +3078,7 @@ ANNIE_JOINS_UP = make_enchantment(
     colors={Color.GREEN, Color.RED, Color.WHITE},
     text="When Annie Joins Up enters, it deals 5 damage to target creature or planeswalker an opponent controls.\nIf a triggered ability of a legendary creature you control triggers, that ability triggers an additional time.",
     supertypes={"Legendary"},
+    setup_interceptors=annie_joins_up_setup,
 )
 
 ASSIMILATION_AEGIS = make_artifact(
@@ -1749,6 +3110,7 @@ BARON_BERTRAM_GRAYWATER = make_creature(
     subtypes={"Noble", "Vampire"},
     supertypes={"Legendary"},
     text="Whenever one or more tokens you control enter, create a 1/1 black Vampire Rogue creature token with lifelink. This ability triggers only once each turn.\n{1}{B}, Sacrifice another creature or artifact: Draw a card.",
+    setup_interceptors=baron_bertram_graywater_setup,
 )
 
 BONNY_PALL_CLEARCUTTER = make_creature(
@@ -1759,6 +3121,7 @@ BONNY_PALL_CLEARCUTTER = make_creature(
     subtypes={"Giant", "Scout"},
     supertypes={"Legendary"},
     text="Reach\nWhen Bonny Pall enters, create Beau, a legendary blue Ox creature token with \"Beau's power and toughness are each equal to the number of lands you control.\"\nWhenever you attack, draw a card, then you may put a land card from your hand or graveyard onto the battlefield.",
+    setup_interceptors=bonny_pall_clearcutter_setup,
 )
 
 BREECHES_THE_BLASTMAKER = make_creature(
@@ -1779,6 +3142,7 @@ BRUSE_TARL_ROVING_RANCHER = make_creature(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     text="Oxen you control have double strike.\nWhenever Bruse Tarl enters or attacks, exile the top card of your library. If it's a land card, create a 2/2 white Ox creature token. Otherwise, you may cast it until the end of your next turn.",
+    setup_interceptors=bruse_tarl_roving_rancher_setup,
 )
 
 CACTUSFOLK_SURESHOT = make_creature(
@@ -1827,6 +3191,7 @@ ERTHA_JO_FRONTIER_MENTOR = make_creature(
     subtypes={"Advisor", "Kor"},
     supertypes={"Legendary"},
     text="When Ertha Jo enters, create a 1/1 red Mercenary creature token with \"{T}: Target creature you control gets +1/+0 until end of turn. Activate only as a sorcery.\"\nWhenever you activate an ability that targets a creature or player, copy that ability. You may choose new targets for the copy.",
+    setup_interceptors=ertha_jo_frontier_mentor_setup,
 )
 
 FORM_A_POSSE = make_sorcery(
@@ -1864,6 +3229,7 @@ HONEST_RUTSTEIN = make_creature(
     subtypes={"Human", "Warlock"},
     supertypes={"Legendary"},
     text="When Honest Rutstein enters, return target creature card from your graveyard to your hand.\nCreature spells you cast cost {1} less to cast.",
+    setup_interceptors=honest_rutstein_setup,
 )
 
 INTIMIDATION_CAMPAIGN = make_enchantment(
@@ -1871,6 +3237,7 @@ INTIMIDATION_CAMPAIGN = make_enchantment(
     mana_cost="{1}{U}{B}",
     colors={Color.BLACK, Color.BLUE},
     text="When this enchantment enters, each opponent loses 1 life, you gain 1 life, and you draw a card.\nWhenever you commit a crime, you may return this enchantment to its owner's hand. (It returns only from the battlefield. Targeting opponents, anything they control, and/or cards in their graveyards is a crime.)",
+    setup_interceptors=intimidation_campaign_setup,
 )
 
 JEM_LIGHTFOOTE_SKY_EXPLORER = make_creature(
@@ -1881,6 +3248,7 @@ JEM_LIGHTFOOTE_SKY_EXPLORER = make_creature(
     subtypes={"Human", "Scout"},
     supertypes={"Legendary"},
     text="Flying, vigilance\nAt the beginning of your end step, if you haven't cast a spell from your hand this turn, draw a card.",
+    setup_interceptors=jem_lightfoote_sky_explorer_setup,
 )
 
 JOLENE_PLUNDERING_PUGILIST = make_creature(
@@ -1909,6 +3277,7 @@ KELLAN_JOINS_UP = make_enchantment(
     colors={Color.GREEN, Color.BLUE, Color.WHITE},
     text="When Kellan Joins Up enters, you may exile a nonland card with mana value 3 or less from your hand. If you do, it becomes plotted. (You may cast it as a sorcery on a later turn without paying its mana cost.)\nWhenever a legendary creature you control enters, put a +1/+1 counter on each creature you control.",
     supertypes={"Legendary"},
+    setup_interceptors=kellan_joins_up_setup,
 )
 
 KELLAN_THE_KID = make_creature(
@@ -1929,6 +3298,7 @@ KRAUM_VIOLENT_CACOPHONY = make_creature(
     subtypes={"Horror", "Zombie"},
     supertypes={"Legendary"},
     text="Flying\nWhenever you cast your second spell each turn, put a +1/+1 counter on Kraum and draw a card.",
+    setup_interceptors=kraum_violent_cacophony_setup,
 )
 
 LAUGHING_JASPER_FLINT = make_creature(
@@ -1976,6 +3346,7 @@ MALCOLM_THE_EYES = make_creature(
     subtypes={"Pirate", "Siren"},
     supertypes={"Legendary"},
     text="Flying, haste\nWhenever you cast your second spell each turn, investigate. (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
+    setup_interceptors=malcolm_the_eyes_setup,
 )
 
 MARCHESA_DEALER_OF_DEATH = make_creature(
@@ -1996,6 +3367,7 @@ MIRIAM_HERD_WHISPERER = make_creature(
     subtypes={"Druid", "Human"},
     supertypes={"Legendary"},
     text="During your turn, Mounts and Vehicles you control have hexproof.\nWhenever a Mount or Vehicle you control attacks, put a +1/+1 counter on it.",
+    setup_interceptors=miriam_herd_whisperer_setup,
 )
 
 OBEKA_SPLITTER_OF_SECONDS = make_creature(
@@ -2070,6 +3442,7 @@ RUTHLESS_LAWBRINGER = make_creature(
     colors={Color.BLACK, Color.WHITE},
     subtypes={"Assassin", "Vampire"},
     text="When this creature enters, you may sacrifice another creature. When you do, destroy target nonland permanent.",
+    setup_interceptors=ruthless_lawbringer_setup,
 )
 
 SATORU_THE_INFILTRATOR = make_creature(
@@ -2090,6 +3463,7 @@ SELVALA_EAGER_TRAILBLAZER = make_creature(
     subtypes={"Elf", "Scout"},
     supertypes={"Legendary"},
     text="Vigilance\nWhenever you cast a creature spell, create a 1/1 red Mercenary creature token with \"{T}: Target creature you control gets +1/+0 until end of turn. Activate only as a sorcery.\"\n{T}: Choose a color. Add one mana of that color for each different power among creatures you control.",
+    setup_interceptors=selvala_eager_trailblazer_setup,
 )
 
 SERAPHIC_STEED = make_creature(
@@ -2126,6 +3500,7 @@ VIAL_SMASHER_GLEEFUL_GRENADIER = make_creature(
     subtypes={"Goblin", "Mercenary"},
     supertypes={"Legendary"},
     text="Whenever another outlaw you control enters, Vial Smasher deals 1 damage to target opponent. (Assassins, Mercenaries, Pirates, Rogues, and Warlocks are outlaws.)",
+    setup_interceptors=vial_smasher_gleeful_grenadier_setup,
 )
 
 VRASKA_JOINS_UP = make_enchantment(
@@ -2134,6 +3509,7 @@ VRASKA_JOINS_UP = make_enchantment(
     colors={Color.BLACK, Color.GREEN},
     text="When Vraska Joins Up enters, put a deathtouch counter on each creature you control.\nWhenever a legendary creature you control deals combat damage to a player, draw a card.",
     supertypes={"Legendary"},
+    setup_interceptors=vraska_joins_up_setup,
 )
 
 VRASKA_THE_SILENCER = make_creature(
@@ -2153,6 +3529,7 @@ WRANGLER_OF_THE_DAMNED = make_creature(
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Flash\nAt the beginning of your end step, if you haven't cast a spell from your hand this turn, create a 2/2 white Spirit creature token with flying.",
+    setup_interceptors=wrangler_of_the_damned_setup,
 )
 
 WYLIE_DUKE_ATIIN_HERO = make_creature(
@@ -2212,6 +3589,7 @@ OASIS_GARDENER = make_artifact_creature(
     colors=set(),
     subtypes={"Scarecrow"},
     text="When this creature enters, you gain 2 life.\n{T}: Add one mana of any color.",
+    setup_interceptors=oasis_gardener_setup,
 )
 
 REDROCK_SENTINEL = make_artifact_creature(
@@ -2230,6 +3608,7 @@ SILVER_DEPUTY = make_artifact_creature(
     colors=set(),
     subtypes={"Mercenary"},
     text="When this creature enters, you may search your library for a basic land card or a Desert card, reveal it, then shuffle and put it on top.\n{T}: Target creature you control gets +1/+0 until end of turn. Activate only as a sorcery.",
+    setup_interceptors=silver_deputy_setup,
 )
 
 STERLING_HOUND = make_artifact_creature(
@@ -2239,6 +3618,7 @@ STERLING_HOUND = make_artifact_creature(
     colors=set(),
     subtypes={"Dog"},
     text="When this creature enters, surveil 2. (Look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)",
+    setup_interceptors=sterling_hound_setup,
 )
 
 TOMB_TRAWLER = make_artifact_creature(
