@@ -1,11 +1,10 @@
 """
-Avatar: The Last Airbender - Custom Card Set
+Penultimate Avatar - Custom Card Set (formerly "Avatar: The Last Airbender")
 
 Custom/fan-made set with 286 cards.
 Features mechanics: Airbend, Waterbend, Earthbend, Firebend, Lesson spells, Allies
 
-NOTE: This is a custom set. A real "Avatar: The Last Airbender" MTG set was released
-after my knowledge cutoff and may have different cards.
+Renamed to avoid collision with official MTG Avatar set in src/cards/avatar_tla.py
 """
 
 from src.engine import (

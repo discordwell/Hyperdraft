@@ -1,11 +1,10 @@
 """
-Final Fantasy - Custom Card Set
+Princess Catholicon - Custom Card Set (formerly "Final Fantasy")
 
 Custom/fan-made set featuring Final Fantasy characters and mechanics.
 ~267 cards with mechanics: Job, Limit Break, Summon
 
-NOTE: This is a custom set. A real "Final Fantasy" MTG set was released
-after my knowledge cutoff and may have different cards.
+Renamed to avoid collision with official MTG Final Fantasy set in src/cards/final_fantasy.py
 """
 
 from src.engine import (
