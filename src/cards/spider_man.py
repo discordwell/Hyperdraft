@@ -1,5 +1,5 @@
 """
-Marvels Spider-Man (SPM) Card Implementations
+Marvels_Spider-Man (SPM) Card Implementations
 
 Real card data fetched from Scryfall API.
 193 cards in set.
@@ -14,6 +14,13 @@ from src.engine import (
     new_id, get_power, get_toughness
 )
 from typing import Optional, Callable
+from src.cards.interceptor_helpers import (
+    make_etb_trigger, make_death_trigger, make_attack_trigger,
+    make_static_pt_boost, make_keyword_grant, make_upkeep_trigger,
+    make_spell_cast_trigger, make_damage_trigger,
+    other_creatures_you_control, other_creatures_with_subtype,
+    creatures_you_control, creatures_with_subtype
+)
 
 
 # =============================================================================
@@ -90,26 +97,6 @@ def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str
     )
 
 
-def make_enchantment_creature(name: str, power: int, toughness: int, mana_cost: str, colors: set,
-                              subtypes: set = None, supertypes: set = None, text: str = "", setup_interceptors=None):
-    """Helper to create enchantment creature card definitions."""
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.ENCHANTMENT, CardType.CREATURE},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            colors=colors,
-            power=power,
-            toughness=toughness,
-            mana_cost=mana_cost
-        ),
-        text=text,
-        setup_interceptors=setup_interceptors
-    )
-
-
 def make_land(name: str, text: str = "", subtypes: set = None, supertypes: set = None, setup_interceptors=None):
     """Helper to create land card definitions."""
     return CardDefinition(
@@ -148,6 +135,1206 @@ def make_planeswalker(name: str, mana_cost: str, colors: set, loyalty: int,
 
 
 # =============================================================================
+# SETUP INTERCEPTOR FUNCTIONS
+# =============================================================================
+
+# --- Aunt May ---
+# "Whenever another creature you control enters, you gain 1 life. If it's a Spider, put a +1/+1 counter on it."
+def aunt_may_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def other_creature_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        return (entering_obj.controller == source.controller and
+                CardType.CREATURE in entering_obj.characteristics.types)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        events = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+        # If it's a Spider, also put a +1/+1 counter on it
+        if entering_obj and "Spider" in entering_obj.characteristics.subtypes:
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': entering_id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id
+            ))
+        return events
+
+    return [make_etb_trigger(obj, effect_fn, aunt_may_setup_filter)]
+
+# Need a separate filter since we're using custom filter
+def aunt_may_setup_filter(event: Event, state: GameState, source: GameObject) -> bool:
+    if event.type != EventType.ZONE_CHANGE:
+        return False
+    if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+        return False
+    entering_id = event.payload.get('object_id')
+    if entering_id == source.id:
+        return False
+    entering_obj = state.objects.get(entering_id)
+    if not entering_obj:
+        return False
+    return (entering_obj.controller == source.controller and
+            CardType.CREATURE in entering_obj.characteristics.types)
+
+
+# --- City Pigeon ---
+# "When this creature leaves the battlefield, create a Food token."
+def city_pigeon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def leaves_battlefield_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        return (event.type == EventType.ZONE_CHANGE and
+                event.payload.get('object_id') == source.id and
+                event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Food Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Food'],
+            },
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: leaves_battlefield_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='until_leaves'
+    )]
+
+
+# --- Selfless Police Captain ---
+# "This creature enters with a +1/+1 counter on it."
+def selfless_police_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Silver Sable, Mercenary Leader ---
+# "When Silver Sable enters, put a +1/+1 counter on another target creature."
+def silver_sable_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - simplified placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Starling, Aerial Ally ---
+# "When Starling enters, another target creature you control gains flying until end of turn."
+def starling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting for flying grant
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Flying Octobot ---
+# "Whenever another Villain you control enters, put a +1/+1 counter on this creature."
+def flying_octobot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    triggered_this_turn = {'value': False}
+
+    def other_villain_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if triggered_this_turn['value']:
+            return False
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        return (entering_obj.controller == source.controller and
+                "Villain" in entering_obj.characteristics.subtypes)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        triggered_this_turn['value'] = True
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_etb_trigger(obj, effect_fn, other_villain_etb_filter)]
+
+
+# --- Mysterio, Master of Illusion ---
+# "When Mysterio enters, create a 3/3 blue Illusion Villain creature token for each nontoken Villain you control."
+def mysterio_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Count nontoken Villains
+        villain_count = 0
+        for other in state.objects.values():
+            if (other.controller == obj.controller and
+                other.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in other.characteristics.types and
+                "Villain" in other.characteristics.subtypes and
+                not other.state.is_token):
+                villain_count += 1
+
+        events = []
+        for _ in range(villain_count):
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Illusion Villain Token',
+                    'controller': obj.controller,
+                    'power': 3,
+                    'toughness': 3,
+                    'types': [CardType.CREATURE],
+                    'subtypes': ['Illusion', 'Villain'],
+                    'colors': [Color.BLUE],
+                    'linked_to': obj.id  # Track for exile when Mysterio leaves
+                },
+                source=obj.id
+            ))
+        return events
+
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Spider-Byte, Web Warden ---
+# "When Spider-Byte enters, return up to one target nonland permanent to its owner's hand."
+def spiderbyte_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Agent Venom ---
+# "Whenever another nontoken creature you control dies, you draw a card and lose 1 life."
+def agent_venom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def other_creature_dies_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        if dying_id == source.id:
+            return False
+        dying_obj = state.objects.get(dying_id)
+        if not dying_obj:
+            return False
+        return (dying_obj.controller == source.controller and
+                CardType.CREATURE in dying_obj.characteristics.types and
+                not dying_obj.state.is_token)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': -1}, source=obj.id)
+        ]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: other_creature_dies_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Common Crook ---
+# "When this creature dies, create a Treasure token."
+def common_crook_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Treasure Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Treasure'],
+            },
+            source=obj.id
+        )]
+    return [make_death_trigger(obj, death_effect)]
+
+
+# --- Morlun, Devourer of Spiders ---
+# "Morlun enters with X +1/+1 counters on him. When Morlun enters, he deals X damage to target opponent."
+def morlun_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # X value would be tracked from casting - simplified
+        x_value = event.payload.get('x_value', 0)
+        events = []
+        if x_value > 0:
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': x_value},
+                source=obj.id
+            ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Tombstone, Career Criminal ---
+# "When Tombstone enters, return target Villain card from your graveyard to your hand."
+# "Villain spells you cast cost {1} less to cast."
+def tombstone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - placeholder
+        return []
+    # Cost reduction would need QUERY_COST interceptor
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Venomized Cat ---
+# "When this creature enters, mill two cards."
+def venomized_cat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- J. Jonah Jameson ---
+# "When J. Jonah Jameson enters, suspect up to one target creature."
+# "Whenever a creature you control with menace attacks, create a Treasure token."
+def j_jonah_jameson_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting for suspect - placeholder
+        return []
+
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    # Attack trigger for menace creatures
+    def menace_attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        if not attacker or attacker.controller != obj.controller:
+            return False
+        # Check if attacker has menace (simplified - would check abilities)
+        return 'menace' in attacker.characteristics.subtypes or CardType.CREATURE in attacker.characteristics.types
+
+    def menace_attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Treasure Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Treasure'],
+            },
+            source=obj.id
+        )]
+
+    return interceptors
+
+
+# --- Shocker, Unshakable ---
+# "When Shocker enters, he deals 2 damage to target creature and 2 damage to that creature's controller."
+def shocker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - placeholder for now
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Professional Wrestler ---
+# "When this creature enters, create a Treasure token."
+def professional_wrestler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Treasure Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Treasure'],
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Spider-Ham, Peter Porker ---
+# "When Spider-Ham enters, create a Food token."
+# "Other Spiders, Boars, Bats, Bears, Birds, Cats, Dogs, Frogs, Jackals, Lizards, Mice, Otters, Rabbits, Raccoons, Rats, Squirrels, Turtles, and Wolves you control get +1/+1."
+def spider_ham_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # ETB: Create Food token
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Food Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Food'],
+            },
+            source=obj.id
+        )]
+
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    # Lord effect for animal types
+    animal_types = {"Spider", "Boar", "Bat", "Bear", "Bird", "Cat", "Dog", "Frog",
+                    "Jackal", "Lizard", "Mouse", "Otter", "Rabbit", "Raccoon",
+                    "Rat", "Squirrel", "Turtle", "Wolf"}
+
+    def affects_animals(target: GameObject, state: GameState) -> bool:
+        if target.id == obj.id:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        return bool(target.characteristics.subtypes & animal_types)
+
+    interceptors.extend(make_static_pt_boost(obj, 1, 1, affects_animals))
+    return interceptors
+
+
+# --- Wall Crawl ---
+# "When this enchantment enters, create a 2/1 green Spider creature token with reach, then you gain 1 life for each Spider you control."
+# "Spiders you control get +1/+1 and can't be blocked by creatures with defender."
+def wall_crawl_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # ETB: Create Spider token and gain life
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Spider Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Spider'],
+                'colors': [Color.GREEN],
+            },
+            source=obj.id
+        )]
+        # Count spiders for life gain
+        spider_count = 1  # Include the token we just created
+        for other in state.objects.values():
+            if (other.controller == obj.controller and
+                other.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in other.characteristics.types and
+                "Spider" in other.characteristics.subtypes):
+                spider_count += 1
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': spider_count},
+            source=obj.id
+        ))
+        return events
+
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    # Lord effect: Spiders you control get +1/+1
+    interceptors.extend(make_static_pt_boost(
+        obj, 1, 1,
+        creatures_with_subtype(obj, "Spider")
+    ))
+
+    return interceptors
+
+
+# --- Doctor Octopus, Master Planner ---
+# "Other Villains you control get +2/+2."
+def doctor_octopus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return make_static_pt_boost(
+        obj, 2, 2,
+        other_creatures_with_subtype(obj, "Villain")
+    )
+
+
+# --- Gallant Citizen ---
+# "When this creature enters, draw a card."
+def gallant_citizen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Mary Jane Watson ---
+# "Whenever a Spider you control enters, draw a card. This ability triggers only once each turn."
+def mary_jane_watson_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    triggered_this_turn = {'value': False}
+
+    def spider_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if triggered_this_turn['value']:
+            return False
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        return (entering_obj.controller == source.controller and
+                CardType.CREATURE in entering_obj.characteristics.types and
+                "Spider" in entering_obj.characteristics.subtypes)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        triggered_this_turn['value'] = True
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_etb_trigger(obj, effect_fn, spider_etb_filter)]
+
+
+# --- Mob Lookout ---
+# "When this creature enters, target creature you control connives."
+def mob_lookout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Connive = draw then discard - would need targeting
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Web-Warriors ---
+# "When this creature enters, put a +1/+1 counter on each other creature you control."
+def web_warriors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for other in state.objects.values():
+            if (other.id != obj.id and
+                other.controller == obj.controller and
+                other.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in other.characteristics.types):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': other.id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id
+                ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- SP//dr, Piloted by Peni ---
+# "When SP//dr enters, put a +1/+1 counter on target creature."
+def spdr_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Spider-Girl, Legacy Hero ---
+# "When Spider-Girl leaves the battlefield, create a 1/1 green and white Human Citizen creature token."
+def spider_girl_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def leaves_battlefield_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        return (event.type == EventType.ZONE_CHANGE and
+                event.payload.get('object_id') == source.id and
+                event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Human Citizen Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Human', 'Citizen'],
+                'colors': [Color.GREEN, Color.WHITE],
+            },
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: leaves_battlefield_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='until_leaves'
+    )]
+
+
+# --- Vulture, Scheming Scavenger ---
+# "Whenever Vulture attacks, other Villains you control gain flying until end of turn."
+def vulture_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # Would grant flying to other Villains - needs ability grant system
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# --- Cosmic Spider-Man ---
+# "At the beginning of combat on your turn, other Spiders you control gain flying, first strike, trample, lifelink, and haste until end of turn."
+def cosmic_spiderman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def combat_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.PHASE_START and
+                event.payload.get('phase') == 'combat' and
+                state.active_player == obj.controller)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # Would grant keywords to other Spiders - needs ability grant system
+        return []
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- News Helicopter ---
+# "When this creature enters, create a 1/1 green and white Human Citizen creature token."
+def news_helicopter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Human Citizen Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Human', 'Citizen'],
+                'colors': [Color.GREEN, Color.WHITE],
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Eerie Gravestone ---
+# "When this artifact enters, draw a card."
+def eerie_gravestone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Hot Dog Cart ---
+# "When this artifact enters, create a Food token."
+def hot_dog_cart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Food Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Food'],
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Spider-Bot ---
+# "When this creature enters, you may search your library for a basic land card, reveal it, then shuffle and put that card on top."
+def spider_bot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Library search not fully implemented - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Ultimate Green Goblin ---
+# "At the beginning of your upkeep, discard a card, then create a Treasure token."
+def ultimate_green_goblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Treasure Token',
+                    'controller': obj.controller,
+                    'types': [CardType.ARTIFACT],
+                    'subtypes': ['Treasure'],
+                },
+                source=obj.id
+            )
+        ]
+    return [make_upkeep_trigger(obj, upkeep_effect)]
+
+
+# --- Ezekiel Sims, Spider-Totem ---
+# "At the beginning of combat on your turn, target Spider you control gets +2/+2 until end of turn."
+def ezekiel_sims_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def combat_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.PHASE_START and
+                event.payload.get('phase') == 'combat' and
+                state.active_player == obj.controller)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - placeholder
+        return []
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Lurking Lizards ---
+# "Whenever you cast a spell with mana value 4 or greater, put a +1/+1 counter on this creature."
+def lurking_lizards_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def spell_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != obj.controller:
+            return False
+        return event.payload.get('mana_value', 0) >= 4
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_spell_cast_trigger(obj, effect_fn, mana_value_min=4)]
+
+
+# --- Angry Rabble ---
+# "Whenever you cast a spell with mana value 4 or greater, this creature deals 1 damage to each opponent."
+def angry_rabble_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for player_id in state.players:
+            if player_id != obj.controller:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': player_id, 'amount': 1, 'source': obj.id, 'is_combat': False},
+                    source=obj.id
+                ))
+        return events
+
+    return [make_spell_cast_trigger(obj, effect_fn, mana_value_min=4)]
+
+
+# --- Hobgoblin, Mantled Marauder ---
+# "Whenever you discard a card, Hobgoblin gets +2/+0 until end of turn."
+def hobgoblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def discard_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.DISCARD and
+                event.payload.get('player') == obj.controller)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_CHANGE,
+            payload={'object_id': obj.id, 'power': 2, 'toughness': 0, 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=discard_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Damage Control Crew ---
+# "When this creature enters, choose one - Repair / Impound"
+def damage_control_crew_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Simplified: just placeholder for modal ability
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Prowler, Clawed Thief ---
+# "Whenever another Villain you control enters, Prowler connives."
+def prowler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def other_villain_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        return (entering_obj.controller == source.controller and
+                "Villain" in entering_obj.characteristics.subtypes)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # Connive = draw then discard
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
+        ]
+
+    return [make_etb_trigger(obj, effect_fn, other_villain_etb_filter)]
+
+
+# --- Doc Ock's Henchmen ---
+# "Whenever this creature attacks, it connives."
+def doc_ocks_henchmen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # Connive = draw then discard
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
+        ]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# --- Mysterio's Phantasm ---
+# "Whenever this creature attacks, mill a card."
+def mysterios_phantasm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# --- Green Goblin, Revenant ---
+# "Whenever Green Goblin attacks, discard a card. Then draw a card for each card you've discarded this turn."
+def green_goblin_revenant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # Simplified: discard 1, draw 1 (would need to track discards this turn for full impl)
+        return [
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
+        ]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# --- Spinneret and Spiderling ---
+# "Whenever you attack with two or more Spiders, put a +1/+1 counter on Spinneret and Spiderling."
+def spinneret_and_spiderling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        # Count attacking Spiders
+        spider_attackers = 0
+        for attacker_id in event.payload.get('attackers', []):
+            attacker = state.objects.get(attacker_id)
+            if attacker and "Spider" in attacker.characteristics.subtypes:
+                spider_attackers += 1
+        return spider_attackers >= 2
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Spider-Punk ---
+# "Other Spiders you control have riot."
+def spider_punk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Grant riot to other Spiders - simplified as +1/+1 counter on ETB
+    return [make_keyword_grant(
+        obj,
+        ['riot'],
+        other_creatures_with_subtype(obj, "Spider")
+    )]
+
+
+# --- Silk, Web Weaver ---
+# "Whenever you cast a creature spell, create a 1/1 green and white Human Citizen creature token."
+def silk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Human Citizen Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Human', 'Citizen'],
+                'colors': [Color.GREEN, Color.WHITE],
+            },
+            source=obj.id
+        )]
+
+    return [make_spell_cast_trigger(obj, effect_fn, spell_type_filter={CardType.CREATURE})]
+
+
+# --- Spider-Man India ---
+# "Whenever you cast a creature spell, put a +1/+1 counter on target creature you control. It gains flying until end of turn."
+def spiderman_india_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - simplified to self
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_spell_cast_trigger(obj, effect_fn, spell_type_filter={CardType.CREATURE})]
+
+
+# --- Carnage, Crimson Chaos ---
+# "When Carnage enters, return target creature card with mana value 3 or less from your graveyard to the battlefield."
+def carnage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Mister Negative ---
+# "When Mister Negative enters, you may exchange life totals with target opponent."
+def mister_negative_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting for life exchange - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- The Spot, Living Portal ---
+# "When The Spot enters, exile up to one target nonland permanent and up to one target nonland permanent card from a graveyard."
+def the_spot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Sun-Spider, Nimble Webber ---
+# "When Sun-Spider enters, search your library for an Aura or Equipment card, reveal it, put it into your hand, then shuffle."
+def sun_spider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Library search not fully implemented - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Rhino, Barreling Brute ---
+# "Whenever Rhino attacks, if you've cast a spell with mana value 4 or greater this turn, draw a card."
+def rhino_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need to track spells cast this turn - simplified to always draw
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# --- Kraven the Hunter ---
+# "Whenever a creature an opponent controls with the greatest power among creatures that player controls dies, draw a card and put a +1/+1 counter on Kraven the Hunter."
+def kraven_the_hunter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def creature_dies_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        dying_obj = state.objects.get(dying_id)
+        if not dying_obj:
+            return False
+        return (dying_obj.controller != obj.controller and
+                CardType.CREATURE in dying_obj.characteristics.types)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id)
+        ]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=creature_dies_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Lizard, Connors's Curse ---
+# "When Lizard, Connors's Curse enters, up to one other target creature loses all abilities and becomes a green Lizard creature with base power and toughness 4/4."
+def lizard_connors_curse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Molten Man, Inferno Incarnate ---
+# "When Molten Man enters, search your library for a basic Mountain card, put it onto the battlefield tapped, then shuffle."
+def molten_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Library search not fully implemented - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Spider-Man, Brooklyn Visionary ---
+# "When Spider-Man enters, search your library for a basic land card, put it onto the battlefield tapped, then shuffle."
+def spiderman_brooklyn_visionary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Library search not fully implemented - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Mechanical Mobster ---
+# "When this creature enters, exile up to one target card from a graveyard. Target creature you control connives."
+def mechanical_mobster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Connive effect
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Scorpion, Seething Striker ---
+# "At the beginning of your end step, if a creature died this turn, target creature you control connives."
+def scorpion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_end_step_trigger
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # Would need to track if creature died this turn - simplified
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
+        ]
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- Spider-Woman, Stunning Savior ---
+# "Artifacts and creatures your opponents control enter tapped."
+def spiderwoman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller == obj.controller:
+            return False
+        types = entering_obj.characteristics.types
+        return CardType.ARTIFACT in types or CardType.CREATURE in types
+
+    def tap_handler(event: Event, state: GameState) -> InterceptorResult:
+        entering_id = event.payload.get('object_id')
+        new_events = [Event(
+            type=EventType.TAP,
+            payload={'object_id': entering_id},
+            source=obj.id
+        )]
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=new_events)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=etb_filter,
+        handler=tap_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Araña, Heart of the Spider ---
+# "Whenever you attack, put a +1/+1 counter on target attacking creature."
+def arana_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.COMBAT_DECLARED and
+                state.active_player == obj.controller)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting - simplified to put on self if attacking
+        attackers = event.payload.get('attackers', [])
+        if obj.id in attackers:
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id
+            )]
+        return []
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Black Cat, Cunning Thief ---
+# "When Black Cat enters, look at the top nine cards of target opponent's library..."
+def black_cat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Would need targeting and library manipulation - placeholder
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Gwenom, Remorseless ---
+# "Whenever Gwenom attacks, until end of turn, you may look at the top card of your library..."
+def gwenom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # Complex ability - placeholder
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# --- Spider-Man Noir ---
+# "Whenever a creature you control attacks alone, put a +1/+1 counter on it. Then surveil X."
+def spiderman_noir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        attackers = event.payload.get('attackers', [])
+        return len(attackers) == 1 and state.active_player == obj.controller
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        attackers = event.payload.get('attackers', [])
+        if attackers:
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': attackers[0], 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id
+            )]
+        return []
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Shriek, Treblemaker ---
+# "Whenever a creature an opponent controls dies, Shriek deals 1 damage to that player."
+def shriek_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def creature_dies_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        dying_obj = state.objects.get(dying_id)
+        if not dying_obj:
+            return False
+        return (dying_obj.controller != obj.controller and
+                CardType.CREATURE in dying_obj.characteristics.types)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        dying_id = event.payload.get('object_id')
+        dying_obj = state.objects.get(dying_id)
+        if dying_obj:
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': dying_obj.controller, 'amount': 1, 'source': obj.id, 'is_combat': False},
+                source=obj.id
+            )]
+        return []
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=creature_dies_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -179,6 +1366,7 @@ AUNT_MAY = make_creature(
     subtypes={"Citizen", "Human"},
     supertypes={"Legendary"},
     text="Whenever another creature you control enters, you gain 1 life. If it's a Spider, put a +1/+1 counter on it.",
+    setup_interceptors=aunt_may_setup,
 )
 
 CITY_PIGEON = make_creature(
@@ -188,6 +1376,7 @@ CITY_PIGEON = make_creature(
     colors={Color.WHITE},
     subtypes={"Bird"},
     text="Flying\nWhen this creature leaves the battlefield, create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")",
+    setup_interceptors=city_pigeon_setup,
 )
 
 COSTUME_CLOSET = make_artifact(
@@ -233,12 +1422,12 @@ ORIGIN_OF_SPIDERMAN = make_enchantment(
 
 PETER_PARKER = make_creature(
     name="Peter Parker",
-    power=0, toughness=1,
-    mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    subtypes={"Hero", "Human", "Scientist"},
+    power=0, toughness=0,
+    mana_cost="",
+    colors=set(),
+    subtypes={"//", "Creature", "Hero", "Human", "Legendary", "Scientist"},
     supertypes={"Legendary"},
-    text="When Peter Parker enters, create a 2/1 green Spider creature token with reach.\n{1}{G}{W}{U}: Transform Peter Parker. Activate only as a sorcery.\n// Back face: Amazing Spider-Man — Legendary Creature — Spider Human Hero\nVigilance, reach\nEach legendary spell you cast that's one or more colors has web-slinging {G}{W}{U}. (You may cast a spell for its web-slinging cost if you also return a tapped creature you control to its owner's hand.)",
+    text="",
 )
 
 RENT_IS_DUE = make_enchantment(
@@ -255,6 +1444,7 @@ SELFLESS_POLICE_CAPTAIN = make_creature(
     colors={Color.WHITE},
     subtypes={"Detective", "Human"},
     text="This creature enters with a +1/+1 counter on it.\nWhen this creature leaves the battlefield, put its +1/+1 counters on target creature you control.",
+    setup_interceptors=selfless_police_captain_setup,
 )
 
 SILVER_SABLE_MERCENARY_LEADER = make_creature(
@@ -265,6 +1455,7 @@ SILVER_SABLE_MERCENARY_LEADER = make_creature(
     subtypes={"Hero", "Human", "Mercenary"},
     supertypes={"Legendary"},
     text="When Silver Sable enters, put a +1/+1 counter on another target creature.\nWhenever Silver Sable attacks, target modified creature you control gains lifelink until end of turn. (Equipment, Auras you control, and counters are modifications.)",
+    setup_interceptors=silver_sable_setup,
 )
 
 SPECTACULAR_SPIDERMAN = make_creature(
@@ -312,6 +1503,7 @@ STARLING_AERIAL_ALLY = make_creature(
     subtypes={"Hero", "Human"},
     supertypes={"Legendary"},
     text="Flying\nWhen Starling enters, another target creature you control gains flying until end of turn.",
+    setup_interceptors=starling_setup,
 )
 
 SUDDEN_STRIKE = make_instant(
@@ -411,6 +1603,7 @@ DOC_OCKS_HENCHMEN = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Villain"},
     text="Flash\nWhenever this creature attacks, it connives. (Draw a card, then discard a card. If you discarded a nonland card, put a +1/+1 counter on this creature.)",
+    setup_interceptors=doc_ocks_henchmen_setup,
 )
 
 FLYING_OCTOBOT = make_artifact_creature(
@@ -420,6 +1613,7 @@ FLYING_OCTOBOT = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Robot", "Villain"},
     text="Flying\nWhenever another Villain you control enters, put a +1/+1 counter on this creature. This ability triggers only once each turn.",
+    setup_interceptors=flying_octobot_setup,
 )
 
 HIDE_ON_THE_CEILING = make_instant(
@@ -474,6 +1668,7 @@ MYSTERIO_MASTER_OF_ILLUSION = make_creature(
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
     text="When Mysterio enters, create a 3/3 blue Illusion Villain creature token for each nontoken Villain you control. Exile those tokens when Mysterio leaves the battlefield.",
+    setup_interceptors=mysterio_setup,
 )
 
 MYSTERIOS_PHANTASM = make_creature(
@@ -483,16 +1678,17 @@ MYSTERIOS_PHANTASM = make_creature(
     colors={Color.BLUE},
     subtypes={"Illusion", "Villain"},
     text="Flying, vigilance\nWhenever this creature attacks, mill a card. (Put the top card of your library into your graveyard.)",
+    setup_interceptors=mysterios_phantasm_setup,
 )
 
 NORMAN_OSBORN = make_creature(
     name="Norman Osborn",
-    power=1, toughness=1,
-    mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    subtypes={"Human", "Scientist", "Villain"},
+    power=0, toughness=0,
+    mana_cost="",
+    colors=set(),
+    subtypes={"//", "Creature", "Human", "Legendary", "Scientist", "Villain"},
     supertypes={"Legendary"},
-    text="Norman Osborn can't be blocked.\nWhenever Norman Osborn deals combat damage to a player, he connives. (Draw a card, then discard a card. If you discarded a nonland card, put a +1/+1 counter on this creature.)\n{1}{U}{B}{R}: Transform Norman Osborn. Activate only as a sorcery.\n// Back face: Green Goblin — Legendary Creature — Goblin Human Villain\nFlying, menace\nSpells you cast from your graveyard cost {2} less to cast.\nGoblin Formula — Each nonland card in your graveyard has mayhem. The mayhem cost is equal to its mana cost. (You may cast a card from your graveyard for its mayhem cost if you discarded it this turn. Timing rules still apply.)",
+    text="",
 )
 
 OSCORP_RESEARCH_TEAM = make_creature(
@@ -573,6 +1769,7 @@ AGENT_VENOM = make_creature(
     subtypes={"Hero", "Soldier", "Symbiote"},
     supertypes={"Legendary"},
     text="Flash\nMenace\nWhenever another nontoken creature you control dies, you draw a card and lose 1 life.",
+    setup_interceptors=agent_venom_setup,
 )
 
 ALIEN_SYMBIOSIS = make_enchantment(
@@ -598,6 +1795,7 @@ BLACK_CAT_CUNNING_THIEF = make_creature(
     subtypes={"Human", "Rogue", "Villain"},
     supertypes={"Legendary"},
     text="When Black Cat enters, look at the top nine cards of target opponent's library, exile two of them face down, then put the rest on the bottom of their library in a random order. You may play the exiled cards for as long as they remain exiled. Mana of any type can be spent to cast spells this way.",
+    setup_interceptors=black_cat_setup,
 )
 
 COMMON_CROOK = make_creature(
@@ -607,6 +1805,7 @@ COMMON_CROOK = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Rogue", "Villain"},
     text="When this creature dies, create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+    setup_interceptors=common_crook_setup,
 )
 
 THE_DEATH_OF_GWEN_STACY = make_enchantment(
@@ -619,12 +1818,12 @@ THE_DEATH_OF_GWEN_STACY = make_enchantment(
 
 EDDIE_BROCK = make_creature(
     name="Eddie Brock",
-    power=3, toughness=3,
-    mana_cost="{2}{B}",
-    colors={Color.BLACK},
-    subtypes={"Hero", "Human", "Villain"},
+    power=0, toughness=0,
+    mana_cost="",
+    colors=set(),
+    subtypes={"//", "Creature", "Hero", "Human", "Legendary", "Villain"},
     supertypes={"Legendary"},
-    text="When Eddie Brock enters, return target creature card with mana value 1 or less from your graveyard to the battlefield.\n{3}{B}{R}{G}: Transform Eddie Brock. Activate only as a sorcery.\n// Back face: Venom, Lethal Protector — Legendary Creature — Symbiote Hero Villain\nMenace, trample, haste\nWhenever Venom attacks, you may sacrifice another creature. If you do, draw X cards, then you may put a permanent card with mana value X or less from your hand onto the battlefield, where X is the sacrificed creature's mana value.",
+    text="",
 )
 
 GWENOM_REMORSELESS = make_creature(
@@ -635,6 +1834,7 @@ GWENOM_REMORSELESS = make_creature(
     subtypes={"Hero", "Spider", "Symbiote"},
     supertypes={"Legendary"},
     text="Deathtouch, lifelink\nWhenever Gwenom attacks, until end of turn, you may look at the top card of your library any time and you may play cards from the top of your library. If you cast a spell this way, pay life equal to its mana value rather than pay its mana cost.",
+    setup_interceptors=gwenom_setup,
 )
 
 INNER_DEMONS_GANGSTERS = make_creature(
@@ -701,6 +1901,7 @@ SCORPION_SEETHING_STRIKER = make_creature(
     subtypes={"Human", "Scorpion", "Villain"},
     supertypes={"Legendary"},
     text="Deathtouch\nAt the beginning of your end step, if a creature died this turn, target creature you control connives. (Draw a card, then discard a card. If you discarded a nonland card, put a +1/+1 counter on that creature.)",
+    setup_interceptors=scorpion_setup,
 )
 
 SCORPIONS_STING = make_instant(
@@ -726,6 +1927,7 @@ SPIDERMAN_NOIR = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Menace\nWhenever a creature you control attacks alone, put a +1/+1 counter on it. Then surveil X, where X is the number of counters on it. (Look at the top X cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)",
+    setup_interceptors=spiderman_noir_setup,
 )
 
 THE_SPOTS_PORTAL = make_instant(
@@ -772,6 +1974,7 @@ VENOMIZED_CAT = make_creature(
     colors={Color.BLACK},
     subtypes={"Cat", "Symbiote", "Villain"},
     text="Deathtouch\nWhen this creature enters, mill two cards. (Put the top two cards of your library into your graveyard.)",
+    setup_interceptors=venomized_cat_setup,
 )
 
 VENOMS_HUNGER = make_sorcery(
@@ -795,6 +1998,7 @@ ANGRY_RABBLE = make_creature(
     colors={Color.RED},
     subtypes={"Citizen", "Human"},
     text="Trample\nWhenever you cast a spell with mana value 4 or greater, this creature deals 1 damage to each opponent.\n{5}{R}: Put two +1/+1 counters on this creature. Activate only as a sorcery.",
+    setup_interceptors=angry_rabble_setup,
 )
 
 ELECTRO_ASSAULTING_BATTERY = make_creature(
@@ -816,12 +2020,12 @@ ELECTROS_BOLT = make_sorcery(
 
 GWEN_STACY = make_creature(
     name="Gwen Stacy",
-    power=2, toughness=1,
-    mana_cost="{1}{R}",
-    colors={Color.RED},
-    subtypes={"Hero", "Human", "Performer"},
+    power=0, toughness=0,
+    mana_cost="",
+    colors=set(),
+    subtypes={"//", "Creature", "Hero", "Human", "Legendary", "Performer"},
     supertypes={"Legendary"},
-    text="When Gwen Stacy enters, exile the top card of your library. You may play that card for as long as you control this creature.\n{2}{U}{R}{W}: Transform Gwen Stacy. Activate only as a sorcery.\n// Back face: Ghost-Spider — Legendary Creature — Spider Human Hero\nFlying, vigilance, haste\nWhenever you play a land from exile or cast a spell from exile, put a +1/+1 counter on Ghost-Spider.\nRemove two counters from Ghost-Spider: Exile the top card of your library. You may play that card this turn.",
+    text="",
 )
 
 HEROES_HANGOUT = make_sorcery(
@@ -839,6 +2043,7 @@ HOBGOBLIN_MANTLED_MARAUDER = make_creature(
     subtypes={"Goblin", "Human", "Villain"},
     supertypes={"Legendary"},
     text="Flying, haste\nWhenever you discard a card, Hobgoblin gets +2/+0 until end of turn.",
+    setup_interceptors=hobgoblin_setup,
 )
 
 J_JONAH_JAMESON = make_creature(
@@ -876,6 +2081,7 @@ MOLTEN_MAN_INFERNO_INCARNATE = make_creature(
     subtypes={"Elemental", "Villain"},
     supertypes={"Legendary"},
     text="When Molten Man enters, search your library for a basic Mountain card, put it onto the battlefield tapped, then shuffle.\nMolten Man gets +1/+1 for each Mountain you control.\nWhen Molten Man leaves the battlefield, sacrifice a land.",
+    setup_interceptors=molten_man_setup,
 )
 
 RAGING_GOBLINOIDS = make_creature(
@@ -945,6 +2151,7 @@ SPIDERPUNK = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Riot (This creature enters with your choice of a +1/+1 counter or haste.)\nOther Spiders you control have riot.\nSpells and abilities can't be countered.\nDamage can't be prevented.",
+    setup_interceptors=spider_punk_setup,
 )
 
 SPIDERVERSE = make_enchantment(
@@ -962,6 +2169,7 @@ SPINNERET_AND_SPIDERLING = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Whenever you attack with two or more Spiders, put a +1/+1 counter on Spinneret and Spiderling.\nWhenever Spinneret and Spiderling deals 4 or more damage, exile the top card of your library. Until the end of your next turn, you may play that card.",
+    setup_interceptors=spinneret_and_spiderling_setup,
 )
 
 STEGRON_THE_DINOSAUR_MAN = make_creature(
@@ -1006,6 +2214,7 @@ DAMAGE_CONTROL_CREW = make_creature(
     colors={Color.GREEN},
     subtypes={"Citizen", "Human"},
     text="When this creature enters, choose one —\n• Repair — Return target card with mana value 4 or greater from your graveyard to your hand.\n• Impound — Exile target artifact or enchantment.",
+    setup_interceptors=damage_control_crew_setup,
 )
 
 EZEKIEL_SIMS_SPIDERTOTEM = make_creature(
@@ -1016,6 +2225,7 @@ EZEKIEL_SIMS_SPIDERTOTEM = make_creature(
     subtypes={"Advisor", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Reach\nAt the beginning of combat on your turn, target Spider you control gets +2/+2 until end of turn.",
+    setup_interceptors=ezekiel_sims_setup,
 )
 
 GROW_EXTRA_ARMS = make_instant(
@@ -1066,6 +2276,7 @@ LIZARD_CONNORSS_CURSE = make_creature(
     subtypes={"Lizard", "Villain"},
     supertypes={"Legendary"},
     text="Trample\nLizard Formula — When Lizard, Connors's Curse enters, up to one other target creature loses all abilities and becomes a green Lizard creature with base power and toughness 4/4.",
+    setup_interceptors=lizard_connors_curse_setup,
 )
 
 LURKING_LIZARDS = make_creature(
@@ -1075,6 +2286,7 @@ LURKING_LIZARDS = make_creature(
     colors={Color.GREEN},
     subtypes={"Lizard", "Villain"},
     text="Trample\nWhenever you cast a spell with mana value 4 or greater, put a +1/+1 counter on this creature.",
+    setup_interceptors=lurking_lizards_setup,
 )
 
 MILES_MORALES = make_creature(
@@ -1084,7 +2296,7 @@ MILES_MORALES = make_creature(
     colors={Color.GREEN},
     subtypes={"Citizen", "Hero", "Human"},
     supertypes={"Legendary"},
-    text="When Miles Morales enters, put a +1/+1 counter on each of up to two target creatures.\n{3}{R}{G}{W}: Transform Miles Morales. Activate only as a sorcery.\n// Back face: Ultimate Spider-Man — Legendary Creature — Spider Human Hero\nFirst strike, haste\nCamouflage — {2}: Put a +1/+1 counter on Ultimate Spider-Man. He gains hexproof and becomes colorless until end of turn.\nWhenever you attack, double the number of each kind of counter on each Spider and legendary creature you control.",
+    text="When Miles Morales enters, put a +1/+1 counter on each of up to two target creatures.\n{3}{R}{G}{W}: Transform Miles Morales. Activate only as a sorcery.\n// Transforms into: Ultimate Spider-Man (4/3)\nFirst strike, haste\nCamouflage — {2}: Put a +1/+1 counter on Ultimate Spider-Man. He gains hexproof and becomes colorless until end of turn.\nWhenever you attack, double the number of each kind of counter on each Spider and legendary creature you control.",
 )
 
 PICTURES_OF_SPIDERMAN = make_artifact(
@@ -1100,6 +2312,7 @@ PROFESSIONAL_WRESTLER = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Performer", "Warrior"},
     text="When this creature enters, create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")\nThis creature can't be blocked by more than one creature.",
+    setup_interceptors=professional_wrestler_setup,
 )
 
 RADIOACTIVE_SPIDER = make_creature(
@@ -1136,6 +2349,7 @@ SPIDERHAM_PETER_PORKER = make_creature(
     subtypes={"Boar", "Hero", "Spider"},
     supertypes={"Legendary"},
     text="When Spider-Ham enters, create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")\nAnimal May-Ham — Other Spiders, Boars, Bats, Bears, Birds, Cats, Dogs, Frogs, Jackals, Lizards, Mice, Otters, Rabbits, Raccoons, Rats, Squirrels, Turtles, and Wolves you control get +1/+1.",
+    setup_interceptors=spider_ham_setup,
 )
 
 SPIDERMAN_BROOKLYN_VISIONARY = make_creature(
@@ -1146,6 +2360,7 @@ SPIDERMAN_BROOKLYN_VISIONARY = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Web-slinging {2}{G} (You may cast this spell for {2}{G} if you also return a tapped creature you control to its owner's hand.)\nWhen Spider-Man enters, search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=spiderman_brooklyn_visionary_setup,
 )
 
 SPIDERREX_DARING_DINO = make_creature(
@@ -1196,6 +2411,7 @@ WALL_CRAWL = make_enchantment(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="When this enchantment enters, create a 2/1 green Spider creature token with reach, then you gain 1 life for each Spider you control.\nSpiders you control get +1/+1 and can't be blocked by creatures with defender.",
+    setup_interceptors=wall_crawl_setup,
 )
 
 WEB_OF_LIFE_AND_DESTINY = make_enchantment(
@@ -1213,6 +2429,7 @@ ARAA_HEART_OF_THE_SPIDER = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Whenever you attack, put a +1/+1 counter on target attacking creature.\nWhenever a modified creature you control deals combat damage to a player, exile the top card of your library. You may play that card this turn. (Equipment, Auras you control, and counters are modifications.)",
+    setup_interceptors=arana_setup,
 )
 
 BIORGANIC_CARAPACE = make_artifact(
@@ -1230,6 +2447,7 @@ CARNAGE_CRIMSON_CHAOS = make_creature(
     subtypes={"Symbiote", "Villain"},
     supertypes={"Legendary"},
     text="Trample\nWhen Carnage enters, return target creature card with mana value 3 or less from your graveyard to the battlefield. It gains \"This creature attacks each combat if able\" and \"When this creature deals combat damage to a player, sacrifice it.\"\nMayhem {B}{R}",
+    setup_interceptors=carnage_setup,
 )
 
 CHEERING_CROWD = make_creature(
@@ -1249,6 +2467,7 @@ COSMIC_SPIDERMAN = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Flying, first strike, trample, lifelink, haste\nAt the beginning of combat on your turn, other Spiders you control gain flying, first strike, trample, lifelink, and haste until end of turn.",
+    setup_interceptors=cosmic_spiderman_setup,
 )
 
 DOCTOR_OCTOPUS_MASTER_PLANNER = make_creature(
@@ -1259,6 +2478,7 @@ DOCTOR_OCTOPUS_MASTER_PLANNER = make_creature(
     subtypes={"Human", "Scientist", "Villain"},
     supertypes={"Legendary"},
     text="Other Villains you control get +2/+2.\nYour maximum hand size is eight.\nAt the beginning of your end step, if you have fewer than eight cards in hand, draw cards equal to the difference.",
+    setup_interceptors=doctor_octopus_setup,
 )
 
 GALLANT_CITIZEN = make_creature(
@@ -1268,6 +2488,7 @@ GALLANT_CITIZEN = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Citizen", "Human"},
     text="When this creature enters, draw a card.",
+    setup_interceptors=gallant_citizen_setup,
 )
 
 GREEN_GOBLIN_REVENANT = make_creature(
@@ -1278,6 +2499,7 @@ GREEN_GOBLIN_REVENANT = make_creature(
     subtypes={"Goblin", "Human", "Villain"},
     supertypes={"Legendary"},
     text="Flying, deathtouch\nWhenever Green Goblin attacks, discard a card. Then draw a card for each card you've discarded this turn.",
+    setup_interceptors=green_goblin_revenant_setup,
 )
 
 JACKAL_GENIUS_GENETICIST = make_creature(
@@ -1308,6 +2530,7 @@ KRAVEN_THE_HUNTER = make_creature(
     subtypes={"Human", "Villain", "Warrior"},
     supertypes={"Legendary"},
     text="Trample\nWhenever a creature an opponent controls with the greatest power among creatures that player controls dies, draw a card and put a +1/+1 counter on Kraven the Hunter.",
+    setup_interceptors=kraven_the_hunter_setup,
 )
 
 MARY_JANE_WATSON = make_creature(
@@ -1318,6 +2541,7 @@ MARY_JANE_WATSON = make_creature(
     subtypes={"Human", "Performer"},
     supertypes={"Legendary"},
     text="Whenever a Spider you control enters, draw a card. This ability triggers only once each turn.",
+    setup_interceptors=mary_jane_watson_setup,
 )
 
 MISTER_NEGATIVE = make_creature(
@@ -1328,6 +2552,7 @@ MISTER_NEGATIVE = make_creature(
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
     text="Vigilance, lifelink\nDarkforce Inversion — When Mister Negative enters, you may exchange life totals with target opponent. If you lost life this way, draw that many cards.",
+    setup_interceptors=mister_negative_setup,
 )
 
 MOB_LOOKOUT = make_creature(
@@ -1337,6 +2562,7 @@ MOB_LOOKOUT = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Human", "Rogue", "Villain"},
     text="When this creature enters, target creature you control connives. (Draw a card, then discard a card. If you discarded a nonland card, put a +1/+1 counter on that creature.)",
+    setup_interceptors=mob_lookout_setup,
 )
 
 MORBIUS_THE_LIVING_VAMPIRE = make_creature(
@@ -1357,6 +2583,7 @@ PROWLER_CLAWED_THIEF = make_creature(
     subtypes={"Human", "Rogue", "Villain"},
     supertypes={"Legendary"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nWhenever another Villain you control enters, Prowler connives. (Draw a card, then discard a card. If you discarded a nonland card, put a +1/+1 counter on this creature.)",
+    setup_interceptors=prowler_setup,
 )
 
 PUMPKIN_BOMBARDMENT = make_sorcery(
@@ -1374,6 +2601,7 @@ RHINO_BARRELING_BRUTE = make_creature(
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
     text="Vigilance, trample, haste\nWhenever Rhino attacks, if you've cast a spell with mana value 4 or greater this turn, draw a card.",
+    setup_interceptors=rhino_setup,
 )
 
 RHINOS_RAMPAGE = make_sorcery(
@@ -1411,6 +2639,7 @@ SHRIEK_TREBLEMAKER = make_creature(
     subtypes={"Mutant", "Villain"},
     supertypes={"Legendary"},
     text="At the beginning of your first main phase, you may discard a card. When you do, target creature can't block this turn.\nSonic Blast — Whenever a creature an opponent controls dies, Shriek deals 1 damage to that player.",
+    setup_interceptors=shriek_setup,
 )
 
 SILK_WEB_WEAVER = make_creature(
@@ -1421,6 +2650,7 @@ SILK_WEB_WEAVER = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Web-slinging {1}{G}{W} (You may cast this spell for {1}{G}{W} if you also return a tapped creature you control to its owner's hand.)\nWhenever you cast a creature spell, create a 1/1 green and white Human Citizen creature token.\n{3}{G}{W}: Creatures you control get +2/+2 and gain vigilance until end of turn.",
+    setup_interceptors=silk_setup,
 )
 
 SKYWARD_SPIDER = make_creature(
@@ -1440,6 +2670,7 @@ SPDR_PILOTED_BY_PENI = make_artifact_creature(
     subtypes={"Hero", "Spider"},
     supertypes={"Legendary"},
     text="Vigilance\nWhen SP//dr enters, put a +1/+1 counter on target creature.\nWhenever a modified creature you control deals combat damage to a player, draw a card. (Equipment, Auras you control, and counters are modifications.)",
+    setup_interceptors=spdr_setup,
 )
 
 SPIDER_MANIFESTATION = make_creature(
@@ -1459,6 +2690,7 @@ SPIDERGIRL_LEGACY_HERO = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="During your turn, Spider-Girl has flying.\nWhen Spider-Girl leaves the battlefield, create a 1/1 green and white Human Citizen creature token.",
+    setup_interceptors=spider_girl_setup,
 )
 
 SPIDERMAN_2099 = make_creature(
@@ -1479,6 +2711,7 @@ SPIDERMAN_INDIA = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Web-slinging {1}{G}{W} (You may cast this spell for {1}{G}{W} if you also return a tapped creature you control to its owner's hand.)\nPavitr's Sevā — Whenever you cast a creature spell, put a +1/+1 counter on target creature you control. It gains flying until end of turn.",
+    setup_interceptors=spiderman_india_setup,
 )
 
 SPIDERWOMAN_STUNNING_SAVIOR = make_creature(
@@ -1489,6 +2722,7 @@ SPIDERWOMAN_STUNNING_SAVIOR = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Flying\nVenom Blast — Artifacts and creatures your opponents control enter tapped.",
+    setup_interceptors=spiderwoman_setup,
 )
 
 THE_SPOT_LIVING_PORTAL = make_creature(
@@ -1499,6 +2733,7 @@ THE_SPOT_LIVING_PORTAL = make_creature(
     subtypes={"Human", "Scientist", "Villain"},
     supertypes={"Legendary"},
     text="When The Spot enters, exile up to one target nonland permanent and up to one target nonland permanent card from a graveyard.\nWhen The Spot dies, put him on the bottom of his owner's library. If you do, return the exiled cards to their owners' hands.",
+    setup_interceptors=the_spot_setup,
 )
 
 SUNSPIDER_NIMBLE_WEBBER = make_creature(
@@ -1509,6 +2744,7 @@ SUNSPIDER_NIMBLE_WEBBER = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="During your turn, Sun-Spider has flying.\nWhen Sun-Spider enters, search your library for an Aura or Equipment card, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=sun_spider_setup,
 )
 
 SUPERIOR_SPIDERMAN = make_creature(
@@ -1539,6 +2775,7 @@ ULTIMATE_GREEN_GOBLIN = make_creature(
     subtypes={"Goblin", "Villain"},
     supertypes={"Legendary"},
     text="At the beginning of your upkeep, discard a card, then create a Treasure token.\nMayhem {2}{B/R} (You may cast this card from your graveyard for {2}{B/R} if you discarded it this turn. Timing rules still apply.)",
+    setup_interceptors=ultimate_green_goblin_setup,
 )
 
 VULTURE_SCHEMING_SCAVENGER = make_creature(
@@ -1549,6 +2786,7 @@ VULTURE_SCHEMING_SCAVENGER = make_creature(
     subtypes={"Artificer", "Human", "Villain"},
     supertypes={"Legendary"},
     text="Flying\nWhenever Vulture attacks, other Villains you control gain flying until end of turn.",
+    setup_interceptors=vulture_setup,
 )
 
 WEBWARRIORS = make_creature(
@@ -1558,6 +2796,7 @@ WEBWARRIORS = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Hero", "Spider"},
     text="When this creature enters, put a +1/+1 counter on each other creature you control.",
+    setup_interceptors=web_warriors_setup,
 )
 
 WRAITH_VICIOUS_VIGILANTE = make_creature(
@@ -1588,12 +2827,14 @@ EERIE_GRAVESTONE = make_artifact(
     name="Eerie Gravestone",
     mana_cost="{2}",
     text="When this artifact enters, draw a card.\n{1}{B}, Sacrifice this artifact: Mill four cards. You may put a creature card from among them into your hand. (To mill four cards, put the top four cards of your library into your graveyard.)",
+    setup_interceptors=eerie_gravestone_setup,
 )
 
 HOT_DOG_CART = make_artifact(
     name="Hot Dog Cart",
     mana_cost="{3}",
     text="When this artifact enters, create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")\n{T}: Add one mana of any color.",
+    setup_interceptors=hot_dog_cart_setup,
 )
 
 INTERDIMENSIONAL_WEB_WATCH = make_artifact(
@@ -1629,6 +2870,7 @@ MECHANICAL_MOBSTER = make_artifact_creature(
     colors=set(),
     subtypes={"Human", "Robot", "Villain"},
     text="When this creature enters, exile up to one target card from a graveyard. Target creature you control connives. (Draw a card, then discard a card. If you discarded a nonland card, put a +1/+1 counter on that creature.)",
+    setup_interceptors=mechanical_mobster_setup,
 )
 
 NEWS_HELICOPTER = make_artifact_creature(
@@ -1638,6 +2880,7 @@ NEWS_HELICOPTER = make_artifact_creature(
     colors=set(),
     subtypes={"Construct"},
     text="Flying\nWhen this creature enters, create a 1/1 green and white Human Citizen creature token.",
+    setup_interceptors=news_helicopter_setup,
 )
 
 PASSENGER_FERRY = make_artifact(
@@ -1667,6 +2910,7 @@ SPIDERBOT = make_artifact_creature(
     colors=set(),
     subtypes={"Robot", "Scout", "Spider"},
     text="Reach\nWhen this creature enters, you may search your library for a basic land card, reveal it, then shuffle and put that card on top.",
+    setup_interceptors=spider_bot_setup,
 )
 
 SPIDERMOBILE = make_artifact(
@@ -1991,4 +3235,4 @@ SPIDER_MAN_CARDS = {
     "Forest": FOREST,
 }
 
-print(f"Loaded {len(SPIDER_MAN_CARDS)} Marvels Spider-Man cards")
+print(f"Loaded {len(SPIDER_MAN_CARDS)} Marvels_Spider-Man cards")
