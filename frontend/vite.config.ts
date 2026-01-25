@@ -10,6 +10,8 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  // Serve card art assets from project root
+  publicDir: 'public',
   server: {
     port: 3000,
     proxy: {
@@ -22,6 +24,10 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+    },
+    // Serve assets from project root for card art
+    fs: {
+      allow: ['..'],
     },
   },
 })

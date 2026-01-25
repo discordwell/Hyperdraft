@@ -4,10 +4,11 @@
  * Renders a single MTG-style card with proper frame styling.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import clsx from 'clsx';
 import type { CardData } from '../../types';
 import { parseManaSymbols } from '../../types/cards';
+import { getPossibleArtPaths } from '../../utils/cardArt';
 
 interface CardProps {
   card: CardData;
@@ -18,6 +19,67 @@ interface CardProps {
   onClick?: () => void;
   size?: 'small' | 'medium' | 'large';
   showDetails?: boolean;
+}
+
+// Card art component with fallback handling
+interface CardArtProps {
+  cardName: string;
+  fallbackIcon: string;
+  size: 'small' | 'medium' | 'large';
+}
+
+function CardArt({ cardName, fallbackIcon, size }: CardArtProps) {
+  const [artLoaded, setArtLoaded] = useState(false);
+  const [artError, setArtError] = useState(false);
+  const [currentPathIndex, setCurrentPathIndex] = useState(0);
+
+  const possiblePaths = useMemo(() => getPossibleArtPaths(cardName), [cardName]);
+
+  const handleImageError = () => {
+    // Try the next possible path
+    if (currentPathIndex < possiblePaths.length - 1) {
+      setCurrentPathIndex((prev) => prev + 1);
+    } else {
+      // All paths exhausted, show fallback
+      setArtError(true);
+    }
+  };
+
+  const handleImageLoad = () => {
+    setArtLoaded(true);
+  };
+
+  const iconSize = size === 'small' ? 'text-2xl' : size === 'medium' ? 'text-3xl' : 'text-4xl';
+
+  if (artError) {
+    // Show fallback icon
+    return (
+      <span className={clsx('opacity-60', iconSize)}>
+        {fallbackIcon}
+      </span>
+    );
+  }
+
+  return (
+    <>
+      {/* Show loading placeholder until image loads */}
+      {!artLoaded && (
+        <span className={clsx('opacity-40 animate-pulse', iconSize)}>
+          {fallbackIcon}
+        </span>
+      )}
+      <img
+        src={possiblePaths[currentPathIndex]}
+        alt={cardName}
+        className={clsx(
+          'w-full h-full object-cover object-center',
+          artLoaded ? 'block' : 'hidden'
+        )}
+        onError={handleImageError}
+        onLoad={handleImageLoad}
+      />
+    </>
+  );
 }
 
 // Mana symbol component for consistent rendering
@@ -204,14 +266,12 @@ export function Card({
         {/* Card Art Box */}
         <div
           className={clsx(
-            'mx-1.5 mt-1 flex-shrink-0 rounded border-2 flex items-center justify-center',
+            'mx-1.5 mt-1 flex-shrink-0 rounded border-2 flex items-center justify-center overflow-hidden',
             isBlackCard ? 'border-gray-600 bg-gray-800' : 'border-black/30 bg-gradient-to-br from-slate-700 to-slate-900',
             size === 'small' ? 'h-[50px]' : size === 'medium' ? 'h-[70px]' : 'h-[100px]'
           )}
         >
-          <span className={clsx('opacity-60', size === 'small' ? 'text-2xl' : size === 'medium' ? 'text-3xl' : 'text-4xl')}>
-            {typeIcon}
-          </span>
+          <CardArt cardName={card.name} fallbackIcon={typeIcon} size={size} />
         </div>
 
         {/* Card Type Line */}

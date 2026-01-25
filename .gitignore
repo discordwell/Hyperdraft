@@ -64,3 +64,6 @@ assets/cache/
 credentials.json
 *.key
 *.pemfrontend/node_modules/
+
+# Card art cache (Scryfall originals)
+assets/card_art/.cache/
