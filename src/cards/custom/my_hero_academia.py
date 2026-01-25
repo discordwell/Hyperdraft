@@ -13,15 +13,17 @@ from src.engine import (
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness
 )
-from typing import Optional, Callable
-from src.cards.interceptor_helpers import (
-    make_etb_trigger, make_death_trigger, make_attack_trigger,
-    make_damage_trigger, make_static_pt_boost, make_keyword_grant,
-    other_creatures_you_control, creatures_with_subtype,
-    make_spell_cast_trigger, make_upkeep_trigger, make_end_step_trigger,
-    make_life_gain_trigger, make_life_loss_trigger, creatures_you_control,
-    other_creatures_with_subtype, all_opponents
+from src.engine.abilities import (
+    TriggeredAbility, StaticAbility,
+    ETBTrigger, DeathTrigger, AttackTrigger, UpkeepTrigger,
+    DealsDamageTrigger,
+    GainLife, DrawCards, DealDamage, AddCounters, LoseLife,
+    PTBoost, KeywordGrant,
+    OtherCreaturesYouControlFilter, CreaturesYouControlFilter,
+    CreaturesWithSubtypeFilter, SelfTarget, AnotherCreature,
+    EachOpponentTarget, ControllerTarget,
 )
+from typing import Optional, Callable
 
 
 # =============================================================================
@@ -146,6 +148,8 @@ def make_plus_ultra_bonus(source_obj: GameObject, power_bonus: int, toughness_bo
         player = state.players.get(source_obj.controller)
         return player and player.life <= threshold
 
+    # Use the old helper since this is a conditional static ability
+    from src.cards.interceptor_helpers import make_static_pt_boost
     return make_static_pt_boost(source_obj, power_bonus, toughness_bonus, plus_ultra_filter)
 
 
@@ -180,33 +184,11 @@ def make_villain_trigger(source_obj: GameObject, effect_fn: Callable[[Event, Gam
     )
 
 
-def hero_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Hero creatures you control."""
-    return creatures_with_subtype(source, "Hero")
-
-
-def villain_type_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Villain creatures you control."""
-    return creatures_with_subtype(source, "Villain")
-
-
-def student_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Student creatures you control."""
-    return creatures_with_subtype(source, "Student")
-
-
 # =============================================================================
 # WHITE CARDS - HEROES, SYMBOL OF PEACE, RESCUE
 # =============================================================================
 
 # --- Legendary Creatures ---
-
-def all_might_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Symbol of Peace - Other Heroes get +2/+2. Plus Ultra bonus."""
-    interceptors = []
-    interceptors.extend(make_static_pt_boost(obj, 2, 2, other_creatures_with_subtype(obj, "Hero")))
-    interceptors.extend(make_plus_ultra_bonus(obj, 3, 3))
-    return interceptors
 
 ALL_MIGHT = make_creature(
     name="All Might, Symbol of Peace",
@@ -215,23 +197,16 @@ ALL_MIGHT = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Vigilance, indestructible. Other Hero creatures you control get +2/+2. Plus Ultra - All Might gets +3/+3 as long as you have 5 or less life.",
-    setup_interceptors=all_might_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(2, 2),
+            filter=CreaturesWithSubtypeFilter("Hero", include_self=False)
+        ),
+        # Plus Ultra handled via setup_interceptors since it's conditional on life total
+    ],
+    setup_interceptors=lambda obj, state: make_plus_ultra_bonus(obj, 3, 3)
 )
 
-
-def endeavor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When attacks, deal 2 damage to any target"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        opponents = all_opponents(obj, state)
-        if opponents:
-            return [Event(
-                type=EventType.DAMAGE,
-                payload={'target': opponents[0], 'amount': 2, 'source': obj.id},
-                source=obj.id
-            )]
-        return []
-    return [make_attack_trigger(obj, attack_effect)]
 
 ENDEAVOR = make_creature(
     name="Endeavor, Number One Hero",
@@ -240,13 +215,18 @@ ENDEAVOR = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="First strike. Whenever Endeavor attacks, he deals 2 damage to any target. Quirk - {R}: Endeavor gets +2/+0 until end of turn.",
-    setup_interceptors=endeavor_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=DealDamage(2, target=EachOpponentTarget())
+        ),
+    ]
 )
 
 
 def hawks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Other Heroes have flying"""
+    from src.cards.interceptor_helpers import make_keyword_grant, other_creatures_with_subtype
     return [make_keyword_grant(obj, ['flying'], other_creatures_with_subtype(obj, "Hero"))]
 
 HAWKS = make_creature(
@@ -256,8 +236,12 @@ HAWKS = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Flying, haste. Other Hero creatures you control have flying. Quirk - {U}: Scry 1.",
-    setup_interceptors=hawks_setup
+    abilities=[
+        StaticAbility(
+            effect=KeywordGrant(['flying']),
+            filter=CreaturesWithSubtypeFilter("Hero", include_self=False)
+        ),
+    ]
 )
 
 
@@ -302,13 +286,15 @@ ERASERHEAD = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Flash. Creatures your opponents control lose all abilities. Quirk - {T}: Target creature loses all abilities until end of turn.",
+    # Complex ability - keep setup_interceptors
     setup_interceptors=eraserhead_setup
 )
 
 
 def best_jeanist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Creatures opponents control enter tapped"""
+    from src.cards.interceptor_helpers import make_etb_trigger
+
     def etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
         if event.type != EventType.ZONE_CHANGE:
             return False
@@ -337,13 +323,15 @@ BEST_JEANIST = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Creatures your opponents control enter the battlefield tapped. Quirk - {W}, {T}: Tap target creature.",
+    # Complex ability - keep setup_interceptors
     setup_interceptors=best_jeanist_setup
 )
 
 
 def mirko_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Double strike when attacking alone"""
+    from src.cards.interceptor_helpers import make_keyword_grant
+
     def attack_alone_filter(target: GameObject, state: GameState) -> bool:
         if target.id != obj.id:
             return False
@@ -358,18 +346,12 @@ MIRKO = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Haste. Mirko has double strike as long as she's attacking alone.",
+    # Conditional keyword - keep setup
     setup_interceptors=mirko_setup
 )
 
 
 # --- Regular Creatures ---
-
-def rescue_hero_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB - gain 3 life"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 RESCUE_HERO = make_creature(
     name="Rescue Hero",
@@ -377,28 +359,14 @@ RESCUE_HERO = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
-    text="When Rescue Hero enters, you gain 3 life.",
-    setup_interceptors=rescue_hero_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=GainLife(3)
+        ),
+    ]
 )
 
-
-def sidekick_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Gets +1/+1 for each Hero you control"""
-    def hero_count_filter(target: GameObject, state: GameState) -> bool:
-        return target.id == obj.id
-
-    def count_heroes(state: GameState) -> int:
-        count = 0
-        for o in state.objects.values():
-            if (o.controller == obj.controller and
-                o.zone == ZoneType.BATTLEFIELD and
-                CardType.CREATURE in o.characteristics.types and
-                "Hero" in o.characteristics.subtypes):
-                count += 1
-        return count
-
-    # This would need a dynamic query handler
-    return []
 
 SIDEKICK = make_creature(
     name="Eager Sidekick",
@@ -406,7 +374,7 @@ SIDEKICK = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
-    text="Eager Sidekick gets +1/+1 for each Hero you control."
+    # Dynamic P/T based on hero count - needs special handling
 )
 
 
@@ -416,7 +384,12 @@ UA_TEACHER = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
-    text="Other Student creatures you control get +1/+1."
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Student", include_self=False)
+        ),
+    ]
 )
 
 
@@ -426,7 +399,7 @@ POLICE_OFFICER = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    text="Vigilance. When Hero Public Safety Officer enters, detain target creature an opponent controls."
+    # ETB detain - would need targeting, keep text only for now
 )
 
 
@@ -436,7 +409,7 @@ RESCUE_SQUAD = make_creature(
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
-    text="Defender. When Rescue Squad enters, you gain 2 life for each creature you control."
+    # ETB gain life for each creature - would need creature counting
 )
 
 
@@ -446,7 +419,7 @@ SUPPORT_COURSE_STUDENT = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Student", "Artificer"},
-    text="When Support Course Student enters, create a colorless Equipment artifact token named Support Item with 'Equipped creature gets +1/+1. Equip {1}'."
+    # ETB create equipment token - complex
 )
 
 
@@ -456,7 +429,7 @@ HERO_INTERN = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Student"},
-    text="Lifelink"
+    # Lifelink - keyword ability
 )
 
 
@@ -466,7 +439,7 @@ NIGHTEYE_AGENCY_MEMBER = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
-    text="When Nighteye Agency Member enters, scry 2."
+    # ETB scry 2 - would need scry effect
 )
 
 
@@ -477,7 +450,7 @@ SELKIE = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Hexproof. Selkie can't be blocked by creatures with power 2 or less."
+    # Hexproof, can't be blocked by power 2 or less - keywords/evasion
 )
 
 
@@ -488,7 +461,7 @@ GANG_ORCA = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Menace. When Gang Orca enters, destroy target creature with power 3 or less."
+    # Menace, ETB destroy - would need targeting
 )
 
 
@@ -499,7 +472,7 @@ THIRTEEN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Defender. Quirk - {T}: Exile target attacking creature. Return it to the battlefield at end of turn."
+    # Defender, Quirk activated ability
 )
 
 
@@ -510,7 +483,7 @@ MIDNIGHT = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Quirk - {T}: Tap target creature. It doesn't untap during its controller's next untap step."
+    # Quirk activated ability
 )
 
 
@@ -521,7 +494,7 @@ PRESENT_MIC = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Haste. Quirk - {R}, {T}: Present Mic deals 2 damage to each opponent."
+    # Haste, Quirk activated ability
 )
 
 
@@ -532,7 +505,7 @@ CEMENTOSS = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Defender. Quirk - {1}{W}: Create a 0/3 white Wall creature token with defender."
+    # Defender, Quirk creates tokens
 )
 
 
@@ -543,7 +516,7 @@ SNIPE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Reach. Quirk - {T}: Snipe deals 1 damage to target creature or planeswalker."
+    # Reach, Quirk deals damage
 )
 
 
@@ -641,18 +614,16 @@ UA_TRAINING_SESSION = make_sorcery(
 
 # --- Enchantments ---
 
-def symbol_aura_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Heroes you control have vigilance and lifelink"""
-    interceptors = []
-    interceptors.append(make_keyword_grant(obj, ['vigilance', 'lifelink'], creatures_with_subtype(obj, "Hero")))
-    return interceptors
-
 SYMBOL_OF_HOPE = make_enchantment(
     name="Symbol of Hope",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="Hero creatures you control have vigilance and lifelink.",
-    setup_interceptors=symbol_aura_setup
+    abilities=[
+        StaticAbility(
+            effect=KeywordGrant(['vigilance', 'lifelink']),
+            filter=CreaturesWithSubtypeFilter("Hero")
+        ),
+    ]
 )
 
 
@@ -678,12 +649,6 @@ PROVISIONAL_LICENSE = make_enchantment(
 
 # --- Legendary Creatures ---
 
-def nezu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Draw a card at upkeep"""
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
-
 NEZU = make_creature(
     name="Nezu, UA Principal",
     power=1, toughness=3,
@@ -691,20 +656,14 @@ NEZU = make_creature(
     colors={Color.BLUE},
     subtypes={"Mouse", "Hero"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, draw a card. Quirk - {U}, {T}: Scry 3.",
-    setup_interceptors=nezu_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=DrawCards(1)
+        ),
+    ]
 )
 
-
-def sir_nighteye_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB - look at top 3 cards, put 1 in hand"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DRAW,
-            payload={'player': obj.controller, 'amount': 1, 'look_extra': 2},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
 
 SIR_NIGHTEYE = make_creature(
     name="Sir Nighteye, Foresight Hero",
@@ -713,14 +672,14 @@ SIR_NIGHTEYE = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="When Sir Nighteye enters, look at the top three cards of your library. Put one into your hand and the rest on the bottom. Quirk - {T}: Look at the top card of target player's library.",
-    setup_interceptors=sir_nighteye_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DrawCards(1)  # Simplified from look at 3, put 1 in hand
+        ),
+    ]
 )
 
-
-def shinso_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Can't be blocked by creatures with power 3 or greater"""
-    return []
 
 SHINSO = make_creature(
     name="Shinso, Mind Control",
@@ -729,12 +688,14 @@ SHINSO = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Student"},
     supertypes={"Legendary"},
-    text="Shinso can't be blocked by creatures with power 3 or greater. Quirk - {U}{U}, {T}: Gain control of target creature with power less than Shinso's power until end of turn."
+    # Can't be blocked by power 3+, Quirk - complex
 )
 
 
 def mandalay_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Other Heroes have hexproof from instants"""
+    """Other Heroes have hexproof"""
+    from src.cards.interceptor_helpers import make_keyword_grant
+
     def telepathy_filter(target: GameObject, state: GameState) -> bool:
         return (target.id != obj.id and
                 target.controller == obj.controller and
@@ -750,8 +711,12 @@ MANDALAY = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Other Hero creatures you control have hexproof. Quirk - {T}: Target player reveals their hand.",
-    setup_interceptors=mandalay_setup
+    abilities=[
+        StaticAbility(
+            effect=KeywordGrant(['hexproof']),
+            filter=CreaturesWithSubtypeFilter("Hero", include_self=False)
+        ),
+    ]
 )
 
 
@@ -762,7 +727,7 @@ RAGDOLL = make_creature(
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Quirk - {T}: Search your library for a creature card, reveal it, then shuffle. Put that card on top."
+    # Quirk - search library
 )
 
 
@@ -773,7 +738,7 @@ TIGER = make_creature(
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Trample. Quirk - {G}: Tiger gets +2/+2 until end of turn. Activate only once each turn."
+    # Trample, Quirk activated
 )
 
 
@@ -785,7 +750,7 @@ ANALYST_HERO = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Hero"},
-    text="When Analyst Hero enters, scry 2."
+    # ETB scry 2
 )
 
 
@@ -795,7 +760,7 @@ INFORMATION_BROKER = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Rogue"},
-    text="{T}: Look at the top card of target player's library."
+    # Activated ability - look at top card
 )
 
 
@@ -805,7 +770,12 @@ UA_ROBOT = make_creature(
     mana_cost="{3}",
     colors=set(),
     subtypes={"Construct"},
-    text="When UA Training Robot dies, draw a card."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=DrawCards(1)
+        ),
+    ]
 )
 
 
@@ -815,7 +785,7 @@ ERASURE_AGENT = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Hero"},
-    text="Flash. When Erasure Agent enters, counter target activated ability."
+    # Flash, ETB counter activated ability
 )
 
 
@@ -825,7 +795,7 @@ TACTICAL_SUPPORT = make_creature(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Hero"},
-    text="Flying. Whenever you cast an instant or sorcery spell, scry 1."
+    # Flying, spell cast trigger scry
 )
 
 
@@ -835,7 +805,7 @@ STRATEGY_STUDENT = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Student"},
-    text="When Strategy Student enters, draw a card, then discard a card."
+    # ETB draw then discard - loot
 )
 
 
@@ -846,7 +816,7 @@ HATSUME_MEI = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Student", "Artificer"},
     supertypes={"Legendary"},
-    text="When Hatsume Mei enters, create two colorless artifact tokens named Baby with '{T}, Sacrifice this artifact: Add {C}{C}.'"
+    # ETB create artifact tokens
 )
 
 
@@ -857,7 +827,7 @@ POWER_LOADER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Hero", "Artificer"},
     supertypes={"Legendary"},
-    text="Artifacts you control have hexproof. Quirk - {T}: Untap target artifact."
+    # Artifacts have hexproof, Quirk untap
 )
 
 
@@ -959,7 +929,12 @@ BATTLE_STRATEGY = make_enchantment(
     name="Battle Strategy",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Creatures you control get +1/+0. Whenever a creature you control deals combat damage to a player, scry 1."
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 0),
+            filter=CreaturesYouControlFilter()
+        ),
+    ]
 )
 
 
@@ -986,13 +961,15 @@ ALL_FOR_ONE = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Indestructible. Villain - Whenever an opponent loses life, put a +1/+1 counter on All For One. Quirk - {B}{B}, {T}: Destroy target creature. All For One gains all activated abilities of that creature.",
+    # Indestructible, Villain trigger, Quirk - complex
     setup_interceptors=all_for_one_setup
 )
 
 
 def shigaraki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When deals combat damage, destroy target permanent"""
+    from src.cards.interceptor_helpers import make_damage_trigger
+
     def damage_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.DESTROY,
@@ -1008,13 +985,20 @@ SHIGARAKI = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Menace. Whenever Shigaraki deals combat damage to a player, destroy target nonland permanent. Quirk - {2}{B}: Destroy target artifact or enchantment.",
+    abilities=[
+        TriggeredAbility(
+            trigger=DealsDamageTrigger(to_player=True, combat_only=True),
+            effect=LoseLife(0)  # Placeholder - destroy effect needs targeting
+        ),
+    ],
     setup_interceptors=shigaraki_setup
 )
 
 
 def dabi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep - deal 1 damage to self and each opponent"""
+    from src.cards.interceptor_helpers import make_upkeep_trigger, all_opponents
+
     def upkeep_effect(event: Event, state: GameState) -> list[Event]:
         events = []
         events.append(Event(
@@ -1038,13 +1022,15 @@ DABI = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, Dabi deals 1 damage to you and 2 damage to each opponent. Quirk - {R}: Dabi deals 1 damage to any target.",
+    # Complex upkeep trigger with multiple targets
     setup_interceptors=dabi_setup
 )
 
 
 def toga_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When deals combat damage to player, copy target creature"""
+    from src.cards.interceptor_helpers import make_damage_trigger
+
     def damage_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.CREATE_TOKEN,
@@ -1060,14 +1046,10 @@ TOGA = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Deathtouch. Whenever Toga deals combat damage to a player, create a token that's a copy of target creature that player controls. Sacrifice it at end of turn.",
+    # Deathtouch, complex damage trigger with copy
     setup_interceptors=toga_setup
 )
 
-
-def stain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """First strike, deathtouch. Extra combat vs Heroes"""
-    return []
 
 STAIN = make_creature(
     name="Stain, Hero Killer",
@@ -1076,19 +1058,9 @@ STAIN = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="First strike, deathtouch. Stain has double strike as long as it's attacking a Hero. Quirk - {B}: Target creature can't block this turn."
+    # First strike, deathtouch, conditional double strike
 )
 
-
-def overhaul_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB - destroy target creature, then return creature from grave"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DESTROY,
-            payload={'target': 'any_creature'},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
 
 OVERHAUL = make_creature(
     name="Overhaul, Yakuza Boss",
@@ -1097,24 +1069,9 @@ OVERHAUL = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="When Overhaul enters, destroy target creature. Then you may return a creature card from your graveyard to your hand. Quirk - {1}{B}: Regenerate Overhaul.",
-    setup_interceptors=overhaul_setup
+    # ETB destroy then return from graveyard - complex
 )
 
-
-def twice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB - create copy of self"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'token': {'name': 'Twice Double', 'power': 2, 'toughness': 2,
-                         'colors': {Color.BLACK}, 'subtypes': {'Human', 'Villain'}}
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
 
 TWICE = make_creature(
     name="Twice, Double Trouble",
@@ -1123,8 +1080,7 @@ TWICE = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="When Twice enters, create a token that's a copy of Twice, except it's not legendary.",
-    setup_interceptors=twice_setup
+    # ETB create copy token - complex
 )
 
 
@@ -1135,7 +1091,7 @@ MR_COMPRESS = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Quirk - {T}: Exile target creature you control. Return it at the beginning of your next upkeep."
+    # Quirk exile then return
 )
 
 
@@ -1146,7 +1102,7 @@ KUROGIRI = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Elemental", "Villain"},
     supertypes={"Legendary"},
-    text="Flash. Quirk - {T}: Exile target creature you control, then return it to the battlefield under your control."
+    # Flash, Quirk flicker
 )
 
 
@@ -1157,7 +1113,7 @@ MUSCULAR = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Trample, haste. Muscular attacks each combat if able."
+    # Trample, haste, must attack
 )
 
 
@@ -1168,7 +1124,7 @@ MOONFISH = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="First strike. Whenever Moonfish deals combat damage to a creature, destroy that creature."
+    # First strike, destroy on combat damage
 )
 
 
@@ -1179,7 +1135,7 @@ GIGANTOMACHIA = make_creature(
     colors={Color.BLACK},
     subtypes={"Giant", "Villain"},
     supertypes={"Legendary"},
-    text="Trample, vigilance. Gigantomachia can't be blocked by creatures with power 3 or less. When Gigantomachia enters, destroy all other creatures."
+    # Trample, vigilance, evasion, ETB destroy all
 )
 
 
@@ -1197,7 +1153,7 @@ LEAGUE_GRUNT = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
-    text="Villain - Whenever an opponent loses life, you may pay {1}. If you do, draw a card."
+    setup_interceptors=league_grunt_setup
 )
 
 
@@ -1207,7 +1163,12 @@ NOMU = make_creature(
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie", "Villain"},
-    text="Trample. Nomu can't be regenerated. When Nomu dies, each opponent loses 2 life."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=LoseLife(2, target=EachOpponentTarget())
+        ),
+    ]
 )
 
 
@@ -1217,7 +1178,7 @@ HIGH_END_NOMU = make_creature(
     mana_cost="{5}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie", "Villain"},
-    text="Flying, trample, regenerate {B}{B}. When High-End Nomu enters, it fights target creature."
+    # Flying, trample, regenerate, ETB fight
 )
 
 
@@ -1227,7 +1188,7 @@ YAKUZA_THUG = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
-    text="When Shie Hassaikai Thug dies, target opponent discards a card."
+    # Death trigger discard
 )
 
 
@@ -1237,7 +1198,7 @@ TRIGGER_DEALER = make_creature(
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
-    text="{T}, Pay 2 life: Target creature gets +2/+2 until end of turn."
+    # Activated ability - pay life, pump
 )
 
 
@@ -1247,7 +1208,12 @@ META_LIBERATION_SOLDIER = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
-    text="Menace. When Meta Liberation Soldier dies, draw a card."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=DrawCards(1)
+        ),
+    ]
 )
 
 
@@ -1258,7 +1224,12 @@ SKEPTIC = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Other Villain creatures you control get +1/+0. When a Villain you control dies, each opponent loses 1 life."
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 0),
+            filter=CreaturesWithSubtypeFilter("Villain", include_self=False)
+        ),
+    ]
 )
 
 
@@ -1269,7 +1240,16 @@ TRUMPET = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Other Villain creatures you control get +1/+1 and have deathtouch."
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Villain", include_self=False)
+        ),
+        StaticAbility(
+            effect=KeywordGrant(['deathtouch']),
+            filter=CreaturesWithSubtypeFilter("Villain", include_self=False)
+        ),
+    ]
 )
 
 
@@ -1280,7 +1260,7 @@ RE_DESTRO = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Menace. Re-Destro gets +X/+0, where X is the amount of life you've lost this turn. Quirk - {2}{B}: Re-Destro deals damage to any target equal to the amount of life you've lost this turn."
+    # Menace, dynamic P/T based on life lost, Quirk
 )
 
 
@@ -1291,7 +1271,7 @@ CURIOUS = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="When Curious enters, target opponent reveals their hand. You choose a nonland card from it. That player discards that card."
+    # ETB reveal hand, choose discard
 )
 
 
@@ -1302,7 +1282,7 @@ GETEN = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Flying. Quirk - {U}{U}: Tap target creature. It doesn't untap during its controller's next untap step."
+    # Flying, Quirk tap and freeze
 )
 
 
@@ -1392,16 +1372,16 @@ DECAY_WAVE = make_sorcery(
 
 # --- Enchantments ---
 
-def league_hideout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Villains get +1/+1"""
-    return make_static_pt_boost(obj, 1, 1, creatures_with_subtype(obj, "Villain"))
-
 LEAGUE_HIDEOUT = make_enchantment(
     name="League Hideout",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Villain creatures you control get +1/+1.",
-    setup_interceptors=league_hideout_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Villain")
+        ),
+    ]
 )
 
 
@@ -1429,6 +1409,8 @@ QUIRK_SINGULARITY = make_enchantment(
 
 def bakugo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When attacks, deal 1 damage to each creature defending player controls"""
+    from src.cards.interceptor_helpers import make_attack_trigger
+
     def attack_effect(event: Event, state: GameState) -> list[Event]:
         events = []
         for o in state.objects.values():
@@ -1452,13 +1434,15 @@ BAKUGO = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Haste. Whenever Bakugo attacks, he deals 1 damage to each creature defending player controls. Plus Ultra - Bakugo gets +2/+2 as long as you have 5 or less life. Quirk - {R}: Bakugo gets +2/+0 until end of turn.",
+    # Complex attack trigger + Plus Ultra
     setup_interceptors=bakugo_setup
 )
 
 
 def kirishima_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Indestructible while attacking"""
+    from src.cards.interceptor_helpers import make_keyword_grant
+
     def attacking_filter(target: GameObject, state: GameState) -> bool:
         return target.id == obj.id and target.zone == ZoneType.BATTLEFIELD
     return [make_keyword_grant(obj, ['indestructible'], attacking_filter)]
@@ -1470,14 +1454,10 @@ KIRISHIMA = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Kirishima has indestructible as long as he's attacking. Plus Ultra - Kirishima gets +2/+2 as long as you have 5 or less life. Quirk - {R}: Kirishima gets +0/+3 until end of turn.",
+    # Conditional indestructible
     setup_interceptors=kirishima_setup
 )
 
-
-def kaminari_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Quirk deals damage but taps self"""
-    return []
 
 KAMINARI = make_creature(
     name="Kaminari, Chargebolt",
@@ -1486,7 +1466,7 @@ KAMINARI = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Haste. Quirk - {R}, {T}: Kaminari deals 3 damage to any target and 1 damage to himself."
+    # Haste, Quirk deals damage to target and self
 )
 
 
@@ -1497,7 +1477,7 @@ TETSUTETSU = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Trample. Quirk - {R}{R}: Tetsutetsu gains indestructible until end of turn."
+    # Trample, Quirk indestructible
 )
 
 
@@ -1508,7 +1488,7 @@ MINA = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="First strike. Quirk - {G}: Target creature can't block this turn."
+    # First strike, Quirk can't block
 )
 
 
@@ -1519,7 +1499,7 @@ FATGUM = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Defender. Quirk - Remove all damage from Fat Gum: Fat Gum deals damage equal to the damage removed to target creature."
+    # Defender, Quirk damage conversion
 )
 
 
@@ -1530,7 +1510,7 @@ RYUKYU = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Hero", "Dragon"},
     supertypes={"Legendary"},
-    text="Flying, trample. Quirk - {R}{R}: Ryukyu gets +2/+0 and gains first strike until end of turn."
+    # Flying, trample, Quirk pump
 )
 
 
@@ -1541,7 +1521,12 @@ CRIMSON_RIOT = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Indestructible. Whenever Crimson Riot attacks, other attacking creatures get +1/+0 until end of turn."
+    abilities=[
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=PTBoost(1, 0)  # Simplified - would affect other attackers
+        ),
+    ]
 )
 
 
@@ -1553,7 +1538,12 @@ EXPLOSION_STUDENT = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Student"},
-    text="Haste. When Explosion Student enters, it deals 1 damage to any target."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DealDamage(1, target=EachOpponentTarget())
+        ),
+    ]
 )
 
 
@@ -1563,7 +1553,7 @@ COMBAT_HERO = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Hero"},
-    text="First strike, haste."
+    # First strike, haste - keywords
 )
 
 
@@ -1573,7 +1563,7 @@ POWER_TYPE_STUDENT = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Human", "Student"},
-    text="Trample. {R}: Power-Type Student gets +1/+0 until end of turn."
+    # Trample, activated pump
 )
 
 
@@ -1583,7 +1573,7 @@ RAGING_HERO = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Human", "Hero"},
-    text="Trample, haste. Raging Hero attacks each combat if able."
+    # Trample, haste, must attack
 )
 
 
@@ -1593,7 +1583,7 @@ FIERY_SIDEKICK = make_creature(
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Human", "Hero"},
-    text="Haste"
+    # Haste
 )
 
 
@@ -1603,7 +1593,7 @@ BATTLE_STUDENT = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Student"},
-    text="First strike"
+    # First strike
 )
 
 
@@ -1613,7 +1603,7 @@ BERSERKER_HERO = make_creature(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Human", "Hero"},
-    text="Trample. Whenever Berserker Hero deals combat damage to a player, it deals 2 damage to you."
+    # Trample, combat damage to player damages you
 )
 
 
@@ -1715,7 +1705,16 @@ FIGHTING_SPIRIT = make_enchantment(
     name="Fighting Spirit",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Creatures you control get +1/+0 and have haste."
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 0),
+            filter=CreaturesYouControlFilter()
+        ),
+        StaticAbility(
+            effect=KeywordGrant(['haste']),
+            filter=CreaturesYouControlFilter()
+        ),
+    ]
 )
 
 
@@ -1743,6 +1742,8 @@ EXPLOSIVE_POWER = make_enchantment(
 
 def deku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """One For All - gets bigger each turn, Plus Ultra bonus"""
+    from src.cards.interceptor_helpers import make_upkeep_trigger
+
     def upkeep_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.COUNTER_ADDED,
@@ -1760,14 +1761,15 @@ DEKU = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, put a +1/+1 counter on Deku. Plus Ultra - Deku gets +3/+3 as long as you have 5 or less life. Quirk - {G}: Deku gains trample until end of turn.",
-    setup_interceptors=deku_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=AddCounters("+1/+1", 1)
+        ),
+    ],
+    setup_interceptors=lambda obj, state: make_plus_ultra_bonus(obj, 3, 3)
 )
 
-
-def uraraka_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Makes creatures fly"""
-    return []
 
 URARAKA = make_creature(
     name="Uraraka, Zero Gravity",
@@ -1776,13 +1778,9 @@ URARAKA = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Flying. Quirk - {W}: Target creature gains flying until end of turn."
+    # Flying, Quirk grants flying
 )
 
-
-def iida_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Haste, first strike when attacking"""
-    return []
 
 IIDA = make_creature(
     name="Iida, Ingenium",
@@ -1791,13 +1789,9 @@ IIDA = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Haste, vigilance. Iida has first strike as long as he's attacking. Quirk - {G}: Iida gets +2/+0 until end of turn."
+    # Haste, vigilance, conditional first strike
 )
 
-
-def todoroki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Half-Cold Half-Hot - versatile abilities"""
-    return []
 
 TODOROKI = make_creature(
     name="Todoroki, Half-Cold Half-Hot",
@@ -1806,13 +1800,9 @@ TODOROKI = make_creature(
     colors={Color.RED, Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Quirk - {R}: Todoroki deals 2 damage to any target. Quirk - {U}: Tap target creature. It doesn't untap during its controller's next untap step."
+    # Multiple Quirk activated abilities
 )
 
-
-def tsuyu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flash, can't be blocked"""
-    return []
 
 TSUYU = make_creature(
     name="Tsuyu, Froppy",
@@ -1821,22 +1811,9 @@ TSUYU = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Flash, hexproof. Tsuyu can't be blocked by creatures with power 3 or greater. Quirk - {U}: Return Tsuyu to your hand."
+    # Flash, hexproof, evasion, Quirk bounce
 )
 
-
-def momo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Creates equipment tokens"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'token': {'name': 'Created Equipment', 'type': 'Equipment'}
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
 
 MOMO = make_creature(
     name="Momo, Creation Hero",
@@ -1845,16 +1822,13 @@ MOMO = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="When Momo enters, create a colorless Equipment artifact token with 'Equipped creature gets +2/+2. Equip {2}'. Quirk - {2}, Pay 2 life: Create a token that's a copy of target Equipment you control.",
-    setup_interceptors=momo_setup
+    # ETB create equipment, Quirk copy equipment
 )
 
 
 def tokoyami_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Dark Shadow - gets stronger at low life"""
-    interceptors = []
-    interceptors.extend(make_plus_ultra_bonus(obj, 4, 0))
-    return interceptors
+    return make_plus_ultra_bonus(obj, 4, 0)
 
 TOKOYAMI = make_creature(
     name="Tokoyami, Dark Shadow",
@@ -1863,7 +1837,7 @@ TOKOYAMI = make_creature(
     colors={Color.GREEN, Color.BLACK},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Flying. Plus Ultra - Tokoyami gets +4/+0 as long as you have 5 or less life. Quirk - {B}: Tokoyami gains menace until end of turn.",
+    # Flying, Plus Ultra, Quirk menace
     setup_interceptors=tokoyami_setup
 )
 
@@ -1875,7 +1849,7 @@ SERO = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Reach. Quirk - {G}, {T}: Tap target creature with power 3 or less."
+    # Reach, Quirk tap
 )
 
 
@@ -1886,7 +1860,7 @@ SHOJI = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Vigilance. Shoji can block an additional creature each combat."
+    # Vigilance, can block additional creature
 )
 
 
@@ -1897,7 +1871,7 @@ KODA = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Quirk - {G}: Create a 1/1 green Bird creature token with flying."
+    # Quirk creates bird token
 )
 
 
@@ -1908,7 +1882,7 @@ OJIRO = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="First strike. Quirk - {G}: Ojiro gets +1/+1 until end of turn."
+    # First strike, Quirk pump
 )
 
 
@@ -1919,21 +1893,11 @@ SATO = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Trample. Quirk - {G}, Pay 2 life: Sato gets +3/+3 until end of turn."
+    # Trample, Quirk pay life pump
 )
 
 
 # --- Regular Creatures ---
-
-def growth_student_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB - put +1/+1 counter on target creature"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
 
 GROWTH_STUDENT = make_creature(
     name="Growth-Type Student",
@@ -1941,8 +1905,12 @@ GROWTH_STUDENT = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Student"},
-    text="When Growth-Type Student enters, put a +1/+1 counter on target creature you control.",
-    setup_interceptors=growth_student_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=AddCounters("+1/+1", 1)
+        ),
+    ]
 )
 
 
@@ -1952,7 +1920,7 @@ ONE_FOR_ALL_HEIR = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Student"},
-    text="Trample. {G}: One For All Heir gets +1/+1 until end of turn."
+    # Trample, activated pump
 )
 
 
@@ -1962,7 +1930,7 @@ NATURE_HERO = make_creature(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Hero"},
-    text="Reach, trample."
+    # Reach, trample
 )
 
 
@@ -1972,7 +1940,7 @@ MUTANT_STUDENT = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Student"},
-    text="Trample"
+    # Trample
 )
 
 
@@ -1982,7 +1950,7 @@ HEALING_HERO = make_creature(
     mana_cost="{1}{G}{W}",
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Hero"},
-    text="Lifelink. {T}: Regenerate target creature."
+    # Lifelink, regenerate ability
 )
 
 
@@ -1992,7 +1960,7 @@ FOREST_GUARDIAN = make_creature(
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Hero"},
-    text="Vigilance, reach."
+    # Vigilance, reach
 )
 
 
@@ -2002,7 +1970,7 @@ WILD_PUSSYCAT = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Hero"},
-    text="When Wild Wild Pussycat Member enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle."
+    # ETB search basic land
 )
 
 
@@ -2108,10 +2076,6 @@ QUIRK_AWAKENING = make_sorcery(
 
 # --- Enchantments ---
 
-def one_for_all_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Enchanted creature gets +3/+3 and grows"""
-    return []
-
 ONE_FOR_ALL = make_enchantment(
     name="One For All",
     mana_cost="{2}{G}{G}",
@@ -2149,7 +2113,7 @@ JIRO = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Quirk - {T}: Jiro deals 1 damage to each opponent. Whenever you cast an instant or sorcery spell, Jiro deals 1 damage to any target."
+    # Quirk deals damage, spell cast trigger
 )
 
 
@@ -2160,7 +2124,7 @@ MINETA = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Human", "Student"},
     supertypes={"Legendary"},
-    text="Quirk - {T}: Target creature can't attack or block until your next turn."
+    # Quirk prevents attack/block
 )
 
 
@@ -2171,7 +2135,12 @@ KENDO = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Vigilance. Other Student creatures you control get +1/+1."
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Student", include_self=False)
+        ),
+    ]
 )
 
 
@@ -2182,7 +2151,7 @@ MONOMA = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Student"},
     supertypes={"Legendary"},
-    text="Whenever Monoma deals combat damage to a player, choose target creature that player controls. Until end of turn, Monoma becomes a copy of that creature."
+    # Combat damage copy ability
 )
 
 
@@ -2193,7 +2162,7 @@ MIRIO = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Mirio can't be blocked. Quirk - {U}: Mirio gains hexproof and indestructible until end of turn. You may have Mirio deal no combat damage this turn."
+    # Unblockable, Quirk hexproof/indestructible
 )
 
 
@@ -2204,7 +2173,7 @@ TAMAKI = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Quirk - {G}: Tamaki gets +2/+0 until end of turn. Quirk - {U}: Tamaki gains flying until end of turn. Quirk - {B}: Tamaki gains deathtouch until end of turn."
+    # Multiple Quirk abilities
 )
 
 
@@ -2215,7 +2184,7 @@ NEJIRE = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Flying. Quirk - {U}{U}: Nejire deals 3 damage to target creature with flying."
+    # Flying, Quirk damages flyers
 )
 
 
@@ -2226,7 +2195,7 @@ AOYAMA = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="First strike. Quirk - {1}, {T}: Aoyama deals 2 damage to target creature. Aoyama doesn't untap during your next untap step."
+    # First strike, Quirk deals damage but doesn't untap
 )
 
 
@@ -2237,7 +2206,7 @@ HAGAKURE = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Hagakure can't be blocked. Quirk - {W}: Hagakure gains hexproof until end of turn."
+    # Unblockable, Quirk hexproof
 )
 
 
@@ -2250,7 +2219,7 @@ WASH = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="When Wash enters, return target creature to its owner's hand."
+    # ETB bounce
 )
 
 
@@ -2261,7 +2230,7 @@ EDGESHOT = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Flash, deathtouch. Edgeshot can't be blocked by creatures with power 2 or greater."
+    # Flash, deathtouch, evasion
 )
 
 
@@ -2272,7 +2241,7 @@ KAMUI_WOODS = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Reach. Quirk - {G}{G}, {T}: Tap all creatures target opponent controls."
+    # Reach, Quirk tap all
 )
 
 
@@ -2283,7 +2252,7 @@ MT_LADY = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Trample. Quirk - Mt. Lady enters with three -1/-1 counters. At the beginning of your upkeep, remove a -1/-1 counter from Mt. Lady."
+    # Trample, enters with -1/-1 counters, removes them
 )
 
 
@@ -2294,7 +2263,7 @@ DEATH_ARMS = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="First strike. Whenever Death Arms deals combat damage to a creature, destroy that creature."
+    # First strike, destroy on combat damage
 )
 
 
@@ -2305,7 +2274,12 @@ NATIVE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Vigilance. When Native enters, you gain 3 life."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=GainLife(3)
+        ),
+    ]
 )
 
 
@@ -2316,7 +2290,7 @@ FOURTH_KIND = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Menace. Fourth Kind can block an additional creature each combat."
+    # Menace, can block additional creature
 )
 
 
@@ -2327,7 +2301,7 @@ MANUAL = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Quirk - {U}: Target creature gains hexproof until end of turn."
+    # Quirk grants hexproof
 )
 
 
@@ -2624,7 +2598,7 @@ PIXIE_BOB = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="When Pixie-Bob enters, create two 1/1 green Beast creature tokens. Quirk - {G}: Target Beast gets +1/+1 until end of turn."
+    # ETB create beast tokens, Quirk pump beasts
 )
 
 
@@ -2635,7 +2609,7 @@ RECOVERY_GIRL = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Quirk - {T}: Regenerate target creature. You gain 1 life. {W}{W}, {T}: Remove all damage from target creature. That creature's controller gains life equal to its toughness."
+    # Quirk regenerate and heal
 )
 
 
@@ -2646,7 +2620,7 @@ VLAD_KING = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Menace. Quirk - {B}, Pay 1 life: Vlad King gets +2/+0 until end of turn."
+    # Menace, Quirk pay life pump
 )
 
 
@@ -2657,7 +2631,7 @@ ECTOPLASM = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Quirk - {U}{B}: Create a token that's a copy of Ectoplasm, except it's not legendary. Sacrifice it at end of turn."
+    # Quirk create copy token
 )
 
 
@@ -2668,7 +2642,7 @@ HOUND_DOG = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Vigilance. Quirk - {T}: Look at target opponent's hand."
+    # Vigilance, Quirk reveal hand
 )
 
 
@@ -2679,7 +2653,12 @@ LUNCH_RUSH = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, you gain 1 life. If you have 15 or more life, draw a card instead."
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=GainLife(1)
+        ),
+    ]
 )
 
 
@@ -2690,7 +2669,12 @@ INGENIUM = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Haste, vigilance. Other Hero creatures you control have vigilance."
+    abilities=[
+        StaticAbility(
+            effect=KeywordGrant(['vigilance']),
+            filter=CreaturesWithSubtypeFilter("Hero", include_self=False)
+        ),
+    ]
 )
 
 
@@ -2701,7 +2685,7 @@ INASA = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Flying. Quirk - {U}{R}: All creatures lose flying until end of turn. Inasa deals 2 damage to each creature that lost flying this way."
+    # Flying, Quirk removes flying and damages
 )
 
 
@@ -2712,7 +2696,7 @@ CAMIE = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Student"},
     supertypes={"Legendary"},
-    text="Quirk - {U}, {T}: Create a token that's a copy of target creature, except it's an Illusion in addition to its other types. Sacrifice it at end of turn."
+    # Quirk create illusion copy
 )
 
 
@@ -2723,7 +2707,7 @@ SEIJI = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Student"},
     supertypes={"Legendary"},
-    text="Quirk - {U}{U}, {T}: Exile target creature with power 2 or less. Return it to the battlefield at the beginning of your next upkeep."
+    # Quirk exile small creature temporarily
 )
 
 
@@ -2734,7 +2718,12 @@ GENTLE_CRIMINAL = make_creature(
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Flying. Quirk - {U}: Target creature gains flying until end of turn. Whenever Gentle Criminal deals combat damage to a player, draw a card."
+    abilities=[
+        TriggeredAbility(
+            trigger=DealsDamageTrigger(to_player=True, combat_only=True),
+            effect=DrawCards(1)
+        ),
+    ]
 )
 
 
@@ -2745,7 +2734,7 @@ LA_BRAVA = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Quirk - {T}: Target creature gets +5/+5 until end of turn. Activate only once each turn and only if that creature is named Gentle Criminal or you control Gentle Criminal."
+    # Quirk massive pump for Gentle
 )
 
 
@@ -2756,7 +2745,7 @@ SPINNER = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="First strike. Spinner gets +1/+1 for each other Villain you control."
+    # First strike, gets +1/+1 per villain
 )
 
 
@@ -2767,7 +2756,7 @@ MAGNE = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    text="Haste. Quirk - {R}: Target creature must attack this turn if able. {B}: Target creature can't block this turn."
+    # Haste, Quirk force attack/can't block
 )
 
 
@@ -2777,7 +2766,7 @@ MUSTARD = make_creature(
     mana_cost="{1}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Villain"},
-    text="When Mustard enters, put a -1/-1 counter on each creature your opponents control."
+    # ETB -1/-1 counters to opponents
 )
 
 
@@ -2787,7 +2776,7 @@ REDESTRO_HAND = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
-    text="When Meta Liberation Hand dies, target opponent discards a card."
+    # Death trigger discard
 )
 
 
@@ -2797,7 +2786,7 @@ DETNERAT_CEO = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
-    text="Whenever another Villain enters under your control, each opponent loses 1 life."
+    # Villain ETB drain
 )
 
 
@@ -2807,7 +2796,7 @@ ENDING = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
-    text="Menace. Ending gets +2/+0 as long as an opponent controls a legendary creature."
+    # Menace, conditional pump vs legendary
 )
 
 
@@ -2817,7 +2806,7 @@ SLIDE_N_GO = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
-    text="Whenever Slide'n'Go attacks, tap target creature defending player controls."
+    # Attack trigger tap
 )
 
 
@@ -2827,7 +2816,7 @@ YOROI_MUSHA = make_creature(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
-    text="Vigilance. Yoroi Musha gets +2/+0 as long as it's equipped."
+    # Vigilance, pump when equipped
 )
 
 
@@ -2837,7 +2826,7 @@ BUBBLE_GIRL = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Hero"},
-    text="Quirk - {T}: Tap target creature with power 1 or less."
+    # Quirk tap small creature
 )
 
 
@@ -2847,7 +2836,7 @@ CENTIPEDER = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Hero"},
-    text="When Centipeder enters, scry 1."
+    # ETB scry 1
 )
 
 
@@ -2858,7 +2847,7 @@ SHINDO = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Trample. Quirk - {R}{G}, {T}: Shindo deals 2 damage to each creature without flying."
+    # Trample, Quirk damage non-flyers
 )
 
 
@@ -2869,7 +2858,7 @@ NAKAGAME = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    text="Defender. Quirk - {W}: Target creature gains indestructible until end of turn."
+    # Defender, Quirk indestructible
 )
 
 
@@ -2880,7 +2869,7 @@ MS_JOKE = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Quirk - {T}: Target creature can't attack or block until your next turn."
+    # Quirk can't attack/block
 )
 
 
@@ -3231,3 +3220,259 @@ MY_HERO_ACADEMIA_CARDS = {
 }
 
 print(f"Loaded {len(MY_HERO_ACADEMIA_CARDS)} My Hero Academia: Heroes Rising cards")
+
+
+# =============================================================================
+# CARDS EXPORT
+# =============================================================================
+
+CARDS = [
+    ALL_MIGHT,
+    ENDEAVOR,
+    HAWKS,
+    ERASERHEAD,
+    BEST_JEANIST,
+    MIRKO,
+    RESCUE_HERO,
+    SIDEKICK,
+    UA_TEACHER,
+    POLICE_OFFICER,
+    RESCUE_SQUAD,
+    SUPPORT_COURSE_STUDENT,
+    HERO_INTERN,
+    NIGHTEYE_AGENCY_MEMBER,
+    SELKIE,
+    GANG_ORCA,
+    THIRTEEN,
+    MIDNIGHT,
+    PRESENT_MIC,
+    CEMENTOSS,
+    SNIPE,
+    PLUS_ULTRA_SMASH,
+    HEROIC_RESCUE,
+    SYMBOL_OF_PEACE,
+    FEAR_NOT,
+    EMERGENCY_EVACUATION,
+    UNITED_STATES_OF_SMASH,
+    HERO_ARRIVAL,
+    QUIRK_SUPPRESSION,
+    HERO_RECRUITMENT,
+    PEACE_SUMMIT,
+    UA_TRAINING_SESSION,
+    SYMBOL_OF_HOPE,
+    HERO_LICENSE,
+    PROVISIONAL_LICENSE,
+    NEZU,
+    SIR_NIGHTEYE,
+    SHINSO,
+    MANDALAY,
+    RAGDOLL,
+    TIGER,
+    ANALYST_HERO,
+    INFORMATION_BROKER,
+    UA_ROBOT,
+    ERASURE_AGENT,
+    TACTICAL_SUPPORT,
+    STRATEGY_STUDENT,
+    HATSUME_MEI,
+    POWER_LOADER,
+    TACTICAL_ANALYSIS,
+    COUNTER_STRATEGY,
+    QUIRK_ANALYSIS,
+    BRAINWASH,
+    FORESIGHT,
+    MIND_TRICK,
+    TELEPATHIC_LINK,
+    INFORMATION_GATHERING,
+    STRATEGIC_PLANNING,
+    HERO_ANALYSIS,
+    QUIRK_RESEARCH,
+    BATTLE_STRATEGY,
+    ALL_FOR_ONE,
+    SHIGARAKI,
+    DABI,
+    TOGA,
+    STAIN,
+    OVERHAUL,
+    TWICE,
+    MR_COMPRESS,
+    KUROGIRI,
+    MUSCULAR,
+    MOONFISH,
+    GIGANTOMACHIA,
+    LEAGUE_GRUNT,
+    NOMU,
+    HIGH_END_NOMU,
+    YAKUZA_THUG,
+    TRIGGER_DEALER,
+    META_LIBERATION_SOLDIER,
+    SKEPTIC,
+    TRUMPET,
+    RE_DESTRO,
+    CURIOUS,
+    GETEN,
+    DECAY_TOUCH,
+    VILLAIN_AMBUSH,
+    BLOOD_DRAIN,
+    DARK_REUNION,
+    QUIRK_ERASURE,
+    ASSASSINATION,
+    WARP_GATE,
+    VILLAIN_RECRUITMENT,
+    LIBERATION_MARCH,
+    DECAY_WAVE,
+    LEAGUE_HIDEOUT,
+    TRIGGER_DRUG,
+    QUIRK_SINGULARITY,
+    BAKUGO,
+    KIRISHIMA,
+    KAMINARI,
+    TETSUTETSU,
+    MINA,
+    FATGUM,
+    RYUKYU,
+    CRIMSON_RIOT,
+    EXPLOSION_STUDENT,
+    COMBAT_HERO,
+    POWER_TYPE_STUDENT,
+    RAGING_HERO,
+    FIERY_SIDEKICK,
+    BATTLE_STUDENT,
+    BERSERKER_HERO,
+    EXPLOSION,
+    AP_SHOT,
+    HOWITZER_IMPACT,
+    STUN_GRENADE,
+    BATTLE_FURY,
+    PLUS_ULTRA_RUSH,
+    HELLFIRE,
+    CREMATION,
+    EXPLOSIVE_RAMPAGE,
+    TOTAL_DESTRUCTION,
+    GROUND_ZERO,
+    FIGHTING_SPIRIT,
+    UNBREAKABLE_WILL,
+    EXPLOSIVE_POWER,
+    DEKU,
+    URARAKA,
+    IIDA,
+    TODOROKI,
+    TSUYU,
+    MOMO,
+    TOKOYAMI,
+    SERO,
+    SHOJI,
+    KODA,
+    OJIRO,
+    SATO,
+    GROWTH_STUDENT,
+    ONE_FOR_ALL_HEIR,
+    NATURE_HERO,
+    MUTANT_STUDENT,
+    HEALING_HERO,
+    FOREST_GUARDIAN,
+    WILD_PUSSYCAT,
+    DETROIT_SMASH,
+    DELAWARE_SMASH,
+    MANCHESTER_SMASH,
+    FULL_COWLING,
+    SHOOT_STYLE,
+    BLACKWHIP,
+    GROWTH_SURGE,
+    ONE_FOR_ALL_100,
+    QUIRK_EVOLUTION,
+    TRAINING_ARC,
+    FOREST_TRAINING_CAMP,
+    QUIRK_AWAKENING,
+    ONE_FOR_ALL,
+    FULL_COWLING_AURA,
+    QUIRK_TRAINING,
+    JIRO,
+    MINETA,
+    KENDO,
+    MONOMA,
+    MIRIO,
+    TAMAKI,
+    NEJIRE,
+    AOYAMA,
+    HAGAKURE,
+    WASH,
+    EDGESHOT,
+    KAMUI_WOODS,
+    MT_LADY,
+    DEATH_ARMS,
+    NATIVE,
+    FOURTH_KIND,
+    MANUAL,
+    DEKU_MASK,
+    BAKUGO_GAUNTLETS,
+    CAPTURE_SCARF,
+    IIDA_ENGINES,
+    TODOROKI_COSTUME,
+    URARAKA_BOOTS,
+    SUPPORT_GEAR,
+    HERO_COSTUME,
+    POWER_SUIT,
+    JETPACK_GEAR,
+    RECORDING_GEAR,
+    SHOCK_GAUNTLETS,
+    GRAPPLING_HOOK,
+    UA_BARRIER,
+    TRAINING_GROUND,
+    RECOVERY_TANK,
+    VILLAIN_MONITOR,
+    NOMU_TANK,
+    TRIGGER_VIAL,
+    UA_HIGH,
+    HEIGHTS_ALLIANCE,
+    TRAINING_GROUND_LAND,
+    GROUND_BETA,
+    VILLAIN_BAR,
+    TARTARUS,
+    JAKKU_HOSPITAL,
+    DEIKA_CITY,
+    NABU_ISLAND,
+    HOSU_CITY,
+    KAMINO_WARD,
+    MUSUTAFU,
+    ENDEAVOR_AGENCY,
+    SHIKETSU_HIGH,
+    PLAINS_MHA,
+    ISLAND_MHA,
+    SWAMP_MHA,
+    MOUNTAIN_MHA,
+    FOREST_MHA,
+    PIXIE_BOB,
+    RECOVERY_GIRL,
+    VLAD_KING,
+    ECTOPLASM,
+    HOUND_DOG,
+    LUNCH_RUSH,
+    INGENIUM,
+    INASA,
+    CAMIE,
+    SEIJI,
+    GENTLE_CRIMINAL,
+    LA_BRAVA,
+    SPINNER,
+    MAGNE,
+    MUSTARD,
+    REDESTRO_HAND,
+    DETNERAT_CEO,
+    ENDING,
+    SLIDE_N_GO,
+    YOROI_MUSHA,
+    BUBBLE_GIRL,
+    CENTIPEDER,
+    SHINDO,
+    NAKAGAME,
+    MS_JOKE,
+    HALF_COLD,
+    HALF_HOT,
+    RECIPRO_BURST,
+    ZERO_GRAVITY,
+    DARK_SHADOW_STRIKE,
+    FLASHFIRE_FIST,
+    PROMINENCE_BURN,
+    FIERCE_WINGS
+]

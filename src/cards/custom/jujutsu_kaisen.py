@@ -13,15 +13,15 @@ from src.engine import (
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness
 )
-from typing import Optional, Callable
-from src.cards.interceptor_helpers import (
-    make_etb_trigger, make_death_trigger, make_attack_trigger,
-    make_damage_trigger, make_static_pt_boost, make_keyword_grant,
-    other_creatures_you_control, creatures_with_subtype,
-    make_spell_cast_trigger, make_upkeep_trigger, make_end_step_trigger,
-    make_life_gain_trigger, make_life_loss_trigger, creatures_you_control,
-    other_creatures_with_subtype, all_opponents
+from src.engine.abilities import (
+    TriggeredAbility, StaticAbility, KeywordAbility,
+    ETBTrigger, DeathTrigger, AttackTrigger, UpkeepTrigger, SpellCastTrigger, DealsDamageTrigger,
+    GainLife, LoseLife, DrawCards, AddCounters, CreateToken, DealDamage, Scry, CompositeEffect,
+    PTBoost, KeywordGrant,
+    OtherCreaturesYouControlFilter, CreaturesWithSubtypeFilter, CreaturesYouControlFilter, OpponentCreaturesFilter,
+    SelfTarget, AnotherCreature, EachOpponentTarget, CreatureWithSubtype
 )
+from typing import Optional, Callable
 
 
 # =============================================================================
@@ -45,7 +45,7 @@ def make_sorcery(name: str, mana_cost: str, colors: set, text: str, subtypes: se
     )
 
 
-def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
+def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None, abilities=None):
     """Helper to create artifact card definitions."""
     return CardDefinition(
         name=name,
@@ -57,11 +57,12 @@ def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, su
             mana_cost=mana_cost
         ),
         text=text,
-        setup_interceptors=setup_interceptors
+        setup_interceptors=setup_interceptors,
+        abilities=abilities
     )
 
 
-def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
+def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None, abilities=None):
     """Helper to create equipment card definitions."""
     base_subtypes = {"Equipment"}
     if subtypes:
@@ -76,7 +77,8 @@ def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtyp
             mana_cost=mana_cost
         ),
         text=f"{text}\nEquip {equip_cost}",
-        setup_interceptors=setup_interceptors
+        setup_interceptors=setup_interceptors,
+        abilities=abilities
     )
 
 
@@ -159,6 +161,8 @@ def make_domain_expansion_aura(source_obj: GameObject, effect_filter: Callable[[
     """
     Domain Expansion static effects for enchantments.
     """
+    # This remains using interceptors as it's a complex set-specific mechanic
+    from src.cards.interceptor_helpers import make_static_pt_boost, make_keyword_grant
     interceptors = []
     if power_mod != 0 or toughness_mod != 0:
         interceptors.extend(make_static_pt_boost(source_obj, power_mod, toughness_mod, effect_filter))
@@ -171,6 +175,7 @@ def make_reverse_cursed_technique(source_obj: GameObject, heal_amount: int) -> I
     """
     Reverse Cursed Technique - When this creature deals combat damage, gain that much life.
     """
+    from src.cards.interceptor_helpers import make_damage_trigger
     def damage_effect(event: Event, state: GameState) -> list[Event]:
         amount = event.payload.get('amount', 0)
         return [Event(
@@ -179,26 +184,6 @@ def make_reverse_cursed_technique(source_obj: GameObject, heal_amount: int) -> I
             source=source_obj.id
         )]
     return make_damage_trigger(source_obj, damage_effect, combat_only=True)
-
-
-def sorcerer_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Sorcerer creatures you control."""
-    return creatures_with_subtype(source, "Sorcerer")
-
-
-def curse_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Curse creatures you control."""
-    return creatures_with_subtype(source, "Curse")
-
-
-def shikigami_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Shikigami creatures you control."""
-    return creatures_with_subtype(source, "Shikigami")
-
-
-def student_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    """Filter for Student creatures you control."""
-    return creatures_with_subtype(source, "Student")
 
 
 # =============================================================================
@@ -211,14 +196,6 @@ def yuji_itadori_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Sukuna's Vessel - Can have Sukuna cards attached. Binding Vow for power boost."""
     interceptors = []
     interceptors.extend(make_binding_vow(obj, 2, 2, 0))
-
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={'target': event.payload.get('defending_player'), 'amount': 1, 'source': obj.id},
-            source=obj.id
-        )]
-    interceptors.append(make_attack_trigger(obj, attack_effect))
     return interceptors
 
 YUJI_ITADORI = make_creature(
@@ -228,23 +205,16 @@ YUJI_ITADORI = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
-    text="Haste. Whenever Yuji attacks, he deals 1 damage to defending player. Binding Vow - Pay 2 life: Yuji gets +2/+0 until end of turn.",
+    abilities=[
+        KeywordAbility("Haste"),
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=DealDamage(1, target=EachOpponentTarget())
+        )
+    ],
     setup_interceptors=yuji_itadori_setup
 )
 
-
-def megumi_fushiguro_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ten Shadows Technique - ETB create a Shikigami token"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'token': {'name': 'Divine Dog', 'power': 2, 'toughness': 2, 'colors': {Color.GREEN}, 'subtypes': {'Shikigami', 'Dog'}}
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
 
 MEGUMI_FUSHIGURO = make_creature(
     name="Megumi Fushiguro, Ten Shadows",
@@ -253,20 +223,18 @@ MEGUMI_FUSHIGURO = make_creature(
     colors={Color.WHITE, Color.GREEN},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
-    text="When Megumi enters, create a 2/2 green Shikigami Dog creature token named Divine Dog. Shikigami you control get +1/+0.",
-    setup_interceptors=megumi_fushiguro_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=CreateToken(name="Divine Dog", power=2, toughness=2, colors={Color.GREEN}, subtypes={"Shikigami", "Dog"})
+        ),
+        StaticAbility(
+            effect=PTBoost(1, 0),
+            filter=CreaturesWithSubtypeFilter("Shikigami")
+        )
+    ]
 )
 
-
-def nobara_kugisaki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Straw Doll Technique - deals damage when she attacks"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={'target': 'any_target', 'amount': 2, 'source': obj.id},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
 
 NOBARA_KUGISAKI = make_creature(
     name="Nobara Kugisaki, Straw Doll",
@@ -275,20 +243,15 @@ NOBARA_KUGISAKI = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
-    text="First strike. Whenever Nobara attacks, she deals 2 damage to any target.",
-    setup_interceptors=nobara_kugisaki_setup
+    abilities=[
+        KeywordAbility("First strike"),
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=DealDamage(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
-
-def satoru_gojo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Infinity - Hexproof, can't be blocked by creatures with power less than his toughness"""
-    interceptors = []
-
-    def infinity_filter(target: GameObject, state: GameState) -> bool:
-        return target.id == obj.id
-
-    interceptors.append(make_keyword_grant(obj, ['hexproof'], infinity_filter))
-    return interceptors
 
 SATORU_GOJO = make_creature(
     name="Satoru Gojo, The Strongest",
@@ -297,20 +260,12 @@ SATORU_GOJO = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    text="Hexproof, flying. Infinity - Gojo can't be blocked by creatures with power 3 or less. Cursed Energy 3: Exile target creature.",
-    setup_interceptors=satoru_gojo_setup
+    abilities=[
+        KeywordAbility("Hexproof"),
+        KeywordAbility("Flying")
+    ]
 )
 
-
-def aoi_todo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Boogie Woogie - swap positions with another creature when attacking"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
 
 AOI_TODO = make_creature(
     name="Aoi Todo, Best Friend",
@@ -319,18 +274,17 @@ AOI_TODO = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    text="Trample. Whenever Todo attacks, put a +1/+1 counter on him. Boogie Woogie - {2}: Exchange Todo with target creature you control. Activate only during combat.",
-    setup_interceptors=aoi_todo_setup
+    abilities=[
+        KeywordAbility("Trample"),
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=AddCounters("+1/+1", 1)
+        )
+    ]
 )
 
 
 # --- Regular White Creatures ---
-
-def jujutsu_first_year_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB gain 2 life"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 JUJUTSU_FIRST_YEAR = make_creature(
     name="Jujutsu High First Year",
@@ -338,8 +292,12 @@ JUJUTSU_FIRST_YEAR = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer", "Student"},
-    text="When Jujutsu High First Year enters, you gain 2 life.",
-    setup_interceptors=jujutsu_first_year_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=GainLife(2)
+        )
+    ]
 )
 
 
@@ -349,15 +307,11 @@ KYOTO_STUDENT = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer", "Student"},
-    text="Vigilance."
+    abilities=[
+        KeywordAbility("Vigilance")
+    ]
 )
 
-
-def exorcist_sorcerer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Protection from Curses"""
-    def self_filter(target: GameObject, state: GameState) -> bool:
-        return target.id == obj.id
-    return [make_keyword_grant(obj, ['protection_curse'], self_filter)]
 
 EXORCIST_SORCERER = make_creature(
     name="Exorcist Sorcerer",
@@ -365,14 +319,11 @@ EXORCIST_SORCERER = make_creature(
     mana_cost="{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    text="Protection from Curses.",
-    setup_interceptors=exorcist_sorcerer_setup
+    abilities=[
+        KeywordAbility("Protection from Curses")
+    ]
 )
 
-
-def window_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Other Sorcerers get +0/+1"""
-    return make_static_pt_boost(obj, 0, 1, other_creatures_with_subtype(obj, "Sorcerer"))
 
 WINDOW_GUARDIAN = make_creature(
     name="Window Guardian",
@@ -380,8 +331,13 @@ WINDOW_GUARDIAN = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    text="Defender. Other Sorcerer creatures you control get +0/+1.",
-    setup_interceptors=window_guardian_setup
+    abilities=[
+        KeywordAbility("Defender"),
+        StaticAbility(
+            effect=PTBoost(0, 1),
+            filter=CreaturesWithSubtypeFilter("Sorcerer", include_self=False)
+        )
+    ]
 )
 
 
@@ -390,16 +346,9 @@ BARRIER_TECHNICIAN = make_creature(
     power=1, toughness=3,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Sorcerer"},
-    text="Creatures you control have ward {1}."
+    subtypes={"Human", "Sorcerer"}
 )
 
-
-def temple_priest_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Lifelink"""
-    def self_filter(target: GameObject, state: GameState) -> bool:
-        return target.id == obj.id
-    return [make_keyword_grant(obj, ['lifelink'], self_filter)]
 
 TEMPLE_PRIEST = make_creature(
     name="Temple Priest",
@@ -407,8 +356,9 @@ TEMPLE_PRIEST = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Cleric"},
-    text="Lifelink.",
-    setup_interceptors=temple_priest_setup
+    abilities=[
+        KeywordAbility("Lifelink")
+    ]
 )
 
 
@@ -417,20 +367,9 @@ CURSED_SPEECH_STUDENT = make_creature(
     power=1, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Sorcerer", "Student"},
-    text="Cursed Energy 1: Tap target creature."
+    subtypes={"Human", "Sorcerer", "Student"}
 )
 
-
-def holy_ward_monk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When ETB, exile target Curse"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.ZONE_CHANGE,
-            payload={'target_type': 'Curse', 'to_zone_type': ZoneType.EXILE},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
 
 HOLY_WARD_MONK = make_creature(
     name="Holy Ward Monk",
@@ -438,8 +377,12 @@ HOLY_WARD_MONK = make_creature(
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Monk"},
-    text="When Holy Ward Monk enters, exile target Curse creature.",
-    setup_interceptors=holy_ward_monk_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=CompositeEffect([])  # Exile target Curse - needs targeting system
+        )
+    ]
 )
 
 
@@ -449,7 +392,12 @@ JUJUTSU_INSTRUCTOR = make_creature(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    text="Student creatures you control get +1/+1."
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Student")
+        )
+    ]
 )
 
 
@@ -459,7 +407,10 @@ GUARDIAN_SHIKIGAMI = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit", "Shikigami"},
-    text="Defender, vigilance."
+    abilities=[
+        KeywordAbility("Defender"),
+        KeywordAbility("Vigilance")
+    ]
 )
 
 
@@ -473,7 +424,9 @@ REVERSE_TECHNIQUE_MASTER = make_creature(
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    text="Lifelink. Whenever Reverse Technique Master deals combat damage, you gain that much life.",
+    abilities=[
+        KeywordAbility("Lifelink")
+    ],
     setup_interceptors=reverse_technique_master_setup
 )
 
@@ -483,8 +436,7 @@ BINDING_OATH_ENFORCER = make_creature(
     power=3, toughness=2,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Sorcerer"},
-    text="When Binding Oath Enforcer enters, each player sacrifices an enchantment."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -494,7 +446,9 @@ HEAVENLY_RESTRICTION_WARRIOR = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Warrior"},
-    text="Heavenly Restriction Warrior can't be the target of spells or abilities you control. First strike."
+    abilities=[
+        KeywordAbility("First strike")
+    ]
 )
 
 
@@ -504,16 +458,6 @@ HEAVENLY_RESTRICTION_WARRIOR = make_creature(
 
 # --- Legendary Creatures ---
 
-def yuta_okkotsu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Copy - can use abilities of other Sorcerers"""
-    def spell_cast_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
-            source=obj.id
-        )]
-    return [make_spell_cast_trigger(obj, spell_cast_effect)]
-
 YUTA_OKKOTSU = make_creature(
     name="Yuta Okkotsu, Rika's Beloved",
     power=4, toughness=4,
@@ -521,8 +465,12 @@ YUTA_OKKOTSU = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
-    text="Whenever you cast an instant or sorcery spell, put a +1/+1 counter on Yuta. Copy - {2}{U}: Copy target activated ability of a Sorcerer you control.",
-    setup_interceptors=yuta_okkotsu_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=SpellCastTrigger(spell_types={CardType.INSTANT, CardType.SORCERY}),
+            effect=AddCounters("+1/+1", 1)
+        )
+    ]
 )
 
 
@@ -543,23 +491,9 @@ TOGE_INUMAKI = make_creature(
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
-    text="Cursed Speech - Cursed Energy 2: Tap target creature. It doesn't untap during its controller's next untap step.",
     setup_interceptors=toge_inumaki_setup
 )
 
-
-def geto_suguru_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Curse Manipulation - gains control of Curses"""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'token': {'name': 'Absorbed Curse', 'power': 2, 'toughness': 2, 'colors': {Color.BLACK}, 'subtypes': {'Curse'}}
-            },
-            source=obj.id
-        )]
-    return [make_death_trigger(obj, death_effect)]
 
 GETO_SUGURU = make_creature(
     name="Geto Suguru, Curse Manipulator",
@@ -568,8 +502,12 @@ GETO_SUGURU = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    text="When a Curse creature dies, create a 2/2 black Curse creature token. Curse Manipulation - {3}: Gain control of target Curse creature.",
-    setup_interceptors=geto_suguru_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(target=CreatureWithSubtype("Curse", you_control=False, exclude_self=True)),
+            effect=CreateToken(name="Absorbed Curse", power=2, toughness=2, colors={Color.BLACK}, subtypes={"Curse"})
+        )
+    ]
 )
 
 
@@ -580,7 +518,12 @@ MASAMICHI_YAGA = make_creature(
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    text="Cursed Corpse creatures you control get +1/+1. {2}{U}: Create a 2/2 colorless Cursed Corpse artifact creature token."
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Cursed Corpse")
+        )
+    ]
 )
 
 
@@ -591,17 +534,13 @@ KENTO_NANAMI = make_creature(
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    text="First strike. Ratio Technique - Whenever Nanami deals combat damage, that damage is doubled if it's exactly 7."
+    abilities=[
+        KeywordAbility("First strike")
+    ]
 )
 
 
 # --- Regular Blue Creatures ---
-
-def technique_analyst_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB scry 2"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 TECHNIQUE_ANALYST = make_creature(
     name="Technique Analyst",
@@ -609,8 +548,12 @@ TECHNIQUE_ANALYST = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    text="When Technique Analyst enters, scry 2.",
-    setup_interceptors=technique_analyst_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=Scry(2)
+        )
+    ]
 )
 
 
@@ -619,18 +562,9 @@ INFINITY_APPRENTICE = make_creature(
     power=2, toughness=2,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Sorcerer", "Student"},
-    text="Hexproof from creatures with power 4 or greater."
+    subtypes={"Human", "Sorcerer", "Student"}
 )
 
-
-def cursed_energy_sensor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Draws when opponent casts a spell"""
-    def spell_effect(event: Event, state: GameState) -> list[Event]:
-        if event.payload.get('caster') != obj.controller:
-            return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-        return []
-    return [make_spell_cast_trigger(obj, spell_effect, controller_only=False)]
 
 CURSED_ENERGY_SENSOR = make_creature(
     name="Cursed Energy Sensor",
@@ -638,8 +572,13 @@ CURSED_ENERGY_SENSOR = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    text="Whenever an opponent casts a spell, you may draw a card.",
-    setup_interceptors=cursed_energy_sensor_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=SpellCastTrigger(controller_only=False),
+            effect=DrawCards(1),
+            optional=True
+        )
+    ]
 )
 
 
@@ -648,8 +587,7 @@ SIX_EYES_PRODIGY = make_creature(
     power=2, toughness=3,
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Sorcerer"},
-    text="Your spells cost {1} less to cast. You may look at the top card of your library at any time."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -658,8 +596,7 @@ ILLUSION_CASTER = make_creature(
     power=2, toughness=1,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Sorcerer"},
-    text="When Illusion Caster enters, create a token that's a copy of it. Exile that token at end of turn."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -668,8 +605,7 @@ CURSED_TECHNIQUE_THIEF = make_creature(
     power=3, toughness=2,
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Sorcerer"},
-    text="When Cursed Technique Thief deals combat damage to a player, copy target instant or sorcery spell that player cast this turn."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -678,8 +614,7 @@ DOMAIN_RESEARCHER = make_creature(
     power=1, toughness=4,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Sorcerer"},
-    text="Enchantments you control have hexproof."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -689,7 +624,9 @@ LIMITLESS_STUDENT = make_creature(
     mana_cost="{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer", "Student"},
-    text="Limitless Student can't be blocked."
+    abilities=[
+        KeywordAbility("Unblockable")
+    ]
 )
 
 
@@ -698,8 +635,7 @@ SPATIAL_MANIPULATOR = make_creature(
     power=2, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Sorcerer"},
-    text="{U}, {T}: Return target creature to its owner's hand."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -709,7 +645,9 @@ TECHNIQUE_REVERSAL_MAGE = make_creature(
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    text="Flash. When Technique Reversal Mage enters, counter target ability."
+    abilities=[
+        KeywordAbility("Flash")
+    ]
 )
 
 
@@ -718,8 +656,7 @@ NEW_SHADOW_PRACTITIONER = make_creature(
     power=3, toughness=1,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Sorcerer"},
-    text="New Shadow Style - {2}: New Shadow Practitioner gets +2/+0 until end of turn."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -728,8 +665,7 @@ SIMPLE_DOMAIN_MASTER = make_creature(
     power=2, toughness=4,
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Sorcerer"},
-    text="Simple Domain - Domain Expansion enchantments don't affect Simple Domain Master."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -740,16 +676,8 @@ SIMPLE_DOMAIN_MASTER = make_creature(
 # --- Legendary Creatures ---
 
 def ryomen_sukuna_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """King of Curses - Incredibly powerful, ETB destroy creatures"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DESTROY,
-            payload={'target_type': 'creature', 'amount': 2},
-            source=obj.id
-        )]
-    interceptors = [make_etb_trigger(obj, etb_effect)]
-    interceptors.extend(make_binding_vow(obj, 3, 4, 0))
-    return interceptors
+    """King of Curses - Binding Vow for power boost"""
+    return make_binding_vow(obj, 3, 4, 0)
 
 RYOMEN_SUKUNA = make_creature(
     name="Ryomen Sukuna, King of Curses",
@@ -758,20 +686,16 @@ RYOMEN_SUKUNA = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Curse", "Avatar"},
     supertypes={"Legendary"},
-    text="Double strike. When Sukuna enters, destroy up to two target creatures. Binding Vow - Pay 3 life: Sukuna gets +4/+0 until end of turn.",
+    abilities=[
+        KeywordAbility("Double strike"),
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=CompositeEffect([])  # Destroy up to two creatures - needs targeting
+        )
+    ],
     setup_interceptors=ryomen_sukuna_setup
 )
 
-
-def mahito_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Idle Transfiguration - can transform creatures"""
-    def damage_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'target': event.payload.get('target'), 'counter_type': '-1/-1', 'amount': 1},
-            source=obj.id
-        )]
-    return [make_damage_trigger(obj, damage_effect)]
 
 MAHITO = make_creature(
     name="Mahito, Soul Sculptor",
@@ -780,20 +704,14 @@ MAHITO = make_creature(
     colors={Color.BLACK},
     subtypes={"Curse"},
     supertypes={"Legendary"},
-    text="Idle Transfiguration - Whenever Mahito deals damage to a creature, put a -1/-1 counter on that creature. {2}{B}: Transform target creature you control into a 3/3 black Horror.",
-    setup_interceptors=mahito_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DealsDamageTrigger(to_creature=True),
+            effect=AddCounters("-1/-1", 1)
+        )
+    ]
 )
 
-
-def jogo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Fire curse - deals damage on attack"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={'target': 'each_opponent', 'amount': 2, 'source': obj.id},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
 
 JOGO = make_creature(
     name="Jogo, Volcano Curse",
@@ -802,20 +720,15 @@ JOGO = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Curse", "Elemental"},
     supertypes={"Legendary"},
-    text="Haste. Whenever Jogo attacks, he deals 2 damage to each opponent. Cursed Energy 2: Jogo deals 3 damage to any target.",
-    setup_interceptors=jogo_setup
+    abilities=[
+        KeywordAbility("Haste"),
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=DealDamage(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
-
-def hanami_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Nature curse - regenerates"""
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
-            source=obj.id
-        )]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 HANAMI = make_creature(
     name="Hanami, Forest Curse",
@@ -824,16 +737,15 @@ HANAMI = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Curse", "Elemental"},
     supertypes={"Legendary"},
-    text="Reach. At the beginning of your upkeep, put a +1/+1 counter on Hanami. {G}: Regenerate Hanami.",
-    setup_interceptors=hanami_setup
+    abilities=[
+        KeywordAbility("Reach"),
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=AddCounters("+1/+1", 1)
+        )
+    ]
 )
 
-
-def dagon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ocean curse - unblockable"""
-    def self_filter(target: GameObject, state: GameState) -> bool:
-        return target.id == obj.id
-    return [make_keyword_grant(obj, ['unblockable'], self_filter)]
 
 DAGON = make_creature(
     name="Dagon, Ocean Curse",
@@ -842,21 +754,13 @@ DAGON = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Curse", "Elemental"},
     supertypes={"Legendary"},
-    text="Dagon can't be blocked. When Dagon enters, return up to two target creatures to their owners' hands.",
-    setup_interceptors=dagon_setup
+    abilities=[
+        KeywordAbility("Unblockable")
+    ]
 )
 
 
 # --- Regular Black Creatures ---
-
-def finger_bearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB each player loses 2 life"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for player_id in state.players.keys():
-            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': player_id, 'amount': -2}, source=obj.id))
-        return events
-    return [make_etb_trigger(obj, etb_effect)]
 
 FINGER_BEARER = make_creature(
     name="Finger Bearer",
@@ -864,8 +768,12 @@ FINGER_BEARER = make_creature(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    text="When Finger Bearer enters, each player loses 2 life.",
-    setup_interceptors=finger_bearer_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=LoseLife(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
 
@@ -875,7 +783,12 @@ CURSED_WOMB = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    text="When Cursed Womb dies, create two 1/1 black Curse creature tokens."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=CreateToken(name="Curse", power=1, toughness=1, colors={Color.BLACK}, subtypes={"Curse"}, count=2)
+        )
+    ]
 )
 
 
@@ -885,7 +798,13 @@ VENGEFUL_SPIRIT = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit", "Curse"},
-    text="Menace. When Vengeful Cursed Spirit dies, target player loses 2 life."
+    abilities=[
+        KeywordAbility("Menace"),
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=LoseLife(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
 
@@ -895,7 +814,13 @@ DISEASE_CURSE = make_creature(
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    text="Deathtouch. Other Curse creatures you control have deathtouch."
+    abilities=[
+        KeywordAbility("Deathtouch"),
+        StaticAbility(
+            effect=KeywordGrant(["deathtouch"]),
+            filter=CreaturesWithSubtypeFilter("Curse", include_self=False)
+        )
+    ]
 )
 
 
@@ -905,7 +830,13 @@ GRASSHOPPER_CURSE = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Curse", "Insect"},
-    text="Flying. When Grasshopper Curse dies, each opponent loses 1 life."
+    abilities=[
+        KeywordAbility("Flying"),
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=LoseLife(1, target=EachOpponentTarget())
+        )
+    ]
 )
 
 
@@ -915,7 +846,10 @@ FLY_HEAD_CURSE = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    text="Flying, haste. At the beginning of your end step, sacrifice Fly Head Curse."
+    abilities=[
+        KeywordAbility("Flying"),
+        KeywordAbility("Haste")
+    ]
 )
 
 
@@ -924,8 +858,7 @@ RESENTFUL_CURSE = make_creature(
     power=4, toughness=2,
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    subtypes={"Curse"},
-    text="When Resentful Curse enters, target opponent discards a card."
+    subtypes={"Curse"}
 )
 
 
@@ -935,7 +868,13 @@ SPECIAL_GRADE_CURSE = make_creature(
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    text="Menace. Other Curse creatures you control get +1/+1."
+    abilities=[
+        KeywordAbility("Menace"),
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Curse", include_self=False)
+        )
+    ]
 )
 
 
@@ -944,8 +883,7 @@ MALEVOLENT_SHRINE_KEEPER = make_creature(
     power=3, toughness=4,
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    subtypes={"Curse", "Cleric"},
-    text="At the beginning of your upkeep, you may pay 2 life. If you do, draw a card."
+    subtypes={"Curse", "Cleric"}
 )
 
 
@@ -954,8 +892,7 @@ IDLE_TRANSFIGURATION_VICTIM = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Curse", "Horror"},
-    text="Transfigured Human can't block."
+    subtypes={"Curse", "Horror"}
 )
 
 
@@ -964,8 +901,7 @@ CURSED_CORPSE = make_creature(
     power=2, toughness=2,
     mana_cost="{2}",
     colors=set(),
-    subtypes={"Construct"},
-    text="Cursed Corpse is all colors."
+    subtypes={"Construct"}
 )
 
 
@@ -974,8 +910,7 @@ GRADE_ONE_CURSE = make_creature(
     power=4, toughness=4,
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    subtypes={"Curse"},
-    text="Binding Vow - Pay 2 life: Grade One Curse gets +2/+0 until end of turn."
+    subtypes={"Curse"}
 )
 
 
@@ -984,8 +919,7 @@ SMALLPOX_CURSE = make_creature(
     power=2, toughness=1,
     mana_cost="{B}{B}",
     colors={Color.BLACK},
-    subtypes={"Curse"},
-    text="When Smallpox Curse enters, each player sacrifices a creature and discards a card."
+    subtypes={"Curse"}
 )
 
 
@@ -994,8 +928,7 @@ CURSE_USER = make_creature(
     power=2, toughness=3,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Human", "Warlock"},
-    text="When Curse User enters, you may search your library for a Curse creature card, reveal it, and put it into your hand."
+    subtypes={"Human", "Warlock"}
 )
 
 
@@ -1005,12 +938,6 @@ CURSE_USER = make_creature(
 
 # --- Legendary Creatures ---
 
-def maki_zenin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Heavenly Restriction - no cursed energy but enhanced physical"""
-    def self_filter(target: GameObject, state: GameState) -> bool:
-        return target.id == obj.id
-    return [make_keyword_grant(obj, ['first_strike', 'vigilance'], self_filter)]
-
 MAKI_ZENIN = make_creature(
     name="Maki Zenin, Heavenly Pact",
     power=4, toughness=3,
@@ -1018,20 +945,12 @@ MAKI_ZENIN = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
-    text="First strike, vigilance. Maki Zenin can't be the target of Cursed Energy abilities. Equipped creatures you control get +1/+0.",
-    setup_interceptors=maki_zenin_setup
+    abilities=[
+        KeywordAbility("First strike"),
+        KeywordAbility("Vigilance")
+    ]
 )
 
-
-def choso_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Blood Manipulation - deals damage based on life paid"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={'target': 'defending_player', 'amount': 2, 'source': obj.id},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
 
 CHOSO = make_creature(
     name="Choso, Death Painting",
@@ -1040,20 +959,14 @@ CHOSO = make_creature(
     colors={Color.RED, Color.BLACK},
     subtypes={"Curse", "Human"},
     supertypes={"Legendary"},
-    text="Blood Manipulation - Whenever Choso attacks, he deals 2 damage to defending player. Cursed Energy 3: Choso deals 3 damage to any target.",
-    setup_interceptors=choso_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=DealDamage(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
-
-def toji_fushiguro_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sorcerer Killer - bonus against Sorcerers"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': 'boost', 'power': 3, 'duration': 'end_of_turn'},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
 
 TOJI_FUSHIGURO = make_creature(
     name="Toji Fushiguro, Sorcerer Killer",
@@ -1062,8 +975,13 @@ TOJI_FUSHIGURO = make_creature(
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Assassin"},
     supertypes={"Legendary"},
-    text="First strike. Toji gets +3/+0 when attacking a player who controls a Sorcerer. Heavenly Restriction - Toji can't be targeted by abilities that cost life to activate.",
-    setup_interceptors=toji_fushiguro_setup
+    abilities=[
+        KeywordAbility("First strike"),
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=AddCounters("boost", 1)  # +3/+0 when attacking Sorcerer controller
+        )
+    ]
 )
 
 
@@ -1074,7 +992,9 @@ NAOBITO_ZENIN = make_creature(
     colors={Color.RED, Color.BLUE},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    text="Haste. Projection Sorcery - {R}: Naobito can't be blocked this turn. Activate only once per turn."
+    abilities=[
+        KeywordAbility("Haste")
+    ]
 )
 
 
@@ -1084,22 +1004,11 @@ KAMO_NORITOSHI = make_creature(
     mana_cost="{1}{R}{B}",
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Sorcerer", "Student"},
-    supertypes={"Legendary"},
-    text="Cursed Energy 1: Kamo deals 1 damage to any target. This damage can't be prevented."
+    supertypes={"Legendary"}
 )
 
 
 # --- Regular Red Creatures ---
-
-def berserker_sorcerer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Gets +2/+0 when attacking"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': 'boost', 'power': 2, 'duration': 'end_of_turn'},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
 
 BERSERKER_SORCERER = make_creature(
     name="Berserker Sorcerer",
@@ -1107,8 +1016,12 @@ BERSERKER_SORCERER = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Sorcerer"},
-    text="Whenever Berserker Sorcerer attacks, it gets +2/+0 until end of turn.",
-    setup_interceptors=berserker_sorcerer_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=AddCounters("boost", 1)  # +2/+0 until end of turn
+        )
+    ]
 )
 
 
@@ -1118,7 +1031,9 @@ CURSED_TECHNIQUE_STRIKER = make_creature(
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Human", "Sorcerer"},
-    text="Haste. Cursed Energy 1: Cursed Technique Striker gets +2/+0 until end of turn."
+    abilities=[
+        KeywordAbility("Haste")
+    ]
 )
 
 
@@ -1127,8 +1042,7 @@ BLACK_FLASH_USER = make_creature(
     power=3, toughness=2,
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
-    subtypes={"Human", "Sorcerer"},
-    text="Black Flash - Whenever Black Flash User deals combat damage, it deals that much damage again to the same target."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -1138,7 +1052,12 @@ DISASTER_FLAME_CASTER = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Curse", "Shaman"},
-    text="When Disaster Flame Caster enters, it deals 3 damage to any target."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DealDamage(3, target=EachOpponentTarget())
+        )
+    ]
 )
 
 
@@ -1147,8 +1066,7 @@ BLOOD_ARROW_ARCHER = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{R}",
     colors={Color.RED},
-    subtypes={"Human", "Sorcerer"},
-    text="{T}, Pay 1 life: Blood Arrow Archer deals 2 damage to any target."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -1158,7 +1076,9 @@ ZENIN_CLAN_WARRIOR = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    text="First strike. Zenin Clan Warrior can't block."
+    abilities=[
+        KeywordAbility("First strike")
+    ]
 )
 
 
@@ -1168,7 +1088,9 @@ PLAYFUL_CLOUD_WIELDER = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    text="Trample. Equipped with Playful Cloud, this creature gets +2/+2."
+    abilities=[
+        KeywordAbility("Trample")
+    ]
 )
 
 
@@ -1178,7 +1100,12 @@ CURSED_ENERGY_BOMB = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Curse", "Elemental"},
-    text="When Cursed Energy Bomb dies, it deals 4 damage to target creature or player."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=DealDamage(4, target=EachOpponentTarget())
+        )
+    ]
 )
 
 
@@ -1187,8 +1114,7 @@ MAXIMUM_OUTPUT_FIGHTER = make_creature(
     power=5, toughness=2,
     mana_cost="{3}{R}",
     colors={Color.RED},
-    subtypes={"Human", "Sorcerer"},
-    text="Binding Vow - Pay 3 life: Maximum Output Fighter gets +3/+0 and gains trample until end of turn."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -1197,8 +1123,7 @@ CLEAVE_PRACTITIONER = make_creature(
     power=3, toughness=3,
     mana_cost="{2}{R}",
     colors={Color.RED},
-    subtypes={"Human", "Sorcerer"},
-    text="Cleave - {R}: Target creature gets -X/-0 until end of turn, where X is Cleave Practitioner's power."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -1208,7 +1133,13 @@ METEOR_CURSE = make_creature(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Curse", "Elemental"},
-    text="Trample. When Meteor Curse enters, it deals 2 damage to each creature."
+    abilities=[
+        KeywordAbility("Trample"),
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DealDamage(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
 
@@ -1217,8 +1148,7 @@ DOMAIN_AMPLIFIER = make_creature(
     power=2, toughness=3,
     mana_cost="{2}{R}",
     colors={Color.RED},
-    subtypes={"Human", "Sorcerer"},
-    text="Domain Expansion enchantments you control have 'At the beginning of your upkeep, this deals 1 damage to each opponent.'"
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -1228,16 +1158,6 @@ DOMAIN_AMPLIFIER = make_creature(
 
 # --- Legendary Creatures ---
 
-def panda_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Core switching - can change forms"""
-    def damage_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
-            source=obj.id
-        )]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
-
 PANDA = make_creature(
     name="Panda, Cursed Corpse",
     power=4, toughness=4,
@@ -1245,21 +1165,15 @@ PANDA = make_creature(
     colors={Color.GREEN},
     subtypes={"Construct", "Panda"},
     supertypes={"Legendary"},
-    text="Trample. Whenever Panda deals combat damage, put a +1/+1 counter on it. Gorilla Mode - {2}{G}: Panda gets +3/+0 until end of turn.",
-    setup_interceptors=panda_setup
+    abilities=[
+        KeywordAbility("Trample"),
+        TriggeredAbility(
+            trigger=DealsDamageTrigger(combat_only=True),
+            effect=AddCounters("+1/+1", 1)
+        )
+    ]
 )
 
-
-def mahoraga_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Adapts to threats"""
-    def damage_taken_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': 'adaptation', 'amount': 1},
-            source=obj.id
-        )]
-    # Simplified - triggers when this creature takes damage
-    return []
 
 MAHORAGA = make_creature(
     name="Mahoraga, Eight-Handled Sword",
@@ -1268,20 +1182,12 @@ MAHORAGA = make_creature(
     colors={Color.GREEN},
     subtypes={"Shikigami", "Divine"},
     supertypes={"Legendary"},
-    text="Trample, indestructible. Adaptation - Whenever Mahoraga survives damage, put an adaptation counter on it. Mahoraga has protection from sources that have dealt damage to it.",
-    setup_interceptors=mahoraga_setup
+    abilities=[
+        KeywordAbility("Trample"),
+        KeywordAbility("Indestructible")
+    ]
 )
 
-
-def divine_dog_totality_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Combined form of Divine Dogs"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={'target': 'any', 'amount': 2, 'source': obj.id},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
 
 DIVINE_DOG_TOTALITY = make_creature(
     name="Divine Dog: Totality",
@@ -1290,8 +1196,13 @@ DIVINE_DOG_TOTALITY = make_creature(
     colors={Color.GREEN, Color.BLACK},
     subtypes={"Shikigami", "Dog"},
     supertypes={"Legendary"},
-    text="Menace. Whenever Divine Dog: Totality attacks, it deals 2 damage to target creature.",
-    setup_interceptors=divine_dog_totality_setup
+    abilities=[
+        KeywordAbility("Menace"),
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=DealDamage(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
 
@@ -1302,7 +1213,9 @@ NUE_SHIKIGAMI = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Shikigami", "Bird"},
     supertypes={"Legendary"},
-    text="Flying. When Nue enters, tap target creature an opponent controls."
+    abilities=[
+        KeywordAbility("Flying")
+    ]
 )
 
 
@@ -1313,21 +1226,16 @@ RABBIT_ESCAPE = make_creature(
     colors={Color.GREEN},
     subtypes={"Shikigami", "Rabbit"},
     supertypes={"Legendary"},
-    text="When Rabbit Escape Swarm enters, create three 1/1 green Shikigami Rabbit creature tokens."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=CreateToken(name="Shikigami Rabbit", power=1, toughness=1, colors={Color.GREEN}, subtypes={"Shikigami", "Rabbit"}, count=3)
+        )
+    ]
 )
 
 
 # --- Regular Green Creatures ---
-
-def divine_dog_white_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB search for another Dog"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.SEARCH,
-            payload={'player': obj.controller, 'type': 'Dog'},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
 
 DIVINE_DOG_WHITE = make_creature(
     name="Divine Dog: White",
@@ -1335,8 +1243,12 @@ DIVINE_DOG_WHITE = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Dog"},
-    text="When Divine Dog: White enters, you may search your library for a Dog creature card and reveal it.",
-    setup_interceptors=divine_dog_white_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=CompositeEffect([])  # Search for Dog - needs targeting
+        )
+    ]
 )
 
 
@@ -1346,7 +1258,12 @@ DIVINE_DOG_BLACK = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Dog"},
-    text="When Divine Dog: Black dies, you may return target Shikigami card from your graveyard to your hand."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=CompositeEffect([])  # Return Shikigami from graveyard - needs targeting
+        )
+    ]
 )
 
 
@@ -1356,7 +1273,9 @@ TOAD_SHIKIGAMI = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Frog"},
-    text="Reach. {G}: Toad Shikigami gets +1/+0 until end of turn."
+    abilities=[
+        KeywordAbility("Reach")
+    ]
 )
 
 
@@ -1366,7 +1285,14 @@ MAX_ELEPHANT = make_creature(
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Elephant"},
-    text="Trample. When Max Elephant enters, you may have it deal 3 damage to target creature."
+    abilities=[
+        KeywordAbility("Trample"),
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DealDamage(3, target=EachOpponentTarget()),
+            optional=True
+        )
+    ]
 )
 
 
@@ -1376,13 +1302,12 @@ GREAT_SERPENT = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Snake"},
-    text="Deathtouch. Great Serpent Shikigami can block creatures with flying."
+    abilities=[
+        KeywordAbility("Deathtouch"),
+        KeywordAbility("Reach")
+    ]
 )
 
-
-def shikigami_summoner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shikigami get +1/+1"""
-    return make_static_pt_boost(obj, 1, 1, creatures_with_subtype(obj, "Shikigami"))
 
 SHIKIGAMI_SUMMONER = make_creature(
     name="Shikigami Summoner",
@@ -1390,8 +1315,12 @@ SHIKIGAMI_SUMMONER = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Sorcerer"},
-    text="Shikigami creatures you control get +1/+1.",
-    setup_interceptors=shikigami_summoner_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Shikigami")
+        )
+    ]
 )
 
 
@@ -1401,7 +1330,9 @@ FOREST_SPIRIT_CURSE = make_creature(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Curse", "Spirit"},
-    text="Hexproof. {G}: Forest Spirit Curse gets +1/+1 until end of turn."
+    abilities=[
+        KeywordAbility("Hexproof")
+    ]
 )
 
 
@@ -1411,7 +1342,13 @@ CURSED_BUD = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Curse", "Plant"},
-    text="Defender. {T}: Add {G}. At the beginning of your upkeep, put a +1/+1 counter on Cursed Bud."
+    abilities=[
+        KeywordAbility("Defender"),
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=AddCounters("+1/+1", 1)
+        )
+    ]
 )
 
 
@@ -1421,7 +1358,12 @@ NATURE_CURSE_SPAWN = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Curse", "Elemental"},
-    text="When Nature Curse Spawn dies, create a 1/1 green Curse creature token."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=CreateToken(name="Curse", power=1, toughness=1, colors={Color.GREEN}, subtypes={"Curse"})
+        )
+    ]
 )
 
 
@@ -1431,7 +1373,9 @@ CHIMERA_DEATH_PAINTING = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Curse", "Chimera"},
-    text="Trample. Chimera Death Painting has all creature types in addition to its other types."
+    abilities=[
+        KeywordAbility("Trample")
+    ]
 )
 
 
@@ -1440,8 +1384,7 @@ WHEEL_SHIKIGAMI = make_creature(
     power=2, toughness=2,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    subtypes={"Shikigami", "Construct"},
-    text="Whenever another Shikigami enters under your control, untap Wheel Shikigami."
+    subtypes={"Shikigami", "Construct"}
 )
 
 
@@ -1451,7 +1394,12 @@ ROUND_DEER = make_creature(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Elk"},
-    text="Healing - When Round Deer enters, you gain 4 life."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=GainLife(4)
+        )
+    ]
 )
 
 
@@ -1461,7 +1409,13 @@ TIGER_FUNERAL = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Cat"},
-    text="Haste. When Tiger Funeral dies, draw a card."
+    abilities=[
+        KeywordAbility("Haste"),
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=DrawCards(1)
+        )
+    ]
 )
 
 
@@ -1475,7 +1429,9 @@ SUKUNA_FINGER = make_creature(
     mana_cost="{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Curse", "Horror"},
-    text="Indestructible. {3}{B}{R}, Sacrifice Sukuna's Finger: Target creature you control gets +4/+4 and gains menace until end of turn."
+    abilities=[
+        KeywordAbility("Indestructible")
+    ]
 )
 
 
@@ -1486,7 +1442,9 @@ RIKA_ORIMOTO = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Spirit", "Curse"},
     supertypes={"Legendary"},
-    text="Flying. Whenever Rika deals combat damage, you may copy target instant or sorcery spell. You may choose new targets for the copy."
+    abilities=[
+        KeywordAbility("Flying")
+    ]
 )
 
 
@@ -1495,8 +1453,7 @@ DOMAIN_CLASHING_SORCERERS = make_creature(
     power=4, toughness=4,
     mana_cost="{2}{U}{R}",
     colors={Color.BLUE, Color.RED},
-    subtypes={"Human", "Sorcerer"},
-    text="Whenever an enchantment enters under your control, Domain-Clashing Sorcerers deals 2 damage to any target."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -1507,7 +1464,9 @@ MEI_MEI = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    text="Flying. Black Bird Manipulation - {3}: Create a 1/1 black Bird creature token with flying. When this token dies, draw a card."
+    abilities=[
+        KeywordAbility("Flying")
+    ]
 )
 
 
@@ -1517,8 +1476,7 @@ SUGURU_GETO_CORRUPTED = make_creature(
     mana_cost="{2}{U}{B}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Sorcerer"},
-    supertypes={"Legendary"},
-    text="When Kenjaku enters, gain control of target creature until end of turn. Untap it. It gains haste. At end of turn, sacrifice it."
+    supertypes={"Legendary"}
 )
 
 
@@ -1528,8 +1486,7 @@ URAUME = make_creature(
     mana_cost="{2}{U}{W}",
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    supertypes={"Legendary"},
-    text="Ice Formation - {2}{U}: Tap target creature. It doesn't untap during its controller's next untap step."
+    supertypes={"Legendary"}
 )
 
 
@@ -1873,75 +1830,64 @@ SOUL_MULTIPLICITY = make_sorcery(
 # ENCHANTMENTS - DOMAIN EXPANSIONS
 # =============================================================================
 
-def malevolent_shrine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sukuna's Domain - deals damage to all creatures each upkeep"""
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for obj_id, target in state.objects.items():
-            if CardType.CREATURE in target.characteristics.types and target.zone == ZoneType.BATTLEFIELD:
-                if target.controller != obj.controller:
-                    events.append(Event(
-                        type=EventType.DAMAGE,
-                        payload={'target': obj_id, 'amount': 2, 'source': obj.id},
-                        source=obj.id
-                    ))
-        return events
-    return [make_upkeep_trigger(obj, upkeep_effect)]
-
 MALEVOLENT_SHRINE = make_enchantment(
     name="Malevolent Shrine",
     mana_cost="{4}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Domain"},
-    text="Domain Expansion - At the beginning of your upkeep, Malevolent Shrine deals 2 damage to each creature your opponents control.",
-    setup_interceptors=malevolent_shrine_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=DealDamage(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
-
-def unlimited_void_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Gojo's Domain - opponents can't cast spells during your turn"""
-    return []
 
 UNLIMITED_VOID = make_enchantment(
     name="Unlimited Void",
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
-    subtypes={"Domain"},
-    text="Domain Expansion - Opponents can't cast spells during your turn. Creatures your opponents control don't untap during their controllers' untap steps.",
-    setup_interceptors=unlimited_void_setup
+    subtypes={"Domain"}
 )
 
-
-def chimera_shadow_garden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Megumi's Domain - Shikigami get +2/+2"""
-    return make_static_pt_boost(obj, 2, 2, creatures_with_subtype(obj, "Shikigami"))
 
 CHIMERA_SHADOW_GARDEN = make_enchantment(
     name="Chimera Shadow Garden",
     mana_cost="{3}{G}{B}",
     colors={Color.GREEN, Color.BLACK},
     subtypes={"Domain"},
-    text="Domain Expansion - Shikigami creatures you control get +2/+2 and have deathtouch.",
-    setup_interceptors=chimera_shadow_garden_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(2, 2),
+            filter=CreaturesWithSubtypeFilter("Shikigami")
+        ),
+        StaticAbility(
+            effect=KeywordGrant(["deathtouch"]),
+            filter=CreaturesWithSubtypeFilter("Shikigami")
+        )
+    ]
 )
 
-
-def self_embodiment_of_perfection_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Mahito's Domain - can transform creatures"""
-    return []
 
 SELF_EMBODIMENT_OF_PERFECTION = make_enchantment(
     name="Self-Embodiment of Perfection",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Domain"},
-    text="Domain Expansion - Creatures your opponents control get -1/-1. {2}{B}: Target creature becomes a 1/1 black Horror with no abilities.",
-    setup_interceptors=self_embodiment_of_perfection_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(-1, -1),
+            filter=OpponentCreaturesFilter()
+        )
+    ]
 )
 
 
 def coffin_of_the_iron_mountain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Jogo's Domain - deals damage when creatures enter"""
+    from src.cards.interceptor_helpers import make_etb_trigger
+
     def etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
         if event.type != EventType.ZONE_CHANGE:
             return False
@@ -1967,47 +1913,35 @@ COFFIN_OF_THE_IRON_MOUNTAIN = make_enchantment(
     mana_cost="{3}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Domain"},
-    text="Domain Expansion - Whenever a creature enters the battlefield under an opponent's control, Coffin of the Iron Mountain deals 3 damage to it.",
     setup_interceptors=coffin_of_the_iron_mountain_setup
 )
 
-
-def horizon_of_the_captivating_skandha_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Dagon's Domain - creates Fish tokens"""
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'token': {'name': 'Shikigami Fish', 'power': 1, 'toughness': 1, 'colors': {Color.BLUE}, 'subtypes': {'Shikigami', 'Fish'}}
-            },
-            source=obj.id
-        )]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 HORIZON_OF_CAPTIVATING_SKANDHA = make_enchantment(
     name="Horizon of the Captivating Skandha",
     mana_cost="{3}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Domain"},
-    text="Domain Expansion - At the beginning of your upkeep, create a 1/1 blue Shikigami Fish creature token. Fish creatures you control can't be blocked.",
-    setup_interceptors=horizon_of_the_captivating_skandha_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=CreateToken(name="Shikigami Fish", power=1, toughness=1, colors={Color.BLUE}, subtypes={"Shikigami", "Fish"})
+        )
+    ]
 )
 
-
-def shining_sea_of_flowers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Hanami's Domain - creates Plant tokens"""
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 SHINING_SEA_OF_FLOWERS = make_enchantment(
     name="Shining Sea of Flowers",
     mana_cost="{3}{G}{B}",
     colors={Color.GREEN, Color.BLACK},
     subtypes={"Domain"},
-    text="Domain Expansion - At the beginning of your upkeep, you gain 2 life. Creatures you control have hexproof.",
-    setup_interceptors=shining_sea_of_flowers_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=GainLife(2)
+        )
+    ]
 )
 
 
@@ -2015,8 +1949,7 @@ AUTHENTIC_MUTUAL_LOVE = make_enchantment(
     name="Authentic Mutual Love",
     mana_cost="{4}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
-    subtypes={"Domain"},
-    text="Domain Expansion - Creatures you control have 'Whenever this creature deals damage to a creature, copy target instant or sorcery spell.'"
+    subtypes={"Domain"}
 )
 
 
@@ -2024,8 +1957,7 @@ TIME_CELL_MOON_PALACE = make_enchantment(
     name="Time Cell Moon Palace",
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
-    subtypes={"Domain"},
-    text="Domain Expansion - At the beginning of each opponent's upkeep, that player skips their combat phase."
+    subtypes={"Domain"}
 )
 
 
@@ -2033,8 +1965,7 @@ DEADLY_SENTENCING = make_enchantment(
     name="Deadly Sentencing",
     mana_cost="{2}{W}{B}",
     colors={Color.WHITE, Color.BLACK},
-    subtypes={"Domain"},
-    text="Domain Expansion - Whenever a creature deals combat damage to you, destroy that creature."
+    subtypes={"Domain"}
 )
 
 
@@ -2043,40 +1974,35 @@ DEADLY_SENTENCING = make_enchantment(
 CURSED_ENERGY_FLOW = make_enchantment(
     name="Cursed Energy Flow",
     mana_cost="{1}{B}",
-    colors={Color.BLACK},
-    text="At the beginning of your upkeep, you may pay 1 life. If you do, draw a card."
+    colors={Color.BLACK}
 )
 
 
 BINDING_CONTRACT = make_enchantment(
     name="Binding Contract",
     mana_cost="{W}{B}",
-    colors={Color.WHITE, Color.BLACK},
-    text="When Binding Contract enters, each player chooses a creature they control. Those creatures can't attack or block as long as Binding Contract remains on the battlefield."
+    colors={Color.WHITE, Color.BLACK}
 )
 
 
 HEAVENLY_RESTRICTION = make_enchantment(
     name="Heavenly Restriction",
     mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    text="Enchant creature. Enchanted creature gets +3/+3 but can't be the target of spells or abilities."
+    colors={Color.WHITE}
 )
 
 
 CURSED_SPEECH_SEAL = make_enchantment(
     name="Cursed Speech Seal",
     mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    text="Enchant creature. Enchanted creature can't attack or block. {2}: Return Cursed Speech Seal to its owner's hand."
+    colors={Color.BLUE}
 )
 
 
 BARRIER_TECHNIQUE = make_enchantment(
     name="Barrier Technique",
     mana_cost="{2}{W}",
-    colors={Color.WHITE},
-    text="Creatures you control have hexproof from black."
+    colors={Color.WHITE}
 )
 
 
@@ -2084,23 +2010,29 @@ CURSED_WOMB_DEATH_PAINTING = make_enchantment(
     name="Cursed Womb: Death Painting",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="At the beginning of your upkeep, create a 1/1 black Curse creature token. You lose 1 life."
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=CompositeEffect([
+                CreateToken(name="Curse", power=1, toughness=1, colors={Color.BLACK}, subtypes={"Curse"}),
+                LoseLife(1)
+            ])
+        )
+    ]
 )
 
 
 JUJUTSU_REGULATIONS = make_enchantment(
     name="Jujutsu Regulations",
     mana_cost="{2}{W}{U}",
-    colors={Color.WHITE, Color.BLUE},
-    text="Players can't cast more than two spells each turn. Whenever a player casts a third spell, counter it."
+    colors={Color.WHITE, Color.BLUE}
 )
 
 
 VEIL_TECHNIQUE = make_enchantment(
     name="Veil Technique",
     mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    text="Creatures you control can't be blocked by creatures with power 3 or greater."
+    colors={Color.BLUE}
 )
 
 
@@ -2108,7 +2040,12 @@ CURSE_PURGE = make_enchantment(
     name="Curse Purge",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="Whenever a Curse creature dies, exile it. You gain 1 life."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(target=CreatureWithSubtype("Curse", you_control=False)),
+            effect=CompositeEffect([GainLife(1)])
+        )
+    ]
 )
 
 
@@ -2116,17 +2053,12 @@ CURSE_PURGE = make_enchantment(
 # EQUIPMENT - CURSED TOOLS
 # =============================================================================
 
-def inverted_spear_of_heaven_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Nullifies cursed techniques"""
-    return []
-
 INVERTED_SPEAR_OF_HEAVEN = make_equipment(
     name="Inverted Spear of Heaven",
     mana_cost="{3}",
     text="Equipped creature gets +2/+0 and has 'Damage dealt by this creature can't be prevented.' Equipped creature has protection from instants.",
     equip_cost="{2}",
-    subtypes={"Cursed"},
-    setup_interceptors=inverted_spear_of_heaven_setup
+    subtypes={"Cursed"}
 )
 
 
@@ -2325,8 +2257,7 @@ CURSE_BREAKER = make_creature(
     power=3, toughness=2,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Sorcerer"},
-    text="When Curse Breaker enters, destroy target enchantment an opponent controls."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -2336,7 +2267,12 @@ ZENIN_CLAN_ELDER = make_creature(
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    text="Other Sorcerer creatures you control get +1/+1."
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Sorcerer", include_self=False)
+        )
+    ]
 )
 
 
@@ -2346,7 +2282,12 @@ AUXILIARY_MANAGER = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Advisor"},
-    text="When Auxiliary Manager enters, scry 2."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=Scry(2)
+        )
+    ]
 )
 
 
@@ -2356,7 +2297,12 @@ CURSE_COLLECTOR = make_creature(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Warlock"},
-    text="Whenever a Curse you control dies, draw a card."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(target=CreatureWithSubtype("Curse")),
+            effect=DrawCards(1)
+        )
+    ]
 )
 
 
@@ -2366,7 +2312,9 @@ DEATH_PAINTING_WOMB = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    text="Defender. At the beginning of your end step, you may sacrifice Death Painting Womb. If you do, create two 2/2 black Curse creature tokens."
+    abilities=[
+        KeywordAbility("Defender")
+    ]
 )
 
 
@@ -2375,8 +2323,7 @@ BLOOD_MANIPULATION_EXPERT = make_creature(
     power=3, toughness=2,
     mana_cost="{1}{R}{B}",
     colors={Color.RED, Color.BLACK},
-    subtypes={"Human", "Sorcerer"},
-    text="Pay 1 life: Blood Manipulation Expert gets +1/+0 until end of turn."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -2386,7 +2333,9 @@ TECHNIQUE_PRODIGY = make_creature(
     mana_cost="{1}{U}{R}",
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Sorcerer", "Student"},
-    text="Prowess. Whenever you cast an instant or sorcery spell, Technique Prodigy gets +1/+1 until end of turn."
+    abilities=[
+        KeywordAbility("Prowess")
+    ]
 )
 
 
@@ -2395,8 +2344,7 @@ SHIKIGAMI_CRAFTER = make_creature(
     power=2, toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    subtypes={"Human", "Sorcerer"},
-    text="{3}{G}, {T}: Create a 2/2 green Shikigami creature token."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -2406,7 +2354,15 @@ VENGEFUL_ANCESTOR = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit", "Curse"},
-    text="When Vengeful Ancestor Spirit enters, each opponent loses 2 life and you gain 2 life."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=CompositeEffect([
+                LoseLife(2, target=EachOpponentTarget()),
+                GainLife(2)
+            ])
+        )
+    ]
 )
 
 
@@ -2416,7 +2372,12 @@ DOMAIN_OBSERVER = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    text="Whenever an enchantment enters the battlefield, draw a card."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(target=AnotherCreature()),  # Simplified - should be enchantment ETB
+            effect=DrawCards(1)
+        )
+    ]
 )
 
 
@@ -2426,7 +2387,9 @@ CURSED_ENERGY_WELL = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    text="Defender. {T}, Pay 2 life: Add {B}{B}."
+    abilities=[
+        KeywordAbility("Defender")
+    ]
 )
 
 
@@ -2436,7 +2399,9 @@ SORCERER_HUNTER = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    text="Haste. Sorcerer Hunter gets +2/+0 when attacking a player who controls a Sorcerer."
+    abilities=[
+        KeywordAbility("Haste")
+    ]
 )
 
 
@@ -2445,8 +2410,7 @@ SHIKIGAMI_TRAINER = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    subtypes={"Human", "Sorcerer"},
-    text="When Shikigami Trainer enters, target Shikigami you control gets +2/+2 until end of turn."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -2455,8 +2419,7 @@ DOMAIN_AMPLIFICATION_MAGE = make_creature(
     power=2, toughness=2,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Sorcerer"},
-    text="Domain Expansion enchantments you control enter the battlefield with an additional effect counter."
+    subtypes={"Human", "Sorcerer"}
 )
 
 
@@ -2466,7 +2429,12 @@ CURSE_CYCLE_SPIRIT = make_creature(
     mana_cost="{2}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Spirit", "Curse"},
-    text="When Curse Cycle Spirit dies, you may return another Curse creature card from your graveyard to your hand."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=CompositeEffect([])  # Return Curse from graveyard - needs targeting
+        )
+    ]
 )
 
 
@@ -2475,8 +2443,7 @@ BINDING_VOW_WITNESS = make_creature(
     power=2, toughness=2,
     mana_cost="{W}{B}",
     colors={Color.WHITE, Color.BLACK},
-    subtypes={"Human", "Cleric"},
-    text="Whenever you pay life, Binding Vow Witness gets +1/+1 until end of turn."
+    subtypes={"Human", "Cleric"}
 )
 
 
@@ -2486,7 +2453,13 @@ TECHNIQUE_INHERITANCE = make_creature(
     mana_cost="{2}{U}{G}",
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Sorcerer"},
-    text="Whenever a Shikigami you control dies, you may draw a card."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(target=CreatureWithSubtype("Shikigami")),
+            effect=DrawCards(1),
+            optional=True
+        )
+    ]
 )
 
 
@@ -2496,7 +2469,13 @@ SPECIAL_GRADE_SORCERER = make_creature(
     mana_cost="{3}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    text="Hexproof. Other Sorcerers you control have hexproof."
+    abilities=[
+        KeywordAbility("Hexproof"),
+        StaticAbility(
+            effect=KeywordGrant(["hexproof"]),
+            filter=CreaturesWithSubtypeFilter("Sorcerer", include_self=False)
+        )
+    ]
 )
 
 
@@ -2506,7 +2485,13 @@ FINGER_GUARDIAN = make_creature(
     mana_cost="{3}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Curse", "Warrior"},
-    text="Menace. When Sukuna's Finger Guardian enters, each opponent sacrifices a creature."
+    abilities=[
+        KeywordAbility("Menace"),
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=CompositeEffect([])  # Each opponent sacrifices a creature - needs targeting
+        )
+    ]
 )
 
 
@@ -2516,13 +2501,21 @@ DOMAIN_MASTER = make_creature(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    text="Whenever you cast an enchantment spell, draw a card."
+    abilities=[
+        TriggeredAbility(
+            trigger=SpellCastTrigger(spell_types={CardType.ENCHANTMENT}),
+            effect=DrawCards(1)
+        )
+    ]
 )
 
 
 # =============================================================================
 # EXPORT
 # =============================================================================
+
+# Import OpponentCreaturesFilter for Self-Embodiment of Perfection
+from src.engine.abilities.targets import OpponentCreaturesFilter
 
 JUJUTSU_KAISEN_CARDS = {
     # White Legendaries
@@ -2763,3 +2756,211 @@ JUJUTSU_KAISEN_CARDS = {
     "Sukuna's Finger Guardian": FINGER_GUARDIAN,
     "Domain Master": DOMAIN_MASTER,
 }
+
+
+# =============================================================================
+# CARDS EXPORT
+# =============================================================================
+
+CARDS = [
+    YUJI_ITADORI,
+    MEGUMI_FUSHIGURO,
+    NOBARA_KUGISAKI,
+    SATORU_GOJO,
+    AOI_TODO,
+    JUJUTSU_FIRST_YEAR,
+    KYOTO_STUDENT,
+    EXORCIST_SORCERER,
+    WINDOW_GUARDIAN,
+    BARRIER_TECHNICIAN,
+    TEMPLE_PRIEST,
+    CURSED_SPEECH_STUDENT,
+    HOLY_WARD_MONK,
+    JUJUTSU_INSTRUCTOR,
+    GUARDIAN_SHIKIGAMI,
+    REVERSE_TECHNIQUE_MASTER,
+    BINDING_OATH_ENFORCER,
+    HEAVENLY_RESTRICTION_WARRIOR,
+    YUTA_OKKOTSU,
+    TOGE_INUMAKI,
+    GETO_SUGURU,
+    MASAMICHI_YAGA,
+    KENTO_NANAMI,
+    TECHNIQUE_ANALYST,
+    INFINITY_APPRENTICE,
+    CURSED_ENERGY_SENSOR,
+    SIX_EYES_PRODIGY,
+    ILLUSION_CASTER,
+    CURSED_TECHNIQUE_THIEF,
+    DOMAIN_RESEARCHER,
+    LIMITLESS_STUDENT,
+    SPATIAL_MANIPULATOR,
+    TECHNIQUE_REVERSAL_MAGE,
+    NEW_SHADOW_PRACTITIONER,
+    SIMPLE_DOMAIN_MASTER,
+    RYOMEN_SUKUNA,
+    MAHITO,
+    JOGO,
+    HANAMI,
+    DAGON,
+    FINGER_BEARER,
+    CURSED_WOMB,
+    VENGEFUL_SPIRIT,
+    DISEASE_CURSE,
+    GRASSHOPPER_CURSE,
+    FLY_HEAD_CURSE,
+    RESENTFUL_CURSE,
+    SPECIAL_GRADE_CURSE,
+    MALEVOLENT_SHRINE_KEEPER,
+    IDLE_TRANSFIGURATION_VICTIM,
+    CURSED_CORPSE,
+    GRADE_ONE_CURSE,
+    SMALLPOX_CURSE,
+    CURSE_USER,
+    MAKI_ZENIN,
+    CHOSO,
+    TOJI_FUSHIGURO,
+    NAOBITO_ZENIN,
+    KAMO_NORITOSHI,
+    BERSERKER_SORCERER,
+    CURSED_TECHNIQUE_STRIKER,
+    BLACK_FLASH_USER,
+    DISASTER_FLAME_CASTER,
+    BLOOD_ARROW_ARCHER,
+    ZENIN_CLAN_WARRIOR,
+    PLAYFUL_CLOUD_WIELDER,
+    CURSED_ENERGY_BOMB,
+    MAXIMUM_OUTPUT_FIGHTER,
+    CLEAVE_PRACTITIONER,
+    METEOR_CURSE,
+    DOMAIN_AMPLIFIER,
+    PANDA,
+    MAHORAGA,
+    DIVINE_DOG_TOTALITY,
+    NUE_SHIKIGAMI,
+    RABBIT_ESCAPE,
+    DIVINE_DOG_WHITE,
+    DIVINE_DOG_BLACK,
+    TOAD_SHIKIGAMI,
+    MAX_ELEPHANT,
+    GREAT_SERPENT,
+    SHIKIGAMI_SUMMONER,
+    FOREST_SPIRIT_CURSE,
+    CURSED_BUD,
+    NATURE_CURSE_SPAWN,
+    CHIMERA_DEATH_PAINTING,
+    WHEEL_SHIKIGAMI,
+    ROUND_DEER,
+    TIGER_FUNERAL,
+    SUKUNA_FINGER,
+    RIKA_ORIMOTO,
+    DOMAIN_CLASHING_SORCERERS,
+    MEI_MEI,
+    SUGURU_GETO_CORRUPTED,
+    URAUME,
+    DIVERGENT_FIST,
+    BLACK_FLASH,
+    HOLLOW_PURPLE,
+    REVERSAL_RED,
+    LAPSE_BLUE,
+    DOMAIN_AMPLIFICATION,
+    CURSED_ENERGY_DRAIN,
+    IDLE_TRANSFIGURATION,
+    CLEAVE,
+    DISMANTLE,
+    EXORCISM_RITE,
+    SIMPLE_DOMAIN,
+    FALLING_BLOSSOM_EMOTION,
+    MAXIMUM_UZUMAKI,
+    RESONANCE,
+    HAIRPIN,
+    STRAW_DOLL_TECHNIQUE,
+    BLOOD_MANIPULATION,
+    SUPERNOVA,
+    TEN_SHADOWS_SUMMON,
+    INHERITED_TECHNIQUE,
+    CURSED_BUD_GROWTH,
+    REVERSE_CURSED_TECHNIQUE,
+    BINDING_VOW_INSTANT,
+    CURSED_TECHNIQUE_LAPSE,
+    DOMAIN_NEGATION,
+    CURSE_ABSORPTION,
+    PROJECTION_SORCERY,
+    SHIBUYA_INCIDENT,
+    CULLING_GAME,
+    NIGHT_PARADE,
+    JUJUTSU_HIGH_TRAINING,
+    KYOTO_GOODWILL_EVENT,
+    CURSE_PURIFICATION,
+    DOMAIN_COLLAPSE,
+    UNLIMITED_VOID_BURST,
+    SHIKIGAMI_ARMY,
+    CURSE_GENESIS,
+    MASSACRE,
+    TECHNIQUE_MASTERY,
+    SOUL_MULTIPLICITY,
+    MALEVOLENT_SHRINE,
+    UNLIMITED_VOID,
+    CHIMERA_SHADOW_GARDEN,
+    SELF_EMBODIMENT_OF_PERFECTION,
+    COFFIN_OF_THE_IRON_MOUNTAIN,
+    HORIZON_OF_CAPTIVATING_SKANDHA,
+    SHINING_SEA_OF_FLOWERS,
+    AUTHENTIC_MUTUAL_LOVE,
+    TIME_CELL_MOON_PALACE,
+    DEADLY_SENTENCING,
+    CURSED_ENERGY_FLOW,
+    BINDING_CONTRACT,
+    HEAVENLY_RESTRICTION,
+    CURSED_SPEECH_SEAL,
+    BARRIER_TECHNIQUE,
+    CURSED_WOMB_DEATH_PAINTING,
+    JUJUTSU_REGULATIONS,
+    VEIL_TECHNIQUE,
+    CURSE_PURGE,
+    INVERTED_SPEAR_OF_HEAVEN,
+    PLAYFUL_CLOUD,
+    SLAUGHTER_DEMON,
+    SPLIT_SOUL_KATANA,
+    DRAGON_BONE,
+    FESTERING_LIFE_SWORD,
+    BLACK_ROPE,
+    GLASSES_OF_PERCEPTION,
+    MEGUMI_KNIFE,
+    MAKI_GLASSES,
+    CURSED_TOOL_COLLECTION,
+    PRISON_REALM,
+    FINGER_COLLECTION,
+    CURSED_ENERGY_DETECTOR,
+    JUJUTSU_HIGH_EMBLEM,
+    VEIL_GENERATOR,
+    CURSED_SPEECH_RICE_BALL,
+    JUJUTSU_HIGH,
+    SHIBUYA_STATION,
+    KYOTO_SCHOOL,
+    CURSED_GROUNDS,
+    FINGER_SHRINE,
+    HIDDEN_INVENTORY,
+    TOKYO_TOWER,
+    DOMAIN_BATTLEFIELD,
+    CURSE_BREAKER,
+    ZENIN_CLAN_ELDER,
+    AUXILIARY_MANAGER,
+    CURSE_COLLECTOR,
+    DEATH_PAINTING_WOMB,
+    BLOOD_MANIPULATION_EXPERT,
+    TECHNIQUE_PRODIGY,
+    SHIKIGAMI_CRAFTER,
+    VENGEFUL_ANCESTOR,
+    DOMAIN_OBSERVER,
+    CURSED_ENERGY_WELL,
+    SORCERER_HUNTER,
+    SHIKIGAMI_TRAINER,
+    DOMAIN_AMPLIFICATION_MAGE,
+    CURSE_CYCLE_SPIRIT,
+    BINDING_VOW_WITNESS,
+    TECHNIQUE_INHERITANCE,
+    SPECIAL_GRADE_SORCERER,
+    FINGER_GUARDIAN,
+    DOMAIN_MASTER
+]

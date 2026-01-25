@@ -11,17 +11,17 @@ from src.engine import (
     GameObject, GameState, ZoneType, CardType, Color,
     Characteristics, ObjectState, CardDefinition,
     make_creature, make_instant, make_enchantment,
-    new_id, get_power, get_toughness
+    new_id, get_power, get_toughness,
+    # Ability system
+    TriggeredAbility, StaticAbility,
+    ETBTrigger, DeathTrigger, AttackTrigger, UpkeepTrigger, DealsDamageTrigger,
+    GainLife, DrawCards, LoseLife, AddCounters, Scry, DealDamage, CreateToken, Destroy, Sacrifice,
+    PTBoost, KeywordGrant,
+    SelfTarget, AnotherCreatureYouControl, CreatureWithSubtype,
+    CreaturesYouControlFilter, OtherCreaturesYouControlFilter, CreaturesWithSubtypeFilter,
+    EachOpponentTarget,
 )
 from typing import Optional, Callable
-from src.cards.interceptor_helpers import (
-    make_etb_trigger, make_death_trigger, make_attack_trigger,
-    make_damage_trigger, make_static_pt_boost, make_keyword_grant,
-    other_creatures_you_control, creatures_with_subtype,
-    make_spell_cast_trigger, make_upkeep_trigger, make_end_step_trigger,
-    make_life_gain_trigger, make_life_loss_trigger, creatures_you_control,
-    other_creatures_with_subtype, all_opponents, make_counter_added_trigger
-)
 
 
 # =============================================================================
@@ -44,7 +44,7 @@ def make_sorcery(name: str, mana_cost: str, colors: set, text: str, subtypes: se
     )
 
 
-def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
+def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, abilities: list = None):
     return CardDefinition(
         name=name,
         mana_cost=mana_cost,
@@ -55,11 +55,11 @@ def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, su
             mana_cost=mana_cost
         ),
         text=text,
-        setup_interceptors=setup_interceptors
+        abilities=abilities or []
     )
 
 
-def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, setup_interceptors=None):
+def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, abilities: list = None):
     base_subtypes = {"Equipment"}
     if subtypes:
         base_subtypes.update(subtypes)
@@ -73,7 +73,7 @@ def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtyp
             mana_cost=mana_cost
         ),
         text=f"{text}\nEquip {equip_cost}",
-        setup_interceptors=setup_interceptors
+        abilities=abilities or []
     )
 
 
@@ -137,6 +137,8 @@ def make_transform_ability(source_obj: GameObject, life_threshold: int = None,
     Transform - This creature transforms when conditions are met.
     Gets +X/+Y and gains keywords when transformed.
     """
+    from src.cards.interceptor_helpers import make_static_pt_boost, make_keyword_grant
+
     interceptors = []
 
     def is_transformed(target: GameObject, state: GameState) -> bool:
@@ -193,17 +195,8 @@ def make_ki_blast_ability(source_obj: GameObject, damage: int, life_cost: int = 
     )
 
 
-def saiyan_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Saiyan")
-
-def namekian_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Namekian")
-
-def android_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Android")
-
-def zfighter_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Z-Fighter")
+def all_opponents(obj: GameObject, state: GameState) -> list[str]:
+    return [p_id for p_id in state.players.keys() if p_id != obj.controller]
 
 
 # =============================================================================
@@ -223,39 +216,9 @@ GOKU_EARTHS_HERO = make_creature(
     colors={Color.WHITE},
     subtypes={"Saiyan", "Z-Fighter"},
     supertypes={"Legendary"},
-    text="Vigilance. Power Level - Whenever Goku deals combat damage, put a +1/+1 counter on him. Transform - As long as you have 10 or less life, Goku gets +3/+3 and has flying.",
     setup_interceptors=goku_setup
 )
 
-
-def gohan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors = []
-    def rage_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
-            return False
-        dying_id = event.payload.get('object_id')
-        dying = state.objects.get(dying_id)
-        return (dying and dying.controller == source.controller and
-                CardType.CREATURE in dying.characteristics.types and
-                dying_id != source.id)
-
-    def rage_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 2},
-            source=obj.id
-        )]
-
-    interceptors.append(Interceptor(
-        id=new_id(), source=obj.id, controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=lambda e, s: rage_filter(e, s, obj),
-        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=rage_effect(e, s)),
-        duration='while_on_battlefield'
-    ))
-    return interceptors
 
 GOHAN_HIDDEN_POWER = make_creature(
     name="Gohan, Hidden Power",
@@ -264,15 +227,14 @@ GOHAN_HIDDEN_POWER = make_creature(
     colors={Color.WHITE},
     subtypes={"Saiyan", "Z-Fighter", "Scholar"},
     supertypes={"Legendary"},
-    text="Whenever another creature you control dies, put two +1/+1 counters on Gohan. (His hidden power awakens through rage.)",
-    setup_interceptors=gohan_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(target=AnotherCreatureYouControl()),
+            effect=AddCounters(counter_type="+1/+1", amount=2)
+        )
+    ]
 )
 
-
-def krillin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 KRILLIN_BRAVE_WARRIOR = make_creature(
     name="Krillin, Brave Warrior",
@@ -281,13 +243,14 @@ KRILLIN_BRAVE_WARRIOR = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Z-Fighter", "Monk"},
     supertypes={"Legendary"},
-    text="When Krillin enters, you gain 3 life. {W}, {T}: Target creature gains lifelink until end of turn.",
-    setup_interceptors=krillin_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=GainLife(3)
+        )
+    ]
 )
 
-
-def videl_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_keyword_grant(obj, ['vigilance'], other_creatures_with_subtype(obj, "Z-Fighter"))]
 
 VIDEL_HERO_IN_TRAINING = make_creature(
     name="Videl, Hero in Training",
@@ -296,15 +259,14 @@ VIDEL_HERO_IN_TRAINING = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Z-Fighter"},
     supertypes={"Legendary"},
-    text="Flying. Other Z-Fighter creatures you control have vigilance.",
-    setup_interceptors=videl_setup
+    abilities=[
+        StaticAbility(
+            effect=KeywordGrant(['vigilance']),
+            filter=CreaturesWithSubtypeFilter("Z-Fighter", include_self=False)
+        )
+    ]
 )
 
-
-def supreme_kai_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 3}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 SUPREME_KAI = make_creature(
     name="Supreme Kai, Divine Watcher",
@@ -313,15 +275,14 @@ SUPREME_KAI = make_creature(
     colors={Color.WHITE},
     subtypes={"Kai", "God"},
     supertypes={"Legendary"},
-    text="Flying, vigilance. When Supreme Kai enters, scry 3. Other Kai creatures you control get +1/+1.",
-    setup_interceptors=supreme_kai_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=Scry(3)
+        )
+    ]
 )
 
-
-def king_kai_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 KING_KAI = make_creature(
     name="King Kai, Martial Arts Master",
@@ -330,8 +291,12 @@ KING_KAI = make_creature(
     colors={Color.WHITE},
     subtypes={"Kai"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, draw a card. {T}: Target creature you control gets +2/+0 until end of turn.",
-    setup_interceptors=king_kai_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=DrawCards(1)
+        )
+    ]
 )
 
 
@@ -340,8 +305,7 @@ YAMCHA_Z_FIGHTER = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Z-Fighter", "Warrior"},
-    text="When Yamcha dies, create a 1/1 white Spirit creature token with flying."
+    subtypes={"Human", "Z-Fighter", "Warrior"}
 )
 
 
@@ -355,7 +319,6 @@ TIEN_TRICLOPS = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Z-Fighter", "Monk"},
     supertypes={"Legendary"},
-    text="First strike. Ki Blast - {W}, Pay 1 life: Tien deals 2 damage to any target.",
     setup_interceptors=tien_setup
 )
 
@@ -366,8 +329,7 @@ CHIAOTZU = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Z-Fighter"},
-    supertypes={"Legendary"},
-    text="Flying. When Chiaotzu dies, exile target creature with power 3 or less until Chiaotzu leaves the graveyard."
+    supertypes={"Legendary"}
 )
 
 
@@ -377,8 +339,7 @@ KAMI = make_creature(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Namekian", "God"},
-    supertypes={"Legendary"},
-    text="Vigilance. When Kami enters, you may return target creature card with mana value 3 or less from your graveyard to the battlefield."
+    supertypes={"Legendary"}
 )
 
 
@@ -387,8 +348,7 @@ MR_POPO = make_creature(
     power=1, toughness=4,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Genie"},
-    text="Defender. {T}: Add {C}{C}. Spend this mana only to cast creature spells."
+    subtypes={"Genie"}
 )
 
 
@@ -397,8 +357,7 @@ EARTHLING_FIGHTER = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Warrior"},
-    text="When Earthling Fighter enters, you gain 2 life."
+    subtypes={"Human", "Warrior"}
 )
 
 
@@ -407,8 +366,7 @@ CAPSULE_CORP_SOLDIER = make_creature(
     power=2, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Soldier"},
-    text="First strike."
+    subtypes={"Human", "Soldier"}
 )
 
 
@@ -417,8 +375,7 @@ WORLD_CHAMPION = make_creature(
     power=3, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Warrior"},
-    text="Vigilance. Whenever World Tournament Champion deals combat damage to a player, you gain 2 life."
+    subtypes={"Human", "Warrior"}
 )
 
 
@@ -427,8 +384,7 @@ MARTIAL_ARTIST = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Monk"},
-    text="First strike. {W}: Martial Artist gains lifelink until end of turn."
+    subtypes={"Human", "Monk"}
 )
 
 
@@ -437,8 +393,7 @@ OTHERWORLD_FIGHTER = make_creature(
     power=3, toughness=2,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Spirit", "Warrior"},
-    text="Flying. When Otherworld Fighter enters, put a +1/+1 counter on target creature you control."
+    subtypes={"Spirit", "Warrior"}
 )
 
 
@@ -447,8 +402,7 @@ GUARDIAN_ANGEL = make_creature(
     power=2, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Angel"},
-    text="Flying. {W}, {T}: Prevent the next 2 damage that would be dealt to any target this turn."
+    subtypes={"Angel"}
 )
 
 
@@ -457,8 +411,7 @@ TURTLE_SCHOOL_STUDENT = make_creature(
     power=1, toughness=2,
     mana_cost="{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Monk"},
-    text="Lifelink."
+    subtypes={"Human", "Monk"}
 )
 
 
@@ -467,8 +420,7 @@ CRANE_SCHOOL_STUDENT = make_creature(
     power=2, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Monk"},
-    text="Flying."
+    subtypes={"Human", "Monk"}
 )
 
 
@@ -558,15 +510,16 @@ WORLD_TOURNAMENT = make_sorcery(
 
 # White Enchantments
 
-def z_fighters_unite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return make_static_pt_boost(obj, 1, 1, creatures_with_subtype(obj, "Z-Fighter"))
-
 Z_FIGHTERS_UNITE = make_enchantment(
     name="Z-Fighters Unite",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="Z-Fighter creatures you control get +1/+1. At the beginning of your end step, if you control three or more Z-Fighters, draw a card.",
-    setup_interceptors=z_fighters_unite_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Z-Fighter")
+        )
+    ]
 )
 
 
@@ -590,11 +543,6 @@ KAIS_BLESSING = make_enchantment(
 # BLUE CARDS - ANDROIDS, STRATEGY, KI CONTROL
 # =============================================================================
 
-def android_18_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
 ANDROID_18 = make_creature(
     name="Android 18, Infinite Energy",
     power=4, toughness=4,
@@ -602,13 +550,14 @@ ANDROID_18 = make_creature(
     colors={Color.BLUE},
     subtypes={"Android"},
     supertypes={"Legendary"},
-    text="When Android 18 enters, draw a card. Android 18 can't be the target of abilities from creatures with power less than hers.",
-    setup_interceptors=android_18_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DrawCards(1)
+        )
+    ]
 )
 
-
-def android_17_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_keyword_grant(obj, ['hexproof'], android_filter(obj))]
 
 ANDROID_17 = make_creature(
     name="Android 17, Nature's Protector",
@@ -617,16 +566,14 @@ ANDROID_17 = make_creature(
     colors={Color.BLUE},
     subtypes={"Android"},
     supertypes={"Legendary"},
-    text="Flash. Other Android creatures you control have hexproof. {U}: Android 17 gains indestructible until end of turn.",
-    setup_interceptors=android_17_setup
+    abilities=[
+        StaticAbility(
+            effect=KeywordGrant(['hexproof']),
+            filter=CreaturesWithSubtypeFilter("Android", include_self=False)
+        )
+    ]
 )
 
-
-def android_16_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        opponents = all_opponents(obj, state)
-        return [Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': 5, 'source': obj.id}, source=obj.id) for opp in opponents]
-    return [make_death_trigger(obj, death_effect)]
 
 ANDROID_16 = make_creature(
     name="Android 16, Gentle Giant",
@@ -635,8 +582,12 @@ ANDROID_16 = make_creature(
     colors={Color.BLUE},
     subtypes={"Android"},
     supertypes={"Legendary"},
-    text="Defender. When Android 16 dies, it deals 5 damage to each opponent. (Self-destruct activated.)",
-    setup_interceptors=android_16_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=DealDamage(5, target=EachOpponentTarget())
+        )
+    ]
 )
 
 
@@ -668,7 +619,6 @@ BULMA_GENIUS_INVENTOR = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scientist"},
     supertypes={"Legendary"},
-    text="Artifact spells you cast cost {1} less. {T}: Search your library for a Dragon Ball card, reveal it, put it into your hand, then shuffle.",
     setup_interceptors=bulma_setup
 )
 
@@ -702,7 +652,6 @@ DR_BRIEF = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scientist"},
     supertypes={"Legendary"},
-    text="Whenever an artifact enters under your control, scry 1. {T}: Create a Treasure token.",
     setup_interceptors=dr_brief_setup
 )
 
@@ -712,8 +661,7 @@ ANDROID_19 = make_creature(
     power=3, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Android"},
-    text="When Android 19 blocks or becomes blocked, put a +1/+1 counter on it. {T}: Add {U}."
+    subtypes={"Android"}
 )
 
 
@@ -723,8 +671,7 @@ ANDROID_20 = make_creature(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Android", "Scientist"},
-    supertypes={"Legendary"},
-    text="Whenever Android 20 deals combat damage to a creature, put a +1/+1 counter on Android 20 and tap that creature. It doesn't untap during its controller's next untap step."
+    supertypes={"Legendary"}
 )
 
 
@@ -733,8 +680,7 @@ CAPSULE_CORP_DRONE = make_creature(
     power=1, toughness=1,
     mana_cost="{1}",
     colors=set(),
-    subtypes={"Construct"},
-    text="Flying. When Capsule Corp Drone dies, draw a card."
+    subtypes={"Construct"}
 )
 
 
@@ -743,8 +689,7 @@ REPAIR_BOT = make_creature(
     power=0, toughness=2,
     mana_cost="{U}",
     colors={Color.BLUE},
-    subtypes={"Construct"},
-    text="{T}: Untap target artifact."
+    subtypes={"Construct"}
 )
 
 
@@ -753,8 +698,7 @@ ANALYSIS_DRONE = make_creature(
     power=1, toughness=2,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    subtypes={"Construct"},
-    text="Flying. When Analysis Drone enters, scry 2."
+    subtypes={"Construct"}
 )
 
 
@@ -763,8 +707,7 @@ SCIENTIST = make_creature(
     power=1, toughness=2,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Scientist"},
-    text="{T}: Draw a card, then discard a card."
+    subtypes={"Human", "Scientist"}
 )
 
 
@@ -773,8 +716,7 @@ RED_RIBBON_SCOUT = make_creature(
     power=2, toughness=1,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Soldier", "Scout"},
-    text="When Red Ribbon Scout enters, look at target opponent's hand."
+    subtypes={"Human", "Soldier", "Scout"}
 )
 
 
@@ -783,8 +725,7 @@ ANDROID_PROTOTYPE = make_creature(
     power=2, toughness=2,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Android"},
-    text="Android Prototype can't be blocked by creatures with power 2 or less."
+    subtypes={"Android"}
 )
 
 
@@ -793,8 +734,7 @@ BATTLE_ANDROID = make_creature(
     power=3, toughness=2,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Android", "Soldier"},
-    text="When Battle Android enters, tap target creature an opponent controls."
+    subtypes={"Android", "Soldier"}
 )
 
 
@@ -803,8 +743,7 @@ ENERGY_ABSORBER = make_creature(
     power=2, toughness=4,
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    subtypes={"Android"},
-    text="Whenever Energy Absorber blocks, draw a card."
+    subtypes={"Android"}
 )
 
 
@@ -923,6 +862,7 @@ ENERGY_FIELD = make_enchantment(
 # =============================================================================
 
 def frieza_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_damage_trigger
     interceptors = []
     interceptors.extend(make_transform_ability(obj, life_threshold=10, power_bonus=4, toughness_bonus=2, keywords=['flying']))
 
@@ -940,7 +880,6 @@ FRIEZA_EMPEROR = make_creature(
     colors={Color.BLACK},
     subtypes={"Alien", "Tyrant"},
     supertypes={"Legendary"},
-    text="Flying, menace. Transform - As long as you have 10 or less life, Frieza gets +4/+2. Whenever Frieza deals combat damage to a creature, destroy that creature.",
     setup_interceptors=frieza_setup
 )
 
@@ -977,19 +916,9 @@ CELL_PERFECT_FORM = make_creature(
     colors={Color.BLACK},
     subtypes={"Android", "Bio-Weapon"},
     supertypes={"Legendary"},
-    text="Flying, trample. Whenever a creature dies, put a +1/+1 counter on Cell. (He absorbs their energy.)",
     setup_interceptors=cell_setup
 )
 
-
-def kid_buu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        opponents = all_opponents(obj, state)
-        events = []
-        for opp in opponents:
-            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -2}, source=obj.id))
-        return events
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 KID_BUU = make_creature(
     name="Kid Buu, Pure Destruction",
@@ -998,17 +927,14 @@ KID_BUU = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon", "Majin"},
     supertypes={"Legendary"},
-    text="Indestructible, menace. At the beginning of your upkeep, each opponent loses 2 life. When Kid Buu dies, exile it instead.",
-    setup_interceptors=kid_buu_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=LoseLife(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
-
-def majin_buu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.ZONE_CHANGE, payload={
-            'target_type': 'creature', 'to_zone_type': ZoneType.GRAVEYARD, 'power_limit': 3
-        }, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 MAJIN_BUU = make_creature(
     name="Majin Buu, Innocent Evil",
@@ -1016,18 +942,9 @@ MAJIN_BUU = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Demon", "Majin"},
-    supertypes={"Legendary"},
-    text="When Majin Buu enters, destroy target creature with power 3 or less. {B}{B}: Regenerate Majin Buu.",
-    setup_interceptors=majin_buu_setup
+    supertypes={"Legendary"}
 )
 
-
-def super_buu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SACRIFICE, payload={
-            'player': event.payload.get('defending_player'), 'type': 'creature'
-        }, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
 
 SUPER_BUU = make_creature(
     name="Super Buu, Absorber",
@@ -1036,8 +953,12 @@ SUPER_BUU = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon", "Majin"},
     supertypes={"Legendary"},
-    text="Flying. Whenever Super Buu attacks, defending player sacrifices a creature.",
-    setup_interceptors=super_buu_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=Sacrifice()  # TODO: Target opponent sacrifices creature
+        )
+    ]
 )
 
 
@@ -1047,8 +968,7 @@ ZARBON = make_creature(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Alien", "Soldier"},
-    supertypes={"Legendary"},
-    text="Menace. Transform - When Zarbon's power is reduced, he gets +3/+3 until end of turn."
+    supertypes={"Legendary"}
 )
 
 
@@ -1058,8 +978,7 @@ DODORIA = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Alien", "Soldier"},
-    supertypes={"Legendary"},
-    text="Menace. When Dodoria enters, each opponent loses 2 life."
+    supertypes={"Legendary"}
 )
 
 
@@ -1069,8 +988,7 @@ GINYU = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Alien", "Soldier"},
-    supertypes={"Legendary"},
-    text="Other Ginyu Force creatures you control get +1/+1. {2}{B}{B}: Exchange control of Captain Ginyu and target creature."
+    supertypes={"Legendary"}
 )
 
 
@@ -1079,8 +997,7 @@ RECOOME = make_creature(
     power=5, toughness=5,
     mana_cost="{4}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier", "Ginyu Force"},
-    text="Trample. When Recoome enters, it deals 3 damage to any target."
+    subtypes={"Alien", "Soldier", "Ginyu Force"}
 )
 
 
@@ -1089,8 +1006,7 @@ BURTER = make_creature(
     power=3, toughness=3,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier", "Ginyu Force"},
-    text="Haste, first strike. (He's the fastest in the universe.)"
+    subtypes={"Alien", "Soldier", "Ginyu Force"}
 )
 
 
@@ -1099,8 +1015,7 @@ JEICE = make_creature(
     power=3, toughness=2,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier", "Ginyu Force"},
-    text="Flying. When Jeice enters, target creature gets -2/-2 until end of turn."
+    subtypes={"Alien", "Soldier", "Ginyu Force"}
 )
 
 
@@ -1109,8 +1024,7 @@ GULDO = make_creature(
     power=1, toughness=2,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier", "Ginyu Force"},
-    text="When Guldo enters, tap target creature. It doesn't untap during its controller's next untap step."
+    subtypes={"Alien", "Soldier", "Ginyu Force"}
 )
 
 
@@ -1119,8 +1033,7 @@ FRIEZA_SOLDIER = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier"},
-    text="When Frieza Soldier dies, target opponent loses 1 life."
+    subtypes={"Alien", "Soldier"}
 )
 
 
@@ -1129,8 +1042,7 @@ APPULE = make_creature(
     power=2, toughness=1,
     mana_cost="{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier"},
-    text="Deathtouch."
+    subtypes={"Alien", "Soldier"}
 )
 
 
@@ -1139,8 +1051,7 @@ SAIBAMAN = make_creature(
     power=2, toughness=1,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Plant", "Warrior"},
-    text="When Saibaman dies, it deals 2 damage to the creature that killed it."
+    subtypes={"Plant", "Warrior"}
 )
 
 
@@ -1149,8 +1060,7 @@ CELL_JUNIOR = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Android", "Bio-Weapon"},
-    text="Flying. When Cell Junior enters, target creature gets -1/-1 until end of turn."
+    subtypes={"Android", "Bio-Weapon"}
 )
 
 
@@ -1159,8 +1069,7 @@ MAJIN_MINION = make_creature(
     power=3, toughness=2,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    subtypes={"Demon"},
-    text="Menace."
+    subtypes={"Demon"}
 )
 
 
@@ -1170,8 +1079,7 @@ DABURA = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Demon", "Noble"},
-    supertypes={"Legendary"},
-    text="Deathtouch. Whenever Dabura deals combat damage to a creature, exile that creature. (Stone Spit.)"
+    supertypes={"Legendary"}
 )
 
 
@@ -1181,8 +1089,7 @@ BABIDI = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Wizard"},
-    supertypes={"Legendary"},
-    text="{B}{B}, {T}: Gain control of target creature with power 4 or greater until end of turn. It gains haste. (Majin mind control.)"
+    supertypes={"Legendary"}
 )
 
 
@@ -1272,20 +1179,16 @@ RESURRECTION_F = make_sorcery(
 
 # Black Enchantments
 
-def frieza_force_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def soldier_filter(target: GameObject, state: GameState) -> bool:
-        return (target.controller == obj.controller and
-                CardType.CREATURE in target.characteristics.types and
-                'Soldier' in target.characteristics.subtypes and
-                target.zone == ZoneType.BATTLEFIELD)
-    return make_static_pt_boost(obj, 1, 0, soldier_filter)
-
 FRIEZA_FORCE = make_enchantment(
     name="Frieza Force",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Soldier creatures you control get +1/+0. At the beginning of your upkeep, create a 2/2 black Alien Soldier creature token.",
-    setup_interceptors=frieza_force_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 0),
+            filter=CreaturesWithSubtypeFilter("Soldier")
+        )
+    ]
 )
 
 
@@ -1322,17 +1225,9 @@ VEGETA_SAIYAN_PRINCE = make_creature(
     colors={Color.RED},
     subtypes={"Saiyan", "Noble", "Warrior"},
     supertypes={"Legendary"},
-    text="Haste. Power Level - Whenever Vegeta deals combat damage, put a +1/+1 counter on him. Transform - As long as you have 10 or less life, Vegeta gets +3/+2 and has trample.",
     setup_interceptors=vegeta_setup
 )
 
-
-def broly_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.COUNTER_ADDED, payload={
-            'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 2
-        }, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
 
 BROLY_LEGENDARY = make_creature(
     name="Broly, Legendary Super Saiyan",
@@ -1341,17 +1236,14 @@ BROLY_LEGENDARY = make_creature(
     colors={Color.RED},
     subtypes={"Saiyan", "Berserker"},
     supertypes={"Legendary"},
-    text="Trample, haste. Whenever Broly attacks, put two +1/+1 counters on him. Broly must attack each combat if able.",
-    setup_interceptors=broly_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=AddCounters(counter_type="+1/+1", amount=2)
+        )
+    ]
 )
 
-
-def future_trunks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.ZONE_CHANGE, payload={
-            'target_type': 'artifact_or_enchantment', 'to_zone_type': ZoneType.GRAVEYARD
-        }, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 FUTURE_TRUNKS = make_creature(
     name="Future Trunks, Time Warrior",
@@ -1359,20 +1251,9 @@ FUTURE_TRUNKS = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Z-Fighter", "Warrior"},
-    supertypes={"Legendary"},
-    text="Haste, first strike. When Future Trunks enters, destroy target artifact or enchantment.",
-    setup_interceptors=future_trunks_setup
+    supertypes={"Legendary"}
 )
 
-
-def kid_trunks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def saiyan_boost(target: GameObject, state: GameState) -> bool:
-        if target.id == obj.id:
-            return False
-        return (target.controller == obj.controller and
-                'Saiyan' in target.characteristics.subtypes and
-                target.zone == ZoneType.BATTLEFIELD)
-    return make_static_pt_boost(obj, 1, 0, saiyan_boost)
 
 KID_TRUNKS = make_creature(
     name="Trunks, Young Fighter",
@@ -1381,18 +1262,14 @@ KID_TRUNKS = make_creature(
     colors={Color.RED},
     subtypes={"Saiyan", "Z-Fighter"},
     supertypes={"Legendary"},
-    text="Haste. Other Saiyan creatures you control get +1/+0.",
-    setup_interceptors=kid_trunks_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 0),
+            filter=CreaturesWithSubtypeFilter("Saiyan", include_self=False)
+        )
+    ]
 )
 
-
-def goten_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Ki Blast', 'power': 0, 'toughness': 0, 'type': 'instant_damage', 'damage': 2}
-        }, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 GOTEN = make_creature(
     name="Goten, Cheerful Saiyan",
@@ -1401,8 +1278,12 @@ GOTEN = make_creature(
     colors={Color.RED},
     subtypes={"Saiyan", "Z-Fighter"},
     supertypes={"Legendary"},
-    text="Haste. When Goten enters, he deals 2 damage to any target.",
-    setup_interceptors=goten_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DealDamage(2, target=EachOpponentTarget())  # Simplified - targets any
+        )
+    ]
 )
 
 
@@ -1412,8 +1293,7 @@ NAPPA = make_creature(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Warrior"},
-    supertypes={"Legendary"},
-    text="Trample. When Nappa enters, create two 2/1 red Saibaman creature tokens."
+    supertypes={"Legendary"}
 )
 
 
@@ -1423,8 +1303,7 @@ RADITZ = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Warrior"},
-    supertypes={"Legendary"},
-    text="Haste. When Raditz attacks, target creature can't block this turn."
+    supertypes={"Legendary"}
 )
 
 
@@ -1434,8 +1313,7 @@ BARDOCK = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Warrior"},
-    supertypes={"Legendary"},
-    text="Haste. Whenever Bardock deals combat damage to a player, scry 2. (He sees the future.)"
+    supertypes={"Legendary"}
 )
 
 
@@ -1446,7 +1324,12 @@ KING_VEGETA = make_creature(
     colors={Color.RED},
     subtypes={"Saiyan", "Noble"},
     supertypes={"Legendary"},
-    text="Other Saiyan creatures you control get +1/+1. {R}{R}: Target Saiyan creature you control gains haste until end of turn."
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Saiyan", include_self=False)
+        )
+    ]
 )
 
 
@@ -1455,8 +1338,7 @@ SAIYAN_WARRIOR = make_creature(
     power=3, toughness=2,
     mana_cost="{1}{R}",
     colors={Color.RED},
-    subtypes={"Saiyan", "Warrior"},
-    text="Haste."
+    subtypes={"Saiyan", "Warrior"}
 )
 
 
@@ -1465,8 +1347,7 @@ SAIYAN_ELITE = make_creature(
     power=4, toughness=3,
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    subtypes={"Saiyan", "Warrior"},
-    text="Haste, trample."
+    subtypes={"Saiyan", "Warrior"}
 )
 
 
@@ -1475,8 +1356,7 @@ GREAT_APE = make_creature(
     power=8, toughness=8,
     mana_cost="{5}{R}{R}",
     colors={Color.RED},
-    subtypes={"Saiyan", "Ape"},
-    text="Trample. Great Ape must attack each combat if able. At the beginning of your end step, sacrifice Great Ape unless you pay {R}{R}."
+    subtypes={"Saiyan", "Ape"}
 )
 
 
@@ -1485,8 +1365,7 @@ RAGING_SAIYAN = make_creature(
     power=4, toughness=2,
     mana_cost="{2}{R}",
     colors={Color.RED},
-    subtypes={"Saiyan", "Berserker"},
-    text="Haste, trample. Raging Saiyan attacks each combat if able."
+    subtypes={"Saiyan", "Berserker"}
 )
 
 
@@ -1495,8 +1374,7 @@ SAIYAN_CHILD = make_creature(
     power=2, toughness=2,
     mana_cost="{R}",
     colors={Color.RED},
-    subtypes={"Saiyan"},
-    text="When Saiyan Child dies, it deals 1 damage to any target."
+    subtypes={"Saiyan"}
 )
 
 
@@ -1505,8 +1383,7 @@ SAIYAN_POD_PILOT = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{R}",
     colors={Color.RED},
-    subtypes={"Saiyan", "Pilot"},
-    text="When Saiyan Pod Pilot enters, create a colorless Vehicle artifact token named Saiyan Space Pod with 'Crew 1' and '{T}: Add {R}.'"
+    subtypes={"Saiyan", "Pilot"}
 )
 
 
@@ -1608,15 +1485,16 @@ ZENKAI_BOOST = make_sorcery(
 
 # Red Enchantments
 
-def saiyan_pride_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return make_static_pt_boost(obj, 2, 1, saiyan_filter(obj))
-
 SAIYAN_PRIDE = make_enchantment(
     name="Saiyan Pride",
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    text="Saiyan creatures you control get +2/+1 and have haste.",
-    setup_interceptors=saiyan_pride_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(2, 1),
+            filter=CreaturesWithSubtypeFilter("Saiyan")
+        )
+    ]
 )
 
 
@@ -1640,26 +1518,6 @@ BATTLE_RAGE = make_enchantment(
 # GREEN CARDS - NAMEKIANS, REGENERATION, NATURE
 # =============================================================================
 
-def piccolo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors = []
-    def regen_filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.PHASE_START and
-                event.payload.get('phase') == 'upkeep' and
-                state.active_player == obj.controller)
-
-    def regen_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.COUNTER_ADDED, payload={
-            'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1
-        }, source=obj.id)]
-
-    interceptors.append(Interceptor(
-        id=new_id(), source=obj.id, controller=obj.controller,
-        priority=InterceptorPriority.REACT, filter=regen_filter,
-        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=regen_effect(e, s)),
-        duration='while_on_battlefield'
-    ))
-    return interceptors
-
 PICCOLO_NAMEKIAN_WARRIOR = make_creature(
     name="Piccolo, Namekian Warrior",
     power=4, toughness=4,
@@ -1667,13 +1525,14 @@ PICCOLO_NAMEKIAN_WARRIOR = make_creature(
     colors={Color.GREEN},
     subtypes={"Namekian", "Z-Fighter", "Warrior"},
     supertypes={"Legendary"},
-    text="Reach, vigilance. At the beginning of your upkeep, put a +1/+1 counter on Piccolo. (Namekian regeneration.)",
-    setup_interceptors=piccolo_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=AddCounters(counter_type="+1/+1", amount=1)
+        )
+    ]
 )
 
-
-def nail_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Namekian"))
 
 NAIL = make_creature(
     name="Nail, Namekian Elite",
@@ -1682,8 +1541,12 @@ NAIL = make_creature(
     colors={Color.GREEN},
     subtypes={"Namekian", "Warrior"},
     supertypes={"Legendary"},
-    text="Vigilance. Other Namekian creatures you control get +1/+1. When Nail dies, you may have target Namekian creature you control gain all of Nail's abilities.",
-    setup_interceptors=nail_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Namekian", include_self=False)
+        )
+    ]
 )
 
 
@@ -1715,7 +1578,6 @@ DENDE = make_creature(
     colors={Color.GREEN},
     subtypes={"Namekian", "Cleric"},
     supertypes={"Legendary"},
-    text="{T}: You gain 3 life. {G}, {T}: Regenerate target creature.",
     setup_interceptors=dende_setup
 )
 
@@ -1732,6 +1594,8 @@ def guru_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                     'object_id': obj_id, 'counter_type': '+1/+1', 'amount': 1
                 }, source=obj.id))
         return events
+
+    from src.cards.interceptor_helpers import make_etb_trigger
     return [make_etb_trigger(obj, etb_effect)]
 
 GURU = make_creature(
@@ -1741,7 +1605,6 @@ GURU = make_creature(
     colors={Color.GREEN},
     subtypes={"Namekian", "Elder"},
     supertypes={"Legendary"},
-    text="Defender. When Guru enters, put a +1/+1 counter on each Namekian creature you control. {T}: Draw a card.",
     setup_interceptors=guru_setup
 )
 
@@ -1751,8 +1614,7 @@ NAMEKIAN_WARRIOR = make_creature(
     power=3, toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    subtypes={"Namekian", "Warrior"},
-    text="Reach. {G}: Regenerate Namekian Warrior."
+    subtypes={"Namekian", "Warrior"}
 )
 
 
@@ -1761,8 +1623,7 @@ NAMEKIAN_HEALER = make_creature(
     power=1, toughness=3,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    subtypes={"Namekian", "Cleric"},
-    text="{T}: You gain 2 life. {G}, {T}: Target creature gains hexproof until end of turn."
+    subtypes={"Namekian", "Cleric"}
 )
 
 
@@ -1771,8 +1632,7 @@ NAMEKIAN_ELDER = make_creature(
     power=2, toughness=4,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    subtypes={"Namekian", "Elder"},
-    text="At the beginning of your upkeep, you gain 1 life for each Namekian you control."
+    subtypes={"Namekian", "Elder"}
 )
 
 
@@ -1782,7 +1642,12 @@ NAMEKIAN_CHILD = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Namekian"},
-    text="When Namekian Child enters, you gain 1 life."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=GainLife(1)
+        )
+    ]
 )
 
 
@@ -1791,8 +1656,7 @@ GIANT_NAMEKIAN = make_creature(
     power=6, toughness=6,
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
-    subtypes={"Namekian", "Giant"},
-    text="Reach, trample. {G}: Giant Namekian gets +1/+1 until end of turn."
+    subtypes={"Namekian", "Giant"}
 )
 
 
@@ -1802,8 +1666,7 @@ PORUNGA = make_creature(
     mana_cost="{5}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Dragon", "God"},
-    supertypes={"Legendary"},
-    text="Flying, hexproof. When Porunga enters, choose three: Put three +1/+1 counters on target creature; or return target creature from a graveyard to the battlefield; or draw three cards."
+    supertypes={"Legendary"}
 )
 
 
@@ -1812,8 +1675,7 @@ AJISA_TREE = make_creature(
     power=0, toughness=5,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    subtypes={"Plant", "Treefolk"},
-    text="Defender. {T}: Add {G}{G}."
+    subtypes={"Plant", "Treefolk"}
 )
 
 
@@ -1823,7 +1685,12 @@ NAMEK_FROG = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Frog"},
-    text="When Namek Frog dies, draw a card."
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=DrawCards(1)
+        )
+    ]
 )
 
 
@@ -1833,7 +1700,12 @@ NAMEK_CRAB = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Crab"},
-    text="When Namek Crab enters, you gain 2 life."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=GainLife(2)
+        )
+    ]
 )
 
 
@@ -1842,8 +1714,7 @@ NAMEK_FISH = make_creature(
     power=4, toughness=4,
     mana_cost="{3}{G}",
     colors={Color.GREEN},
-    subtypes={"Fish"},
-    text="Trample."
+    subtypes={"Fish"}
 )
 
 
@@ -1933,15 +1804,16 @@ PLANET_NAMEK = make_sorcery(
 
 # Green Enchantments
 
-def namekian_resilience_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_keyword_grant(obj, ['hexproof'], namekian_filter(obj))]
-
 NAMEKIAN_RESILIENCE = make_enchantment(
     name="Namekian Resilience",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
-    text="Namekian creatures you control have hexproof and '{G}: Regenerate this creature.'",
-    setup_interceptors=namekian_resilience_setup
+    abilities=[
+        StaticAbility(
+            effect=KeywordGrant(['hexproof']),
+            filter=CreaturesWithSubtypeFilter("Namekian")
+        )
+    ]
 )
 
 
@@ -1977,21 +1849,9 @@ VEGITO = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Saiyan", "Z-Fighter", "Fusion"},
     supertypes={"Legendary"},
-    text="Flying, vigilance, haste. Power Level - Whenever Vegito deals combat damage, put a +1/+1 counter on him. Vegito can't be countered.",
     setup_interceptors=vegito_setup
 )
 
-
-def gogeta_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        opponents = all_opponents(obj, state)
-        events = []
-        for opp in opponents:
-            events.append(Event(type=EventType.DAMAGE, payload={
-                'target': opp, 'amount': 3, 'source': obj.id
-            }, source=obj.id))
-        return events
-    return [make_attack_trigger(obj, attack_effect)]
 
 GOGETA = make_creature(
     name="Gogeta, Fusion Warrior",
@@ -2000,19 +1860,14 @@ GOGETA = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Saiyan", "Z-Fighter", "Fusion"},
     supertypes={"Legendary"},
-    text="Flying, double strike. Whenever Gogeta attacks, he deals 3 damage to each opponent.",
-    setup_interceptors=gogeta_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=DealDamage(3, target=EachOpponentTarget())
+        )
+    ]
 )
 
-
-def gotenks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Super Ghost', 'power': 1, 'toughness': 1, 'colors': {Color.WHITE}, 'subtypes': {'Spirit'},
-                     'abilities': ['When Super Ghost dies, it deals 2 damage to any target.']}
-        }, source=obj.id) for _ in range(3)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 GOTENKS = make_creature(
     name="Gotenks, Young Fusion",
@@ -2021,8 +1876,12 @@ GOTENKS = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Saiyan", "Z-Fighter", "Fusion"},
     supertypes={"Legendary"},
-    text="Flying, haste. When Gotenks enters, create three 1/1 white Spirit creature tokens with 'When this creature dies, it deals 2 damage to any target.' At the beginning of your end step, sacrifice Gotenks unless you pay {R}{W}.",
-    setup_interceptors=gotenks_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=CreateToken(name="Super Ghost", power=1, toughness=1, colors={'W'}, subtypes={'Spirit'}, count=3)
+        )
+    ]
 )
 
 
@@ -2032,8 +1891,7 @@ GOKU_SUPER_SAIYAN = make_creature(
     mana_cost="{3}{W}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Saiyan", "Z-Fighter"},
-    supertypes={"Legendary"},
-    text="Flying, vigilance, haste. Whenever Goku, Super Saiyan deals combat damage to a player, put a +1/+1 counter on him."
+    supertypes={"Legendary"}
 )
 
 
@@ -2043,8 +1901,7 @@ GOKU_ULTRA_INSTINCT = make_creature(
     mana_cost="{4}{W}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Saiyan", "Z-Fighter"},
-    supertypes={"Legendary"},
-    text="Flying, hexproof, vigilance. Goku can't be blocked. Whenever Goku deals combat damage to a player, you may return target creature to its owner's hand."
+    supertypes={"Legendary"}
 )
 
 
@@ -2054,8 +1911,7 @@ VEGETA_SUPER_SAIYAN = make_creature(
     mana_cost="{3}{R}{B}",
     colors={Color.RED, Color.BLACK},
     subtypes={"Saiyan", "Noble", "Warrior"},
-    supertypes={"Legendary"},
-    text="Haste, menace. Whenever Vegeta deals combat damage to a player, that player discards a card."
+    supertypes={"Legendary"}
 )
 
 
@@ -2065,17 +1921,9 @@ GOHAN_SSJ2 = make_creature(
     mana_cost="{3}{W}{W}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Saiyan", "Z-Fighter", "Scholar"},
-    supertypes={"Legendary"},
-    text="Flying, double strike. Whenever another creature you control dies, Gohan gets +2/+2 until end of turn."
+    supertypes={"Legendary"}
 )
 
-
-def beerus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.ZONE_CHANGE, payload={
-            'target_type': 'nonland_permanent', 'to_zone_type': ZoneType.GRAVEYARD
-        }, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 BEERUS = make_creature(
     name="Beerus, God of Destruction",
@@ -2084,8 +1932,12 @@ BEERUS = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"God", "Cat"},
     supertypes={"Legendary"},
-    text="Flying, indestructible. At the beginning of your upkeep, destroy target nonland permanent. (Hakai.)",
-    setup_interceptors=beerus_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(),
+            effect=Destroy(target=EachOpponentTarget())  # Simplified
+        )
+    ]
 )
 
 
@@ -2095,12 +1947,13 @@ WHIS = make_creature(
     mana_cost="{3}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Angel"},
-    supertypes={"Legendary"},
-    text="Flying, vigilance. {W}{U}: Exile target creature. Return it to the battlefield at the beginning of the next end step. (Time reversal.)"
+    supertypes={"Legendary"}
 )
 
 
 def hit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_damage_trigger
+
     def damage_effect(event: Event, state: GameState) -> list[Event]:
         target = event.payload.get('target')
         target_obj = state.objects.get(target)
@@ -2116,7 +1969,6 @@ HIT = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Alien", "Assassin"},
     supertypes={"Legendary"},
-    text="Deathtouch, first strike. Whenever Hit deals combat damage to a creature, tap that creature. It doesn't untap during its controller's next untap step. (Time Skip.)",
     setup_interceptors=hit_setup
 )
 
@@ -2127,8 +1979,7 @@ JIREN = make_creature(
     mana_cost="{5}{W}{W}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Alien", "Warrior"},
-    supertypes={"Legendary"},
-    text="Vigilance, trample. Jiren can't be countered. Jiren has protection from instants and sorceries with mana value 3 or less."
+    supertypes={"Legendary"}
 )
 
 
@@ -2138,8 +1989,7 @@ GOLDEN_FRIEZA = make_creature(
     mana_cost="{4}{B}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Alien", "Tyrant"},
-    supertypes={"Legendary"},
-    text="Flying, menace. Whenever Golden Frieza deals combat damage to a player, destroy target creature that player controls."
+    supertypes={"Legendary"}
 )
 
 
@@ -2149,8 +1999,7 @@ MAJIN_VEGETA = make_creature(
     mana_cost="{2}{R}{R}{B}",
     colors={Color.RED, Color.BLACK},
     subtypes={"Saiyan", "Noble", "Warrior"},
-    supertypes={"Legendary"},
-    text="Haste, menace. At the beginning of your upkeep, you lose 2 life. Whenever Majin Vegeta deals combat damage to a player, put two +1/+1 counters on him."
+    supertypes={"Legendary"}
 )
 
 
@@ -2160,8 +2009,7 @@ ANDROID_21 = make_creature(
     mana_cost="{2}{U}{B}{R}",
     colors={Color.BLUE, Color.BLACK, Color.RED},
     subtypes={"Android", "Majin"},
-    supertypes={"Legendary"},
-    text="Flying. Whenever Android 21 deals combat damage to a creature, put a +1/+1 counter on Android 21 and that creature gets -1/-1 until end of turn."
+    supertypes={"Legendary"}
 )
 
 
@@ -2171,8 +2019,7 @@ KEFLA = make_creature(
     mana_cost="{2}{R}{G}{W}",
     colors={Color.RED, Color.GREEN, Color.WHITE},
     subtypes={"Saiyan", "Fusion"},
-    supertypes={"Legendary"},
-    text="Haste, trample. Whenever Kefla attacks, she gets +X/+0 until end of turn, where X is the number of creatures you control."
+    supertypes={"Legendary"}
 )
 
 
@@ -2182,8 +2029,7 @@ GOKU_BLACK = make_creature(
     mana_cost="{3}{B}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Saiyan", "God"},
-    supertypes={"Legendary"},
-    text="Flying, menace. Whenever Goku Black deals combat damage to a player, that player sacrifices a creature. When Goku Black dies, return him to the battlefield transformed under your control at the beginning of the next end step."
+    supertypes={"Legendary"}
 )
 
 
@@ -2193,8 +2039,7 @@ ZAMASU = make_creature(
     mana_cost="{2}{W}{B}{G}",
     colors={Color.WHITE, Color.BLACK, Color.GREEN},
     subtypes={"Kai", "God"},
-    supertypes={"Legendary"},
-    text="Indestructible. Whenever Zamasu deals combat damage to a player, you gain that much life. {W}{B}{G}: Zamasu gains hexproof until end of turn."
+    supertypes={"Legendary"}
 )
 
 
@@ -2204,8 +2049,7 @@ SHENRON = make_creature(
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Dragon", "God"},
-    supertypes={"Legendary"},
-    text="Flying, hexproof. When Shenron enters, choose one: Return all creature cards from your graveyard to your hand; or each opponent sacrifices two creatures; or you gain 15 life."
+    supertypes={"Legendary"}
 )
 
 
@@ -2282,8 +2126,7 @@ def senzu_bean_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 SENZU_BEAN = make_artifact(
     name="Senzu Bean",
     mana_cost="{1}",
-    text="{T}, Sacrifice Senzu Bean: You gain 5 life and put two +1/+1 counters on target creature you control.",
-    setup_interceptors=senzu_bean_setup
+    text="{T}, Sacrifice Senzu Bean: You gain 5 life and put two +1/+1 counters on target creature you control."
 )
 
 
@@ -2410,7 +2253,7 @@ HYPERBOLIC_TIME_CHAMBER = make_land(
 )
 
 
-PLANET_NAMEK = make_land(
+PLANET_NAMEK_LAND = make_land(
     name="Planet Namek",
     text="{T}: Add {G}. Namekian creatures you control have '{G}: Regenerate this creature.'",
     supertypes={"Legendary"}
@@ -2820,7 +2663,7 @@ DRAGON_BALL_CARDS = {
     "Kame House": KAME_HOUSE,
     "Capsule Corporation": CAPSULE_CORP,
     "Hyperbolic Time Chamber": HYPERBOLIC_TIME_CHAMBER,
-    "Planet Namek": PLANET_NAMEK,
+    "Planet Namek": PLANET_NAMEK_LAND,
     "Planet Vegeta": PLANET_VEGETA,
     "The Lookout": LOOKOUT,
     "World Tournament Arena": WORLD_TOURNAMENT_ARENA,
@@ -2854,3 +2697,228 @@ DRAGON_BALL_CARDS = {
 }
 
 print(f"Loaded {len(DRAGON_BALL_CARDS)} Dragon Ball Z cards")
+
+
+# =============================================================================
+# CARDS EXPORT
+# =============================================================================
+
+CARDS = [
+    GOKU_EARTHS_HERO,
+    GOHAN_HIDDEN_POWER,
+    KRILLIN_BRAVE_WARRIOR,
+    VIDEL_HERO_IN_TRAINING,
+    SUPREME_KAI,
+    KING_KAI,
+    YAMCHA_Z_FIGHTER,
+    TIEN_TRICLOPS,
+    CHIAOTZU,
+    KAMI,
+    MR_POPO,
+    EARTHLING_FIGHTER,
+    CAPSULE_CORP_SOLDIER,
+    WORLD_CHAMPION,
+    MARTIAL_ARTIST,
+    OTHERWORLD_FIGHTER,
+    GUARDIAN_ANGEL,
+    TURTLE_SCHOOL_STUDENT,
+    CRANE_SCHOOL_STUDENT,
+    SENZU_HEAL,
+    DIVINE_PROTECTION,
+    INSTANT_TRANSMISSION_WHITE,
+    ENERGY_BARRIER,
+    KIAI_SHOUT,
+    HOPE_OF_EARTH,
+    REVIVAL,
+    DRAGON_BALL_WISH,
+    TRAINING_COMPLETE,
+    WORLD_TOURNAMENT,
+    Z_FIGHTERS_UNITE,
+    OTHERWORLD,
+    KAIS_BLESSING,
+    ANDROID_18,
+    ANDROID_17,
+    ANDROID_16,
+    BULMA_GENIUS_INVENTOR,
+    DR_BRIEF,
+    ANDROID_19,
+    ANDROID_20,
+    CAPSULE_CORP_DRONE,
+    REPAIR_BOT,
+    ANALYSIS_DRONE,
+    SCIENTIST,
+    RED_RIBBON_SCOUT,
+    ANDROID_PROTOTYPE,
+    BATTLE_ANDROID,
+    ENERGY_ABSORBER,
+    KI_SENSE,
+    ENERGY_DRAIN,
+    AFTERIMAGE,
+    INSTANT_TRANSMISSION_BLUE,
+    PHOTON_WAVE,
+    SOLAR_FLARE_TECHNIQUE,
+    ANDROID_CONSTRUCTION,
+    TECHNOLOGY_ADVANCEMENT,
+    ENERGY_ANALYSIS,
+    RED_RIBBON_RESEARCH,
+    INFINITE_ENERGY,
+    CAPSULE_TECHNOLOGY,
+    ENERGY_FIELD,
+    FRIEZA_EMPEROR,
+    CELL_PERFECT_FORM,
+    KID_BUU,
+    MAJIN_BUU,
+    SUPER_BUU,
+    ZARBON,
+    DODORIA,
+    GINYU,
+    RECOOME,
+    BURTER,
+    JEICE,
+    GULDO,
+    FRIEZA_SOLDIER,
+    APPULE,
+    SAIBAMAN,
+    CELL_JUNIOR,
+    MAJIN_MINION,
+    DABURA,
+    BABIDI,
+    DEATH_BEAM,
+    SUPERNOVA,
+    FINGER_BEAM,
+    ABSORPTION,
+    VANISH,
+    MAJIN_CURSE,
+    PLANET_DESTRUCTION,
+    GENOCIDE_ATTACK,
+    RAISE_SAIBAMEN,
+    RESURRECTION_F,
+    FRIEZA_FORCE,
+    MAJIN_MARK,
+    DARK_ENERGY,
+    VEGETA_SAIYAN_PRINCE,
+    BROLY_LEGENDARY,
+    FUTURE_TRUNKS,
+    KID_TRUNKS,
+    GOTEN,
+    NAPPA,
+    RADITZ,
+    BARDOCK,
+    KING_VEGETA,
+    SAIYAN_WARRIOR,
+    SAIYAN_ELITE,
+    GREAT_APE,
+    RAGING_SAIYAN,
+    SAIYAN_CHILD,
+    SAIYAN_POD_PILOT,
+    FINAL_FLASH,
+    GALICK_GUN,
+    BIG_BANG_ATTACK,
+    BURNING_ATTACK,
+    EXPLOSIVE_WAVE,
+    SAIYAN_RAGE,
+    KI_EXPLOSION,
+    POWER_BALL,
+    SAIYAN_INVASION,
+    OOZARU_RAMPAGE,
+    ZENKAI_BOOST,
+    SAIYAN_PRIDE,
+    SUPER_SAIYAN_AURA,
+    BATTLE_RAGE,
+    PICCOLO_NAMEKIAN_WARRIOR,
+    NAIL,
+    DENDE,
+    GURU,
+    NAMEKIAN_WARRIOR,
+    NAMEKIAN_HEALER,
+    NAMEKIAN_ELDER,
+    NAMEKIAN_CHILD,
+    GIANT_NAMEKIAN,
+    PORUNGA,
+    AJISA_TREE,
+    NAMEK_FROG,
+    NAMEK_CRAB,
+    NAMEK_FISH,
+    SPECIAL_BEAM_CANNON,
+    NAMEKIAN_REGENERATION,
+    HELLZONE_GRENADE,
+    MASENKO,
+    FUSE,
+    NATURE_BARRIER,
+    NAMEKIAN_FUSION,
+    REGROWTH,
+    DRAGON_BALL_SUMMON,
+    PLANET_NAMEK,
+    NAMEKIAN_RESILIENCE,
+    HEALING_AURA,
+    NAMEK_WILDS,
+    VEGITO,
+    GOGETA,
+    GOTENKS,
+    GOKU_SUPER_SAIYAN,
+    GOKU_ULTRA_INSTINCT,
+    VEGETA_SUPER_SAIYAN,
+    GOHAN_SSJ2,
+    BEERUS,
+    WHIS,
+    HIT,
+    JIREN,
+    GOLDEN_FRIEZA,
+    MAJIN_VEGETA,
+    ANDROID_21,
+    KEFLA,
+    GOKU_BLACK,
+    ZAMASU,
+    SHENRON,
+    DRAGON_BALL_ONE,
+    DRAGON_BALL_TWO,
+    DRAGON_BALL_THREE,
+    DRAGON_BALL_FOUR,
+    DRAGON_BALL_FIVE,
+    DRAGON_BALL_SIX,
+    DRAGON_BALL_SEVEN,
+    SENZU_BEAN,
+    SCOUTER,
+    POTARA_EARRINGS,
+    FUSION_EARRINGS,
+    GRAVITY_CHAMBER,
+    TIME_MACHINE,
+    CAPSULE,
+    SPACE_POD,
+    NIMBUS_CLOUD,
+    DRAGON_RADAR,
+    Z_SWORD,
+    POWER_POLE,
+    TURTLE_SHELL,
+    WEIGHTED_CLOTHING,
+    KAME_HOUSE,
+    CAPSULE_CORP,
+    HYPERBOLIC_TIME_CHAMBER,
+    PLANET_NAMEK_LAND,
+    PLANET_VEGETA,
+    LOOKOUT,
+    WORLD_TOURNAMENT_ARENA,
+    KORIN_TOWER,
+    FRIEZA_SPACESHIP,
+    CELL_GAMES_ARENA,
+    KING_KAIS_PLANET,
+    SERPENT_ROAD,
+    MAJIN_BUU_HOUSE,
+    RED_RIBBON_HQ,
+    OTHERWORLD_ARENA,
+    PLAINS_DBZ,
+    ISLAND_DBZ,
+    SWAMP_DBZ,
+    MOUNTAIN_DBZ,
+    FOREST_DBZ,
+    KAMEHAMEHA,
+    SPIRIT_BOMB,
+    DESTRUCTO_DISC,
+    DEATH_BALL,
+    CANDY_BEAM,
+    HUMAN_EXTINCTION_ATTACK,
+    SOLAR_KAMEHAMEHA,
+    FINAL_EXPLOSION,
+    OMEGA_BLASTER,
+    ERASER_CANNON
+]

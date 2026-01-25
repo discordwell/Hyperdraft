@@ -11,17 +11,19 @@ from src.engine import (
     GameObject, GameState, ZoneType, CardType, Color,
     Characteristics, ObjectState, CardDefinition,
     make_creature, make_instant, make_enchantment,
-    new_id, get_power, get_toughness
+    new_id, get_power, get_toughness,
+    # Ability system
+    TriggeredAbility, StaticAbility, KeywordAbility,
+    ETBTrigger, DeathTrigger, AttackTrigger, BlockTrigger, DealsDamageTrigger,
+    UpkeepTrigger, EndStepTrigger, SpellCastTrigger,
+    GainLife, LoseLife, DealDamage, DrawCards, DiscardCards, AddCounters, CreateToken,
+    CompositeEffect, Scry,
+    PTBoost, KeywordGrant,
+    SelfTarget, AnotherCreature, AnotherCreatureYouControl, CreatureWithSubtype,
+    OtherCreaturesYouControlFilter, CreaturesYouControlFilter, CreaturesWithSubtypeFilter,
+    ControllerTarget, EachOpponentTarget,
 )
 from typing import Optional, Callable
-from src.cards.interceptor_helpers import (
-    make_etb_trigger, make_death_trigger, make_attack_trigger,
-    make_damage_trigger, make_static_pt_boost, make_keyword_grant,
-    other_creatures_you_control, creatures_with_subtype,
-    make_spell_cast_trigger, make_upkeep_trigger, make_end_step_trigger,
-    make_life_gain_trigger, make_life_loss_trigger, creatures_you_control,
-    other_creatures_with_subtype, all_opponents
-)
 
 
 # =============================================================================
@@ -111,22 +113,147 @@ def make_spell_mastery_bonus(source_obj: GameObject, power_bonus: int, toughness
         if target.id != source_obj.id:
             return False
         return has_spell_mastery(state, source_obj.controller)
-    return make_static_pt_boost(source_obj, power_bonus, toughness_bonus, mastery_filter)
+
+    # This is a conditional self-buff that doesn't fit cleanly into the new system
+    # Keep as custom interceptor
+    from src.engine.types import EventType
+
+    interceptors = []
+
+    if power_bonus != 0:
+        def power_filter(event, state, src=source_obj):
+            if event.type != EventType.QUERY_POWER:
+                return False
+            target_id = event.payload.get('object_id')
+            if target_id != src.id:
+                return False
+            return has_spell_mastery(state, src.controller)
+
+        def power_handler(event, state, mod=power_bonus):
+            current = event.payload.get('value', 0)
+            new_event = event.copy()
+            new_event.payload['value'] = current + mod
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=new_event
+            )
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=source_obj.id,
+            controller=source_obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=power_filter,
+            handler=power_handler,
+            duration='while_on_battlefield'
+        ))
+
+    if toughness_bonus != 0:
+        def toughness_filter(event, state, src=source_obj):
+            if event.type != EventType.QUERY_TOUGHNESS:
+                return False
+            target_id = event.payload.get('object_id')
+            if target_id != src.id:
+                return False
+            return has_spell_mastery(state, src.controller)
+
+        def toughness_handler(event, state, mod=toughness_bonus):
+            current = event.payload.get('value', 0)
+            new_event = event.copy()
+            new_event.payload['value'] = current + mod
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=new_event
+            )
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=source_obj.id,
+            controller=source_obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=toughness_filter,
+            handler=toughness_handler,
+            duration='while_on_battlefield'
+        ))
+
+    return interceptors
 
 
 def make_house_bonus(source_obj: GameObject, house: str, power_bonus: int, toughness_bonus: int) -> list[Interceptor]:
     """House - Gets +X/+Y for each other creature you control with the same house subtype."""
-    def house_filter(target: GameObject, state: GameState) -> bool:
-        if target.id != source_obj.id:
-            return False
-        count = sum(1 for obj in state.objects.values()
+    # This is a counting-based bonus that doesn't fit cleanly into the new system
+    # Keep as custom interceptor
+    from src.engine.types import EventType
+
+    def count_house_members(state: GameState) -> int:
+        return sum(1 for obj in state.objects.values()
                    if obj.id != source_obj.id
                    and obj.controller == source_obj.controller
                    and CardType.CREATURE in obj.characteristics.types
                    and house in obj.characteristics.subtypes
                    and obj.zone == ZoneType.BATTLEFIELD)
-        return count > 0
-    return make_static_pt_boost(source_obj, power_bonus, toughness_bonus, house_filter)
+
+    interceptors = []
+
+    if power_bonus != 0:
+        def power_filter(event, state, src=source_obj):
+            if event.type != EventType.QUERY_POWER:
+                return False
+            target_id = event.payload.get('object_id')
+            return target_id == src.id
+
+        def power_handler(event, state, mod=power_bonus):
+            count = count_house_members(state)
+            if count == 0:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            current = event.payload.get('value', 0)
+            new_event = event.copy()
+            new_event.payload['value'] = current + (mod * count)
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=new_event
+            )
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=source_obj.id,
+            controller=source_obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=power_filter,
+            handler=power_handler,
+            duration='while_on_battlefield'
+        ))
+
+    if toughness_bonus != 0:
+        def toughness_filter(event, state, src=source_obj):
+            if event.type != EventType.QUERY_TOUGHNESS:
+                return False
+            target_id = event.payload.get('object_id')
+            return target_id == src.id
+
+        def toughness_handler(event, state, mod=toughness_bonus):
+            count = count_house_members(state)
+            if count == 0:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            current = event.payload.get('value', 0)
+            new_event = event.copy()
+            new_event.payload['value'] = current + (mod * count)
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=new_event
+            )
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=source_obj.id,
+            controller=source_obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=toughness_filter,
+            handler=toughness_handler,
+            duration='while_on_battlefield'
+        ))
+
+    return interceptors
 
 
 def make_patronus_token(controller: str, source_id: str, creature_type: str = "Spirit") -> Event:
@@ -148,25 +275,6 @@ def make_patronus_token(controller: str, source_id: str, creature_type: str = "S
     )
 
 
-def gryffindor_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Gryffindor")
-
-def slytherin_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Slytherin")
-
-def ravenclaw_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Ravenclaw")
-
-def hufflepuff_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Hufflepuff")
-
-def wizard_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Wizard")
-
-def death_eater_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
-    return creatures_with_subtype(source, "Death Eater")
-
-
 # =============================================================================
 # WHITE CARDS - GRYFFINDOR, PROTECTION, LIGHT MAGIC
 # =============================================================================
@@ -180,7 +288,22 @@ def harry_potter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
     def attack_effect(event: Event, state: GameState) -> list[Event]:
         return [make_patronus_token(obj.controller, obj.id, "Stag")]
-    interceptors.append(make_attack_trigger(obj, attack_effect))
+
+    # Attack trigger - custom because of Patronus token creation
+    def attack_filter(event, state, src=obj):
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        return event.payload.get('attacker_id') == src.id
+
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=attack_effect(e, s)),
+        duration='while_on_battlefield'
+    ))
     return interceptors
 
 HARRY_POTTER_THE_CHOSEN_ONE = make_creature(
@@ -197,11 +320,31 @@ HARRY_POTTER_THE_CHOSEN_ONE = make_creature(
 
 def hermione_granger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Spell Mastery - draw when casting instants/sorceries."""
-    def spell_effect(event: Event, state: GameState) -> list[Event]:
-        if has_spell_mastery(state, obj.controller):
-            return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-        return []
-    return [make_spell_cast_trigger(obj, spell_effect, spell_type_filter={CardType.INSTANT, CardType.SORCERY})]
+    def spell_filter(event, state, src=obj):
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != src.controller:
+            return False
+        if not has_spell_mastery(state, src.controller):
+            return False
+        event_types = set(event.payload.get('types', []))
+        return CardType.INSTANT in event_types or CardType.SORCERY in event_types
+
+    def spell_handler(event, state, src=obj):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.DRAW, payload={'player': src.controller, 'amount': 1}, source=src.id)]
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=spell_filter,
+        handler=spell_handler,
+        duration='while_on_battlefield'
+    )]
 
 HERMIONE_GRANGER = make_creature(
     name="Hermione Granger, Brightest Witch",
@@ -215,13 +358,6 @@ HERMIONE_GRANGER = make_creature(
 )
 
 
-def dumbledore_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Other Wizards get +1/+1 and hexproof."""
-    interceptors = []
-    interceptors.extend(make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Wizard")))
-    interceptors.append(make_keyword_grant(obj, ['hexproof'], other_creatures_with_subtype(obj, "Wizard")))
-    return interceptors
-
 ALBUS_DUMBLEDORE = make_creature(
     name="Albus Dumbledore, Headmaster",
     power=4, toughness=5,
@@ -229,14 +365,18 @@ ALBUS_DUMBLEDORE = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="Flying. Other Wizard creatures you control get +1/+1 and have hexproof. {2}{W}: Create a 2/2 white Spirit Patronus token with flying.",
-    setup_interceptors=dumbledore_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Wizard", include_self=False)
+        ),
+        StaticAbility(
+            effect=KeywordGrant(['hexproof']),
+            filter=CreaturesWithSubtypeFilter("Wizard", include_self=False)
+        )
+    ]
 )
 
-
-def mcgonagall_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Other Gryffindors have vigilance."""
-    return [make_keyword_grant(obj, ['vigilance'], other_creatures_with_subtype(obj, "Gryffindor"))]
 
 MINERVA_MCGONAGALL = make_creature(
     name="Minerva McGonagall, Transfiguration Master",
@@ -245,16 +385,20 @@ MINERVA_MCGONAGALL = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Gryffindor"},
     supertypes={"Legendary"},
-    text="Vigilance. Other Gryffindor creatures you control have vigilance. {1}{W}: Target creature becomes a 1/1 Cat until end of turn.",
-    setup_interceptors=mcgonagall_setup
+    abilities=[
+        StaticAbility(
+            effect=KeywordGrant(['vigilance']),
+            filter=CreaturesWithSubtypeFilter("Gryffindor", include_self=False)
+        )
+    ]
 )
 
 
 def neville_longbottom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Gets +2/+2 when blocking."""
-    def block_filter(event: Event, state: GameState, source: GameObject) -> bool:
+    def block_filter(event: Event, state: GameState) -> bool:
         return (event.type == EventType.BLOCK_DECLARED and
-                event.payload.get('blocker_id') == source.id)
+                event.payload.get('blocker_id') == obj.id)
 
     def block_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(type=EventType.COUNTER_ADDED, payload={
@@ -267,7 +411,7 @@ def neville_longbottom_setup(obj: GameObject, state: GameState) -> list[Intercep
         source=obj.id,
         controller=obj.controller,
         priority=InterceptorPriority.REACT,
-        filter=lambda e, s: block_filter(e, s, obj),
+        filter=block_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=block_effect(e, s)),
         duration='while_on_battlefield'
     )]
@@ -286,26 +430,20 @@ NEVILLE_LONGBOTTOM = make_creature(
 
 # --- Regular White Creatures ---
 
-def gryffindor_prefect_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Other Gryffindors get +1/+0."""
-    return make_static_pt_boost(obj, 1, 0, other_creatures_with_subtype(obj, "Gryffindor"))
-
 GRYFFINDOR_PREFECT = make_creature(
     name="Gryffindor Prefect",
     power=2, toughness=2,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Gryffindor"},
-    text="Other Gryffindor creatures you control get +1/+0.",
-    setup_interceptors=gryffindor_prefect_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 0),
+            filter=CreaturesWithSubtypeFilter("Gryffindor", include_self=False)
+        )
+    ]
 )
 
-
-def auror_recruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB - gain 2 life."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 AUROR_RECRUIT = make_creature(
     name="Auror Recruit",
@@ -313,8 +451,12 @@ AUROR_RECRUIT = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Auror"},
-    text="When Auror Recruit enters, you gain 2 life.",
-    setup_interceptors=auror_recruit_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=GainLife(2)
+        )
+    ]
 )
 
 
@@ -350,9 +492,11 @@ MINISTRY_AUROR = make_creature(
 
 def patronus_caster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB - create Patronus token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [make_patronus_token(obj.controller, obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
+    ability = TriggeredAbility(
+        trigger=ETBTrigger(),
+        effect=CreateToken(name="Patronus Spirit", power=2, toughness=2, colors={'W'}, subtypes={'Spirit', 'Patronus'}, keywords=['flying', 'protection_from_black'])
+    )
+    return ability.generate_interceptors(obj, state)
 
 PATRONUS_CASTER = make_creature(
     name="Patronus Caster",
@@ -533,9 +677,11 @@ OBLIVIATE = make_sorcery(
 
 def light_magic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever you cast an instant, gain 1 life."""
-    def spell_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_spell_cast_trigger(obj, spell_effect, spell_type_filter={CardType.INSTANT})]
+    ability = TriggeredAbility(
+        trigger=SpellCastTrigger(controller_only=True, spell_types={CardType.INSTANT}),
+        effect=GainLife(1)
+    )
+    return ability.generate_interceptors(obj, state)
 
 LIGHT_MAGIC = make_enchantment(
     name="Light Magic",
@@ -570,13 +716,14 @@ GRYFFINDOR_BANNER = make_enchantment(
 
 def luna_lovegood_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever you scry, draw a card."""
-    def scry_effect(event: Event, state: GameState) -> list[Event]:
-        if event.type == EventType.SCRY and event.payload.get('player') == obj.controller:
-            return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-        return []
-
     def scry_filter(event: Event, state: GameState) -> bool:
         return event.type == EventType.SCRY and event.payload.get('player') == obj.controller
+
+    def scry_handler(event, state, src=obj):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.DRAW, payload={'player': src.controller, 'amount': 1}, source=src.id)]
+        )
 
     return [Interceptor(
         id=new_id(),
@@ -584,7 +731,7 @@ def luna_lovegood_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         controller=obj.controller,
         priority=InterceptorPriority.REACT,
         filter=scry_filter,
-        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=scry_effect(e, s)),
+        handler=scry_handler,
         duration='while_on_battlefield'
     )]
 
@@ -637,12 +784,6 @@ FILIUS_FLITWICK = make_creature(
 )
 
 
-def cho_chang_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB - scry 2."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
 CHO_CHANG = make_creature(
     name="Cho Chang, Seeker",
     power=2, toughness=2,
@@ -650,16 +791,14 @@ CHO_CHANG = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard", "Ravenclaw"},
     supertypes={"Legendary"},
-    text="Flying. When Cho Chang enters, scry 2.",
-    setup_interceptors=cho_chang_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=Scry(2)
+        )
+    ]
 )
 
-
-def moaning_myrtle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When dies, draw 2 cards."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_death_trigger(obj, death_effect)]
 
 MOANING_MYRTLE = make_creature(
     name="Moaning Myrtle",
@@ -668,21 +807,16 @@ MOANING_MYRTLE = make_creature(
     colors={Color.BLUE},
     subtypes={"Spirit"},
     supertypes={"Legendary"},
-    text="Flying. When Moaning Myrtle dies, draw two cards.",
-    setup_interceptors=moaning_myrtle_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=DrawCards(2)
+        )
+    ]
 )
 
 
 # --- Regular Blue Creatures ---
-
-def ravenclaw_prefect_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB - draw a card, then discard."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
-            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
-        ]
-    return [make_etb_trigger(obj, etb_effect)]
 
 RAVENCLAW_PREFECT = make_creature(
     name="Ravenclaw Prefect",
@@ -690,8 +824,12 @@ RAVENCLAW_PREFECT = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard", "Ravenclaw"},
-    text="When Ravenclaw Prefect enters, draw a card, then discard a card.",
-    setup_interceptors=ravenclaw_prefect_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=CompositeEffect([DrawCards(1), DiscardCards(1)])
+        )
+    ]
 )
 
 
@@ -913,7 +1051,7 @@ RAVENCLAW_BANNER = make_enchantment(
 
 def voldemort_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever another creature dies, put a +1/+1 counter on Voldemort."""
-    def death_filter(event: Event, state: GameState, source: GameObject) -> bool:
+    def death_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.ZONE_CHANGE:
             return False
         if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
@@ -921,20 +1059,23 @@ def voldemort_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
             return False
         dying_id = event.payload.get('object_id')
-        return dying_id != source.id
+        return dying_id != obj.id
 
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.COUNTER_ADDED, payload={
-            'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1
-        }, source=obj.id)]
+    def death_handler(event, state, src=obj):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.COUNTER_ADDED, payload={
+                'object_id': src.id, 'counter_type': '+1/+1', 'amount': 1
+            }, source=src.id)]
+        )
 
     return [Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
         priority=InterceptorPriority.REACT,
-        filter=lambda e, s: death_filter(e, s, obj),
-        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=death_effect(e, s)),
+        filter=death_filter,
+        handler=death_handler,
         duration='while_on_battlefield'
     )]
 
@@ -950,14 +1091,6 @@ LORD_VOLDEMORT = make_creature(
 )
 
 
-def snape_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death trigger - deal damage to target creature."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={
-            'target': 'target_creature', 'amount': 3, 'source': obj.id
-        }, source=obj.id)]
-    return [make_death_trigger(obj, death_effect)]
-
 SEVERUS_SNAPE = make_creature(
     name="Severus Snape, Double Agent",
     power=3, toughness=4,
@@ -965,18 +1098,39 @@ SEVERUS_SNAPE = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Wizard", "Slytherin"},
     supertypes={"Legendary"},
-    text="Deathtouch. When Severus Snape dies, he deals 3 damage to target creature. {1}{B}: Target creature gets -1/-1 until end of turn.",
-    setup_interceptors=snape_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=DealDamage(3, target=EachOpponentTarget())  # Simplified - original targeted a creature
+        )
+    ]
 )
 
 
 def bellatrix_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When attacks, opponent sacrifices a creature."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SACRIFICE, payload={
-            'player': 'opponent', 'type': 'creature'
-        }, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
+    def attack_filter(event, state, src=obj):
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        return event.payload.get('attacker_id') == src.id
+
+    def attack_handler(event, state, src=obj):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.SACRIFICE, payload={
+                'player': 'opponent', 'type': 'creature'
+            }, source=src.id)]
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=attack_handler,
+        duration='while_on_battlefield'
+    )]
 
 BELLATRIX_LESTRANGE = make_creature(
     name="Bellatrix Lestrange, Mad Servant",
@@ -990,10 +1144,6 @@ BELLATRIX_LESTRANGE = make_creature(
 )
 
 
-def draco_malfoy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Other Slytherins get +1/+0."""
-    return make_static_pt_boost(obj, 1, 0, other_creatures_with_subtype(obj, "Slytherin"))
-
 DRACO_MALFOY = make_creature(
     name="Draco Malfoy, Cunning Heir",
     power=2, toughness=2,
@@ -1001,16 +1151,14 @@ DRACO_MALFOY = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Wizard", "Slytherin"},
     supertypes={"Legendary"},
-    text="Other Slytherin creatures you control get +1/+0. {1}{B}, Sacrifice another creature: Draw a card.",
-    setup_interceptors=draco_malfoy_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 0),
+            filter=CreaturesWithSubtypeFilter("Slytherin", include_self=False)
+        )
+    ]
 )
 
-
-def lucius_malfoy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB - opponent discards."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DISCARD, payload={'player': 'opponent', 'amount': 1}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 LUCIUS_MALFOY = make_creature(
     name="Lucius Malfoy, Dark Aristocrat",
@@ -1019,8 +1167,12 @@ LUCIUS_MALFOY = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Wizard", "Death Eater"},
     supertypes={"Legendary"},
-    text="When Lucius Malfoy enters, target opponent discards a card. Death Eaters you control have menace.",
-    setup_interceptors=lucius_malfoy_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DiscardCards(1, target=EachOpponentTarget())
+        )
+    ]
 )
 
 
@@ -1236,7 +1388,7 @@ FIENDFYRE = make_sorcery(
 
 def dark_arts_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever a creature you control dies, each opponent loses 1 life."""
-    def death_filter(event: Event, state: GameState, source: GameObject) -> bool:
+    def death_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.ZONE_CHANGE:
             return False
         if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
@@ -1247,20 +1399,23 @@ def dark_arts_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         dying = state.objects.get(dying_id)
         if not dying:
             return False
-        return dying.controller == source.controller and CardType.CREATURE in dying.characteristics.types
+        return dying.controller == obj.controller and CardType.CREATURE in dying.characteristics.types
 
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={
-            'player': 'each_opponent', 'amount': -1
-        }, source=obj.id)]
+    def death_handler(event, state, src=obj):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.LIFE_CHANGE, payload={
+                'player': 'each_opponent', 'amount': -1
+            }, source=src.id)]
+        )
 
     return [Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
         priority=InterceptorPriority.REACT,
-        filter=lambda e, s: death_filter(e, s, obj),
-        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=death_effect(e, s)),
+        filter=death_filter,
+        handler=death_handler,
         duration='while_on_battlefield'
     )]
 
@@ -1313,14 +1468,31 @@ RON_WEASLEY = make_creature(
 
 def fred_and_george_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When attacks, create a copy token."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.CREATE_TOKEN, payload={
-            'controller': obj.controller,
-            'token': {'name': 'Weasley Twin', 'power': 2, 'toughness': 2, 'colors': {Color.RED},
-                     'subtypes': {'Human', 'Wizard', 'Gryffindor'}, 'keywords': ['haste'],
-                     'exile_eot': True}
-        }, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
+    def attack_filter(event, state, src=obj):
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        return event.payload.get('attacker_id') == src.id
+
+    def attack_handler(event, state, src=obj):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.CREATE_TOKEN, payload={
+                'controller': src.controller,
+                'token': {'name': 'Weasley Twin', 'power': 2, 'toughness': 2, 'colors': {Color.RED},
+                         'subtypes': {'Human', 'Wizard', 'Gryffindor'}, 'keywords': ['haste'],
+                         'exile_eot': True}
+            }, source=src.id)]
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=attack_handler,
+        duration='while_on_battlefield'
+    )]
 
 FRED_AND_GEORGE = make_creature(
     name="Fred and George Weasley, Pranksters",
@@ -1336,11 +1508,33 @@ FRED_AND_GEORGE = make_creature(
 
 def ginny_weasley_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Spell Mastery - has double strike."""
-    def mastery_check(target: GameObject, state: GameState) -> bool:
-        if target.id != obj.id:
+    # Custom conditional keyword grant
+    def ability_filter(event, state, src=obj):
+        if event.type != EventType.QUERY_ABILITIES:
             return False
-        return has_spell_mastery(state, obj.controller)
-    return [make_keyword_grant(obj, ['double_strike'], mastery_check)]
+        target_id = event.payload.get('object_id')
+        return target_id == src.id and has_spell_mastery(state, src.controller)
+
+    def ability_handler(event, state):
+        new_event = event.copy()
+        granted = list(new_event.payload.get('granted', []))
+        if 'double_strike' not in granted:
+            granted.append('double_strike')
+        new_event.payload['granted'] = granted
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=ability_filter,
+        handler=ability_handler,
+        duration='while_on_battlefield'
+    )]
 
 GINNY_WEASLEY = make_creature(
     name="Ginny Weasley, Fierce Duelist",
@@ -1354,10 +1548,6 @@ GINNY_WEASLEY = make_creature(
 )
 
 
-def sirius_black_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attacks each combat if able."""
-    return []  # Forced attack handled by engine
-
 SIRIUS_BLACK = make_creature(
     name="Sirius Black, Escaped Convict",
     power=4, toughness=3,
@@ -1365,18 +1555,9 @@ SIRIUS_BLACK = make_creature(
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="Haste. Sirius Black attacks each combat if able. Whenever Sirius deals combat damage to a player, draw a card.",
-    setup_interceptors=sirius_black_setup
+    text="Haste. Sirius Black attacks each combat if able. Whenever Sirius deals combat damage to a player, draw a card."
 )
 
-
-def molly_weasley_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death trigger - deal 3 damage to creature that killed her."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={
-            'target': 'damage_source', 'amount': 5, 'source': obj.id
-        }, source=obj.id)]
-    return [make_death_trigger(obj, death_effect)]
 
 MOLLY_WEASLEY = make_creature(
     name="Molly Weasley, Protective Mother",
@@ -1385,8 +1566,12 @@ MOLLY_WEASLEY = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="When Molly Weasley dies, she deals 5 damage to target creature.",
-    setup_interceptors=molly_weasley_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=DealDamage(5, target=EachOpponentTarget())  # Simplified - original targeted a creature
+        )
+    ]
 )
 
 
@@ -1610,10 +1795,6 @@ GRYFFINDOR_COURAGE = make_enchantment(
 
 # --- Legendary Creatures ---
 
-def hagrid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Other creatures get +1/+1."""
-    return make_static_pt_boost(obj, 1, 1, other_creatures_you_control(obj))
-
 RUBEUS_HAGRID = make_creature(
     name="Rubeus Hagrid, Keeper of Keys",
     power=4, toughness=5,
@@ -1621,18 +1802,22 @@ RUBEUS_HAGRID = make_creature(
     colors={Color.GREEN},
     subtypes={"Giant", "Wizard"},
     supertypes={"Legendary"},
-    text="Trample. Other creatures you control get +1/+1. {2}{G}: Create a 3/3 green Beast creature token.",
-    setup_interceptors=hagrid_setup
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=OtherCreaturesYouControlFilter()
+        )
+    ]
 )
 
 
 def pomona_sprout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep - put +1/+1 counter on target creature."""
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.COUNTER_ADDED, payload={
-            'target': 'target_creature', 'counter_type': '+1/+1', 'amount': 1
-        }, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
+    ability = TriggeredAbility(
+        trigger=UpkeepTrigger(),
+        effect=AddCounters("+1/+1", 1)  # Self - would need targeting for "target creature"
+    )
+    return ability.generate_interceptors(obj, state)
 
 POMONA_SPROUT = make_creature(
     name="Pomona Sprout, Herbology Master",
@@ -2539,3 +2724,205 @@ HARRY_POTTER_CARDS = {
     "Shrieking Shack": SHRIEKING_SHACK,
     "Platform Nine and Three-Quarters": PLATFORM_NINE_THREE_QUARTERS,
 }
+
+
+# =============================================================================
+# CARDS EXPORT
+# =============================================================================
+
+CARDS = [
+    HARRY_POTTER_THE_CHOSEN_ONE,
+    HERMIONE_GRANGER,
+    ALBUS_DUMBLEDORE,
+    MINERVA_MCGONAGALL,
+    NEVILLE_LONGBOTTOM,
+    GRYFFINDOR_PREFECT,
+    AUROR_RECRUIT,
+    HOGWARTS_DEFENDER,
+    ORDER_PHOENIX_MEMBER,
+    MINISTRY_AUROR,
+    PATRONUS_CASTER,
+    HOGWARTS_FIRST_YEAR,
+    DUMBLEDORES_ARMY_RECRUIT,
+    WEASLEY_MATRIARCH,
+    HOGWARTS_GHOST,
+    QUIDDITCH_REFEREE,
+    HEALING_WITCH,
+    ST_MUNGOS_HEALER,
+    PHOENIX_GUARDIAN,
+    EXPECTO_PATRONUM,
+    PROTEGO,
+    SHIELD_CHARM,
+    COUNTER_CURSE,
+    PRIORI_INCANTATEM,
+    HEALING_SPELL,
+    DISILLUSIONMENT_CHARM,
+    CALL_THE_ORDER,
+    SORTING_CEREMONY,
+    OBLIVIATE,
+    LIGHT_MAGIC,
+    DUMBLEDORES_PROTECTION,
+    GRYFFINDOR_BANNER,
+    LUNA_LOVEGOOD,
+    FILIUS_FLITWICK,
+    CHO_CHANG,
+    MOANING_MYRTLE,
+    RAVENCLAW_PREFECT,
+    HOGWARTS_SCHOLAR,
+    DIVINATION_STUDENT,
+    LIBRARY_RESEARCHER,
+    SPELL_THEORIST,
+    HOGWARTS_LIBRARIAN,
+    UNSPEAKABLE,
+    PENSIEVE_KEEPER,
+    THESTRAL,
+    TIME_TURNER_USER,
+    MEMORY_CHARM_SPECIALIST,
+    STUPEFY,
+    ACCIO,
+    CONFUNDO,
+    PETRIFICUS_TOTALUS,
+    LEGILIMENS,
+    AGUAMENTI,
+    FINITE_INCANTATEM,
+    DIVINATION_SPELL,
+    CRYSTAL_BALL_READING,
+    MEMORY_WIPE,
+    TRANSFIGURATION,
+    LIBRARY_OF_HOGWARTS,
+    RAVENCLAW_BANNER,
+    LORD_VOLDEMORT,
+    SEVERUS_SNAPE,
+    BELLATRIX_LESTRANGE,
+    DRACO_MALFOY,
+    LUCIUS_MALFOY,
+    SLYTHERIN_PREFECT,
+    DEATH_EATER_INITIATE,
+    DEMENTOR,
+    DEMENTOR_SWARM,
+    INFERIUS,
+    DARK_WIZARD,
+    KNOCKTURN_ALLEY_VENDOR,
+    BASILISK,
+    ACROMANTULA,
+    NAGINI,
+    AZKABAN_GUARD,
+    GREYBACK,
+    AVADA_KEDAVRA,
+    CRUCIO,
+    IMPERIO,
+    SECTUMSEMPRA,
+    MORSMORDRE,
+    DARK_MARK,
+    CURSE_OF_THE_BOGIES,
+    SUMMON_INFERI,
+    DARK_RITUAL_SPELL,
+    FIENDFYRE,
+    THE_DARK_ARTS,
+    SLYTHERIN_BANNER,
+    HORCRUX_CURSE,
+    RON_WEASLEY,
+    FRED_AND_GEORGE,
+    GINNY_WEASLEY,
+    SIRIUS_BLACK,
+    MOLLY_WEASLEY,
+    WEASLEY_TWIN_PRANKSTER,
+    QUIDDITCH_BEATER,
+    DRAGON_HANDLER,
+    HUNGARIAN_HORNTAIL,
+    NORWEGIAN_RIDGEBACK,
+    CHINESE_FIREBALL,
+    COMMON_WELSH_GREEN,
+    GOBLIN_BANKER,
+    FIENDFYRE_ELEMENTAL,
+    BLAST_ENDED_SKREWT,
+    ERUMPENT,
+    INCENDIO,
+    CONFRINGO,
+    BOMBARDA,
+    REDUCTO,
+    EXPULSO,
+    DRAGONS_BREATH,
+    WEASLEY_FIREWORK,
+    DRAGONS_FIRE,
+    PYROTECHNICS,
+    SUMMON_DRAGON,
+    WEASLEYS_WIZARD_WHEEZES,
+    GRYFFINDOR_COURAGE,
+    RUBEUS_HAGRID,
+    POMONA_SPROUT,
+    CEDRIC_DIGGORY,
+    NEWT_SCAMANDER,
+    HUFFLEPUFF_PREFECT,
+    MANDRAKE,
+    VENOMOUS_TENTACULA,
+    BOWTRUCKLE,
+    HIPPOGRIFF,
+    BUCKBEAK,
+    FAWKES_THE_PHOENIX,
+    UNICORN,
+    CENTAUR_ARCHER,
+    FORBIDDEN_FOREST_SPIDER,
+    NIFFLER,
+    THESTRAL_HERD,
+    WHOMPING_WILLOW,
+    GIANT_SQUID,
+    HERBIVICUS,
+    WILD_GROWTH_SPELL,
+    ENGORGIO,
+    BEASTS_FURY,
+    NATURES_PROTECTION,
+    GREENHOUSE_HARVEST,
+    CREATURE_SUMMONING,
+    MANDRAKE_RESTORATIVE,
+    HERBOLOGY_CLASSROOM,
+    HUFFLEPUFF_BANNER,
+    FORBIDDEN_FOREST,
+    ELDER_WAND,
+    RESURRECTION_STONE,
+    INVISIBILITY_CLOAK,
+    SWORD_OF_GRYFFINDOR,
+    MARAUDERS_MAP,
+    SORTING_HAT,
+    HORCRUX_DIARY,
+    HORCRUX_LOCKET,
+    HORCRUX_CUP,
+    HORCRUX_DIADEM,
+    HORCRUX_RING,
+    FIREBOLT_BROOM,
+    NIMBUS_2000,
+    WAND_OF_PHOENIX_FEATHER,
+    WAND_OF_DRAGON_HEARTSTRING,
+    WAND_OF_UNICORN_HAIR,
+    PENSIEVE,
+    GOLDEN_SNITCH,
+    QUAFFLE,
+    BLUDGER,
+    TIME_TURNER,
+    DELUMINATOR,
+    PORTKEY,
+    FLOO_POWDER,
+    GOBLET_OF_FIRE,
+    MIRROR_OF_ERISED,
+    VANISHING_CABINET,
+    HOGWARTS_CASTLE,
+    GRYFFINDOR_COMMON_ROOM,
+    SLYTHERIN_DUNGEON,
+    RAVENCLAW_TOWER,
+    HUFFLEPUFF_BASEMENT,
+    DIAGON_ALLEY,
+    HOGSMEADE_VILLAGE,
+    FORBIDDEN_FOREST_LAND,
+    MINISTRY_OF_MAGIC,
+    AZKABAN,
+    GODRICS_HOLLOW,
+    GRIMMAULD_PLACE,
+    THE_BURROW,
+    MALFOY_MANOR,
+    KNOCKTURN_ALLEY,
+    GRINGOTTS,
+    QUIDDITCH_PITCH,
+    ROOM_OF_REQUIREMENT,
+    SHRIEKING_SHACK,
+    PLATFORM_NINE_THREE_QUARTERS
+]

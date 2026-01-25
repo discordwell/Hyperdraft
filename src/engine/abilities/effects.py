@@ -411,11 +411,16 @@ class CreateToken(Effect):
         # P/T
         parts.append(f"{self.power}/{self.toughness}")
 
-        # Colors
+        # Colors - handle both Color enums and string values
         color_map = {'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green'}
-        color_names = [color_map.get(c, c) for c in sorted(self.colors)]
+        color_names = []
+        for c in self.colors:
+            if hasattr(c, 'value'):  # Color enum
+                color_names.append(color_map.get(c.value, c.name.lower()))
+            else:  # String
+                color_names.append(color_map.get(c, str(c)))
         if color_names:
-            parts.append(" ".join(color_names))
+            parts.append(" ".join(sorted(color_names)))
 
         # Name/type
         parts.append(self.name)
@@ -594,7 +599,9 @@ class CompositeEffect(Effect):
 
     def render_text(self, card_name: str) -> str:
         texts = [e.render_text(card_name) for e in self.effects]
-        if len(texts) == 1:
+        if len(texts) == 0:
+            return ""
+        elif len(texts) == 1:
             return texts[0]
         elif len(texts) == 2:
             return f"{texts[0]} and {texts[1]}"

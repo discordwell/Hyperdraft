@@ -3,6 +3,8 @@ Pokemon Horizons (PKH) Card Implementations
 
 Set featuring Pokemon mechanics: Evolve, Catch, Type Advantage
 ~250 cards across all colors
+
+Converted to use the declarative ability system.
 """
 
 from src.engine import (
@@ -11,7 +13,17 @@ from src.engine import (
     GameObject, GameState, ZoneType, CardType, Color,
     Characteristics, ObjectState, CardDefinition,
     make_creature, make_instant, make_enchantment,
-    new_id, get_power, get_toughness
+    new_id, get_power, get_toughness,
+    # Ability system imports
+    TriggeredAbility, StaticAbility, KeywordAbility,
+    ETBTrigger, DeathTrigger, AttackTrigger, DealsDamageTrigger,
+    UpkeepTrigger, SpellCastTrigger,
+    GainLife, LoseLife, DrawCards, DealDamage, CompositeEffect,
+    PTBoost, KeywordGrant,
+    SelfTarget, AnotherCreature, AnotherCreatureYouControl,
+    OtherCreaturesYouControlFilter, CreaturesWithSubtypeFilter, CreaturesYouControlFilter,
+    OpponentCreaturesFilter,
+    EachOpponentTarget,
 )
 from typing import Optional, Callable
 from src.cards.interceptor_helpers import (
@@ -123,14 +135,6 @@ def make_type_advantage(source_obj: GameObject, bonus_damage: int, target_subtyp
 
 # --- Legendary Pokemon ---
 
-def arceus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors = []
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 5}, source=obj.id)]
-    interceptors.append(make_etb_trigger(obj, etb_effect))
-    interceptors.extend(make_static_pt_boost(obj, 1, 1, other_creatures_you_control(obj)))
-    return interceptors
-
 ARCEUS = make_creature(
     name="Arceus, The Original One",
     power=6, toughness=6,
@@ -138,14 +142,19 @@ ARCEUS = make_creature(
     colors={Color.WHITE},
     subtypes={"Pokemon", "Normal"},
     supertypes={"Legendary"},
-    text="Flying, vigilance. When Arceus enters, you gain 5 life. Other creatures you control get +1/+1.",
-    setup_interceptors=arceus_setup
+    abilities=[
+        KeywordAbility("Flying"),
+        KeywordAbility("Vigilance"),
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=GainLife(5)
+        ),
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=OtherCreaturesYouControlFilter()
+        )
+    ]
 )
-
-def togekiss_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
 
 TOGEKISS = make_creature(
     name="Togekiss, Jubilee Pokemon",
@@ -154,12 +163,15 @@ TOGEKISS = make_creature(
     colors={Color.WHITE},
     subtypes={"Pokemon", "Fairy", "Flying"},
     supertypes={"Legendary"},
-    text="Flying, lifelink. When Togekiss enters, you gain 3 life.",
-    setup_interceptors=togekiss_setup
+    abilities=[
+        KeywordAbility("Flying"),
+        KeywordAbility("Lifelink"),
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=GainLife(3)
+        )
+    ]
 )
-
-def clefable_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_keyword_grant(obj, ['hexproof'], other_creatures_with_subtype(obj, "Fairy"))]
 
 CLEFABLE = make_creature(
     name="Clefable, Fairy Queen",
@@ -168,8 +180,12 @@ CLEFABLE = make_creature(
     colors={Color.WHITE},
     subtypes={"Pokemon", "Fairy"},
     supertypes={"Legendary"},
-    text="Other Fairy Pokemon you control have hexproof.",
-    setup_interceptors=clefable_setup
+    abilities=[
+        StaticAbility(
+            effect=KeywordGrant(["hexproof"]),
+            filter=CreaturesWithSubtypeFilter("Fairy", include_self=False)
+        )
+    ]
 )
 
 SYLVEON = make_creature(
@@ -247,7 +263,12 @@ JIGGLYPUFF = make_creature(
 WIGGLYTUFF = make_creature(
     name="Wigglytuff", power=2, toughness=4, mana_cost="{2}{W}{W}",
     colors={Color.WHITE}, subtypes={"Pokemon", "Normal", "Fairy"},
-    text="Other Fairy creatures you control get +1/+1."
+    abilities=[
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Fairy", include_self=False)
+        )
+    ]
 )
 
 PERSIAN = make_creature(
@@ -271,19 +292,19 @@ PIDGEOT = make_creature(
 PIDGEY = make_creature(
     name="Pidgey", power=1, toughness=1, mana_cost="{W}",
     colors={Color.WHITE}, subtypes={"Pokemon", "Normal", "Flying"},
-    text="Flying."
+    abilities=[KeywordAbility("Flying")]
 )
 
 RATTATA = make_creature(
     name="Rattata", power=1, toughness=1, mana_cost="{W}",
     colors={Color.WHITE}, subtypes={"Pokemon", "Normal"},
-    text="Haste."
+    abilities=[KeywordAbility("Haste")]
 )
 
 RATICATE = make_creature(
     name="Raticate", power=2, toughness=2, mana_cost="{1}{W}",
     colors={Color.WHITE}, subtypes={"Pokemon", "Normal"},
-    text="First strike, haste."
+    abilities=[KeywordAbility("First strike"), KeywordAbility("Haste")]
 )
 
 FURRET = make_creature(
@@ -295,7 +316,12 @@ FURRET = make_creature(
 AUDINO = make_creature(
     name="Audino", power=2, toughness=3, mana_cost="{2}{W}",
     colors={Color.WHITE}, subtypes={"Pokemon", "Normal"},
-    text="When Audino enters, you gain 2 life."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=GainLife(2)
+        )
+    ]
 )
 
 DITTO = make_creature(
@@ -331,7 +357,12 @@ GRANBULL = make_creature(
 FLORGES = make_creature(
     name="Florges", power=2, toughness=4, mana_cost="{2}{W}{W}",
     colors={Color.WHITE}, subtypes={"Pokemon", "Fairy"},
-    text="Other Fairy creatures you control have lifelink."
+    abilities=[
+        StaticAbility(
+            effect=KeywordGrant(["lifelink"]),
+            filter=CreaturesWithSubtypeFilter("Fairy", include_self=False)
+        )
+    ]
 )
 
 # --- White Trainers (Instants/Sorceries) ---
@@ -393,11 +424,6 @@ MOONBLAST = make_instant(
 
 # --- Legendary Pokemon ---
 
-def mewtwo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def spell_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_spell_cast_trigger(obj, spell_effect, controller_only=True)]
-
 MEWTWO = make_creature(
     name="Mewtwo, Genetic Pokemon",
     power=5, toughness=4,
@@ -405,12 +431,14 @@ MEWTWO = make_creature(
     colors={Color.BLUE},
     subtypes={"Pokemon", "Psychic"},
     supertypes={"Legendary"},
-    text="Flying. Whenever you cast an instant or sorcery spell, draw a card.",
-    setup_interceptors=mewtwo_setup
+    abilities=[
+        KeywordAbility("Flying"),
+        TriggeredAbility(
+            trigger=SpellCastTrigger(spell_types={CardType.INSTANT, CardType.SORCERY}, controller_only=True),
+            effect=DrawCards(1)
+        )
+    ]
 )
-
-def mew_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_keyword_grant(obj, ['hexproof'], creatures_you_control(obj))]
 
 MEW = make_creature(
     name="Mew, New Species Pokemon",
@@ -419,8 +447,15 @@ MEW = make_creature(
     colors={Color.BLUE},
     subtypes={"Pokemon", "Psychic"},
     supertypes={"Legendary"},
-    text="Flying, hexproof. {U}: Mew becomes a copy of another target creature until end of turn.",
-    setup_interceptors=mew_setup
+    abilities=[
+        KeywordAbility("Flying"),
+        KeywordAbility("Hexproof"),
+        StaticAbility(
+            effect=KeywordGrant(["hexproof"]),
+            filter=CreaturesYouControlFilter()
+        )
+    ],
+    text="Flying, hexproof. {U}: Mew becomes a copy of another target creature until end of turn."
 )
 
 LUGIA = make_creature(
@@ -518,7 +553,12 @@ PSYDUCK = make_creature(
 GOLDUCK = make_creature(
     name="Golduck", power=3, toughness=3, mana_cost="{2}{U}{U}",
     colors={Color.BLUE}, subtypes={"Pokemon", "Water", "Psychic"},
-    text="When Golduck enters, draw a card."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DrawCards(1)
+        )
+    ]
 )
 
 VAPOREON = make_creature(
@@ -564,7 +604,13 @@ DEWGONG = make_creature(
 STARMIE = make_creature(
     name="Starmie", power=2, toughness=3, mana_cost="{1}{U}{U}",
     colors={Color.BLUE}, subtypes={"Pokemon", "Water", "Psychic"},
-    text="Flash. When Starmie enters, draw a card."
+    abilities=[
+        KeywordAbility("Flash"),
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DrawCards(1)
+        )
+    ]
 )
 
 STARYU = make_creature(
@@ -612,7 +658,13 @@ GARDEVOIR = make_creature(
 GALLADE = make_creature(
     name="Gallade", power=4, toughness=2, mana_cost="{2}{U}{U}",
     colors={Color.BLUE}, subtypes={"Pokemon", "Psychic", "Fighting"},
-    text="First strike. When Gallade enters, draw a card."
+    abilities=[
+        KeywordAbility("First strike"),
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DrawCards(1)
+        )
+    ]
 )
 
 WOBBUFFET = make_creature(
@@ -698,12 +750,6 @@ FUTURE_SIGHT_SPELL = make_sorcery(
 
 # --- Legendary Pokemon ---
 
-def gengar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': p_id, 'amount': -3}, source=obj.id)
-                for p_id in state.players if p_id != obj.controller]
-    return [make_death_trigger(obj, death_effect)]
-
 GENGAR = make_creature(
     name="Gengar, Shadow Pokemon",
     power=4, toughness=3,
@@ -711,15 +757,14 @@ GENGAR = make_creature(
     colors={Color.BLACK},
     subtypes={"Pokemon", "Ghost", "Poison"},
     supertypes={"Legendary"},
-    text="Menace. When Gengar dies, each opponent loses 3 life.",
-    setup_interceptors=gengar_setup
+    abilities=[
+        KeywordAbility("Menace"),
+        TriggeredAbility(
+            trigger=DeathTrigger(),
+            effect=LoseLife(3, target=EachOpponentTarget())
+        )
+    ]
 )
-
-def darkrai_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': p_id, 'amount': -1}, source=obj.id)
-                for p_id in state.players if p_id != obj.controller]
-    return [make_upkeep_trigger(obj, upkeep_effect, controller_only=True)]
 
 DARKRAI = make_creature(
     name="Darkrai, Pitch-Black Pokemon",
@@ -728,8 +773,13 @@ DARKRAI = make_creature(
     colors={Color.BLACK},
     subtypes={"Pokemon", "Dark"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, each opponent loses 1 life. Creatures your opponents control enter the battlefield tapped.",
-    setup_interceptors=darkrai_setup
+    abilities=[
+        TriggeredAbility(
+            trigger=UpkeepTrigger(your_upkeep=True),
+            effect=LoseLife(1, target=EachOpponentTarget())
+        )
+    ],
+    text="At the beginning of your upkeep, each opponent loses 1 life. Creatures your opponents control enter the battlefield tapped."
 )
 
 YVELTAL = make_creature(
@@ -752,12 +802,6 @@ GIRATINA = make_creature(
     text="Flying. When Giratina enters, exile target creature. When Giratina leaves the battlefield, return that card to the battlefield."
 )
 
-def umbreon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': p_id, 'amount': -2}, source=obj.id)
-                for p_id in state.players if p_id != obj.controller]
-    return [make_attack_trigger(obj, attack_effect)]
-
 UMBREON = make_creature(
     name="Umbreon, Moonlight Pokemon",
     power=3, toughness=3,
@@ -765,8 +809,13 @@ UMBREON = make_creature(
     colors={Color.BLACK},
     subtypes={"Pokemon", "Dark"},
     supertypes={"Legendary"},
-    text="Hexproof. Whenever Umbreon attacks, each opponent loses 2 life.",
-    setup_interceptors=umbreon_setup
+    abilities=[
+        KeywordAbility("Hexproof"),
+        TriggeredAbility(
+            trigger=AttackTrigger(),
+            effect=LoseLife(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
 ABSOL = make_creature(
@@ -810,7 +859,13 @@ EEVEE_B = make_creature(
 MUK = make_creature(
     name="Muk", power=4, toughness=4, mana_cost="{3}{B}{B}",
     colors={Color.BLACK}, subtypes={"Pokemon", "Poison"},
-    text="Deathtouch. Creatures your opponents control get -1/-1."
+    abilities=[
+        KeywordAbility("Deathtouch"),
+        StaticAbility(
+            effect=PTBoost(-1, -1),
+            filter=OpponentCreaturesFilter()
+        )
+    ]
 )
 
 GRIMER = make_creature(
@@ -870,7 +925,13 @@ MURKROW = make_creature(
 HONCHKROW = make_creature(
     name="Honchkrow", power=4, toughness=3, mana_cost="{3}{B}{B}",
     colors={Color.BLACK}, subtypes={"Pokemon", "Dark", "Flying"},
-    text="Flying. Other Dark creatures you control get +1/+0."
+    abilities=[
+        KeywordAbility("Flying"),
+        StaticAbility(
+            effect=PTBoost(1, 0),
+            filter=CreaturesWithSubtypeFilter("Dark", include_self=False)
+        )
+    ]
 )
 
 SPIRITOMB = make_creature(
@@ -894,7 +955,14 @@ TOXICROAK = make_creature(
 CROBAT = make_creature(
     name="Crobat", power=3, toughness=2, mana_cost="{2}{B}{B}",
     colors={Color.BLACK}, subtypes={"Pokemon", "Poison", "Flying"},
-    text="Flying, lifelink. When Crobat enters, target opponent loses 2 life."
+    abilities=[
+        KeywordAbility("Flying"),
+        KeywordAbility("Lifelink"),
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=LoseLife(2, target=EachOpponentTarget())
+        )
+    ]
 )
 
 ZUBAT = make_creature(
@@ -906,7 +974,13 @@ ZUBAT = make_creature(
 GOLBAT = make_creature(
     name="Golbat", power=2, toughness=2, mana_cost="{1}{B}",
     colors={Color.BLACK}, subtypes={"Pokemon", "Poison", "Flying"},
-    text="Flying. When Golbat enters, target opponent loses 1 life."
+    abilities=[
+        KeywordAbility("Flying"),
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=LoseLife(1, target=EachOpponentTarget())
+        )
+    ]
 )
 
 # --- Black Trainers ---
@@ -1100,13 +1174,13 @@ EEVEE_R = make_creature(
 JOLTEON = make_creature(
     name="Jolteon", power=3, toughness=2, mana_cost="{1}{R}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Electric"},
-    text="First strike, haste."
+    abilities=[KeywordAbility("First strike"), KeywordAbility("Haste")]
 )
 
 ARCANINE = make_creature(
     name="Arcanine", power=5, toughness=4, mana_cost="{3}{R}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fire"},
-    text="Haste, trample."
+    abilities=[KeywordAbility("Haste"), KeywordAbility("Trample")]
 )
 
 GROWLITHE = make_creature(
@@ -1130,13 +1204,13 @@ VULPIX = make_creature(
 RAPIDASH = make_creature(
     name="Rapidash", power=4, toughness=3, mana_cost="{2}{R}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fire"},
-    text="Haste, first strike."
+    abilities=[KeywordAbility("Haste"), KeywordAbility("First strike")]
 )
 
 PONYTA = make_creature(
     name="Ponyta", power=2, toughness=2, mana_cost="{1}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fire"},
-    text="Haste."
+    abilities=[KeywordAbility("Haste")]
 )
 
 MAGMAR = make_creature(
@@ -1184,7 +1258,7 @@ PRIMEAPE = make_creature(
 MANKEY = make_creature(
     name="Mankey", power=2, toughness=1, mana_cost="{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fighting"},
-    text="Haste."
+    abilities=[KeywordAbility("Haste")]
 )
 
 LUCARIO = make_creature(
@@ -1196,13 +1270,13 @@ LUCARIO = make_creature(
 BLAZIKEN = make_creature(
     name="Blaziken", power=5, toughness=3, mana_cost="{3}{R}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fire", "Fighting"},
-    text="Haste, double strike."
+    abilities=[KeywordAbility("Haste"), KeywordAbility("Double strike")]
 )
 
 INFERNAPE = make_creature(
     name="Infernape", power=4, toughness=3, mana_cost="{2}{R}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fire", "Fighting"},
-    text="Haste, first strike."
+    abilities=[KeywordAbility("Haste"), KeywordAbility("First strike")]
 )
 
 LUXRAY = make_creature(
@@ -1282,10 +1356,6 @@ ERUPTION = make_sorcery(
 
 # --- Legendary Pokemon ---
 
-def venusaur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors = make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Grass"))
-    return interceptors
-
 VENUSAUR = make_creature(
     name="Venusaur, Seed Pokemon",
     power=5, toughness=5,
@@ -1293,8 +1363,13 @@ VENUSAUR = make_creature(
     colors={Color.GREEN},
     subtypes={"Pokemon", "Grass", "Poison"},
     supertypes={"Legendary"},
-    text="Trample. Other Grass Pokemon you control get +1/+1.",
-    setup_interceptors=venusaur_setup
+    abilities=[
+        KeywordAbility("Trample"),
+        StaticAbility(
+            effect=PTBoost(1, 1),
+            filter=CreaturesWithSubtypeFilter("Grass", include_self=False)
+        )
+    ]
 )
 
 CELEBI = make_creature(
@@ -1360,7 +1435,13 @@ SHAYMIN = make_creature(
     colors={Color.GREEN},
     subtypes={"Pokemon", "Grass"},
     supertypes={"Legendary"},
-    text="Flying. When Shaymin enters, you gain 3 life and draw a card."
+    abilities=[
+        KeywordAbility("Flying"),
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=CompositeEffect([GainLife(3), DrawCards(1)])
+        )
+    ]
 )
 
 # --- Regular Green Pokemon ---
@@ -1394,7 +1475,12 @@ EEVEE_G = make_creature(
 EXEGGUTOR = make_creature(
     name="Exeggutor", power=4, toughness=4, mana_cost="{3}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Grass", "Psychic"},
-    text="When Exeggutor enters, draw two cards."
+    abilities=[
+        TriggeredAbility(
+            trigger=ETBTrigger(),
+            effect=DrawCards(2)
+        )
+    ]
 )
 
 EXEGGCUTE = make_creature(
@@ -1418,7 +1504,7 @@ VILEPLUME = make_creature(
 VICTREEBEL = make_creature(
     name="Victreebel", power=4, toughness=3, mana_cost="{2}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Grass", "Poison"},
-    text="Deathtouch. Reach."
+    abilities=[KeywordAbility("Deathtouch"), KeywordAbility("Reach")]
 )
 
 PARASECT = make_creature(
@@ -1448,13 +1534,13 @@ METAPOD = make_creature(
 BEEDRILL = make_creature(
     name="Beedrill", power=3, toughness=2, mana_cost="{2}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Bug", "Poison"},
-    text="Flying, deathtouch."
+    abilities=[KeywordAbility("Flying"), KeywordAbility("Deathtouch")]
 )
 
 SCYTHER = make_creature(
     name="Scyther", power=4, toughness=2, mana_cost="{2}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Bug", "Flying"},
-    text="Flying, first strike."
+    abilities=[KeywordAbility("Flying"), KeywordAbility("First strike")]
 )
 
 PINSIR = make_creature(
@@ -1502,7 +1588,7 @@ MAMOSWINE = make_creature(
 NIDOKING = make_creature(
     name="Nidoking", power=4, toughness=4, mana_cost="{3}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Poison", "Ground"},
-    text="Trample, deathtouch."
+    abilities=[KeywordAbility("Trample"), KeywordAbility("Deathtouch")]
 )
 
 NIDOQUEEN = make_creature(
@@ -2031,3 +2117,248 @@ POKEMON_HORIZONS_CARDS = {
 }
 
 print(f"Loaded {len(POKEMON_HORIZONS_CARDS)} Pokemon Horizons cards")
+
+
+# =============================================================================
+# CARDS EXPORT
+# =============================================================================
+
+CARDS = [
+    ARCEUS,
+    TOGEKISS,
+    CLEFABLE,
+    SYLVEON,
+    EEVEE_W,
+    CLEFAIRY,
+    TOGEPI,
+    TOGETIC,
+    CHANSEY,
+    BLISSEY,
+    SNORLAX,
+    JIGGLYPUFF,
+    WIGGLYTUFF,
+    PERSIAN,
+    MEOWTH,
+    PIDGEOT,
+    PIDGEY,
+    RATTATA,
+    RATICATE,
+    FURRET,
+    AUDINO,
+    DITTO,
+    SLAKING,
+    MILTANK,
+    TAUROS,
+    GRANBULL,
+    FLORGES,
+    POTION,
+    SUPER_POTION,
+    HYPER_POTION,
+    FULL_RESTORE,
+    POKEMON_CENTER,
+    PROFESSOR_OAK,
+    HEAL_BELL,
+    PROTECT,
+    SAFEGUARD,
+    MOONBLAST,
+    MEWTWO,
+    MEW,
+    LUGIA,
+    SUICUNE,
+    ARTICUNO,
+    KYOGRE,
+    BLASTOISE,
+    ALAKAZAM,
+    SQUIRTLE,
+    WARTORTLE,
+    PSYDUCK,
+    GOLDUCK,
+    VAPOREON,
+    EEVEE_U,
+    SLOWPOKE,
+    SLOWBRO,
+    LAPRAS,
+    DEWGONG,
+    STARMIE,
+    STARYU,
+    TENTACRUEL,
+    GYARADOS,
+    MAGIKARP,
+    MILOTIC,
+    ESPEON,
+    GARDEVOIR,
+    GALLADE,
+    WOBBUFFET,
+    GLACEON,
+    WALREIN,
+    CLOYSTER,
+    DIVE_BALL,
+    MISTY_DETERMINATION,
+    CONFUSION,
+    PSYCHIC,
+    HYDRO_PUMP,
+    BLIZZARD,
+    SURF,
+    TELEKINESIS,
+    AMNESIA,
+    FUTURE_SIGHT_SPELL,
+    GENGAR,
+    DARKRAI,
+    YVELTAL,
+    GIRATINA,
+    UMBREON,
+    ABSOL,
+    GASTLY,
+    HAUNTER,
+    EEVEE_B,
+    MUK,
+    GRIMER,
+    WEEZING,
+    KOFFING,
+    DUSKNOIR,
+    MISDREAVUS,
+    MISMAGIUS,
+    HOUNDOOM,
+    HOUNDOUR,
+    MURKROW,
+    HONCHKROW,
+    SPIRITOMB,
+    SABLEYE,
+    TOXICROAK,
+    CROBAT,
+    ZUBAT,
+    GOLBAT,
+    NIGHT_SHADE,
+    SHADOW_BALL,
+    DARK_PULSE,
+    DESTINY_BOND,
+    HEX,
+    MEAN_LOOK,
+    NIGHTMARE_SPELL,
+    TOXIC,
+    SUCKER_PUNCH,
+    PERISH_SONG,
+    CHARIZARD,
+    PIKACHU,
+    RAICHU,
+    MOLTRES,
+    ENTEI,
+    GROUDON,
+    MACHAMP,
+    ZAPDOS,
+    CHARMANDER,
+    CHARMELEON,
+    FLAREON,
+    EEVEE_R,
+    JOLTEON,
+    ARCANINE,
+    GROWLITHE,
+    NINETALES,
+    VULPIX,
+    RAPIDASH,
+    PONYTA,
+    MAGMAR,
+    MAGMORTAR,
+    ELECTABUZZ,
+    ELECTIVIRE,
+    HITMONLEE,
+    HITMONCHAN,
+    PRIMEAPE,
+    MANKEY,
+    LUCARIO,
+    BLAZIKEN,
+    INFERNAPE,
+    LUXRAY,
+    ELECTRODE,
+    VOLTORB,
+    FLAMETHROWER,
+    THUNDERBOLT,
+    FIRE_BLAST,
+    EARTHQUAKE_SPELL,
+    THUNDER,
+    BRICK_BREAK,
+    CLOSE_COMBAT,
+    OVERHEAT,
+    WILD_CHARGE,
+    ERUPTION,
+    VENUSAUR,
+    CELEBI,
+    RAYQUAZA,
+    SCEPTILE,
+    TORTERRA,
+    LEAFEON,
+    SHAYMIN,
+    BULBASAUR,
+    IVYSAUR,
+    EEVEE_G,
+    EXEGGUTOR,
+    EXEGGCUTE,
+    TANGROWTH,
+    VILEPLUME,
+    VICTREEBEL,
+    PARASECT,
+    BUTTERFREE,
+    CATERPIE,
+    METAPOD,
+    BEEDRILL,
+    SCYTHER,
+    PINSIR,
+    HERACROSS,
+    SANDSLASH,
+    DUGTRIO,
+    GOLEM,
+    RHYDON,
+    MAMOSWINE,
+    NIDOKING,
+    NIDOQUEEN,
+    RAZOR_LEAF,
+    SOLAR_BEAM,
+    LEECH_SEED,
+    SYNTHESIS,
+    INGRAIN,
+    GIGA_DRAIN,
+    GROWTH,
+    VINE_WHIP,
+    SUNNY_DAY,
+    PHOTOSYNTHESIS,
+    POKE_BALL,
+    GREAT_BALL,
+    ULTRA_BALL,
+    MASTER_BALL,
+    RARE_CANDY,
+    EXP_SHARE,
+    LUCKY_EGG,
+    LEFTOVERS,
+    CHOICE_BAND,
+    FOCUS_SASH,
+    EVIOLITE,
+    SCOPE_LENS,
+    QUICK_CLAW,
+    MUSCLE_BAND,
+    ROCKY_HELMET,
+    POKEDEX,
+    SILPH_SCOPE,
+    BERRY,
+    SITRUS_BERRY,
+    MAX_REVIVE,
+    PALLET_TOWN,
+    CERULEAN_CITY,
+    VERMILION_CITY,
+    LAVENDER_TOWN,
+    CELADON_CITY,
+    POKEMON_LEAGUE,
+    VIRIDIAN_FOREST,
+    MT_MOON,
+    POWER_PLANT,
+    SAFARI_ZONE,
+    VICTORY_ROAD,
+    POKEMON_CENTER_LAND,
+    SILPH_CO,
+    CERULEAN_CAVE,
+    INDIGO_PLATEAU,
+    PLAINS_PKH,
+    ISLAND_PKH,
+    SWAMP_PKH,
+    MOUNTAIN_PKH,
+    FOREST_PKH
+]
