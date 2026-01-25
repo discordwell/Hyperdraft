@@ -287,8 +287,74 @@ class AIEngine:
         evaluator: BoardEvaluator,
         player_id: str
     ) -> float:
-        """Score an action using the current strategy."""
-        return self.strategy.evaluate_action(action, state, evaluator, player_id)
+        """Score an action with reactive awareness."""
+        from src.engine import ActionType, CardType
+        from src.ai.reactive import ReactiveEvaluator
+
+        # Get base score from strategy
+        base_score = self.strategy.evaluate_action(action, state, evaluator, player_id)
+
+        # Build reactive context
+        reactive_eval = ReactiveEvaluator(state)
+        stack_items = []
+        if hasattr(state, 'stack') and state.stack:
+            stack_items = state.stack.get_items() if hasattr(state.stack, 'get_items') else list(state.stack.items)
+
+        context = reactive_eval.build_context(player_id, stack_items)
+
+        # Apply reactive modifiers for instant-speed plays
+        if action.type == ActionType.CAST_SPELL and action.card_id:
+            card = state.objects.get(action.card_id)
+            if card and CardType.INSTANT in card.characteristics.types:
+                # Classify and score the instant
+                if self._is_counterspell(card):
+                    base_score += reactive_eval.get_counterspell_bonus(
+                        context, self.strategy.reactivity
+                    )
+                elif self._is_instant_removal(card):
+                    base_score += reactive_eval.get_removal_bonus(
+                        context, self.strategy.reactivity
+                    )
+                elif self._is_combat_trick(card):
+                    # Pass the card so we can evaluate if the trick changes outcomes
+                    base_score += reactive_eval.get_combat_trick_bonus(
+                        context, self.strategy.reactivity, trick_card=card
+                    )
+            elif card:
+                # Sorcery-speed: consider hold-mana penalty
+                penalty = reactive_eval.get_hold_mana_penalty(
+                    card, context, self.strategy.reactivity
+                )
+                base_score -= penalty
+
+        # Pass gets bonus if holding for reaction
+        if action.type == ActionType.PASS:
+            if context.instants_in_hand and context.available_mana >= 2:
+                if context.stack_threats or not context.is_our_turn:
+                    base_score += 0.3 * self.strategy.reactivity
+
+        return base_score
+
+    def _is_counterspell(self, card) -> bool:
+        """Check if card is a counterspell."""
+        text = (card.card_def.text or '').lower() if card.card_def else ''
+        return 'counter target' in text and 'spell' in text
+
+    def _is_instant_removal(self, card) -> bool:
+        """Check if card is instant-speed removal."""
+        from src.engine import CardType
+        if CardType.INSTANT not in card.characteristics.types:
+            return False
+        text = (card.card_def.text or '').lower() if card.card_def else ''
+        return 'destroy' in text or 'exile' in text or 'damage' in text
+
+    def _is_combat_trick(self, card) -> bool:
+        """Check if card is a combat trick."""
+        from src.engine import CardType
+        if CardType.INSTANT not in card.characteristics.types:
+            return False
+        text = (card.card_def.text or '').lower() if card.card_def else ''
+        return '+' in text and '/' in text
 
     def _legal_to_player_action(
         self,
