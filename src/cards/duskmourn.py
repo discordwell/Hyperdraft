@@ -14,12 +14,6 @@ from src.engine import (
     new_id, get_power, get_toughness
 )
 from typing import Optional, Callable
-from src.cards.interceptor_helpers import (
-    make_etb_trigger, make_death_trigger, make_attack_trigger, make_damage_trigger,
-    make_static_pt_boost, make_keyword_grant, make_upkeep_trigger,
-    make_life_gain_trigger, make_draw_trigger,
-    other_creatures_you_control, creatures_you_control, other_creatures_with_subtype
-)
 
 
 # =============================================================================
@@ -96,6 +90,26 @@ def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str
     )
 
 
+def make_enchantment_creature(name: str, power: int, toughness: int, mana_cost: str, colors: set,
+                              subtypes: set = None, supertypes: set = None, text: str = "", setup_interceptors=None):
+    """Helper to create enchantment creature card definitions."""
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.ENCHANTMENT, CardType.CREATURE},
+            subtypes=subtypes or set(),
+            supertypes=supertypes or set(),
+            colors=colors,
+            power=power,
+            toughness=toughness,
+            mana_cost=mana_cost
+        ),
+        text=text,
+        setup_interceptors=setup_interceptors
+    )
+
+
 def make_land(name: str, text: str = "", subtypes: set = None, supertypes: set = None, setup_interceptors=None):
     """Helper to create land card definitions."""
     return CardDefinition(
@@ -134,1687 +148,6 @@ def make_planeswalker(name: str, mana_cost: str, colors: set, loyalty: int,
 
 
 # =============================================================================
-# INTERCEPTOR SETUP FUNCTIONS
-# =============================================================================
-
-# --- WHITE CARDS ---
-
-def friendly_ghost_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, target creature gets +2/+4 until end of turn."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'pump_creature', 'power_mod': 2, 'toughness_mod': 4},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def fear_of_immobility_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, tap up to one target creature and put a stun counter on it."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'tap_and_stun', 'optional': True},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def overlord_of_the_mistmoors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this permanent enters or attacks, create two 2/1 white Insect tokens with flying."""
-    def create_tokens(event: Event, state: GameState) -> list[Event]:
-        token_payload = {
-            'controller': obj.controller,
-            'name': 'Insect',
-            'power': 2,
-            'toughness': 1,
-            'colors': {Color.WHITE},
-            'types': {CardType.CREATURE},
-            'subtypes': {'Insect'},
-            'keywords': ['flying']
-        }
-        return [
-            Event(type=EventType.CREATE_TOKEN, payload=dict(token_payload), source=obj.id),
-            Event(type=EventType.CREATE_TOKEN, payload=dict(token_payload), source=obj.id)
-        ]
-    return [make_etb_trigger(obj, create_tokens), make_attack_trigger(obj, create_tokens)]
-
-
-def living_phone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, look at top 5 cards for a creature with power 2 or less."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.LIBRARY_SEARCH,
-            payload={'player': obj.controller, 'count': 5, 'filter': 'creature_power_2_or_less'},
-            source=obj.id
-        )]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def splitskin_doll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, draw a card. Then discard unless you control another creature with power 2 or less."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id),
-            Event(type=EventType.CONDITIONAL_DISCARD, payload={'player': obj.controller, 'condition': 'no_other_small_creature'}, source=obj.id)
-        ]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def toby_beastie_befriender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Toby enters, create a 4/4 white Beast creature token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'name': 'Beast',
-                'power': 4,
-                'toughness': 4,
-                'colors': {Color.WHITE},
-                'types': {CardType.CREATURE},
-                'subtypes': {'Beast'},
-                'text': "This creature can't attack or block alone."
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def unsettling_twins_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, manifest dread."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.MANIFEST_DREAD, payload={'player': obj.controller}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- BLUE CARDS ---
-
-def entity_tracker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment enters or you unlock a Room, draw a card."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
-
-    return [make_etb_trigger(obj, effect, filter_fn=eerie_filter)]
-
-
-def fear_of_failed_tests_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature deals combat damage to a player, draw that many cards."""
-    def damage_effect(event: Event, state: GameState) -> list[Event]:
-        amount = event.payload.get('amount', 0)
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': amount}, source=obj.id)]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
-
-
-def fear_of_falling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, target creature defending player controls gets -2/-0."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'debuff', 'power_mod': -2, 'toughness_mod': 0, 'until': 'next_turn'},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def floodpits_drowner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, tap target creature an opponent controls and put a stun counter on it."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'tap_and_stun', 'filter': 'opponent_creature'},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def overlord_of_the_floodpits_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this permanent enters or attacks, draw two cards, then discard a card."""
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 2}, source=obj.id),
-            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'count': 1}, source=obj.id)
-        ]
-    return [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
-
-
-def tunnel_surveyor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, create a 1/1 white Glimmer enchantment creature token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'name': 'Glimmer',
-                'power': 1,
-                'toughness': 1,
-                'colors': {Color.WHITE},
-                'types': {CardType.CREATURE, CardType.ENCHANTMENT},
-                'subtypes': {'Glimmer'}
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def unwilling_vessel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, create an X/X blue Spirit token with flying, where X is the number of counters on it."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        counter_count = sum(obj.state.counters.values()) if obj.state.counters else 0
-        if counter_count > 0:
-            return [Event(
-                type=EventType.CREATE_TOKEN,
-                payload={
-                    'controller': obj.controller,
-                    'name': 'Spirit',
-                    'power': counter_count,
-                    'toughness': counter_count,
-                    'colors': {Color.BLUE},
-                    'types': {CardType.CREATURE},
-                    'subtypes': {'Spirit'},
-                    'keywords': ['flying']
-                },
-                source=obj.id
-            )]
-        return []
-    return [make_death_trigger(obj, death_effect)]
-
-
-# --- BLACK CARDS ---
-
-def fanatic_of_the_harrowing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, each player discards a card. If you discarded, draw a card."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for player_id in state.players.keys():
-            events.append(Event(type=EventType.DISCARD, payload={'player': player_id, 'count': 1}, source=obj.id))
-        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1, 'condition': 'if_discarded'}, source=obj.id))
-        return events
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def fear_of_lost_teeth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, it deals 1 damage to any target and you gain 1 life."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'damage', 'amount': 1}, source=obj.id),
-            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
-        ]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def innocuous_rat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, manifest dread."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.MANIFEST_DREAD, payload={'player': obj.controller}, source=obj.id)]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def miasma_demon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, you may discard cards. Each discarded causes -2/-2 to a target."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OPTIONAL_DISCARD_FOR_EFFECT,
-            payload={'player': obj.controller, 'effect': 'debuff_targets', 'power_mod': -2, 'toughness_mod': -2},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def vile_mutilator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, each opponent sacrifices a nontoken enchantment and a nontoken creature."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for player_id in state.players.keys():
-            if player_id != obj.controller:
-                events.append(Event(type=EventType.SACRIFICE_REQUIRED, payload={'player': player_id, 'filter': 'nontoken_enchantment'}, source=obj.id))
-                events.append(Event(type=EventType.SACRIFICE_REQUIRED, payload={'player': player_id, 'filter': 'nontoken_creature'}, source=obj.id))
-        return events
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def unstoppable_slasher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, if it had no counters, return it with two stun counters."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        counter_count = sum(obj.state.counters.values()) if obj.state.counters else 0
-        if counter_count == 0:
-            return [Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    'object_id': obj.id,
-                    'from_zone_type': ZoneType.GRAVEYARD,
-                    'to_zone_type': ZoneType.BATTLEFIELD,
-                    'tapped': True,
-                    'counters': {'stun': 2}
-                },
-                source=obj.id
-            )]
-        return []
-    return [make_death_trigger(obj, death_effect)]
-
-
-def overlord_of_the_balemurk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this permanent enters or attacks, mill four cards, then return a creature/planeswalker to hand."""
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(type=EventType.MILL, payload={'player': obj.controller, 'count': 4}, source=obj.id),
-            Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={'player': obj.controller, 'filter': 'non_avatar_creature_or_planeswalker', 'to': 'hand'}, source=obj.id)
-        ]
-    return [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
-
-
-def doomsday_excruciator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At the beginning of your upkeep, draw a card."""
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
-
-
-def enduring_tenacity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you gain life, target opponent loses that much life."""
-    def life_gain_effect(event: Event, state: GameState) -> list[Event]:
-        amount = event.payload.get('amount', 0)
-        opponents = [p for p in state.players.keys() if p != obj.controller]
-        if opponents:
-            return [Event(type=EventType.LIFE_CHANGE, payload={'player': opponents[0], 'amount': -amount}, source=obj.id)]
-        return []
-    return [make_life_gain_trigger(obj, life_gain_effect)]
-
-
-# --- RED CARDS ---
-
-def clockwork_percussionist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, exile the top card of your library. You may play it until end of next turn."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.EXILE_FROM_TOP,
-            payload={'player': obj.controller, 'count': 1, 'playable_until': 'end_of_next_turn'},
-            source=obj.id
-        )]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def boilerbilges_ripper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, you may sacrifice another creature or enchantment. If you do, deal 2 damage."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OPTIONAL_SACRIFICE_FOR_EFFECT,
-            payload={'player': obj.controller, 'filter': 'creature_or_enchantment', 'effect': 'damage', 'amount': 2},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def fear_of_burning_alive_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, it deals 4 damage to each opponent."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for player_id in state.players.keys():
-            if player_id != obj.controller:
-                events.append(Event(type=EventType.DAMAGE, payload={'target': player_id, 'amount': 4, 'source': obj.id}, source=obj.id))
-        return events
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def fear_of_missing_out_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, discard a card, then draw a card."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [
-            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'count': 1}, source=obj.id),
-            Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)
-        ]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def infernal_phantom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, it deals damage equal to its power to any target."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        power = get_power(obj, state)
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'damage', 'amount': power},
-            source=obj.id
-        )]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def piggy_bank_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, create a Treasure token."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'name': 'Treasure',
-                'types': {CardType.ARTIFACT},
-                'subtypes': {'Treasure'},
-                'text': '{T}, Sacrifice this: Add one mana of any color.'
-            },
-            source=obj.id
-        )]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def razorkin_hordecaller_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you attack, create a 1/1 red Gremlin creature token."""
-    def attack_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        return (event.type == EventType.ATTACK_DECLARED and
-                event.payload.get('attacking_player') == source.controller)
-
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'name': 'Gremlin',
-                'power': 1,
-                'toughness': 1,
-                'colors': {Color.RED},
-                'types': {CardType.CREATURE},
-                'subtypes': {'Gremlin'}
-            },
-            source=obj.id
-        )]
-
-    return [make_attack_trigger(obj, attack_effect, filter_fn=attack_filter)]
-
-
-def razorkin_needlehead_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever an opponent draws a card, this creature deals 1 damage to them."""
-    def draw_filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.DRAW and
-                event.payload.get('player') != obj.controller)
-
-    def draw_effect(event: Event, state: GameState) -> InterceptorResult:
-        player_id = event.payload.get('player')
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[Event(type=EventType.DAMAGE, payload={'target': player_id, 'amount': 1, 'source': obj.id}, source=obj.id)]
-        )
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=draw_filter,
-        handler=lambda e, s: draw_effect(e, s),
-        duration='while_on_battlefield'
-    )]
-
-
-def overlord_of_the_boilerbilges_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this permanent enters or attacks, it deals 4 damage to any target."""
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'damage', 'amount': 4},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
-
-
-def screaming_nemesis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature is dealt damage, it deals that much damage to any other target."""
-    def damage_filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.DAMAGE and
-                event.payload.get('target') == obj.id)
-
-    def damage_effect(event: Event, state: GameState) -> InterceptorResult:
-        amount = event.payload.get('amount', 0)
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[Event(
-                type=EventType.TARGET_REQUIRED,
-                payload={'source': obj.id, 'effect': 'damage', 'amount': amount, 'exclude': obj.id},
-                source=obj.id
-            )]
-        )
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=damage_filter,
-        handler=lambda e, s: damage_effect(e, s),
-        duration='while_on_battlefield'
-    )]
-
-
-def vicious_clown_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever another creature you control with power 2 or less enters, this creature gets +2/+0 until end of turn."""
-    def enter_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-            return False
-        entering_id = event.payload.get('object_id')
-        if entering_id == source.id:
-            return False
-        entering_obj = state.objects.get(entering_id)
-        if not entering_obj:
-            return False
-        if CardType.CREATURE not in entering_obj.characteristics.types:
-            return False
-        if entering_obj.controller != source.controller:
-            return False
-        power = get_power(entering_obj, state)
-        return power <= 2
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TEMPORARY_EFFECT,
-            payload={'target': obj.id, 'power_mod': 2, 'toughness_mod': 0, 'until': 'end_of_turn'},
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, effect, filter_fn=enter_filter)]
-
-
-# --- GREEN CARDS ---
-
-def bashful_beastie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, manifest dread."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.MANIFEST_DREAD, payload={'player': obj.controller}, source=obj.id)]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def anthropede_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, you may discard a card or pay {2}. When you do, destroy target Room."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OPTIONAL_COST_FOR_EFFECT,
-            payload={'player': obj.controller, 'costs': ['discard_card', 'pay_2'], 'effect': 'destroy_room'},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def grasping_longneck_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, you gain 2 life."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def hauntwoods_shrieker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, manifest dread."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.MANIFEST_DREAD, payload={'player': obj.controller}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def overlord_of_the_hauntwoods_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this permanent enters or attacks, create a tapped Everywhere land token."""
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'name': 'Everywhere',
-                'types': {CardType.LAND},
-                'subtypes': {'Plains', 'Island', 'Swamp', 'Mountain', 'Forest'},
-                'tapped': True
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
-
-
-def spineseeker_centipede_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, search your library for a basic land card and put it into your hand."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.LIBRARY_SEARCH,
-            payload={'player': obj.controller, 'filter': 'basic_land', 'destination': 'hand'},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def threats_around_every_corner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this enchantment enters, manifest dread."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.MANIFEST_DREAD, payload={'player': obj.controller}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def wary_watchdog_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters or dies, surveil 1."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect), make_death_trigger(obj, death_effect)]
-
-
-def enduring_vitality_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Creatures you control have '{T}: Add one mana of any color.'"""
-    # This is a mana ability grant - simplified as keyword grant for the system
-    return [make_keyword_grant(obj, ['tap_for_any_mana'], creatures_you_control(obj))]
-
-
-# --- MULTICOLOR CARDS ---
-
-def arabella_abandoned_doll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever Arabella attacks, it deals X damage to each opponent and you gain X life, where X is creatures you control with power 2 or less."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        x = sum(1 for c in state.objects.values()
-                if c.controller == obj.controller
-                and CardType.CREATURE in c.characteristics.types
-                and c.zone == ZoneType.BATTLEFIELD
-                and get_power(c, state) <= 2)
-        events = []
-        for player_id in state.players.keys():
-            if player_id != obj.controller:
-                events.append(Event(type=EventType.DAMAGE, payload={'target': player_id, 'amount': x, 'source': obj.id}, source=obj.id))
-        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': x}, source=obj.id))
-        return events
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def broodspinner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, surveil 2."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'count': 2}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def disturbing_mirth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this enchantment enters, you may sacrifice another enchantment or creature. If you do, draw two cards."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OPTIONAL_SACRIFICE_FOR_EFFECT,
-            payload={'player': obj.controller, 'filter': 'creature_or_enchantment_other', 'effect': 'draw', 'count': 2},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def gremlin_tamer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, create a 1/1 red Gremlin creature token."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'name': 'Gremlin',
-                'power': 1,
-                'toughness': 1,
-                'colors': {Color.RED},
-                'types': {CardType.CREATURE},
-                'subtypes': {'Gremlin'}
-            },
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, effect, filter_fn=eerie_filter)]
-
-
-def growing_dread_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this enchantment enters, manifest dread."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.MANIFEST_DREAD, payload={'player': obj.controller}, source=obj.id)]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def the_jolly_balloon_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Haste is a keyword - no interceptor needed for that, but we'll leave a placeholder."""
-    return []
-
-
-def marina_vendrell_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Marina Vendrell enters, reveal the top seven cards of your library. Put all enchantment cards into your hand."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.REVEAL_TOP,
-            payload={'player': obj.controller, 'count': 7, 'filter': 'enchantment', 'destination': 'hand'},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def niko_light_of_hope_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Niko enters, create two Shard tokens."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        token_payload = {
-            'controller': obj.controller,
-            'name': 'Shard',
-            'types': {CardType.ENCHANTMENT},
-            'subtypes': {'Shard'},
-            'text': '{2}, Sacrifice this: Scry 1, then draw a card.'
-        }
-        return [
-            Event(type=EventType.CREATE_TOKEN, payload=dict(token_payload), source=obj.id),
-            Event(type=EventType.CREATE_TOKEN, payload=dict(token_payload), source=obj.id)
-        ]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def sawblade_skinripper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At the beginning of your end step, if you sacrificed one or more permanents this turn, deal that much damage."""
-    # This requires tracking sacrifices during the turn - simplified
-    return []
-
-
-def shrewd_storyteller_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival - At the beginning of your second main phase, if this creature is tapped, put a +1/+1 counter on target creature."""
-    # Survival is a complex ability - simplified
-    return []
-
-
-def shroudstomper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature enters or attacks, each opponent loses 2 life. You gain 2 life and draw a card."""
-    def effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for player_id in state.players.keys():
-            if player_id != obj.controller:
-                events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': player_id, 'amount': -2}, source=obj.id))
-        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id))
-        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id))
-        return events
-    return [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
-
-
-def the_swarmweaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When The Swarmweaver enters, create two 1/1 black and green Insect creature tokens with flying."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        token_payload = {
-            'controller': obj.controller,
-            'name': 'Insect',
-            'power': 1,
-            'toughness': 1,
-            'colors': {Color.BLACK, Color.GREEN},
-            'types': {CardType.CREATURE},
-            'subtypes': {'Insect'},
-            'keywords': ['flying']
-        }
-        return [
-            Event(type=EventType.CREATE_TOKEN, payload=dict(token_payload), source=obj.id),
-            Event(type=EventType.CREATE_TOKEN, payload=dict(token_payload), source=obj.id)
-        ]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def undead_sprinter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Can be cast from graveyard if a non-Zombie creature died this turn."""
-    # This is a casting condition, not an interceptor
-    return []
-
-
-# --- COLORLESS CARDS ---
-
-def friendly_teddy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, each player draws a card."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': player_id, 'count': 1}, source=obj.id)
-                for player_id in state.players.keys()]
-    return [make_death_trigger(obj, death_effect)]
-
-
-def glimmerlight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this Equipment enters, create a 1/1 white Glimmer enchantment creature token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'name': 'Glimmer',
-                'power': 1,
-                'toughness': 1,
-                'colors': {Color.WHITE},
-                'types': {CardType.CREATURE, CardType.ENCHANTMENT},
-                'subtypes': {'Glimmer'}
-            },
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# Additional black cards with interceptors
-
-def balemurk_leech_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, each opponent loses 1 life."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for player_id in state.players.keys():
-            if player_id != obj.controller:
-                events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': player_id, 'amount': -1}, source=obj.id))
-        return events
-
-    return [make_etb_trigger(obj, effect, filter_fn=eerie_filter)]
-
-
-def popular_egotist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you sacrifice a permanent, target opponent loses 1 life and you gain 1 life."""
-    def sacrifice_filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.ZONE_CHANGE and
-                event.payload.get('cause') == 'sacrifice' and
-                event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD and
-                event.payload.get('controller') == obj.controller)
-
-    def sacrifice_effect(event: Event, state: GameState) -> InterceptorResult:
-        events = []
-        opponents = [p for p in state.players.keys() if p != obj.controller]
-        if opponents:
-            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opponents[0], 'amount': -1}, source=obj.id))
-        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 1}, source=obj.id))
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=sacrifice_filter,
-        handler=lambda e, s: sacrifice_effect(e, s),
-        duration='while_on_battlefield'
-    )]
-
-
-# Additional white cards
-
-def hardened_escort_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, another target creature you control gets +1/+0 and gains indestructible until end of turn."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'pump_and_indestructible', 'power_mod': 1, 'filter': 'other_creature_you_control'},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def lionheart_glimmer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you attack, creatures you control get +1/+1 until end of turn."""
-    def attack_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        return (event.type == EventType.ATTACK_DECLARED and
-                event.payload.get('attacking_player') == source.controller)
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for c in state.objects.values():
-            if (c.controller == obj.controller and
-                CardType.CREATURE in c.characteristics.types and
-                c.zone == ZoneType.BATTLEFIELD):
-                events.append(Event(
-                    type=EventType.TEMPORARY_EFFECT,
-                    payload={'target': c.id, 'power_mod': 1, 'toughness_mod': 1, 'until': 'end_of_turn'},
-                    source=obj.id
-                ))
-        return events
-
-    return [make_attack_trigger(obj, effect, filter_fn=attack_filter)]
-
-
-def ghostly_dancers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, return an enchantment card from your graveyard to your hand.
-    Eerie - create a 3/1 white Spirit creature token with flying."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.RETURN_FROM_GRAVEYARD,
-            payload={'player': obj.controller, 'filter': 'enchantment', 'to': 'hand', 'optional': True},
-            source=obj.id
-        )]
-
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            if event.payload.get('object_id') == source.id:
-                return False  # Don't trigger on self
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def eerie_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': obj.controller,
-                'name': 'Spirit',
-                'power': 3,
-                'toughness': 1,
-                'colors': {Color.WHITE},
-                'types': {CardType.CREATURE},
-                'subtypes': {'Spirit'},
-                'keywords': ['flying']
-            },
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, etb_effect), make_etb_trigger(obj, eerie_effect, filter_fn=eerie_filter)]
-
-
-# Additional blue cards
-
-def clammy_prowler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, another target attacking creature can't be blocked this turn."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'cant_be_blocked', 'filter': 'other_attacking_creature'},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def ghostly_keybearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature deals combat damage to a player, unlock a locked door of a Room you control."""
-    def damage_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.UNLOCK_DOOR,
-            payload={'player': obj.controller},
-            source=obj.id
-        )]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
-
-
-# Additional green cards
-
-def cryptid_inspector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever a face-down permanent you control enters or a permanent is turned face up, put a +1/+1 counter on this creature."""
-    def face_down_filter(event: Event, state: GameState) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and entering_obj.controller == obj.controller:
-                if event.payload.get('face_down', False):
-                    return True
-        if event.type == EventType.TURN_FACE_UP:
-            target_id = event.payload.get('object_id')
-            target_obj = state.objects.get(target_id)
-            if target_obj and target_obj.controller == obj.controller:
-                return True
-        return False
-
-    def effect(event: Event, state: GameState) -> InterceptorResult:
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[Event(
-                type=EventType.COUNTER_ADDED,
-                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
-                source=obj.id
-            )]
-        )
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=face_down_filter,
-        handler=lambda e, s: effect(e, s),
-        duration='while_on_battlefield'
-    )]
-
-
-def flesh_burrower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, another target creature you control gains deathtouch until end of turn."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'grant_deathtouch', 'filter': 'other_creature_you_control'},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-# --- ADDITIONAL WHITE CARDS ---
-
-def fear_of_surveillance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, surveil 1."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def fear_of_abduction_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, exile target creature an opponent controls."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'exile_until_leaves', 'filter': 'opponent_creature'},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def optimistic_scavenger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, put a +1/+1 counter on target creature."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'add_counter', 'counter_type': '+1/+1'},
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, effect, filter_fn=eerie_filter)]
-
-
-def orphans_of_the_wheat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, tap creatures you control for +1/+1 each."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TAP_FOR_EFFECT,
-            payload={'source': obj.id, 'effect': 'pump_self', 'power_mod': 1, 'toughness_mod': 1},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def cult_healer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, this creature gains lifelink until end of turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TEMPORARY_EFFECT,
-            payload={'target': obj.id, 'keywords': ['lifelink'], 'until': 'end_of_turn'},
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, effect, filter_fn=eerie_filter)]
-
-
-def enduring_innocence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever one or more other creatures with power 2 or less enter, draw a card (once each turn)."""
-    def enter_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-            return False
-        entering_id = event.payload.get('object_id')
-        if entering_id == source.id:
-            return False
-        entering_obj = state.objects.get(entering_id)
-        if not entering_obj:
-            return False
-        if CardType.CREATURE not in entering_obj.characteristics.types:
-            return False
-        if entering_obj.controller != source.controller:
-            return False
-        power = get_power(entering_obj, state)
-        return power <= 2
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1, 'once_per_turn': True}, source=obj.id)]
-
-    return [make_etb_trigger(obj, effect, filter_fn=enter_filter)]
-
-
-# --- ADDITIONAL BLUE CARDS ---
-
-def abhorrent_oculus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At the beginning of each opponent's upkeep, manifest dread."""
-    def upkeep_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.PHASE_START:
-            return False
-        if event.payload.get('phase') != 'upkeep':
-            return False
-        return state.active_player != obj.controller
-
-    def effect(event: Event, state: GameState) -> InterceptorResult:
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[Event(type=EventType.MANIFEST_DREAD, payload={'player': obj.controller}, source=obj.id)]
-        )
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=upkeep_filter,
-        handler=lambda e, s: effect(e, s),
-        duration='while_on_battlefield'
-    )]
-
-
-def erratic_apparition_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, this creature gets +1/+1 until end of turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TEMPORARY_EFFECT,
-            payload={'target': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'until': 'end_of_turn'},
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, effect, filter_fn=eerie_filter)]
-
-
-def fear_of_impostors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, counter target spell. Its controller manifests dread."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'counter_and_manifest', 'filter': 'spell'},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def scrabbling_skullcrab_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, target player mills two cards."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'mill', 'count': 2, 'filter': 'player'},
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, effect, filter_fn=eerie_filter)]
-
-
-def stalked_researcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, this creature can attack this turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TEMPORARY_EFFECT,
-            payload={'target': obj.id, 'can_attack': True, 'until': 'end_of_turn'},
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, effect, filter_fn=eerie_filter)]
-
-
-def enduring_curiosity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever a creature you control deals combat damage to a player, draw a card."""
-    def damage_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.DAMAGE:
-            return False
-        if not event.payload.get('is_combat', False):
-            return False
-        source_id = event.payload.get('source')
-        source_obj = state.objects.get(source_id)
-        if not source_obj:
-            return False
-        if source_obj.controller != obj.controller:
-            return False
-        if CardType.CREATURE not in source_obj.characteristics.types:
-            return False
-        target = event.payload.get('target')
-        return target in state.players
-
-    def effect(event: Event, state: GameState) -> InterceptorResult:
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
-        )
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=damage_filter,
-        handler=lambda e, s: effect(e, s),
-        duration='while_on_battlefield'
-    )]
-
-
-def appendage_amalgam_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, surveil 1."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-# --- ADDITIONAL BLACK CARDS ---
-
-def dashing_bloodsucker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, this creature gets +2/+0 and gains lifelink until end of turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TEMPORARY_EFFECT,
-            payload={'target': obj.id, 'power_mod': 2, 'toughness_mod': 0, 'keywords': ['lifelink'], 'until': 'end_of_turn'},
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, effect, filter_fn=eerie_filter)]
-
-
-def fear_of_the_dark_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, if defending player controls no Glimmer creatures, it gains menace and deathtouch."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Check if defending player has Glimmer creatures would be done in resolution
-        return [Event(
-            type=EventType.CONDITIONAL_EFFECT,
-            payload={'target': obj.id, 'condition': 'no_glimmer_defenders', 'keywords': ['menace', 'deathtouch'], 'until': 'end_of_turn'},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-# --- ADDITIONAL RED CARDS ---
-
-def enduring_courage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever another creature you control enters, it gets +2/+0 and gains haste until end of turn."""
-    def enter_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-            return False
-        entering_id = event.payload.get('object_id')
-        if entering_id == source.id:
-            return False
-        entering_obj = state.objects.get(entering_id)
-        if not entering_obj:
-            return False
-        if CardType.CREATURE not in entering_obj.characteristics.types:
-            return False
-        return entering_obj.controller == source.controller
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        entering_id = event.payload.get('object_id')
-        return [Event(
-            type=EventType.TEMPORARY_EFFECT,
-            payload={'target': entering_id, 'power_mod': 2, 'toughness_mod': 0, 'keywords': ['haste'], 'until': 'end_of_turn'},
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, effect, filter_fn=enter_filter)]
-
-
-def most_valuable_slayer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you attack, target attacking creature gets +1/+0 and gains first strike until end of turn."""
-    def attack_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        return (event.type == EventType.ATTACK_DECLARED and
-                event.payload.get('attacking_player') == source.controller)
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'pump_and_first_strike', 'power_mod': 1, 'filter': 'attacking_creature'},
-            source=obj.id
-        )]
-
-    return [make_attack_trigger(obj, effect, filter_fn=attack_filter)]
-
-
-def hand_that_feeds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Delirium - Whenever this creature attacks while there are 4+ card types in graveyard, it gets +2/+0 and menace."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CONDITIONAL_EFFECT,
-            payload={'target': obj.id, 'condition': 'delirium', 'power_mod': 2, 'keywords': ['menace'], 'until': 'end_of_turn'},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def infernal_phantom_eerie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, this creature gets +2/+0 until end of turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def eerie_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TEMPORARY_EFFECT,
-            payload={'target': obj.id, 'power_mod': 2, 'toughness_mod': 0, 'until': 'end_of_turn'},
-            source=obj.id
-        )]
-
-    # Combine eerie and death trigger
-    death_effect = lambda e, s: [Event(
-        type=EventType.TARGET_REQUIRED,
-        payload={'source': obj.id, 'effect': 'damage', 'amount': get_power(obj, s)},
-        source=obj.id
-    )]
-
-    return [
-        make_etb_trigger(obj, eerie_effect, filter_fn=eerie_filter),
-        make_death_trigger(obj, death_effect)
-    ]
-
-
-def irreverent_gremlin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever another creature with power 2 or less enters, you may discard a card. If you do, draw a card."""
-    def enter_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-            return False
-        entering_id = event.payload.get('object_id')
-        if entering_id == source.id:
-            return False
-        entering_obj = state.objects.get(entering_id)
-        if not entering_obj:
-            return False
-        if CardType.CREATURE not in entering_obj.characteristics.types:
-            return False
-        if entering_obj.controller != source.controller:
-            return False
-        power = get_power(entering_obj, state)
-        return power <= 2
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OPTIONAL_DISCARD_TO_DRAW,
-            payload={'player': obj.controller, 'once_per_turn': True},
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, effect, filter_fn=enter_filter)]
-
-
-# --- ADDITIONAL GREEN CARDS ---
-
-def omnivorous_flytrap_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Delirium - Whenever this creature enters or attacks, if delirium, distribute two +1/+1 counters."""
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CONDITIONAL_COUNTERS,
-            payload={'source': obj.id, 'condition': 'delirium', 'counter_type': '+1/+1', 'count': 2},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
-
-
-def wickerfolk_thresher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Delirium - Whenever this creature attacks with 4+ card types in graveyard, look at top card."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CONDITIONAL_EFFECT,
-            payload={'source': obj.id, 'condition': 'delirium', 'effect': 'impulse_land'},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-# --- ADDITIONAL MULTICOLOR CARDS ---
-
-def fear_of_infinity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, you may return this card from graveyard to hand."""
-    def eerie_filter(event: Event, state: GameState) -> bool:
-        if obj.zone != ZoneType.GRAVEYARD:
-            return False
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == obj.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> InterceptorResult:
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[Event(
-                type=EventType.OPTIONAL_ZONE_CHANGE,
-                payload={'object_id': obj.id, 'from_zone': ZoneType.GRAVEYARD, 'to_zone': ZoneType.HAND},
-                source=obj.id
-            )]
-        )
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=eerie_filter,
-        handler=lambda e, s: effect(e, s),
-        duration='while_in_graveyard'
-    )]
-
-
-def skullsnap_nuisance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, surveil 1."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
-
-    return [make_etb_trigger(obj, effect, filter_fn=eerie_filter)]
-
-
-def victor_valgavoths_seneschal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Complex multi-stage trigger based on number of times resolved this turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
-
-    def effect(event: Event, state: GameState) -> list[Event]:
-        # Track trigger count in state
-        return [Event(
-            type=EventType.ESCALATING_EFFECT,
-            payload={'source': obj.id, 'effects': ['surveil_2', 'opponent_discard', 'reanimate']},
-            source=obj.id
-        )]
-
-    return [make_etb_trigger(obj, effect, filter_fn=eerie_filter)]
-
-
-def oblivious_bookworm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At the beginning of your end step, you may draw a card. If you do, discard unless face-down entered."""
-    from src.cards.interceptor_helpers import make_end_step_trigger
-
-    def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OPTIONAL_DRAW,
-            payload={'player': obj.controller, 'discard_unless': 'face_down_entered_this_turn'},
-            source=obj.id
-        )]
-    return [make_end_step_trigger(obj, end_step_effect)]
-
-
-# --- ADDITIONAL COLORLESS/ARTIFACT CARDS ---
-
-def attackinthebox_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, you may have it get +4/+0. If you do, sacrifice it at end step."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OPTIONAL_EFFECT,
-            payload={'target': obj.id, 'effect': 'pump_and_sacrifice', 'power_mod': 4},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
-
-
-def chainsaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this Equipment enters, it deals 3 damage to up to one target creature. Whenever a creature dies, put a rev counter on this."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'damage', 'amount': 3, 'filter': 'creature', 'optional': True},
-            source=obj.id
-        )]
-
-    def death_filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.ZONE_CHANGE and
-                event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD and
-                event.payload.get('to_zone_type') == ZoneType.GRAVEYARD)
-
-    def death_effect(event: Event, state: GameState) -> InterceptorResult:
-        dying_id = event.payload.get('object_id')
-        dying_obj = state.objects.get(dying_id)
-        if dying_obj and CardType.CREATURE in dying_obj.characteristics.types:
-            return InterceptorResult(
-                action=InterceptorAction.REACT,
-                new_events=[Event(
-                    type=EventType.COUNTER_ADDED,
-                    payload={'object_id': obj.id, 'counter_type': 'rev', 'amount': 1},
-                    source=obj.id
-                )]
-            )
-        return InterceptorResult(action=InterceptorAction.CONTINUE)
-
-    return [
-        make_etb_trigger(obj, etb_effect),
-        Interceptor(
-            id=new_id(),
-            source=obj.id,
-            controller=obj.controller,
-            priority=InterceptorPriority.REACT,
-            filter=death_filter,
-            handler=lambda e, s: death_effect(e, s),
-            duration='while_on_battlefield'
-        )
-    ]
-
-
-def conductive_machete_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this Equipment enters, manifest dread, then attach this Equipment to that creature."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANIFEST_DREAD_AND_ATTACH,
-            payload={'player': obj.controller, 'equipment_id': obj.id},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def dissection_tools_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this Equipment enters, manifest dread, then attach this Equipment to that creature."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANIFEST_DREAD_AND_ATTACH,
-            payload={'player': obj.controller, 'equipment_id': obj.id},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def killers_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this Equipment enters, manifest dread, then attach this Equipment to that creature."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANIFEST_DREAD_AND_ATTACH,
-            payload={'player': obj.controller, 'equipment_id': obj.id},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def cursed_windbreaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this Equipment enters, manifest dread, then attach this Equipment to that creature."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANIFEST_DREAD_AND_ATTACH,
-            payload={'player': obj.controller, 'equipment_id': obj.id},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- THE SWARMWEAVER LORD EFFECT ---
-
-def the_swarmweaver_lord_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Delirium - As long as 4+ card types in graveyard, Insects and Spiders you control get +1/+1 and have deathtouch."""
-    def insect_spider_filter(target: GameObject, state: GameState) -> bool:
-        if target.controller != obj.controller:
-            return False
-        if CardType.CREATURE not in target.characteristics.types:
-            return False
-        if target.zone != ZoneType.BATTLEFIELD:
-            return False
-        subtypes = target.characteristics.subtypes
-        return 'Insect' in subtypes or 'Spider' in subtypes
-
-    # Note: This would need delirium check in the filter - simplified
-    interceptors = make_static_pt_boost(obj, 1, 1, insect_spider_filter)
-    interceptors.append(make_keyword_grant(obj, ['deathtouch'], insect_spider_filter))
-    return interceptors
-
-
-# --- LEYLINE OF HOPE STATIC EFFECT ---
-
-def leyline_of_hope_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """As long as you have 7+ life more than starting, creatures you control get +2/+2."""
-    # Note: Checking life differential would need to be done in filter
-    return make_static_pt_boost(obj, 2, 2, creatures_you_control(obj))
-
-
-# --- THE WANDERING RESCUER STATIC EFFECT ---
-
-def the_wandering_rescuer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Other tapped creatures you control have hexproof."""
-    def tapped_creatures_filter(target: GameObject, state: GameState) -> bool:
-        if target.id == obj.id:
-            return False
-        if target.controller != obj.controller:
-            return False
-        if CardType.CREATURE not in target.characteristics.types:
-            return False
-        if target.zone != ZoneType.BATTLEFIELD:
-            return False
-        return target.state.tapped
-
-    return [make_keyword_grant(obj, ['hexproof'], tapped_creatures_filter)]
-
-
-# --- BASEBALL BAT ETB ---
-
-def baseball_bat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this Equipment enters, attach it to target creature you control."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'attach_equipment', 'filter': 'creature_you_control'},
-            source=obj.id
-        )]
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-# --- ZIMONE TRIGGER ---
-
-def zimone_allquestioning_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At the beginning of your end step, if a land entered this turn and you control a prime number of lands, create Primo."""
-    from src.cards.interceptor_helpers import make_end_step_trigger
-
-    def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CONDITIONAL_TOKEN,
-            payload={'source': obj.id, 'condition': 'land_entered_and_prime_lands', 'token': 'primo'},
-            source=obj.id
-        )]
-    return [make_end_step_trigger(obj, end_step_effect)]
-
-
-# --- WINTER UPKEEP TRIGGER ---
-
-def winter_misanthropic_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At the beginning of your upkeep, each player draws two cards."""
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for player_id in state.players.keys():
-            events.append(Event(type=EventType.DRAW, payload={'player': player_id, 'count': 2}, source=obj.id))
-        return events
-    return [make_upkeep_trigger(obj, upkeep_effect)]
-
-
-# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -1834,23 +167,22 @@ CULT_HEALER = make_creature(
     colors={Color.WHITE},
     subtypes={"Doctor", "Human"},
     text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, this creature gains lifelink until end of turn.",
-    setup_interceptors=cult_healer_setup
 )
 
 DAZZLING_THEATER = make_enchantment(
     name="Dazzling Theater",
-    mana_cost="{3}{W} // {2}{W}",
+    mana_cost="{3}{W}",
     colors={Color.WHITE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Dazzling Theater {3}{W}: Creature spells you cast have convoke. (Your creatures can help cast those spells. Each creature you tap while casting a creature spell pays for {1} or one mana of that creature's color.)\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nProp Room {2}{W}: Untap each creature you control during each other player's untap step.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 DOLLMAKERS_SHOP = make_enchantment(
     name="Dollmaker's Shop",
-    mana_cost="{1}{W} // {4}{W}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Dollmaker's Shop {1}{W}: Whenever one or more non-Toy creatures you control attack a player, create a 1/1 white Toy artifact creature token.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nPorcelain Gallery {4}{W}{W}: Creatures you control have base power and toughness each equal to the number of creatures you control.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 EMERGE_FROM_THE_COCOON = make_sorcery(
@@ -1860,14 +192,13 @@ EMERGE_FROM_THE_COCOON = make_sorcery(
     text="Return target creature card from your graveyard to the battlefield. You gain 3 life.",
 )
 
-ENDURING_INNOCENCE = make_creature(
+ENDURING_INNOCENCE = make_enchantment_creature(
     name="Enduring Innocence",
     power=2, toughness=1,
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Glimmer", "Sheep"},
     text="Lifelink\nWhenever one or more other creatures you control with power 2 or less enter, draw a card. This ability triggers only once each turn.\nWhen Enduring Innocence dies, if it was a creature, return it to the battlefield under its owner's control. It's an enchantment. (It's not a creature.)",
-    setup_interceptors=enduring_innocence_setup
 )
 
 ETHEREAL_ARMOR = make_enchantment(
@@ -1885,34 +216,31 @@ EXORCISE = make_sorcery(
     text="Exile target artifact, enchantment, or creature with power 4 or greater.",
 )
 
-FEAR_OF_ABDUCTION = make_creature(
+FEAR_OF_ABDUCTION = make_enchantment_creature(
     name="Fear of Abduction",
     power=5, toughness=5,
     mana_cost="{4}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Nightmare"},
     text="As an additional cost to cast this spell, exile a creature you control.\nFlying\nWhen this creature enters, exile target creature an opponent controls.\nWhen this creature leaves the battlefield, put each card exiled with it into its owner's hand.",
-    setup_interceptors=fear_of_abduction_setup
 )
 
-FEAR_OF_IMMOBILITY = make_creature(
+FEAR_OF_IMMOBILITY = make_enchantment_creature(
     name="Fear of Immobility",
     power=4, toughness=4,
     mana_cost="{4}{W}",
     colors={Color.WHITE},
     subtypes={"Nightmare"},
     text="When this creature enters, tap up to one target creature. If an opponent controls that creature, put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
-    setup_interceptors=fear_of_immobility_setup
 )
 
-FEAR_OF_SURVEILLANCE = make_creature(
+FEAR_OF_SURVEILLANCE = make_enchantment_creature(
     name="Fear of Surveillance",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Nightmare"},
     text="Vigilance\nWhenever this creature attacks, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
-    setup_interceptors=fear_of_surveillance_setup
 )
 
 FRIENDLY_GHOST = make_creature(
@@ -1922,7 +250,6 @@ FRIENDLY_GHOST = make_creature(
     colors={Color.WHITE},
     subtypes={"Spirit"},
     text="Flying\nWhen this creature enters, target creature gets +2/+4 until end of turn.",
-    setup_interceptors=friendly_ghost_setup
 )
 
 GHOSTLY_DANCERS = make_creature(
@@ -1932,7 +259,6 @@ GHOSTLY_DANCERS = make_creature(
     colors={Color.WHITE},
     subtypes={"Spirit"},
     text="Flying\nWhen this creature enters, return an enchantment card from your graveyard to your hand or unlock a locked door of a Room you control.\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, create a 3/1 white Spirit creature token with flying.",
-    setup_interceptors=ghostly_dancers_setup
 )
 
 GLIMMER_SEEKER = make_creature(
@@ -1946,10 +272,10 @@ GLIMMER_SEEKER = make_creature(
 
 GRAND_ENTRYWAY = make_enchantment(
     name="Grand Entryway",
-    mana_cost="{1}{W} // {2}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Grand Entryway {1}{W}: When you unlock this door, create a 1/1 white Glimmer enchantment creature token.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nElegant Rotunda {2}{W}: When you unlock this door, put a +1/+1 counter on each of up to two target creatures.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 HARDENED_ESCORT = make_creature(
@@ -1959,7 +285,6 @@ HARDENED_ESCORT = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Whenever this creature attacks, another target creature you control gets +1/+0 and gains indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)",
-    setup_interceptors=hardened_escort_setup
 )
 
 JUMP_SCARE = make_instant(
@@ -1976,14 +301,13 @@ LEYLINE_OF_HOPE = make_enchantment(
     text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nIf you would gain life, you gain that much life plus 1 instead.\nAs long as you have at least 7 life more than your starting life total, creatures you control get +2/+2.",
 )
 
-LIONHEART_GLIMMER = make_creature(
+LIONHEART_GLIMMER = make_enchantment_creature(
     name="Lionheart Glimmer",
     power=2, toughness=5,
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Cat", "Glimmer"},
     text="Ward {2} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.)\nWhenever you attack, creatures you control get +1/+1 until end of turn.",
-    setup_interceptors=lionheart_glimmer_setup
 )
 
 LIVING_PHONE = make_artifact_creature(
@@ -1993,7 +317,6 @@ LIVING_PHONE = make_artifact_creature(
     colors={Color.WHITE},
     subtypes={"Toy"},
     text="When this creature dies, look at the top five cards of your library. You may reveal a creature card with power 2 or less from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
-    setup_interceptors=living_phone_setup
 )
 
 OPTIMISTIC_SCAVENGER = make_creature(
@@ -2003,7 +326,6 @@ OPTIMISTIC_SCAVENGER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout"},
     text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, put a +1/+1 counter on target creature.",
-    setup_interceptors=optimistic_scavenger_setup
 )
 
 ORPHANS_OF_THE_WHEAT = make_creature(
@@ -2013,17 +335,15 @@ ORPHANS_OF_THE_WHEAT = make_creature(
     colors={Color.WHITE},
     subtypes={"Human"},
     text="Whenever this creature attacks, tap any number of untapped creatures you control. This creature gets +1/+1 until end of turn for each creature tapped this way.",
-    setup_interceptors=orphans_of_the_wheat_setup
 )
 
-OVERLORD_OF_THE_MISTMOORS = make_creature(
+OVERLORD_OF_THE_MISTMOORS = make_enchantment_creature(
     name="Overlord of the Mistmoors",
     power=6, toughness=6,
     mana_cost="{5}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Avatar", "Horror"},
     text="Impending 4—{2}{W}{W} (If you cast this spell for its impending cost, it enters with four time counters and isn't a creature until the last is removed. At the beginning of your end step, remove a time counter from it.)\nWhenever this permanent enters or attacks, create two 2/1 white Insect creature tokens with flying.",
-    setup_interceptors=overlord_of_the_mistmoors_setup
 )
 
 PATCHED_PLAYTHING = make_artifact_creature(
@@ -2108,15 +428,14 @@ SPLITSKIN_DOLL = make_artifact_creature(
     colors={Color.WHITE},
     subtypes={"Toy"},
     text="When this creature enters, draw a card. Then discard a card unless you control another creature with power 2 or less.",
-    setup_interceptors=splitskin_doll_setup
 )
 
 SURGICAL_SUITE = make_enchantment(
     name="Surgical Suite",
-    mana_cost="{1}{W} // {3}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Surgical Suite {1}{W}: When you unlock this door, return target creature card with mana value 3 or less from your graveyard to the battlefield.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nHospital Room {3}{W}: Whenever you attack, put a +1/+1 counter on target attacking creature.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 TOBY_BEASTIE_BEFRIENDER = make_creature(
@@ -2127,7 +446,6 @@ TOBY_BEASTIE_BEFRIENDER = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="When Toby enters, create a 4/4 white Beast creature token with \"This token can't attack or block alone.\"\nAs long as you control four or more creature tokens, creature tokens you control have flying.",
-    setup_interceptors=toby_beastie_befriender_setup
 )
 
 TRAPPED_IN_THE_SCREEN = make_enchantment(
@@ -2151,7 +469,6 @@ UNSETTLING_TWINS = make_creature(
     colors={Color.WHITE},
     subtypes={"Human"},
     text="When this creature enters, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
-    setup_interceptors=unsettling_twins_setup
 )
 
 UNWANTED_REMAKE = make_instant(
@@ -2187,33 +504,31 @@ ABHORRENT_OCULUS = make_creature(
     colors={Color.BLUE},
     subtypes={"Eye"},
     text="As an additional cost to cast this spell, exile six cards from your graveyard.\nFlying\nAt the beginning of each opponent's upkeep, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
-    setup_interceptors=abhorrent_oculus_setup
 )
 
 BOTTOMLESS_POOL = make_enchantment(
     name="Bottomless Pool",
-    mana_cost="{U} // {4}{U}",
+    mana_cost="{U}",
     colors={Color.BLUE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Bottomless Pool {U}: When you unlock this door, return up to one target creature to its owner's hand.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nLocker Room {4}{U}: Whenever one or more creatures you control deal combat damage to a player, draw a card.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 CENTRAL_ELEVATOR = make_enchantment(
     name="Central Elevator",
-    mana_cost="{3}{U} // {2}{U}",
+    mana_cost="{3}{U}",
     colors={Color.BLUE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Central Elevator {3}{U}: When you unlock this door, search your library for a Room card that doesn't have the same name as a Room you control, reveal it, put it into your hand, then shuffle.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nPromising Stairs {2}{U}: At the beginning of your upkeep, surveil 1. You win the game if there are eight or more different names among unlocked doors of Rooms you control.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
-CLAMMY_PROWLER = make_creature(
+CLAMMY_PROWLER = make_enchantment_creature(
     name="Clammy Prowler",
     power=2, toughness=5,
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Horror"},
     text="Whenever this creature attacks, another target attacking creature can't be blocked this turn.",
-    setup_interceptors=clammy_prowler_setup
 )
 
 CREEPING_PEEPER = make_creature(
@@ -2256,14 +571,13 @@ DUSKMOURNS_DOMINATION = make_enchantment(
     subtypes={"Aura"},
 )
 
-ENDURING_CURIOSITY = make_creature(
+ENDURING_CURIOSITY = make_enchantment_creature(
     name="Enduring Curiosity",
     power=4, toughness=3,
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Cat", "Glimmer"},
     text="Flash\nWhenever a creature you control deals combat damage to a player, draw a card.\nWhen Enduring Curiosity dies, if it was a creature, return it to the battlefield under its owner's control. It's an enchantment. (It's not a creature.)",
-    setup_interceptors=enduring_curiosity_setup
 )
 
 ENTER_THE_ENIGMA = make_sorcery(
@@ -2280,7 +594,6 @@ ENTITY_TRACKER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scout"},
     text="Flash\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, draw a card.",
-    setup_interceptors=entity_tracker_setup
 )
 
 ERRATIC_APPARITION = make_creature(
@@ -2290,40 +603,36 @@ ERRATIC_APPARITION = make_creature(
     colors={Color.BLUE},
     subtypes={"Spirit"},
     text="Flying, vigilance\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, this creature gets +1/+1 until end of turn.",
-    setup_interceptors=erratic_apparition_setup
 )
 
-FEAR_OF_FAILED_TESTS = make_creature(
+FEAR_OF_FAILED_TESTS = make_enchantment_creature(
     name="Fear of Failed Tests",
     power=2, toughness=7,
     mana_cost="{4}{U}",
     colors={Color.BLUE},
     subtypes={"Nightmare"},
     text="Whenever this creature deals combat damage to a player, draw that many cards.",
-    setup_interceptors=fear_of_failed_tests_setup
 )
 
-FEAR_OF_FALLING = make_creature(
+FEAR_OF_FALLING = make_enchantment_creature(
     name="Fear of Falling",
     power=4, toughness=4,
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Nightmare"},
     text="Flying\nWhenever this creature attacks, target creature defending player controls gets -2/-0 and loses flying until your next turn.",
-    setup_interceptors=fear_of_falling_setup
 )
 
-FEAR_OF_IMPOSTORS = make_creature(
+FEAR_OF_IMPOSTORS = make_enchantment_creature(
     name="Fear of Impostors",
     power=3, toughness=2,
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Nightmare"},
     text="Flash\nWhen this creature enters, counter target spell. Its controller manifests dread. (That player looks at the top two cards of their library, then puts one onto the battlefield face down as a 2/2 creature and the other into their graveyard. If it's a creature card, it can be turned face up any time for its mana cost.)",
-    setup_interceptors=fear_of_impostors_setup
 )
 
-FEAR_OF_ISOLATION = make_creature(
+FEAR_OF_ISOLATION = make_enchantment_creature(
     name="Fear of Isolation",
     power=2, toughness=3,
     mana_cost="{1}{U}",
@@ -2339,7 +648,6 @@ FLOODPITS_DROWNER = make_creature(
     colors={Color.BLUE},
     subtypes={"Merfolk"},
     text="Flash\nVigilance\nWhen this creature enters, tap target creature an opponent controls and put a stun counter on it.\n{1}{U}, {T}: Shuffle this creature and target creature with a stun counter on it into their owners' libraries.",
-    setup_interceptors=floodpits_drowner_setup
 )
 
 GET_OUT = make_instant(
@@ -2356,7 +664,6 @@ GHOSTLY_KEYBEARER = make_creature(
     colors={Color.BLUE},
     subtypes={"Spirit"},
     text="Flying\nWhenever this creature deals combat damage to a player, unlock a locked door of up to one target Room you control.",
-    setup_interceptors=ghostly_keybearer_setup
 )
 
 GLIMMERBURST = make_instant(
@@ -2382,13 +689,13 @@ MARINA_VENDRELLS_GRIMOIRE = make_artifact(
 
 MEAT_LOCKER = make_enchantment(
     name="Meat Locker",
-    mana_cost="{2}{U} // {3}{U}{U}",
+    mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Meat Locker {2}{U}: When you unlock this door, tap up to one target creature and put two stun counters on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nDrowned Diner {3}{U}{U}: When you unlock this door, draw three cards, then discard a card.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
-THE_MINDSKINNER = make_creature(
+THE_MINDSKINNER = make_enchantment_creature(
     name="The Mindskinner",
     power=10, toughness=1,
     mana_cost="{U}{U}{U}",
@@ -2400,20 +707,19 @@ THE_MINDSKINNER = make_creature(
 
 MIRROR_ROOM = make_enchantment(
     name="Mirror Room",
-    mana_cost="{2}{U} // {5}{U}{U}",
+    mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Mirror Room {2}{U}: When you unlock this door, create a token that's a copy of target creature you control, except it's a Reflection in addition to its other creature types.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nFractured Realm {5}{U}{U}: If a triggered ability of a permanent you control triggers, that ability triggers an additional time.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
-OVERLORD_OF_THE_FLOODPITS = make_creature(
+OVERLORD_OF_THE_FLOODPITS = make_enchantment_creature(
     name="Overlord of the Floodpits",
     power=5, toughness=3,
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Avatar", "Horror"},
     text="Impending 4—{1}{U}{U} (If you cast this spell for its impending cost, it enters with four time counters and isn't a creature until the last is removed. At the beginning of your end step, remove a time counter from it.)\nFlying\nWhenever this permanent enters or attacks, draw two cards, then discard a card.",
-    setup_interceptors=overlord_of_the_floodpits_setup
 )
 
 PARANORMAL_ANALYST = make_creature(
@@ -2441,10 +747,9 @@ SCRABBLING_SKULLCRAB = make_creature(
     colors={Color.BLUE},
     subtypes={"Crab", "Skeleton"},
     text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, target player mills two cards. (They put the top two cards of their library into their graveyard.)",
-    setup_interceptors=scrabbling_skullcrab_setup
 )
 
-SILENT_HALLCREEPER = make_creature(
+SILENT_HALLCREEPER = make_enchantment_creature(
     name="Silent Hallcreeper",
     power=1, toughness=1,
     mana_cost="{1}{U}",
@@ -2460,7 +765,6 @@ STALKED_RESEARCHER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     text="Defender\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, this creature can attack this turn as though it didn't have defender.",
-    setup_interceptors=stalked_researcher_setup
 )
 
 STAY_HIDDEN_STAY_SILENT = make_enchantment(
@@ -2487,7 +791,6 @@ TUNNEL_SURVEYOR = make_creature(
     colors={Color.BLUE},
     subtypes={"Detective", "Human"},
     text="When this creature enters, create a 1/1 white Glimmer enchantment creature token.",
-    setup_interceptors=tunnel_surveyor_setup
 )
 
 TWIST_REALITY = make_instant(
@@ -2507,10 +810,10 @@ UNABLE_TO_SCREAM = make_enchantment(
 
 UNDERWATER_TUNNEL = make_enchantment(
     name="Underwater Tunnel",
-    mana_cost="{U} // {3}{U}",
+    mana_cost="{U}",
     colors={Color.BLUE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Underwater Tunnel {U}: When you unlock this door, surveil 2. (Look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nSlimy Aquarium {3}{U}: When you unlock this door, manifest dread, then put a +1/+1 counter on that creature.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 UNNERVING_GRASP = make_sorcery(
@@ -2527,7 +830,6 @@ UNWILLING_VESSEL = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     text="Vigilance\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, put a possession counter on this creature.\nWhen this creature dies, create an X/X blue Spirit creature token with flying, where X is the number of counters on this creature.",
-    setup_interceptors=unwilling_vessel_setup
 )
 
 VANISH_FROM_SIGHT = make_instant(
@@ -2537,14 +839,13 @@ VANISH_FROM_SIGHT = make_instant(
     text="Target nonland permanent's owner puts it on their choice of the top or bottom of their library. Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
 )
 
-APPENDAGE_AMALGAM = make_creature(
+APPENDAGE_AMALGAM = make_enchantment_creature(
     name="Appendage Amalgam",
     power=3, toughness=2,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
     text="Flash\nWhenever this creature attacks, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
-    setup_interceptors=appendage_amalgam_setup
 )
 
 BALEMURK_LEECH = make_creature(
@@ -2554,7 +855,6 @@ BALEMURK_LEECH = make_creature(
     colors={Color.BLACK},
     subtypes={"Leech"},
     text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, each opponent loses 1 life.",
-    setup_interceptors=balemurk_leech_setup
 )
 
 CACKLING_SLASHER = make_creature(
@@ -2604,15 +904,14 @@ DASHING_BLOODSUCKER = make_creature(
     colors={Color.BLACK},
     subtypes={"Vampire", "Warrior"},
     text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, this creature gets +2/+0 and gains lifelink until end of turn.",
-    setup_interceptors=dashing_bloodsucker_setup
 )
 
 DEFILED_CRYPT = make_enchantment(
     name="Defiled Crypt",
-    mana_cost="{3}{B} // {B}",
+    mana_cost="{3}{B}",
     colors={Color.BLACK},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Defiled Crypt {3}{B}: Whenever one or more cards leave your graveyard, create a 2/2 black Horror enchantment creature token. This ability triggers only once each turn.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nCadaver Lab {B}: When you unlock this door, return target creature card from your graveyard to your hand.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 DEMONIC_COUNSEL = make_sorcery(
@@ -2624,10 +923,10 @@ DEMONIC_COUNSEL = make_sorcery(
 
 DERELICT_ATTIC = make_enchantment(
     name="Derelict Attic",
-    mana_cost="{2}{B} // {3}{B}",
+    mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Derelict Attic {2}{B}: When you unlock this door, you draw two cards and you lose 2 life.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nWidow's Walk {3}{B}: Whenever a creature you control attacks alone, it gets +1/+0 and gains deathtouch until end of turn.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 DOOMSDAY_EXCRUCIATOR = make_creature(
@@ -2637,17 +936,15 @@ DOOMSDAY_EXCRUCIATOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon"},
     text="Flying\nWhen this creature enters, if it was cast, each player exiles all but the bottom six cards of their library face down.\nAt the beginning of your upkeep, draw a card.",
-    setup_interceptors=doomsday_excruciator_setup
 )
 
-ENDURING_TENACITY = make_creature(
+ENDURING_TENACITY = make_enchantment_creature(
     name="Enduring Tenacity",
     power=4, toughness=3,
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Glimmer", "Snake"},
     text="Whenever you gain life, target opponent loses that much life.\nWhen Enduring Tenacity dies, if it was a creature, return it to the battlefield under its owner's control. It's an enchantment. (It's not a creature.)",
-    setup_interceptors=enduring_tenacity_setup
 )
 
 FANATIC_OF_THE_HARROWING = make_creature(
@@ -2657,27 +954,24 @@ FANATIC_OF_THE_HARROWING = make_creature(
     colors={Color.BLACK},
     subtypes={"Cleric", "Human"},
     text="When this creature enters, each player discards a card. If you discarded a card this way, draw a card.",
-    setup_interceptors=fanatic_of_the_harrowing_setup
 )
 
-FEAR_OF_LOST_TEETH = make_creature(
+FEAR_OF_LOST_TEETH = make_enchantment_creature(
     name="Fear of Lost Teeth",
     power=1, toughness=1,
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Nightmare"},
     text="When this creature dies, it deals 1 damage to any target and you gain 1 life.",
-    setup_interceptors=fear_of_lost_teeth_setup
 )
 
-FEAR_OF_THE_DARK = make_creature(
+FEAR_OF_THE_DARK = make_enchantment_creature(
     name="Fear of the Dark",
     power=5, toughness=5,
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     subtypes={"Nightmare"},
     text="Whenever this creature attacks, if defending player controls no Glimmer creatures, it gains menace and deathtouch until end of turn. (A creature with menace can't be blocked except by two or more creatures.)",
-    setup_interceptors=fear_of_the_dark_setup
 )
 
 FINAL_VENGEANCE = make_sorcery(
@@ -2689,10 +983,10 @@ FINAL_VENGEANCE = make_sorcery(
 
 FUNERAL_ROOM = make_enchantment(
     name="Funeral Room",
-    mana_cost="{2}{B} // {6}{B}{B}",
+    mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Funeral Room {2}{B}: Whenever a creature you control dies, each opponent loses 1 life and you gain 1 life.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nAwakening Hall {6}{B}{B}: When you unlock this door, return all creature cards from your graveyard to the battlefield.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 GIVE_IN_TO_VIOLENCE = make_instant(
@@ -2717,7 +1011,6 @@ INNOCUOUS_RAT = make_creature(
     colors={Color.BLACK},
     subtypes={"Rat"},
     text="When this creature dies, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
-    setup_interceptors=innocuous_rat_setup
 )
 
 KILLERS_MASK = make_artifact(
@@ -2763,7 +1056,6 @@ MIASMA_DEMON = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon"},
     text="Flying\nWhen this creature enters, you may discard any number of cards. When you do, up to that many target creatures each get -2/-2 until end of turn.",
-    setup_interceptors=miasma_demon_setup
 )
 
 MURDER = make_instant(
@@ -2789,14 +1081,13 @@ OSSEOUS_STICKTWISTER = make_artifact_creature(
     text="Lifelink\nDelirium — At the beginning of your end step, if there are four or more card types among cards in your graveyard, each opponent may sacrifice a nonland permanent of their choice or discard a card. Then this creature deals damage equal to its power to each opponent who didn't sacrifice a permanent or discard a card this way.",
 )
 
-OVERLORD_OF_THE_BALEMURK = make_creature(
+OVERLORD_OF_THE_BALEMURK = make_enchantment_creature(
     name="Overlord of the Balemurk",
     power=5, toughness=5,
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Avatar", "Horror"},
     text="Impending 5—{1}{B} (If you cast this spell for its impending cost, it enters with five time counters and isn't a creature until the last is removed. At the beginning of your end step, remove a time counter from it.)\nWhenever this permanent enters or attacks, mill four cards, then you may return a non-Avatar creature card or a planeswalker card from your graveyard to your hand.",
-    setup_interceptors=overlord_of_the_balemurk_setup
 )
 
 POPULAR_EGOTIST = make_creature(
@@ -2806,7 +1097,6 @@ POPULAR_EGOTIST = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Rogue"},
     text="{1}{B}, Sacrifice another creature or enchantment: This creature gains indestructible until end of turn. Tap it. (Damage and effects that say \"destroy\" don't destroy it.)\nWhenever you sacrifice a permanent, target opponent loses 1 life and you gain 1 life.",
-    setup_interceptors=popular_egotist_setup
 )
 
 RESURRECTED_CULTIST = make_creature(
@@ -2837,10 +1127,10 @@ SPOROGENIC_INFECTION = make_enchantment(
 
 UNHOLY_ANNEX = make_enchantment(
     name="Unholy Annex",
-    mana_cost="{2}{B} // {3}{B}{B}",
+    mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Unholy Annex {2}{B}: At the beginning of your end step, draw a card. If you control a Demon, each opponent loses 2 life and you gain 2 life. Otherwise, you lose 2 life.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nRitual Chamber {3}{B}{B}: When you unlock this door, create a 6/6 black Demon creature token with flying.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 UNSTOPPABLE_SLASHER = make_creature(
@@ -2850,7 +1140,6 @@ UNSTOPPABLE_SLASHER = make_creature(
     colors={Color.BLACK},
     subtypes={"Assassin", "Zombie"},
     text="Deathtouch\nWhenever this creature deals combat damage to a player, they lose half their life, rounded up.\nWhen this creature dies, if it had no counters on it, return it to the battlefield tapped under its owner's control with two stun counters on it.",
-    setup_interceptors=unstoppable_slasher_setup
 )
 
 VALGAVOTH_TERROR_EATER = make_creature(
@@ -2879,7 +1168,6 @@ VILE_MUTILATOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon"},
     text="As an additional cost to cast this spell, sacrifice a creature or enchantment.\nFlying, trample\nWhen this creature enters, each opponent sacrifices a nontoken enchantment of their choice, then sacrifices a nontoken creature of their choice.",
-    setup_interceptors=vile_mutilator_setup
 )
 
 WINTERS_INTERVENTION = make_instant(
@@ -2919,7 +1207,6 @@ BOILERBILGES_RIPPER = make_creature(
     colors={Color.RED},
     subtypes={"Assassin", "Human"},
     text="When this creature enters, you may sacrifice another creature or enchantment. When you do, this creature deals 2 damage to any target.",
-    setup_interceptors=boilerbilges_ripper_setup
 )
 
 CHAINSAW = make_artifact(
@@ -2931,10 +1218,10 @@ CHAINSAW = make_artifact(
 
 CHARRED_FOYER = make_enchantment(
     name="Charred Foyer",
-    mana_cost="{3}{R} // {4}{R}{R}",
+    mana_cost="{3}{R}",
     colors={Color.RED},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Charred Foyer {3}{R}: At the beginning of your upkeep, exile the top card of your library. You may play it this turn.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nWarped Space {4}{R}{R}: Once each turn, you may pay {0} rather than pay the mana cost for a spell you cast from exile.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 CLOCKWORK_PERCUSSIONIST = make_artifact_creature(
@@ -2944,7 +1231,6 @@ CLOCKWORK_PERCUSSIONIST = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Monkey", "Toy"},
     text="Haste\nWhen this creature dies, exile the top card of your library. You may play it until the end of your next turn.",
-    setup_interceptors=clockwork_percussionist_setup
 )
 
 CURSED_RECORDING = make_artifact(
@@ -2962,17 +1248,16 @@ DIVERSION_SPECIALIST = make_creature(
     text="Menace (This creature can't be blocked except by two or more creatures.)\n{1}, Sacrifice another creature or enchantment: Exile the top card of your library. You may play it this turn.",
 )
 
-ENDURING_COURAGE = make_creature(
+ENDURING_COURAGE = make_enchantment_creature(
     name="Enduring Courage",
     power=3, toughness=3,
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Dog", "Glimmer"},
     text="Whenever another creature you control enters, it gets +2/+0 and gains haste until end of turn.\nWhen Enduring Courage dies, if it was a creature, return it to the battlefield under its owner's control. It's an enchantment. (It's not a creature.)",
-    setup_interceptors=enduring_courage_setup
 )
 
-FEAR_OF_BEING_HUNTED = make_creature(
+FEAR_OF_BEING_HUNTED = make_enchantment_creature(
     name="Fear of Being Hunted",
     power=4, toughness=2,
     mana_cost="{1}{R}{R}",
@@ -2981,32 +1266,30 @@ FEAR_OF_BEING_HUNTED = make_creature(
     text="Haste\nThis creature must be blocked if able.",
 )
 
-FEAR_OF_BURNING_ALIVE = make_creature(
+FEAR_OF_BURNING_ALIVE = make_enchantment_creature(
     name="Fear of Burning Alive",
     power=4, toughness=4,
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
     subtypes={"Nightmare"},
     text="When this creature enters, it deals 4 damage to each opponent.\nDelirium — Whenever a source you control deals noncombat damage to an opponent, if there are four or more card types among cards in your graveyard, this creature deals that amount of damage to target creature that player controls.",
-    setup_interceptors=fear_of_burning_alive_setup
 )
 
-FEAR_OF_MISSING_OUT = make_creature(
+FEAR_OF_MISSING_OUT = make_enchantment_creature(
     name="Fear of Missing Out",
     power=2, toughness=3,
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Nightmare"},
     text="When this creature enters, discard a card, then draw a card.\nDelirium — Whenever this creature attacks for the first time each turn, if there are four or more card types among cards in your graveyard, untap target creature. After this phase, there is an additional combat phase.",
-    setup_interceptors=fear_of_missing_out_setup
 )
 
 GLASSWORKS = make_enchantment(
     name="Glassworks",
-    mana_cost="{2}{R} // {4}{R}",
+    mana_cost="{2}{R}",
     colors={Color.RED},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Glassworks {2}{R}: When you unlock this door, this Room deals 4 damage to target creature an opponent controls.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nShattered Yard {4}{R}: At the beginning of your end step, this Room deals 1 damage to each opponent.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 GRAB_THE_PRIZE = make_sorcery(
@@ -3023,7 +1306,6 @@ HAND_THAT_FEEDS = make_creature(
     colors={Color.RED},
     subtypes={"Mutant"},
     text="Delirium — Whenever this creature attacks while there are four or more card types among cards in your graveyard, it gets +2/+0 and gains menace until end of turn. (It can't be blocked except by two or more creatures.)",
-    setup_interceptors=hand_that_feeds_setup
 )
 
 IMPOSSIBLE_INFERNO = make_instant(
@@ -3040,7 +1322,6 @@ INFERNAL_PHANTOM = make_creature(
     colors={Color.RED},
     subtypes={"Spirit"},
     text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, this creature gets +2/+0 until end of turn.\nWhen this creature dies, it deals damage equal to its power to any target.",
-    setup_interceptors=infernal_phantom_eerie_setup
 )
 
 IRREVERENT_GREMLIN = make_creature(
@@ -3050,7 +1331,6 @@ IRREVERENT_GREMLIN = make_creature(
     colors={Color.RED},
     subtypes={"Gremlin"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nWhenever another creature you control with power 2 or less enters, you may discard a card. If you do, draw a card. Do this only once each turn.",
-    setup_interceptors=irreverent_gremlin_setup
 )
 
 LEYLINE_OF_RESONANCE = make_enchantment(
@@ -3074,7 +1354,6 @@ MOST_VALUABLE_SLAYER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
     text="Whenever you attack, target attacking creature gets +1/+0 and gains first strike until end of turn.",
-    setup_interceptors=most_valuable_slayer_setup
 )
 
 NORIN_SWIFT_SURVIVALIST = make_creature(
@@ -3087,22 +1366,21 @@ NORIN_SWIFT_SURVIVALIST = make_creature(
     text="Norin can't block.\nWhenever a creature you control becomes blocked, you may exile it. You may play that card from exile this turn.",
 )
 
-OVERLORD_OF_THE_BOILERBILGES = make_creature(
+OVERLORD_OF_THE_BOILERBILGES = make_enchantment_creature(
     name="Overlord of the Boilerbilges",
     power=5, toughness=5,
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
     subtypes={"Avatar", "Horror"},
     text="Impending 4—{2}{R}{R} (If you cast this spell for its impending cost, it enters with four time counters and isn't a creature until the last is removed. At the beginning of your end step, remove a time counter from it.)\nWhenever this permanent enters or attacks, it deals 4 damage to any target.",
-    setup_interceptors=overlord_of_the_boilerbilges_setup
 )
 
 PAINTERS_STUDIO = make_enchantment(
     name="Painter's Studio",
-    mana_cost="{2}{R} // {1}{R}",
+    mana_cost="{2}{R}",
     colors={Color.RED},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Painter's Studio {2}{R}: When you unlock this door, exile the top two cards of your library. You may play them until the end of your next turn.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nDefaced Gallery {1}{R}: Whenever you attack, attacking creatures you control get +1/+0 until end of turn.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 PIGGY_BANK = make_artifact_creature(
@@ -3112,7 +1390,6 @@ PIGGY_BANK = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Boar", "Toy"},
     text="When this creature dies, create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
-    setup_interceptors=piggy_bank_setup
 )
 
 PYROCLASM = make_sorcery(
@@ -3147,7 +1424,6 @@ RAZORKIN_HORDECALLER = make_creature(
     colors={Color.RED},
     subtypes={"Berserker", "Clown", "Human"},
     text="Haste\nWhenever you attack, create a 1/1 red Gremlin creature token.",
-    setup_interceptors=razorkin_hordecaller_setup
 )
 
 RAZORKIN_NEEDLEHEAD = make_creature(
@@ -3157,7 +1433,6 @@ RAZORKIN_NEEDLEHEAD = make_creature(
     colors={Color.RED},
     subtypes={"Assassin", "Human"},
     text="This creature has first strike during your turn.\nWhenever an opponent draws a card, this creature deals 1 damage to them.",
-    setup_interceptors=razorkin_needlehead_setup
 )
 
 RIPCHAIN_RAZORKIN = make_creature(
@@ -3191,15 +1466,14 @@ SCREAMING_NEMESIS = make_creature(
     colors={Color.RED},
     subtypes={"Spirit"},
     text="Haste\nWhenever this creature is dealt damage, it deals that much damage to any other target. If a player is dealt damage this way, they can't gain life for the rest of the game.",
-    setup_interceptors=screaming_nemesis_setup
 )
 
 TICKET_BOOTH = make_enchantment(
     name="Ticket Booth",
-    mana_cost="{2}{R} // {4}{R}{R}",
+    mana_cost="{2}{R}",
     colors={Color.RED},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Ticket Booth {2}{R}: When you unlock this door, manifest dread.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nTunnel of Hate {4}{R}{R}: Whenever you attack, target attacking creature gains double strike until end of turn.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 TRIAL_OF_AGONY = make_sorcery(
@@ -3237,7 +1511,6 @@ VICIOUS_CLOWN = make_creature(
     colors={Color.RED},
     subtypes={"Clown", "Human"},
     text="Whenever another creature you control with power 2 or less enters, this creature gets +2/+0 until end of turn.",
-    setup_interceptors=vicious_clown_setup
 )
 
 VIOLENT_URGE = make_instant(
@@ -3271,7 +1544,6 @@ ANTHROPEDE = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect"},
     text="Reach\nWhen this creature enters, you may discard a card or pay {2}. When you do, destroy target Room.",
-    setup_interceptors=anthropede_setup
 )
 
 BALUSTRADE_WURM = make_creature(
@@ -3290,7 +1562,6 @@ BASHFUL_BEASTIE = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast"},
     text="When this creature dies, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
-    setup_interceptors=bashful_beastie_setup
 )
 
 BREAK_DOWN_THE_DOOR = make_instant(
@@ -3330,7 +1601,6 @@ CRYPTID_INSPECTOR = make_creature(
     colors={Color.GREEN},
     subtypes={"Elf", "Warrior"},
     text="Vigilance\nWhenever a face-down permanent you control enters and whenever this creature or another permanent you control is turned face up, put a +1/+1 counter on this creature.",
-    setup_interceptors=cryptid_inspector_setup
 )
 
 DEFIANT_SURVIVOR = make_creature(
@@ -3342,17 +1612,16 @@ DEFIANT_SURVIVOR = make_creature(
     text="Survival — At the beginning of your second main phase, if this creature is tapped, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
 )
 
-ENDURING_VITALITY = make_creature(
+ENDURING_VITALITY = make_enchantment_creature(
     name="Enduring Vitality",
     power=3, toughness=3,
     mana_cost="{1}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Elk", "Glimmer"},
     text="Vigilance\nCreatures you control have \"{T}: Add one mana of any color.\"\nWhen Enduring Vitality dies, if it was a creature, return it to the battlefield under its owner's control. It's an enchantment. (It's not a creature.)",
-    setup_interceptors=enduring_vitality_setup
 )
 
-FEAR_OF_EXPOSURE = make_creature(
+FEAR_OF_EXPOSURE = make_enchantment_creature(
     name="Fear of Exposure",
     power=5, toughness=4,
     mana_cost="{2}{G}",
@@ -3368,7 +1637,6 @@ FLESH_BURROWER = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect"},
     text="Deathtouch\nWhenever this creature attacks, another target creature you control gains deathtouch until end of turn.",
-    setup_interceptors=flesh_burrower_setup
 )
 
 FRANTIC_STRENGTH = make_enchantment(
@@ -3379,22 +1647,21 @@ FRANTIC_STRENGTH = make_enchantment(
     subtypes={"Aura"},
 )
 
-GRASPING_LONGNECK = make_creature(
+GRASPING_LONGNECK = make_enchantment_creature(
     name="Grasping Longneck",
     power=4, toughness=2,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Horror"},
     text="Reach\nWhen this creature dies, you gain 2 life.",
-    setup_interceptors=grasping_longneck_setup
 )
 
 GREENHOUSE = make_enchantment(
     name="Greenhouse",
-    mana_cost="{2}{G} // {3}{G}",
+    mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Greenhouse {2}{G}: Lands you control have \"{T}: Add one mana of any color.\"\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nRickety Gazebo {3}{G}: When you unlock this door, mill four cards, then return up to two permanent cards from among them to your hand.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 HAUNTWOODS_SHRIEKER = make_creature(
@@ -3404,7 +1671,6 @@ HAUNTWOODS_SHRIEKER = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast", "Mutant"},
     text="Whenever this creature attacks, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)\n{1}{G}: Reveal target face-down permanent. If it's a creature card, you may turn it face up.",
-    setup_interceptors=hauntwoods_shrieker_setup
 )
 
 HEDGE_SHREDDER = make_artifact(
@@ -3465,10 +1731,10 @@ MANIFEST_DREAD = make_sorcery(
 
 MOLDERING_GYM = make_enchantment(
     name="Moldering Gym",
-    mana_cost="{2}{G} // {5}{G}",
+    mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Moldering Gym {2}{G}: When you unlock this door, search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nWeight Room {5}{G}: When you unlock this door, manifest dread, then put three +1/+1 counters on that creature.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 MONSTROUS_EMERGENCE = make_sorcery(
@@ -3485,7 +1751,6 @@ OMNIVOROUS_FLYTRAP = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant"},
     text="Delirium — Whenever this creature enters or attacks, if there are four or more card types among cards in your graveyard, distribute two +1/+1 counters among one or two target creatures. Then if there are six or more card types among cards in your graveyard, double the number of +1/+1 counters on those creatures.",
-    setup_interceptors=omnivorous_flytrap_setup
 )
 
 OVERGROWN_ZEALOT = make_creature(
@@ -3497,14 +1762,13 @@ OVERGROWN_ZEALOT = make_creature(
     text="{T}: Add one mana of any color.\n{T}: Add two mana of any one color. Spend this mana only to turn permanents face up.",
 )
 
-OVERLORD_OF_THE_HAUNTWOODS = make_creature(
+OVERLORD_OF_THE_HAUNTWOODS = make_enchantment_creature(
     name="Overlord of the Hauntwoods",
     power=6, toughness=5,
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Avatar", "Horror"},
     text="Impending 4—{1}{G}{G} (If you cast this spell for its impending cost, it enters with four time counters and isn't a creature until the last is removed. At the beginning of your end step, remove a time counter from it.)\nWhenever this permanent enters or attacks, create a tapped colorless land token named Everywhere that is every basic land type.",
-    setup_interceptors=overlord_of_the_hauntwoods_setup
 )
 
 PATCHWORK_BEASTIE = make_artifact_creature(
@@ -3548,7 +1812,6 @@ SPINESEEKER_CENTIPEDE = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect"},
     text="When this creature enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle.\nDelirium — This creature gets +1/+2 and has vigilance as long as there are four or more card types among cards in your graveyard.",
-    setup_interceptors=spineseeker_centipede_setup
 )
 
 THREATS_AROUND_EVERY_CORNER = make_enchantment(
@@ -3556,7 +1819,6 @@ THREATS_AROUND_EVERY_CORNER = make_enchantment(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="When this enchantment enters, manifest dread.\nWhenever a face-down permanent you control enters, search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
-    setup_interceptors=threats_around_every_corner_setup
 )
 
 TWITCHING_DOLL = make_artifact_creature(
@@ -3594,10 +1856,10 @@ VALGAVOTHS_ONSLAUGHT = make_sorcery(
 
 WALKIN_CLOSET = make_enchantment(
     name="Walk-In Closet",
-    mana_cost="{2}{G} // {3}{G}{G}",
+    mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Walk-In Closet {2}{G}: You may play lands from your graveyard.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nForgotten Cellar {3}{G}{G}: When you unlock this door, you may cast spells from your graveyard this turn, and if a card would be put into your graveyard from anywhere this turn, exile it instead.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 WARY_WATCHDOG = make_creature(
@@ -3607,7 +1869,6 @@ WARY_WATCHDOG = make_creature(
     colors={Color.GREEN},
     subtypes={"Dog"},
     text="When this creature enters or dies, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
-    setup_interceptors=wary_watchdog_setup
 )
 
 WICKERFOLK_THRESHER = make_artifact_creature(
@@ -3617,7 +1878,6 @@ WICKERFOLK_THRESHER = make_artifact_creature(
     colors={Color.GREEN},
     subtypes={"Scarecrow"},
     text="Delirium — Whenever this creature attacks, if there are four or more card types among cards in your graveyard, look at the top card of your library. If it's a land card, you may put it onto the battlefield. If you don't put the card onto the battlefield, put it into your hand.",
-    setup_interceptors=wickerfolk_thresher_setup
 )
 
 ARABELLA_ABANDONED_DOLL = make_artifact_creature(
@@ -3628,7 +1888,6 @@ ARABELLA_ABANDONED_DOLL = make_artifact_creature(
     subtypes={"Toy"},
     supertypes={"Legendary"},
     text="Whenever Arabella attacks, it deals X damage to each opponent and you gain X life, where X is the number of creatures you control with power 2 or less.",
-    setup_interceptors=arabella_abandoned_doll_setup
 )
 
 BASEBALL_BAT = make_artifact(
@@ -3652,7 +1911,6 @@ BROODSPINNER = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Spider"},
     text="Reach\nWhen this creature enters, surveil 2. (Look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)\n{4}{B}{G}, {T}, Sacrifice this creature: Create a number of 1/1 black and green Insect creature tokens with flying equal to the number of card types among cards in your graveyard.",
-    setup_interceptors=broodspinner_setup
 )
 
 DISTURBING_MIRTH = make_enchantment(
@@ -3660,7 +1918,6 @@ DISTURBING_MIRTH = make_enchantment(
     mana_cost="{B}{R}",
     colors={Color.BLACK, Color.RED},
     text="When this enchantment enters, you may sacrifice another enchantment or creature. If you do, draw two cards.\nWhen you sacrifice this enchantment, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
-    setup_interceptors=disturbing_mirth_setup
 )
 
 DRAG_TO_THE_ROOTS = make_instant(
@@ -3670,14 +1927,13 @@ DRAG_TO_THE_ROOTS = make_instant(
     text="Delirium — This spell costs {2} less to cast as long as there are four or more card types among cards in your graveyard.\nDestroy target nonland permanent.",
 )
 
-FEAR_OF_INFINITY = make_creature(
+FEAR_OF_INFINITY = make_enchantment_creature(
     name="Fear of Infinity",
     power=2, toughness=2,
     mana_cost="{1}{U}{B}",
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Nightmare"},
     text="Flying, lifelink\nThis creature can't block.\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, you may return this card from your graveyard to your hand.",
-    setup_interceptors=fear_of_infinity_setup
 )
 
 GREMLIN_TAMER = make_creature(
@@ -3687,7 +1943,6 @@ GREMLIN_TAMER = make_creature(
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Human", "Scout"},
     text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, create a 1/1 red Gremlin creature token.",
-    setup_interceptors=gremlin_tamer_setup
 )
 
 GROWING_DREAD = make_enchantment(
@@ -3695,10 +1950,9 @@ GROWING_DREAD = make_enchantment(
     mana_cost="{G}{U}",
     colors={Color.GREEN, Color.BLUE},
     text="Flash\nWhen this enchantment enters, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)\nWhenever you turn a permanent face up, put a +1/+1 counter on it.",
-    setup_interceptors=growing_dread_setup
 )
 
-INQUISITIVE_GLIMMER = make_creature(
+INQUISITIVE_GLIMMER = make_enchantment_creature(
     name="Inquisitive Glimmer",
     power=2, toughness=3,
     mana_cost="{W}{U}",
@@ -3744,7 +1998,6 @@ MARINA_VENDRELL = make_creature(
     subtypes={"Human", "Warlock"},
     supertypes={"Legendary"},
     text="When Marina Vendrell enters, reveal the top seven cards of your library. Put all enchantment cards from among them into your hand and the rest on the bottom of your library in a random order.\n{T}: Lock or unlock a door of target Room you control. Activate only as a sorcery.",
-    setup_interceptors=marina_vendrell_setup
 )
 
 MIDNIGHT_MAYHEM = make_sorcery(
@@ -3772,7 +2025,6 @@ NIKO_LIGHT_OF_HOPE = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="When Niko enters, create two Shard tokens. (They're enchantments with \"{2}, Sacrifice this token: Scry 1, then draw a card.\")\n{2}, {T}: Exile target nonlegendary creature you control. Shards you control become copies of it until the next end step. Return it to the battlefield under its owner's control at the beginning of the next end step.",
-    setup_interceptors=niko_light_of_hope_setup
 )
 
 OBLIVIOUS_BOOKWORM = make_creature(
@@ -3793,10 +2045,10 @@ PEER_PAST_THE_VEIL = make_instant(
 
 RESTRICTED_OFFICE = make_enchantment(
     name="Restricted Office",
-    mana_cost="{2}{W}{W} // {5}{U}{U}",
+    mana_cost="{2}{W}{W}",
     colors={Color.BLUE, Color.WHITE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Restricted Office {2}{W}{W}: When you unlock this door, destroy all creatures with power 3 or greater.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nLecture Hall {5}{U}{U}: Other permanents you control have hexproof.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 RIP_SPAWN_HUNTER = make_creature(
@@ -3818,10 +2070,10 @@ RITE_OF_THE_MOTH = make_sorcery(
 
 ROARING_FURNACE = make_enchantment(
     name="Roaring Furnace",
-    mana_cost="{1}{R} // {3}{U}{U}",
+    mana_cost="{1}{R}",
     colors={Color.RED, Color.BLUE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Roaring Furnace {1}{R}: When you unlock this door, this Room deals damage equal to the number of cards in your hand to target creature an opponent controls.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nSteaming Sauna {3}{U}{U}: You have no maximum hand size.\nAt the beginning of your end step, draw a card.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 SAWBLADE_SKINRIPPER = make_creature(
@@ -3831,7 +2083,6 @@ SAWBLADE_SKINRIPPER = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Assassin", "Human"},
     text="Menace\n{2}, Sacrifice another creature or enchantment: Put a +1/+1 counter on this creature.\nAt the beginning of your end step, if you sacrificed one or more permanents this turn, this creature deals that much damage to any target.",
-    setup_interceptors=sawblade_skinripper_setup
 )
 
 SHREWD_STORYTELLER = make_creature(
@@ -3841,7 +2092,6 @@ SHREWD_STORYTELLER = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Survivor"},
     text="Survival — At the beginning of your second main phase, if this creature is tapped, put a +1/+1 counter on target creature.",
-    setup_interceptors=shrewd_storyteller_setup
 )
 
 SHROUDSTOMPER = make_creature(
@@ -3851,7 +2101,6 @@ SHROUDSTOMPER = make_creature(
     colors={Color.BLACK, Color.WHITE},
     subtypes={"Elemental"},
     text="Deathtouch\nWhenever this creature enters or attacks, each opponent loses 2 life. You gain 2 life and draw a card.",
-    setup_interceptors=shroudstomper_setup
 )
 
 SKULLSNAP_NUISANCE = make_creature(
@@ -3861,15 +2110,14 @@ SKULLSNAP_NUISANCE = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Insect", "Skeleton"},
     text="Flying\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
-    setup_interceptors=skullsnap_nuisance_setup
 )
 
 SMOKY_LOUNGE = make_enchantment(
     name="Smoky Lounge",
-    mana_cost="{2}{R} // {3}{U}",
+    mana_cost="{2}{R}",
     colors={Color.RED, Color.BLUE},
-    text="",
-    subtypes={"//", "Enchantment", "Room"},
+    text="Smoky Lounge {2}{R}: At the beginning of your first main phase, add {R}{R}. Spend this mana only to cast Room spells and unlock doors.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)\n//\nMisty Salon {3}{U}: When you unlock this door, create an X/X blue Spirit creature token with flying, where X is the number of unlocked doors among Rooms you control.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)",
+    subtypes={"Room"},
 )
 
 THE_SWARMWEAVER = make_artifact_creature(
@@ -3880,7 +2128,6 @@ THE_SWARMWEAVER = make_artifact_creature(
     subtypes={"Scarecrow"},
     supertypes={"Legendary"},
     text="When The Swarmweaver enters, create two 1/1 black and green Insect creature tokens with flying.\nDelirium — As long as there are four or more card types among cards in your graveyard, Insects and Spiders you control get +1/+1 and have deathtouch.",
-    setup_interceptors=the_swarmweaver_setup
 )
 
 UNDEAD_SPRINTER = make_creature(
@@ -3890,7 +2137,6 @@ UNDEAD_SPRINTER = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Zombie"},
     text="Trample, haste\nYou may cast this card from your graveyard if a non-Zombie creature died this turn. If you do, this creature enters with a +1/+1 counter on it.",
-    setup_interceptors=undead_sprinter_setup
 )
 
 VICTOR_VALGAVOTHS_SENESCHAL = make_creature(
@@ -3901,7 +2147,6 @@ VICTOR_VALGAVOTHS_SENESCHAL = make_creature(
     subtypes={"Human", "Warlock"},
     supertypes={"Legendary"},
     text="Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, surveil 2 if this is the first time this ability has resolved this turn. If it's the second time, each opponent discards a card. If it's the third time, put a creature card from a graveyard onto the battlefield under your control.",
-    setup_interceptors=victor_valgavoths_seneschal_setup
 )
 
 WILDFIRE_WICKERFOLK = make_artifact_creature(
@@ -3976,7 +2221,6 @@ FRIENDLY_TEDDY = make_artifact_creature(
     colors=set(),
     subtypes={"Bear", "Toy"},
     text="When this creature dies, each player draws a card.",
-    setup_interceptors=friendly_teddy_setup
 )
 
 GHOST_VACUUM = make_artifact(
@@ -3990,7 +2234,6 @@ GLIMMERLIGHT = make_artifact(
     mana_cost="{2}",
     text="When this Equipment enters, create a 1/1 white Glimmer enchantment creature token.\nEquipped creature gets +1/+1.\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
-    setup_interceptors=glimmerlight_setup
 )
 
 HAUNTED_SCREEN = make_artifact(
