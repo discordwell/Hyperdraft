@@ -473,3 +473,79 @@ def test_card_ability():
 3. **Using wrong priority** → Effects happen at wrong time
 4. **Circular triggers** → Infinite loops (add safeguards)
 5. **Missing `source=obj.id`** in events → Can't track source
+
+## MTG Standard Set Mechanics
+
+### Wilds of Eldraine (WOE)
+- **Adventure** - Spells castable as creature or instant/sorcery
+- **Bargain** - Sacrifice artifact/enchantment/token for bonus
+- **Role tokens** - Aura tokens (Cursed, Monster, Royal, Sorcerer, Wicked, Young Hero)
+- **Celebration** - Bonus if 2+ nonland permanents entered this turn
+
+### Lost Caverns of Ixalan (LCI)
+- **Descend** - Bonus when permanents go to graveyard
+- **Discover X** - Exile until lower MV, cast free
+- **Craft** - Exile from graveyard to transform artifacts
+- **Map tokens** - Sacrifice to explore
+- **Explore** - Reveal top, land→hand, else +1/+1 counter
+
+### Murders at Karlov Manor (MKM)
+- **Clue tokens** - Artifact, sacrifice + pay 2 to draw
+- **Suspect** - Has menace, can't block
+- **Collect evidence X** - Exile cards from graveyard with total MV X
+- **Disguise** - Face-down 2/2 with ward 2
+- **Cases** - Enchantments that solve when conditions met
+
+### Outlaws of Thunder Junction (OTJ)
+- **Outlaw** - Assassins, Mercenaries, Pirates, Rogues, Warlocks
+- **Plot** - Pay plot cost to exile, cast later free
+- **Crimes** - Triggered when targeting opponent/their stuff
+- **Spree** - Modal with multiple costs/effects
+- **Saddle N** - Mount mechanic, tap N power to ride
+
+### Bloomburrow (BLB)
+- **Valiant** - Triggered when targeted by your spell/ability
+- **Offspring X** - Pay extra to create 1/1 token copy
+- **Gift** - Give opponent something for bonus
+- **Forage** - Exile 3 from graveyard or sacrifice Food
+- **Expend 4/8** - Bonus when spending that much mana
+
+### Duskmourn: House of Horror (DSK)
+- **Rooms** - Split enchantments, unlock second room later
+- **Delirium** - Bonus with 4+ card types in graveyard
+- **Manifest Dread** - Manifest top 2, put one face-down as 2/2
+- **Survival** - Bonus if creature has power 2+ greater than base
+- **Eerie** - Triggered when enchantment enters or Room unlocked
+
+### Foundations (FDN)
+- Core set with classic reprints and simple mechanics
+- Focus on basic keywords: Flying, First Strike, Trample, Lifelink, Haste
+- Tribal support: Soldiers, Wizards, Zombies, Goblins, Elves
+
+## Card Set Organization
+
+### Main Rotation (`src/cards/`)
+Standard-legal sets for competitive play:
+- `wilds_of_eldraine.py` - WOE
+- `lost_caverns_ixalan.py` - LCI
+- `murders_karlov_manor.py` - MKM
+- `outlaws_thunder_junction.py` - OTJ
+- `bloomburrow.py` - BLB
+- `duskmourn.py` - DSK
+- `foundations.py` - FDN
+- `lorwyn_eclipsed.py` - Custom MTG-style
+- `edge_of_eternities.py` - Original set
+
+### Custom Sets (`src/cards/custom/`)
+Themed franchise sets for casual play:
+- Avatar TLA, Spider-Man, Star Wars
+- Demon Slayer, One Piece, Pokémon Horizons
+- Legend of Zelda, Studio Ghibli, My Hero Academia
+- Final Fantasy, Lord of the Rings, Jujutsu Kaisen
+- Attack on Titan, Harry Potter, Marvel Avengers
+- Naruto, Dragon Ball Z
+
+Access custom sets via:
+```python
+from src.cards.custom import CUSTOM_CARDS, build_custom_registry
+```
