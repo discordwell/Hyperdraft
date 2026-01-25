@@ -163,7 +163,9 @@ async def run_game_session(session: GameSession):
         await session.start_game()
         await session.run_until_human_input()
     except Exception as e:
+        import traceback
         print(f"Game session error: {e}")
+        traceback.print_exc()
         session.is_finished = True
 
 
