@@ -552,15 +552,128 @@ class AIEngine:
             source_id=legal_action.source_id
         )
 
-        # If action requires targets, choose them
-        if legal_action.requires_targets and legal_action.card_id:
+        # If action is a spell cast, try to select targets
+        if legal_action.type == ActionType.CAST_SPELL and legal_action.card_id:
             card = state.objects.get(legal_action.card_id)
-            if card and card.card_def:
-                # Get legal targets for this card
-                # This would need targeting system integration
-                pass
+            if card:
+                targets = self._select_targets_for_spell(card, player_id, state)
+                if targets:
+                    action.targets = targets
 
         return action
+
+    def _select_targets_for_spell(
+        self,
+        card,
+        player_id: str,
+        state: 'GameState'
+    ) -> list[list]:
+        """
+        Select appropriate targets for a spell based on its text.
+
+        Returns a list of target lists (one per target requirement).
+        """
+        from src.engine import CardType, ZoneType
+        from src.engine.targeting import (
+            TargetingSystem, Target, TargetRequirement,
+            creature_filter, any_target_filter, spell_filter
+        )
+
+        text = ""
+        if card.card_def and card.card_def.text:
+            text = card.card_def.text.lower()
+
+        # No targeting text means no targets needed
+        if 'target' not in text:
+            return []
+
+        targeting = TargetingSystem(state)
+        targets = []
+
+        # Determine target type from text
+        opponent_id = self._get_opponent_id(player_id, state)
+
+        if 'target creature' in text:
+            # Find legal creature targets
+            filter_obj = creature_filter()
+            source_obj = card
+
+            legal_ids = targeting.get_legal_targets(
+                TargetRequirement(filter=filter_obj),
+                source_obj,
+                player_id
+            )
+
+            if legal_ids:
+                # Prefer opponent creatures for removal/damage, own creatures for buffs
+                is_buff = '+' in text or 'gain' in text or 'gets' in text
+                if is_buff:
+                    # Target own creatures
+                    own_creatures = [tid for tid in legal_ids
+                                     if state.objects.get(tid) and
+                                     state.objects[tid].controller == player_id]
+                    if own_creatures:
+                        best = Heuristics.get_best_target(own_creatures, state, prefer_creatures=True)
+                        if best:
+                            targets.append([Target(id=best)])
+                else:
+                    # Target opponent creatures
+                    opp_creatures = [tid for tid in legal_ids
+                                     if state.objects.get(tid) and
+                                     state.objects[tid].controller != player_id]
+                    if opp_creatures:
+                        best = Heuristics.get_best_target(opp_creatures, state, prefer_creatures=True)
+                        if best:
+                            targets.append([Target(id=best)])
+
+        elif 'target player' in text or 'target opponent' in text:
+            # Target opponent
+            if opponent_id:
+                targets.append([Target(id=opponent_id, is_player=True)])
+
+        elif 'any target' in text or 'target creature or player' in text:
+            # Damage spells - prefer opponent if going face is good
+            opponent = state.players.get(opponent_id)
+
+            # Check if there are threatening creatures to remove
+            opp_creatures = []
+            battlefield = state.zones.get('battlefield')
+            if battlefield:
+                for obj_id in battlefield.objects:
+                    obj = state.objects.get(obj_id)
+                    if obj and obj.controller == opponent_id and CardType.CREATURE in obj.characteristics.types:
+                        opp_creatures.append(obj_id)
+
+            # If opponent is low on life, go face
+            if opponent and opponent.life <= 5:
+                targets.append([Target(id=opponent_id, is_player=True)])
+            # If there are threatening creatures, kill them
+            elif opp_creatures:
+                best = Heuristics.get_best_target(opp_creatures, state, prefer_creatures=True)
+                if best:
+                    targets.append([Target(id=best)])
+            # Default: go face
+            elif opponent_id:
+                targets.append([Target(id=opponent_id, is_player=True)])
+
+        elif 'target spell' in text:
+            # Counterspell - target top spell on stack that we don't control
+            stack_zone = state.zones.get('stack')
+            if stack_zone:
+                for obj_id in reversed(stack_zone.objects):
+                    obj = state.objects.get(obj_id)
+                    if obj and obj.controller != player_id:
+                        targets.append([Target(id=obj_id)])
+                        break
+
+        return targets
+
+    def _get_opponent_id(self, player_id: str, state: 'GameState') -> str:
+        """Get the opponent's player ID."""
+        for pid in state.players:
+            if pid != player_id:
+                return pid
+        return None
 
     def _should_target_creature(self, ability, state: 'GameState') -> bool:
         """Determine if we should prefer targeting creatures over players."""

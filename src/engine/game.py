@@ -141,7 +141,7 @@ class Game:
         # If card_def has setup_interceptors, run it
         if card_def and card_def.setup_interceptors:
             interceptors = card_def.setup_interceptors(obj, self.state)
-            for interceptor in interceptors:
+            for interceptor in (interceptors or []):
                 self.register_interceptor(interceptor, obj)
 
         return obj

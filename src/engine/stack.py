@@ -143,36 +143,45 @@ class StackManager:
 
         item = self.items.pop()
 
-        # Check if all targets are still legal
-        all_legal_targets = []
-        has_any_legal = True
+        # Determine targets to pass to resolve function
+        # If we have formal target_requirements, validate them
+        # Otherwise, use chosen_targets directly (for text-parsed spells)
+        if item.target_requirements:
+            all_legal_targets = []
+            has_any_legal = True
 
-        for i, requirement in enumerate(item.target_requirements):
-            if i < len(item.chosen_targets):
-                chosen = item.chosen_targets[i]
-                _, legal = self.targeting_system.validate_targets(
-                    chosen,
-                    requirement,
-                    self.state.objects.get(item.source_id),
-                    item.controller_id
-                )
-                all_legal_targets.append(legal)
+            for i, requirement in enumerate(item.target_requirements):
+                if i < len(item.chosen_targets):
+                    chosen = item.chosen_targets[i]
+                    _, legal = self.targeting_system.validate_targets(
+                        chosen,
+                        requirement,
+                        self.state.objects.get(item.source_id),
+                        item.controller_id
+                    )
+                    all_legal_targets.append(legal)
 
-                # If this requirement needs targets and has none legal, spell fizzles
-                if requirement.min_targets() > 0 and len(legal) == 0:
-                    has_any_legal = False
-            else:
-                all_legal_targets.append([])
+                    # If this requirement needs targets and has none legal, spell fizzles
+                    if requirement.min_targets() > 0 and len(legal) == 0:
+                        has_any_legal = False
+                else:
+                    all_legal_targets.append([])
 
-        # If spell has targets but none are legal, it's countered (fizzles)
-        if item.target_requirements and not has_any_legal:
-            return self._counter_item(item, reason='no_legal_targets')
+            # If spell has targets but none are legal, it's countered (fizzles)
+            if not has_any_legal:
+                return self._counter_item(item, reason='no_legal_targets')
+
+            targets_for_resolve = all_legal_targets
+        else:
+            # No formal requirements - use chosen_targets directly
+            # (Common for text-parsed spells)
+            targets_for_resolve = item.chosen_targets
 
         # Resolve the spell/ability
         events = []
         if item.resolve_fn:
             try:
-                events = item.resolve_fn(all_legal_targets, self.state) or []
+                events = item.resolve_fn(targets_for_resolve, self.state) or []
             except Exception as e:
                 # Log error but don't crash the game
                 print(f"Error resolving {item}: {e}")
@@ -332,12 +341,104 @@ class SpellBuilder:
             chosen_modes=modes or []
         )
 
-        # Get target requirements and resolve function from card definition
-        if card.card_def:
-            # These would be set by the card definition
-            pass
+        # Get resolve function from card definition
+        if card.card_def and card.card_def.resolve:
+            item.resolve_fn = card.card_def.resolve
+
+        # If no explicit resolve function, try to create one from text
+        if not item.resolve_fn and card.card_def and card.card_def.text:
+            item.resolve_fn = self._create_resolve_from_text(card.card_def.text, card_id)
 
         return item
+
+    def _create_resolve_from_text(self, text: str, source_id: str) -> Callable:
+        """
+        Create a resolve function by parsing card text.
+        Handles common patterns like damage spells and destruction.
+        """
+        text_lower = text.lower()
+
+        # "deals X damage to any target" or "deals X damage to target creature"
+        import re
+        damage_match = re.search(r'deals (\d+) damage', text_lower)
+        if damage_match:
+            amount = int(damage_match.group(1))
+
+            def damage_resolve(targets: list[list[Target]], state: GameState) -> list[Event]:
+                events = []
+                if targets and targets[0]:
+                    for target in targets[0]:
+                        events.append(Event(
+                            type=EventType.DAMAGE,
+                            payload={
+                                'target': target.id,
+                                'amount': amount,
+                                'is_combat': False,
+                                'is_player': target.is_player
+                            },
+                            source=source_id
+                        ))
+                return events
+
+            return damage_resolve
+
+        # "destroy target creature/permanent"
+        if 'destroy target' in text_lower:
+            def destroy_resolve(targets: list[list[Target]], state: GameState) -> list[Event]:
+                events = []
+                if targets and targets[0]:
+                    for target in targets[0]:
+                        if not target.is_player:
+                            events.append(Event(
+                                type=EventType.OBJECT_DESTROYED,
+                                payload={'object_id': target.id},
+                                source=source_id
+                            ))
+                return events
+
+            return destroy_resolve
+
+        # "exile target creature/permanent"
+        if 'exile target' in text_lower:
+            def exile_resolve(targets: list[list[Target]], state: GameState) -> list[Event]:
+                events = []
+                if targets and targets[0]:
+                    for target in targets[0]:
+                        if not target.is_player:
+                            events.append(Event(
+                                type=EventType.ZONE_CHANGE,
+                                payload={
+                                    'object_id': target.id,
+                                    'to_zone_type': ZoneType.EXILE,
+                                    'to_zone': 'exile'
+                                },
+                                source=source_id
+                            ))
+                return events
+
+            return exile_resolve
+
+        # "counter target spell"
+        if 'counter target spell' in text_lower:
+            def counter_resolve(targets: list[list[Target]], state: GameState) -> list[Event]:
+                events = []
+                if targets and targets[0]:
+                    for target in targets[0]:
+                        # The stack manager will handle this
+                        events.append(Event(
+                            type=EventType.ZONE_CHANGE,
+                            payload={
+                                'object_id': target.id,
+                                'to_zone_type': ZoneType.GRAVEYARD,
+                                'reason': 'countered'
+                            },
+                            source=source_id
+                        ))
+                return events
+
+            return counter_resolve
+
+        return None
 
     def create_ability(
         self,
