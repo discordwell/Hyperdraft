@@ -1,11 +1,10 @@
 """
-Marvel's Spider-Man - Custom Card Set
+Man of Pider - Custom Card Set (formerly "Marvel's Spider-Man")
 
 Custom/fan-made set with 198 cards.
 Features mechanics: Web, Sinister, Heroic, Spider-Sense, Symbiote
 
-NOTE: This is a custom set. A real "Spider-Man" MTG set was released
-after my knowledge cutoff and may have different cards.
+Renamed to avoid collision with official MTG Spider-Man set in src/cards/spider_man.py
 """
 
 from src.engine import (
