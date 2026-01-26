@@ -4,11 +4,14 @@
  * High-level hook for game interactions, combining store and socket functionality.
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useEffect, useRef } from 'react';
 import { useGameStore } from '../stores/gameStore';
 import { useSocket } from './useSocket';
 import { matchAPI } from '../services/api';
 import type { LegalActionData, ActionType } from '../types';
+
+// Re-export AutoPassMode for consumers
+export type { AutoPassMode } from '../stores/gameStore';
 
 export function useGame() {
   const store = useGameStore();
@@ -35,7 +38,16 @@ export function useGame() {
     getOpponentId,
     isMyTurn,
     canAct,
+    hasActionsOtherThanPass,
+    setAutoPassMode,
+    enablePassUntilEndOfTurn,
+    cancelAutoPass,
+    shouldAutoPass,
+    checkAutoPassConditions,
   } = store;
+
+  // Track if we're currently auto-passing to prevent loops
+  const autoPassingRef = useRef(false);
 
   // Initialize socket connection
   const { sendAction: socketSendAction, isConnected } = useSocket({
@@ -85,20 +97,22 @@ export function useGame() {
   ]);
 
   // Pass priority
-  const pass = useCallback(async () => {
+  const pass = useCallback(async (isAutoPass = false) => {
     if (!playerId || !matchId) return;
 
-    const passAction: LegalActionData = {
-      type: 'PASS',
-      card_id: null,
-      ability_id: null,
-      source_id: null,
-      description: 'Pass priority',
-      requires_targets: false,
-      requires_mana: false,
-    };
-
-    selectAction(passAction);
+    // Don't show UI updates for auto-pass
+    if (!isAutoPass) {
+      const passAction: LegalActionData = {
+        type: 'PASS',
+        card_id: null,
+        ability_id: null,
+        source_id: null,
+        description: 'Pass priority',
+        requires_targets: false,
+        requires_mana: false,
+      };
+      selectAction(passAction);
+    }
 
     // Build and send immediately
     const request = {
@@ -106,7 +120,9 @@ export function useGame() {
       player_id: playerId,
     };
 
-    setLoading(true);
+    if (!isAutoPass) {
+      setLoading(true);
+    }
     try {
       if (isConnected) {
         socketSendAction(request);
@@ -122,10 +138,45 @@ export function useGame() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to pass');
     } finally {
-      setLoading(false);
-      selectAction(null);
+      if (!isAutoPass) {
+        setLoading(false);
+        selectAction(null);
+      }
     }
   }, [playerId, matchId, isConnected, socketSendAction, setLoading, setError, selectAction, store]);
+
+  // Auto-pass effect: when game state changes and we have priority, check if we should auto-pass
+  useEffect(() => {
+    // Don't auto-pass if we're already processing one or not connected
+    if (autoPassingRef.current || !gameState || !playerId) return;
+
+    // Check if it's our turn to act
+    if (gameState.priority_player !== playerId) return;
+
+    // Check if we should auto-pass
+    const { shouldPass, reason } = checkAutoPassConditions();
+
+    if (shouldPass) {
+      autoPassingRef.current = true;
+
+      // Small delay to prevent UI flicker and allow state to settle
+      const timer = setTimeout(async () => {
+        try {
+          await pass(true); // Pass with isAutoPass = true
+        } finally {
+          autoPassingRef.current = false;
+        }
+      }, 50);
+
+      return () => {
+        clearTimeout(timer);
+        autoPassingRef.current = false;
+      };
+    } else if (reason && ui.autoPassMode !== 'off' && ui.autoPassMode !== 'no_actions') {
+      // Update the UI with why auto-pass stopped (only for explicit auto-pass modes)
+      store.setError(null); // Clear any previous error
+    }
+  }, [gameState, playerId, checkAutoPassConditions, pass, ui.autoPassMode, store]);
 
   // Cast a spell from hand
   const castSpell = useCallback(
@@ -237,7 +288,7 @@ export function useGame() {
 
     // Actions
     sendAction,
-    pass,
+    pass: () => pass(false), // Wrap to always pass false for manual calls
     castSpell,
     playLand,
 
@@ -255,6 +306,13 @@ export function useGame() {
     toggleAttacker,
     setBlocker,
     clearCombatSelections,
+
+    // Auto-pass
+    setAutoPassMode,
+    enablePassUntilEndOfTurn,
+    cancelAutoPass,
+    shouldAutoPass,
+    hasActionsOtherThanPass,
 
     // Queries
     canCast,

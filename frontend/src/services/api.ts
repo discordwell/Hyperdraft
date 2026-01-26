@@ -43,15 +43,16 @@ async function fetchAPI<T>(
 
 // Match API
 export const matchAPI = {
+  listDecks: (): Promise<{ decks: any[]; total: number }> =>
+    fetchAPI('/match/decks'),
+
   create: (request: Partial<CreateMatchRequest> = {}): Promise<CreateMatchResponse> =>
     fetchAPI('/match/create', {
       method: 'POST',
       body: JSON.stringify({
         mode: 'human_vs_bot',
-        player_deck: [],
         player_name: 'Player',
         ai_difficulty: 'medium',
-        ai_deck: [],
         ...request,
       }),
     }),
@@ -83,6 +84,16 @@ export const matchAPI = {
 
   delete: (matchId: string): Promise<{ status: string; match_id: string }> =>
     fetchAPI(`/match/${matchId}`, { method: 'DELETE' }),
+
+  submitChoice: (
+    matchId: string,
+    playerId: string,
+    choices: string[]
+  ): Promise<ActionResultResponse> =>
+    fetchAPI(`/match/${matchId}/choice`, {
+      method: 'POST',
+      body: JSON.stringify({ player_id: playerId, choices }),
+    }),
 };
 
 // Bot Game API

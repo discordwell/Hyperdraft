@@ -5,16 +5,19 @@ Available strategies:
 - AggroStrategy: Aggressive, face-damage focused
 - ControlStrategy: Defensive, card-advantage focused
 - MidrangeStrategy: Balanced, adapts to board state
+- UltraStrategy: LLM-powered, uses strategy layers
 """
 
 from .base import AIStrategy
 from .aggro import AggroStrategy
 from .control import ControlStrategy
 from .midrange import MidrangeStrategy
+from .ultra import UltraStrategy
 
 __all__ = [
     'AIStrategy',
     'AggroStrategy',
     'ControlStrategy',
     'MidrangeStrategy',
+    'UltraStrategy',
 ]

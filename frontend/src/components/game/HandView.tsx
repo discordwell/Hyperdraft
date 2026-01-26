@@ -2,19 +2,24 @@
  * HandView Component
  *
  * Displays the player's hand of cards in a fan layout.
+ * Cards can be dragged to play lands or cast spells on targets.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import clsx from 'clsx';
-import { Card } from '../cards';
-import type { CardData } from '../../types';
+import { DraggableCard } from '../cards/DraggableCard';
+import { CastIcon, PlayLandIcon } from '../ui/Icons';
+import { useDragDropStore } from '../../hooks/useDragDrop';
+import type { CardData, LegalActionData } from '../../types';
 
 interface HandViewProps {
   cards: CardData[];
   selectedCardId?: string | null;
   castableCards?: string[];
   playableLands?: string[];
+  legalActions?: LegalActionData[];
   onCardClick?: (card: CardData) => void;
+  onGetValidDropZones?: (card: CardData) => string[];
   disabled?: boolean;
 }
 
@@ -23,9 +28,28 @@ export function HandView({
   selectedCardId,
   castableCards = [],
   playableLands = [],
+  legalActions = [],
   onCardClick,
+  onGetValidDropZones,
   disabled = false,
 }: HandViewProps) {
+  const { isDragging, dragItem, validDropZones } = useDragDropStore();
+
+  // Get context about the currently dragged card
+  const dragContext = useMemo(() => {
+    if (!isDragging || !dragItem) return null;
+
+    const isLand = dragItem.action?.type === 'PLAY_LAND';
+    const isTargetedSpell = dragItem.action?.type === 'CAST_SPELL' && dragItem.action?.requires_targets;
+
+    return {
+      cardName: dragItem.card.name,
+      isLand,
+      isTargetedSpell,
+      targetCount: validDropZones.length,
+    };
+  }, [isDragging, dragItem, validDropZones]);
+
   // Calculate card positions for fan effect
   const cardPositions = useMemo(() => {
     const count = cards.length;
@@ -47,10 +71,31 @@ export function HandView({
     }));
   }, [cards]); // Use cards array as dependency to ensure positions update
 
+  // Get the legal action for a card
+  const getCardAction = useCallback((cardId: string): LegalActionData | undefined => {
+    return legalActions.find(
+      (a) => (a.type === 'CAST_SPELL' || a.type === 'PLAY_LAND') && a.card_id === cardId
+    );
+  }, [legalActions]);
+
+  // Handle drag start - return valid drop zones for this card
+  const handleDragStart = useCallback((card: CardData): string[] => {
+    if (onGetValidDropZones) {
+      return onGetValidDropZones(card);
+    }
+    return [];
+  }, [onGetValidDropZones]);
+
   return (
     <div className="relative">
       {/* Hand container */}
-      <div className="bg-gradient-to-t from-slate-900/95 to-slate-800/90 backdrop-blur-sm rounded-t-2xl border border-slate-600/50 border-b-0 px-6 py-4 shadow-2xl">
+      <div className={clsx(
+        'bg-gradient-to-t from-slate-900/95 to-slate-800/90 backdrop-blur-sm rounded-t-2xl border border-slate-600/50 border-b-0 px-6 py-4 shadow-2xl',
+        'transition-all duration-200',
+        {
+          'border-cyan-500/50': isDragging,
+        }
+      )}>
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -60,7 +105,28 @@ export function HandView({
             </span>
           </div>
           {cards.length > 0 && (
-            <span className="text-slate-500 text-xs">Hover to preview • Click to select</span>
+            <div className="text-xs">
+              {isDragging && dragContext ? (
+                <span className={clsx(
+                  'px-3 py-1 rounded-full font-medium',
+                  dragContext.isLand
+                    ? 'bg-emerald-600/80 text-emerald-100'
+                    : dragContext.isTargetedSpell
+                      ? 'bg-red-600/80 text-red-100'
+                      : 'bg-blue-600/80 text-blue-100'
+                )}>
+                  {dragContext.isLand
+                    ? 'Drop on your battlefield to play'
+                    : dragContext.isTargetedSpell
+                      ? `Drop on a target (${dragContext.targetCount} valid)`
+                      : 'Drop on battlefield to cast'}
+                </span>
+              ) : (
+                <span className="text-slate-500">
+                  Drag cards to play lands or cast spells
+                </span>
+              )}
+            </div>
           )}
         </div>
 
@@ -77,6 +143,7 @@ export function HandView({
               const canPlayLand = playableLands.includes(card.id);
               const isPlayable = canCast || canPlayLand;
               const position = cardPositions[index] || { rotation: 0, translateY: 0, zIndex: index, marginLeft: 0 };
+              const action = getCardAction(card.id);
 
               return (
                 <div
@@ -105,13 +172,16 @@ export function HandView({
                       }
                     )}
                   >
-                    <Card
+                    <DraggableCard
                       card={card}
+                      action={action}
                       size="medium"
                       isSelected={isSelected}
                       isHighlighted={isPlayable && !disabled}
                       onClick={disabled && !isPlayable ? undefined : () => onCardClick?.(card)}
+                      onDragStart={isPlayable && !disabled ? handleDragStart : undefined}
                       showDetails={true}
+                      disabled={disabled && !isPlayable}
                     />
                   </div>
 
@@ -120,14 +190,24 @@ export function HandView({
                     <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 z-10">
                       <span
                         className={clsx(
-                          'px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide shadow-lg',
+                          'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide shadow-lg',
                           'border-2',
                           canCast
-                            ? 'bg-blue-600 text-white border-blue-400'
-                            : 'bg-emerald-600 text-white border-emerald-400'
+                            ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white border-blue-400'
+                            : 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white border-emerald-400'
                         )}
                       >
-                        {canCast ? '✨ Cast' : '🏔️ Play'}
+                        {canCast ? (
+                          <>
+                            <CastIcon size="sm" />
+                            Cast
+                          </>
+                        ) : (
+                          <>
+                            <PlayLandIcon size="sm" />
+                            Play
+                          </>
+                        )}
                       </span>
                     </div>
                   )}

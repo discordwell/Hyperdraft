@@ -2,6 +2,10 @@
 
 AI-powered deckbuilder with an event-driven MTG rules engine.
 
+## Claude Preferences
+
+- When spawning >5 agents in a single command, ask user if they want to use `model: "sonnet"` instead of opus to reduce cost/latency.
+
 ## Architecture
 
 **Core Philosophy**: Everything is an Event, everything else is an Interceptor.

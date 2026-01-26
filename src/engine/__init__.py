@@ -30,6 +30,9 @@ from .types import (
 
     # Other
     Player, Zone, GameState, CardDefinition, CardFace,
+
+    # Player choice system
+    PendingChoice,
 )
 
 from .pipeline import EventPipeline
@@ -41,7 +44,8 @@ from .queries import (
 
 from .game import (
     Game,
-    make_creature, make_instant, make_enchantment
+    make_creature, make_instant, make_enchantment,
+    make_sorcery, make_artifact, make_land, make_planeswalker
 )
 
 from .mana import (
@@ -120,6 +124,9 @@ __all__ = [
     # Other
     'Player', 'Zone', 'GameState', 'CardDefinition', 'CardFace',
 
+    # Player choice system
+    'PendingChoice',
+
     # Pipeline
     'EventPipeline',
 
@@ -129,6 +136,7 @@ __all__ = [
 
     # Game
     'Game', 'make_creature', 'make_instant', 'make_enchantment',
+    'make_sorcery', 'make_artifact', 'make_land', 'make_planeswalker',
 
     # Mana
     'ManaSystem', 'ManaPool', 'ManaCost', 'ManaType', 'ManaUnit',

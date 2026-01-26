@@ -2,20 +2,26 @@
  * ActionMenu Component
  *
  * Displays available actions and handles action selection.
+ * Includes smart auto-pass controls for less tedious priority handling.
  */
 
 import clsx from 'clsx';
 import type { LegalActionData } from '../../types';
+import type { AutoPassMode } from '../../stores/gameStore';
 
 interface ActionMenuProps {
   actions: LegalActionData[];
   selectedAction?: LegalActionData | null;
   canAct: boolean;
   isLoading?: boolean;
+  autoPassMode: AutoPassMode;
+  hasActionsOtherThanPass: boolean;
   onActionSelect: (action: LegalActionData) => void;
   onPass: () => void;
   onConfirm: () => void;
   onCancel: () => void;
+  onSetAutoPassMode: (mode: AutoPassMode) => void;
+  onPassUntilEndOfTurn: () => void;
 }
 
 export function ActionMenu({
@@ -23,16 +29,22 @@ export function ActionMenu({
   selectedAction,
   canAct,
   isLoading = false,
+  autoPassMode,
+  hasActionsOtherThanPass,
   onActionSelect,
   onPass,
   onConfirm,
   onCancel,
+  onSetAutoPassMode,
+  onPassUntilEndOfTurn,
 }: ActionMenuProps) {
-  const hasActions = actions.length > 0;
-  const hasSelectedAction = selectedAction !== null;
+  const hasSelectedAction = selectedAction != null && selectedAction !== undefined;
 
   // Filter out PASS from the actions list (we have a dedicated button)
   const displayActions = actions.filter((a) => a.type !== 'PASS');
+
+  // Determine if auto-pass is actively working
+  const isAutoPassing = autoPassMode !== 'off' && !hasActionsOtherThanPass;
 
   return (
     <div className="p-4 rounded-lg bg-game-surface border border-gray-700">
@@ -41,9 +53,14 @@ export function ActionMenu({
         <span className="text-sm text-gray-400 uppercase tracking-wide">
           Actions
         </span>
-        {canAct && (
+        {canAct && !isAutoPassing && (
           <span className="text-xs bg-game-accent text-white px-2 py-0.5 rounded-full animate-pulse">
             Your Turn to Act
+          </span>
+        )}
+        {isAutoPassing && (
+          <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded-full">
+            Auto-passing
           </span>
         )}
       </div>
@@ -55,7 +72,7 @@ export function ActionMenu({
       ) : (
         <>
           {/* Selected Action Info */}
-          {hasSelectedAction && (
+          {hasSelectedAction && selectedAction && (
             <div className="mb-3 p-2 bg-blue-900/30 border border-blue-500 rounded">
               <div className="text-sm text-blue-300">
                 Selected: <span className="font-semibold">{selectedAction.description}</span>
@@ -112,7 +129,7 @@ export function ActionMenu({
             </button>
 
             {/* Confirm Button (when action is selected) */}
-            {hasSelectedAction && !selectedAction.requires_targets && (
+            {hasSelectedAction && selectedAction && !selectedAction.requires_targets && (
               <button
                 className={clsx(
                   'flex-1 px-4 py-2 rounded font-semibold transition-all',
@@ -144,6 +161,87 @@ export function ActionMenu({
                 Cancel
               </button>
             )}
+          </div>
+
+          {/* F6 - Pass Until End of Turn */}
+          <div className="mt-3 pt-3 border-t border-gray-700">
+            <button
+              className={clsx(
+                'w-full px-4 py-2 rounded font-semibold transition-all text-sm',
+                {
+                  'bg-amber-600 text-white hover:bg-amber-500': autoPassMode !== 'end_of_turn',
+                  'bg-red-600 text-white hover:bg-red-500': autoPassMode === 'end_of_turn',
+                  'opacity-50 cursor-not-allowed': isLoading,
+                }
+              )}
+              onClick={() => {
+                if (autoPassMode === 'end_of_turn') {
+                  onSetAutoPassMode('no_actions');
+                } else {
+                  onPassUntilEndOfTurn();
+                }
+              }}
+              disabled={isLoading}
+              title="Press F6 to toggle"
+            >
+              {autoPassMode === 'end_of_turn' ? 'Cancel Pass Until End of Turn' : 'Pass Until End of Turn (F6)'}
+            </button>
+          </div>
+
+          {/* Auto-Pass Settings */}
+          <div className="mt-3 pt-3 border-t border-gray-700">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-gray-400 uppercase tracking-wide">
+                Auto-Pass Mode
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              <button
+                className={clsx(
+                  'px-2 py-1 rounded text-xs font-medium transition-all',
+                  {
+                    'bg-blue-600 text-white': autoPassMode === 'off',
+                    'bg-gray-700 text-gray-300 hover:bg-gray-600': autoPassMode !== 'off',
+                  }
+                )}
+                onClick={() => onSetAutoPassMode('off')}
+                title="Never auto-pass - always wait for manual input"
+              >
+                Off
+              </button>
+              <button
+                className={clsx(
+                  'px-2 py-1 rounded text-xs font-medium transition-all',
+                  {
+                    'bg-blue-600 text-white': autoPassMode === 'no_actions',
+                    'bg-gray-700 text-gray-300 hover:bg-gray-600': autoPassMode !== 'no_actions',
+                  }
+                )}
+                onClick={() => onSetAutoPassMode('no_actions')}
+                title="Auto-pass when you have no spells or abilities to play"
+              >
+                Smart
+              </button>
+              <button
+                className={clsx(
+                  'px-2 py-1 rounded text-xs font-medium transition-all',
+                  {
+                    'bg-blue-600 text-white': autoPassMode === 'stack_empty',
+                    'bg-gray-700 text-gray-300 hover:bg-gray-600': autoPassMode !== 'stack_empty',
+                  }
+                )}
+                onClick={() => onSetAutoPassMode('stack_empty')}
+                title="Pass until something is put on the stack"
+              >
+                Until Stack
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              {autoPassMode === 'off' && 'You must manually pass priority every time.'}
+              {autoPassMode === 'no_actions' && 'Automatically passes when you have no meaningful actions.'}
+              {autoPassMode === 'stack_empty' && 'Passes automatically until something goes on the stack.'}
+              {autoPassMode === 'end_of_turn' && 'Passing until end of turn. Click to cancel.'}
+            </p>
           </div>
 
           {/* Loading Indicator */}

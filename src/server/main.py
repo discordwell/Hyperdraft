@@ -6,11 +6,17 @@ FastAPI application with Socket.IO for real-time game updates.
 
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import socketio
 
 from .routes import match_router, cards_router, bot_game_router, deckbuilder_router
+
+# Card art directory
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+CARD_ART_DIR = PROJECT_ROOT / "assets" / "card_art"
 from .session import session_manager
 from .models import WSJoinMatch, PlayerActionRequest
 
@@ -244,6 +250,10 @@ app.include_router(match_router, prefix="/api")
 app.include_router(cards_router, prefix="/api")
 app.include_router(bot_game_router, prefix="/api")
 app.include_router(deckbuilder_router, prefix="/api")
+
+# Mount static files for card art (under /api so Vite proxy forwards requests)
+if CARD_ART_DIR.exists():
+    app.mount("/api/card-art", StaticFiles(directory=str(CARD_ART_DIR)), name="card-art")
 
 
 # Health check endpoint

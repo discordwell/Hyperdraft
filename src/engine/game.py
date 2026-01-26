@@ -13,6 +13,7 @@ from .types import (
     Event, EventType, EventStatus,
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
     Characteristics, ObjectState, CardType,
+    PendingChoice,
     new_id
 )
 from .pipeline import EventPipeline
@@ -561,6 +562,371 @@ class Game:
         )
 
     # =========================================================================
+    # Player Choice System
+    # =========================================================================
+
+    def create_choice(
+        self,
+        choice_type: str,
+        player_id: str,
+        prompt: str,
+        options: list,
+        source_id: str,
+        min_choices: int = 1,
+        max_choices: int = 1,
+        callback_data: dict = None
+    ) -> PendingChoice:
+        """
+        Create a pending choice that pauses the game for player input.
+
+        Args:
+            choice_type: Type of choice ("modal", "target", "scry", "surveil", "order", "discard")
+            player_id: ID of the player who must make the choice
+            prompt: Human-readable prompt for the UI
+            options: List of valid choices (card IDs, mode indices, etc.)
+            source_id: ID of the card/ability requesting the choice
+            min_choices: Minimum number of choices required (default 1)
+            max_choices: Maximum number of choices allowed (default 1)
+            callback_data: Additional data needed to resume after choice
+
+        Returns:
+            The created PendingChoice object
+
+        Example usage:
+            # Modal spell
+            choice = game.create_choice(
+                choice_type="modal",
+                player_id=controller_id,
+                prompt="Choose one:",
+                options=[
+                    {"index": 0, "text": "Target creature gets +2/+2"},
+                    {"index": 1, "text": "Target creature gets flying"}
+                ],
+                source_id=spell_id,
+                min_choices=1,
+                max_choices=1
+            )
+
+            # Scry 2
+            choice = game.create_choice(
+                choice_type="scry",
+                player_id=controller_id,
+                prompt="Scry 2 - choose cards to put on bottom",
+                options=top_card_ids,  # IDs of cards being scryed
+                source_id=source_id,
+                min_choices=0,
+                max_choices=2,
+                callback_data={"scry_count": 2}
+            )
+        """
+        if self.state.pending_choice is not None:
+            raise ValueError("Cannot create choice while another choice is pending")
+
+        choice = PendingChoice(
+            choice_type=choice_type,
+            player=player_id,
+            prompt=prompt,
+            options=options,
+            source_id=source_id,
+            min_choices=min_choices,
+            max_choices=max_choices,
+            callback_data=callback_data or {}
+        )
+
+        self.state.pending_choice = choice
+        return choice
+
+    def submit_choice(self, choice_id: str, player_id: str, selected: list) -> tuple[bool, str, list[Event]]:
+        """
+        Submit a player's choice and continue game resolution.
+
+        Args:
+            choice_id: ID of the pending choice being answered
+            player_id: ID of the player submitting the choice
+            selected: List of selected options
+
+        Returns:
+            (success, error_message, resulting_events)
+        """
+        choice = self.state.pending_choice
+        if choice is None:
+            return False, "No pending choice", []
+
+        if choice.id != choice_id:
+            return False, f"Choice ID mismatch: expected {choice.id}", []
+
+        if choice.player != player_id:
+            return False, f"Not your choice to make", []
+
+        # Validate the selection
+        is_valid, error = choice.validate_selection(selected)
+        if not is_valid:
+            return False, error, []
+
+        # Clear the pending choice
+        self.state.pending_choice = None
+
+        # Process the choice based on type
+        events = self._process_choice(choice, selected)
+
+        return True, "", events
+
+    def _process_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
+        """
+        Process a completed choice and return resulting events.
+
+        This is the core dispatch for different choice types.
+        """
+        events = []
+
+        if choice.choice_type == "modal":
+            # Modal spell - selected contains mode indices
+            events = self._process_modal_choice(choice, selected)
+
+        elif choice.choice_type == "target":
+            # Target selection - selected contains target IDs
+            events = self._process_target_choice(choice, selected)
+
+        elif choice.choice_type == "scry":
+            # Scry - selected contains card IDs to put on bottom
+            events = self._process_scry_choice(choice, selected)
+
+        elif choice.choice_type == "surveil":
+            # Surveil - selected contains card IDs to put in graveyard
+            events = self._process_surveil_choice(choice, selected)
+
+        elif choice.choice_type == "order":
+            # Order cards - selected is the ordered list
+            events = self._process_order_choice(choice, selected)
+
+        elif choice.choice_type == "discard":
+            # Discard - selected contains card IDs to discard
+            events = self._process_discard_choice(choice, selected)
+
+        elif choice.choice_type == "sacrifice":
+            # Sacrifice - selected contains permanent IDs to sacrifice
+            events = self._process_sacrifice_choice(choice, selected)
+
+        elif choice.choice_type == "may":
+            # "You may" - selected is [True] or [False]
+            events = self._process_may_choice(choice, selected)
+
+        # Custom choice types can use callback_data['handler'] if provided
+        elif 'handler' in choice.callback_data:
+            handler = choice.callback_data['handler']
+            events = handler(choice, selected, self.state)
+
+        return events
+
+    def _process_modal_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
+        """Process a modal spell choice."""
+        # Store the selected modes in callback_data for the spell's resolve function
+        # The actual effect happens when the spell resolves
+        callback_data = choice.callback_data
+        callback_data['selected_modes'] = selected
+        return []  # Modal choice just stores selection, spell handles resolution
+
+    def _process_target_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
+        """Process target selection."""
+        # Store targets for the spell/ability to use
+        callback_data = choice.callback_data
+        callback_data['selected_targets'] = selected
+        return []
+
+    def _process_scry_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
+        """
+        Process scry choice - put selected cards on bottom, rest stay on top.
+
+        selected: card IDs to put on bottom
+        """
+        player_id = choice.player
+        library_key = f"library_{player_id}"
+        library = self.state.zones.get(library_key)
+
+        if not library:
+            return []
+
+        scry_count = choice.callback_data.get('scry_count', len(choice.options))
+        cards_being_scryed = choice.options[:scry_count]
+
+        # Cards to put on bottom (in order selected)
+        bottom_cards = [cid for cid in selected if cid in cards_being_scryed]
+
+        # Cards to keep on top (original order)
+        top_cards = [cid for cid in cards_being_scryed if cid not in bottom_cards]
+
+        # Rebuild library: top cards at index 0 (top), then rest, then bottom cards at end
+        # Library convention: index 0 = top (drawn first), last index = bottom (drawn last)
+        new_library = []
+
+        # Add top cards first (they'll be on top - drawn first)
+        new_library.extend(top_cards)
+
+        # Add remaining library cards (excluding scryed cards)
+        for cid in library.objects:
+            if cid not in cards_being_scryed:
+                new_library.append(cid)
+
+        # Add bottom cards last (they'll be at the bottom - drawn last)
+        new_library.extend(bottom_cards)
+
+        library.objects = new_library
+
+        return [Event(
+            type=EventType.SCRY,
+            payload={
+                'player': player_id,
+                'count': scry_count,
+                'to_bottom': len(bottom_cards),
+                'to_top': len(top_cards)
+            },
+            source=choice.source_id
+        )]
+
+    def _process_surveil_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
+        """
+        Process surveil choice - put selected cards in graveyard, rest on top.
+
+        selected: card IDs to put in graveyard
+        """
+        player_id = choice.player
+        library_key = f"library_{player_id}"
+        graveyard_key = f"graveyard_{player_id}"
+
+        library = self.state.zones.get(library_key)
+        graveyard = self.state.zones.get(graveyard_key)
+
+        if not library or not graveyard:
+            return []
+
+        surveil_count = choice.callback_data.get('surveil_count', len(choice.options))
+        cards_being_surveiled = choice.options[:surveil_count]
+
+        # Cards to put in graveyard
+        graveyard_cards = [cid for cid in selected if cid in cards_being_surveiled]
+
+        # Cards to keep on top
+        top_cards = [cid for cid in cards_being_surveiled if cid not in graveyard_cards]
+
+        # Move graveyard cards
+        for cid in graveyard_cards:
+            if cid in library.objects:
+                library.objects.remove(cid)
+                graveyard.objects.append(cid)
+                # Update object zone
+                obj = self.state.objects.get(cid)
+                if obj:
+                    obj.zone = ZoneType.GRAVEYARD
+
+        # Ensure top cards are at the top of library (index 0 = top)
+        # Insert in reverse order so they maintain their original relative order at the top
+        for cid in reversed(top_cards):
+            if cid in library.objects:
+                library.objects.remove(cid)
+                library.objects.insert(0, cid)
+
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={
+                'player': player_id,
+                'count': surveil_count,
+                'to_graveyard': len(graveyard_cards),
+                'to_top': len(top_cards)
+            },
+            source=choice.source_id
+        )]
+
+    def _process_order_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
+        """
+        Process card ordering choice (e.g., for putting cards on top in specific order).
+
+        selected: ordered list of card IDs
+        """
+        # The callback_data should specify where these cards go
+        destination = choice.callback_data.get('destination', 'library_top')
+        player_id = choice.player
+
+        if destination == 'library_top':
+            library_key = f"library_{player_id}"
+            library = self.state.zones.get(library_key)
+            if library:
+                # Remove cards from their current position
+                for cid in selected:
+                    if cid in library.objects:
+                        library.objects.remove(cid)
+                # Add in order (first selected = deepest, last = top)
+                library.objects.extend(selected)
+
+        return []
+
+    def _process_discard_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
+        """Process discard choice."""
+        events = []
+        for card_id in selected:
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={
+                    'player': choice.player,
+                    'card_id': card_id
+                },
+                source=choice.source_id
+            ))
+
+        # Emit the discard events
+        all_events = []
+        for event in events:
+            all_events.extend(self.emit(event))
+
+        return all_events
+
+    def _process_sacrifice_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
+        """Process sacrifice choice."""
+        events = []
+        for permanent_id in selected:
+            events.append(Event(
+                type=EventType.SACRIFICE,
+                payload={
+                    'player': choice.player,
+                    'permanent_id': permanent_id
+                },
+                source=choice.source_id
+            ))
+
+        # Emit the sacrifice events
+        all_events = []
+        for event in events:
+            all_events.extend(self.emit(event))
+
+        return all_events
+
+    def _process_may_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
+        """Process a 'you may' choice."""
+        # selected should be [True] or [False]
+        chose_yes = selected and selected[0] is True
+
+        if chose_yes and 'yes_handler' in choice.callback_data:
+            handler = choice.callback_data['yes_handler']
+            return handler(choice, self.state)
+
+        if not chose_yes and 'no_handler' in choice.callback_data:
+            handler = choice.callback_data['no_handler']
+            return handler(choice, self.state)
+
+        return []
+
+    def has_pending_choice(self) -> bool:
+        """Check if the game is waiting for a player choice."""
+        return self.state.has_pending_choice()
+
+    def get_pending_choice(self) -> Optional[PendingChoice]:
+        """Get the current pending choice, if any."""
+        return self.state.pending_choice
+
+    def get_pending_choice_for_player(self, player_id: str) -> Optional[PendingChoice]:
+        """Get the pending choice if it's for this player."""
+        return self.state.get_pending_choice_for_player(player_id)
+
+    # =========================================================================
     # Game State Queries
     # =========================================================================
 
@@ -666,6 +1032,7 @@ class Game:
                 self._serialize_action(a)
                 for a in self.priority_system.get_legal_actions(player_id)
             ] if player_id == self.priority_system.priority_player else [],
+            'pending_choice': self._serialize_pending_choice(player_id),
         }
 
     def _serialize_permanent(self, obj: GameObject) -> dict:
@@ -718,6 +1085,30 @@ class Game:
             'requires_mana': action.requires_mana,
         }
 
+    def _serialize_pending_choice(self, player_id: Optional[str]) -> Optional[dict]:
+        """Serialize pending choice for the client."""
+        choice = self.state.pending_choice
+        if not choice:
+            return None
+
+        # Only show full choice details to the player who needs to make it
+        if player_id != choice.player:
+            return {
+                'waiting_for': choice.player,
+                'choice_type': choice.choice_type,
+            }
+
+        return {
+            'id': choice.id,
+            'choice_type': choice.choice_type,
+            'player': choice.player,
+            'prompt': choice.prompt,
+            'options': choice.options,
+            'source_id': choice.source_id,
+            'min_choices': choice.min_choices,
+            'max_choices': choice.max_choices,
+        }
+
 
 # =============================================================================
 # Card Builder Helpers
@@ -733,6 +1124,7 @@ def make_creature(
     supertypes: set[str] = None,
     colors: set = None,
     text: str = "",
+    rarity: str = None,
     abilities: list = None,
     setup_interceptors = None
 ) -> 'CardDefinition':
@@ -752,6 +1144,7 @@ def make_creature(
             toughness=toughness
         ),
         text=text,
+        rarity=rarity,
         abilities=abilities or [],
         setup_interceptors=setup_interceptors
     )
@@ -762,6 +1155,7 @@ def make_instant(
     mana_cost: str = "",
     colors: set = None,
     text: str = "",
+    rarity: str = None,
     abilities: list = None,
     resolve = None
 ) -> 'CardDefinition':
@@ -777,6 +1171,7 @@ def make_instant(
             mana_cost=mana_cost
         ),
         text=text,
+        rarity=rarity,
         abilities=abilities or [],
         resolve=resolve
     )
@@ -789,6 +1184,7 @@ def make_enchantment(
     subtypes: set = None,
     supertypes: set = None,
     text: str = "",
+    rarity: str = None,
     abilities: list = None,
     setup_interceptors = None
 ) -> 'CardDefinition':
@@ -806,6 +1202,132 @@ def make_enchantment(
             mana_cost=mana_cost
         ),
         text=text,
+        rarity=rarity,
+        abilities=abilities or [],
+        setup_interceptors=setup_interceptors
+    )
+
+
+def make_sorcery(
+    name: str,
+    mana_cost: str = "",
+    colors: set = None,
+    text: str = "",
+    rarity: str = None,
+    abilities: list = None,
+    resolve = None
+) -> 'CardDefinition':
+    """Helper to create sorcery card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.SORCERY},
+            colors=colors or set(),
+            mana_cost=mana_cost
+        ),
+        text=text,
+        rarity=rarity,
+        abilities=abilities or [],
+        resolve=resolve
+    )
+
+
+def make_artifact(
+    name: str,
+    mana_cost: str = "",
+    text: str = "",
+    subtypes: set = None,
+    supertypes: set = None,
+    rarity: str = None,
+    abilities: list = None,
+    setup_interceptors = None,
+    power: int = None,
+    toughness: int = None,
+    colors: set = None
+) -> 'CardDefinition':
+    """Helper to create artifact card definitions.
+
+    For Vehicles, pass power/toughness which will be used when crewed.
+    """
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.ARTIFACT},
+            subtypes=subtypes or set(),
+            supertypes=supertypes or set(),
+            colors=colors or set(),
+            mana_cost=mana_cost,
+            power=power,
+            toughness=toughness
+        ),
+        text=text,
+        rarity=rarity,
+        abilities=abilities or [],
+        setup_interceptors=setup_interceptors
+    )
+
+
+def make_land(
+    name: str,
+    text: str = "",
+    subtypes: set = None,
+    supertypes: set = None,
+    rarity: str = None,
+    abilities: list = None,
+    setup_interceptors = None
+) -> 'CardDefinition':
+    """Helper to create land card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=None,
+        characteristics=Characteristics(
+            types={CardType.LAND},
+            subtypes=subtypes or set(),
+            supertypes=supertypes or set(),
+            colors=set(),
+            mana_cost=None
+        ),
+        text=text,
+        rarity=rarity,
+        abilities=abilities or [],
+        setup_interceptors=setup_interceptors
+    )
+
+
+def make_planeswalker(
+    name: str,
+    mana_cost: str,
+    colors: set,
+    loyalty: int,
+    text: str = "",
+    subtypes: set = None,
+    rarity: str = None,
+    abilities: list = None,
+    setup_interceptors = None
+) -> 'CardDefinition':
+    """Helper to create planeswalker card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.PLANESWALKER},
+            subtypes=subtypes or set(),
+            colors=colors or set(),
+            mana_cost=mana_cost,
+            abilities=[{'loyalty': loyalty}]  # Store starting loyalty
+        ),
+        text=text,
+        rarity=rarity,
         abilities=abilities or [],
         setup_interceptors=setup_interceptors
     )

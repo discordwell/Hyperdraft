@@ -286,6 +286,62 @@ GOLGARI_MIDRANGE_NETDECK = Deck(
 
 
 # =============================================================================
+# AZORIUS SIMULACRUM SYNTHESIZER - Magic.gg Standard Ranked December 2025
+# Source: magic.gg/decklists/traditional-standard-ranked-decklists-december-8-2025
+# =============================================================================
+
+AZORIUS_SIMULACRUM_NETDECK = Deck(
+    name="Azorius Artifacts",
+    archetype="Combo",
+    colors=["W", "U"],
+    description="Artifact combo deck using United Battlefront to cheat artifacts into play, creating Construct tokens with Simulacrum Synthesizer.",
+    mainboard=[
+        # Lands (22)
+        DeckEntry("Plains", 5),
+        DeckEntry("Island", 1),
+        DeckEntry("Floodfarm Verge", 4),
+        DeckEntry("Multiversal Passage", 4),
+        DeckEntry("Meticulous Archive", 4),
+        DeckEntry("Sunbillow Verge", 3),
+        DeckEntry("Adagia, Windswept Bastion", 1),
+
+        # Key Payoffs (8)
+        DeckEntry("Simulacrum Synthesizer", 4),
+        DeckEntry("United Battlefront", 4),
+
+        # Artifacts (22)
+        DeckEntry("Repurposing Bay", 4),
+        DeckEntry("Cryogen Relic", 3),
+        DeckEntry("Clay-Fired Bricks", 3),
+        DeckEntry("Pinnacle Starcage", 3),
+        DeckEntry("Spring-Loaded Sawblades", 2),
+        DeckEntry("The Fire Crystal", 1),
+        DeckEntry("Braided Net", 1),
+        DeckEntry("White Auracite", 1),
+        DeckEntry("Authority of the Consuls", 4),
+
+        # Removal (8)
+        DeckEntry("Perilous Snare", 3),
+        DeckEntry("Split Up", 3),
+        DeckEntry("Hide on the Ceiling", 2),
+    ],
+    sideboard=[
+        DeckEntry("Rest in Peace", 3),
+        DeckEntry("Voice of Victory", 3),
+        DeckEntry("Spell Pierce", 2),
+        DeckEntry("Negate", 2),
+        DeckEntry("Thousand Moons Smithy", 1),
+        DeckEntry("Spring-Loaded Sawblades", 1),
+        DeckEntry("Split Up", 1),
+        DeckEntry("Dauntless Scrapbot", 1),
+        DeckEntry("Pinnacle Starcage", 1),
+    ],
+    author="Magic.gg Tournament Player",
+    source="Traditional Standard Ranked Decklists, December 8, 2025",
+)
+
+
+# =============================================================================
 # NETDECK REGISTRY
 # =============================================================================
 
@@ -296,6 +352,7 @@ NETDECKS = {
     "simic_ouroboroid_netdeck": SIMIC_OUROBOROID_NETDECK,
     "jeskai_control_netdeck": JESKAI_CONTROL_NETDECK,
     "golgari_midrange_netdeck": GOLGARI_MIDRANGE_NETDECK,
+    "azorius_simulacrum_netdeck": AZORIUS_SIMULACRUM_NETDECK,
 }
 
 

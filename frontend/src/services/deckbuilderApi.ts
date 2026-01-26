@@ -15,6 +15,12 @@ import type {
   ExportDeckResponse,
   CardDefinitionData,
 } from '../types/deckbuilder';
+import type {
+  SetDetail,
+  SetListResponse,
+  SetCardSearchRequest,
+  SetCardSearchResponse,
+} from '../types/gatherer';
 
 const API_BASE = '/api';
 
@@ -183,4 +189,35 @@ export const deckbuilderAPI = {
     message: string;
   }> =>
     fetchAPI('/deckbuilder/llm/status'),
+};
+
+// Gatherer API (Set Browsing)
+export const gathererAPI = {
+  // Get all sets
+  getSets: (setType?: string): Promise<SetListResponse> => {
+    const params = setType ? `?set_type=${setType}` : '';
+    return fetchAPI(`/deckbuilder/sets${params}`);
+  },
+
+  // Get set details
+  getSetDetails: (setCode: string): Promise<SetDetail> =>
+    fetchAPI(`/deckbuilder/sets/${setCode}`),
+
+  // Get cards in a set with filters
+  getSetCards: (setCode: string, request: SetCardSearchRequest = {}): Promise<SetCardSearchResponse> =>
+    fetchAPI(`/deckbuilder/sets/${setCode}/cards`, {
+      method: 'POST',
+      body: JSON.stringify({
+        types: request.types || [],
+        colors: request.colors || [],
+        rarity: request.rarity || null,
+        cmc_min: request.cmc_min ?? null,
+        cmc_max: request.cmc_max ?? null,
+        text_search: request.text_search || null,
+        sort_by: request.sort_by || 'name',
+        sort_order: request.sort_order || 'asc',
+        limit: request.limit || 50,
+        offset: request.offset || 0,
+      }),
+    }),
 };

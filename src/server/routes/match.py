@@ -12,14 +12,15 @@ from ..session import session_manager, GameSession
 from ..models import (
     CreateMatchRequest, CreateMatchResponse,
     PlayerActionRequest, ActionResultResponse,
-    GameStateResponse
+    GameStateResponse,
+    SubmitChoiceRequest, ChoiceResultResponse
 )
 
 # Card imports
 from src.cards import ALL_CARDS
 
 # Deck imports
-from src.decks import STANDARD_DECKS, get_deck, get_random_deck, load_deck
+from src.decks import STANDARD_DECKS, ALL_DECKS, get_deck, get_random_deck, load_deck
 
 router = APIRouter(prefix="/match", tags=["match"])
 
@@ -27,12 +28,12 @@ router = APIRouter(prefix="/match", tags=["match"])
 @router.get("/decks")
 async def list_decks() -> dict:
     """
-    List all available standard decks.
+    List all available decks (standard + netdecks).
 
     Returns deck IDs, names, archetypes, and colors.
     """
     decks = []
-    for deck_id, deck in STANDARD_DECKS.items():
+    for deck_id, deck in ALL_DECKS.items():
         decks.append({
             "id": deck_id,
             "name": deck.name,
@@ -42,6 +43,7 @@ async def list_decks() -> dict:
             "mainboard_count": deck.mainboard_count,
             "sideboard_count": deck.sideboard_count,
             "source": deck.source,
+            "is_netdeck": deck_id.endswith("_netdeck"),
         })
     return {"decks": decks, "total": len(decks)}
 
@@ -52,8 +54,8 @@ def get_deck_cards(deck_id: str = None) -> list:
 
     Returns list of CardDefinition objects ready for gameplay.
     """
-    if deck_id and deck_id in STANDARD_DECKS:
-        deck = get_deck(deck_id)
+    if deck_id and deck_id in ALL_DECKS:
+        deck = ALL_DECKS[deck_id]
     else:
         deck = get_random_deck()
 
@@ -220,6 +222,94 @@ async def submit_action(
         message="Action processed",
         new_state=new_state
     )
+
+
+@router.post("/{match_id}/choice", response_model=ChoiceResultResponse)
+async def submit_choice(
+    match_id: str,
+    request: SubmitChoiceRequest
+) -> ChoiceResultResponse:
+    """
+    Submit a player choice (modal spell, scry, target, etc.).
+
+    Used when the game is paused waiting for player input.
+    """
+    session = session_manager.get_session(match_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    if session.is_finished:
+        raise HTTPException(status_code=400, detail="Game is finished")
+
+    # Check there's actually a pending choice
+    pending_choice = session.game.get_pending_choice()
+    if not pending_choice:
+        raise HTTPException(status_code=400, detail="No pending choice")
+
+    # Submit the choice
+    success, message, events = session.game.submit_choice(
+        choice_id=request.choice_id,
+        player_id=request.player_id,
+        selected=request.selected
+    )
+
+    if not success:
+        return ChoiceResultResponse(
+            success=False,
+            message=message
+        )
+
+    # Get updated state
+    new_state = session.get_client_state(request.player_id)
+
+    return ChoiceResultResponse(
+        success=True,
+        message="Choice submitted",
+        new_state=new_state,
+        events=[{'type': e.type.name, 'payload': e.payload} for e in events]
+    )
+
+
+@router.get("/{match_id}/choice")
+async def get_pending_choice(
+    match_id: str,
+    player_id: Optional[str] = None
+) -> dict:
+    """
+    Get the current pending choice, if any.
+
+    Returns choice details if it's for the requesting player.
+    """
+    session = session_manager.get_session(match_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    pending_choice = session.game.get_pending_choice()
+    if not pending_choice:
+        return {"pending_choice": None}
+
+    # Full details for the player who needs to make the choice
+    if player_id == pending_choice.player:
+        return {
+            "pending_choice": {
+                "id": pending_choice.id,
+                "choice_type": pending_choice.choice_type,
+                "player": pending_choice.player,
+                "prompt": pending_choice.prompt,
+                "options": pending_choice.options,
+                "source_id": pending_choice.source_id,
+                "min_choices": pending_choice.min_choices,
+                "max_choices": pending_choice.max_choices,
+            }
+        }
+
+    # Limited info for other players
+    return {
+        "pending_choice": {
+            "waiting_for": pending_choice.player,
+            "choice_type": pending_choice.choice_type,
+        }
+    }
 
 
 @router.post("/{match_id}/concede")

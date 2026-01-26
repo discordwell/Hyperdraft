@@ -36,6 +36,7 @@ class ActionType(Enum):
     CAST_ADVENTURE = auto()    # Cast adventure side of a card
     CAST_SPLIT_LEFT = auto()   # Cast left half of split card
     CAST_SPLIT_RIGHT = auto()  # Cast right half of split card
+    CREW = auto()              # Crew a Vehicle
 
 
 @dataclass
@@ -69,6 +70,8 @@ class LegalAction:
     requires_targets: bool = False
     requires_mana: bool = False
     mana_cost: Optional[ManaCost] = None
+    crew_cost: int = 0  # Power required to crew (for CREW actions)
+    crew_with: list[str] = None  # Creature IDs to use for crewing
 
 
 class PrioritySystem:
@@ -108,6 +111,7 @@ class PrioritySystem:
             ActionType.ACTIVATE_ABILITY: self._handle_activate_ability,
             ActionType.PLAY_LAND: self._handle_play_land,
             ActionType.SPECIAL_ACTION: self._handle_special_action,
+            ActionType.CREW: self._handle_crew,
         }
 
     def set_ai_player(self, player_id: str) -> None:
@@ -256,6 +260,10 @@ class PrioritySystem:
                     abilities = self._get_activatable_abilities(obj, player_id)
                     actions.extend(abilities)
 
+            # Check for Vehicles that can be crewed
+            crew_actions = self._get_crew_actions(player_id, battlefield)
+            actions.extend(crew_actions)
+
         return actions
 
     def _can_cast(self, card, player_id: str) -> bool:
@@ -312,6 +320,91 @@ class PrioritySystem:
         # Would iterate through abilities on the card
         # For now, return empty list
         return []
+
+    def _get_crew_actions(self, player_id: str, battlefield) -> list[LegalAction]:
+        """Get all valid crew actions for Vehicles."""
+        from .queries import get_power
+
+        actions = []
+
+        # Find all Vehicles controlled by player
+        vehicles = []
+        for obj_id in battlefield.objects:
+            obj = self.state.objects.get(obj_id)
+            if (obj and obj.controller == player_id and
+                'Vehicle' in obj.characteristics.subtypes and
+                CardType.CREATURE not in obj.characteristics.types):  # Not already a creature
+                # Parse crew cost from text or abilities
+                crew_cost = self._get_crew_cost(obj)
+                if crew_cost is not None:
+                    vehicles.append((obj, crew_cost))
+
+        if not vehicles:
+            return actions
+
+        # Find all untapped creatures that can crew
+        available_crew = []
+        for obj_id in battlefield.objects:
+            obj = self.state.objects.get(obj_id)
+            if (obj and obj.controller == player_id and
+                CardType.CREATURE in obj.characteristics.types and
+                not obj.state.tapped):
+                power = get_power(obj, self.state)
+                available_crew.append((obj, power))
+
+        if not available_crew:
+            return actions
+
+        # For each vehicle, check if we have enough power to crew it
+        for vehicle, crew_cost in vehicles:
+            total_power = sum(p for _, p in available_crew)
+            if total_power >= crew_cost:
+                # Generate a simple crew option using minimum creatures needed
+                crew_with = []
+                power_used = 0
+                for creature, power in sorted(available_crew, key=lambda x: -x[1]):  # Highest power first
+                    if power_used >= crew_cost:
+                        break
+                    crew_with.append(creature.id)
+                    power_used += power
+
+                if power_used >= crew_cost:
+                    actions.append(LegalAction(
+                        type=ActionType.CREW,
+                        card_id=vehicle.id,
+                        description=f"Crew {vehicle.name} (power {crew_cost})",
+                        crew_cost=crew_cost,
+                        crew_with=crew_with
+                    ))
+
+        return actions
+
+    def _get_crew_cost(self, vehicle) -> int:
+        """Extract crew cost from a Vehicle's text or abilities."""
+        # Check text for "Crew N" pattern
+        text = getattr(vehicle, 'card_def', None)
+        if text and hasattr(text, 'text'):
+            text = text.text
+        else:
+            text = ""
+
+        import re
+        match = re.search(r'Crew (\d+)', text, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+
+        # Check abilities
+        for ability in vehicle.characteristics.abilities:
+            if isinstance(ability, dict):
+                keyword = ability.get('keyword', '')
+                if keyword.lower().startswith('crew'):
+                    # Try to extract number from "Crew 2" format
+                    match = re.search(r'crew\s*(\d+)', keyword, re.IGNORECASE)
+                    if match:
+                        return int(match.group(1))
+
+        # Default crew cost if Vehicle but no explicit cost found
+        return 2
 
     async def _execute_action(self, action: PlayerAction) -> list[Event]:
         """Execute a player action."""
@@ -420,6 +513,37 @@ class PrioritySystem:
         """Handle special actions (morph, suspend, etc.)."""
         # Special actions don't use the stack
         return []
+
+    async def _handle_crew(self, action: PlayerAction) -> list[Event]:
+        """Handle crewing a Vehicle."""
+        events = []
+
+        vehicle = self.state.objects.get(action.card_id)
+        if not vehicle:
+            return events
+
+        # Get crew data from action
+        crew_with = action.data.get('crew_with', [])
+
+        # Tap the creatures used to crew
+        for creature_id in crew_with:
+            creature = self.state.objects.get(creature_id)
+            if creature and not creature.state.tapped:
+                events.append(Event(
+                    type=EventType.TAP,
+                    payload={'object_id': creature_id},
+                    source=vehicle.id,
+                    controller=action.player_id
+                ))
+
+        # Mark vehicle as crewed (becomes a creature until end of turn)
+        if CardType.CREATURE not in vehicle.characteristics.types:
+            vehicle.characteristics.types.add(CardType.CREATURE)
+
+        # Mark for cleanup at end of turn
+        vehicle.state.crewed_until_eot = True
+
+        return events
 
     def _all_players_passed(self) -> bool:
         """Check if all players have passed priority."""

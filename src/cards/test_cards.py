@@ -270,6 +270,88 @@ FOG_BANK = make_creature(
 
 
 # =============================================================================
+# 6. TEST VEHICLE - For testing Crew mechanic
+# =============================================================================
+# "Crew 2"
+
+from src.engine import make_artifact
+
+TEST_VEHICLE = make_artifact(
+    name="Test Vehicle",
+    mana_cost="{2}",
+    colors=set(),
+    text="Crew 2 (Tap any number of creatures you control with total power 2 or more: This Vehicle becomes an artifact creature until end of turn.)",
+    subtypes={"Vehicle"},
+    power=3,
+    toughness=3
+)
+
+
+# =============================================================================
+# 7. GRIZZLY BEARS - Simple 2/2 creature for crewing
+# =============================================================================
+
+GRIZZLY_BEARS = make_creature(
+    name="Grizzly Bears",
+    power=2,
+    toughness=2,
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    subtypes={"Bear"},
+    text="No abilities.",
+)
+
+
+# =============================================================================
+# 8. ELVISH MYSTIC - Mana dork for crewing
+# =============================================================================
+
+ELVISH_MYSTIC = make_creature(
+    name="Elvish Mystic",
+    power=1,
+    toughness=1,
+    mana_cost="{G}",
+    colors={Color.GREEN},
+    subtypes={"Elf", "Druid"},
+    text="{T}: Add {G}.",
+)
+
+
+# =============================================================================
+# 9. BASIC LANDS - For mana
+# =============================================================================
+
+from src.engine import make_land
+
+def forest_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Set up Forest's mana ability."""
+    # Note: Mana abilities should be instant-speed and not use the stack
+    # For now, this is a simple placeholder
+    return []
+
+FOREST = make_land(
+    name="Forest",
+    text="{T}: Add {G}.",
+    subtypes={"Forest"},
+    supertypes={"Basic"},
+)
+
+PLAINS = make_land(
+    name="Plains",
+    text="{T}: Add {W}.",
+    subtypes={"Plains"},
+    supertypes={"Basic"},
+)
+
+MOUNTAIN = make_land(
+    name="Mountain",
+    text="{T}: Add {R}.",
+    subtypes={"Mountain"},
+    supertypes={"Basic"},
+)
+
+
+# =============================================================================
 # Card Registry
 # =============================================================================
 
@@ -279,4 +361,10 @@ TEST_CARDS = {
     "Glorious Anthem": GLORIOUS_ANTHEM,
     "Rhox Faithmender": RHOX_FAITHMENDER,
     "Fog Bank": FOG_BANK,
+    "Test Vehicle": TEST_VEHICLE,
+    "Grizzly Bears": GRIZZLY_BEARS,
+    "Elvish Mystic": ELVISH_MYSTIC,
+    "Forest": FOREST,
+    "Plains": PLAINS,
+    "Mountain": MOUNTAIN,
 }
