@@ -9,6 +9,41 @@ from src.engine import Game, Event, EventType, ZoneType, get_power, get_toughnes
 from src.cards.custom.lorwyn_custom import LORWYN_CUSTOM_CARDS
 
 
+def create_creature_on_battlefield(game, player, card_name):
+    """
+    Helper to create a creature on the battlefield with proper ETB handling.
+
+    Creates in hand first WITHOUT card_def to avoid premature interceptor setup,
+    then moves to battlefield via ZONE_CHANGE event which properly sets up
+    interceptors AND triggers ETB exactly once.
+    """
+    card_def = LORWYN_CUSTOM_CARDS[card_name]
+
+    # Create in hand WITHOUT card_def to avoid premature interceptor setup
+    creature = game.create_object(
+        name=card_name,
+        owner_id=player.id,
+        zone=ZoneType.HAND,
+        characteristics=card_def.characteristics,
+        card_def=None  # Don't pass card_def to avoid double setup
+    )
+    # Store card_def on the object so ZONE_CHANGE handler can set up interceptors
+    creature.card_def = card_def
+
+    # Move to battlefield - this registers interceptors AND triggers ETB
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': creature.id,
+            'from_zone': f'hand_{player.id}',
+            'to_zone': 'battlefield',
+            'to_zone_type': ZoneType.BATTLEFIELD
+        }
+    ))
+
+    return creature
+
+
 def test_burdened_stoneback_counters():
     """Test that Burdened Stoneback enters with -1/-1 counters."""
     print("\n=== Test: Burdened Stoneback ETB Counters ===")
@@ -16,27 +51,7 @@ def test_burdened_stoneback_counters():
     game = Game()
     p1 = game.add_player("Alice")
 
-    card_def = LORWYN_CUSTOM_CARDS["Burdened Stoneback"]
-
-    # Create the creature
-    creature = game.create_object(
-        name="Burdened Stoneback",
-        owner_id=p1.id,
-        zone=ZoneType.BATTLEFIELD,
-        characteristics=card_def.characteristics,
-        card_def=card_def
-    )
-
-    # Emit ETB event to trigger the counters
-    game.emit(Event(
-        type=EventType.ZONE_CHANGE,
-        payload={
-            'object_id': creature.id,
-            'from_zone': 'hand',
-            'to_zone': 'battlefield',
-            'to_zone_type': ZoneType.BATTLEFIELD
-        }
-    ))
+    creature = create_creature_on_battlefield(game, p1, "Burdened Stoneback")
 
     counters = creature.state.counters.get('-1/-1', 0)
     print(f"Counters on Burdened Stoneback: {counters}")
@@ -59,7 +74,7 @@ def test_champion_of_clachan_lord():
     game = Game()
     p1 = game.add_player("Alice")
 
-    # Create Champion first
+    # Create Champion first (no ETB needed, just for static effect)
     champion_def = LORWYN_CUSTOM_CARDS["Champion of the Clachan"]
     champion = game.create_object(
         name="Champion of the Clachan",
@@ -69,7 +84,7 @@ def test_champion_of_clachan_lord():
         card_def=champion_def
     )
 
-    # Create a Kithkin
+    # Create a Kithkin (no ETB needed, just for static effect test)
     kithkin_def = LORWYN_CUSTOM_CARDS["Goldmeadow Nomad"]
     kithkin = game.create_object(
         name="Goldmeadow Nomad",
@@ -106,26 +121,7 @@ def test_encumbered_reejerey_tap_trigger():
     game = Game()
     p1 = game.add_player("Alice")
 
-    card_def = LORWYN_CUSTOM_CARDS["Encumbered Reejerey"]
-
-    creature = game.create_object(
-        name="Encumbered Reejerey",
-        owner_id=p1.id,
-        zone=ZoneType.BATTLEFIELD,
-        characteristics=card_def.characteristics,
-        card_def=card_def
-    )
-
-    # Trigger ETB for counters
-    game.emit(Event(
-        type=EventType.ZONE_CHANGE,
-        payload={
-            'object_id': creature.id,
-            'from_zone': 'hand',
-            'to_zone': 'battlefield',
-            'to_zone_type': ZoneType.BATTLEFIELD
-        }
-    ))
+    creature = create_creature_on_battlefield(game, p1, "Encumbered Reejerey")
 
     counters_before = creature.state.counters.get('-1/-1', 0)
     print(f"Counters after ETB: {counters_before}")
@@ -164,26 +160,7 @@ def test_rooftop_percher_life_gain():
 
     print(f"Starting life: {p1.life}")
 
-    card_def = LORWYN_CUSTOM_CARDS["Rooftop Percher"]
-
-    creature = game.create_object(
-        name="Rooftop Percher",
-        owner_id=p1.id,
-        zone=ZoneType.BATTLEFIELD,
-        characteristics=card_def.characteristics,
-        card_def=card_def
-    )
-
-    # Trigger ETB
-    game.emit(Event(
-        type=EventType.ZONE_CHANGE,
-        payload={
-            'object_id': creature.id,
-            'from_zone': 'hand',
-            'to_zone': 'battlefield',
-            'to_zone_type': ZoneType.BATTLEFIELD
-        }
-    ))
+    creature = create_creature_on_battlefield(game, p1, "Rooftop Percher")
 
     print(f"Life after ETB: {p1.life}")
     assert p1.life == 23, f"Expected 23, got {p1.life}"

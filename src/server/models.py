@@ -25,6 +25,7 @@ class AIDifficulty(str, Enum):
     EASY = "easy"
     MEDIUM = "medium"
     HARD = "hard"
+    ULTRA = "ultra"
 
 
 class ActionType(str, Enum):
@@ -36,6 +37,19 @@ class ActionType(str, Enum):
     SPECIAL_ACTION = "SPECIAL_ACTION"
     DECLARE_ATTACKERS = "DECLARE_ATTACKERS"
     DECLARE_BLOCKERS = "DECLARE_BLOCKERS"
+
+
+class ChoiceType(str, Enum):
+    """Player choice types for modal spells, scry, etc."""
+    MODAL = "modal"
+    TARGET = "target"
+    SCRY = "scry"
+    SURVEIL = "surveil"
+    ORDER = "order"
+    DISCARD = "discard"
+    SACRIFICE = "sacrifice"
+    MAY = "may"
+    CUSTOM = "custom"
 
 
 # =============================================================================
@@ -73,6 +87,13 @@ class StartBotGameRequest(BaseModel):
     bot1_difficulty: AIDifficulty = AIDifficulty.MEDIUM
     bot2_difficulty: AIDifficulty = AIDifficulty.MEDIUM
     delay_ms: int = Field(default=1000, ge=100, le=5000, description="Delay between actions in ms")
+
+
+class SubmitChoiceRequest(BaseModel):
+    """Request to submit a player choice (modal, scry, target, etc.)."""
+    choice_id: str = Field(..., description="ID of the pending choice being answered")
+    player_id: str = Field(..., description="ID of the player submitting the choice")
+    selected: list[Any] = Field(default_factory=list, description="Selected options")
 
 
 # =============================================================================
@@ -124,6 +145,32 @@ class LegalActionData(BaseModel):
     requires_mana: bool = False
 
 
+class PendingChoiceData(BaseModel):
+    """Pending choice data for API responses."""
+    id: str
+    choice_type: str
+    player: str
+    prompt: str
+    options: list[Any] = Field(default_factory=list)
+    source_id: str
+    min_choices: int = 1
+    max_choices: int = 1
+
+
+class PendingChoiceWaitingData(BaseModel):
+    """Simplified pending choice data when another player is making a choice."""
+    waiting_for: str
+    choice_type: str
+
+
+class ChoiceResultResponse(BaseModel):
+    """Response after submitting a choice."""
+    success: bool
+    message: str = ""
+    new_state: Optional['GameStateResponse'] = None
+    events: list[dict] = Field(default_factory=list)
+
+
 class PlayerData(BaseModel):
     """Player data for API responses."""
     id: str
@@ -158,6 +205,8 @@ class GameStateResponse(BaseModel):
     combat: Optional[CombatData] = None
     is_game_over: bool = False
     winner: Optional[str] = None
+    pending_choice: Optional[PendingChoiceData] = None  # Choice for this player
+    waiting_for_choice: Optional[PendingChoiceWaitingData] = None  # Another player's choice
 
 
 class ActionResultResponse(BaseModel):

@@ -1,15 +1,16 @@
 /**
  * GameView Page
  *
- * Main game playing interface.
+ * Main game playing interface with drag and drop support.
  */
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useGame } from '../hooks/useGame';
 import { useGameStore } from '../stores/gameStore';
+import { useDragDropStore } from '../hooks/useDragDrop';
 import { GameBoard } from '../components/game';
-import { ActionMenu, TargetPicker } from '../components/actions';
+import { ActionMenu, TargetPicker, ChoiceModal } from '../components/actions';
 import { matchAPI } from '../services/api';
 import type { CardData, LegalActionData } from '../types';
 
@@ -35,11 +36,15 @@ export function GameView() {
     canAct,
     canDeclareAttackers,
     setError,
+    setAutoPassMode,
+    enablePassUntilEndOfTurn,
+    hasActionsOtherThanPass,
   } = useGame();
+
+  const { endDrag } = useDragDropStore();
 
   const storeMatchId = useGameStore((state) => state.matchId);
   const storePlayerId = useGameStore((state) => state.playerId);
-  const setConnection = useGameStore((state) => state.setConnection);
   const setGameState = useGameStore((state) => state.setGameState);
 
   // Fetch initial state if we don't have connection info
@@ -71,12 +76,21 @@ export function GameView() {
   // Handle card clicks
   const handleCardClick = useCallback(
     (card: CardData, zone: 'hand' | 'battlefield') => {
-      // If we're in targeting mode, try to add as target
+      // If we're in targeting mode
       if (ui.targetingMode !== 'none') {
+        // If clicking a valid target, add it
         if (ui.validTargets.includes(card.id)) {
           addTarget(card.id);
+          return;
         }
-        return;
+        // If clicking a card in hand (not a valid target), cancel targeting and allow new selection
+        if (zone === 'hand') {
+          cancelTargeting();
+          // Fall through to normal hand card handling below
+        } else {
+          // Clicking an invalid target on battlefield - do nothing
+          return;
+        }
       }
 
       // If in declare attackers step, toggle attacker
@@ -116,11 +130,80 @@ export function GameView() {
       canAct,
       gameState,
       addTarget,
+      cancelTargeting,
       toggleAttacker,
       castSpell,
       playLand,
       selectCard,
     ]
+  );
+
+  // Handle playing a land via drag and drop
+  const handlePlayLand = useCallback(
+    (cardId: string) => {
+      endDrag();
+      playLand(cardId);
+      // Immediately send the action since lands don't need confirmation
+      const action = gameState?.legal_actions.find(
+        (a) => a.type === 'PLAY_LAND' && a.card_id === cardId
+      );
+      if (action) {
+        selectAction(action);
+        // Send action after state updates
+        setTimeout(() => sendAction(), 0);
+      }
+    },
+    [playLand, gameState, selectAction, sendAction, endDrag]
+  );
+
+  // Handle casting a spell via drag and drop
+  const handleCastSpell = useCallback(
+    (cardId: string, targets?: string[]) => {
+      endDrag();
+      castSpell(cardId);
+
+      // If we have targets, add them
+      if (targets && targets.length > 0) {
+        targets.forEach((t) => addTarget(t));
+        confirmTargets();
+      }
+
+      // Send the action
+      setTimeout(() => sendAction(), 0);
+    },
+    [castSpell, addTarget, confirmTargets, sendAction, endDrag]
+  );
+
+  // Handle casting a multi-target spell
+  const handleCastMultiTargetSpell = useCallback(
+    (cardId: string, targets: string[][]) => {
+      endDrag();
+
+      // Find and select the action
+      const action = gameState?.legal_actions.find(
+        (a) => a.type === 'CAST_SPELL' && a.card_id === cardId
+      );
+      if (!action || !playerId) return;
+
+      // Build and send the action request directly
+      const request = {
+        action_type: 'CAST_SPELL' as const,
+        player_id: playerId,
+        card_id: cardId,
+        targets: targets,
+      };
+
+      matchAPI.submitAction(matchId!, request).then((result) => {
+        if (result.success && result.new_state) {
+          setGameState(result.new_state);
+        } else if (!result.success) {
+          setError(result.message);
+        }
+      }).catch((err) => {
+        setError(err instanceof Error ? err.message : 'Failed to cast spell');
+      });
+    },
+    [gameState, playerId, matchId, setGameState, setError, endDrag]
   );
 
   // Handle action selection from menu
@@ -171,6 +254,69 @@ export function GameView() {
     }
   }, [matchId, playerId, navigate, setError]);
 
+  // Track choice submission loading state
+  const [isSubmittingChoice, setIsSubmittingChoice] = useState(false);
+
+  // Check if there's a pending choice for this player
+  const pendingChoice = useMemo(() => {
+    if (!gameState?.pending_choice || !playerId) return null;
+    // Only show if it's this player's choice to make
+    if (gameState.pending_choice.player !== playerId) return null;
+    return gameState.pending_choice;
+  }, [gameState?.pending_choice, playerId]);
+
+  // Handle choice submission
+  const handleChoiceSubmit = useCallback(async (selectedIds: string[]) => {
+    if (!matchId || !playerId || !pendingChoice) return;
+
+    setIsSubmittingChoice(true);
+    try {
+      const result = await matchAPI.submitChoice(matchId, playerId, selectedIds);
+      if (result.success && result.new_state) {
+        setGameState(result.new_state);
+      } else if (!result.success) {
+        setError(result.message);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to submit choice');
+    } finally {
+      setIsSubmittingChoice(false);
+    }
+  }, [matchId, playerId, pendingChoice, setGameState, setError]);
+
+  // Build graveyard lookup for choice modal
+  const graveyardLookup = useMemo(() => {
+    return gameState?.graveyard || {};
+  }, [gameState?.graveyard]);
+
+  // Keyboard shortcuts for auto-pass
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // F6 - Toggle pass until end of turn
+      if (e.key === 'F6') {
+        e.preventDefault();
+        if (ui.autoPassMode === 'end_of_turn') {
+          setAutoPassMode('no_actions');
+        } else {
+          enablePassUntilEndOfTurn();
+        }
+      }
+      // Escape - Cancel auto-pass modes (except smart mode)
+      if (e.key === 'Escape' && ui.autoPassMode === 'end_of_turn') {
+        e.preventDefault();
+        setAutoPassMode('no_actions');
+      }
+      // Space - Quick pass (when we have priority)
+      if (e.key === ' ' && canAct() && !ui.selectedAction && ui.targetingMode === 'none') {
+        e.preventDefault();
+        pass();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [ui.autoPassMode, ui.selectedAction, ui.targetingMode, setAutoPassMode, enablePassUntilEndOfTurn, canAct, pass]);
+
   // Loading state
   if (!gameState || !playerId) {
     return (
@@ -195,6 +341,9 @@ export function GameView() {
           selectedAttackers={ui.selectedAttackers}
           selectedBlockers={ui.selectedBlockers}
           onCardClick={handleCardClick}
+          onPlayLand={handlePlayLand}
+          onCastSpell={handleCastSpell}
+          onCastMultiTargetSpell={handleCastMultiTargetSpell}
         />
 
         {/* Target Picker Overlay */}
@@ -205,6 +354,18 @@ export function GameView() {
           onConfirm={handleConfirmAction}
           onCancel={cancelTargeting}
         />
+
+        {/* Choice Modal Overlay */}
+        {pendingChoice && (
+          <ChoiceModal
+            pendingChoice={pendingChoice}
+            battlefield={gameState.battlefield}
+            hand={gameState.hand}
+            graveyard={graveyardLookup}
+            onSubmit={handleChoiceSubmit}
+            isLoading={isSubmittingChoice}
+          />
+        )}
       </div>
 
       {/* Sidebar */}
@@ -236,10 +397,14 @@ export function GameView() {
             selectedAction={ui.selectedAction}
             canAct={canAct()}
             isLoading={ui.isLoading}
+            autoPassMode={ui.autoPassMode}
+            hasActionsOtherThanPass={hasActionsOtherThanPass()}
             onActionSelect={handleActionSelect}
             onPass={pass}
             onConfirm={handleConfirmAction}
             onCancel={handleCancel}
+            onSetAutoPassMode={setAutoPassMode}
+            onPassUntilEndOfTurn={enablePassUntilEndOfTurn}
           />
 
           {/* Error Display */}
@@ -248,6 +413,11 @@ export function GameView() {
               {ui.error}
             </div>
           )}
+        </div>
+
+        {/* Drag hint */}
+        <div className="px-4 py-2 border-t border-gray-700 text-xs text-gray-500 text-center">
+          Tip: Drag cards from your hand to play lands or target spells
         </div>
 
         {/* Back to Menu */}

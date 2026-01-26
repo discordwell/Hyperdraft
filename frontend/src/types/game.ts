@@ -102,6 +102,23 @@ export interface BlockDeclaration {
   attacker_id: string;
 }
 
+// Pending Choice (for modal/target/scry/surveil decisions)
+export interface ChoiceOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface PendingChoice {
+  choice_type: 'modal' | 'target' | 'scry' | 'surveil' | string;
+  player: string;
+  prompt: string;
+  options: ChoiceOption[];
+  source_id: string;
+  min_choices: number;
+  max_choices: number;
+}
+
 // Full Game State
 export interface GameState {
   match_id: string;
@@ -119,6 +136,7 @@ export interface GameState {
   combat: CombatData | null;
   is_game_over: boolean;
   winner: string | null;
+  pending_choice?: PendingChoice | null;
 }
 
 // Request/Response Types

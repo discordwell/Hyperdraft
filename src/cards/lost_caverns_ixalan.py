@@ -20,7 +20,7 @@ from src.cards.interceptor_helpers import (
     make_end_step_trigger, make_life_gain_trigger, make_tap_trigger,
     make_damage_trigger, make_spell_cast_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
-    creatures_you_control, creatures_with_subtype
+    creatures_you_control, creatures_with_subtype, create_target_choice
 )
 
 
@@ -32,13 +32,44 @@ from src.cards.interceptor_helpers import (
 
 def ironpaw_aspirant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, put a +1/+1 counter on target creature."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting - for now, put counter on self as placeholder
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in target.characteristics.types:
+            return []
         return [Event(
             type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            payload={'object_id': target_id, 'counter_type': '+1/+1', 'amount': 1},
             source=obj.id
         )]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Find all creatures on the battlefield (valid targets)
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a creature to put a +1/+1 counter on",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
+        return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -70,13 +101,46 @@ def market_gnome_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def miners_guidewing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature dies, target creature you control explores."""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        # Explore effect - simplified placeholder
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in target.characteristics.types:
+            return []
         return [Event(
             type=EventType.EXPLORE,
-            payload={'controller': obj.controller},
+            payload={'object_id': target_id, 'controller': target.controller},
             source=obj.id
         )]
+
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        # Find creatures controller controls (use last known controller)
+        controller = obj.controller
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller == controller and
+                CardType.CREATURE in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a creature you control to explore",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
+        return []
+
     return [make_death_trigger(obj, death_effect)]
 
 
@@ -171,17 +235,113 @@ def tinkers_tote_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def cogwork_wrestler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, target creature an opponent controls gets -2/-0 until end of turn."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in target.characteristics.types:
+            return []
+        return [Event(
+            type=EventType.TEMPORARY_PT_CHANGE,
+            payload={'object_id': target_id, 'power': -2, 'toughness': 0, 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting and temporary effect
+        # Find creatures opponents control
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller != obj.controller and
+                CardType.CREATURE in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a creature an opponent controls to get -2/-0",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
 def council_of_echoes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, if descend 4, return up to one target nonland permanent to its owner's hand."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.LAND in target.characteristics.types:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.BATTLEFIELD,
+                'to_zone_type': ZoneType.HAND,
+                'to_zone': f'hand_{target.owner}'
+            },
+            source=obj.id
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require descend check and targeting
+        # Check descend 4 - need 4+ permanent cards in graveyard
+        graveyard_key = f"graveyard_{obj.controller}"
+        perm_count = 0
+        graveyard = state.zones.get(graveyard_key)
+        if graveyard:
+            for card_id in graveyard.objects:
+                card = state.objects.get(card_id)
+                if card:
+                    card_types = card.characteristics.types
+                    if (CardType.CREATURE in card_types or
+                        CardType.ARTIFACT in card_types or
+                        CardType.ENCHANTMENT in card_types or
+                        CardType.LAND in card_types or
+                        CardType.PLANESWALKER in card_types):
+                        perm_count += 1
+
+        if perm_count < 4:
+            return []
+
+        # Find nonland permanents (other than this creature)
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.id != obj.id and
+                game_obj.zone == ZoneType.BATTLEFIELD and
+                CardType.LAND not in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a nonland permanent to return to hand (or none)",
+            min_targets=0,  # "up to one"
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -248,9 +408,66 @@ def staunch_crewmate_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 def waylaying_pirates_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, if you control an artifact, tap target artifact or creature and put a stun counter on it."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        target_types = target.characteristics.types
+        if CardType.ARTIFACT not in target_types and CardType.CREATURE not in target_types:
+            return []
+        return [
+            Event(
+                type=EventType.TAP,
+                payload={'object_id': target_id},
+                source=obj.id
+            ),
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': target_id, 'counter_type': 'stun', 'amount': 1},
+                source=obj.id
+            )
+        ]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require checking artifact control and targeting
+        # Check if we control an artifact
+        controls_artifact = False
+        for game_obj in state.objects.values():
+            if (game_obj.controller == obj.controller and
+                game_obj.zone == ZoneType.BATTLEFIELD and
+                CardType.ARTIFACT in game_obj.characteristics.types):
+                controls_artifact = True
+                break
+
+        if not controls_artifact:
+            return []
+
+        # Find artifacts or creatures opponents control
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller != obj.controller):
+                target_types = game_obj.characteristics.types
+                if CardType.ARTIFACT in target_types or CardType.CREATURE in target_types:
+                    valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose an artifact or creature to tap and put a stun counter on",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -289,9 +506,67 @@ def abyssal_gorestalker_setup(obj: GameObject, state: GameState) -> list[Interce
 
 def chupacabra_echo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, target creature an opponent controls gets -X/-X until end of turn."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in target.characteristics.types:
+            return []
+
+        # Count permanent cards in controller's graveyard (fathomless descent)
+        controller = choice.callback_data.get('controller', obj.controller)
+        graveyard_key = f"graveyard_{controller}"
+        x_value = 0
+        graveyard = game_state.zones.get(graveyard_key)
+        if graveyard:
+            for card_id in graveyard.objects:
+                card = game_state.objects.get(card_id)
+                if card:
+                    card_types = card.characteristics.types
+                    # Permanent types: creature, artifact, enchantment, land, planeswalker
+                    if (CardType.CREATURE in card_types or
+                        CardType.ARTIFACT in card_types or
+                        CardType.ENCHANTMENT in card_types or
+                        CardType.LAND in card_types or
+                        CardType.PLANESWALKER in card_types):
+                        x_value += 1
+
+        if x_value == 0:
+            return []
+
+        return [Event(
+            type=EventType.TEMPORARY_PT_CHANGE,
+            payload={'object_id': target_id, 'power': -x_value, 'toughness': -x_value, 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Fathomless descent - X is number of permanent cards in graveyard
+        # Find creatures opponents control
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller != obj.controller and
+                CardType.CREATURE in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a creature an opponent controls to get -X/-X",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice, 'controller': obj.controller}
+        )
         return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -381,9 +656,87 @@ def primordial_gnawer_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def skullcap_snail_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, target opponent exiles a card from their hand."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting opponent
+    def handle_card_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        """Handle the card selection from opponent's hand."""
+        if not selected:
+            return []
+        card_id = selected[0]
+        card = game_state.objects.get(card_id)
+        if not card:
+            return []
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': card_id, 'exiled_by': obj.id},
+            source=obj.id
+        )]
+
+    def handle_opponent_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        """Handle the opponent selection, then prompt for card choice."""
+        if not selected:
+            return []
+        target_opponent = selected[0]
+
+        # Get cards from opponent's hand
+        hand_key = f"hand_{target_opponent}"
+        hand = game_state.zones.get(hand_key)
+        if not hand or not hand.objects:
+            return []
+
+        card_ids = list(hand.objects)
+
+        create_target_choice(
+            state=game_state,
+            player_id=target_opponent,  # Opponent chooses which card to exile
+            source_id=obj.id,
+            legal_targets=card_ids,
+            prompt="Choose a card from your hand to exile",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_card_choice}
+        )
         return []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Find opponents
+        opponents = [pid for pid in state.players if pid != obj.controller]
+        if not opponents:
+            return []
+
+        # If only one opponent, target them automatically
+        if len(opponents) == 1:
+            target_opponent = opponents[0]
+            hand_key = f"hand_{target_opponent}"
+            hand = state.zones.get(hand_key)
+            if not hand or not hand.objects:
+                return []
+
+            card_ids = list(hand.objects)
+
+            create_target_choice(
+                state=state,
+                player_id=target_opponent,
+                source_id=obj.id,
+                legal_targets=card_ids,
+                prompt="Choose a card from your hand to exile",
+                min_targets=1,
+                max_targets=1,
+                callback_data={'handler': handle_card_choice}
+            )
+            return []
+
+        # Multiple opponents - need to choose one first
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=opponents,
+            prompt="Choose a target opponent",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_opponent_choice}
+        )
+        return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -425,9 +778,44 @@ def synapse_necromage_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def dinotomaton_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, target creature you control gains menace until end of turn."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in target.characteristics.types:
+            return []
+        return [Event(
+            type=EventType.KEYWORD_GRANT,
+            payload={'object_id': target_id, 'keyword': 'menace', 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller == obj.controller and
+                CardType.CREATURE in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a creature you control to gain menace",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -450,9 +838,45 @@ def geological_appraiser_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def magmatic_galleon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this Vehicle enters, it deals 5 damage to target creature an opponent controls."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in target.characteristics.types:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target_id': target_id, 'amount': 5, 'is_combat': False},
+            source=obj.id
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting
+        # Find creatures opponents control
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller != obj.controller and
+                CardType.CREATURE in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a creature an opponent controls to deal 5 damage to",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -475,9 +899,51 @@ def plundering_pirate_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def rampaging_spiketail_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, target creature you control gets +2/+0 and gains indestructible until end of turn."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in target.characteristics.types:
+            return []
+        return [
+            Event(
+                type=EventType.TEMPORARY_PT_CHANGE,
+                payload={'object_id': target_id, 'power': 2, 'toughness': 0, 'duration': 'end_of_turn'},
+                source=obj.id
+            ),
+            Event(
+                type=EventType.KEYWORD_GRANT,
+                payload={'object_id': target_id, 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+                source=obj.id
+            )
+        ]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting and temporary effects
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller == obj.controller and
+                CardType.CREATURE in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a creature you control to get +2/+0 and indestructible",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -756,17 +1222,89 @@ def digsite_conservator_setup(obj: GameObject, state: GameState) -> list[Interce
 
 def disruptor_wanderglyph_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever this creature attacks, exile target card from an opponent's graveyard."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.GRAVEYARD:
+            return []
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': target_id, 'exiled_by': obj.id},
+            source=obj.id
+        )]
+
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting
+        # Find cards in opponents' graveyards
+        valid_targets = []
+        for pid in state.players:
+            if pid != obj.controller:
+                graveyard_key = f"graveyard_{pid}"
+                graveyard = state.zones.get(graveyard_key)
+                if graveyard:
+                    for card_id in graveyard.objects:
+                        valid_targets.append(card_id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a card from an opponent's graveyard to exile",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
+
     return [make_attack_trigger(obj, attack_effect)]
 
 
 def runaway_boulder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this artifact enters, it deals 6 damage to target creature an opponent controls."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in target.characteristics.types:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target_id': target_id, 'amount': 6, 'is_combat': False},
+            source=obj.id
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting
+        # Find creatures opponents control
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller != obj.controller and
+                CardType.CREATURE in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a creature an opponent controls to deal 6 damage to",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -826,9 +1364,48 @@ def kutzils_flanker_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def mischievous_pup_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, return up to one other target permanent you control to its owner's hand."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.BATTLEFIELD,
+                'to_zone_type': ZoneType.HAND,
+                'to_zone': f'hand_{target.owner}'
+            },
+            source=obj.id
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting - placeholder
+        # Find other permanents controller controls
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.id != obj.id and
+                game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller == obj.controller):
+                valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a permanent you control to return to hand (or none)",
+            min_targets=0,  # "up to one"
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -884,11 +1461,141 @@ def sinuous_benthisaur_setup(obj: GameObject, state: GameState) -> list[Intercep
 # --- ADDITIONAL BLACK CARDS ---
 
 def deepcavern_bat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, look at target opponent's hand."""
+    """
+    Flying, lifelink.
+    When this creature enters, look at target opponent's hand.
+    You may exile a nonland card from it until this creature leaves the battlefield.
+    """
+    # Track which card we exiled (mutable container for closure)
+    exiled_card_ref = {'id': None, 'owner': None}
+
+    def handle_exile_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        """Handle the choice callback for Deep-Cavern Bat's exile effect."""
+        if not selected:
+            return []
+
+        card_id = selected[0]
+
+        if card_id not in game_state.objects:
+            return []
+
+        card = game_state.objects[card_id]
+
+        # Store reference to exiled card for return trigger
+        exiled_card_ref['id'] = card_id
+        exiled_card_ref['owner'] = card.owner
+
+        # Exile the card
+        return [Event(
+            type=EventType.EXILE,
+            payload={
+                'object_id': card_id,
+                'exiled_by': obj.id
+            },
+            source=obj.id
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting - placeholder
+        # Find opponents
+        opponents = [pid for pid in state.players if pid != obj.controller]
+        if not opponents:
+            return []
+
+        # For now, target first opponent (could add opponent choice later)
+        target_opponent = opponents[0]
+
+        # Get nonland cards from opponent's hand
+        hand_key = f"hand_{target_opponent}"
+        if hand_key not in state.zones:
+            return []
+
+        hand = state.zones[hand_key]
+        valid_choices = []
+
+        for card_id in hand.objects:
+            card = state.objects.get(card_id)
+            if card and CardType.LAND not in card.characteristics.types:
+                valid_choices.append(card_id)
+
+        if not valid_choices:
+            return []
+
+        # Create choice for the controller to pick a nonland card to exile (may = min 0)
+        create_target_choice(
+            state,
+            obj.controller,
+            obj.id,
+            valid_choices,
+            prompt="Look at opponent's hand. Choose a nonland card to exile (or none):",
+            min_targets=0,
+            max_targets=1,
+            callback_data={
+                'handler': handle_exile_choice,
+                'bat_id': obj.id,
+                'target_opponent': target_opponent
+            }
+        )
         return []
-    return [make_etb_trigger(obj, etb_effect)]
+
+    def leaves_battlefield_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        """Trigger when Deep-Cavern Bat leaves the battlefield."""
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('object_id') != source_obj.id:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        return True
+
+    def leaves_battlefield_effect(event: Event, state: GameState) -> list[Event]:
+        """Return the exiled card to its owner's hand."""
+        exiled_id = exiled_card_ref.get('id')
+        exiled_owner = exiled_card_ref.get('owner')
+
+        if not exiled_id or exiled_id not in state.objects:
+            return []
+
+        exiled_card = state.objects[exiled_id]
+
+        # Only return if still in exile
+        if exiled_card.zone != ZoneType.EXILE:
+            return []
+
+        # Return to owner's hand
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': exiled_id,
+                'from_zone': 'exile',
+                'to_zone': f'hand_{exiled_owner}',
+                'from_zone_type': ZoneType.EXILE,
+                'to_zone_type': ZoneType.HAND
+            },
+            source=obj.id
+        )]
+
+    # Create leaves-the-battlefield interceptor
+    def ltb_trigger_filter(event: Event, state: GameState) -> bool:
+        return leaves_battlefield_filter(event, state, obj)
+
+    def ltb_trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_events = leaves_battlefield_effect(event, state)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events
+        )
+
+    ltb_interceptor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=ltb_trigger_filter,
+        handler=ltb_trigger_handler,
+        duration='until_leaves'  # Fire once when leaving, then clean up
+    )
+
+    return [make_etb_trigger(obj, etb_effect), ltb_interceptor]
 
 
 def deathcap_marionette_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1164,21 +1871,80 @@ def restless_prairie_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 def restless_reef_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever this land attacks, target player mills four cards."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Would require targeting
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_player = selected[0]
         return [Event(
             type=EventType.MILL,
-            payload={'player': obj.controller, 'amount': 4},  # Simplified: mills self
+            payload={'player': target_player, 'amount': 4},
             source=obj.id
         )]
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # All players are valid targets
+        valid_targets = list(state.players.keys())
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a player to mill four cards",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
+        return []
+
     return [make_attack_trigger(obj, attack_effect)]
 
 
 def restless_ridgeline_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever this land attacks, another target attacking creature gets +2/+0."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in target.characteristics.types:
+            return []
+        return [Event(
+            type=EventType.TEMPORARY_PT_CHANGE,
+            payload={'object_id': target_id, 'power': 2, 'toughness': 0, 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Targeting + temporary boost - placeholder
+        # Find other attacking creatures
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.id != obj.id and
+                game_obj.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in game_obj.characteristics.types):
+                obj_state = getattr(game_obj, 'state', None)
+                if obj_state and getattr(obj_state, 'attacking', False):
+                    valid_targets.append(game_obj.id)
+
+        if not valid_targets:
+            return []
+
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose an attacking creature to get +2/+0",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
+
     return [make_attack_trigger(obj, attack_effect)]
 
 
@@ -1200,6 +1966,997 @@ def pit_of_offerings_setup(obj: GameObject, state: GameState) -> list[Intercepto
         # Targeting graveyard cards - placeholder
         return []
     return [make_etb_trigger(obj, etb_effect)]
+
+
+# =============================================================================
+# SPELL RESOLVE FUNCTIONS
+# =============================================================================
+
+def _get_lost_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Get Lost after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    target_types = target.characteristics.types
+    if (CardType.CREATURE not in target_types and
+        CardType.ENCHANTMENT not in target_types and
+        CardType.PLANESWALKER not in target_types):
+        return []
+
+    target_controller = target.controller
+    events = [
+        Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={'object_id': target_id},
+            source=choice.source_id
+        )
+    ]
+    # Create two Map tokens for the controller
+    for _ in range(2):
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Map Token',
+                'controller': target_controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Map'],
+                'colors': []
+            },
+            source=choice.source_id
+        ))
+    return events
+
+
+def get_lost_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Get Lost: Destroy target creature, enchantment, or planeswalker."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Get Lost":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "get_lost_spell"
+
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD:
+            target_types = obj.characteristics.types
+            if (CardType.CREATURE in target_types or
+                CardType.ENCHANTMENT in target_types or
+                CardType.PLANESWALKER in target_types):
+                valid_targets.append(obj.id)
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature, enchantment, or planeswalker to destroy",
+        min_targets=1,
+        max_targets=1
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _get_lost_execute
+    return []
+
+
+def _cosmium_blast_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Cosmium Blast after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    if CardType.CREATURE not in target.characteristics.types:
+        return []
+
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target_id': target_id, 'amount': 4, 'is_combat': False},
+        source=choice.source_id
+    )]
+
+
+def cosmium_blast_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Cosmium Blast: Deal 4 damage to target attacking or blocking creature."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Cosmium Blast":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "cosmium_blast_spell"
+
+    # Find attacking or blocking creatures
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
+            obj_state = getattr(obj, 'state', None)
+            if obj_state and (getattr(obj_state, 'attacking', False) or getattr(obj_state, 'blocking', False)):
+                valid_targets.append(obj.id)
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose an attacking or blocking creature to deal 4 damage to",
+        min_targets=1,
+        max_targets=1
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _cosmium_blast_execute
+    return []
+
+
+def _quicksand_whirlpool_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Quicksand Whirlpool after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    if CardType.CREATURE not in target.characteristics.types:
+        return []
+
+    return [Event(
+        type=EventType.EXILE,
+        payload={'object_id': target_id},
+        source=choice.source_id
+    )]
+
+
+def quicksand_whirlpool_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Quicksand Whirlpool: Exile target creature."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Quicksand Whirlpool":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "quicksand_whirlpool_spell"
+
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
+            valid_targets.append(obj.id)
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to exile",
+        min_targets=1,
+        max_targets=1
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _quicksand_whirlpool_execute
+    return []
+
+
+def _out_of_air_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Out of Air after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.STACK:
+        return []
+
+    return [Event(
+        type=EventType.COUNTER_SPELL,
+        payload={'spell_id': target_id},
+        source=choice.source_id
+    )]
+
+
+def out_of_air_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Out of Air: Counter target spell."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Out of Air":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "out_of_air_spell"
+
+    # Find spells on the stack that aren't this spell
+    valid_targets = []
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            if obj_id != spell_id:
+                obj = state.objects.get(obj_id)
+                if obj:
+                    valid_targets.append(obj_id)
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a spell to counter",
+        min_targets=1,
+        max_targets=1
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _out_of_air_execute
+    return []
+
+
+def _ray_of_ruin_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Ray of Ruin after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    target_types = target.characteristics.types
+    target_supertypes = target.characteristics.supertypes or set()
+    if not (CardType.CREATURE in target_types or
+            'Vehicle' in (target.characteristics.subtypes or set()) or
+            (CardType.LAND in target_types and 'Basic' not in target_supertypes)):
+        return []
+
+    return [
+        Event(
+            type=EventType.EXILE,
+            payload={'object_id': target_id},
+            source=choice.source_id
+        ),
+        Event(
+            type=EventType.SCRY,
+            payload={'player': choice.player, 'amount': 1},
+            source=choice.source_id
+        )
+    ]
+
+
+def ray_of_ruin_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Ray of Ruin: Exile target creature, Vehicle, or nonbasic land."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Ray of Ruin":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "ray_of_ruin_spell"
+
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        target_types = obj.characteristics.types
+        subtypes = obj.characteristics.subtypes or set()
+        supertypes = obj.characteristics.supertypes or set()
+
+        # Creature
+        if CardType.CREATURE in target_types:
+            valid_targets.append(obj.id)
+        # Vehicle
+        elif 'Vehicle' in subtypes:
+            valid_targets.append(obj.id)
+        # Nonbasic land
+        elif CardType.LAND in target_types and 'Basic' not in supertypes:
+            valid_targets.append(obj.id)
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature, Vehicle, or nonbasic land to exile",
+        min_targets=1,
+        max_targets=1
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _ray_of_ruin_execute
+    return []
+
+
+def _abrade_creature_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Abrade creature mode."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    if CardType.CREATURE not in target.characteristics.types:
+        return []
+
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target_id': target_id, 'amount': 3, 'is_combat': False},
+        source=choice.source_id
+    )]
+
+
+def _abrade_artifact_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Abrade artifact mode."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    if CardType.ARTIFACT not in target.characteristics.types:
+        return []
+
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': target_id},
+        source=choice.source_id
+    )]
+
+
+def abrade_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Abrade: Choose one - 3 damage to creature OR destroy artifact."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Abrade":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "abrade_spell"
+
+    # Find valid creature and artifact targets
+    creature_targets = []
+    artifact_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD:
+            if CardType.CREATURE in obj.characteristics.types:
+                creature_targets.append(obj.id)
+            if CardType.ARTIFACT in obj.characteristics.types:
+                artifact_targets.append(obj.id)
+
+    # Create modal choice
+    modes = []
+    if creature_targets:
+        modes.append({'id': 'damage', 'text': 'Deal 3 damage to target creature', 'targets': creature_targets})
+    if artifact_targets:
+        modes.append({'id': 'destroy', 'text': 'Destroy target artifact', 'targets': artifact_targets})
+
+    if not modes:
+        return []
+
+    # For simplicity, if both modes available, present creature damage first
+    # A proper implementation would use a modal choice system
+    if creature_targets:
+        choice = create_target_choice(
+            state=state,
+            player_id=caster_id,
+            source_id=spell_id,
+            legal_targets=creature_targets,
+            prompt="Choose a creature to deal 3 damage to",
+            min_targets=1,
+            max_targets=1
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _abrade_creature_execute
+    else:
+        choice = create_target_choice(
+            state=state,
+            player_id=caster_id,
+            source_id=spell_id,
+            legal_targets=artifact_targets,
+            prompt="Choose an artifact to destroy",
+            min_targets=1,
+            max_targets=1
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _abrade_artifact_execute
+
+    return []
+
+
+def _rumbling_rockslide_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Rumbling Rockslide after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    if CardType.CREATURE not in target.characteristics.types:
+        return []
+
+    # Count lands controller controls
+    land_count = 0
+    caster_id = choice.player
+    for obj in choice.callback_data.get('state_snapshot', state).objects.values():
+        if (obj.controller == caster_id and
+            obj.zone == ZoneType.BATTLEFIELD and
+            CardType.LAND in obj.characteristics.types):
+            land_count += 1
+
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target_id': target_id, 'amount': land_count, 'is_combat': False},
+        source=choice.source_id
+    )]
+
+
+def rumbling_rockslide_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Rumbling Rockslide: Deal damage to target creature equal to lands you control."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Rumbling Rockslide":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "rumbling_rockslide_spell"
+
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
+            valid_targets.append(obj.id)
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to deal damage to (equal to lands you control)",
+        min_targets=1,
+        max_targets=1,
+        callback_data={'state_snapshot': state}
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _rumbling_rockslide_execute
+    return []
+
+
+def _triumphant_chomp_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Triumphant Chomp after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    if CardType.CREATURE not in target.characteristics.types:
+        return []
+
+    # Find greatest power among Dinosaurs controller controls
+    caster_id = choice.player
+    max_dino_power = 0
+    for obj in choice.callback_data.get('state_snapshot', state).objects.values():
+        if (obj.controller == caster_id and
+            obj.zone == ZoneType.BATTLEFIELD and
+            CardType.CREATURE in obj.characteristics.types and
+            'Dinosaur' in (obj.characteristics.subtypes or set())):
+            power = obj.characteristics.power or 0
+            if power > max_dino_power:
+                max_dino_power = power
+
+    damage = max(2, max_dino_power)
+
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target_id': target_id, 'amount': damage, 'is_combat': False},
+        source=choice.source_id
+    )]
+
+
+def triumphant_chomp_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Triumphant Chomp: Deal damage equal to 2 or greatest Dinosaur power."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Triumphant Chomp":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "triumphant_chomp_spell"
+
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
+            valid_targets.append(obj.id)
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to deal damage to",
+        min_targets=1,
+        max_targets=1,
+        callback_data={'state_snapshot': state}
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _triumphant_chomp_execute
+    return []
+
+
+def _huatlis_final_strike_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Huatli's Final Strike after both targets selected."""
+    if len(selected) < 2:
+        return []
+
+    your_creature_id = selected[0]
+    opponent_creature_id = selected[1]
+
+    your_creature = state.objects.get(your_creature_id)
+    opponent_creature = state.objects.get(opponent_creature_id)
+
+    if not your_creature or your_creature.zone != ZoneType.BATTLEFIELD:
+        return []
+    if not opponent_creature or opponent_creature.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    # Your creature gets +1/+0, then deals damage equal to its power
+    power = (your_creature.characteristics.power or 0) + 1
+
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target_id': opponent_creature_id, 'amount': power, 'is_combat': False},
+        source=choice.source_id
+    )]
+
+
+def huatlis_final_strike_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Huatli's Final Strike."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Huatli's Final Strike":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "huatlis_final_strike_spell"
+
+    # Find creatures you control
+    your_creatures = []
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD and
+            obj.controller == caster_id and
+            CardType.CREATURE in obj.characteristics.types):
+            your_creatures.append(obj.id)
+
+    # Find creatures opponents control
+    opponent_creatures = []
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD and
+            obj.controller != caster_id and
+            CardType.CREATURE in obj.characteristics.types):
+            opponent_creatures.append(obj.id)
+
+    if not your_creatures or not opponent_creatures:
+        return []
+
+    # For simplicity, combine both target lists with first being your creature
+    # A proper implementation would have two-step targeting
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=your_creatures + opponent_creatures,
+        prompt="Choose your creature, then an opponent's creature",
+        min_targets=2,
+        max_targets=2
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _huatlis_final_strike_execute
+    return []
+
+
+def _join_the_dead_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Join the Dead after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    if CardType.CREATURE not in target.characteristics.types:
+        return []
+
+    # Count permanent cards in controller's graveyard for descend 4 check
+    caster_id = choice.player
+    graveyard_key = f"graveyard_{caster_id}"
+    perm_count = 0
+    graveyard = state.zones.get(graveyard_key)
+    if graveyard:
+        for card_id in graveyard.objects:
+            card = state.objects.get(card_id)
+            if card:
+                card_types = card.characteristics.types
+                if (CardType.CREATURE in card_types or
+                    CardType.ARTIFACT in card_types or
+                    CardType.ENCHANTMENT in card_types or
+                    CardType.LAND in card_types or
+                    CardType.PLANESWALKER in card_types):
+                    perm_count += 1
+
+    # -10/-10 if descend 4, else -5/-5
+    debuff = -10 if perm_count >= 4 else -5
+
+    return [Event(
+        type=EventType.TEMPORARY_PT_CHANGE,
+        payload={'object_id': target_id, 'power': debuff, 'toughness': debuff, 'duration': 'end_of_turn'},
+        source=choice.source_id
+    )]
+
+
+def join_the_dead_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Join the Dead: Target creature gets -5/-5 (or -10/-10 with descend 4)."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Join the Dead":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "join_the_dead_spell"
+
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
+            valid_targets.append(obj.id)
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to get -5/-5 (or -10/-10 with descend 4)",
+        min_targets=1,
+        max_targets=1
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _join_the_dead_execute
+    return []
+
+
+def _staggering_size_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Staggering Size after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    if CardType.CREATURE not in target.characteristics.types:
+        return []
+
+    return [
+        Event(
+            type=EventType.TEMPORARY_PT_CHANGE,
+            payload={'object_id': target_id, 'power': 3, 'toughness': 3, 'duration': 'end_of_turn'},
+            source=choice.source_id
+        ),
+        Event(
+            type=EventType.KEYWORD_GRANT,
+            payload={'object_id': target_id, 'keyword': 'trample', 'duration': 'end_of_turn'},
+            source=choice.source_id
+        )
+    ]
+
+
+def staggering_size_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Staggering Size: +3/+3 and trample until end of turn."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Staggering Size":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "staggering_size_spell"
+
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
+            valid_targets.append(obj.id)
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to get +3/+3 and trample",
+        min_targets=1,
+        max_targets=1
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _staggering_size_execute
+    return []
+
+
+def _brackish_blunder_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Brackish Blunder after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    if CardType.CREATURE not in target.characteristics.types:
+        return []
+
+    # Check if tapped for Map token creation
+    is_tapped = getattr(target.state, 'tapped', False) if hasattr(target, 'state') else False
+    caster_id = choice.player
+
+    events = [Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': target_id,
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone_type': ZoneType.HAND,
+            'to_zone': f'hand_{target.owner}'
+        },
+        source=choice.source_id
+    )]
+
+    if is_tapped:
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Map Token',
+                'controller': caster_id,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Map'],
+                'colors': []
+            },
+            source=choice.source_id
+        ))
+
+    return events
+
+
+def brackish_blunder_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Brackish Blunder: Return target creature to hand, if tapped create Map."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Brackish Blunder":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "brackish_blunder_spell"
+
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
+            valid_targets.append(obj.id)
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to return to hand",
+        min_targets=1,
+        max_targets=1
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _brackish_blunder_execute
+    return []
+
+
+def _acrobatic_leap_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Acrobatic Leap after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    if CardType.CREATURE not in target.characteristics.types:
+        return []
+
+    return [
+        Event(
+            type=EventType.TEMPORARY_PT_CHANGE,
+            payload={'object_id': target_id, 'power': 1, 'toughness': 3, 'duration': 'end_of_turn'},
+            source=choice.source_id
+        ),
+        Event(
+            type=EventType.KEYWORD_GRANT,
+            payload={'object_id': target_id, 'keyword': 'flying', 'duration': 'end_of_turn'},
+            source=choice.source_id
+        ),
+        Event(
+            type=EventType.UNTAP,
+            payload={'object_id': target_id},
+            source=choice.source_id
+        )
+    ]
+
+
+def acrobatic_leap_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Acrobatic Leap: +1/+3, flying until end of turn, untap."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Acrobatic Leap":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "acrobatic_leap_spell"
+
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
+            valid_targets.append(obj.id)
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to get +1/+3, flying, and untap",
+        min_targets=1,
+        max_targets=1
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _acrobatic_leap_execute
+    return []
 
 
 # =============================================================================
@@ -1329,6 +3086,7 @@ ACROBATIC_LEAP = make_instant(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Target creature gets +1/+3 and gains flying until end of turn. Untap it.",
+    resolve=acrobatic_leap_resolve,
 )
 
 ADAPTIVE_GEMGUARD = make_artifact_creature(
@@ -1358,8 +3116,8 @@ BAT_COLONY = make_enchantment(
 
 CLAYFIRED_BRICKS = make_artifact(
     name="Clay-Fired Bricks",
-    mana_cost="",
-    text="",
+    mana_cost="{1}{W}",
+    text="When this artifact enters, search your library for a basic Plains card, reveal it, put it into your hand, then shuffle. You gain 2 life.\nCraft with artifact {5}{W}{W}",
 )
 
 COSMIUM_BLAST = make_instant(
@@ -1367,6 +3125,7 @@ COSMIUM_BLAST = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Cosmium Blast deals 4 damage to target attacking or blocking creature.",
+    resolve=cosmium_blast_resolve,
 )
 
 DAUNTLESS_DISMANTLER = make_creature(
@@ -1418,6 +3177,7 @@ GET_LOST = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Destroy target creature, enchantment, or planeswalker. Its controller creates two Map tokens. (They're artifacts with \"{1}, {T}, Sacrifice this token: Target creature you control explores. Activate only as a sorcery.\")",
+    resolve=get_lost_resolve,
 )
 
 GLORIFIER_OF_SUFFERING = make_creature(
@@ -1575,6 +3335,7 @@ QUICKSAND_WHIRLPOOL = make_instant(
     mana_cost="{5}{W}",
     colors={Color.WHITE},
     text="This spell costs {3} less to cast if it targets a tapped creature.\nExile target creature.",
+    resolve=quicksand_whirlpool_resolve,
 )
 
 RESPLENDENT_ANGEL = make_creature(
@@ -1703,6 +3464,7 @@ BRACKISH_BLUNDER = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Return target creature to its owner's hand. If it was tapped, create a Map token. (It's an artifact with \"{1}, {T}, Sacrifice this token: Target creature you control explores. Activate only as a sorcery.\")",
+    resolve=brackish_blunder_resolve,
 )
 
 BRAIDED_NET = make_artifact(
@@ -1892,6 +3654,7 @@ OUT_OF_AIR = make_instant(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     text="This spell costs {2} less to cast if it targets a creature spell.\nCounter target spell.",
+    resolve=out_of_air_resolve,
 )
 
 PIRATE_HAT = make_artifact(
@@ -2077,11 +3840,90 @@ ANOTHER_CHANCE = make_instant(
     text="You may mill two cards. Then return up to two creature cards from your graveyard to your hand. (To mill two cards, put the top two cards of your library into your graveyard.)",
 )
 
+def _bitter_triumph_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Bitter Triumph after target selection."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    # Verify target is still valid (on battlefield and is creature or planeswalker)
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []  # Target no longer valid
+
+    target_types = target.characteristics.types
+    if CardType.CREATURE not in target_types and CardType.PLANESWALKER not in target_types:
+        return []  # Not a valid target type
+
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': target_id},
+        source=choice.source_id
+    )]
+
+
+def bitter_triumph_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Resolve Bitter Triumph: Destroy target creature or planeswalker.
+
+    Note: The additional cost (discard a card or pay 3 life) is handled during casting,
+    not during resolution. This function handles the targeting and destruction.
+    """
+    # Find the spell on the stack to determine who cast it
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Bitter Triumph":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    # Fallback to active player if we can't find the spell
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "bitter_triumph_spell"
+
+    # Find creatures and planeswalkers (valid targets)
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD:
+            target_types = obj.characteristics.types
+            if CardType.CREATURE in target_types or CardType.PLANESWALKER in target_types:
+                valid_targets.append(obj.id)
+
+    if not valid_targets:
+        # No legal targets, spell fizzles
+        return []
+
+    # Create target choice for the player
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature or planeswalker to destroy",
+        min_targets=1,
+        max_targets=1
+    )
+
+    # Set up callback for when target is selected
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _bitter_triumph_execute
+
+    # Return empty events to pause resolution until choice is submitted
+    return []
+
+
 BITTER_TRIUMPH = make_instant(
     name="Bitter Triumph",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="As an additional cost to cast this spell, discard a card or pay 3 life.\nDestroy target creature or planeswalker.",
+    resolve=bitter_triumph_resolve,
 )
 
 BLOODLETTER_OF_ACLAZOTZ = make_creature(
@@ -2244,6 +4086,7 @@ JOIN_THE_DEAD = make_instant(
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
     text="Target creature gets -5/-5 until end of turn.\nDescend 4 — That creature gets -10/-10 until end of turn instead if there are four or more permanent cards in your graveyard.",
+    resolve=join_the_dead_resolve,
 )
 
 MALICIOUS_ECLIPSE = make_sorcery(
@@ -2304,6 +4147,7 @@ RAY_OF_RUIN = make_sorcery(
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     text="Exile target creature, Vehicle, or nonbasic land. Scry 1. (Look at the top card of your library. You may put that card on the bottom.)",
+    resolve=ray_of_ruin_resolve,
 )
 
 SCREAMING_PHANTOM = make_creature(
@@ -2425,6 +4269,7 @@ ABRADE = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Choose one —\n• Abrade deals 3 damage to target creature.\n• Destroy target artifact.",
+    resolve=abrade_resolve,
 )
 
 ANCESTORS_AID = make_instant(
@@ -2707,6 +4552,7 @@ RUMBLING_ROCKSLIDE = make_sorcery(
     mana_cost="{3}{R}",
     colors={Color.RED},
     text="Rumbling Rockslide deals damage to target creature equal to the number of lands you control.",
+    resolve=rumbling_rockslide_resolve,
 )
 
 SAHEELIS_LATTICE = make_artifact_creature(
@@ -2764,6 +4610,7 @@ TRIUMPHANT_CHOMP = make_sorcery(
     mana_cost="{R}",
     colors={Color.RED},
     text="Triumphant Chomp deals damage to target creature equal to 2 or the greatest power among Dinosaurs you control, whichever is greater.",
+    resolve=triumphant_chomp_resolve,
 )
 
 TRUMPETING_CARNOSAUR = make_creature(
@@ -2936,6 +4783,7 @@ HUATLIS_FINAL_STRIKE = make_instant(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Target creature you control gets +1/+0 until end of turn. It deals damage equal to its power to target creature an opponent controls.",
+    resolve=huatlis_final_strike_resolve,
 )
 
 HULKING_RAPTOR = make_creature(
@@ -3148,6 +4996,7 @@ STAGGERING_SIZE = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Target creature gets +3/+3 and gains trample until end of turn.",
+    resolve=staggering_size_resolve,
 )
 
 TENDRIL_OF_THE_MYCOTYRANT = make_creature(

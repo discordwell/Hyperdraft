@@ -74,6 +74,48 @@ class EventType(Enum):
     # Targeting
     TARGET_REQUIRED = auto()  # Card requires a target to be chosen
 
+    # Library manipulation
+    SCRY = auto()              # Look at top N cards, put any on bottom
+    SURVEIL = auto()           # Look at top N cards, put any in graveyard
+    MILL = auto()              # Put top N cards into graveyard
+    EXPLORE = auto()           # Reveal top card, +1/+1 or keep on top
+    DISCOVER = auto()          # Exile until CMC <= N, cast free or put in hand
+    SEARCH_LIBRARY = auto()    # Search library for card
+    LIBRARY_SEARCH = auto()    # Alias for SEARCH_LIBRARY
+    LOOK_AT_TOP = auto()       # Look at top N cards
+    REVEAL_TOP = auto()        # Reveal top card(s)
+    REVEAL_UNTIL_LAND = auto() # Reveal until land found
+    EXILE_FROM_TOP = auto()    # Exile top card(s) of library
+    IMPULSE_DRAW = auto()      # Exile top, may play until end of turn
+
+    # Token creation
+    CREATE_TOKEN = auto()      # Create a token
+
+    # Sacrifice
+    SACRIFICE = auto()         # Sacrifice a permanent
+    SACRIFICE_REQUIRED = auto()        # Player must sacrifice
+    SACRIFICE_ALL = auto()             # Sacrifice all of type
+    OPTIONAL_SACRIFICE_FOR_EFFECT = auto()  # May sacrifice for effect
+
+    # Temporary effects
+    PUMP = auto()              # +X/+Y until end of turn
+    TEMPORARY_EFFECT = auto()  # Generic temporary effect
+    GRANT_KEYWORD = auto()     # Grant keyword until end of turn
+
+    # Conditional effects
+    CONDITIONAL_COUNTERS = auto()      # Add counters if condition met
+    CONDITIONAL_DISCARD = auto()       # Discard if condition met
+    OPTIONAL_COST_FOR_EFFECT = auto()  # Pay optional cost for effect
+    OPTIONAL_DISCARD_FOR_EFFECT = auto()  # Discard for effect
+
+    # Misc
+    EXILE = auto()             # Exile a card/permanent
+    MANIFEST_DREAD = auto()    # Duskmourn manifest dread mechanic
+    MANA_ADDED = auto()        # Mana was added to pool
+    ADD_MANA = auto()          # Alias for mana production
+    TAP_FOR_EFFECT = auto()    # Tap as part of an effect
+    CONDITIONAL_EFFECT = auto() # Effect with condition
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
@@ -199,6 +241,11 @@ class Characteristics:
     toughness: Optional[int] = None
     abilities: list[dict] = field(default_factory=list)  # Keyword abilities and other static abilities
 
+    @property
+    def keywords(self) -> set[str]:
+        """Get set of keyword abilities for easy checking."""
+        return {a.get('keyword', '').lower() for a in self.abilities if a.get('keyword')}
+
 
 @dataclass
 class ObjectState:
@@ -210,6 +257,9 @@ class ObjectState:
     counters: dict[str, int] = field(default_factory=dict)
     attached_to: Optional[str] = None
     attachments: list[str] = field(default_factory=list)
+    is_token: bool = False           # True if this is a token (not a card)
+    damage_marked: int = 0           # Damage marked this turn (before cleanup)
+    crewed_until_eot: bool = False   # True if Vehicle was crewed this turn
 
 
 @dataclass
@@ -300,6 +350,7 @@ class CardDefinition:
     mana_cost: Optional[str]
     characteristics: Characteristics
     text: str = ""
+    rarity: Optional[str] = None  # 'common', 'uncommon', 'rare', 'mythic'
 
     # NEW: Declarative abilities - single source of truth for text and behavior
     abilities: list = field(default_factory=list)
@@ -352,6 +403,48 @@ class CardDefinition:
 # Game State (forward declaration - full impl in game_state.py)
 # =============================================================================
 
+# =============================================================================
+# Player Choice System
+# =============================================================================
+
+@dataclass
+class PendingChoice:
+    """
+    Tracks when the game needs player input.
+
+    Used for modal spells, targeted ETB abilities, scry/surveil decisions, etc.
+    When pending_choice is set on GameState, the game pauses and waits for
+    the player to submit their choice through the API.
+    """
+    choice_type: str  # "modal", "target", "scry", "surveil", "order", "discard", etc.
+    player: str  # player_id who must make the choice
+    prompt: str  # Human-readable prompt ("Choose a mode", "Choose a target", etc.)
+    options: list[Any]  # Available choices (card IDs, mode indices, etc.)
+    source_id: str  # Card/ability ID that needs the choice
+    min_choices: int = 1  # Minimum number of choices required
+    max_choices: int = 1  # Maximum number of choices allowed
+    callback_data: dict = field(default_factory=dict)  # Data needed to continue after choice
+    id: str = field(default_factory=new_id)  # Unique identifier for this choice
+
+    def validate_selection(self, selected: list[Any]) -> tuple[bool, str]:
+        """
+        Validate that a selection is legal for this choice.
+
+        Returns (is_valid, error_message).
+        """
+        if len(selected) < self.min_choices:
+            return False, f"Must choose at least {self.min_choices} option(s)"
+        if len(selected) > self.max_choices:
+            return False, f"Cannot choose more than {self.max_choices} option(s)"
+
+        # Check all selected options are valid
+        for choice in selected:
+            if choice not in self.options:
+                return False, f"Invalid choice: {choice}"
+
+        return True, ""
+
+
 @dataclass
 class GameState:
     """Complete game state."""
@@ -366,12 +459,29 @@ class GameState:
     turn_number: int = 0
     timestamp: int = 0  # Global timestamp counter
 
+    # Land play tracking (for "one land per turn" rule)
+    lands_played_this_turn: int = 0
+    lands_allowed_this_turn: int = 1  # Can be increased by effects like Exploration
+
     # Pending events (the "stack")
     pending_events: list[Event] = field(default_factory=list)
 
     # Event history
     event_log: list[Event] = field(default_factory=list)
 
+    # Player choice system - when set, game is paused waiting for input
+    pending_choice: Optional['PendingChoice'] = None
+
     def next_timestamp(self) -> int:
         self.timestamp += 1
         return self.timestamp
+
+    def has_pending_choice(self) -> bool:
+        """Check if the game is waiting for a player choice."""
+        return self.pending_choice is not None
+
+    def get_pending_choice_for_player(self, player_id: str) -> Optional['PendingChoice']:
+        """Get the pending choice if it's for this player, else None."""
+        if self.pending_choice and self.pending_choice.player == player_id:
+            return self.pending_choice
+        return None

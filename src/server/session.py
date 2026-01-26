@@ -19,7 +19,8 @@ from src.engine.types import CardDefinition
 
 from .models import (
     GameStateResponse, PlayerData, CardData, StackItemData,
-    LegalActionData, CombatData, PlayerActionRequest, ReplayFrame
+    LegalActionData, CombatData, PlayerActionRequest, ReplayFrame,
+    PendingChoiceData, PendingChoiceWaitingData
 )
 
 
@@ -64,6 +65,10 @@ class GameSession:
     _pending_action_future: Optional[asyncio.Future] = None
     _pending_player_id: Optional[str] = None
     _action_processed_event: Optional[asyncio.Event] = None
+
+    # AI engine (lazy initialized)
+    _ai_engine: Optional[Any] = None
+    ai_difficulty: str = "medium"
 
     def __post_init__(self):
         """Set up game callbacks."""
@@ -126,8 +131,14 @@ class GameSession:
         """Run the game until human input is needed or game ends."""
         try:
             while not self.is_finished:
+                # Check for pending choices that AI needs to handle
+                await self._process_ai_pending_choices()
+
                 # Run one priority cycle
                 await self.game.turn_manager.run_turn()
+
+                # Check for AI choices again after the turn
+                await self._process_ai_pending_choices()
 
                 # Check if game is over
                 if self.game.is_game_over():
@@ -137,6 +148,29 @@ class GameSession:
 
         except asyncio.CancelledError:
             pass
+
+    async def _process_ai_pending_choices(self) -> None:
+        """Process any pending choices for AI players."""
+        # Keep processing while there are AI choices to make
+        max_iterations = 10  # Safety limit
+        for _ in range(max_iterations):
+            pending_choice = self.game.get_pending_choice()
+            if not pending_choice:
+                break
+
+            # Check if the choice is for an AI player
+            if pending_choice.player not in self.human_players:
+                # It's an AI player - make the choice
+                self._handle_ai_choice(
+                    pending_choice.player,
+                    pending_choice,
+                    self.game.state
+                )
+                # Small delay to prevent tight loops
+                await asyncio.sleep(0.01)
+            else:
+                # Human player needs to make choice - stop processing
+                break
 
     def get_client_state(self, player_id: Optional[str] = None) -> GameStateResponse:
         """
@@ -204,6 +238,31 @@ class GameSession:
                 blocked_attackers=list(combat_state.blocked_attackers)
             )
 
+        # Get pending choice state
+        pending_choice_data = None
+        waiting_for_choice_data = None
+        pending_choice = self.game.get_pending_choice()
+
+        if pending_choice:
+            if player_id == pending_choice.player:
+                # This player needs to make the choice
+                pending_choice_data = PendingChoiceData(
+                    id=pending_choice.id,
+                    choice_type=pending_choice.choice_type,
+                    player=pending_choice.player,
+                    prompt=pending_choice.prompt,
+                    options=pending_choice.options,
+                    source_id=pending_choice.source_id,
+                    min_choices=pending_choice.min_choices,
+                    max_choices=pending_choice.max_choices
+                )
+            else:
+                # Another player is making a choice
+                waiting_for_choice_data = PendingChoiceWaitingData(
+                    waiting_for=pending_choice.player,
+                    choice_type=pending_choice.choice_type
+                )
+
         return GameStateResponse(
             match_id=self.id,
             turn_number=self.game.turn_manager.turn_number,
@@ -219,7 +278,9 @@ class GameSession:
             legal_actions=legal_actions,
             combat=combat,
             is_game_over=self.is_finished,
-            winner=self.winner_id
+            winner=self.winner_id,
+            pending_choice=pending_choice_data,
+            waiting_for_choice=waiting_for_choice_data
         )
 
     async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
@@ -320,14 +381,64 @@ class GameSession:
         legal_actions: list[LegalAction]
     ) -> PlayerAction:
         """Handler for AI player actions."""
+        # First, check if there's a pending choice for the AI
+        pending_choice = self.game.get_pending_choice()
+        if pending_choice and pending_choice.player == player_id:
+            # AI needs to make a choice, not take an action
+            self._handle_ai_choice(player_id, pending_choice, state)
+            # Return pass - the choice handling will advance the game
+            return PlayerAction(type=ActionType.PASS, player_id=player_id)
+
         # Try to import AI engine (assume it exists)
         try:
             from src.ai import AIEngine
-            ai = AIEngine()
+            ai = self._get_or_create_ai_engine()
             return ai.get_action(player_id, state, legal_actions)
         except ImportError:
             # AI not available - use simple fallback
             return self._simple_ai_action(player_id, legal_actions)
+
+    def _get_or_create_ai_engine(self) -> 'AIEngine':
+        """Get or create the AI engine for this session."""
+        if self._ai_engine is None:
+            from src.ai import AIEngine
+            self._ai_engine = AIEngine(difficulty=self.ai_difficulty)
+        return self._ai_engine
+
+    def _handle_ai_choice(
+        self,
+        player_id: str,
+        pending_choice,
+        state: GameState
+    ) -> None:
+        """Have the AI make a pending choice."""
+        try:
+            from src.ai import AIEngine
+            ai = self._get_or_create_ai_engine()
+
+            # AI makes the choice
+            selected = ai.make_choice(player_id, pending_choice, state)
+
+            # Submit the choice
+            success, message, events = self.game.submit_choice(
+                choice_id=pending_choice.id,
+                player_id=player_id,
+                selected=selected
+            )
+
+            if not success:
+                print(f"AI choice failed: {message}")
+                # Fallback: select minimum required options
+                fallback_selected = list(pending_choice.options[:pending_choice.min_choices])
+                self.game.submit_choice(
+                    choice_id=pending_choice.id,
+                    player_id=player_id,
+                    selected=fallback_selected
+                )
+        except Exception as e:
+            print(f"Error in AI choice handling: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _simple_ai_action(
         self,
@@ -530,7 +641,8 @@ class SessionManager:
             session = GameSession(
                 id=session_id,
                 game=game,
-                mode=mode
+                mode=mode,
+                ai_difficulty=ai_difficulty
             )
 
             self.sessions[session_id] = session

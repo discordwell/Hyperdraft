@@ -15,6 +15,8 @@ from .strategies import AIStrategy, AggroStrategy, ControlStrategy, MidrangeStra
 if TYPE_CHECKING:
     from src.engine import GameState, PlayerAction, LegalAction, GameObject
     from src.engine import AttackDeclaration, BlockDeclaration
+    from src.engine.types import PendingChoice
+    from .llm import LLMConfig
 
 
 class AIEngine:
@@ -33,36 +35,54 @@ class AIEngine:
             'random_factor': 0.4,      # Add randomness to decisions
             'mistake_chance': 0.25,    # Chance to make a suboptimal play
             'block_skill': 0.5,        # How well it blocks
-            'mulligan_strictness': 0.3 # How picky about hands
+            'mulligan_strictness': 0.3, # How picky about hands
+            'use_layers': False,       # Don't use strategy layers
+            'use_llm': False           # Don't use LLM
         },
         'medium': {
             'random_factor': 0.15,
             'mistake_chance': 0.1,
             'block_skill': 0.8,
-            'mulligan_strictness': 0.6
+            'mulligan_strictness': 0.6,
+            'use_layers': False,
+            'use_llm': False
         },
         'hard': {
             'random_factor': 0.05,
             'mistake_chance': 0.02,
             'block_skill': 1.0,
-            'mulligan_strictness': 0.9
+            'mulligan_strictness': 0.9,
+            'use_layers': True,        # Use programmatic layers
+            'use_llm': False           # No LLM, just layer scoring
+        },
+        'ultra': {
+            'random_factor': 0.0,
+            'mistake_chance': 0.0,
+            'block_skill': 1.0,
+            'mulligan_strictness': 1.0,
+            'use_layers': True,        # Use strategy layers
+            'use_llm': True            # Use LLM for guidance
         }
     }
 
     def __init__(
         self,
         strategy: Optional[AIStrategy] = None,
-        difficulty: str = 'medium'
+        difficulty: str = 'medium',
+        llm_config: Optional['LLMConfig'] = None
     ):
         """
         Initialize the AI engine.
 
         Args:
             strategy: The AI strategy to use (default: MidrangeStrategy)
-            difficulty: Difficulty level ('easy', 'medium', 'hard')
+            difficulty: Difficulty level ('easy', 'medium', 'hard', 'ultra')
+            llm_config: LLM configuration for ultra difficulty
         """
         self.strategy = strategy or MidrangeStrategy()
         self.difficulty = difficulty
+        self.llm_config = llm_config
+        self._layers_prepared = False
 
         if difficulty not in self.DIFFICULTY_SETTINGS:
             raise ValueError(f"Unknown difficulty: {difficulty}")
@@ -279,6 +299,467 @@ class AIEngine:
                 return [random.choice(legal_targets)]
 
         return chosen
+
+    def make_choice(
+        self,
+        player_id: str,
+        choice: 'PendingChoice',
+        state: 'GameState'
+    ) -> list:
+        """
+        Make a choice for the AI player based on the pending choice type.
+
+        Args:
+            player_id: The AI player's ID
+            choice: The pending choice to respond to
+            state: Current game state
+
+        Returns:
+            List of selected options appropriate for the choice type
+        """
+        from src.engine import CardType
+
+        choice_type = choice.choice_type
+        options = choice.options
+        min_choices = choice.min_choices
+        max_choices = choice.max_choices
+
+        # Handle different choice types
+        if choice_type in ("target", "target_with_callback"):
+            return self._make_target_choice(player_id, choice, state)
+
+        elif choice_type in ("modal", "modal_with_callback"):
+            return self._make_modal_choice(player_id, choice, state)
+
+        elif choice_type == "scry":
+            return self._make_scry_choice(player_id, choice, state)
+
+        elif choice_type == "surveil":
+            return self._make_surveil_choice(player_id, choice, state)
+
+        elif choice_type == "discard":
+            return self._make_discard_choice(player_id, choice, state)
+
+        elif choice_type == "sacrifice":
+            return self._make_sacrifice_choice(player_id, choice, state)
+
+        elif choice_type == "may":
+            return self._make_may_choice(player_id, choice, state)
+
+        elif choice_type == "order":
+            # Just return options as-is (keep original order)
+            return list(options)
+
+        # Default: pick the first options up to min_choices
+        if options:
+            return list(options[:max(1, min_choices)])
+        return []
+
+    def _make_target_choice(
+        self,
+        player_id: str,
+        choice: 'PendingChoice',
+        state: 'GameState'
+    ) -> list:
+        """Choose targets from the available options."""
+        from src.engine import CardType
+
+        options = choice.options
+        min_targets = choice.min_choices
+        max_targets = choice.max_choices
+
+        if not options:
+            return []
+
+        # Analyze the source card to understand targeting intent
+        source = state.objects.get(choice.source_id)
+        is_removal = False
+        is_buff = False
+        text = ""
+
+        if source and source.card_def:
+            text = (source.card_def.text or "").lower()
+            is_removal = any(w in text for w in ["destroy", "exile", "damage", "-", "sacrifice", "return"])
+            is_buff = any(w in text for w in ["+", "gain", "gets", "protection", "indestructible"])
+
+        # Categorize options by ownership
+        opponent_id = self._get_opponent_id(player_id, state)
+        our_options = []
+        opp_options = []
+
+        for opt in options:
+            # Option could be an ID string or a dict with 'id'
+            opt_id = opt.get('id') if isinstance(opt, dict) else opt
+            obj = state.objects.get(opt_id)
+
+            if obj:
+                if obj.controller == player_id:
+                    our_options.append(opt)
+                else:
+                    opp_options.append(opt)
+            elif opt_id in state.players:
+                # It's a player target
+                if opt_id == player_id:
+                    our_options.append(opt)
+                else:
+                    opp_options.append(opt)
+
+        # Select based on intent
+        selected = []
+        pool = opp_options if is_removal else our_options if is_buff else options
+
+        # Fall back to all options if preferred pool is empty
+        if not pool:
+            pool = list(options)
+
+        # Score and select targets
+        scored = []
+        for opt in pool:
+            opt_id = opt.get('id') if isinstance(opt, dict) else opt
+            score = self._score_target(opt_id, state, player_id, is_removal)
+            scored.append((opt, score))
+
+        # Sort by score (highest first for removal, varies for buffs)
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        # Select up to max_targets
+        for opt, score in scored[:max_targets]:
+            selected.append(opt)
+
+        # Easy AI might pick randomly
+        if self.difficulty == 'easy' and random.random() < 0.3 and options:
+            return [random.choice(options)]
+
+        return selected if len(selected) >= min_targets else list(options[:min_targets])
+
+    def _score_target(
+        self,
+        target_id: str,
+        state: 'GameState',
+        player_id: str,
+        is_removal: bool
+    ) -> float:
+        """Score a target for selection priority."""
+        from src.engine import CardType
+
+        obj = state.objects.get(target_id)
+        if not obj:
+            # Player target
+            if target_id in state.players:
+                player = state.players[target_id]
+                # For damage, lower life = better target
+                return 100 - player.life if target_id != player_id else -100
+            return 0
+
+        score = 0.0
+
+        # Creatures score based on P/T and abilities
+        if CardType.CREATURE in obj.characteristics.types:
+            power = obj.characteristics.power or 0
+            toughness = obj.characteristics.toughness or 0
+            score += power * 2 + toughness
+
+            # Keywords make it more threatening
+            keywords = obj.characteristics.keywords or set()
+            if "flying" in keywords:
+                score += 2
+            if "lifelink" in keywords:
+                score += 2
+            if "deathtouch" in keywords:
+                score += 3
+            if "trample" in keywords:
+                score += 1
+
+        # Planeswalkers are high priority
+        if CardType.PLANESWALKER in obj.characteristics.types:
+            score += 10
+
+        # Card text value
+        if obj.card_def and obj.card_def.text:
+            text = obj.card_def.text.lower()
+            if "draw" in text:
+                score += 3
+            if "destroy" in text or "exile" in text:
+                score += 2
+
+        return score
+
+    def _make_modal_choice(
+        self,
+        player_id: str,
+        choice: 'PendingChoice',
+        state: 'GameState'
+    ) -> list:
+        """Choose modes for a modal spell."""
+        options = choice.options
+        min_modes = choice.min_choices
+        max_modes = choice.max_choices
+
+        if not options:
+            return []
+
+        # Score each mode based on game state relevance
+        scored = []
+        opponent_id = self._get_opponent_id(player_id, state)
+
+        for i, mode in enumerate(options):
+            mode_text = str(mode).lower() if mode else ""
+            score = 0.0
+
+            # Removal modes are high priority if opponent has creatures
+            if any(w in mode_text for w in ["destroy", "exile", "damage"]):
+                opp_creatures = self._count_creatures(opponent_id, state)
+                score += 5 if opp_creatures > 0 else 1
+
+            # Draw modes are generally good
+            if "draw" in mode_text:
+                score += 4
+
+            # Counter modes if something on stack
+            if "counter" in mode_text:
+                if state.zones.get('stack') and state.zones['stack'].objects:
+                    score += 6
+                else:
+                    score += 0
+
+            # Buff modes if we have creatures
+            if any(w in mode_text for w in ["+", "gain", "gets"]):
+                our_creatures = self._count_creatures(player_id, state)
+                score += 3 if our_creatures > 0 else 0
+
+            # Life gain is decent
+            if "life" in mode_text and "gain" in mode_text:
+                score += 2
+
+            scored.append((i, score))
+
+        # Sort by score
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        # Select top modes
+        selected = [idx for idx, _ in scored[:max_modes]]
+        return selected[:max(min_modes, 1)]
+
+    def _make_scry_choice(
+        self,
+        player_id: str,
+        choice: 'PendingChoice',
+        state: 'GameState'
+    ) -> list:
+        """Choose which cards to put on bottom for scry."""
+        options = choice.options  # Card IDs on top of library
+
+        if not options:
+            return []
+
+        # Evaluate each card - put bad cards on bottom
+        to_bottom = []
+
+        for card_id in options:
+            card = state.objects.get(card_id)
+            if not card:
+                continue
+
+            should_bottom = False
+
+            # Check mana cost vs current mana
+            if card.characteristics.mana_cost:
+                from src.engine.mana import ManaCost
+                cost = ManaCost.parse(card.characteristics.mana_cost)
+                cmc = cost.mana_value
+
+                # Late-game high drops are fine, early game bottom them
+                current_lands = self._count_lands(player_id, state)
+                if cmc > current_lands + 2:
+                    should_bottom = True
+
+            # Duplicate lands when we have many
+            from src.engine import CardType
+            if CardType.LAND in card.characteristics.types:
+                if current_lands >= 5:
+                    should_bottom = True
+
+            if should_bottom:
+                to_bottom.append(card_id)
+
+        return to_bottom
+
+    def _make_surveil_choice(
+        self,
+        player_id: str,
+        choice: 'PendingChoice',
+        state: 'GameState'
+    ) -> list:
+        """Choose which cards to put in graveyard for surveil."""
+        options = choice.options
+
+        if not options:
+            return []
+
+        # Similar to scry, but graveyard can be beneficial
+        to_graveyard = []
+
+        for card_id in options:
+            card = state.objects.get(card_id)
+            if not card:
+                continue
+
+            should_yard = False
+
+            # Check for graveyard synergies in card text
+            if card.card_def and card.card_def.text:
+                text = card.card_def.text.lower()
+                # Cards that want to be in graveyard
+                if any(w in text for w in ["flashback", "escape", "from your graveyard"]):
+                    should_yard = True
+
+            # High cost cards we can't cast soon
+            if card.characteristics.mana_cost:
+                from src.engine.mana import ManaCost
+                cost = ManaCost.parse(card.characteristics.mana_cost)
+                current_lands = self._count_lands(player_id, state)
+                if cost.mana_value > current_lands + 3:
+                    should_yard = True
+
+            if should_yard:
+                to_graveyard.append(card_id)
+
+        return to_graveyard
+
+    def _make_discard_choice(
+        self,
+        player_id: str,
+        choice: 'PendingChoice',
+        state: 'GameState'
+    ) -> list:
+        """Choose which cards to discard."""
+        options = choice.options
+        min_discard = choice.min_choices
+
+        if not options or min_discard == 0:
+            return []
+
+        # Score cards - discard lowest value cards
+        scored = []
+        current_lands = self._count_lands(player_id, state)
+
+        for card_id in options:
+            card = state.objects.get(card_id)
+            if not card:
+                continue
+
+            score = 5.0  # Base value
+
+            # High cost cards we can't cast are less valuable
+            if card.characteristics.mana_cost:
+                from src.engine.mana import ManaCost
+                cost = ManaCost.parse(card.characteristics.mana_cost)
+                if cost.mana_value > current_lands + 2:
+                    score -= 2
+
+            # Lands have reduced value if we have many
+            from src.engine import CardType
+            if CardType.LAND in card.characteristics.types:
+                if current_lands >= 5:
+                    score -= 3
+                else:
+                    score += 2  # Keep lands early
+
+            # Card draw effects are valuable
+            if card.card_def and card.card_def.text:
+                text = card.card_def.text.lower()
+                if "draw" in text:
+                    score += 2
+                if "destroy" in text or "exile" in text:
+                    score += 1
+
+            scored.append((card_id, score))
+
+        # Sort by score (lowest first - discard worst cards)
+        scored.sort(key=lambda x: x[1])
+
+        return [cid for cid, _ in scored[:min_discard]]
+
+    def _make_sacrifice_choice(
+        self,
+        player_id: str,
+        choice: 'PendingChoice',
+        state: 'GameState'
+    ) -> list:
+        """Choose which permanents to sacrifice."""
+        options = choice.options
+        min_sac = choice.min_choices
+
+        if not options or min_sac == 0:
+            return []
+
+        # Score permanents - sacrifice lowest value
+        scored = []
+
+        for perm_id in options:
+            perm = state.objects.get(perm_id)
+            if not perm:
+                continue
+
+            score = self._score_target(perm_id, state, player_id, is_removal=False)
+            scored.append((perm_id, score))
+
+        # Sort by score (lowest first)
+        scored.sort(key=lambda x: x[1])
+
+        return [pid for pid, _ in scored[:min_sac]]
+
+    def _make_may_choice(
+        self,
+        player_id: str,
+        choice: 'PendingChoice',
+        state: 'GameState'
+    ) -> list:
+        """Make a 'you may' decision."""
+        # Analyze the prompt to understand the choice
+        prompt = (choice.prompt or "").lower()
+
+        # Generally say yes to beneficial effects
+        if any(w in prompt for w in ["draw", "gain life", "create", "search", "+", "untap"]):
+            return [True]
+
+        # Say no to costs/downsides unless necessary
+        if any(w in prompt for w in ["pay", "sacrifice", "discard", "lose life"]):
+            # Still might want to do it for big effects
+            if "draw" in prompt or "destroy" in prompt:
+                return [True]
+            return [False]
+
+        # Default: yes (most "may" abilities are beneficial)
+        return [True]
+
+    def _count_creatures(self, player_id: str, state: 'GameState') -> int:
+        """Count creatures controlled by a player."""
+        from src.engine import CardType
+
+        count = 0
+        battlefield = state.zones.get('battlefield')
+        if battlefield:
+            for obj_id in battlefield.objects:
+                obj = state.objects.get(obj_id)
+                if obj and obj.controller == player_id:
+                    if CardType.CREATURE in obj.characteristics.types:
+                        count += 1
+        return count
+
+    def _count_lands(self, player_id: str, state: 'GameState') -> int:
+        """Count lands controlled by a player."""
+        from src.engine import CardType
+
+        count = 0
+        battlefield = state.zones.get('battlefield')
+        if battlefield:
+            for obj_id in battlefield.objects:
+                obj = state.objects.get(obj_id)
+                if obj and obj.controller == player_id:
+                    if CardType.LAND in obj.characteristics.types:
+                        count += 1
+        return count
 
     def _score_action(
         self,
@@ -694,7 +1175,104 @@ class AIEngine:
 
         return True
 
-    # Convenience factory methods
+    # === Layer Preparation ===
+
+    async def prepare_for_match(
+        self,
+        our_deck_cards: list[str],
+        card_defs: dict,
+        opponent_deck_cards: Optional[list[str]] = None
+    ):
+        """
+        Pre-compute strategy layers for a match.
+
+        Call this before the game starts to generate all strategic
+        knowledge. For Hard difficulty, uses heuristic layers.
+        For Ultra difficulty, uses LLM-generated layers.
+
+        Args:
+            our_deck_cards: List of card names in our deck
+            card_defs: Map of card name -> CardDefinition
+            opponent_deck_cards: Opponent's deck card names (optional)
+        """
+        if not self.settings.get('use_layers'):
+            return  # Easy/Medium don't use layers
+
+        from .layers import LayerGenerator
+        from .llm import LLMCache
+
+        # Set up cache
+        cache = LLMCache()
+
+        # Set up provider if using LLM
+        provider = None
+        if self.settings.get('use_llm'):
+            provider = self._get_llm_provider()
+
+        # Create generator
+        generator = LayerGenerator(provider=provider, cache=cache)
+
+        # Generate all layers
+        layers_map = await generator.generate_all_layers(
+            card_defs=card_defs,
+            our_deck=our_deck_cards,
+            opp_deck=opponent_deck_cards
+        )
+
+        # Store layers in strategy
+        for card_name, layers in layers_map.items():
+            self.strategy.set_card_layers(card_name, layers)
+
+        self._layers_prepared = True
+
+    def _get_llm_provider(self):
+        """Get the appropriate LLM provider based on config."""
+        from .llm import OllamaProvider, LLMConfig
+        from .llm.api_provider import get_provider
+
+        config = self.llm_config or LLMConfig()
+
+        try:
+            return get_provider(config)
+        except RuntimeError as e:
+            print(f"Warning: {e}")
+            print("Using heuristic layers instead of LLM.")
+            return None
+
+    def prepare_for_match_sync(
+        self,
+        our_deck_cards: list[str],
+        card_defs: dict,
+        opponent_deck_cards: Optional[list[str]] = None
+    ):
+        """
+        Synchronous wrapper for prepare_for_match.
+
+        Use this if you're not in an async context.
+        """
+        import asyncio
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Can't use run_until_complete in running loop
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run,
+                        self.prepare_for_match(our_deck_cards, card_defs, opponent_deck_cards)
+                    )
+                    future.result()
+            else:
+                loop.run_until_complete(
+                    self.prepare_for_match(our_deck_cards, card_defs, opponent_deck_cards)
+                )
+        except RuntimeError:
+            asyncio.run(
+                self.prepare_for_match(our_deck_cards, card_defs, opponent_deck_cards)
+            )
+
+    # === Convenience Factory Methods ===
 
     @classmethod
     def create_aggro_bot(cls, difficulty: str = 'medium') -> 'AIEngine':
@@ -716,6 +1294,43 @@ class AIEngine:
         """Create an AI with a randomly chosen strategy."""
         strategies = [AggroStrategy(), ControlStrategy(), MidrangeStrategy()]
         return cls(strategy=random.choice(strategies), difficulty=difficulty)
+
+    @classmethod
+    def create_hard_bot(cls, strategy: Optional[AIStrategy] = None) -> 'AIEngine':
+        """
+        Create a Hard AI with programmatic layer scoring.
+
+        Uses strategy layers for improved decision-making but
+        doesn't require LLM - uses heuristic layer generation.
+        """
+        return cls(strategy=strategy or MidrangeStrategy(), difficulty='hard')
+
+    @classmethod
+    def create_ultra_bot(cls, llm_config: Optional['LLMConfig'] = None) -> 'AIEngine':
+        """
+        Create an Ultra AI with LLM-guided decisions.
+
+        Uses all three strategy layers with LLM-generated guidance.
+        Falls back to heuristics if LLM is unavailable.
+
+        Args:
+            llm_config: LLM configuration (defaults to Ollama with qwen2.5:3b)
+        """
+        from .strategies import UltraStrategy
+        from .llm import LLMConfig, OllamaProvider
+
+        config = llm_config or LLMConfig()
+
+        # Try to get provider
+        provider = None
+        try:
+            from .llm.api_provider import get_provider
+            provider = get_provider(config)
+        except RuntimeError:
+            print("Warning: No LLM provider available. Ultra AI will use heuristics.")
+
+        strategy = UltraStrategy(provider=provider, config=config)
+        return cls(strategy=strategy, difficulty='ultra', llm_config=config)
 
 
 def create_ai_action_handler(ai_engine: AIEngine):

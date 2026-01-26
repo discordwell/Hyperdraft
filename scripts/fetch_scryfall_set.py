@@ -428,6 +428,7 @@ def generate_card_code(card: dict, var_name: str, existing_setup: Optional[str] 
     mana_cost = parse_mana_cost(face.get('mana_cost', card.get('mana_cost')))
     colors = parse_colors(face.get('colors', card.get('colors', [])))
     supertypes, types, subtypes = parse_types(face.get('type_line', card.get('type_line', '')))
+    rarity = card.get('rarity', 'common')  # Extract rarity from Scryfall data
 
     if combined_text is not None:
         text = escape_text(combined_text)
@@ -468,6 +469,7 @@ def generate_card_code(card: dict, var_name: str, existing_setup: Optional[str] 
         if supertypes_str:
             lines.append(f'    supertypes={supertypes_str},')
         lines.append(f'    text={text},')
+        lines.append(f'    rarity="{rarity}",')
         if existing_setup:
             lines.append(f'    setup_interceptors={existing_setup}')
         lines.append(')')
@@ -490,6 +492,7 @@ def generate_card_code(card: dict, var_name: str, existing_setup: Optional[str] 
         if supertypes_str:
             lines.append(f'    supertypes={supertypes_str},')
         lines.append(f'    text={text},')
+        lines.append(f'    rarity="{rarity}",')
         if existing_setup:
             lines.append(f'    setup_interceptors={existing_setup}')
         lines.append(')')
@@ -502,6 +505,7 @@ def generate_card_code(card: dict, var_name: str, existing_setup: Optional[str] 
             f'    mana_cost={mana_cost},',
             f'    colors={colors},',
             f'    text={text},',
+            f'    rarity="{rarity}",',
         ]
         if subtypes_str:
             lines.append(f'    subtypes={subtypes_str},')
@@ -517,6 +521,7 @@ def generate_card_code(card: dict, var_name: str, existing_setup: Optional[str] 
             f'    mana_cost={mana_cost},',
             f'    colors={colors},',
             f'    text={text},',
+            f'    rarity="{rarity}",',
         ]
         if subtypes_str:
             lines.append(f'    subtypes={subtypes_str},')
@@ -532,6 +537,7 @@ def generate_card_code(card: dict, var_name: str, existing_setup: Optional[str] 
             f'    mana_cost={mana_cost},',
             f'    colors={colors},',
             f'    text={text},',
+            f'    rarity="{rarity}",',
         ]
         if subtypes_str:
             lines.append(f'    subtypes={subtypes_str},')
@@ -548,6 +554,7 @@ def generate_card_code(card: dict, var_name: str, existing_setup: Optional[str] 
             f'    name="{name}",',
             f'    mana_cost={mana_cost},',
             f'    text={text},',
+            f'    rarity="{rarity}",',
         ]
         if subtypes_str:
             lines.append(f'    subtypes={subtypes_str},')
@@ -563,6 +570,7 @@ def generate_card_code(card: dict, var_name: str, existing_setup: Optional[str] 
             f'{var_name} = make_land(',
             f'    name="{name}",',
             f'    text={text},',
+            f'    rarity="{rarity}",',
         ]
         if subtypes_str:
             lines.append(f'    subtypes={subtypes_str},')
@@ -626,7 +634,7 @@ from src.cards.interceptor_helpers import (
 # HELPER FUNCTIONS
 # =============================================================================
 
-def make_instant(name: str, mana_cost: str, colors: set, text: str, subtypes: set = None, supertypes: set = None, resolve=None):
+def make_instant(name: str, mana_cost: str, colors: set, text: str, rarity: str = None, subtypes: set = None, supertypes: set = None, resolve=None):
     """Helper to create instant card definitions."""
     return CardDefinition(
         name=name,
@@ -639,11 +647,12 @@ def make_instant(name: str, mana_cost: str, colors: set, text: str, subtypes: se
             mana_cost=mana_cost
         ),
         text=text,
+        rarity=rarity,
         resolve=resolve
     )
 
 
-def make_sorcery(name: str, mana_cost: str, colors: set, text: str, subtypes: set = None, supertypes: set = None, resolve=None):
+def make_sorcery(name: str, mana_cost: str, colors: set, text: str, rarity: str = None, subtypes: set = None, supertypes: set = None, resolve=None):
     """Helper to create sorcery card definitions."""
     return CardDefinition(
         name=name,
@@ -656,11 +665,12 @@ def make_sorcery(name: str, mana_cost: str, colors: set, text: str, subtypes: se
             mana_cost=mana_cost
         ),
         text=text,
+        rarity=rarity,
         resolve=resolve
     )
 
 
-def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
+def make_artifact(name: str, mana_cost: str, text: str, rarity: str = None, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
     """Helper to create artifact card definitions."""
     return CardDefinition(
         name=name,
@@ -672,12 +682,13 @@ def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, su
             mana_cost=mana_cost
         ),
         text=text,
+        rarity=rarity,
         setup_interceptors=setup_interceptors
     )
 
 
 def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str, colors: set,
-                           subtypes: set = None, supertypes: set = None, text: str = "", setup_interceptors=None):
+                           subtypes: set = None, supertypes: set = None, text: str = "", rarity: str = None, setup_interceptors=None):
     """Helper to create artifact creature card definitions."""
     return CardDefinition(
         name=name,
@@ -692,12 +703,13 @@ def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str
             mana_cost=mana_cost
         ),
         text=text,
+        rarity=rarity,
         setup_interceptors=setup_interceptors
     )
 
 
 def make_enchantment_creature(name: str, power: int, toughness: int, mana_cost: str, colors: set,
-                              subtypes: set = None, supertypes: set = None, text: str = "", setup_interceptors=None):
+                              subtypes: set = None, supertypes: set = None, text: str = "", rarity: str = None, setup_interceptors=None):
     """Helper to create enchantment creature card definitions."""
     return CardDefinition(
         name=name,
@@ -712,11 +724,12 @@ def make_enchantment_creature(name: str, power: int, toughness: int, mana_cost: 
             mana_cost=mana_cost
         ),
         text=text,
+        rarity=rarity,
         setup_interceptors=setup_interceptors
     )
 
 
-def make_land(name: str, text: str = "", subtypes: set = None, supertypes: set = None, setup_interceptors=None):
+def make_land(name: str, text: str = "", rarity: str = None, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
     """Helper to create land card definitions."""
     return CardDefinition(
         name=name,
@@ -728,12 +741,13 @@ def make_land(name: str, text: str = "", subtypes: set = None, supertypes: set =
             mana_cost=""
         ),
         text=text,
+        rarity=rarity,
         setup_interceptors=setup_interceptors
     )
 
 
 def make_planeswalker(name: str, mana_cost: str, colors: set, loyalty: int,
-                      subtypes: set = None, supertypes: set = None, text: str = "", setup_interceptors=None):
+                      subtypes: set = None, supertypes: set = None, text: str = "", rarity: str = None, setup_interceptors=None):
     """Helper to create planeswalker card definitions."""
     base_supertypes = supertypes or set()
     loyalty_text = f"[Loyalty: {loyalty}] " + text if text else f"[Loyalty: {loyalty}]"
@@ -748,6 +762,7 @@ def make_planeswalker(name: str, mana_cost: str, colors: set, loyalty: int,
             mana_cost=mana_cost
         ),
         text=loyalty_text,
+        rarity=rarity,
         setup_interceptors=setup_interceptors
     )
 

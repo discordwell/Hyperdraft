@@ -15,9 +15,12 @@ from .wilds_of_eldraine import WILDS_OF_ELDRAINE_CARDS
 from .lost_caverns_ixalan import LOST_CAVERNS_IXALAN_CARDS
 from .murders_karlov_manor import MURDERS_KARLOV_MANOR_CARDS
 from .outlaws_thunder_junction import OUTLAWS_THUNDER_JUNCTION_CARDS
+from .the_big_score import THE_BIG_SCORE_CARDS  # OTJ bonus sheet
 from .bloomburrow import BLOOMBURROW_CARDS
 from .duskmourn import DUSKMOURN_CARDS
 from .foundations import FOUNDATIONS_CARDS
+from .aetherdrift import AETHERDRIFT_CARDS
+from .tarkir_dragonstorm import TARKIR_DRAGONSTORM_CARDS
 
 # Universes Beyond sets
 from .edge_of_eternities import EDGE_OF_ETERNITIES_CARDS
@@ -46,9 +49,12 @@ def build_combined_registry() -> dict:
     registry.update(LOST_CAVERNS_IXALAN_CARDS)
     registry.update(MURDERS_KARLOV_MANOR_CARDS)
     registry.update(OUTLAWS_THUNDER_JUNCTION_CARDS)
+    registry.update(THE_BIG_SCORE_CARDS)
     registry.update(BLOOMBURROW_CARDS)
     registry.update(DUSKMOURN_CARDS)
     registry.update(FOUNDATIONS_CARDS)
+    registry.update(AETHERDRIFT_CARDS)
+    registry.update(TARKIR_DRAGONSTORM_CARDS)
 
     # Universes Beyond
     registry.update(EDGE_OF_ETERNITIES_CARDS)
@@ -71,9 +77,12 @@ __all__ = [
     'LOST_CAVERNS_IXALAN_CARDS',
     'MURDERS_KARLOV_MANOR_CARDS',
     'OUTLAWS_THUNDER_JUNCTION_CARDS',
+    'THE_BIG_SCORE_CARDS',
     'BLOOMBURROW_CARDS',
     'DUSKMOURN_CARDS',
     'FOUNDATIONS_CARDS',
+    'AETHERDRIFT_CARDS',
+    'TARKIR_DRAGONSTORM_CARDS',
     # Universes Beyond
     'EDGE_OF_ETERNITIES_CARDS',
     'LORWYN_ECLIPSED_CARDS',

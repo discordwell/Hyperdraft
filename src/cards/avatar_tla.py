@@ -21,7 +21,8 @@ from src.cards.interceptor_helpers import (
     make_spell_cast_trigger, make_tap_trigger, make_end_step_trigger,
     make_life_gain_trigger, make_draw_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
-    creatures_you_control, creatures_with_subtype
+    creatures_you_control, creatures_with_subtype,
+    create_modal_choice, create_target_choice,
 )
 
 
@@ -2658,11 +2659,160 @@ FOGGY_SWAMP_VISIONS = make_sorcery(
     text="As an additional cost to cast this spell, waterbend {X}. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)\nExile X target creature cards from graveyards. For each creature card exiled this way, create a token that's a copy of it. At the beginning of your next end step, sacrifice those tokens.",
 )
 
+
+# =============================================================================
+# HEARTLESS ACT - Modal creature removal/counter removal
+# =============================================================================
+
+def _heartless_act_handle_target(choice, selected: list, state: GameState) -> list[Event]:
+    """Handle target selection after mode was chosen."""
+    if not selected:
+        return []
+
+    target_id = selected[0]
+    mode = choice.callback_data.get('mode', 0)
+
+    if mode == 0:
+        # Destroy target creature with no counters on it
+        return [Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={'object_id': target_id},
+            source=choice.source_id
+        )]
+    else:
+        # Remove up to three counters from target creature
+        target_obj = state.objects.get(target_id)
+        if not target_obj:
+            return []
+
+        events = []
+        counters_to_remove = min(3, sum(target_obj.state.counters.values()) if target_obj.state.counters else 0)
+
+        if counters_to_remove > 0 and target_obj.state.counters:
+            # Remove counters (prioritize +1/+1 counters, then others)
+            remaining = counters_to_remove
+            for counter_type in list(target_obj.state.counters.keys()):
+                if remaining <= 0:
+                    break
+                count = target_obj.state.counters.get(counter_type, 0)
+                remove_count = min(remaining, count)
+                if remove_count > 0:
+                    events.append(Event(
+                        type=EventType.COUNTER_REMOVED,
+                        payload={
+                            'object_id': target_id,
+                            'counter_type': counter_type,
+                            'count': remove_count
+                        },
+                        source=choice.source_id
+                    ))
+                    remaining -= remove_count
+
+        return events
+
+
+def _heartless_act_handle_mode(choice, selected: list, state: GameState) -> list[Event]:
+    """Handle mode selection, then create target choice."""
+    if not selected:
+        return []
+
+    selected_mode = selected[0]
+    mode_index = selected_mode["index"]
+
+    # Gather legal targets based on chosen mode
+    legal_targets = []
+    for obj_id, obj in state.objects.items():
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in obj.characteristics.types:
+            continue
+
+        if mode_index == 0:
+            # Mode 0: Creature with no counters
+            total_counters = sum(obj.state.counters.values()) if obj.state.counters else 0
+            if total_counters == 0:
+                legal_targets.append(obj_id)
+        else:
+            # Mode 1: Any creature (for counter removal)
+            legal_targets.append(obj_id)
+
+    if not legal_targets:
+        # No legal targets, spell fizzles
+        return []
+
+    # Create target choice
+    if mode_index == 0:
+        prompt = "Choose target creature with no counters on it"
+    else:
+        prompt = "Choose target creature to remove counters from"
+
+    target_choice = create_target_choice(
+        state=state,
+        player_id=choice.player,
+        source_id=choice.source_id,
+        legal_targets=legal_targets,
+        prompt=prompt,
+        min_targets=1,
+        max_targets=1,
+        callback_data={'handler': _heartless_act_handle_target, 'mode': mode_index}
+    )
+
+    return []
+
+
+def heartless_act_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Resolve Heartless Act: Choose one —
+    - Destroy target creature with no counters on it
+    - Remove up to three counters from target creature
+
+    Creates a modal choice first, then target choice based on mode.
+    """
+    # Find the spell on the stack to determine who cast it
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Heartless Act":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    # Fallback to active player if we can't find the spell
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "heartless_act_spell"
+
+    # Create modal choice
+    modes = [
+        {"index": 0, "text": "Destroy target creature with no counters on it."},
+        {"index": 1, "text": "Remove up to three counters from target creature."}
+    ]
+
+    choice = create_modal_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        modes=modes,
+        prompt="Heartless Act - Choose one:"
+    )
+
+    # Use modal_with_callback for handler support
+    choice.choice_type = "modal_with_callback"
+    choice.callback_data['handler'] = _heartless_act_handle_mode
+
+    return []
+
+
 HEARTLESS_ACT = make_instant(
     name="Heartless Act",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Choose one —\n• Destroy target creature with no counters on it.\n• Remove up to three counters from target creature.",
+    resolve=heartless_act_resolve,
 )
 
 HOGMONKEY = make_creature(

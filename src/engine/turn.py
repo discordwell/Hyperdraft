@@ -15,7 +15,7 @@ from typing import Callable, Optional, TYPE_CHECKING
 from enum import Enum, auto
 
 from .types import (
-    GameState, Event, EventType, ZoneType, new_id
+    GameState, Event, EventType, ZoneType, CardType, new_id
 )
 
 if TYPE_CHECKING:
@@ -195,6 +195,11 @@ class TurnManager:
         self.turn_state.skip_draw = False
         self.turn_state.skip_combat = False
         self.turn_state.extra_combats = 0
+
+        # Also reset the centralized GameState land tracking
+        # (this is the authoritative source for interceptors)
+        self.state.lands_played_this_turn = 0
+        self.state.lands_allowed_this_turn = 1
 
     async def _run_beginning_phase(self) -> list[Event]:
         """Run the Beginning Phase (Untap, Upkeep, Draw)."""
@@ -381,8 +386,19 @@ class TurnManager:
         if battlefield:
             for obj_id in battlefield.objects:
                 obj = self.state.objects.get(obj_id)
-                if obj and obj.state.damage > 0:
-                    obj.state.damage = 0
+                if obj:
+                    # Clear damage
+                    if obj.state.damage > 0:
+                        obj.state.damage = 0
+
+                    # End "crewed until end of turn" - remove CREATURE type from Vehicles
+                    if obj.state.crewed_until_eot:
+                        obj.state.crewed_until_eot = False
+                        # Only remove CREATURE if it's a Vehicle (artifact with Vehicle subtype)
+                        # that wasn't originally a creature
+                        if ('Vehicle' in obj.characteristics.subtypes and
+                            CardType.ARTIFACT in obj.characteristics.types):
+                            obj.characteristics.types.discard(CardType.CREATURE)
 
         # End "until end of turn" effects
         # (Would be handled by interceptor duration system)
@@ -453,7 +469,8 @@ class TurnManager:
         if self.turn_state.phase not in [Phase.PRECOMBAT_MAIN, Phase.POSTCOMBAT_MAIN]:
             return False
 
-        if self.turn_state.lands_played_count >= self.turn_state.lands_allowed:
+        # Use centralized GameState tracking (authoritative for interceptors)
+        if self.state.lands_played_this_turn >= self.state.lands_allowed_this_turn:
             return False
 
         return True
@@ -462,6 +479,9 @@ class TurnManager:
         """Record that a land was played."""
         self.turn_state.land_played = True
         self.turn_state.lands_played_count += 1
+
+        # Also update centralized GameState tracking
+        self.state.lands_played_this_turn += 1
 
     def can_cast_sorcery(self, player_id: str) -> bool:
         """Check if a player can cast a sorcery-speed spell."""
@@ -494,3 +514,15 @@ class TurnManager:
     def skip_combat(self) -> None:
         """Skip the combat phase this turn."""
         self.turn_state.skip_combat = True
+
+    def grant_additional_land_play(self, count: int = 1) -> None:
+        """
+        Grant additional land plays for this turn.
+
+        Used by cards like Exploration ("You may play an additional land on each of your turns").
+
+        Args:
+            count: Number of additional lands allowed (default 1)
+        """
+        self.turn_state.lands_allowed += count
+        self.state.lands_allowed_this_turn += count

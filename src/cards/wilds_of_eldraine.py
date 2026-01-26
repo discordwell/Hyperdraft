@@ -19,7 +19,8 @@ from src.cards.interceptor_helpers import (
     make_static_pt_boost, make_keyword_grant, make_spell_cast_trigger,
     make_upkeep_trigger, make_end_step_trigger, make_damage_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
-    creatures_you_control, creatures_with_subtype
+    creatures_you_control, creatures_with_subtype, create_target_choice,
+    create_modal_choice
 )
 
 
@@ -946,6 +947,1820 @@ def unruly_catapult_setup(obj: GameObject, state: GameState) -> list[Interceptor
     )]
 
 
+# =============================================================================
+# SPELL RESOLVE FUNCTIONS
+# =============================================================================
+
+def _monstrous_rage_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Monstrous Rage after target selection - buff +2/+0, grant trample, create Monster Role."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    # Target must be a creature on the battlefield
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []  # Target no longer valid
+
+    return [
+        # +2/+0 until end of turn
+        Event(
+            type=EventType.PUMP,
+            payload={
+                'object_id': target_id,
+                'power': 2,
+                'toughness': 0,
+                'duration': 'end_of_turn'
+            },
+            source=choice.source_id
+        ),
+        # Grant trample until end of turn
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': target_id,
+                'keyword': 'trample',
+                'duration': 'end_of_turn'
+            },
+            source=choice.source_id
+        ),
+        # Create Monster Role token attached to target
+        Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Monster Role',
+                'controller': choice.player,
+                'attach_to': target_id,
+                'types': [CardType.ENCHANTMENT],
+                'subtypes': ['Aura', 'Role'],
+                'is_token': True
+            },
+            source=choice.source_id
+        )
+    ]
+
+
+def monstrous_rage_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Resolve Monstrous Rage: Target creature gets +2/+0 and gains trample until end of turn.
+    Create a Monster Role token attached to it (gives +1/+1 and trample).
+
+    Creates a target choice for the caster. Returns empty events to pause resolution.
+    """
+    # Find the spell on the stack to determine who cast it
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Monstrous Rage":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+
+    # Fallback to active player if we can't find the spell
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "monstrous_rage_spell"
+
+    # Find valid targets: creatures the caster controls
+    valid_targets = []
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD and
+            CardType.CREATURE in obj.characteristics.types and
+            obj.controller == caster_id):
+            valid_targets.append(obj.id)
+
+    if not valid_targets:
+        # No legal targets, spell fizzles
+        return []
+
+    # Create target choice for the player
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to buff with Monstrous Rage (+2/+0, trample, Monster Role)",
+        min_targets=1,
+        max_targets=1
+    )
+
+    # Set up callback for when target is selected
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _monstrous_rage_execute
+
+    # Return empty events to pause resolution until choice is submitted
+    return []
+
+
+def _torch_the_tower_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Torch the Tower after target selection - deal 2 or 3 damage (if bargained)."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+
+    # Check if the spell was bargained (stored in callback_data)
+    was_bargained = choice.callback_data.get('bargained', False)
+    damage_amount = 3 if was_bargained else 2
+
+    # Target must be a creature or planeswalker
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []  # Target no longer valid
+
+    events = [Event(
+        type=EventType.DAMAGE,
+        payload={
+            'target': target_id,
+            'amount': damage_amount,
+            'source': choice.source_id,
+            'is_combat': False,
+            'exile_on_death': True  # If this damage kills the permanent, exile it instead
+        },
+        source=choice.source_id
+    )]
+
+    # If bargained, also scry 1
+    if was_bargained:
+        events.append(Event(
+            type=EventType.SCRY,
+            payload={'player': choice.player, 'amount': 1},
+            source=choice.source_id
+        ))
+
+    return events
+
+
+def torch_the_tower_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Resolve Torch the Tower: Deal 2 damage to target creature or planeswalker.
+    If bargained, deals 3 damage instead and you scry 1.
+
+    Creates a target choice for the caster. Returns empty events to pause resolution.
+    """
+    # Find the spell on the stack to determine who cast it and if it was bargained
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    was_bargained = False
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Torch the Tower":
+                caster_id = obj.controller
+                spell_id = obj.id
+                # Check if the spell was bargained (stored in state)
+                was_bargained = getattr(obj.state, 'bargained', False) if obj.state else False
+                break
+
+    # Fallback to active player if we can't find the spell
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "torch_the_tower_spell"
+
+    damage_amount = 3 if was_bargained else 2
+
+    # Find valid targets: creatures and planeswalkers only (not players)
+    valid_targets = []
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD:
+            if CardType.CREATURE in obj.characteristics.types or CardType.PLANESWALKER in obj.characteristics.types:
+                valid_targets.append(obj.id)
+
+    if not valid_targets:
+        # No legal targets, spell fizzles
+        return []
+
+    # Create target choice for the player
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt=f"Choose a creature or planeswalker for Torch the Tower ({damage_amount} damage)",
+        min_targets=1,
+        max_targets=1
+    )
+
+    # Set up callback for when target is selected
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _torch_the_tower_execute
+    choice.callback_data['bargained'] = was_bargained
+
+    # Return empty events to pause resolution until choice is submitted
+    return []
+
+
+# =============================================================================
+# ADDITIONAL SPELL RESOLVE FUNCTIONS
+# =============================================================================
+
+# --- BREAK THE SPELL ---
+def _break_the_spell_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Break the Spell - destroy target enchantment, draw if you controlled it."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    controller_owned = target.controller == choice.player or getattr(target.state, 'is_token', False)
+    events = [Event(
+        type=EventType.DESTROY,
+        payload={'object_id': target_id},
+        source=choice.source_id
+    )]
+    if controller_owned:
+        events.append(Event(type=EventType.DRAW, payload={'player': choice.player, 'amount': 1}, source=choice.source_id))
+    return events
+
+
+def break_the_spell_resolve(targets: list, state: GameState) -> list[Event]:
+    """Destroy target enchantment. If a permanent you controlled or a token was destroyed this way, draw a card."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Break the Spell":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "break_the_spell_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.ENCHANTMENT in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose an enchantment to destroy"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _break_the_spell_execute
+    return []
+
+
+# --- STROKE OF MIDNIGHT ---
+def _stroke_of_midnight_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Stroke of Midnight - destroy nonland permanent, give controller a 1/1 Human."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    target_controller = target.controller
+    return [
+        Event(type=EventType.DESTROY, payload={'object_id': target_id}, source=choice.source_id),
+        Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Human Token',
+                'controller': target_controller,
+                'power': 1, 'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Human'],
+                'colors': [Color.WHITE],
+                'is_token': True
+            },
+            source=choice.source_id
+        )
+    ]
+
+
+def stroke_of_midnight_resolve(targets: list, state: GameState) -> list[Event]:
+    """Destroy target nonland permanent. Its controller creates a 1/1 white Human creature token."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Stroke of Midnight":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "stroke_of_midnight_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.LAND not in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a nonland permanent to destroy"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _stroke_of_midnight_execute
+    return []
+
+
+# --- CANDY GRAPPLE ---
+def _candy_grapple_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Candy Grapple - give -3/-3 or -5/-5 if bargained."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    was_bargained = choice.callback_data.get('bargained', False)
+    mod = -5 if was_bargained else -3
+    return [Event(
+        type=EventType.PUMP,
+        payload={'object_id': target_id, 'power': mod, 'toughness': mod, 'duration': 'end_of_turn'},
+        source=choice.source_id
+    )]
+
+
+def candy_grapple_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature gets -3/-3 until end of turn. If bargained, -5/-5 instead."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    was_bargained = False
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Candy Grapple":
+                caster_id = obj.controller
+                spell_id = obj.id
+                was_bargained = getattr(obj.state, 'bargained', False) if obj.state else False
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "candy_grapple_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    mod = -5 if was_bargained else -3
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt=f"Choose a creature to get {mod}/{mod} until end of turn"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _candy_grapple_execute
+    choice.callback_data['bargained'] = was_bargained
+    return []
+
+
+# --- FEED THE CAULDRON ---
+def _feed_the_cauldron_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Feed the Cauldron - destroy creature MV 3 or less, create Food if your turn."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    events = [Event(type=EventType.DESTROY, payload={'object_id': target_id}, source=choice.source_id)]
+    is_your_turn = choice.callback_data.get('is_your_turn', False)
+    if is_your_turn:
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={'name': 'Food Token', 'controller': choice.player,
+                     'types': [CardType.ARTIFACT], 'subtypes': ['Food'], 'is_token': True},
+            source=choice.source_id
+        ))
+    return events
+
+
+def feed_the_cauldron_resolve(targets: list, state: GameState) -> list[Event]:
+    """Destroy target creature with mana value 3 or less. If it's your turn, create a Food token."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Feed the Cauldron":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "feed_the_cauldron_spell"
+
+    def get_mana_value(o):
+        mc = o.characteristics.mana_cost or ""
+        return sum(1 for c in mc if c in 'WUBRG') + sum(int(c) for c in mc if c.isdigit())
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
+                     and get_mana_value(obj) <= 3]
+    if not valid_targets:
+        return []
+
+    is_your_turn = state.active_player == caster_id
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature with mana value 3 or less to destroy"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _feed_the_cauldron_execute
+    choice.callback_data['is_your_turn'] = is_your_turn
+    return []
+
+
+# --- SUGAR RUSH ---
+def _sugar_rush_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Sugar Rush - +3/+0 and draw a card."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    return [
+        Event(type=EventType.PUMP, payload={'object_id': target_id, 'power': 3, 'toughness': 0, 'duration': 'end_of_turn'}, source=choice.source_id),
+        Event(type=EventType.DRAW, payload={'player': choice.player, 'amount': 1}, source=choice.source_id)
+    ]
+
+
+def sugar_rush_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature gets +3/+0 until end of turn. Draw a card."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Sugar Rush":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "sugar_rush_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to get +3/+0"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _sugar_rush_execute
+    return []
+
+
+# --- TAKEN BY NIGHTMARES ---
+def _taken_by_nightmares_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Taken by Nightmares - exile creature, scry 2 if you control an enchantment."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    events = [Event(type=EventType.EXILE, payload={'object_id': target_id}, source=choice.source_id)]
+    controls_enchantment = choice.callback_data.get('controls_enchantment', False)
+    if controls_enchantment:
+        events.append(Event(type=EventType.SCRY, payload={'player': choice.player, 'amount': 2}, source=choice.source_id))
+    return events
+
+
+def taken_by_nightmares_resolve(targets: list, state: GameState) -> list[Event]:
+    """Exile target creature. If you control an enchantment, scry 2."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Taken by Nightmares":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "taken_by_nightmares_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    controls_enchantment = any(
+        obj.controller == caster_id and obj.zone == ZoneType.BATTLEFIELD and CardType.ENCHANTMENT in obj.characteristics.types
+        for obj in state.objects.values()
+    )
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to exile"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _taken_by_nightmares_execute
+    choice.callback_data['controls_enchantment'] = controls_enchantment
+    return []
+
+
+# --- TITANIC GROWTH ---
+def _titanic_growth_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Titanic Growth - +4/+4 until end of turn."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    return [Event(
+        type=EventType.PUMP,
+        payload={'object_id': target_id, 'power': 4, 'toughness': 4, 'duration': 'end_of_turn'},
+        source=choice.source_id
+    )]
+
+
+def titanic_growth_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature gets +4/+4 until end of turn."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Titanic Growth":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "titanic_growth_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to get +4/+4"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _titanic_growth_execute
+    return []
+
+
+# --- LEAPING AMBUSH ---
+def _leaping_ambush_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Leaping Ambush - +1/+3, reach, untap."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    return [
+        Event(type=EventType.PUMP, payload={'object_id': target_id, 'power': 1, 'toughness': 3, 'duration': 'end_of_turn'}, source=choice.source_id),
+        Event(type=EventType.GRANT_KEYWORD, payload={'object_id': target_id, 'keyword': 'reach', 'duration': 'end_of_turn'}, source=choice.source_id),
+        Event(type=EventType.UNTAP, payload={'object_id': target_id}, source=choice.source_id)
+    ]
+
+
+def leaping_ambush_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature gets +1/+3 and gains reach until end of turn. Untap it."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Leaping Ambush":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "leaping_ambush_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to get +1/+3 and reach"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _leaping_ambush_execute
+    return []
+
+
+# --- ROYAL TREATMENT ---
+def _royal_treatment_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Royal Treatment - hexproof and Royal Role token."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    return [
+        Event(type=EventType.GRANT_KEYWORD, payload={'object_id': target_id, 'keyword': 'hexproof', 'duration': 'end_of_turn'}, source=choice.source_id),
+        Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Royal Role',
+                'controller': choice.player,
+                'attach_to': target_id,
+                'types': [CardType.ENCHANTMENT],
+                'subtypes': ['Aura', 'Role'],
+                'is_token': True,
+                'grants_power': 1, 'grants_toughness': 1, 'grants_ward': 1
+            },
+            source=choice.source_id
+        )
+    ]
+
+
+def royal_treatment_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature you control gains hexproof until end of turn. Create a Royal Role token attached to it."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Royal Treatment":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "royal_treatment_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
+                     and obj.controller == caster_id]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature you control to grant hexproof and a Royal Role"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _royal_treatment_execute
+    return []
+
+
+# --- KINDLED HEROISM ---
+def _kindled_heroism_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Kindled Heroism - +1/+0, first strike, scry 1."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    return [
+        Event(type=EventType.PUMP, payload={'object_id': target_id, 'power': 1, 'toughness': 0, 'duration': 'end_of_turn'}, source=choice.source_id),
+        Event(type=EventType.GRANT_KEYWORD, payload={'object_id': target_id, 'keyword': 'first_strike', 'duration': 'end_of_turn'}, source=choice.source_id),
+        Event(type=EventType.SCRY, payload={'player': choice.player, 'amount': 1}, source=choice.source_id)
+    ]
+
+
+def kindled_heroism_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature gets +1/+0 and gains first strike until end of turn. Scry 1."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Kindled Heroism":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "kindled_heroism_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to get +1/+0 and first strike"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _kindled_heroism_execute
+    return []
+
+
+# --- WITCHSTALKER FRENZY ---
+def _witchstalker_frenzy_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Witchstalker Frenzy - deal 5 damage to target creature."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target_id, 'amount': 5, 'source': choice.source_id, 'is_combat': False},
+        source=choice.source_id
+    )]
+
+
+def witchstalker_frenzy_resolve(targets: list, state: GameState) -> list[Event]:
+    """Witchstalker Frenzy deals 5 damage to target creature."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Witchstalker Frenzy":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "witchstalker_frenzy_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to deal 5 damage to"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _witchstalker_frenzy_execute
+    return []
+
+
+# --- CUT IN ---
+def _cut_in_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Cut In - deal 4 damage to creature, create Young Hero Role on your creature."""
+    target_id = selected[0] if selected else None
+    role_target_id = selected[1] if len(selected) > 1 else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    events = [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target_id, 'amount': 4, 'source': choice.source_id, 'is_combat': False},
+        source=choice.source_id
+    )]
+    if role_target_id:
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Young Hero Role',
+                'controller': choice.player,
+                'attach_to': role_target_id,
+                'types': [CardType.ENCHANTMENT],
+                'subtypes': ['Aura', 'Role'],
+                'is_token': True
+            },
+            source=choice.source_id
+        ))
+    return events
+
+
+def cut_in_resolve(targets: list, state: GameState) -> list[Event]:
+    """Cut In deals 4 damage to target creature. Create a Young Hero Role attached to target creature you control."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Cut In":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "cut_in_spell"
+
+    # All creatures are valid damage targets
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to deal 4 damage to"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _cut_in_execute
+    return []
+
+
+# --- WATER WINGS ---
+def _water_wings_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Water Wings - 4/4 base, flying, hexproof."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    return [
+        Event(type=EventType.TEMPORARY_EFFECT, payload={
+            'object_id': target_id,
+            'set_power': 4, 'set_toughness': 4,
+            'duration': 'end_of_turn'
+        }, source=choice.source_id),
+        Event(type=EventType.GRANT_KEYWORD, payload={'object_id': target_id, 'keyword': 'flying', 'duration': 'end_of_turn'}, source=choice.source_id),
+        Event(type=EventType.GRANT_KEYWORD, payload={'object_id': target_id, 'keyword': 'hexproof', 'duration': 'end_of_turn'}, source=choice.source_id)
+    ]
+
+
+def water_wings_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature you control has base power and toughness 4/4 and gains flying and hexproof until end of turn."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Water Wings":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "water_wings_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
+                     and obj.controller == caster_id]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to become 4/4 with flying and hexproof"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _water_wings_execute
+    return []
+
+
+# --- FREEZE IN PLACE ---
+def _freeze_in_place_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Freeze in Place - tap, 3 stun counters, scry 2."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    return [
+        Event(type=EventType.TAP, payload={'object_id': target_id}, source=choice.source_id),
+        Event(type=EventType.COUNTER_ADDED, payload={'object_id': target_id, 'counter_type': 'stun', 'amount': 3}, source=choice.source_id),
+        Event(type=EventType.SCRY, payload={'player': choice.player, 'amount': 2}, source=choice.source_id)
+    ]
+
+
+def freeze_in_place_resolve(targets: list, state: GameState) -> list[Event]:
+    """Tap target creature an opponent controls and put three stun counters on it. Scry 2."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Freeze in Place":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "freeze_in_place_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
+                     and obj.controller != caster_id]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose an opponent's creature to tap and stun"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _freeze_in_place_execute
+    return []
+
+
+# --- JOHANNS STOPGAP ---
+def _johanns_stopgap_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Johann's Stopgap - return to hand, draw a card."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    return [
+        Event(type=EventType.ZONE_CHANGE, payload={
+            'object_id': target_id,
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone_type': ZoneType.HAND
+        }, source=choice.source_id),
+        Event(type=EventType.DRAW, payload={'player': choice.player, 'amount': 1}, source=choice.source_id)
+    ]
+
+
+def johanns_stopgap_resolve(targets: list, state: GameState) -> list[Event]:
+    """Return target nonland permanent to its owner's hand. Draw a card."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Johann's Stopgap":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "johanns_stopgap_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.LAND not in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a nonland permanent to return to hand"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _johanns_stopgap_execute
+    return []
+
+
+# --- ARCHON'S GLORY ---
+def _archons_glory_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Archon's Glory - +2/+2, and if bargained, flying and lifelink."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    was_bargained = choice.callback_data.get('bargained', False)
+    events = [Event(type=EventType.PUMP, payload={'object_id': target_id, 'power': 2, 'toughness': 2, 'duration': 'end_of_turn'}, source=choice.source_id)]
+    if was_bargained:
+        events.append(Event(type=EventType.GRANT_KEYWORD, payload={'object_id': target_id, 'keyword': 'flying', 'duration': 'end_of_turn'}, source=choice.source_id))
+        events.append(Event(type=EventType.GRANT_KEYWORD, payload={'object_id': target_id, 'keyword': 'lifelink', 'duration': 'end_of_turn'}, source=choice.source_id))
+    return events
+
+
+def archons_glory_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature gets +2/+2 until end of turn. If bargained, also flying and lifelink."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    was_bargained = False
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Archon's Glory":
+                caster_id = obj.controller
+                spell_id = obj.id
+                was_bargained = getattr(obj.state, 'bargained', False) if obj.state else False
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "archons_glory_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to get +2/+2" + (" with flying and lifelink" if was_bargained else "")
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _archons_glory_execute
+    choice.callback_data['bargained'] = was_bargained
+    return []
+
+
+# --- NOT DEAD AFTER ALL ---
+def _not_dead_after_all_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Not Dead After All - grant return-on-death ability."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    return [Event(
+        type=EventType.TEMPORARY_EFFECT,
+        payload={
+            'object_id': target_id,
+            'grant_ability': 'return_on_death_with_wicked_role',
+            'duration': 'end_of_turn'
+        },
+        source=choice.source_id
+    )]
+
+
+def not_dead_after_all_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature you control gains death-return ability until end of turn."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Not Dead After All":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "not_dead_after_all_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
+                     and obj.controller == caster_id]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to grant death-return ability"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _not_dead_after_all_execute
+    return []
+
+
+# --- STONESPLITTER BOLT ---
+def _stonesplitter_bolt_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Stonesplitter Bolt - deal X or 2X damage."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    damage = choice.callback_data.get('damage', 0)
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target_id, 'amount': damage, 'source': choice.source_id, 'is_combat': False},
+        source=choice.source_id
+    )]
+
+
+def stonesplitter_bolt_resolve(targets: list, state: GameState) -> list[Event]:
+    """Stonesplitter Bolt deals X damage (or 2X if bargained) to target creature or planeswalker."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    was_bargained = False
+    x_value = 0
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Stonesplitter Bolt":
+                caster_id = obj.controller
+                spell_id = obj.id
+                was_bargained = getattr(obj.state, 'bargained', False) if obj.state else False
+                x_value = getattr(obj.state, 'x_value', 0) if obj.state else 0
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "stonesplitter_bolt_spell"
+
+    damage = (x_value * 2) if was_bargained else x_value
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and
+                     (CardType.CREATURE in obj.characteristics.types or CardType.PLANESWALKER in obj.characteristics.types)]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt=f"Choose a creature or planeswalker to deal {damage} damage to"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _stonesplitter_bolt_execute
+    choice.callback_data['damage'] = damage
+    return []
+
+
+# --- FRANTIC FIREBOLT ---
+def _frantic_firebolt_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Frantic Firebolt - deal calculated damage."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    damage = choice.callback_data.get('damage', 2)
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target_id, 'amount': damage, 'source': choice.source_id, 'is_combat': False},
+        source=choice.source_id
+    )]
+
+
+def frantic_firebolt_resolve(targets: list, state: GameState) -> list[Event]:
+    """Frantic Firebolt deals X damage to target creature (X = 2 + instants/sorceries/adventures in graveyard)."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Frantic Firebolt":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "frantic_firebolt_spell"
+
+    # Count instants, sorceries, and cards with Adventure in graveyard
+    gy_key = f"graveyard_{caster_id}"
+    count = 0
+    if gy_key in state.zones:
+        for card_id in state.zones[gy_key].objects:
+            card = state.objects.get(card_id)
+            if card:
+                types = card.characteristics.types
+                subtypes = card.characteristics.subtypes
+                if CardType.INSTANT in types or CardType.SORCERY in types or 'Adventure' in subtypes:
+                    count += 1
+    damage = 2 + count
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt=f"Choose a creature to deal {damage} damage to"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _frantic_firebolt_execute
+    choice.callback_data['damage'] = damage
+    return []
+
+
+# --- MISLEADING MOTES ---
+def _misleading_motes_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Misleading Motes - put creature on top or bottom of library."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    # For simplicity, put on top (would need another choice for top/bottom)
+    return [Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': target_id,
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone_type': ZoneType.LIBRARY,
+            'library_position': 'top'
+        },
+        source=choice.source_id
+    )]
+
+
+def misleading_motes_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature's owner puts it on top or bottom of their library."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Misleading Motes":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "misleading_motes_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature to put on top/bottom of its owner's library"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _misleading_motes_execute
+    return []
+
+
+# --- KELLANS LIGHTBLADES ---
+def _kellans_lightblades_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Kellan's Lightblades - 3 damage or destroy if bargained."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    was_bargained = choice.callback_data.get('bargained', False)
+    if was_bargained:
+        return [Event(type=EventType.DESTROY, payload={'object_id': target_id}, source=choice.source_id)]
+    else:
+        return [Event(type=EventType.DAMAGE, payload={'target': target_id, 'amount': 3, 'source': choice.source_id, 'is_combat': False}, source=choice.source_id)]
+
+
+def kellans_lightblades_resolve(targets: list, state: GameState) -> list[Event]:
+    """Deal 3 damage to target attacking or blocking creature. If bargained, destroy instead."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    was_bargained = False
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Kellan's Lightblades":
+                caster_id = obj.controller
+                spell_id = obj.id
+                was_bargained = getattr(obj.state, 'bargained', False) if obj.state else False
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "kellans_lightblades_spell"
+
+    # In practice, would check attacking/blocking status
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose an attacking or blocking creature"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _kellans_lightblades_execute
+    choice.callback_data['bargained'] = was_bargained
+    return []
+
+
+# --- DISDAINFUL STROKE ---
+def _disdainful_stroke_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Disdainful Stroke - counter target spell with MV >= 4."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    return [Event(type=EventType.COUNTER_SPELL, payload={'spell_id': target_id}, source=choice.source_id)]
+
+
+def disdainful_stroke_resolve(targets: list, state: GameState) -> list[Event]:
+    """Counter target spell with mana value 4 or greater."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Disdainful Stroke":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "disdainful_stroke_spell"
+
+    def get_mana_value(o):
+        mc = o.characteristics.mana_cost or ""
+        return sum(1 for c in mc if c in 'WUBRG') + sum(int(c) for c in mc if c.isdigit())
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.STACK and get_mana_value(obj) >= 4 and obj.id != spell_id]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a spell with mana value 4 or greater to counter"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _disdainful_stroke_execute
+    return []
+
+
+# --- ICE OUT ---
+def _ice_out_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Ice Out - counter target spell."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    return [Event(type=EventType.COUNTER_SPELL, payload={'spell_id': target_id}, source=choice.source_id)]
+
+
+def ice_out_resolve(targets: list, state: GameState) -> list[Event]:
+    """Counter target spell."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Ice Out":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "ice_out_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.STACK and obj.id != spell_id]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a spell to counter"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _ice_out_execute
+    return []
+
+
+# --- FLICK A COIN ---
+def _flick_a_coin_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Flick a Coin - 1 damage, create Treasure, draw."""
+    target_id = selected[0] if selected else None
+    events = []
+
+    if target_id:
+        events.append(Event(type=EventType.DAMAGE, payload={'target': target_id, 'amount': 1, 'source': choice.source_id, 'is_combat': False}, source=choice.source_id))
+
+    events.append(Event(
+        type=EventType.OBJECT_CREATED,
+        payload={'name': 'Treasure Token', 'controller': choice.player, 'types': [CardType.ARTIFACT], 'subtypes': ['Treasure'], 'is_token': True},
+        source=choice.source_id
+    ))
+    events.append(Event(type=EventType.DRAW, payload={'player': choice.player, 'amount': 1}, source=choice.source_id))
+    return events
+
+
+def flick_a_coin_resolve(targets: list, state: GameState) -> list[Event]:
+    """Deal 1 damage to any target, create Treasure, draw a card."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Flick a Coin":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "flick_a_coin_spell"
+
+    # Any target = creatures, planeswalkers, players
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and
+                     (CardType.CREATURE in obj.characteristics.types or CardType.PLANESWALKER in obj.characteristics.types)]
+    valid_targets.extend(list(state.players.keys()))
+
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose any target to deal 1 damage to"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _flick_a_coin_execute
+    return []
+
+
+# --- FAERIE FENCING ---
+def _faerie_fencing_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Faerie Fencing - -X/-X, additional -3/-3 if controlling Faerie."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    x_value = choice.callback_data.get('x_value', 0)
+    bonus = choice.callback_data.get('faerie_bonus', 0)
+    total_mod = -(x_value + bonus)
+    return [Event(type=EventType.PUMP, payload={'object_id': target_id, 'power': total_mod, 'toughness': total_mod, 'duration': 'end_of_turn'}, source=choice.source_id)]
+
+
+def faerie_fencing_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature gets -X/-X. Additional -3/-3 if you control a Faerie."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    x_value = 0
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Faerie Fencing":
+                caster_id = obj.controller
+                spell_id = obj.id
+                x_value = getattr(obj.state, 'x_value', 0) if obj.state else 0
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "faerie_fencing_spell"
+
+    controls_faerie = any(
+        obj.controller == caster_id and obj.zone == ZoneType.BATTLEFIELD and
+        CardType.CREATURE in obj.characteristics.types and 'Faerie' in obj.characteristics.subtypes
+        for obj in state.objects.values()
+    )
+    faerie_bonus = 3 if controls_faerie else 0
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt=f"Choose a creature to get -{x_value + faerie_bonus}/-{x_value + faerie_bonus}"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _faerie_fencing_execute
+    choice.callback_data['x_value'] = x_value
+    choice.callback_data['faerie_bonus'] = faerie_bonus
+    return []
+
+
+# --- THE END ---
+def _the_end_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute The End - exile target creature or planeswalker."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+
+    # Simplified - just exile the target
+    return [Event(type=EventType.EXILE, payload={'object_id': target_id}, source=choice.source_id)]
+
+
+def the_end_resolve(targets: list, state: GameState) -> list[Event]:
+    """Exile target creature or planeswalker."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "The End":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "the_end_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and
+                     (CardType.CREATURE in obj.characteristics.types or CardType.PLANESWALKER in obj.characteristics.types)]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose a creature or planeswalker to exile"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _the_end_execute
+    return []
+
+
+# --- PLUNGE INTO WINTER ---
+def _plunge_into_winter_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Plunge into Winter - tap creature, scry 1, draw."""
+    events = []
+    target_id = selected[0] if selected else None
+    if target_id:
+        target = state.objects.get(target_id)
+        if target and target.zone == ZoneType.BATTLEFIELD:
+            events.append(Event(type=EventType.TAP, payload={'object_id': target_id}, source=choice.source_id))
+    events.append(Event(type=EventType.SCRY, payload={'player': choice.player, 'amount': 1}, source=choice.source_id))
+    events.append(Event(type=EventType.DRAW, payload={'player': choice.player, 'amount': 1}, source=choice.source_id))
+    return events
+
+
+def plunge_into_winter_resolve(targets: list, state: GameState) -> list[Event]:
+    """Tap up to one target creature. Scry 1, then draw a card."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Plunge into Winter":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "plunge_into_winter_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose up to one creature to tap",
+        min_targets=0, max_targets=1
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _plunge_into_winter_execute
+    return []
+
+
+# --- RAT OUT ---
+def _rat_out_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Rat Out - -1/-1 to creature, create Rat token."""
+    events = []
+    target_id = selected[0] if selected else None
+    if target_id:
+        target = state.objects.get(target_id)
+        if target and target.zone == ZoneType.BATTLEFIELD:
+            events.append(Event(type=EventType.PUMP, payload={'object_id': target_id, 'power': -1, 'toughness': -1, 'duration': 'end_of_turn'}, source=choice.source_id))
+    events.append(Event(
+        type=EventType.OBJECT_CREATED,
+        payload={'name': 'Rat Token', 'controller': choice.player, 'power': 1, 'toughness': 1,
+                 'types': [CardType.CREATURE], 'subtypes': ['Rat'], 'colors': [Color.BLACK], 'is_token': True},
+        source=choice.source_id
+    ))
+    return events
+
+
+def rat_out_resolve(targets: list, state: GameState) -> list[Event]:
+    """Up to one target creature gets -1/-1. Create a 1/1 black Rat token."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Rat Out":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "rat_out_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose up to one creature to get -1/-1",
+        min_targets=0, max_targets=1
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _rat_out_execute
+    return []
+
+
+# --- SUCCUMB TO THE COLD ---
+def _succumb_to_the_cold_execute(choice, selected, state: GameState) -> list[Event]:
+    """Execute Succumb to the Cold - tap 1-2 creatures, add stun counters."""
+    events = []
+    for target_id in selected:
+        target = state.objects.get(target_id)
+        if target and target.zone == ZoneType.BATTLEFIELD:
+            events.append(Event(type=EventType.TAP, payload={'object_id': target_id}, source=choice.source_id))
+            events.append(Event(type=EventType.COUNTER_ADDED, payload={'object_id': target_id, 'counter_type': 'stun', 'amount': 1}, source=choice.source_id))
+    return events
+
+
+def succumb_to_the_cold_resolve(targets: list, state: GameState) -> list[Event]:
+    """Tap one or two target creatures an opponent controls. Put a stun counter on each."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Succumb to the Cold":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "succumb_to_the_cold_spell"
+
+    valid_targets = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
+                     and obj.controller != caster_id]
+    if not valid_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose one or two opponent's creatures to tap and stun",
+        min_targets=1, max_targets=2
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _succumb_to_the_cold_execute
+    return []
+
+
+# --- MOMENT OF VALOR ---
+def moment_of_valor_resolve(targets: list, state: GameState) -> list[Event]:
+    """Choose one: Untap and +1/+0 with indestructible; or destroy creature with power 4+."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Moment of Valor":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "moment_of_valor_spell"
+
+    modes = [
+        {"id": "pump", "label": "Untap target creature. It gets +1/+0 and gains indestructible until end of turn."},
+        {"id": "destroy", "label": "Destroy target creature with power 4 or greater."}
+    ]
+
+    def mode_handler(choice, selected_modes, state: GameState) -> list[Event]:
+        mode = selected_modes[0] if selected_modes else "pump"
+        if mode == "pump":
+            valid = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
+        else:
+            valid = [obj.id for obj in state.objects.values()
+                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
+                     and obj.power >= 4]
+        if not valid:
+            return []
+
+        def execute_mode(choice2, selected2, state2: GameState) -> list[Event]:
+            t_id = selected2[0] if selected2 else None
+            if not t_id:
+                return []
+            t = state2.objects.get(t_id)
+            if not t or t.zone != ZoneType.BATTLEFIELD:
+                return []
+            if mode == "pump":
+                return [
+                    Event(type=EventType.UNTAP, payload={'object_id': t_id}, source=choice2.source_id),
+                    Event(type=EventType.PUMP, payload={'object_id': t_id, 'power': 1, 'toughness': 0, 'duration': 'end_of_turn'}, source=choice2.source_id),
+                    Event(type=EventType.GRANT_KEYWORD, payload={'object_id': t_id, 'keyword': 'indestructible', 'duration': 'end_of_turn'}, source=choice2.source_id)
+                ]
+            else:
+                return [Event(type=EventType.DESTROY, payload={'object_id': t_id}, source=choice2.source_id)]
+
+        target_choice = create_target_choice(
+            state=state, player_id=choice.player, source_id=choice.source_id,
+            legal_targets=valid,
+            prompt="Choose a target for Moment of Valor"
+        )
+        target_choice.choice_type = "target_with_callback"
+        target_choice.callback_data['handler'] = execute_mode
+        return []
+
+    choice = create_modal_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        modes=modes,
+        min_modes=1, max_modes=1
+    )
+    choice.callback_data['handler'] = mode_handler
+    return []
+
+
 # --- Green Cards ---
 
 def elvish_archivist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1045,7 +2860,7 @@ def gruff_triplets_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         events = []
         for o in state.objects.values():
             if (o.controller == obj.controller and
-                o.characteristics.name == 'Gruff Triplets' and
+                o.name == 'Gruff Triplets' and  # Name is on GameObject, not Characteristics
                 o.zone == ZoneType.BATTLEFIELD and
                 o.id != obj.id):
                 events.append(Event(
@@ -2503,6 +4318,7 @@ ARCHONS_GLORY = make_instant(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nTarget creature gets +2/+2 until end of turn. If this spell was bargained, that creature also gains flying and lifelink until end of turn.",
+    resolve=archons_glory_resolve,
 )
 
 ARMORY_MICE = make_creature(
@@ -2528,6 +4344,7 @@ BREAK_THE_SPELL = make_instant(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Destroy target enchantment. If a permanent you controlled or a token was destroyed this way, draw a card.",
+    resolve=break_the_spell_resolve,
 )
 
 CHARMED_CLOTHIER = make_creature(
@@ -2637,6 +4454,7 @@ KELLANS_LIGHTBLADES = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nKellan's Lightblades deals 3 damage to target attacking or blocking creature. If this spell was bargained, destroy that creature instead.",
+    resolve=kellans_lightblades_resolve,
 )
 
 KNIGHT_OF_DOVES = make_creature(
@@ -2654,6 +4472,7 @@ MOMENT_OF_VALOR = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Choose one —\n• Untap target creature. It gets +1/+0 and gains indestructible until end of turn.\n• Destroy target creature with power 4 or greater.",
+    resolve=moment_of_valor_resolve,
 )
 
 MOONSHAKER_CAVALRY = make_creature(
@@ -2671,6 +4490,7 @@ PLUNGE_INTO_WINTER = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Tap up to one target creature. Scry 1, then draw a card.",
+    resolve=plunge_into_winter_resolve,
 )
 
 THE_PRINCESS_TAKES_FLIGHT = make_enchantment(
@@ -2768,6 +4588,7 @@ STROKE_OF_MIDNIGHT = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Destroy target nonland permanent. Its controller creates a 1/1 white Human creature token.",
+    resolve=stroke_of_midnight_resolve,
 )
 
 A_TALE_FOR_THE_AGES = make_enchantment(
@@ -2887,6 +4708,7 @@ DISDAINFUL_STROKE = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Counter target spell with mana value 4 or greater.",
+    resolve=disdainful_stroke_resolve,
 )
 
 EXTRAORDINARY_JOURNEY = make_enchantment(
@@ -2908,6 +4730,7 @@ FREEZE_IN_PLACE = make_sorcery(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Tap target creature an opponent controls and put three stun counters on it. Scry 2. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
+    resolve=freeze_in_place_resolve,
 )
 
 GADWICKS_FIRST_DUEL = make_enchantment(
@@ -2941,6 +4764,7 @@ ICE_OUT = make_instant(
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nThis spell costs {1} less to cast if it's bargained.\nCounter target spell.",
+    resolve=ice_out_resolve,
 )
 
 ICEWROUGHT_SENTRY = make_creature(
@@ -2973,6 +4797,7 @@ JOHANNS_STOPGAP = make_sorcery(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nThis spell costs {2} less to cast if it's bargained.\nReturn target nonland permanent to its owner's hand. Draw a card.",
+    resolve=johanns_stopgap_resolve,
 )
 
 LIVING_LECTERN = make_artifact_creature(
@@ -2999,6 +4824,7 @@ MISLEADING_MOTES = make_instant(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     text="Target creature's owner puts it on their choice of the top or bottom of their library.",
+    resolve=misleading_motes_resolve,
 )
 
 MOCKING_SPRITE = make_creature(
@@ -3094,6 +4920,7 @@ SUCCUMB_TO_THE_COLD = make_instant(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Tap one or two target creatures an opponent controls. Put a stun counter on each of them. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
+    resolve=succumb_to_the_cold_resolve,
 )
 
 TALIONS_MESSENGER = make_creature(
@@ -3136,6 +4963,7 @@ WATER_WINGS = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Until end of turn, target creature you control has base power and toughness 4/4 and gains flying and hexproof. (It can't be the target of spells or abilities your opponents control.)",
+    resolve=water_wings_resolve,
 )
 
 ASHIOK_WICKED_MANIPULATOR = make_planeswalker(
@@ -3186,6 +5014,7 @@ CANDY_GRAPPLE = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nTarget creature gets -3/-3 until end of turn. If this spell was bargained, that creature gets -5/-5 until end of turn instead.",
+    resolve=candy_grapple_resolve,
 )
 
 CONCEITED_WITCH = make_creature(
@@ -3219,6 +5048,7 @@ THE_END = make_instant(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     text="This spell costs {2} less to cast if your life total is 5 or less.\nExile target creature or planeswalker. Search its controller's graveyard, hand, and library for any number of cards with the same name as that permanent and exile them. That player shuffles, then draws a card for each card exiled from their hand this way.",
+    resolve=the_end_resolve,
 )
 
 ERIETTES_WHISPER = make_sorcery(
@@ -3243,6 +5073,7 @@ FAERIE_FENCING = make_instant(
     mana_cost="{X}{B}",
     colors={Color.BLACK},
     text="Target creature gets -X/-X until end of turn. That creature gets an additional -3/-3 until end of turn if you controlled a Faerie as you cast this spell.",
+    resolve=faerie_fencing_resolve,
 )
 
 FEED_THE_CAULDRON = make_instant(
@@ -3250,6 +5081,7 @@ FEED_THE_CAULDRON = make_instant(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Destroy target creature with mana value 3 or less. If it's your turn, create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")",
+    resolve=feed_the_cauldron_resolve,
 )
 
 FELL_HORSEMAN = make_creature(
@@ -3338,6 +5170,7 @@ NOT_DEAD_AFTER_ALL = make_instant(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="Until end of turn, target creature you control gains \"When this creature dies, return it to the battlefield tapped under its owner's control, then create a Wicked Role token attached to it.\" (Enchanted creature gets +1/+1. When this token is put into a graveyard, each opponent loses 1 life.)",
+    resolve=not_dead_after_all_resolve,
 )
 
 RANKLES_PRANK = make_sorcery(
@@ -3352,6 +5185,7 @@ RAT_OUT = make_instant(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="Up to one target creature gets -1/-1 until end of turn. You create a 1/1 black Rat creature token with \"This token can't block.\"",
+    resolve=rat_out_resolve,
 )
 
 ROWANS_GRIM_SEARCH = make_instant(
@@ -3410,6 +5244,7 @@ SUGAR_RUSH = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Target creature gets +3/+0 until end of turn.\nDraw a card.",
+    resolve=sugar_rush_resolve,
 )
 
 SWEETTOOTH_WITCH = make_creature(
@@ -3427,6 +5262,7 @@ TAKEN_BY_NIGHTMARES = make_instant(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     text="Exile target creature. If you control an enchantment, scry 2.",
+    resolve=taken_by_nightmares_resolve,
 )
 
 TANGLED_COLONY = make_creature(
@@ -3542,6 +5378,7 @@ CUT_IN = make_sorcery(
     mana_cost="{3}{R}",
     colors={Color.RED},
     text="Cut In deals 4 damage to target creature.\nCreate a Young Hero Role token attached to up to one target creature you control. (If you control another Role on it, put that one into the graveyard. Enchanted creature has \"Whenever this creature attacks, if its toughness is 3 or less, put a +1/+1 counter on it.\")",
+    resolve=cut_in_resolve,
 )
 
 EDGEWALL_PACK = make_creature(
@@ -3568,6 +5405,7 @@ FLICK_A_COIN = make_instant(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Flick a Coin deals 1 damage to any target. You create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")\nDraw a card.",
+    resolve=flick_a_coin_resolve,
 )
 
 FOOD_FIGHT = make_enchantment(
@@ -3582,6 +5420,7 @@ FRANTIC_FIREBOLT = make_instant(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Frantic Firebolt deals X damage to target creature, where X is 2 plus the number of cards in your graveyard that are instant cards, sorcery cards, and/or have an Adventure.",
+    resolve=frantic_firebolt_resolve,
 )
 
 GNAWING_CRESCENDO = make_instant(
@@ -3653,6 +5492,7 @@ KINDLED_HEROISM = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Target creature gets +1/+0 and gains first strike until end of turn. Scry 1.",
+    resolve=kindled_heroism_resolve,
 )
 
 KORVOLD_AND_THE_NOBLE_THIEF = make_enchantment(
@@ -3686,6 +5526,7 @@ MONSTROUS_RAGE = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Target creature gets +2/+0 until end of turn. Create a Monster Role token attached to it. (If you control another Role on it, put that one into the graveyard. Enchanted creature gets +1/+1 and has trample.)",
+    resolve=monstrous_rage_resolve,
 )
 
 RAGING_BATTLE_MOUSE = make_creature(
@@ -3765,6 +5606,7 @@ STONESPLITTER_BOLT = make_instant(
     mana_cost="{X}{R}",
     colors={Color.RED},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nStonesplitter Bolt deals X damage to target creature or planeswalker. If this spell was bargained, it deals twice X damage to that permanent instead.",
+    resolve=stonesplitter_bolt_resolve,
 )
 
 TATTERED_RATTER = make_creature(
@@ -3781,6 +5623,7 @@ TORCH_THE_TOWER = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nTorch the Tower deals 2 damage to target creature or planeswalker. If this spell was bargained, instead it deals 3 damage to that permanent and you scry 1.\nIf a permanent dealt damage by Torch the Tower would die this turn, exile it instead.",
+    resolve=torch_the_tower_resolve,
 )
 
 TWISTED_FEALTY = make_sorcery(
@@ -3828,6 +5671,7 @@ WITCHSTALKER_FRENZY = make_instant(
     mana_cost="{3}{R}",
     colors={Color.RED},
     text="This spell costs {1} less to cast for each creature that attacked this turn.\nWitchstalker Frenzy deals 5 damage to target creature.",
+    resolve=witchstalker_frenzy_resolve,
 )
 
 AGATHAS_CHAMPION = make_creature(
@@ -3980,6 +5824,7 @@ LEAPING_AMBUSH = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Target creature gets +1/+3 and gains reach until end of turn. Untap it.",
+    resolve=leaping_ambush_resolve,
 )
 
 NIGHT_OF_THE_SWEETS_REVENGE = make_enchantment(
@@ -4030,6 +5875,7 @@ ROYAL_TREATMENT = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Target creature you control gains hexproof until end of turn. Create a Royal Role token attached to that creature. (If you control another Role on it, put that one into the graveyard. Enchanted creature gets +1/+1 and has ward {1}.)",
+    resolve=royal_treatment_resolve,
 )
 
 SENTINEL_OF_LOST_LORE = make_creature(
@@ -4098,6 +5944,7 @@ TITANIC_GROWTH = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Target creature gets +4/+4 until end of turn.",
+    resolve=titanic_growth_resolve,
 )
 
 TOADSTOOL_ADMIRER = make_creature(

@@ -8,6 +8,9 @@ from .deck import Deck, DeckEntry, load_deck, validate_deck
 from .standard_decks import STANDARD_DECKS, get_deck, get_random_deck
 from .netdecks import NETDECKS, get_netdeck
 
+# Combined registry for all available decks
+ALL_DECKS = {**STANDARD_DECKS, **NETDECKS}
+
 __all__ = [
     'Deck',
     'DeckEntry',
@@ -18,4 +21,5 @@ __all__ = [
     'get_random_deck',
     'NETDECKS',
     'get_netdeck',
+    'ALL_DECKS',
 ]

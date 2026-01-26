@@ -2,10 +2,20 @@
  * Battlefield Component
  *
  * Displays permanents on the battlefield for one player.
+ * Supports drag and drop for playing lands and targeting spells.
  */
 
+import { useCallback } from 'react';
 import clsx from 'clsx';
-import { Card } from '../cards';
+import { TargetableCard } from '../cards/TargetableCard';
+import {
+  CreatureIcon,
+  ArtifactIcon,
+  PlayLandIcon,
+  PlayerIcon,
+  GamepadIcon,
+} from '../ui/Icons';
+import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
 import type { CardData } from '../../types';
 
 interface BattlefieldProps {
@@ -17,6 +27,8 @@ interface BattlefieldProps {
   selectedBlockers?: Map<string, string>;
   combatAttackers?: string[];
   onCardClick?: (card: CardData) => void;
+  onCardDrop?: (item: DragItem, targetCard: CardData) => void;
+  onBattlefieldDrop?: (item: DragItem) => void;
 }
 
 export function Battlefield({
@@ -28,7 +40,11 @@ export function Battlefield({
   selectedBlockers = new Map(),
   combatAttackers = [],
   onCardClick,
+  onCardDrop,
+  onBattlefieldDrop,
 }: BattlefieldProps) {
+  const { isDragging, validDropZones, setHoveredZone, hoveredDropZone, endDrag } = useDragDropStore();
+
   // Group permanents by type
   const creatures = permanents.filter((p) => p.types.includes('CREATURE'));
   const lands = permanents.filter((p) => p.types.includes('LAND'));
@@ -36,13 +52,58 @@ export function Battlefield({
     (p) => !p.types.includes('CREATURE') && !p.types.includes('LAND')
   );
 
-  const renderCardGroup = (cards: CardData[], label: string, icon: string) => {
+  const dropZoneId = isOpponent ? 'battlefield-opponent' : 'battlefield-self';
+  const isValidDropTarget = isDragging && validDropZones.includes(dropZoneId);
+  const isHovered = hoveredDropZone === dropZoneId;
+
+  // Handle drop on the battlefield (for lands)
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!isValidDropTarget) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, [isValidDropTarget]);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!isValidDropTarget) return;
+    e.preventDefault();
+    setHoveredZone(dropZoneId);
+  }, [isValidDropTarget, dropZoneId, setHoveredZone]);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    // Only handle if we're actually leaving this element
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+      return;
+    }
+    setHoveredZone(null);
+  }, [setHoveredZone]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    if (!isValidDropTarget || !onBattlefieldDrop) return;
+    e.preventDefault();
+    setHoveredZone(null);
+
+    try {
+      const data = e.dataTransfer.getData('application/json');
+      if (data) {
+        const item: DragItem = JSON.parse(data);
+        onBattlefieldDrop(item);
+        endDrag();
+      }
+    } catch (err) {
+      console.error('Failed to parse drag data:', err);
+    }
+  }, [isValidDropTarget, onBattlefieldDrop, setHoveredZone, endDrag]);
+
+  const renderCardGroup = (cards: CardData[], label: string, IconComponent: React.ComponentType<{ className?: string; size?: 'xs' | 'sm' | 'md' | 'lg' }>) => {
     if (cards.length === 0) return null;
 
     return (
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-lg">{icon}</span>
+          <IconComponent className="text-slate-400" size="md" />
           <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
             {label}
           </span>
@@ -57,34 +118,18 @@ export function Battlefield({
             const isBlocking = selectedBlockers.has(card.id);
 
             return (
-              <div key={card.id} className="relative">
-                <Card
-                  card={card}
-                  size="small"
-                  isSelected={isSelected || isAttacking || isBlocking}
-                  isTargetable={isTargetable}
-                  isHighlighted={isBlockingAttacker}
-                  onClick={() => onCardClick?.(card)}
-                />
-                {/* Attack indicator */}
-                {isAttacking && (
-                  <div className="absolute -top-1 -right-1 bg-gradient-to-br from-red-500 to-red-700 text-white text-[10px] px-2 py-0.5 rounded-full font-bold shadow-lg border border-red-400">
-                    ⚔️ ATK
-                  </div>
-                )}
-                {/* Block indicator */}
-                {isBlocking && (
-                  <div className="absolute -top-1 -right-1 bg-gradient-to-br from-blue-500 to-blue-700 text-white text-[10px] px-2 py-0.5 rounded-full font-bold shadow-lg border border-blue-400">
-                    🛡️ BLK
-                  </div>
-                )}
-                {/* Being attacked indicator */}
-                {isBlockingAttacker && (
-                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 bg-gradient-to-br from-orange-500 to-orange-700 text-white text-[10px] px-2 py-0.5 rounded-full font-bold shadow-lg border border-orange-400">
-                    ⚔️ Target
-                  </div>
-                )}
-              </div>
+              <TargetableCard
+                key={card.id}
+                card={card}
+                size="small"
+                isSelected={isSelected}
+                isTargetable={isTargetable}
+                isHighlighted={isBlockingAttacker}
+                isAttacking={isAttacking}
+                isBlocking={isBlocking}
+                onClick={() => onCardClick?.(card)}
+                onDrop={onCardDrop}
+              />
             );
           })}
         </div>
@@ -95,21 +140,29 @@ export function Battlefield({
   return (
     <div
       className={clsx(
-        'p-4 rounded-xl min-h-[140px]',
-        'border-2',
+        'p-4 rounded-xl min-h-[140px] relative',
+        'border-2 transition-all duration-200',
         isOpponent
           ? 'bg-gradient-to-b from-red-950/30 via-slate-900/50 to-slate-900/30 border-red-900/40'
           : 'bg-gradient-to-b from-emerald-950/30 via-slate-900/50 to-slate-900/30 border-emerald-900/40',
         {
           'order-first': isOpponent,
+          'ring-4 ring-cyan-400/50': isValidDropTarget && !isHovered,
+          'ring-4 ring-emerald-500 bg-emerald-900/20': isHovered,
         }
       )}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       {/* Header */}
       <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-700/50">
-        <span className={clsx('text-lg', isOpponent ? 'text-red-400' : 'text-emerald-400')}>
-          {isOpponent ? '👤' : '🎮'}
-        </span>
+        {isOpponent ? (
+          <PlayerIcon className="text-red-400" size="md" />
+        ) : (
+          <GamepadIcon className="text-emerald-400" size="md" />
+        )}
         <span className="text-xs text-slate-300 uppercase tracking-wider font-semibold">
           {isOpponent ? "Opponent's Battlefield" : 'Your Battlefield'}
         </span>
@@ -119,8 +172,22 @@ export function Battlefield({
       </div>
 
       {permanents.length === 0 ? (
-        <div className="text-slate-600 text-sm italic text-center py-6 border border-dashed border-slate-700 rounded-lg">
-          No permanents in play
+        <div className={clsx(
+          'text-sm italic text-center py-8 border-2 border-dashed rounded-xl transition-all duration-300',
+          isValidDropTarget && !isHovered && 'text-cyan-400 border-cyan-500/60 bg-cyan-900/10 animate-pulse',
+          isValidDropTarget && isHovered && 'text-emerald-300 border-emerald-400 bg-emerald-900/20 scale-[1.02]',
+          !isValidDropTarget && 'text-slate-600 border-slate-700'
+        )}>
+          {isValidDropTarget ? (
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-2xl">{isHovered ? '✓' : '↓'}</span>
+              <span className="font-medium">
+                {isHovered ? 'Release to play!' : 'Drop here to play'}
+              </span>
+            </div>
+          ) : (
+            'No permanents in play'
+          )}
         </div>
       ) : (
         <div
@@ -129,17 +196,31 @@ export function Battlefield({
           })}
         >
           {/* Creatures - main area */}
-          <div className="flex-1">{renderCardGroup(creatures, 'Creatures', '⚔️')}</div>
+          <div className="flex-1">{renderCardGroup(creatures, 'Creatures', CreatureIcon)}</div>
 
           {/* Other permanents */}
           {others.length > 0 && (
-            <div className="flex-shrink-0">{renderCardGroup(others, 'Other', '🔮')}</div>
+            <div className="flex-shrink-0">{renderCardGroup(others, 'Other', ArtifactIcon)}</div>
           )}
 
           {/* Lands - compact on the side */}
           {lands.length > 0 && (
             <div className="flex-shrink-0 max-w-[250px]">
-              {renderCardGroup(lands, 'Lands', '🏔️')}
+              {renderCardGroup(lands, 'Lands', PlayLandIcon)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Drop indicator overlay */}
+      {isValidDropTarget && (
+        <div className={clsx(
+          'absolute inset-0 rounded-xl pointer-events-none flex items-center justify-center transition-all duration-300',
+          isHovered ? 'bg-emerald-500/15' : 'bg-cyan-500/5'
+        )}>
+          {isHovered && (
+            <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 text-white px-6 py-3 rounded-xl font-bold shadow-xl border-2 border-emerald-400 animate-bounce">
+              Release to Play!
             </div>
           )}
         </div>

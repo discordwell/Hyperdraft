@@ -9,9 +9,9 @@ our knowledge cutoff.
 """
 
 # Fan-made versions of real UB sets (post-cutoff releases)
-from .avatar_tla import AVATAR_TLA_CUSTOM_CARDS
-from .spider_man import SPIDER_MAN_CUSTOM_CARDS
-from .final_fantasy import FINAL_FANTASY_CUSTOM_CARDS
+from .penultimate_avatar import AVATAR_TLA_CUSTOM_CARDS
+from .man_of_pider import SPIDER_MAN_CUSTOM_CARDS
+from .princess_catholicon import FINAL_FANTASY_CUSTOM_CARDS
 from .temporal_horizons import TEMPORAL_HORIZONS_CARDS
 from .lorwyn_custom import LORWYN_CUSTOM_CARDS
 

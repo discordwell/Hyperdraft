@@ -12,7 +12,7 @@ from typing import Optional
 from .types import (
     Event, EventType, EventStatus,
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
-    GameState, GameObject, ZoneType, Player, Color
+    GameState, GameObject, ZoneType, Player, Color, CardType
 )
 
 
@@ -67,9 +67,57 @@ class EventPipeline:
         self.state.event_log.append(event)
 
         # 4. REACT PHASE
+        # Death triggers and other reactions fire here, BEFORE cleanup
         triggered = self._run_react_phase(event)
 
+        # 5. CLEANUP PHASE
+        # Clean up interceptors for objects that left the battlefield
+        # This happens AFTER REACT so death triggers can fire
+        self._cleanup_departed_interceptors(event)
+
         return triggered
+
+    def _cleanup_departed_interceptors(self, event: Event):
+        """
+        Clean up interceptors for objects that left the battlefield.
+
+        Called after REACT phase so death triggers can fire first.
+        Only cleans up interceptors with duration='while_on_battlefield'.
+        """
+        # Only clean up after zone changes or destruction
+        if event.type not in (EventType.OBJECT_DESTROYED, EventType.ZONE_CHANGE):
+            return
+
+        object_id = event.payload.get('object_id')
+        if not object_id or object_id not in self.state.objects:
+            return
+
+        obj = self.state.objects[object_id]
+
+        # Only clean up if object left the battlefield
+        if obj.zone == ZoneType.BATTLEFIELD:
+            return
+
+        # Remove interceptors marked for cleanup when leaving battlefield
+        to_remove = []
+        for int_id in list(obj.interceptor_ids):
+            interceptor = self.state.interceptors.get(int_id)
+            if interceptor:
+                # Clean up interceptors that only work while on battlefield
+                # Keep interceptors marked 'until_leaves' for one more event cycle
+                # (they needed to fire their death trigger)
+                duration = getattr(interceptor, 'duration', 'while_on_battlefield')
+                if duration == 'while_on_battlefield':
+                    to_remove.append(int_id)
+                elif duration == 'until_leaves':
+                    # Mark for removal next time (already fired)
+                    to_remove.append(int_id)
+
+        for int_id in to_remove:
+            if int_id in self.state.interceptors:
+                del self.state.interceptors[int_id]
+            if int_id in obj.interceptor_ids:
+                obj.interceptor_ids.remove(int_id)
 
     def _get_interceptors(self, priority: InterceptorPriority) -> list[Interceptor]:
         """Get interceptors of a given priority, sorted by timestamp."""
@@ -232,6 +280,48 @@ def _handle_zone_change(event: Event, state: GameState):
     obj.zone = event.payload.get('to_zone_type', obj.zone)
     obj.entered_zone_at = state.timestamp
 
+    # When entering the battlefield, reset object state (MTG rule: new object)
+    # This happens BEFORE applying special enter-the-battlefield modifications
+    to_zone_type = event.payload.get('to_zone_type')
+    if to_zone_type == ZoneType.BATTLEFIELD:
+        # Clear counters (will be re-added if specified in payload)
+        obj.state.counters = {}
+        # Clear damage
+        obj.state.damage = 0
+        # Reset tapped state (will be set if entering tapped)
+        obj.state.tapped = False
+
+    # Handle "as enchantment only" - for cards like Enduring Curiosity
+    # that return from graveyard without their creature type
+    if event.payload.get('as_enchantment_only'):
+        if CardType.CREATURE in obj.characteristics.types:
+            obj.characteristics.types.discard(CardType.CREATURE)
+        # Clear P/T since it's no longer a creature
+        obj.characteristics.power = None
+        obj.characteristics.toughness = None
+
+    # Handle entering tapped (e.g., Unstoppable Slasher)
+    if event.payload.get('tapped'):
+        obj.state.tapped = True
+
+    # Handle entering with counters (e.g., Unstoppable Slasher with stun counters)
+    counters = event.payload.get('counters')
+    if counters and isinstance(counters, dict):
+        for counter_type, amount in counters.items():
+            obj.state.counters[counter_type] = amount  # Set directly since we cleared above
+
+    # Re-setup interceptors when entering the battlefield
+    # This handles cards like Enduring Curiosity that return from graveyard
+    to_zone_type = event.payload.get('to_zone_type')
+    if to_zone_type == ZoneType.BATTLEFIELD and obj.card_def:
+        if obj.card_def.setup_interceptors:
+            # Run setup with the current object state (post-type-changes)
+            new_interceptors = obj.card_def.setup_interceptors(obj, state) or []
+            for interceptor in new_interceptors:
+                interceptor.timestamp = state.next_timestamp()
+                state.interceptors[interceptor.id] = interceptor
+                obj.interceptor_ids.append(interceptor.id)
+
 
 def _handle_tap(event: Event, state: GameState):
     """Handle TAP event."""
@@ -272,7 +362,12 @@ def _handle_counter_removed(event: Event, state: GameState):
 
 
 def _handle_object_destroyed(event: Event, state: GameState):
-    """Handle OBJECT_DESTROYED - move to graveyard."""
+    """
+    Handle OBJECT_DESTROYED - move to graveyard.
+
+    Note: Interceptor cleanup is handled AFTER the REACT phase
+    by _cleanup_departed_interceptors() so death triggers can fire.
+    """
     object_id = event.payload.get('object_id')
 
     if object_id not in state.objects:
@@ -295,12 +390,8 @@ def _handle_object_destroyed(event: Event, state: GameState):
     obj.zone = ZoneType.GRAVEYARD
     obj.entered_zone_at = state.timestamp
 
-    # Remove interceptors this object created
-    to_remove = list(obj.interceptor_ids)
-    for int_id in to_remove:
-        if int_id in state.interceptors:
-            del state.interceptors[int_id]
-    obj.interceptor_ids.clear()
+    # NOTE: Interceptor cleanup moved to _cleanup_departed_interceptors()
+    # which runs AFTER the REACT phase, allowing death triggers to fire
 
 
 def _handle_mana_produced(event: Event, state: GameState):
@@ -322,6 +413,351 @@ def _handle_player_loses(event: Event, state: GameState):
         state.players[player_id].has_lost = True
 
 
+def _handle_create_token(event: Event, state: GameState):
+    """
+    Handle CREATE_TOKEN event.
+
+    Creates a new GameObject representing a token and adds it to the battlefield.
+
+    Payload:
+        controller: Player ID who controls the token
+        token: dict with token characteristics:
+            - name: str
+            - power: int
+            - toughness: int
+            - types: set[CardType] (optional, defaults to {CREATURE})
+            - subtypes: set[str] (optional)
+            - colors: set[Color] (optional)
+            - text: str (optional)
+            - abilities: list[dict] (optional, for keywords like flying, haste)
+        count: int (optional, defaults to 1)
+        tapped: bool (optional, whether token enters tapped)
+    """
+    from .types import new_id, GameObject, Characteristics, ObjectState
+
+    controller_id = event.payload.get('controller')
+    token_data = event.payload.get('token', {})
+    count = event.payload.get('count', 1)
+    enters_tapped = event.payload.get('tapped', False)
+
+    if not controller_id or controller_id not in state.players:
+        return
+
+    for _ in range(count):
+        # Build characteristics from token data
+        types = token_data.get('types', {CardType.CREATURE})
+        if isinstance(types, list):
+            types = set(types)
+
+        subtypes = token_data.get('subtypes', set())
+        if isinstance(subtypes, list):
+            subtypes = set(subtypes)
+
+        colors = token_data.get('colors', set())
+        if isinstance(colors, list):
+            colors = set(colors)
+
+        characteristics = Characteristics(
+            types=types,
+            subtypes=subtypes,
+            colors=colors,
+            power=token_data.get('power'),
+            toughness=token_data.get('toughness'),
+            abilities=token_data.get('abilities', [])
+        )
+
+        # Create the token object
+        obj_id = new_id()
+        token = GameObject(
+            id=obj_id,
+            name=token_data.get('name', 'Token'),
+            owner=controller_id,
+            controller=controller_id,
+            zone=ZoneType.BATTLEFIELD,
+            characteristics=characteristics,
+            state=ObjectState(
+                is_token=True,
+                tapped=enters_tapped
+            ),
+            created_at=state.next_timestamp(),
+            entered_zone_at=state.timestamp
+        )
+
+        # Add to state
+        state.objects[obj_id] = token
+
+        # Add to battlefield zone
+        battlefield_key = 'battlefield'
+        if battlefield_key in state.zones:
+            state.zones[battlefield_key].objects.append(obj_id)
+
+
+def _handle_exile(event: Event, state: GameState):
+    """
+    Handle EXILE event.
+
+    Moves object(s) from their current zone to exile.
+
+    Payload:
+        object_id: str - single object to exile
+        OR
+        object_ids: list[str] - multiple objects to exile
+    """
+    # Gather all object IDs to exile
+    object_ids = []
+    if 'object_id' in event.payload:
+        object_ids.append(event.payload['object_id'])
+    if 'object_ids' in event.payload:
+        object_ids.extend(event.payload['object_ids'])
+
+    exile_key = 'exile'
+    if exile_key not in state.zones:
+        return
+
+    for object_id in object_ids:
+        if object_id not in state.objects:
+            continue
+
+        obj = state.objects[object_id]
+
+        # Remove from current zone
+        for zone in state.zones.values():
+            if object_id in zone.objects:
+                zone.objects.remove(object_id)
+                break
+
+        # Add to exile zone
+        state.zones[exile_key].objects.append(object_id)
+
+        # Update object's zone
+        obj.zone = ZoneType.EXILE
+        obj.entered_zone_at = state.timestamp
+
+
+def _handle_surveil(event: Event, state: GameState):
+    """
+    Handle SURVEIL event.
+
+    Look at top N cards of library, put any number in graveyard (rest stay on top).
+
+    Payload:
+        player: player_id
+        amount: N (number of cards to surveil)
+        to_graveyard: list of indices (0-indexed) to put in graveyard
+                      If not provided, creates a PendingChoice for the player
+        source_id: Optional source card ID for the choice
+    """
+    from .types import PendingChoice
+
+    player_id = event.payload.get('player')
+    amount = event.payload.get('amount', 1)
+
+    library_key = f"library_{player_id}"
+    graveyard_key = f"graveyard_{player_id}"
+
+    if library_key not in state.zones or graveyard_key not in state.zones:
+        return
+
+    library = state.zones[library_key]
+    graveyard = state.zones[graveyard_key]
+
+    # Get top N cards (without removing yet)
+    cards_to_look = library.objects[:amount]
+
+    if not cards_to_look:
+        return
+
+    # Check if player selection is provided
+    to_graveyard_indices = event.payload.get('to_graveyard')
+
+    if to_graveyard_indices is None:
+        # No selection provided - create a choice for the player
+        source_id = event.payload.get('source_id', event.source or '')
+        choice = PendingChoice(
+            choice_type="surveil",
+            player=player_id,
+            prompt=f"Surveil {amount}: Choose cards to put into your graveyard",
+            options=cards_to_look,  # Card IDs being surveiled
+            source_id=source_id,
+            min_choices=0,
+            max_choices=len(cards_to_look),
+            callback_data={"surveil_count": amount}
+        )
+        state.pending_choice = choice
+        return  # Don't process yet - wait for player choice
+
+    # Convert to set for O(1) lookup
+    graveyard_set = set(to_graveyard_indices)
+
+    # Process cards - those in graveyard_set go to graveyard, others stay on top
+    cards_to_gy = []
+    cards_to_keep = []
+
+    for i, card_id in enumerate(cards_to_look):
+        if i in graveyard_set:
+            cards_to_gy.append(card_id)
+        else:
+            cards_to_keep.append(card_id)
+
+    # Remove all surveiled cards from library
+    for card_id in cards_to_look:
+        library.objects.remove(card_id)
+
+    # Put cards back on top (cards_to_keep) - in original order
+    library.objects = cards_to_keep + library.objects
+
+    # Put cards in graveyard
+    for card_id in cards_to_gy:
+        graveyard.objects.append(card_id)
+        if card_id in state.objects:
+            state.objects[card_id].zone = ZoneType.GRAVEYARD
+            state.objects[card_id].entered_zone_at = state.timestamp
+
+
+def _handle_scry(event: Event, state: GameState):
+    """
+    Handle SCRY event.
+
+    Look at top N cards of library, put any number on bottom (rest stay on top).
+
+    Payload:
+        player: player_id
+        count: N (number of cards to scry)
+        to_bottom: list of indices (0-indexed) to put on bottom
+                   If not provided, creates a PendingChoice for the player
+        source_id: Optional source card ID for the choice
+    """
+    from .types import PendingChoice
+
+    player_id = event.payload.get('player')
+    count = event.payload.get('count', 1)
+
+    library_key = f"library_{player_id}"
+
+    if library_key not in state.zones:
+        return
+
+    library = state.zones[library_key]
+
+    # Get top N cards (without removing yet)
+    cards_to_look = library.objects[:count]
+
+    if not cards_to_look:
+        return
+
+    # Check if player selection is provided
+    to_bottom_indices = event.payload.get('to_bottom')
+
+    if to_bottom_indices is None:
+        # No selection provided - create a choice for the player
+        source_id = event.payload.get('source_id', event.source or '')
+        choice = PendingChoice(
+            choice_type="scry",
+            player=player_id,
+            prompt=f"Scry {count}: Choose cards to put on the bottom of your library",
+            options=cards_to_look,  # Card IDs being scried
+            source_id=source_id,
+            min_choices=0,
+            max_choices=len(cards_to_look),
+            callback_data={"scry_count": count}
+        )
+        state.pending_choice = choice
+        return  # Don't process yet - wait for player choice
+
+    # Convert to set for O(1) lookup
+    bottom_set = set(to_bottom_indices)
+
+    # Process cards - those in bottom_set go to bottom, others stay on top
+    cards_to_bottom = []
+    cards_to_keep = []
+
+    for i, card_id in enumerate(cards_to_look):
+        if i in bottom_set:
+            cards_to_bottom.append(card_id)
+        else:
+            cards_to_keep.append(card_id)
+
+    # Remove all scried cards from library
+    for card_id in cards_to_look:
+        library.objects.remove(card_id)
+
+    # Put cards back on top (cards_to_keep) - in original order
+    library.objects = cards_to_keep + library.objects
+
+    # Put cards on bottom
+    library.objects.extend(cards_to_bottom)
+
+
+def _handle_mill(event: Event, state: GameState):
+    """
+    Handle MILL event.
+
+    Move top N cards from library directly to graveyard.
+
+    Payload:
+        player: player_id
+        count: N (number of cards to mill)
+    """
+    player_id = event.payload.get('player')
+    count = event.payload.get('count', 1)
+
+    library_key = f"library_{player_id}"
+    graveyard_key = f"graveyard_{player_id}"
+
+    if library_key not in state.zones or graveyard_key not in state.zones:
+        return
+
+    library = state.zones[library_key]
+    graveyard = state.zones[graveyard_key]
+
+    for _ in range(count):
+        if not library.objects:
+            break
+
+        card_id = library.objects.pop(0)  # Top of library
+        graveyard.objects.append(card_id)
+
+        if card_id in state.objects:
+            state.objects[card_id].zone = ZoneType.GRAVEYARD
+            state.objects[card_id].entered_zone_at = state.timestamp
+
+
+def _handle_discard(event: Event, state: GameState):
+    """
+    Handle DISCARD event.
+
+    Moves card(s) from hand to graveyard.
+
+    Payload:
+        object_id: str - specific card to discard
+        OR
+        player: str + amount: int - player discards N cards (requires choice)
+    """
+    player_id = event.payload.get('player')
+    object_id = event.payload.get('object_id')
+
+    if object_id:
+        # Discard a specific card
+        if object_id not in state.objects:
+            return
+
+        obj = state.objects[object_id]
+        hand_key = f"hand_{obj.owner}"
+        graveyard_key = f"graveyard_{obj.owner}"
+
+        if hand_key not in state.zones or graveyard_key not in state.zones:
+            return
+
+        hand = state.zones[hand_key]
+        graveyard = state.zones[graveyard_key]
+
+        if object_id in hand.objects:
+            hand.objects.remove(object_id)
+            graveyard.objects.append(object_id)
+            obj.zone = ZoneType.GRAVEYARD
+            obj.entered_zone_at = state.timestamp
+
+
 # =============================================================================
 # Event Handler Registry
 # =============================================================================
@@ -338,4 +774,10 @@ EVENT_HANDLERS = {
     EventType.OBJECT_DESTROYED: _handle_object_destroyed,
     EventType.MANA_PRODUCED: _handle_mana_produced,
     EventType.PLAYER_LOSES: _handle_player_loses,
+    EventType.CREATE_TOKEN: _handle_create_token,
+    EventType.EXILE: _handle_exile,
+    EventType.SURVEIL: _handle_surveil,
+    EventType.SCRY: _handle_scry,
+    EventType.MILL: _handle_mill,
+    EventType.DISCARD: _handle_discard,
 }

@@ -6,12 +6,13 @@ All AI strategies inherit from this and implement the required methods.
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from src.engine import GameState, PlayerAction, LegalAction
     from src.engine import AttackDeclaration, BlockDeclaration
     from src.ai.evaluator import BoardEvaluator
+    from src.ai.layers import CardLayers
 
 
 class AIStrategy(ABC):
@@ -23,6 +24,39 @@ class AIStrategy(ABC):
     - Control: Defensive, prioritizes card advantage and answers
     - Midrange: Balanced, adapts to the game state
     """
+
+    def __init__(self):
+        """Initialize the strategy with layer storage."""
+        self._layers: dict[str, 'CardLayers'] = {}
+
+    def set_card_layers(self, card_name: str, layers: 'CardLayers'):
+        """
+        Set the strategy layers for a card.
+
+        Called by AIEngine.prepare_for_match() to populate
+        card-specific strategic knowledge.
+
+        Args:
+            card_name: The card name
+            layers: All three layers for this card
+        """
+        self._layers[card_name] = layers
+
+    def get_layers(self, card_name: str) -> Optional['CardLayers']:
+        """
+        Get the strategy layers for a card.
+
+        Args:
+            card_name: The card name
+
+        Returns:
+            CardLayers if available, None otherwise
+        """
+        return self._layers.get(card_name)
+
+    def clear_layers(self):
+        """Clear all stored layers."""
+        self._layers.clear()
 
     @property
     @abstractmethod

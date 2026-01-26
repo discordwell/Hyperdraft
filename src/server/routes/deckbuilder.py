@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 from src.cards import ALL_CARDS
+from src.cards.set_registry import (
+    SETS, get_set_info, get_cards_in_set, get_all_sets,
+    get_rarity_breakdown, get_sets_for_card
+)
 from src.decks.deck import validate_deck, Deck, DeckEntry
 from src.engine.types import CardType, Color
 from ..services.deck_storage import deck_storage
@@ -114,8 +118,106 @@ class ExportDeckResponse(BaseModel):
 
 
 # =============================================================================
+# Set Browsing Models (Gatherer)
+# =============================================================================
+
+class SetInfoResponse(BaseModel):
+    """Set metadata response."""
+    code: str
+    name: str
+    card_count: int
+    release_date: str
+    set_type: str
+
+
+class SetDetailResponse(BaseModel):
+    """Detailed set information including rarity breakdown."""
+    code: str
+    name: str
+    card_count: int
+    release_date: str
+    set_type: str
+    rarity_breakdown: dict[str, int]
+
+
+class SetListResponse(BaseModel):
+    """List of sets response."""
+    sets: list[SetInfoResponse]
+    total: int
+
+
+class SetCardSearchRequest(BaseModel):
+    """Request for searching cards within a set."""
+    types: list[str] = Field(default_factory=list, description="Filter by card types")
+    colors: list[str] = Field(default_factory=list, description="Filter by colors (W, U, B, R, G)")
+    rarity: Optional[str] = Field(None, description="Filter by rarity")
+    cmc_min: Optional[int] = Field(None, ge=0, description="Minimum mana value")
+    cmc_max: Optional[int] = Field(None, ge=0, description="Maximum mana value")
+    text_search: Optional[str] = Field(None, description="Search in card text")
+    sort_by: str = Field("name", description="Sort field: name, cmc, rarity, color, type, power")
+    sort_order: str = Field("asc", description="Sort order: asc, desc")
+    limit: int = Field(50, ge=1, le=200)
+    offset: int = Field(0, ge=0)
+
+
+class SetCardSearchResponse(BaseModel):
+    """Response for set card search."""
+    cards: list[CardDefinitionData]
+    total: int
+    has_more: bool
+    set_code: str
+    set_name: str
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
+
+# Color code mappings
+COLOR_CODE_TO_NAME = {
+    'W': 'WHITE',
+    'U': 'BLUE',
+    'B': 'BLACK',
+    'R': 'RED',
+    'G': 'GREEN',
+}
+COLOR_NAME_TO_CODE = {v: k for k, v in COLOR_CODE_TO_NAME.items()}
+
+
+def normalize_color(color: str) -> str:
+    """Normalize a color to its full name (WHITE, BLUE, etc.)."""
+    color_upper = color.upper()
+    # If it's a single letter code, convert to full name
+    if color_upper in COLOR_CODE_TO_NAME:
+        return COLOR_CODE_TO_NAME[color_upper]
+    # Already a full name
+    return color_upper
+
+
+def get_colors_from_mana_cost(mana_cost: str) -> set[str]:
+    """
+    Extract all colors from a mana cost string.
+
+    Handles regular mana ({W}, {U}, etc.) and hybrid mana ({W/U}, {2/W}, etc.).
+    Returns a set of color names: WHITE, BLUE, BLACK, RED, GREEN.
+    """
+    if not mana_cost:
+        return set()
+
+    colors = set()
+
+    # Find all mana symbols {X}
+    import re
+    symbols = re.findall(r'\{([^}]+)\}', mana_cost)
+
+    for symbol in symbols:
+        # Check each character in the symbol (handles hybrid like W/U)
+        for char in symbol.upper():
+            if char in COLOR_CODE_TO_NAME:
+                colors.add(COLOR_CODE_TO_NAME[char])
+
+    return colors
+
 
 def card_def_to_data(name: str, card_def) -> CardDefinitionData:
     """Convert a CardDefinition to CardDefinitionData."""
@@ -206,11 +308,16 @@ async def search_cards(request: CardSearchRequest) -> CardSearchResponse:
             if not any(t.upper() in card_types for t in request.types):
                 continue
 
-        # Color filter
+        # Color filter (inclusive - matches if card's mana cost contains any requested color)
         if request.colors:
-            card_colors = [c.name for c in chars.colors]
+            # Get colors from mana cost (includes hybrid mana)
+            mana_colors = get_colors_from_mana_cost(chars.mana_cost)
+            # Also include card's color identity for colorless cards with color indicators
+            card_colors = mana_colors | {c.name for c in chars.colors}
+            # Normalize requested colors (accept both "W" and "WHITE")
+            requested_colors = {normalize_color(c) for c in request.colors}
             # Match if card has any of the requested colors
-            if not any(c.upper() in card_colors for c in request.colors):
+            if not any(c in card_colors for c in requested_colors):
                 continue
 
         # CMC filter
@@ -573,6 +680,178 @@ async def export_deck(deck_id: str) -> ExportDeckResponse:
     return ExportDeckResponse(
         text='\n'.join(lines),
         deck_name=deck_data['name']
+    )
+
+
+# =============================================================================
+# Set Browsing Endpoints (Gatherer)
+# =============================================================================
+
+# Sorting helpers
+RARITY_ORDER = {"mythic": 0, "rare": 1, "uncommon": 2, "common": 3}
+COLOR_ORDER = {"WHITE": 0, "BLUE": 1, "BLACK": 2, "RED": 3, "GREEN": 4}
+
+
+def get_color_sort_key(card_def) -> tuple:
+    """Generate a sort key for color ordering (WUBRG, then multicolor, then colorless)."""
+    colors = [c.name for c in card_def.characteristics.colors]
+    if not colors:
+        return (6, 0, "")  # Colorless last
+    if len(colors) > 1:
+        return (5, len(colors), "".join(sorted(colors)))  # Multicolor
+    # Single color
+    color = colors[0]
+    return (COLOR_ORDER.get(color, 5), 0, color)
+
+
+def sort_set_cards(cards: list[tuple[str, any]], sort_by: str, sort_order: str) -> list[tuple[str, any]]:
+    """Sort cards by the specified field."""
+    reverse = sort_order == "desc"
+
+    if sort_by == "name":
+        return sorted(cards, key=lambda x: x[0].lower(), reverse=reverse)
+    elif sort_by == "cmc":
+        return sorted(cards, key=lambda x: parse_mana_cost(x[1].characteristics.mana_cost), reverse=reverse)
+    elif sort_by == "rarity":
+        return sorted(cards, key=lambda x: RARITY_ORDER.get((getattr(x[1], 'rarity', None) or 'common').lower(), 4), reverse=reverse)
+    elif sort_by == "color":
+        return sorted(cards, key=lambda x: get_color_sort_key(x[1]), reverse=reverse)
+    elif sort_by == "type":
+        return sorted(cards, key=lambda x: (
+            [t.name for t in x[1].characteristics.types][0] if x[1].characteristics.types else "Z",
+            x[0].lower()
+        ), reverse=reverse)
+    elif sort_by == "power":
+        return sorted(cards, key=lambda x: (
+            x[1].characteristics.power if x[1].characteristics.power is not None else -1,
+            x[0].lower()
+        ), reverse=reverse)
+    else:
+        return sorted(cards, key=lambda x: x[0].lower(), reverse=reverse)
+
+
+@router.get("/sets", response_model=SetListResponse)
+async def list_sets(
+    set_type: Optional[str] = Query(None, description="Filter by set type: standard, universes_beyond, custom")
+) -> SetListResponse:
+    """
+    List all available sets.
+
+    Optionally filter by set type (standard, universes_beyond, custom).
+    Sets are sorted by release date (newest first).
+    """
+    sets = get_all_sets(set_type)
+
+    return SetListResponse(
+        sets=[
+            SetInfoResponse(
+                code=s.code,
+                name=s.name,
+                card_count=s.card_count,
+                release_date=s.release_date,
+                set_type=s.set_type,
+            )
+            for s in sets
+        ],
+        total=len(sets)
+    )
+
+
+@router.get("/sets/{set_code}", response_model=SetDetailResponse)
+async def get_set_details(set_code: str) -> SetDetailResponse:
+    """
+    Get detailed information about a specific set.
+
+    Includes rarity breakdown.
+    """
+    set_info = get_set_info(set_code)
+    if not set_info:
+        raise HTTPException(status_code=404, detail=f"Set '{set_code}' not found")
+
+    rarity_breakdown = get_rarity_breakdown(set_code)
+
+    return SetDetailResponse(
+        code=set_info.code,
+        name=set_info.name,
+        card_count=set_info.card_count,
+        release_date=set_info.release_date,
+        set_type=set_info.set_type,
+        rarity_breakdown=rarity_breakdown,
+    )
+
+
+@router.post("/sets/{set_code}/cards", response_model=SetCardSearchResponse)
+async def search_set_cards(set_code: str, request: SetCardSearchRequest) -> SetCardSearchResponse:
+    """
+    Search for cards within a specific set.
+
+    Supports filtering by type, color, rarity, CMC, and text search.
+    Supports sorting by name, cmc, rarity, color, type, or power.
+    """
+    set_info = get_set_info(set_code)
+    if not set_info:
+        raise HTTPException(status_code=404, detail=f"Set '{set_code}' not found")
+
+    cards = get_cards_in_set(set_code)
+    results: list[tuple[str, any]] = []
+
+    for name, card_def in cards.items():
+        chars = card_def.characteristics
+
+        # Type filter
+        if request.types:
+            card_types = [t.name for t in chars.types]
+            if not any(t.upper() in card_types for t in request.types):
+                continue
+
+        # Color filter (inclusive - matches if card's mana cost contains any requested color)
+        if request.colors:
+            # Get colors from mana cost (includes hybrid mana)
+            mana_colors = get_colors_from_mana_cost(chars.mana_cost)
+            # Also include card's color identity for colorless cards with color indicators
+            card_colors = mana_colors | {c.name for c in chars.colors}
+            # Normalize requested colors (accept both "W" and "WHITE")
+            requested_colors = {normalize_color(c) for c in request.colors}
+            if not any(c in card_colors for c in requested_colors):
+                continue
+
+        # Rarity filter
+        if request.rarity:
+            card_rarity = (getattr(card_def, 'rarity', None) or 'common').lower()
+            if card_rarity != request.rarity.lower():
+                continue
+
+        # CMC filter
+        cmc = parse_mana_cost(chars.mana_cost)
+        if request.cmc_min is not None and cmc < request.cmc_min:
+            continue
+        if request.cmc_max is not None and cmc > request.cmc_max:
+            continue
+
+        # Text search
+        if request.text_search:
+            search_lower = request.text_search.lower()
+            name_match = search_lower in name.lower()
+            text_match = search_lower in (card_def.text or '').lower()
+            if not name_match and not text_match:
+                continue
+
+        results.append((name, card_def))
+
+    # Sort results
+    sorted_results = sort_set_cards(results, request.sort_by, request.sort_order)
+
+    total = len(sorted_results)
+
+    # Apply pagination
+    paginated = sorted_results[request.offset:request.offset + request.limit]
+
+    return SetCardSearchResponse(
+        cards=[card_def_to_data(name, card_def) for name, card_def in paginated],
+        total=total,
+        has_more=request.offset + len(paginated) < total,
+        set_code=set_info.code,
+        set_name=set_info.name,
     )
 
 

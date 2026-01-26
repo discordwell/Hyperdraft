@@ -16,6 +16,13 @@ import type {
 // UI State Types
 export type TargetingMode = 'none' | 'single' | 'multiple';
 
+// Auto-pass modes
+export type AutoPassMode =
+  | 'off'           // Never auto-pass
+  | 'no_actions'    // Auto-pass when only PASS is available (no meaningful actions)
+  | 'end_of_turn'   // Pass until end of turn (F6 style)
+  | 'stack_empty';  // Pass until something goes on the stack
+
 export interface UIState {
   // Selected elements
   selectedCardId: string | null;
@@ -30,6 +37,11 @@ export interface UIState {
   // Combat
   selectedAttackers: string[];
   selectedBlockers: Map<string, string>; // blocker_id -> attacker_id
+
+  // Auto-pass settings
+  autoPassMode: AutoPassMode;
+  autoPassUntilTurn: number | null; // For 'end_of_turn' mode, the turn to stop at
+  autoPassStoppedReason: string | null; // Why auto-pass stopped (for UI feedback)
 
   // UI flags
   isLoading: boolean;
@@ -75,6 +87,13 @@ interface GameStore {
   setBlocker: (blockerId: string, attackerId: string | null) => void;
   clearCombatSelections: () => void;
 
+  // Auto-pass
+  setAutoPassMode: (mode: AutoPassMode) => void;
+  enablePassUntilEndOfTurn: () => void;
+  cancelAutoPass: () => void;
+  shouldAutoPass: () => boolean;
+  checkAutoPassConditions: () => { shouldPass: boolean; reason?: string };
+
   // Build action request
   buildActionRequest: () => PlayerActionRequest | null;
 
@@ -88,6 +107,7 @@ interface GameStore {
   getOpponentId: () => string | null;
   isMyTurn: () => boolean;
   canAct: () => boolean;
+  hasActionsOtherThanPass: () => boolean;
 }
 
 const initialUIState: UIState = {
@@ -99,6 +119,9 @@ const initialUIState: UIState = {
   requiredTargetCount: 1,
   selectedAttackers: [],
   selectedBlockers: new Map(),
+  autoPassMode: 'no_actions', // Default to smart auto-pass
+  autoPassUntilTurn: null,
+  autoPassStoppedReason: null,
   isLoading: false,
   error: null,
 };
@@ -270,7 +293,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   // Build action request
   buildActionRequest: () => {
-    const { playerId, ui, gameState } = get();
+    const { playerId, ui } = get();
     const { selectedAction, selectedTargets, selectedAttackers, selectedBlockers } = ui;
 
     if (!playerId || !selectedAction) return null;
@@ -353,5 +376,98 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const { gameState, playerId, isSpectator } = get();
     if (isSpectator) return false;
     return gameState?.priority_player === playerId;
+  },
+
+  // Check if there are any meaningful actions beyond just passing
+  hasActionsOtherThanPass: () => {
+    const { gameState } = get();
+    if (!gameState) return false;
+    return gameState.legal_actions.some((a) => a.type !== 'PASS');
+  },
+
+  // Auto-pass settings
+  setAutoPassMode: (mode) =>
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        autoPassMode: mode,
+        autoPassUntilTurn: null,
+        autoPassStoppedReason: null,
+      },
+    })),
+
+  enablePassUntilEndOfTurn: () =>
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        autoPassMode: 'end_of_turn',
+        autoPassUntilTurn: state.gameState?.turn_number ?? null,
+        autoPassStoppedReason: null,
+      },
+    })),
+
+  cancelAutoPass: () =>
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        autoPassMode: 'no_actions', // Reset to default smart mode
+        autoPassUntilTurn: null,
+        autoPassStoppedReason: null,
+      },
+    })),
+
+  // Check if we should auto-pass based on current conditions
+  checkAutoPassConditions: () => {
+    const { gameState, playerId, ui } = get();
+
+    // Can't auto-pass if not our turn to act
+    if (!gameState || gameState.priority_player !== playerId) {
+      return { shouldPass: false };
+    }
+
+    const hasOtherActions = gameState.legal_actions.some((a) => a.type !== 'PASS');
+    const stackHasItems = gameState.stack.length > 0;
+    const currentTurn = gameState.turn_number;
+
+    switch (ui.autoPassMode) {
+      case 'off':
+        return { shouldPass: false };
+
+      case 'no_actions':
+        // Auto-pass when we have no meaningful actions
+        if (!hasOtherActions) {
+          return { shouldPass: true };
+        }
+        return { shouldPass: false, reason: 'Actions available' };
+
+      case 'end_of_turn':
+        // Pass until end of current turn, unless we have responses to the stack
+        if (ui.autoPassUntilTurn !== null && currentTurn > ui.autoPassUntilTurn) {
+          // Turn has advanced, stop auto-passing
+          return { shouldPass: false, reason: 'New turn started' };
+        }
+        // If something is on the stack and we have instants, stop to let player respond
+        if (stackHasItems && hasOtherActions) {
+          return { shouldPass: false, reason: 'Stack activity - you may want to respond' };
+        }
+        return { shouldPass: true };
+
+      case 'stack_empty':
+        // Pass until something goes on the stack
+        if (stackHasItems) {
+          return { shouldPass: false, reason: 'Stack has items' };
+        }
+        if (!hasOtherActions) {
+          return { shouldPass: true };
+        }
+        return { shouldPass: false, reason: 'Actions available' };
+
+      default:
+        return { shouldPass: false };
+    }
+  },
+
+  shouldAutoPass: () => {
+    return get().checkAutoPassConditions().shouldPass;
   },
 }));

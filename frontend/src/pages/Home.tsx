@@ -217,6 +217,14 @@ export function Home() {
           >
             Deckbuilder
           </button>
+
+          {/* Gatherer Link */}
+          <button
+            onClick={() => navigate('/gatherer')}
+            className="w-full px-4 py-3 mt-3 bg-gray-800 text-gray-300 rounded-lg font-semibold hover:bg-gray-700 hover:text-white transition-all border border-gray-600"
+          >
+            Card Database
+          </button>
         </div>
 
         {/* Info */}
