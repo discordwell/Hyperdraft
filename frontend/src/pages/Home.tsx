@@ -4,10 +4,19 @@
  * Main menu for starting games.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { matchAPI, botGameAPI } from '../services/api';
 import { useGameStore } from '../stores/gameStore';
+
+interface DeckInfo {
+  id: string;
+  name: string;
+  archetype: string;
+  colors: string[];
+  description: string;
+  is_netdeck: boolean;
+}
 
 export function Home() {
   const navigate = useNavigate();
@@ -16,7 +25,24 @@ export function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [playerName, setPlayerName] = useState('Player');
-  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard' | 'ultra'>('medium');
+  const [decks, setDecks] = useState<DeckInfo[]>([]);
+  const [playerDeck, setPlayerDeck] = useState<string>('');
+  const [aiDeck, setAiDeck] = useState<string>('');
+
+  useEffect(() => {
+    matchAPI.listDecks().then((res) => {
+      setDecks(res.decks);
+      // Default to Azorius Simulacrum if available
+      const azorius = res.decks.find((d: DeckInfo) => d.id === 'azorius_simulacrum_netdeck');
+      if (azorius) setPlayerDeck(azorius.id);
+      else if (res.decks.length > 0) setPlayerDeck(res.decks[0].id);
+      // Default AI to mono red
+      const monoRed = res.decks.find((d: DeckInfo) => d.id === 'mono_red_netdeck');
+      if (monoRed) setAiDeck(monoRed.id);
+      else if (res.decks.length > 0) setAiDeck(res.decks[0].id);
+    }).catch(console.error);
+  }, []);
 
   const handleStartGame = async () => {
     setIsLoading(true);
@@ -28,8 +54,8 @@ export function Home() {
         mode: 'human_vs_bot',
         player_name: playerName,
         ai_difficulty: difficulty,
-        player_deck: [],
-        ai_deck: [],
+        player_deck_id: playerDeck || undefined,
+        ai_deck_id: aiDeck || undefined,
       });
 
       // Set connection info in store
@@ -101,18 +127,18 @@ export function Home() {
           </div>
 
           {/* Difficulty */}
-          <div className="mb-6">
+          <div className="mb-4">
             <label className="block text-sm text-gray-400 mb-1">
               AI Difficulty
             </label>
             <div className="flex gap-2">
-              {(['easy', 'medium', 'hard'] as const).map((d) => (
+              {(['easy', 'medium', 'hard', 'ultra'] as const).map((d) => (
                 <button
                   key={d}
                   onClick={() => setDifficulty(d)}
                   className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-all ${
                     difficulty === d
-                      ? 'bg-game-accent text-white'
+                      ? d === 'ultra' ? 'bg-purple-600 text-white' : 'bg-game-accent text-white'
                       : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                   }`}
                 >
@@ -120,6 +146,50 @@ export function Home() {
                 </button>
               ))}
             </div>
+            {difficulty === 'ultra' && (
+              <p className="text-xs text-purple-400 mt-1">LLM-powered AI (requires Ollama)</p>
+            )}
+          </div>
+
+          {/* Deck Selection */}
+          <div className="mb-4">
+            <label className="block text-sm text-gray-400 mb-1">Your Deck</label>
+            <select
+              value={playerDeck}
+              onChange={(e) => setPlayerDeck(e.target.value)}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-game-accent"
+            >
+              <optgroup label="Tournament Netdecks">
+                {decks.filter(d => d.is_netdeck).map(d => (
+                  <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                ))}
+              </optgroup>
+              <optgroup label="Standard Decks">
+                {decks.filter(d => !d.is_netdeck).map(d => (
+                  <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+
+          <div className="mb-6">
+            <label className="block text-sm text-gray-400 mb-1">AI Deck</label>
+            <select
+              value={aiDeck}
+              onChange={(e) => setAiDeck(e.target.value)}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-game-accent"
+            >
+              <optgroup label="Tournament Netdecks">
+                {decks.filter(d => d.is_netdeck).map(d => (
+                  <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                ))}
+              </optgroup>
+              <optgroup label="Standard Decks">
+                {decks.filter(d => !d.is_netdeck).map(d => (
+                  <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                ))}
+              </optgroup>
+            </select>
           </div>
 
           {/* Play vs Bot Button */}
@@ -138,6 +208,14 @@ export function Home() {
             className="w-full px-4 py-3 bg-gray-700 text-white rounded-lg font-semibold hover:bg-gray-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Watch Bot vs Bot
+          </button>
+
+          {/* Deckbuilder Link */}
+          <button
+            onClick={() => navigate('/deckbuilder')}
+            className="w-full px-4 py-3 mt-3 bg-gray-800 text-gray-300 rounded-lg font-semibold hover:bg-gray-700 hover:text-white transition-all border border-gray-600"
+          >
+            Deckbuilder
           </button>
         </div>
 

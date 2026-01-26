@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import socketio
 
-from .routes import match_router, cards_router, bot_game_router
+from .routes import match_router, cards_router, bot_game_router, deckbuilder_router
 from .session import session_manager
 from .models import WSJoinMatch, PlayerActionRequest
 
@@ -243,6 +243,7 @@ app.add_middleware(
 app.include_router(match_router, prefix="/api")
 app.include_router(cards_router, prefix="/api")
 app.include_router(bot_game_router, prefix="/api")
+app.include_router(deckbuilder_router, prefix="/api")
 
 
 # Health check endpoint
