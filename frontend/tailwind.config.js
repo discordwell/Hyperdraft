@@ -6,6 +6,10 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        'card-name': ['Cinzel', 'serif'],
+        'card-text': ['Inter', 'sans-serif'],
+      },
       colors: {
         // MTG mana colors
         'mana-white': '#f9faf4',
@@ -19,6 +23,19 @@ export default {
         'game-surface': '#16213e',
         'game-accent': '#e94560',
         'game-gold': '#f5a623',
+        // Sketch card colors
+        'card-parchment': '#f5f0e6',
+        'card-parchment-dark': '#e8e0d0',
+        'card-bg-dark': '#2d2a26',
+        // Color identity accents
+        'card-white': '#f9e4a8',
+        'card-blue': '#6b9bc4',
+        'card-black': '#4a4a4a',
+        'card-red': '#d4694a',
+        'card-green': '#5d8c5a',
+        'card-gold': '#c4a446',
+        'card-colorless': '#9e9e9e',
+        'card-land': '#a89984',
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
