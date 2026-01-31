@@ -22,7 +22,7 @@ import zipfile
 from pathlib import Path
 
 # GitHub repo info
-REPO_OWNER = "Hermetian"
+REPO_OWNER = "discordwell"
 REPO_NAME = "Hyperdraft"
 RELEASES_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases"
 
