@@ -470,6 +470,408 @@ def test_player_targeting():
 
 
 # =============================================================================
+# Test Multi-Target Scenarios
+# =============================================================================
+
+def test_multiple_targets():
+    """Test TARGET_REQUIRED with multiple targets (e.g., 'up to 2 targets')."""
+    print("\n=== Test: Multiple targets ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Multi-Shooter", 2, 2)
+    target1 = create_creature(game, p2, "Target 1", 3, 3)
+    target2 = create_creature(game, p2, "Target 2", 3, 3)
+    target3 = create_creature(game, p2, "Target 3", 3, 3)
+
+    # Emit TARGET_REQUIRED for up to 2 targets
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'damage',
+            'effect_params': {'amount': 2},
+            'target_filter': 'creature',
+            'min_targets': 1,
+            'max_targets': 2,  # Up to 2 targets
+            'prompt': "Deal 2 damage to up to 2 target creatures"
+        },
+        source=source.id
+    ))
+
+    choice = game.state.pending_choice
+    assert choice is not None
+    assert choice.min_choices == 1
+    assert choice.max_choices == 2
+    assert len(choice.options) == 4  # 3 enemy creatures + source
+
+    # Select 2 targets
+    success, error, events = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[target1.id, target2.id]
+    )
+
+    assert success, f"Choice submission failed: {error}"
+    assert target1.state.damage == 2, f"Expected 2 damage on target1, got {target1.state.damage}"
+    assert target2.state.damage == 2, f"Expected 2 damage on target2, got {target2.state.damage}"
+    assert target3.state.damage == 0, "Target3 should have no damage"
+
+    print("✓ Multi-target selection works correctly!")
+
+
+def test_exile_effect():
+    """Test TARGET_REQUIRED with exile effect."""
+    print("\n=== Test: Exile effect ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Exiler", 2, 2)
+    target = create_creature(game, p2, "Exile Target", 3, 3)
+
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'exile',
+            'target_filter': 'creature'
+        },
+        source=source.id
+    ))
+
+    choice = game.state.pending_choice
+    assert choice is not None
+
+    success, error, events = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[target.id]
+    )
+
+    assert success
+    assert target.zone == ZoneType.EXILE, f"Expected creature in exile, found in {target.zone}"
+    print("✓ Exile effect works correctly!")
+
+
+def test_bounce_effect():
+    """Test TARGET_REQUIRED with bounce (return to hand) effect."""
+    print("\n=== Test: Bounce effect ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Bouncer", 2, 2)
+    target = create_creature(game, p2, "Bounce Target", 3, 3)
+
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'bounce',
+            'target_filter': 'creature'
+        },
+        source=source.id
+    ))
+
+    choice = game.state.pending_choice
+    assert choice is not None
+
+    success, error, events = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[target.id]
+    )
+
+    assert success
+    assert target.zone == ZoneType.HAND, f"Expected creature in hand, found in {target.zone}"
+    print("✓ Bounce effect works correctly!")
+
+
+def test_tap_effect():
+    """Test TARGET_REQUIRED with tap effect."""
+    print("\n=== Test: Tap effect ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Tapper", 2, 2)
+    target = create_creature(game, p2, "Tap Target", 3, 3)
+
+    assert not target.state.tapped, "Target should start untapped"
+
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'tap',
+            'target_filter': 'creature'
+        },
+        source=source.id
+    ))
+
+    choice = game.state.pending_choice
+    assert choice is not None
+
+    success, error, events = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[target.id]
+    )
+
+    assert success
+    assert target.state.tapped, "Target should be tapped"
+    print("✓ Tap effect works correctly!")
+
+
+def test_life_gain_effect():
+    """Test TARGET_REQUIRED with life gain effect targeting player."""
+    print("\n=== Test: Life gain effect ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Healer", 2, 2)
+    initial_life = p1.life
+
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'life_change',
+            'effect_params': {'amount': 5},
+            'target_filter': 'player',
+            'prompt': "Target player gains 5 life"
+        },
+        source=source.id
+    ))
+
+    choice = game.state.pending_choice
+    assert choice is not None
+    assert p1.id in choice.options
+    assert p2.id in choice.options
+
+    success, error, events = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[p1.id]  # Heal self
+    )
+
+    assert success
+    assert p1.life == initial_life + 5, f"Expected {initial_life + 5} life, got {p1.life}"
+    print("✓ Life gain effect works correctly!")
+
+
+def test_targeted_damage_trigger_combat_only():
+    """Test make_targeted_damage_trigger with combat_only flag."""
+    print("\n=== Test: Combat damage trigger ===")
+
+    game, p1, p2 = create_test_game()
+
+    target = create_creature(game, p2, "Target Dummy", 5, 5)
+
+    # Create creature with combat damage trigger
+    def combat_damage_setup(obj, state):
+        return [make_targeted_damage_trigger(
+            obj, effect='destroy', target_filter='creature',
+            combat_only=True, prompt="Destroy target creature"
+        )]
+
+    attacker = create_creature(game, p1, "Combat Destroyer", 3, 3, setup_fn=combat_damage_setup)
+
+    # Non-combat damage should NOT trigger
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={
+            'source': attacker.id,
+            'target': p2.id,
+            'amount': 2,
+            'is_combat': False
+        }
+    ))
+
+    assert game.state.pending_choice is None, "Non-combat damage should not trigger"
+
+    # Combat damage SHOULD trigger
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={
+            'source': attacker.id,
+            'target': p2.id,
+            'amount': 3,
+            'is_combat': True
+        }
+    ))
+
+    choice = game.state.pending_choice
+    assert choice is not None, "Combat damage should trigger targeting"
+
+    success, error, events = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[target.id]
+    )
+
+    assert success
+    assert target.zone == ZoneType.GRAVEYARD
+    print("✓ Combat damage trigger works correctly!")
+
+
+def test_sequential_targeting():
+    """Test that multiple TARGET_REQUIRED events can be handled in sequence."""
+    print("\n=== Test: Sequential targeting ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Double Striker", 2, 2)
+    target1 = create_creature(game, p2, "Target 1", 3, 3)
+    target2 = create_creature(game, p2, "Target 2", 3, 3)
+
+    # First targeting event
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'damage',
+            'effect_params': {'amount': 2},
+            'target_filter': 'creature',
+            'prompt': "Deal 2 damage to target creature"
+        },
+        source=source.id
+    ))
+
+    # Resolve first choice
+    choice1 = game.state.pending_choice
+    assert choice1 is not None
+
+    success, _, _ = game.submit_choice(
+        choice_id=choice1.id,
+        player_id=p1.id,
+        selected=[target1.id]
+    )
+    assert success
+    assert target1.state.damage == 2
+
+    # Second targeting event
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'damage',
+            'effect_params': {'amount': 3},
+            'target_filter': 'creature',
+            'prompt': "Deal 3 damage to target creature"
+        },
+        source=source.id
+    ))
+
+    # Resolve second choice
+    choice2 = game.state.pending_choice
+    assert choice2 is not None
+    assert choice2.id != choice1.id, "Should be a new choice"
+
+    success, _, _ = game.submit_choice(
+        choice_id=choice2.id,
+        player_id=p1.id,
+        selected=[target2.id]
+    )
+    assert success
+    assert target2.state.damage == 3
+
+    print("✓ Sequential targeting works correctly!")
+
+
+def test_invalid_target_rejection():
+    """Test that invalid target selections are rejected."""
+    print("\n=== Test: Invalid target rejection ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Damager", 2, 2)
+    own_creature = create_creature(game, p1, "Own Creature", 3, 3)
+    enemy_creature = create_creature(game, p2, "Enemy Creature", 3, 3)
+
+    # Request opponent creature target only
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'damage',
+            'effect_params': {'amount': 2},
+            'target_filter': 'opponent_creature',  # Only opponent creatures
+        },
+        source=source.id
+    ))
+
+    choice = game.state.pending_choice
+    assert choice is not None
+    assert enemy_creature.id in choice.options, "Enemy creature should be valid"
+    assert own_creature.id not in choice.options, "Own creature should not be valid"
+
+    # Try to submit own creature (should fail validation)
+    success, error, _ = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[own_creature.id]  # Invalid!
+    )
+
+    assert not success, "Should reject invalid target"
+    assert "Invalid choice" in error
+
+    # Submit valid target
+    success, _, _ = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[enemy_creature.id]
+    )
+    assert success
+    print("✓ Invalid target rejection works correctly!")
+
+
+def test_legal_targets_override():
+    """Test TARGET_REQUIRED with legal_targets_override for custom filtering."""
+    print("\n=== Test: Legal targets override ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Custom Targeter", 2, 2)
+    small_creature = create_creature(game, p2, "Small", 1, 1)
+    big_creature = create_creature(game, p2, "Big", 5, 5)
+
+    # Only allow targeting the small creature via override
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'destroy',
+            'target_filter': 'creature',  # Would normally include both
+            'legal_targets_override': [small_creature.id],  # Override to just small
+            'prompt': "Destroy target small creature"
+        },
+        source=source.id
+    ))
+
+    choice = game.state.pending_choice
+    assert choice is not None
+    assert small_creature.id in choice.options
+    assert big_creature.id not in choice.options, "Big creature should be excluded by override"
+
+    success, _, _ = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[small_creature.id]
+    )
+    assert success
+    assert small_creature.zone == ZoneType.GRAVEYARD
+    print("✓ Legal targets override works correctly!")
+
+
+# =============================================================================
 # Test AI Integration
 # =============================================================================
 
@@ -536,6 +938,17 @@ if __name__ == '__main__':
     test_targeted_death_trigger()
     test_pump_effect()
     test_player_targeting()
+
+    # Multi-target and effect type tests
+    test_multiple_targets()
+    test_exile_effect()
+    test_bounce_effect()
+    test_tap_effect()
+    test_life_gain_effect()
+    test_targeted_damage_trigger_combat_only()
+    test_sequential_targeting()
+    test_invalid_target_rejection()
+    test_legal_targets_override()
 
     # AI integration test
     test_ai_target_selection()
