@@ -669,7 +669,14 @@ class Game:
         # Process the choice based on type
         events = self._process_choice(choice, selected)
 
-        return True, "", events
+        # Emit all resulting events through the pipeline
+        # This ensures effects like damage, destroy, etc. actually happen
+        all_processed = []
+        for event in events:
+            processed = self.emit(event)
+            all_processed.extend(processed)
+
+        return True, "", all_processed
 
     def _process_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
         """
