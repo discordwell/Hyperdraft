@@ -654,6 +654,108 @@ def test_massive_life_gain_combo():
     print("✓ Gained 80 life from the combo! Starting 20 → 100!")
 
 
+def test_pt_modification_until_eot():
+    """Test PT_MODIFICATION event for temporary P/T boosts."""
+    print("\n=== Test: PT_MODIFICATION Until End of Turn ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    # Create a 2/2 creature
+    creature = game.create_object(
+        name="Test Creature",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            power=2,
+            toughness=2
+        )
+    )
+
+    print(f"Base stats: {get_power(creature, game.state)}/{get_toughness(creature, game.state)}")
+    assert get_power(creature, game.state) == 2
+    assert get_toughness(creature, game.state) == 2
+
+    # Apply +3/+1 until end of turn
+    game.emit(Event(
+        type=EventType.PT_MODIFICATION,
+        payload={
+            'object_id': creature.id,
+            'power_mod': 3,
+            'toughness_mod': 1,
+            'duration': 'end_of_turn'
+        }
+    ))
+
+    power = get_power(creature, game.state)
+    toughness = get_toughness(creature, game.state)
+    print(f"After +3/+1: {power}/{toughness}")
+    assert power == 5, f"Expected 5 power, got {power}"
+    assert toughness == 3, f"Expected 3 toughness, got {toughness}"
+
+    # Stack another +1/+0
+    game.emit(Event(
+        type=EventType.PT_MODIFICATION,
+        payload={
+            'object_id': creature.id,
+            'power_mod': 1,
+            'toughness_mod': 0,
+            'duration': 'end_of_turn'
+        }
+    ))
+
+    power = get_power(creature, game.state)
+    toughness = get_toughness(creature, game.state)
+    print(f"After another +1/+0: {power}/{toughness}")
+    assert power == 6, f"Expected 6 power, got {power}"
+    assert toughness == 3, f"Expected 3 toughness, got {toughness}"
+    print("✓ PT_MODIFICATION stacks correctly!")
+
+
+def test_pt_modification_with_counters():
+    """Test PT_MODIFICATION combined with +1/+1 counters."""
+    print("\n=== Test: PT_MODIFICATION + Counters ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    # Create a 1/1 creature
+    creature = game.create_object(
+        name="Test Creature",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            power=1,
+            toughness=1
+        )
+    )
+
+    # Add 2 +1/+1 counters
+    creature.state.counters['+1/+1'] = 2
+    print(f"With 2 counters: {get_power(creature, game.state)}/{get_toughness(creature, game.state)}")
+
+    # Apply +2/+0 until end of turn
+    game.emit(Event(
+        type=EventType.PT_MODIFICATION,
+        payload={
+            'object_id': creature.id,
+            'power_mod': 2,
+            'toughness_mod': 0,
+            'duration': 'end_of_turn'
+        }
+    ))
+
+    # Base 1/1 + 2 counters = 3/3 + modifier +2/+0 = 5/3
+    power = get_power(creature, game.state)
+    toughness = get_toughness(creature, game.state)
+    print(f"After +2/+0 modifier: {power}/{toughness}")
+    assert power == 5, f"Expected 5 power (1 + 2 counters + 2 mod), got {power}"
+    assert toughness == 3, f"Expected 3 toughness (1 + 2 counters), got {toughness}"
+    print("✓ PT_MODIFICATION works with counters!")
+
+
 def run_all_degenerate_tests():
     """Run all degenerate combo tests."""
     print("=" * 60)
@@ -676,6 +778,8 @@ def run_all_degenerate_tests():
     test_multiple_soul_wardens()
     test_anthem_plus_counters()
     test_massive_life_gain_combo()
+    test_pt_modification_until_eot()
+    test_pt_modification_with_counters()
 
     print("\n" + "=" * 60)
     print("ALL DEGENERATE TESTS PASSED!")

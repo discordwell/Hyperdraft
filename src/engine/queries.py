@@ -38,6 +38,11 @@ def get_power(obj: GameObject, state: GameState) -> int:
         if result.transformed_event:
             power = result.transformed_event.payload.get('value', power)
 
+    # Apply temporary PT modifiers (from PT_MODIFICATION events)
+    if hasattr(obj.state, 'pt_modifiers'):
+        for mod in obj.state.pt_modifiers:
+            power += mod.get('power', 0)
+
     # Apply counters last (always after other modifications)
     power += obj.state.counters.get('+1/+1', 0)
     power -= obj.state.counters.get('-1/-1', 0)
@@ -67,6 +72,11 @@ def get_toughness(obj: GameObject, state: GameState) -> int:
         )
         if result.transformed_event:
             toughness = result.transformed_event.payload.get('value', toughness)
+
+    # Apply temporary PT modifiers (from PT_MODIFICATION events)
+    if hasattr(obj.state, 'pt_modifiers'):
+        for mod in obj.state.pt_modifiers:
+            toughness += mod.get('toughness', 0)
 
     # Apply counters
     toughness += obj.state.counters.get('+1/+1', 0)
