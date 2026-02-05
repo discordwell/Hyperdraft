@@ -27,7 +27,15 @@
    - Fix: Added 40+ new EventTypes to cover card-used events
    - Includes: DESTROY, COUNTER, RETURN_TO_HAND, TAP_TARGET, EXTRA_TURN, PHASE_OUT, etc.
 
-**Tests:** 32 passing (4 Lorwyn, 18 degenerate, 10 layer nightmare)
+5. **Attribute Access Bugs** (`studio_ghibli.py`, `penultimate_avatar.py`, `lorwyn_custom.py`)
+   - `.counters` -> `.state.counters` (9 instances across 2 files)
+   - `.tapped` -> `.state.tapped` (1 instance in lorwyn_custom.py)
+   - `ObjectState.ATTACKING` -> `state.tapped` (2 instances in studio_ghibli.py)
+
+6. **Test Coverage**
+   - Added `test_replacement_effect_exile_instead_of_die` for TRANSFORM interceptors
+
+**Tests:** 33 passing (4 Lorwyn, 20 degenerate, 11 layer nightmare)
 
 ---
 

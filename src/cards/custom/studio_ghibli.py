@@ -521,7 +521,7 @@ def pazu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         for o in state.objects.values():
             if (CardType.ARTIFACT in o.characteristics.types and
                 'Equipment' in o.characteristics.subtypes and
-                o.attached_to == obj.id):
+                o.state.attached_to == obj.id):
                 return True
         return False
 
