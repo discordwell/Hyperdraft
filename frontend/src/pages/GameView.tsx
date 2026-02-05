@@ -362,6 +362,7 @@ export function GameView() {
             battlefield={gameState.battlefield}
             hand={gameState.hand}
             graveyard={graveyardLookup}
+            players={gameState.players}
             onSubmit={handleChoiceSubmit}
             isLoading={isSubmittingChoice}
           />

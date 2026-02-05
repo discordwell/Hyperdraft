@@ -8,13 +8,14 @@
 import { useCallback, useMemo, useState, useEffect } from 'react';
 import clsx from 'clsx';
 import { Card } from '../cards';
-import type { PendingChoice, CardData } from '../../types';
+import type { PendingChoice, CardData, PlayerData } from '../../types';
 
 interface ChoiceModalProps {
   pendingChoice: PendingChoice;
   battlefield: CardData[];
   hand: CardData[];
   graveyard: Record<string, CardData[]>;
+  players?: Record<string, PlayerData>;  // For player targeting labels
   onSubmit: (selectedIds: string[]) => void;
   onCancel?: () => void;
   isLoading?: boolean;
@@ -25,13 +26,30 @@ export function ChoiceModal({
   battlefield,
   hand,
   graveyard,
+  players = {},
   onSubmit,
   onCancel,
   isLoading = false,
 }: ChoiceModalProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  const { choice_type, prompt, options, min_choices, max_choices } = pendingChoice;
+  const { choice_type, prompt, options: rawOptions, min_choices, max_choices } = pendingChoice;
+
+  // Normalize options - handle both raw string IDs and {id, label, description?} objects
+  const options = useMemo(() => {
+    return rawOptions.map((opt: string | { id: string; label?: string; description?: string }) => {
+      if (typeof opt === 'string') {
+        // Raw ID string - convert to option object
+        // Check if it's a player ID and use their name
+        const player = players[opt];
+        if (player) {
+          return { id: opt, label: `${player.name} (${player.life} life)`, description: undefined };
+        }
+        return { id: opt, label: opt, description: undefined };
+      }
+      return { ...opt, description: opt.description };
+    });
+  }, [rawOptions, players]);
 
   // Reset selection when pending choice changes
   useEffect(() => {
@@ -129,7 +147,8 @@ export function ChoiceModal({
   }, [battlefield, hand, graveyard]);
 
   // Check if an option represents a card (for target choices)
-  const isTargetChoice = choice_type === 'target';
+  // 'target_with_callback' is used by triggered abilities that need targeting
+  const isTargetChoice = choice_type === 'target' || choice_type === 'target_with_callback';
 
   // Get icon based on choice type
   const choiceIcon = useMemo(() => {
@@ -137,7 +156,8 @@ export function ChoiceModal({
       case 'modal':
         return '?';
       case 'target':
-        return '!';
+      case 'target_with_callback':
+        return '⎯';
       case 'scry':
         return 'S';
       case 'surveil':
@@ -153,6 +173,7 @@ export function ChoiceModal({
       case 'modal':
         return 'cyan';
       case 'target':
+      case 'target_with_callback':
         return 'amber';
       case 'scry':
         return 'blue';
@@ -190,10 +211,10 @@ export function ChoiceModal({
             <div>
               <h2 className="text-xl font-bold text-white">
                 {choice_type === 'modal' && 'Choose a Mode'}
-                {choice_type === 'target' && 'Select Target'}
+                {(choice_type === 'target' || choice_type === 'target_with_callback') && 'Select Target'}
                 {choice_type === 'scry' && 'Scry'}
                 {choice_type === 'surveil' && 'Surveil'}
-                {!['modal', 'target', 'scry', 'surveil'].includes(choice_type) && 'Make a Choice'}
+                {!['modal', 'target', 'target_with_callback', 'scry', 'surveil'].includes(choice_type) && 'Make a Choice'}
               </h2>
               <p className="text-slate-400 text-sm">{prompt}</p>
             </div>
