@@ -30,9 +30,18 @@
 5. **Attribute Access Bugs** (`studio_ghibli.py`, `penultimate_avatar.py`, `lorwyn_custom.py`)
    - `.counters` -> `.state.counters` (9 instances across 2 files)
    - `.tapped` -> `.state.tapped` (1 instance in lorwyn_custom.py)
+   - `.attached_to` -> `.state.attached_to` (1 instance)
    - `ObjectState.ATTACKING` -> `state.tapped` (2 instances in studio_ghibli.py)
 
-6. **Test Coverage**
+6. **DAMAGE Events with target: None** (`demon_slayer.py`)
+   - Fixed 3 cards: Flame Breathing Student, Kaigaku, Kyojuro Rengoku
+   - Now properly target opponent
+
+7. **DRAW Handler Payload Bug** (`pipeline.py`)
+   - Handler expected 'count' but 97 cards used 'amount'
+   - Fixed handler to accept both, defaulting to 'amount'
+
+8. **Test Coverage**
    - Added `test_replacement_effect_exile_instead_of_die` for TRANSFORM interceptors
 
 **Tests:** 33 passing (4 Lorwyn, 20 degenerate, 11 layer nightmare)
