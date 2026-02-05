@@ -838,21 +838,29 @@ def _handle_target_required(event: Event, state: GameState):
         target_filter_type, source_obj, min_targets, max_targets, optional
     )
 
-    # Get legal targets
-    targeting_system = TargetingSystem(state)
-    legal_targets = targeting_system.get_legal_targets(
-        target_requirement, source_obj, controller_id
-    )
+    # Check for pre-computed legal targets override (for complex targeting like
+    # "destroy target creature that player controls")
+    legal_targets_override = event.payload.get('legal_targets_override')
 
-    # For 'any' and 'player'/'opponent' filters, add players to targets
-    if target_filter_type in ('any', 'player'):
-        for player_id in state.players:
-            if player_id not in legal_targets:
-                legal_targets.append(player_id)
-    elif target_filter_type == 'opponent':
-        for player_id in state.players:
-            if player_id != controller_id and player_id not in legal_targets:
-                legal_targets.append(player_id)
+    if legal_targets_override is not None:
+        # Use the override directly
+        legal_targets = list(legal_targets_override)
+    else:
+        # Get legal targets using the targeting system
+        targeting_system = TargetingSystem(state)
+        legal_targets = targeting_system.get_legal_targets(
+            target_requirement, source_obj, controller_id
+        )
+
+        # For 'any' and 'player'/'opponent' filters, add players to targets
+        if target_filter_type in ('any', 'player'):
+            for player_id in state.players:
+                if player_id not in legal_targets:
+                    legal_targets.append(player_id)
+        elif target_filter_type == 'opponent':
+            for player_id in state.players:
+                if player_id != controller_id and player_id not in legal_targets:
+                    legal_targets.append(player_id)
 
     # If no legal targets and not optional, ability fizzles
     if not legal_targets and not optional:

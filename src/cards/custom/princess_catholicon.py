@@ -940,10 +940,37 @@ SEPHIROTH = make_creature(
 
 def sephiroth_masamune_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When deals combat damage to a player, destroy target creature that player controls"""
-    return [make_targeted_damage_trigger(
-        obj, effect='destroy', target_filter='creature',
-        combat_only=True, prompt="Destroy target creature"
-    )]
+    # Custom damage trigger - targets must be creatures controlled by the damaged player
+    def damage_to_player_effect(event: Event, state: GameState) -> list[Event]:
+        target_player = event.payload.get('target')
+        # Only trigger if damage was to a player (not a creature)
+        if target_player not in state.players:
+            return []
+        # Find creatures controlled by that player
+        legal_targets = [
+            o.id for o in state.objects.values()
+            if o.controller == target_player
+            and CardType.CREATURE in o.characteristics.types
+            and o.zone == ZoneType.BATTLEFIELD
+        ]
+        if not legal_targets:
+            return []  # Fizzle if no legal targets
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effect': 'destroy',
+                'effect_params': {},
+                'target_filter': 'creature',
+                'min_targets': 1,
+                'max_targets': 1,
+                'prompt': f"Destroy target creature {state.players[target_player].name} controls",
+                'legal_targets_override': legal_targets
+            },
+            source=obj.id
+        )]
+    return [make_damage_trigger(obj, damage_to_player_effect, combat_only=True)]
 
 SEPHIROTH_MASAMUNE = make_creature(
     name="Sephiroth, Masamune's Edge",
