@@ -400,6 +400,13 @@ class TurnManager:
                             CardType.ARTIFACT in obj.characteristics.types):
                             obj.characteristics.types.discard(CardType.CREATURE)
 
+                    # Clear end-of-turn PT modifiers
+                    if hasattr(obj.state, 'pt_modifiers'):
+                        obj.state.pt_modifiers = [
+                            mod for mod in obj.state.pt_modifiers
+                            if mod.get('duration') != 'end_of_turn'
+                        ]
+
         # End "until end of turn" effects
         # (Would be handled by interceptor duration system)
 

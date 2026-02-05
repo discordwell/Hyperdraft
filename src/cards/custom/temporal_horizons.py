@@ -621,11 +621,15 @@ def echo_of_rage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     interceptors = [make_echo(obj, "{2}{R}")]
 
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DEAL_DAMAGE,
-            payload={'amount': 2, 'source': obj.id},
-            source=obj.id
-        )]
+        # Target first opponent (simplified - would need target selection)
+        opponents = [p_id for p_id in state.players if p_id != obj.controller]
+        if opponents:
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': opponents[0], 'amount': 2, 'source': obj.id, 'is_combat': False},
+                source=obj.id
+            )]
+        return []
     interceptors.append(make_etb_trigger(obj, etb_effect))
     return interceptors
 
@@ -652,11 +656,15 @@ def echo_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     interceptors = [make_echo(obj, "{3}{R}")]
 
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DEAL_DAMAGE,
-            payload={'amount': 3, 'source': obj.id},
-            source=obj.id
-        )]
+        # Target first opponent (simplified - would need target selection)
+        opponents = [p_id for p_id in state.players if p_id != obj.controller]
+        if opponents:
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': opponents[0], 'amount': 3, 'source': obj.id, 'is_combat': False},
+                source=obj.id
+            )]
+        return []
     interceptors.append(make_etb_trigger(obj, etb_effect))
     return interceptors
 
@@ -1067,11 +1075,15 @@ def entropy_rat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def rift_spark_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Haste. When Rift Spark dies, it deals 1 damage to any target."""
     def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DEAL_DAMAGE,
-            payload={'amount': 1, 'source': obj.id},
-            source=obj.id
-        )]
+        # Target first opponent (simplified - would need target selection)
+        opponents = [p_id for p_id in state.players if p_id != obj.controller]
+        if opponents:
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': opponents[0], 'amount': 1, 'source': obj.id, 'is_combat': False},
+                source=obj.id
+            )]
+        return []
     return [make_death_trigger(obj, death_effect)]
 
 

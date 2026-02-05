@@ -1640,20 +1640,26 @@ AUNTIES_SENTENCE = make_sorcery(
 
 # Bile-Vial Boggart - {B} Creature — Goblin Assassin 1/1
 def bile_vial_boggart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def dies_filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.ZONE_CHANGE and
-                event.payload.get('object_id') == obj.id and
-                event.payload.get('to_zone_type') == ZoneType.GRAVEYARD)
+    """When this creature dies, put a -1/-1 counter on target creature."""
+    def dies_effect(event: Event, state: GameState) -> list[Event]:
+        # Find a valid target creature (any creature on battlefield)
+        for target_id, target in state.objects.items():
+            if (target.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in target.characteristics.types and
+                target_id != obj.id):
+                # Put a -1/-1 counter on the target
+                return [Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={
+                        'object_id': target_id,
+                        'counter_type': '-1/-1',
+                        'amount': 1
+                    },
+                    source=obj.id
+                )]
+        return []
 
-    def dies_handler(event: Event, state: GameState) -> InterceptorResult:
-        # Would put -1/-1 counter on target creature
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
-
-    return [Interceptor(
-        id=new_id(), source=obj.id, controller=obj.controller,
-        priority=InterceptorPriority.REACT, filter=dies_filter,
-        handler=dies_handler, duration='while_on_battlefield'
-    )]
+    return [make_death_trigger(obj, dies_effect)]
 
 
 BILE_VIAL_BOGGART = make_creature(
@@ -1779,7 +1785,39 @@ BOGGART_MISCHIEF = make_enchantment(
 # Boggart Prankster - {1}{B} Creature — Goblin Warrior 1/3
 def boggart_prankster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires targeting - handled by targeting system
+        # Find an attacking Goblin to target (simplified: pick first other attacking Goblin, or self)
+        battlefield = state.zones.get('battlefield')
+        if not battlefield:
+            return []
+
+        # Look for attacking Goblins (tapped creatures controlled by same player)
+        target_id = None
+        for obj_id in battlefield.objects:
+            creature = state.objects.get(obj_id)
+            if (creature and
+                creature.controller == obj.controller and
+                CardType.CREATURE in creature.characteristics.types and
+                'Goblin' in creature.characteristics.subtypes and
+                creature.state.tapped):  # Attacking creatures are tapped
+                # Prefer other Goblins, but can target self
+                if creature.id != obj.id:
+                    target_id = creature.id
+                    break
+                elif target_id is None:
+                    target_id = creature.id
+
+        if target_id:
+            return [Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': target_id,
+                    'power_mod': 1,
+                    'toughness_mod': 0,
+                    'duration': 'end_of_turn'
+                },
+                source=obj.id
+            )]
+        return []
     return [make_attack_trigger(obj, attack_effect)]
 
 

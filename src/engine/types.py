@@ -33,6 +33,7 @@ class EventType(Enum):
     UNTAP = auto()
     COUNTER_ADDED = auto()
     COUNTER_REMOVED = auto()
+    PT_MODIFICATION = auto()  # Temporary P/T changes (until end of turn, etc.)
 
     # Combat
     ATTACK_DECLARED = auto()
@@ -115,6 +116,47 @@ class EventType(Enum):
     ADD_MANA = auto()          # Alias for mana production
     TAP_FOR_EFFECT = auto()    # Tap as part of an effect
     CONDITIONAL_EFFECT = auto() # Effect with condition
+
+    # Additional card-used events
+    DESTROY = auto()                       # Destroy a permanent
+    COUNTER = auto()                       # Counter a spell/ability
+    COPY_SPELL = auto()                    # Copy a spell on the stack
+    RETURN_TO_HAND = auto()                # Return permanent to hand
+    RETURN_FROM_GRAVEYARD = auto()         # Return card from graveyard
+    RETURN_TO_HAND_FROM_GRAVEYARD = auto() # Bounce from graveyard to hand
+    TAP_TARGET = auto()                    # Tap target permanent
+    UNTAP_TARGET = auto()                  # Untap target permanent
+    UNTAP_ALL = auto()                     # Untap all of type
+    REVEAL_HAND = auto()                   # Reveal player's hand
+    LIFE_GAIN = auto()                     # Alias - use LIFE_CHANGE with amount > 0
+    LIFE_LOSS = auto()                     # Alias - use LIFE_CHANGE with amount < 0
+    EXTRA_TURN = auto()                    # Take an extra turn
+    EXTRA_COMBAT = auto()                  # Extra combat phase
+    PHASE_OUT = auto()                     # Phase out a permanent
+    PHASE_IN = auto()                      # Phase in a permanent
+    FREEZE = auto()                        # Freeze a permanent (doesn't untap)
+    TRANSFORM = auto()                     # Transform a DFC
+    GRANT_ABILITY = auto()                 # Grant an ability temporarily
+    GRANT_UNBLOCKABLE = auto()             # Grant can't be blocked
+    GRANT_PT_MODIFIER = auto()             # Grant P/T modifier
+    TEMPORARY_BOOST = auto()               # Temporary stat boost (alias for PUMP)
+    REMOVE_ABILITIES = auto()              # Remove all abilities from permanent
+    CONTINUOUS_EFFECT = auto()             # Register continuous effect
+    DELAYED_TRIGGER = auto()               # Create delayed trigger
+    DELAYED_SACRIFICE = auto()             # Sacrifice at end of turn
+    MODAL_CHOICE = auto()                  # Player makes modal choice
+    MAY_PAY_LIFE = auto()                  # May pay life for effect
+    MAY_PAY_DRAW = auto()                  # May pay to draw
+    MAY_SACRIFICE = auto()                 # May sacrifice for effect
+    OPTIONAL_COST = auto()                 # Pay optional additional cost
+    DISCARD_CHOICE = auto()                # Choose cards to discard
+    LOOK_TOP_CARDS = auto()                # Look at top N cards of library
+    EXILE_TOP_CARD = auto()                # Exile top card of library
+    EXILE_TOP_PLAY = auto()                # Exile top, may play
+    IMPULSE_TO_GRAVEYARD = auto()          # Put impulse-drawn cards to graveyard
+    PUT_TIME_COUNTER = auto()              # Put time counters on permanent
+    DECLARE_ATTACKERS = auto()             # Declare attackers step
+    AUTO_EQUIP = auto()                    # Auto-equip to creature
 
 
 class EventStatus(Enum):

@@ -362,6 +362,36 @@ def _handle_counter_removed(event: Event, state: GameState):
         obj.state.counters[counter_type] = max(0, current - amount)
 
 
+def _handle_pt_modification(event: Event, state: GameState):
+    """
+    Handle PT_MODIFICATION event - temporary P/T changes.
+
+    Stores the modification on the object's state for QUERY handlers to use.
+    Modifications with duration='end_of_turn' are cleared at cleanup step.
+    """
+    object_id = event.payload.get('object_id')
+    power_mod = event.payload.get('power_mod', 0)
+    toughness_mod = event.payload.get('toughness_mod', 0)
+    duration = event.payload.get('duration', 'end_of_turn')
+
+    if object_id not in state.objects:
+        return
+
+    obj = state.objects[object_id]
+
+    # Initialize temporary modifiers list if not present
+    if not hasattr(obj.state, 'pt_modifiers'):
+        obj.state.pt_modifiers = []
+
+    # Add the modifier
+    obj.state.pt_modifiers.append({
+        'power': power_mod,
+        'toughness': toughness_mod,
+        'duration': duration,
+        'timestamp': state.timestamp
+    })
+
+
 def _handle_object_destroyed(event: Event, state: GameState):
     """
     Handle OBJECT_DESTROYED - move to graveyard.
@@ -772,6 +802,7 @@ EVENT_HANDLERS = {
     EventType.UNTAP: _handle_untap,
     EventType.COUNTER_ADDED: _handle_counter_added,
     EventType.COUNTER_REMOVED: _handle_counter_removed,
+    EventType.PT_MODIFICATION: _handle_pt_modification,
     EventType.OBJECT_DESTROYED: _handle_object_destroyed,
     EventType.MANA_PRODUCED: _handle_mana_produced,
     EventType.PLAYER_LOSES: _handle_player_loses,
