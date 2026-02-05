@@ -12,7 +12,8 @@ from typing import Optional
 from .types import (
     Event, EventType, EventStatus,
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
-    GameState, GameObject, ZoneType, Player, Color, CardType
+    GameState, GameObject, ZoneType, Player, Color, CardType,
+    PendingChoice
 )
 
 
@@ -654,7 +655,7 @@ def _handle_scry(event: Event, state: GameState):
 
     Payload:
         player: player_id
-        count: N (number of cards to scry)
+        count/amount: N (number of cards to scry) - accepts both keys
         to_bottom: list of indices (0-indexed) to put on bottom
                    If not provided, creates a PendingChoice for the player
         source_id: Optional source card ID for the choice
@@ -662,7 +663,8 @@ def _handle_scry(event: Event, state: GameState):
     from .types import PendingChoice
 
     player_id = event.payload.get('player')
-    count = event.payload.get('count', 1)
+    # Support both 'count' and 'amount' (many cards use 'amount')
+    count = event.payload.get('count') or event.payload.get('amount', 1)
 
     library_key = f"library_{player_id}"
 
@@ -728,10 +730,11 @@ def _handle_mill(event: Event, state: GameState):
 
     Payload:
         player: player_id
-        count: N (number of cards to mill)
+        count/amount: N (number of cards to mill) - accepts both keys
     """
     player_id = event.payload.get('player')
-    count = event.payload.get('count', 1)
+    # Support both 'count' and 'amount' (many cards use 'amount')
+    count = event.payload.get('count') or event.payload.get('amount', 1)
 
     library_key = f"library_{player_id}"
     graveyard_key = f"graveyard_{player_id}"
@@ -790,6 +793,326 @@ def _handle_discard(event: Event, state: GameState):
             obj.entered_zone_at = state.timestamp
 
 
+def _handle_target_required(event: Event, state: GameState):
+    """
+    Handle TARGET_REQUIRED event.
+
+    Creates a PendingChoice for target selection and pauses game execution.
+    When the player submits their choice, _execute_targeted_effect is called.
+
+    Payload:
+        source: str           - Object ID causing this targeting requirement
+        controller: str       - Player who chooses targets (defaults to source controller)
+        effect: str           - Effect type: 'damage', 'destroy', 'exile', 'bounce', etc.
+        effect_params: dict   - Parameters for the effect (e.g., {'amount': 3} for damage)
+        target_filter: str    - Filter type: 'any', 'creature', 'opponent_creature',
+                                'your_creature', 'opponent', 'player', 'nonland_permanent'
+        min_targets: int      - Minimum targets (default 1)
+        max_targets: int      - Maximum targets (default 1)
+        optional: bool        - If True, may choose 0 targets
+        prompt: str           - UI text (auto-generated if not provided)
+    """
+    from .targeting import (
+        TargetingSystem, TargetRequirement, TargetFilter,
+        creature_filter, any_target_filter, permanent_filter, player_filter
+    )
+
+    source_id = event.payload.get('source')
+    effect = event.payload.get('effect', 'damage')
+    effect_params = event.payload.get('effect_params', {})
+    target_filter_type = event.payload.get('target_filter', 'any')
+    min_targets = event.payload.get('min_targets', 1)
+    max_targets = event.payload.get('max_targets', 1)
+    optional = event.payload.get('optional', False)
+    prompt = event.payload.get('prompt')
+
+    # Get source object and controller
+    source_obj = state.objects.get(source_id)
+    if not source_obj:
+        return
+
+    controller_id = event.payload.get('controller', source_obj.controller)
+
+    # Build target filter based on filter type
+    target_requirement = _build_target_requirement(
+        target_filter_type, source_obj, min_targets, max_targets, optional
+    )
+
+    # Get legal targets
+    targeting_system = TargetingSystem(state)
+    legal_targets = targeting_system.get_legal_targets(
+        target_requirement, source_obj, controller_id
+    )
+
+    # For 'any' and 'player'/'opponent' filters, add players to targets
+    if target_filter_type in ('any', 'player'):
+        for player_id in state.players:
+            if player_id not in legal_targets:
+                legal_targets.append(player_id)
+    elif target_filter_type == 'opponent':
+        for player_id in state.players:
+            if player_id != controller_id and player_id not in legal_targets:
+                legal_targets.append(player_id)
+
+    # If no legal targets and not optional, ability fizzles
+    if not legal_targets and not optional:
+        return
+
+    # If no legal targets but optional, skip silently
+    if not legal_targets and optional:
+        return
+
+    # Adjust min_targets if optional
+    actual_min = 0 if optional else min_targets
+
+    # Generate prompt if not provided
+    if not prompt:
+        prompt = _generate_target_prompt(effect, effect_params, target_filter_type)
+
+    # Create PendingChoice
+    choice = PendingChoice(
+        choice_type="target_with_callback",
+        player=controller_id,
+        prompt=prompt,
+        options=legal_targets,
+        source_id=source_id,
+        min_choices=actual_min,
+        max_choices=min(max_targets, len(legal_targets)),
+        callback_data={
+            'handler': _execute_targeted_effect,
+            'effect': effect,
+            'effect_params': effect_params,
+            'source_id': source_id,
+            'controller_id': controller_id,
+        }
+    )
+    state.pending_choice = choice
+
+
+def _build_target_requirement(
+    filter_type: str,
+    source_obj,
+    min_targets: int,
+    max_targets: int,
+    optional: bool
+):
+    """Build a TargetRequirement based on filter type string."""
+    from .targeting import (
+        TargetRequirement, TargetFilter,
+        creature_filter, any_target_filter, permanent_filter, player_filter
+    )
+
+    # Map filter types to TargetFilter constructors
+    if filter_type == 'any':
+        tf = any_target_filter()
+    elif filter_type == 'creature':
+        tf = creature_filter()
+    elif filter_type == 'opponent_creature':
+        tf = creature_filter(controller='opponent')
+    elif filter_type == 'your_creature':
+        tf = creature_filter(controller='you')
+    elif filter_type == 'other_creature_you_control':
+        tf = creature_filter(controller='you', exclude_self=True)
+    elif filter_type == 'opponent':
+        tf = player_filter(controller='opponent')
+    elif filter_type == 'player':
+        tf = player_filter()
+    elif filter_type == 'nonland_permanent':
+        tf = permanent_filter()
+        # Exclude lands
+        tf.types = {CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT, CardType.PLANESWALKER}
+    elif filter_type == 'permanent':
+        tf = permanent_filter()
+    else:
+        # Default to any target
+        tf = any_target_filter()
+
+    count_type = 'up_to' if optional else 'exactly'
+
+    return TargetRequirement(
+        filter=tf,
+        count=max_targets,
+        count_type=count_type,
+        optional=optional
+    )
+
+
+def _generate_target_prompt(effect: str, effect_params: dict, filter_type: str) -> str:
+    """Generate a user-friendly prompt for target selection."""
+    # Build target description
+    target_desc = {
+        'any': 'any target',
+        'creature': 'target creature',
+        'opponent_creature': "target creature you don't control",
+        'your_creature': 'target creature you control',
+        'other_creature_you_control': 'another target creature you control',
+        'opponent': 'target opponent',
+        'player': 'target player',
+        'nonland_permanent': 'target nonland permanent',
+        'permanent': 'target permanent',
+    }.get(filter_type, 'a target')
+
+    # Build effect description
+    if effect == 'damage':
+        amount = effect_params.get('amount', 0)
+        return f"Deal {amount} damage to {target_desc}"
+    elif effect == 'destroy':
+        return f"Destroy {target_desc}"
+    elif effect == 'exile':
+        return f"Exile {target_desc}"
+    elif effect == 'bounce':
+        return f"Return {target_desc} to its owner's hand"
+    elif effect == 'tap':
+        return f"Tap {target_desc}"
+    elif effect == 'untap':
+        return f"Untap {target_desc}"
+    elif effect == 'pump':
+        power = effect_params.get('power_mod', 0)
+        toughness = effect_params.get('toughness_mod', 0)
+        sign_p = '+' if power >= 0 else ''
+        sign_t = '+' if toughness >= 0 else ''
+        return f"{target_desc} gets {sign_p}{power}/{sign_t}{toughness} until end of turn"
+    elif effect == 'counter_add':
+        counter_type = effect_params.get('counter_type', '+1/+1')
+        amount = effect_params.get('amount', 1)
+        return f"Put {amount} {counter_type} counter(s) on {target_desc}"
+    else:
+        return f"Choose {target_desc}"
+
+
+def _execute_targeted_effect(choice: PendingChoice, selected: list, state: GameState) -> list[Event]:
+    """
+    Execute the targeted effect after player selects targets.
+
+    Called as the callback handler when a target_with_callback choice resolves.
+    """
+    if not selected:
+        return []  # No targets selected (optional effect)
+
+    effect = choice.callback_data.get('effect', 'damage')
+    effect_params = choice.callback_data.get('effect_params', {})
+    source_id = choice.callback_data.get('source_id')
+
+    events = []
+
+    for target_id in selected:
+        if effect == 'damage':
+            amount = effect_params.get('amount', 0)
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': target_id, 'amount': amount, 'source': source_id, 'is_combat': False},
+                source=source_id
+            ))
+
+        elif effect == 'destroy':
+            events.append(Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': target_id},
+                source=source_id
+            ))
+
+        elif effect == 'exile':
+            events.append(Event(
+                type=EventType.EXILE,
+                payload={'object_id': target_id},
+                source=source_id
+            ))
+
+        elif effect == 'bounce':
+            # Return to hand
+            obj = state.objects.get(target_id)
+            if obj:
+                owner_hand = f"hand_{obj.owner}"
+                events.append(Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': target_id,
+                        'from_zone': 'battlefield',
+                        'to_zone': owner_hand,
+                        'from_zone_type': ZoneType.BATTLEFIELD,
+                        'to_zone_type': ZoneType.HAND
+                    },
+                    source=source_id
+                ))
+
+        elif effect == 'tap':
+            events.append(Event(
+                type=EventType.TAP,
+                payload={'object_id': target_id},
+                source=source_id
+            ))
+
+        elif effect == 'untap':
+            events.append(Event(
+                type=EventType.UNTAP,
+                payload={'object_id': target_id},
+                source=source_id
+            ))
+
+        elif effect == 'pump':
+            power_mod = effect_params.get('power_mod', 0)
+            toughness_mod = effect_params.get('toughness_mod', 0)
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': target_id,
+                    'power_mod': power_mod,
+                    'toughness_mod': toughness_mod,
+                    'duration': 'end_of_turn'
+                },
+                source=source_id
+            ))
+
+        elif effect == 'counter_add':
+            counter_type = effect_params.get('counter_type', '+1/+1')
+            amount = effect_params.get('amount', 1)
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={
+                    'object_id': target_id,
+                    'counter_type': counter_type,
+                    'amount': amount
+                },
+                source=source_id
+            ))
+
+        elif effect == 'counter_remove':
+            counter_type = effect_params.get('counter_type', '+1/+1')
+            amount = effect_params.get('amount', 1)
+            events.append(Event(
+                type=EventType.COUNTER_REMOVED,
+                payload={
+                    'object_id': target_id,
+                    'counter_type': counter_type,
+                    'amount': amount
+                },
+                source=source_id
+            ))
+
+        elif effect == 'grant_keyword':
+            keyword = effect_params.get('keyword', '')
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': target_id,
+                    'keyword': keyword,
+                    'duration': effect_params.get('duration', 'end_of_turn')
+                },
+                source=source_id
+            ))
+
+        elif effect == 'life_change':
+            # For effects targeting players
+            amount = effect_params.get('amount', 0)
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': target_id, 'amount': amount},
+                source=source_id
+            ))
+
+    return events
+
+
 # =============================================================================
 # Event Handler Registry
 # =============================================================================
@@ -813,4 +1136,5 @@ EVENT_HANDLERS = {
     EventType.SCRY: _handle_scry,
     EventType.MILL: _handle_mill,
     EventType.DISCARD: _handle_discard,
+    EventType.TARGET_REQUIRED: _handle_target_required,
 }
