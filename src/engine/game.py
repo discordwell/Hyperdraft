@@ -1003,16 +1003,16 @@ class Game:
                 ))
             else:
                 # Non-targeting mode - execute directly
-                mode_events = self._execute_mode_effect(mode, source_id)
+                mode_events = self._execute_mode_effect(mode, source_id, choice.player)
                 events.extend(mode_events)
 
         return events
 
-    def _execute_mode_effect(self, mode: dict, source_id: str) -> list[Event]:
+    def _execute_mode_effect(self, mode: dict, source_id: str, controller: str = None) -> list[Event]:
         """Execute a non-targeting mode effect directly."""
         effect = mode.get('effect')
         params = mode.get('effect_params', {})
-        player_id = mode.get('controller') or self.state.active_player
+        player_id = mode.get('controller') or controller or self.state.active_player
 
         events = []
 

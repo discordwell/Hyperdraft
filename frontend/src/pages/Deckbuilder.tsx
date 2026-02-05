@@ -16,7 +16,6 @@ import { ImportModal } from '../components/deckbuilder/ImportModal';
 export function Deckbuilder() {
   const navigate = useNavigate();
   const {
-    currentDeck,
     error,
     hasUnsavedChanges,
     isSaving,

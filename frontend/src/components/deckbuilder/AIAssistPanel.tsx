@@ -15,7 +15,7 @@ interface AIAssistPanelProps {
 }
 
 export function AIAssistPanel({ onImport, onExport }: AIAssistPanelProps) {
-  const { isLoading, currentDeck, saveDeck } = useDeckbuilderStore();
+  const { isLoading, currentDeck } = useDeckbuilderStore();
   const [prompt, setPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);

@@ -6,7 +6,6 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useGameStore } from '../stores/gameStore';
 import { botGameAPI } from '../services/api';
 import { GameBoard } from '../components/game';
 import type { GameState, BotGameStatus } from '../types';

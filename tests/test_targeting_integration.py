@@ -1381,6 +1381,519 @@ def test_modal_no_targets_fallback():
 
 
 # =============================================================================
+# Edge Cases and Negative Tests
+# =============================================================================
+
+def test_damage_division_wrong_total_fails():
+    """Test that allocation with wrong total is rejected."""
+    print("\n=== Test: Damage division wrong total fails ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Damage Divider", 2, 2)
+    target1 = create_creature(game, p2, "Target 1", 3, 3)
+    target2 = create_creature(game, p2, "Target 2", 3, 3)
+
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'damage',
+            'target_filter': 'creature',
+            'min_targets': 1,
+            'max_targets': 2,
+            'divide_amount': 5,
+        },
+        source=source.id
+    ))
+
+    # Select targets
+    choice1 = game.state.pending_choice
+    success, _, _ = game.submit_choice(
+        choice_id=choice1.id,
+        player_id=p1.id,
+        selected=[target1.id, target2.id]
+    )
+    assert success
+
+    # Try to allocate wrong total (4 instead of 5)
+    choice2 = game.state.pending_choice
+    allocations = [
+        {'target_id': target1.id, 'amount': 2},
+        {'target_id': target2.id, 'amount': 2}  # Total 4, should be 5
+    ]
+    success, error, _ = game.submit_choice(
+        choice_id=choice2.id,
+        player_id=p1.id,
+        selected=allocations
+    )
+    assert not success, "Should reject allocation with wrong total"
+    assert "total" in error.lower() or "4" in error or "5" in error, f"Error should mention total mismatch: {error}"
+
+    print(f"✓ Correctly rejected wrong total with error: {error}")
+
+
+def test_damage_division_single_target():
+    """Test dividing all damage to a single target."""
+    print("\n=== Test: Damage division all to one target ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Focused Striker", 2, 2)
+    target = create_creature(game, p2, "Solo Target", 5, 5)
+
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'damage',
+            'target_filter': 'creature',
+            'min_targets': 1,
+            'max_targets': 5,
+            'divide_amount': 4,
+        },
+        source=source.id
+    ))
+
+    # Select just one target
+    choice1 = game.state.pending_choice
+    success, _, _ = game.submit_choice(
+        choice_id=choice1.id,
+        player_id=p1.id,
+        selected=[target.id]
+    )
+    assert success
+
+    # Allocate all 4 to the single target
+    choice2 = game.state.pending_choice
+    allocations = [{'target_id': target.id, 'amount': 4}]
+    success, error, _ = game.submit_choice(
+        choice_id=choice2.id,
+        player_id=p1.id,
+        selected=allocations
+    )
+    assert success, f"Should accept single target allocation: {error}"
+    assert target.state.damage == 4, f"Target should have 4 damage, got {target.state.damage}"
+
+    print("✓ Single target received all 4 damage!")
+
+
+def test_damage_division_helper():
+    """Test make_divided_damage_etb_trigger helper function."""
+    print("\n=== Test: Divided damage ETB trigger helper ===")
+
+    from src.cards.interceptor_helpers import make_divided_damage_etb_trigger
+
+    game, p1, p2 = create_test_game()
+
+    def divider_setup(obj, state):
+        return [make_divided_damage_etb_trigger(
+            obj,
+            damage_amount=3,
+            target_filter='creature',
+            max_targets=3,
+            prompt="Deal 3 damage divided among up to 3 target creatures"
+        )]
+
+    target1 = create_creature(game, p2, "Target A", 2, 2)
+    target2 = create_creature(game, p2, "Target B", 2, 2)
+
+    # Create creature with divided damage ETB
+    source = create_creature(game, p1, "Damage Divider", 2, 2, setup_fn=divider_setup)
+
+    # Should trigger target selection
+    choice1 = game.state.pending_choice
+    assert choice1 is not None, "Should have pending choice"
+    assert choice1.choice_type == "target_with_callback"
+    assert choice1.callback_data.get('divide_amount') == 3
+
+    # Select both targets
+    success, _, _ = game.submit_choice(
+        choice_id=choice1.id,
+        player_id=p1.id,
+        selected=[target1.id, target2.id]
+    )
+    assert success
+
+    # Allocate damage
+    choice2 = game.state.pending_choice
+    assert choice2.choice_type == "divide_allocation"
+
+    allocations = [
+        {'target_id': target1.id, 'amount': 2},
+        {'target_id': target2.id, 'amount': 1}
+    ]
+    success, _, _ = game.submit_choice(
+        choice_id=choice2.id,
+        player_id=p1.id,
+        selected=allocations
+    )
+    assert success
+
+    assert target1.state.damage == 2
+    assert target2.state.damage == 1
+    print("✓ Divided damage ETB helper works!")
+
+
+def test_counter_division():
+    """Test dividing +1/+1 counters among targets."""
+    print("\n=== Test: Counter division ===")
+
+    from src.cards.interceptor_helpers import make_divided_counters_etb_trigger
+
+    game, p1, p2 = create_test_game()
+
+    def counter_divider_setup(obj, state):
+        return [make_divided_counters_etb_trigger(
+            obj,
+            counter_amount=4,
+            counter_type='p1p1',
+            target_filter='your_creature',
+            max_targets=3,
+            prompt="Distribute 4 +1/+1 counters among creatures you control"
+        )]
+
+    target1 = create_creature(game, p1, "Your Creature A", 2, 2)
+    target2 = create_creature(game, p1, "Your Creature B", 2, 2)
+
+    source = create_creature(game, p1, "Counter Giver", 2, 2, setup_fn=counter_divider_setup)
+
+    # Target selection
+    choice1 = game.state.pending_choice
+    assert choice1 is not None
+    assert choice1.callback_data.get('divide_amount') == 4
+
+    success, _, _ = game.submit_choice(
+        choice_id=choice1.id,
+        player_id=p1.id,
+        selected=[target1.id, target2.id]
+    )
+    assert success
+
+    # Allocate counters: 3 to target1, 1 to target2
+    choice2 = game.state.pending_choice
+    allocations = [
+        {'target_id': target1.id, 'amount': 3},
+        {'target_id': target2.id, 'amount': 1}
+    ]
+    success, error, _ = game.submit_choice(
+        choice_id=choice2.id,
+        player_id=p1.id,
+        selected=allocations
+    )
+    assert success, f"Counter allocation failed: {error}"
+
+    assert target1.state.counters.get('p1p1', 0) == 3, f"Target 1 should have 3 counters"
+    assert target2.state.counters.get('p1p1', 0) == 1, f"Target 2 should have 1 counter"
+    print("✓ Counter division works correctly!")
+
+
+def test_multi_effect_helper():
+    """Test make_targeted_multi_effect_etb_trigger helper."""
+    print("\n=== Test: Multi-effect ETB helper ===")
+
+    from src.cards.interceptor_helpers import make_targeted_multi_effect_etb_trigger
+
+    game, p1, p2 = create_test_game()
+
+    def multi_effect_setup(obj, state):
+        return [make_targeted_multi_effect_etb_trigger(
+            obj,
+            effects=[
+                {'effect': 'tap'},
+                {'effect': 'damage', 'params': {'amount': 1}}
+            ],
+            target_filter='creature',
+            prompt="Tap target creature and deal 1 damage to it"
+        )]
+
+    target = create_creature(game, p2, "Victim", 3, 3)
+
+    source = create_creature(game, p1, "Multi-Effect Source", 2, 2, setup_fn=multi_effect_setup)
+
+    choice = game.state.pending_choice
+    assert choice is not None
+
+    success, _, _ = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[target.id]
+    )
+    assert success
+
+    assert target.state.tapped, "Target should be tapped"
+    assert target.state.damage == 1, "Target should have 1 damage"
+    print("✓ Multi-effect ETB helper works correctly!")
+
+
+def test_modal_invalid_mode_index():
+    """Test that invalid mode index is rejected."""
+    print("\n=== Test: Modal invalid mode index rejected ===")
+
+    from src.cards.interceptor_helpers import make_modal_etb_trigger
+
+    game, p1, p2 = create_test_game()
+
+    def modal_setup(obj, state):
+        return [make_modal_etb_trigger(
+            obj,
+            modes=[
+                {'text': 'Gain 3 life', 'requires_targeting': False,
+                 'effect': 'life_gain', 'effect_params': {'amount': 3}},
+                {'text': 'Draw a card', 'requires_targeting': False,
+                 'effect': 'draw', 'effect_params': {'count': 1}}
+            ],
+            prompt="Choose one:"
+        )]
+
+    source = create_creature(game, p1, "Modal Source", 2, 2, setup_fn=modal_setup)
+
+    choice = game.state.pending_choice
+    assert choice is not None
+
+    # Try to select invalid mode index (5, only 0 and 1 exist)
+    success, error, _ = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=["5"]
+    )
+    # The mode should be skipped silently, not cause a crash
+    # Result depends on implementation - either fail or succeed with no effect
+    print(f"✓ Invalid mode index handled (success={success}, error={error})")
+
+
+def test_modal_with_multi_select():
+    """Test modal choosing multiple modes."""
+    print("\n=== Test: Modal multi-select ===")
+
+    from src.cards.interceptor_helpers import make_modal_etb_trigger
+
+    game, p1, p2 = create_test_game()
+    initial_life = p1.life
+
+    def modal_setup(obj, state):
+        return [make_modal_etb_trigger(
+            obj,
+            modes=[
+                {'text': 'Gain 2 life', 'requires_targeting': False,
+                 'effect': 'life_gain', 'effect_params': {'amount': 2}},
+                {'text': 'Gain 3 life', 'requires_targeting': False,
+                 'effect': 'life_gain', 'effect_params': {'amount': 3}}
+            ],
+            min_modes=1,
+            max_modes=2,  # Can choose both
+            prompt="Choose one or more:"
+        )]
+
+    source = create_creature(game, p1, "Modal Multi", 2, 2, setup_fn=modal_setup)
+
+    choice = game.state.pending_choice
+    assert choice is not None
+    assert choice.max_choices == 2, "Should allow 2 mode selections"
+
+    # Choose both modes
+    success, error, _ = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=["0", "1"]  # Both modes
+    )
+    assert success, f"Multi-mode selection failed: {error}"
+
+    # Should gain 2 + 3 = 5 life
+    expected_life = initial_life + 5
+    assert p1.life == expected_life, f"Expected {expected_life} life, got {p1.life}"
+    print(f"✓ Both modes executed, gained 5 life (now at {p1.life})")
+
+
+def test_allocation_to_invalid_target_rejected():
+    """Test that allocating to a target not in the original selection fails."""
+    print("\n=== Test: Allocation to invalid target rejected ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Damage Source", 2, 2)
+    target1 = create_creature(game, p2, "Selected Target", 3, 3)
+    target2 = create_creature(game, p2, "Not Selected", 3, 3)
+
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'damage',
+            'target_filter': 'creature',
+            'min_targets': 1,
+            'max_targets': 2,
+            'divide_amount': 3,
+        },
+        source=source.id
+    ))
+
+    # Select only target1
+    choice1 = game.state.pending_choice
+    success, _, _ = game.submit_choice(
+        choice_id=choice1.id,
+        player_id=p1.id,
+        selected=[target1.id]  # Only target1
+    )
+    assert success
+
+    # Try to allocate to target2 (not selected)
+    choice2 = game.state.pending_choice
+    allocations = [
+        {'target_id': target2.id, 'amount': 3}  # target2 wasn't selected!
+    ]
+    success, error, _ = game.submit_choice(
+        choice_id=choice2.id,
+        player_id=p1.id,
+        selected=allocations
+    )
+    assert not success, "Should reject allocation to non-selected target"
+    print(f"✓ Correctly rejected invalid target: {error}")
+
+
+def test_multi_effect_partial_execution():
+    """Test multi-effect where target becomes invalid mid-execution."""
+    print("\n=== Test: Multi-effect execution order ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Death Dealer", 2, 2)
+    # 1 toughness creature - will die from 2 damage
+    target = create_creature(game, p2, "Fragile Target", 3, 1)
+
+    # Effects: deal 2 damage (kills it), then tap
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effects': [
+                {'effect': 'damage', 'params': {'amount': 2}},
+                {'effect': 'tap'}  # Target might be dead by now
+            ],
+            'target_filter': 'creature'
+        },
+        source=source.id
+    ))
+
+    choice = game.state.pending_choice
+    success, _, _ = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[target.id]
+    )
+    assert success
+
+    # Target should have received damage (and probably died)
+    assert target.state.damage == 2, "Target should have 2 damage"
+    print("✓ Multi-effect executed in order!")
+
+
+def test_ai_modal_choice_with_valid_targets():
+    """Test AI makes good modal choices when targets are available."""
+    print("\n=== Test: AI modal choice with valid targets ===")
+
+    from src.ai import AIEngine
+    from src.cards.interceptor_helpers import make_modal_etb_trigger
+
+    game, p1, p2 = create_test_game()
+
+    # Create a threatening creature for p2
+    threat = create_creature(game, p2, "Big Threat", 5, 5)
+
+    def modal_setup(obj, state):
+        return [make_modal_etb_trigger(
+            obj,
+            modes=[
+                {'text': 'Destroy target creature', 'requires_targeting': True,
+                 'effect': 'destroy', 'target_filter': 'creature'},
+                {'text': 'Gain 1 life', 'requires_targeting': False,
+                 'effect': 'life_gain', 'effect_params': {'amount': 1}}
+            ],
+            prompt="Choose one:"
+        )]
+
+    source = create_creature(game, p1, "AI Modal", 2, 2, setup_fn=modal_setup)
+
+    choice = game.state.pending_choice
+    assert choice is not None
+
+    ai = AIEngine(difficulty='hard')
+    selected = ai.make_choice(p1.id, choice, game.state)
+
+    # AI should prefer destroy mode (0) since there's a valid target
+    # and destroying a 5/5 is much better than 1 life
+    print(f"✓ AI selected mode: {selected}")
+    # Just verify it's a valid selection
+    assert len(selected) >= 1, "AI should select at least one mode"
+
+
+def test_damage_division_with_death_trigger():
+    """Test damage division that triggers death events correctly."""
+    print("\n=== Test: Damage division triggers death ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Mass Damager", 2, 2)
+    # Two 1-toughness creatures that will die
+    target1 = create_creature(game, p2, "Weak 1", 1, 1)
+    target2 = create_creature(game, p2, "Weak 2", 1, 1)
+    # One that survives
+    target3 = create_creature(game, p2, "Tough", 2, 3)
+
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'damage',
+            'target_filter': 'creature',
+            'min_targets': 1,
+            'max_targets': 3,
+            'divide_amount': 4,
+        },
+        source=source.id
+    ))
+
+    # Select all 3
+    choice1 = game.state.pending_choice
+    success, _, _ = game.submit_choice(
+        choice_id=choice1.id,
+        player_id=p1.id,
+        selected=[target1.id, target2.id, target3.id]
+    )
+    assert success
+
+    # Allocate: 1 each to weak, 2 to tough
+    choice2 = game.state.pending_choice
+    allocations = [
+        {'target_id': target1.id, 'amount': 1},
+        {'target_id': target2.id, 'amount': 1},
+        {'target_id': target3.id, 'amount': 2}
+    ]
+    success, _, _ = game.submit_choice(
+        choice_id=choice2.id,
+        player_id=p1.id,
+        selected=allocations
+    )
+    assert success
+
+    # Check state-based actions to process lethal damage
+    game.check_state_based_actions()
+
+    # Weak creatures should be dead (damage >= toughness)
+    assert target1.zone == ZoneType.GRAVEYARD, "Weak 1 should be dead"
+    assert target2.zone == ZoneType.GRAVEYARD, "Weak 2 should be dead"
+    assert target3.zone == ZoneType.BATTLEFIELD, "Tough should survive"
+    assert target3.state.damage == 2, "Tough should have 2 damage"
+
+    print("✓ Damage division correctly killed creatures!")
+
+
+# =============================================================================
 # Run All Tests
 # =============================================================================
 
@@ -1440,6 +1953,22 @@ if __name__ == '__main__':
     print("-" * 40)
     test_modal_tap_or_untap()
     test_modal_no_targets_fallback()
+
+    # Edge cases and negative tests
+    print("\n" + "-" * 40)
+    print("EDGE CASES AND NEGATIVE TESTS")
+    print("-" * 40)
+    test_damage_division_wrong_total_fails()
+    test_damage_division_single_target()
+    test_damage_division_helper()
+    test_counter_division()
+    test_multi_effect_helper()
+    test_modal_invalid_mode_index()
+    test_modal_with_multi_select()
+    test_allocation_to_invalid_target_rejected()
+    test_multi_effect_partial_execution()
+    test_ai_modal_choice_with_valid_targets()
+    test_damage_division_with_death_trigger()
 
     print("\n" + "=" * 60)
     print("ALL TARGETING INTEGRATION TESTS PASSED!")

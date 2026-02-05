@@ -6,7 +6,7 @@
 
 // Enums
 export type MatchMode = 'human_vs_bot' | 'bot_vs_bot' | 'human_vs_human';
-export type AIDifficulty = 'easy' | 'medium' | 'hard';
+export type AIDifficulty = 'easy' | 'medium' | 'hard' | 'ultra';
 
 export type ActionType =
   | 'PASS'
@@ -105,8 +105,15 @@ export interface BlockDeclaration {
 // Pending Choice (for modal/target/scry/surveil decisions)
 export interface ChoiceOption {
   id: string;
-  label: string;
+  label?: string;
   description?: string;
+  // Extended properties for divide_allocation
+  name?: string;
+  type?: 'creature' | 'permanent' | 'player' | 'unknown';
+  life?: number;
+  // Extended properties for modal_with_targeting
+  index?: number;
+  requires_targeting?: boolean;
 }
 
 export interface PendingChoice {
@@ -142,10 +149,12 @@ export interface GameState {
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
-  player_deck: string[];
+  player_deck?: string[];
+  player_deck_id?: string;
   player_name: string;
-  ai_difficulty: AIDifficulty;
-  ai_deck: string[];
+  ai_difficulty?: AIDifficulty;
+  ai_deck?: string[];
+  ai_deck_id?: string;
 }
 
 export interface CreateMatchResponse {

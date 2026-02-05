@@ -1201,6 +1201,7 @@ def _create_divide_allocation_choice(
     source_id = original_choice.callback_data.get('source_id')
     controller_id = original_choice.callback_data.get('controller_id')
     effect = original_choice.callback_data.get('effect', 'damage')
+    effect_params = original_choice.callback_data.get('effect_params', {})
 
     # Build options with target info for the UI
     options = []
@@ -1235,8 +1236,10 @@ def _create_divide_allocation_choice(
             'handler': _execute_divided_effect,
             'total_amount': divide_amount,
             'effect': effect,
+            'effect_params': effect_params,
             'source_id': source_id,
             'selected_targets': selected_targets,
+            'counter_type': effect_params.get('counter_type', '+1/+1'),
         }
     )
     state.pending_choice = choice
