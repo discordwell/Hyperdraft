@@ -22,7 +22,9 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, creatures_with_subtype,
     make_spell_cast_trigger, make_upkeep_trigger, make_end_step_trigger,
     make_life_gain_trigger, make_life_loss_trigger, creatures_you_control,
-    other_creatures_with_subtype, all_opponents
+    other_creatures_with_subtype, all_opponents,
+    make_targeted_attack_trigger, make_targeted_death_trigger,
+    make_targeted_damage_trigger, make_targeted_spell_cast_trigger
 )
 
 
@@ -937,10 +939,11 @@ SEPHIROTH = make_creature(
 
 
 def sephiroth_masamune_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When deals combat damage, destroy target creature"""
-    def damage_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DESTROY, payload={'target': 'choose'}, source=obj.id)]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+    """When deals combat damage to a player, destroy target creature that player controls"""
+    return [make_targeted_damage_trigger(
+        obj, effect='destroy', target_filter='creature',
+        combat_only=True, prompt="Destroy target creature"
+    )]
 
 SEPHIROTH_MASAMUNE = make_creature(
     name="Sephiroth, Masamune's Edge",
@@ -1315,9 +1318,10 @@ TIFA_LOCKHART = make_creature(
 
 def barret_wallace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When attacks, deal 2 damage to any target"""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={'target': 'choose', 'amount': 2}, source=obj.id)]
-    return [make_attack_trigger(obj, attack_effect)]
+    return [make_targeted_attack_trigger(
+        obj, effect='damage', effect_params={'amount': 2},
+        target_filter='any', prompt="Deal 2 damage to any target"
+    )]
 
 BARRET_WALLACE = make_creature(
     name="Barret Wallace, AVALANCHE Leader",
@@ -1403,9 +1407,10 @@ SABIN = make_creature(
 
 def auron_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Menace, when dies, deal 4 damage to any target"""
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={'target': 'choose', 'amount': 4}, source=obj.id)]
-    return [make_death_trigger(obj, death_effect)]
+    return [make_targeted_death_trigger(
+        obj, effect='damage', effect_params={'amount': 4},
+        target_filter='any', prompt="Auron deals 4 damage to any target"
+    )]
 
 AURON = make_creature(
     name="Auron, Legendary Guardian",
@@ -1501,9 +1506,11 @@ PHOENIX = make_creature(
 
 def black_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When casts instant/sorcery, deal 1 damage to any target"""
-    def spell_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={'target': 'choose', 'amount': 1}, source=obj.id)]
-    return [make_spell_cast_trigger(obj, spell_effect, spell_type_filter={CardType.INSTANT, CardType.SORCERY})]
+    return [make_targeted_spell_cast_trigger(
+        obj, effect='damage', effect_params={'amount': 1},
+        target_filter='any', prompt="Black Mage deals 1 damage to any target",
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY}
+    )]
 
 BLACK_MAGE = make_creature(
     name="Black Mage",

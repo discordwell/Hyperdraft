@@ -1403,3 +1403,271 @@ def make_leaves_battlefield_trigger(
         handler=trigger_handler,
         duration='until_leaves'  # Fire once when leaving
     )
+
+
+# =============================================================================
+# TARGETED TRIGGER HELPERS
+# =============================================================================
+# These helpers emit TARGET_REQUIRED events, letting the pipeline handle
+# target selection and effect execution automatically.
+
+def make_targeted_etb_trigger(
+    source_obj: GameObject,
+    effect: str,
+    effect_params: dict = None,
+    target_filter: str = 'any',
+    min_targets: int = 1,
+    max_targets: int = 1,
+    optional: bool = False,
+    prompt: str = None
+) -> Interceptor:
+    """
+    Create an ETB trigger that requires targeting.
+
+    Args:
+        source_obj: The object with the trigger
+        effect: Effect type ('damage', 'destroy', 'exile', 'bounce', 'tap', 'pump', etc.)
+        effect_params: Parameters for the effect (e.g., {'amount': 3} for damage)
+        target_filter: Target filter type ('any', 'creature', 'opponent_creature',
+                       'your_creature', 'opponent', 'player', 'nonland_permanent')
+        min_targets: Minimum targets required (default 1)
+        max_targets: Maximum targets allowed (default 1)
+        optional: If True, may choose 0 targets (default False)
+        prompt: Custom prompt text (auto-generated if not provided)
+
+    Example:
+        # "When ~ enters, deal 2 damage to any target"
+        make_targeted_etb_trigger(obj, effect='damage', effect_params={'amount': 2})
+
+        # "When ~ enters, exile target creature an opponent controls"
+        make_targeted_etb_trigger(obj, effect='exile', target_filter='opponent_creature')
+    """
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': source_obj.id,
+                'controller': source_obj.controller,
+                'effect': effect,
+                'effect_params': effect_params or {},
+                'target_filter': target_filter,
+                'min_targets': min_targets,
+                'max_targets': max_targets,
+                'optional': optional,
+                'prompt': prompt
+            },
+            source=source_obj.id
+        )]
+
+    return make_etb_trigger(source_obj, etb_effect)
+
+
+def make_targeted_attack_trigger(
+    source_obj: GameObject,
+    effect: str,
+    effect_params: dict = None,
+    target_filter: str = 'any',
+    min_targets: int = 1,
+    max_targets: int = 1,
+    optional: bool = False,
+    prompt: str = None
+) -> Interceptor:
+    """
+    Create an attack trigger that requires targeting.
+
+    Args:
+        source_obj: The creature with the trigger
+        effect: Effect type ('damage', 'destroy', 'exile', 'bounce', 'tap', 'pump', etc.)
+        effect_params: Parameters for the effect (e.g., {'amount': 2} for damage)
+        target_filter: Target filter type
+        min_targets: Minimum targets required (default 1)
+        max_targets: Maximum targets allowed (default 1)
+        optional: If True, may choose 0 targets (default False)
+        prompt: Custom prompt text (auto-generated if not provided)
+
+    Example:
+        # "When ~ attacks, deal 2 damage to any target"
+        make_targeted_attack_trigger(obj, effect='damage', effect_params={'amount': 2})
+
+        # "When ~ attacks, tap target creature an opponent controls"
+        make_targeted_attack_trigger(obj, effect='tap', target_filter='opponent_creature')
+    """
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': source_obj.id,
+                'controller': source_obj.controller,
+                'effect': effect,
+                'effect_params': effect_params or {},
+                'target_filter': target_filter,
+                'min_targets': min_targets,
+                'max_targets': max_targets,
+                'optional': optional,
+                'prompt': prompt
+            },
+            source=source_obj.id
+        )]
+
+    return make_attack_trigger(source_obj, attack_effect)
+
+
+def make_targeted_death_trigger(
+    source_obj: GameObject,
+    effect: str,
+    effect_params: dict = None,
+    target_filter: str = 'any',
+    min_targets: int = 1,
+    max_targets: int = 1,
+    optional: bool = False,
+    prompt: str = None
+) -> Interceptor:
+    """
+    Create a death trigger that requires targeting.
+
+    Args:
+        source_obj: The creature with the trigger
+        effect: Effect type ('damage', 'destroy', 'exile', 'bounce', 'tap', 'pump', etc.)
+        effect_params: Parameters for the effect (e.g., {'amount': 4} for damage)
+        target_filter: Target filter type
+        min_targets: Minimum targets required (default 1)
+        max_targets: Maximum targets allowed (default 1)
+        optional: If True, may choose 0 targets (default False)
+        prompt: Custom prompt text (auto-generated if not provided)
+
+    Example:
+        # "When ~ dies, deal 4 damage to any target"
+        make_targeted_death_trigger(obj, effect='damage', effect_params={'amount': 4})
+    """
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': source_obj.id,
+                'controller': source_obj.controller,
+                'effect': effect,
+                'effect_params': effect_params or {},
+                'target_filter': target_filter,
+                'min_targets': min_targets,
+                'max_targets': max_targets,
+                'optional': optional,
+                'prompt': prompt
+            },
+            source=source_obj.id
+        )]
+
+    return make_death_trigger(source_obj, death_effect)
+
+
+def make_targeted_damage_trigger(
+    source_obj: GameObject,
+    effect: str,
+    effect_params: dict = None,
+    target_filter: str = 'any',
+    min_targets: int = 1,
+    max_targets: int = 1,
+    optional: bool = False,
+    prompt: str = None,
+    combat_only: bool = False,
+    noncombat_only: bool = False
+) -> Interceptor:
+    """
+    Create a damage trigger that requires targeting.
+
+    Args:
+        source_obj: The creature with the trigger
+        effect: Effect type ('damage', 'destroy', 'exile', 'bounce', etc.)
+        effect_params: Parameters for the effect
+        target_filter: Target filter type
+        min_targets: Minimum targets required (default 1)
+        max_targets: Maximum targets allowed (default 1)
+        optional: If True, may choose 0 targets (default False)
+        prompt: Custom prompt text (auto-generated if not provided)
+        combat_only: If True, only trigger on combat damage
+        noncombat_only: If True, only trigger on noncombat damage
+
+    Example:
+        # "When ~ deals combat damage, destroy target creature"
+        make_targeted_damage_trigger(obj, effect='destroy', target_filter='creature',
+                                     combat_only=True)
+    """
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': source_obj.id,
+                'controller': source_obj.controller,
+                'effect': effect,
+                'effect_params': effect_params or {},
+                'target_filter': target_filter,
+                'min_targets': min_targets,
+                'max_targets': max_targets,
+                'optional': optional,
+                'prompt': prompt
+            },
+            source=source_obj.id
+        )]
+
+    return make_damage_trigger(source_obj, damage_effect, combat_only=combat_only,
+                               noncombat_only=noncombat_only)
+
+
+def make_targeted_spell_cast_trigger(
+    source_obj: GameObject,
+    effect: str,
+    effect_params: dict = None,
+    target_filter: str = 'any',
+    min_targets: int = 1,
+    max_targets: int = 1,
+    optional: bool = False,
+    prompt: str = None,
+    controller_only: bool = True,
+    spell_type_filter: set = None,
+    color_filter: set = None
+) -> Interceptor:
+    """
+    Create a spell cast trigger that requires targeting.
+
+    Args:
+        source_obj: The object with the trigger
+        effect: Effect type ('damage', 'destroy', 'exile', etc.)
+        effect_params: Parameters for the effect
+        target_filter: Target filter type
+        min_targets: Minimum targets required (default 1)
+        max_targets: Maximum targets allowed (default 1)
+        optional: If True, may choose 0 targets (default False)
+        prompt: Custom prompt text (auto-generated if not provided)
+        controller_only: If True, only trigger on spells cast by controller
+        spell_type_filter: Only trigger on specific spell types (e.g., {CardType.INSTANT})
+        color_filter: Only trigger on spells containing these colors
+
+    Example:
+        # "When you cast an instant or sorcery, deal 1 damage to any target"
+        make_targeted_spell_cast_trigger(
+            obj, effect='damage', effect_params={'amount': 1},
+            spell_type_filter={CardType.INSTANT, CardType.SORCERY}
+        )
+    """
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': source_obj.id,
+                'controller': source_obj.controller,
+                'effect': effect,
+                'effect_params': effect_params or {},
+                'target_filter': target_filter,
+                'min_targets': min_targets,
+                'max_targets': max_targets,
+                'optional': optional,
+                'prompt': prompt
+            },
+            source=source_obj.id
+        )]
+
+    return make_spell_cast_trigger(
+        source_obj, spell_effect,
+        controller_only=controller_only,
+        spell_type_filter=spell_type_filter,
+        color_filter=color_filter
+    )
