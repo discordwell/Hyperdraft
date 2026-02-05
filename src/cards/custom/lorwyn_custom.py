@@ -216,7 +216,7 @@ def make_planeswalker(name: str, mana_cost: str, colors: set, subtypes: set, tex
 
 from src.cards.interceptor_helpers import (
     make_death_trigger, make_attack_trigger, make_tap_trigger,
-    make_upkeep_trigger, make_counter_added_trigger,
+    make_upkeep_trigger, make_counter_added_trigger, make_end_step_trigger,
     make_keyword_grant, other_creatures_you_control,
     other_creatures_with_subtype
 )
@@ -6743,7 +6743,6 @@ def preeminent_captain_setup(obj: GameObject, state: GameState) -> list[Intercep
     return [make_attack_trigger(obj, effect)]
 
 def merrow_commerce_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    from src.cards.interceptor_helpers import make_end_step_trigger
     def effect(event: Event, state: GameState) -> list[Event]:
         return [Event(type=EventType.UNTAP, payload={'object_id': oid}, source=obj.id) for oid, c in state.objects.items() if c.controller == obj.controller and CardType.CREATURE in c.characteristics.types and 'Merfolk' in c.characteristics.subtypes and c.zone == ZoneType.BATTLEFIELD and c.tapped]
     return [make_end_step_trigger(obj, effect)]
