@@ -438,6 +438,79 @@ class SpellBuilder:
 
             return counter_resolve
 
+        # "return target ... to ... hand" - bounce spells
+        if 'return target' in text_lower and 'hand' in text_lower:
+            def bounce_resolve(targets: list[list[Target]], state: GameState) -> list[Event]:
+                events = []
+                if targets and targets[0]:
+                    for target in targets[0]:
+                        if not target.is_player:
+                            target_obj = state.objects.get(target.id)
+                            if target_obj:
+                                owner_id = target_obj.owner
+                                events.append(Event(
+                                    type=EventType.ZONE_CHANGE,
+                                    payload={
+                                        'object_id': target.id,
+                                        'to_zone_type': ZoneType.HAND,
+                                        'to_zone': f'hand_{owner_id}',
+                                        'reason': 'bounced'
+                                    },
+                                    source=source_id
+                                ))
+                return events
+
+            return bounce_resolve
+
+        # "draw X cards" or "draw a card"
+        draw_match = re.search(r'draw (\d+|a|an) cards?', text_lower)
+        if draw_match:
+            count_str = draw_match.group(1)
+            count = 1 if count_str in ('a', 'an') else int(count_str)
+
+            def draw_resolve(targets: list[list[Target]], state: GameState) -> list[Event]:
+                # Drawing doesn't target - controller draws
+                return [Event(
+                    type=EventType.DRAW,
+                    payload={'count': count},
+                    source=source_id
+                )]
+
+            return draw_resolve
+
+        # "gains X life" or "gain X life"
+        life_match = re.search(r'gains? (\d+) life', text_lower)
+        if life_match:
+            amount = int(life_match.group(1))
+
+            def lifegain_resolve(targets: list[list[Target]], state: GameState) -> list[Event]:
+                return [Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'amount': amount},
+                    source=source_id
+                )]
+
+            return lifegain_resolve
+
+        # "loses X life" or "lose X life" targeting a player
+        lifeloss_match = re.search(r'loses? (\d+) life', text_lower)
+        if lifeloss_match and 'target' in text_lower:
+            amount = int(lifeloss_match.group(1))
+
+            def lifeloss_resolve(targets: list[list[Target]], state: GameState) -> list[Event]:
+                events = []
+                if targets and targets[0]:
+                    for target in targets[0]:
+                        if target.is_player:
+                            events.append(Event(
+                                type=EventType.LIFE_CHANGE,
+                                payload={'player': target.id, 'amount': -amount},
+                                source=source_id
+                            ))
+                return events
+
+            return lifeloss_resolve
+
         return None
 
     def create_ability(
