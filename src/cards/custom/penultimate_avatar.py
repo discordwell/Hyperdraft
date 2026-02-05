@@ -1189,7 +1189,7 @@ def buzzard_wasp_colony_setup(obj: GameObject, state: GameState) -> list[Interce
         died_obj = state.objects.get(died_id)
         if died_obj and died_obj.counters:
             events = []
-            for counter_type, amount in died_obj.counters.items():
+            for counter_type, amount in died_obj.state.counters.items():
                 events.append(Event(
                     type=EventType.COUNTER_ADDED,
                     payload={'object_id': obj.id, 'counter_type': counter_type, 'amount': amount},
@@ -1388,7 +1388,7 @@ def long_feng_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             if (game_obj.controller == obj.controller and
                 CardType.CREATURE in game_obj.characteristics.types and
                 game_obj.zone == ZoneType.BATTLEFIELD and
-                game_obj.counters.get('+1/+1', 0) > 0):
+                game_obj.state.counters.get('+1/+1', 0) > 0):
                 counter_count += 1
 
         events = []
@@ -1539,7 +1539,7 @@ def fated_firepower_setup(obj: GameObject, state: GameState) -> list[Interceptor
         return target_obj and target_obj.controller != o.controller
 
     def damage_modify(event: Event, state: GameState) -> InterceptorResult:
-        fire_counters = obj.counters.get('fire', 0)
+        fire_counters = obj.state.counters.get('fire', 0)
         if fire_counters > 0:
             new_amount = event.payload.get('amount', 0) + fire_counters
             new_payload = dict(event.payload)
@@ -1712,7 +1712,7 @@ def badgermole_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         return (target.controller == obj.controller and
                 CardType.CREATURE in target.characteristics.types and
                 target.zone == ZoneType.BATTLEFIELD and
-                target.counters.get('+1/+1', 0) > 0)
+                target.state.counters.get('+1/+1', 0) > 0)
 
     interceptors = [make_earthbend_etb(obj, 2)]
     interceptors.append(make_keyword_grant(obj, ['trample'], counter_creature_filter))
@@ -1911,7 +1911,7 @@ def toph_beifong_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         return (target.controller == obj.controller and
                 CardType.CREATURE in target.characteristics.types and
                 target.zone == ZoneType.BATTLEFIELD and
-                target.counters.get('+1/+1', 0) > 0)
+                target.state.counters.get('+1/+1', 0) > 0)
 
     return [
         make_earthbend_etb(obj, 3),
@@ -2166,7 +2166,7 @@ def dai_li_agents_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             if (game_obj.controller == obj.controller and
                 CardType.CREATURE in game_obj.characteristics.types and
                 game_obj.zone == ZoneType.BATTLEFIELD and
-                game_obj.counters.get('+1/+1', 0) > 0):
+                game_obj.state.counters.get('+1/+1', 0) > 0):
                 counter_count += 1
 
         events = []
@@ -3409,7 +3409,7 @@ def natural_harmony_setup(obj: GameObject, state: GameState) -> list[Interceptor
             return False
         if CardType.CREATURE not in entered_obj.characteristics.types:
             return False
-        return entered_obj.counters.get('+1/+1', 0) > 0
+        return entered_obj.state.counters.get('+1/+1', 0) > 0
 
     def creature_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(

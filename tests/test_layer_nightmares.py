@@ -680,6 +680,87 @@ def test_chain_of_effects():
     print("✓ Chain of effects kills the creature!")
 
 
+def test_replacement_effect_exile_instead_of_die():
+    """
+    Test replacement effects that change zone destinations.
+
+    Like Death Trooper: "If a creature dealt damage by this would die, exile it instead."
+    This tests that TRANSFORM interceptors can modify ZONE_CHANGE events.
+    """
+    print("\n=== Test: Replacement Effect - Exile Instead of Graveyard ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    # Create a "death trooper" style creature
+    trooper = game.create_object(
+        name="Death Trooper",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            power=3,
+            toughness=2
+        )
+    )
+
+    # Create a target creature that will "die"
+    victim = game.create_object(
+        name="Victim",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            power=1,
+            toughness=1
+        )
+    )
+
+    # Register a replacement effect: when victim would go to graveyard, exile instead
+    def exile_filter(event, state):
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('object_id') != victim.id:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        return True
+
+    def exile_handler(event, state):
+        new_event = event.copy()
+        new_event.payload['to_zone_type'] = ZoneType.EXILE
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    replacement = Interceptor(
+        id=new_id(),
+        source=trooper.id,
+        controller=p1.id,
+        priority=InterceptorPriority.TRANSFORM,
+        filter=exile_filter,
+        handler=exile_handler,
+        duration='while_on_battlefield'
+    )
+    game.register_interceptor(replacement)
+
+    print(f"Victim zone before 'death': {victim.zone}")
+
+    # Simulate victim dying (move to graveyard)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': victim.id,
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone_type': ZoneType.GRAVEYARD
+        }
+    ))
+
+    print(f"Victim zone after replacement effect: {victim.zone}")
+
+    # The replacement effect should have changed it to EXILE
+    assert victim.zone == ZoneType.EXILE, f"Expected EXILE, got {victim.zone}"
+    print("✓ Replacement effect redirected graveyard to exile!")
+
+
 def run_all_layer_tests():
     """Run all layer nightmare tests."""
     print("=" * 60)
@@ -697,6 +778,7 @@ def run_all_layer_tests():
     test_painter_servant_color()
     test_multiple_lords_on_single_creature()
     test_chain_of_effects()
+    test_replacement_effect_exile_instead_of_die()
 
     print("\n" + "=" * 60)
     print("ALL LAYER NIGHTMARE TESTS PASSED!")
