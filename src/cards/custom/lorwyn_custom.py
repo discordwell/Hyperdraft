@@ -99,10 +99,15 @@ def make_static_pt_boost(
 ) -> list[Interceptor]:
     """Create +X/+Y static ability interceptors."""
     interceptors = []
+    source_id = source_obj.id  # Capture for closures
 
     if power_mod != 0:
         def power_filter(event: Event, state: GameState) -> bool:
             if event.type != EventType.QUERY_POWER:
+                return False
+            # Check that the source (lord) is on the battlefield
+            source = state.objects.get(source_id)
+            if not source or source.zone != ZoneType.BATTLEFIELD:
                 return False
             target_id = event.payload.get('object_id')
             target = state.objects.get(target_id)
@@ -132,6 +137,10 @@ def make_static_pt_boost(
     if toughness_mod != 0:
         def toughness_filter(event: Event, state: GameState) -> bool:
             if event.type != EventType.QUERY_TOUGHNESS:
+                return False
+            # Check that the source (lord) is on the battlefield
+            source = state.objects.get(source_id)
+            if not source or source.zone != ZoneType.BATTLEFIELD:
                 return False
             target_id = event.payload.get('object_id')
             target = state.objects.get(target_id)
