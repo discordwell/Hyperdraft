@@ -2,6 +2,48 @@
 
 ## Session Summaries
 
+### 2026-02-05T14:XX:XX UTC - Payload Key Bugs and Handler Flexibility
+
+**Fixed 8 bugs:**
+
+1. **ObjectState.get() Bug** (`lorwyn_custom.py:6784`)
+   - Bug: `obj.state.get('exiled_card_id')` - ObjectState is a dataclass, not dict
+   - Fix: Changed to `getattr(obj.state, 'exiled_card_id', None)`
+
+2. **DRAW Event payload 'player_id'** (`temporal_horizons.py`)
+   - Bug: 4 cards used `player_id` instead of `player`
+   - Lines: 1451, 1457, 1463, 1608
+   - Fix: Changed to `'player': obj.controller`
+
+3. **DAMAGE Event payload keys** (`temporal_horizons.py:1514`)
+   - Bug: Used `target_id` and `source_id` instead of `target` and `source`
+   - Fix: Changed to correct payload keys
+
+4. **SCRY Event payload keys** (`temporal_horizons.py:1471`)
+   - Bug: Used `player_id` and `amount` instead of `player` and `count`
+   - Fix: Changed to `'player': obj.controller, 'count': 1`
+
+5. **LIFE_LOSS EventType** (`temporal_horizons.py:1477`)
+   - Bug: Used `LIFE_LOSS` with `player_id` key
+   - Fix: Changed to `LIFE_CHANGE` with negative amount and `player` key
+
+6. **SCRY Handler inflexible** (`pipeline.py:665`)
+   - Bug: Many cards used `amount` but handler only accepted `count`
+   - Fix: Handler now accepts both `count` and `amount` keys
+
+7. **MILL Handler inflexible** (`pipeline.py:735`)
+   - Bug: Cards used `amount` but handler only accepted `count`
+   - Fix: Handler now accepts both `count` and `amount` keys
+
+**All tests pass:** 33 (4 Lorwyn, 20 degenerate, 11 layer nightmare)
+
+**Verified working:**
+- All 19 custom card modules import successfully
+- Interceptors fire correctly (ETB triggers, counters)
+- Basic game setup and zone movement works
+
+---
+
 ### 2026-02-05T12:XX:XX UTC - PT_MODIFICATION and EventType Bug Fixes
 
 **Fixed multiple bugs:**
@@ -92,29 +134,6 @@
 
 ---
 
-### 2026-02-05T05:XX:XX UTC - Bug Fixes for Layer System and Land Playing
-**Fixed 2 critical bugs:**
-
-1. **Double Interceptor Registration on ETB** (`pipeline.py:316`)
-   - Bug: Interceptors were registered twice when objects entered battlefield
-   - Cause: `create_object()` registered interceptors immediately, then `_handle_zone_change()` registered them again on ZONE_CHANGE event
-   - Fix: Added check `and not obj.interceptor_ids` to prevent re-registration
-   - Impact: Fixed `test_counter_shenanigans` (Burdened Stoneback getting 4 counters instead of 2) and `test_anthem_plus_counters`
-
-2. **Land Playing Broken** (`priority.py:502`)
-   - Bug: Lands weren't moving to battlefield when played
-   - Cause: `_handle_play_land()` used string `'BATTLEFIELD'` instead of `ZoneType.BATTLEFIELD` enum
-   - Fix: Changed to `ZoneType.BATTLEFIELD` and added missing import
-   - Impact: AI can now play lands and produce mana, enabling spell casting
-
-**Tests verified:**
-- All degenerate tests pass
-- All Lorwyn tests pass
-- All layer nightmare tests pass
-- AI game runs correctly (lands, spells, attacks, blocks, combat damage)
-
----
-
 ## Key Findings
 
 ### Event Pipeline Architecture
@@ -123,9 +142,16 @@
 - `while_on_battlefield` duration interceptors are cleaned up when leaving battlefield
 - ETB triggers fire in REACT phase after ZONE_CHANGE resolves
 
+### Event Payload Conventions
+- DAMAGE: `target` (player_id or object_id), `amount`, `source` (optional), `is_combat` (optional)
+- DRAW: `player` (not player_id), `amount` (preferred) or `count` (legacy)
+- LIFE_CHANGE: `player` (not player_id), `amount` (positive for gain, negative for loss)
+- SCRY: `player`, `count` (number of cards)
+
 ### Known Card Limitations
 - `mono_red_aggro` deck includes `Accelerated Striker` which costs {R}{G} (Gruul) - wrong for mono-red
 - Custom cards from Temporal Horizons set power the standard decks
+- Cards with `target: 'choose'` or `target: 'creature'` are stubs needing targeting system
 
 ### AI Strategies
 - AggroStrategy: Plays creatures early, attacks aggressively

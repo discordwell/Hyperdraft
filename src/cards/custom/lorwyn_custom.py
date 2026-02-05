@@ -227,7 +227,10 @@ from src.cards.interceptor_helpers import (
     make_death_trigger, make_attack_trigger, make_tap_trigger,
     make_upkeep_trigger, make_counter_added_trigger, make_end_step_trigger,
     make_keyword_grant, other_creatures_you_control,
-    other_creatures_with_subtype
+    other_creatures_with_subtype,
+    # Targeted trigger helpers
+    make_targeted_etb_trigger, make_targeted_attack_trigger,
+    make_targeted_death_trigger
 )
 
 
@@ -1576,9 +1579,37 @@ GLEN_ELENDRA_GUARDIAN = make_creature(
 
 # Gravelgill Scoundrel - {1}{U} Creature — Merfolk Rogue 1/3
 def gravelgill_scoundrel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks, you may tap another untapped creature you control."""
+    # "Whenever this creature attacks, you may tap another untapped creature you control.
+    #  If you do, this creature can't be blocked this turn."
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires targeting - handled by targeting system
+        # Find untapped creatures you control (other than self) for targeting
+        legal_targets = []
+        battlefield = state.zones.get('battlefield')
+        if battlefield:
+            for obj_id in battlefield.objects:
+                perm = state.objects.get(obj_id)
+                if (perm and perm.controller == obj.controller and
+                    perm.id != obj.id and  # Not self
+                    CardType.CREATURE in perm.characteristics.types and
+                    not perm.state.tapped):  # Must be untapped
+                    legal_targets.append(perm.id)
+
+        if not legal_targets:
+            return []
+
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effect': 'tap',
+                'target_filter': 'creature',
+                'legal_targets_override': legal_targets,
+                'optional': True,  # "you may"
+                'prompt': "You may tap another untapped creature you control to make Gravelgill Scoundrel unblockable"
+            },
+            source=obj.id
+        )]
     return [make_attack_trigger(obj, attack_effect)]
 
 
@@ -1947,10 +1978,15 @@ GNARLBARK_ELM = make_creature(
 
 # Graveshifter - {3}{B} Creature — Shapeshifter 2/2
 def graveshifter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # May return creature from graveyard to hand
-        return []  # Would need targeting
-    return [make_etb_trigger(obj, etb_effect)]
+    # "When this creature enters, you may return target creature card
+    #  from your graveyard to your hand."
+    return [make_targeted_etb_trigger(
+        obj,
+        effect='graveyard_to_hand',
+        target_filter='creature_in_your_graveyard',
+        optional=True,
+        prompt="Return target creature card from your graveyard to your hand"
+    )]
 
 
 GRAVESHIFTER = make_creature(
@@ -2443,8 +2479,35 @@ CHITINOUS_GRASPLING = make_creature(
 
 # Deepchannel Duelist - {W}{U} Creature — Merfolk Soldier 2/2
 def deepchannel_duelist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "At the beginning of your end step, untap target Merfolk you control.
+    #  It can't be blocked this turn."
     def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires targeting - handled by targeting system
+        # Find Merfolk you control for targeting
+        legal_targets = []
+        battlefield = state.zones.get('battlefield')
+        if battlefield:
+            for obj_id in battlefield.objects:
+                perm = state.objects.get(obj_id)
+                if (perm and perm.controller == obj.controller and
+                    CardType.CREATURE in perm.characteristics.types and
+                    "Merfolk" in perm.characteristics.subtypes):
+                    legal_targets.append(perm.id)
+
+        if not legal_targets:
+            return []
+
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effect': 'untap',
+                'target_filter': 'creature',
+                'legal_targets_override': legal_targets,
+                'prompt': "Untap target Merfolk you control. It can't be blocked this turn."
+            },
+            source=obj.id
+        )]
     return [make_end_step_trigger(obj, end_step_effect)]
 
 
@@ -2795,9 +2858,15 @@ RELUCTANT_DOUNGUARD = make_creature(
 
 # Rhys, the Evermore - {1}{W} Legendary Creature — Elf Warrior 2/2
 def rhys_the_evermore_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires targeting - handled by targeting system
-    return [make_etb_trigger(obj, etb_effect)]
+    # "When Rhys enters, another target creature you control gains persist until end of turn."
+    return [make_targeted_etb_trigger(
+        obj,
+        effect='grant_keyword',
+        effect_params={'keyword': 'persist'},
+        target_filter='other_creature_you_control',
+        optional=True,
+        prompt="Choose another creature you control to gain persist"
+    )]
 
 
 RHYS_THE_EVERMORE = make_creature(
