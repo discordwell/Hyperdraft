@@ -871,6 +871,55 @@ def test_legal_targets_override():
     print("✓ Legal targets override works correctly!")
 
 
+def test_graveyard_targeting():
+    """Test TARGET_REQUIRED with graveyard_to_hand effect."""
+    print("\n=== Test: Graveyard targeting ===")
+
+    game, p1, p2 = create_test_game()
+
+    source = create_creature(game, p1, "Graveshifter", 2, 2)
+
+    # Create a creature and put it in the graveyard
+    dead_creature = create_creature(game, p1, "Dead Creature", 3, 3)
+    # Move to graveyard
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': dead_creature.id,
+            'from_zone': 'battlefield',
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD
+        }
+    ))
+    assert dead_creature.zone == ZoneType.GRAVEYARD, "Creature should be in graveyard"
+
+    # Request graveyard targeting
+    game.emit(Event(
+        type=EventType.TARGET_REQUIRED,
+        payload={
+            'source': source.id,
+            'controller': p1.id,
+            'effect': 'graveyard_to_hand',
+            'target_filter': 'creature_in_your_graveyard',
+            'prompt': "Return target creature card from your graveyard to your hand"
+        },
+        source=source.id
+    ))
+
+    choice = game.state.pending_choice
+    assert choice is not None, "Should create targeting choice for graveyard"
+    assert dead_creature.id in choice.options, "Dead creature should be targetable"
+
+    success, _, _ = game.submit_choice(
+        choice_id=choice.id,
+        player_id=p1.id,
+        selected=[dead_creature.id]
+    )
+    assert success
+    assert dead_creature.zone == ZoneType.HAND, f"Creature should be in hand, found in {dead_creature.zone}"
+    print("✓ Graveyard targeting works correctly!")
+
+
 # =============================================================================
 # Test AI Integration
 # =============================================================================
@@ -949,6 +998,7 @@ if __name__ == '__main__':
     test_sequential_targeting()
     test_invalid_target_rejection()
     test_legal_targets_override()
+    test_graveyard_targeting()
 
     # AI integration test
     test_ai_target_selection()

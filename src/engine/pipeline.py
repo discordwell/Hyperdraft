@@ -931,6 +931,12 @@ def _build_target_requirement(
         tf.types = {CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT, CardType.PLANESWALKER}
     elif filter_type == 'permanent':
         tf = permanent_filter()
+    elif filter_type == 'creature_in_your_graveyard':
+        tf = creature_filter(controller='you')
+        tf.zones = {ZoneType.GRAVEYARD}
+    elif filter_type == 'creature_in_graveyard':
+        tf = creature_filter()
+        tf.zones = {ZoneType.GRAVEYARD}
     else:
         # Default to any target
         tf = any_target_filter()
@@ -958,6 +964,8 @@ def _generate_target_prompt(effect: str, effect_params: dict, filter_type: str) 
         'player': 'target player',
         'nonland_permanent': 'target nonland permanent',
         'permanent': 'target permanent',
+        'creature_in_your_graveyard': 'target creature card in your graveyard',
+        'creature_in_graveyard': 'target creature card in a graveyard',
     }.get(filter_type, 'a target')
 
     # Build effect description
@@ -984,6 +992,17 @@ def _generate_target_prompt(effect: str, effect_params: dict, filter_type: str) 
         counter_type = effect_params.get('counter_type', '+1/+1')
         amount = effect_params.get('amount', 1)
         return f"Put {amount} {counter_type} counter(s) on {target_desc}"
+    elif effect == 'grant_keyword':
+        keyword = effect_params.get('keyword', 'an ability')
+        return f"{target_desc} gains {keyword} until end of turn"
+    elif effect == 'life_change':
+        amount = effect_params.get('amount', 0)
+        if amount >= 0:
+            return f"{target_desc} gains {amount} life"
+        else:
+            return f"{target_desc} loses {abs(amount)} life"
+    elif effect == 'graveyard_to_hand':
+        return f"Return {target_desc} to its owner's hand"
     else:
         return f"Choose {target_desc}"
 
@@ -1117,6 +1136,21 @@ def _execute_targeted_effect(choice: PendingChoice, selected: list, state: GameS
                 payload={'player': target_id, 'amount': amount},
                 source=source_id
             ))
+
+        elif effect == 'graveyard_to_hand':
+            # Return target card from graveyard to owner's hand
+            target_obj = state.objects.get(target_id)
+            if target_obj and target_obj.zone == ZoneType.GRAVEYARD:
+                events.append(Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': target_id,
+                        'from_zone': f'graveyard_{target_obj.owner}',
+                        'to_zone': f'hand_{target_obj.owner}',
+                        'to_zone_type': ZoneType.HAND
+                    },
+                    source=source_id
+                ))
 
     return events
 
