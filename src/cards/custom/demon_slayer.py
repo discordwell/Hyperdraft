@@ -1213,11 +1213,15 @@ def kyojuro_rengoku_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
     # Flame Breathing - deals damage when attacking
     def flame_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={'target': None, 'amount': 2},  # Target chosen by system
-            source=obj.id
-        )]
+        # Target first opponent (simplified - would need target selection)
+        opponents = [p_id for p_id in state.players if p_id != obj.controller]
+        if opponents:
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': opponents[0], 'amount': 2, 'source': obj.id, 'is_combat': False},
+                source=obj.id
+            )]
+        return []
     interceptors.append(make_breathing_attack_trigger(obj, flame_effect, life_cost=1))
 
     return interceptors
@@ -1310,9 +1314,13 @@ BURNING_DETERMINATION = make_enchantment(
 
 
 def flame_breathing_student_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Deals damage on attack"""
+    """Deals damage on attack to defending player"""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={'target': None, 'amount': 1}, source=obj.id)]
+        # Find defending player (opponent)
+        opponents = [p_id for p_id in state.players if p_id != obj.controller]
+        if opponents:
+            return [Event(type=EventType.DAMAGE, payload={'target': opponents[0], 'amount': 1, 'source': obj.id, 'is_combat': False}, source=obj.id)]
+        return []
     return [make_attack_trigger(obj, attack_effect)]
 
 FLAME_BREATHING_STUDENT = make_creature(
@@ -1350,7 +1358,11 @@ def kaigaku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
     # Thunder breathing still works
     def thunder_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DAMAGE, payload={'target': None, 'amount': 3}, source=obj.id)]
+        # Target first opponent
+        opponents = [p_id for p_id in state.players if p_id != obj.controller]
+        if opponents:
+            return [Event(type=EventType.DAMAGE, payload={'target': opponents[0], 'amount': 3, 'source': obj.id, 'is_combat': False}, source=obj.id)]
+        return []
     interceptors.append(make_breathing_ability(obj, thunder_effect, life_cost=2))
 
     return interceptors
