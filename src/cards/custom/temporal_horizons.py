@@ -1448,19 +1448,19 @@ def eternity_warden_setup(obj: GameObject, state: GameState) -> list[Interceptor
 def chronomancer_supreme_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def filt(e, s, src):
         return e.type == EventType.SPELL_CAST and e.payload.get('from_zone') in [ZoneType.EXILE, ZoneType.GRAVEYARD] and e.payload.get('controller') == src.controller
-    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.DRAW, payload={'player_id': obj.controller, 'amount': 1}, source=obj.id)]), duration='while_on_battlefield')]
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]), duration='while_on_battlefield')]
 
 def time_weaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_upkeep_trigger(obj, lambda e, s: [], controller_only=True)]
 
 def echo_of_tomorrow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_echo(obj, "{2}{U}"), make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player_id': obj.controller, 'amount': 1}, source=obj.id)])]
+    return [make_echo(obj, "{2}{U}"), make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)])]
 
 def paradox_entity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, lambda e, s: [])]
 
 def suspended_scholar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player_id': obj.controller, 'amount': 2}, source=obj.id)])]
+    return [make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 2}, source=obj.id)])]
 
 def future_echo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, lambda e, s: [])]
@@ -1468,13 +1468,13 @@ def future_echo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def temporal_anchor_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def eff(e, s):
         has_other = any(t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD and t.id != obj.id and t.state.counters.get('time', 0) > 0 for t in s.objects.values())
-        return [Event(type=EventType.SCRY, payload={'player_id': obj.controller, 'amount': 1}, source=obj.id)] if has_other else [Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': 'time', 'amount': 1}, source=obj.id)]
+        return [Event(type=EventType.SCRY, payload={'player': obj.controller, 'count': 1}, source=obj.id)] if has_other else [Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': 'time', 'amount': 1}, source=obj.id)]
     return [make_upkeep_trigger(obj, eff, controller_only=True)]
 
 def entropy_wraith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def eff(e, s):
         cnt = sum(t.state.counters.get('time', 0) for t in s.objects.values() if t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD)
-        return [Event(type=EventType.LIFE_LOSS, payload={'player_id': p, 'amount': cnt}, source=obj.id) for p in all_opponents(obj, s)] if cnt > 0 else []
+        return [Event(type=EventType.LIFE_CHANGE, payload={'player': p, 'amount': -cnt}, source=obj.id) for p in all_opponents(obj, s)] if cnt > 0 else []
     return [make_chronicle_end_step(obj, eff)]
 
 def chrono_reaper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1511,7 +1511,7 @@ def time_rager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def accelerated_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def eff(e, s):
-        return [Event(type=EventType.DAMAGE, payload={'target_id': t.id, 'amount': 3, 'source_id': obj.id}, source=obj.id) for t in s.objects.values() if t.controller != obj.controller and t.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in t.characteristics.types]
+        return [Event(type=EventType.DAMAGE, payload={'target': t.id, 'amount': 3, 'source': obj.id}, source=obj.id) for t in s.objects.values() if t.controller != obj.controller and t.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in t.characteristics.types]
     return [make_etb_trigger(obj, eff)]
 
 def rift_elemental_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1605,7 +1605,7 @@ def rift_walker_multicolor_setup(obj: GameObject, state: GameState) -> list[Inte
     return [make_etb_trigger(obj, lambda e, s: [])]
 
 def suspended_relic_card_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player_id': obj.controller, 'amount': 2}, source=obj.id), Event(type=EventType.LIFE_GAIN, payload={'player_id': obj.controller, 'amount': 4}, source=obj.id)])]
+    return [make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 2}, source=obj.id), Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 4}, source=obj.id)])]
 
 def clock_of_ages_card_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_upkeep_trigger(obj, lambda e, s: [Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': 'time', 'amount': 1}, source=obj.id)], controller_only=False)]

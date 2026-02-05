@@ -6781,7 +6781,8 @@ def oblivion_ring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def leaves_filter(event: Event, state: GameState, source: GameObject) -> bool:
         return event.type == EventType.ZONE_CHANGE and event.payload.get('object_id') == source.id and event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD
     def leaves_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.ZONE_CHANGE, payload={'object_id': obj.state.get('exiled_card_id'), 'from_zone_type': ZoneType.EXILE, 'to_zone_type': ZoneType.BATTLEFIELD}, source=obj.id)] if obj.state.get('exiled_card_id') else []
+        exiled_id = getattr(obj.state, 'exiled_card_id', None)
+        return [Event(type=EventType.ZONE_CHANGE, payload={'object_id': exiled_id, 'from_zone_type': ZoneType.EXILE, 'to_zone_type': ZoneType.BATTLEFIELD}, source=obj.id)] if exiled_id else []
     return [make_etb_trigger(obj, etb_effect), make_death_trigger(obj, leaves_effect, leaves_filter)]
 
 def preeminent_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

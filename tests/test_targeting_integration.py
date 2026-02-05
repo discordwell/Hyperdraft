@@ -153,10 +153,7 @@ def test_target_required_damage_effect_execution():
 
     assert success, f"Choice submission failed: {error}"
 
-    # Process the returned events through the pipeline
-    for event in events:
-        game.emit(event)
-
+    # Events are now automatically emitted by submit_choice
     # Check damage was dealt
     assert target.state.damage == 2, f"Expected 2 damage on target, got {target.state.damage}"
     print(f"✓ Target creature took 2 damage")
@@ -195,9 +192,7 @@ def test_target_required_destroy_effect():
 
     assert success
 
-    # Process the returned events
-    for event in events:
-        game.emit(event)
+    # Events are now automatically emitted by submit_choice
 
     # Check creature was destroyed (moved to graveyard)
     assert target.zone == ZoneType.GRAVEYARD, f"Expected creature in graveyard, found in {target.zone}"
@@ -296,9 +291,7 @@ def test_targeted_etb_trigger():
 
     assert success
 
-    # Process the returned events
-    for event in events:
-        game.emit(event)
+    # Events are now automatically emitted by submit_choice
 
     assert target.state.damage == 3, f"Expected 3 damage, got {target.state.damage}"
     print("✓ make_targeted_etb_trigger works correctly!")
@@ -344,9 +337,7 @@ def test_targeted_attack_trigger():
 
     assert success
 
-    # Process the returned events
-    for event in events:
-        game.emit(event)
+    # Events are now automatically emitted by submit_choice
 
     assert target.state.damage == 2
     print("✓ make_targeted_attack_trigger works correctly!")
@@ -388,9 +379,7 @@ def test_targeted_death_trigger():
 
     assert success
 
-    # Process the returned events
-    for event in events:
-        game.emit(event)
+    # Events are now automatically emitted by submit_choice
 
     assert target.state.damage == 4
     print("✓ make_targeted_death_trigger works correctly!")
@@ -428,9 +417,7 @@ def test_pump_effect():
 
     assert success
 
-    # Process the returned events
-    for event in events:
-        game.emit(event)
+    # Events are now automatically emitted by submit_choice
 
     # Check PT_MODIFICATION was applied
     mods = getattr(target.state, 'pt_modifiers', [])
@@ -476,9 +463,7 @@ def test_player_targeting():
 
     assert success
 
-    # Process the returned events
-    for event in events:
-        game.emit(event)
+    # Events are now automatically emitted by submit_choice
 
     assert p2.life == initial_life - 5, f"Expected opponent life {initial_life - 5}, got {p2.life}"
     print("✓ Player targeting works correctly!")

@@ -371,16 +371,25 @@ class AIEngine:
         if not options:
             return []
 
-        # Analyze the source card to understand targeting intent
-        source = state.objects.get(choice.source_id)
-        is_removal = False
-        is_buff = False
-        text = ""
+        # First check callback_data for effect type (most reliable)
+        callback_data = choice.callback_data or {}
+        effect = callback_data.get('effect', '')
 
-        if source and source.card_def:
-            text = (source.card_def.text or "").lower()
-            is_removal = any(w in text for w in ["destroy", "exile", "damage", "-", "sacrifice", "return"])
-            is_buff = any(w in text for w in ["+", "gain", "gets", "protection", "indestructible"])
+        # Classify effect by type
+        removal_effects = {'damage', 'destroy', 'exile', 'bounce', 'tap', 'counter_remove'}
+        buff_effects = {'pump', 'counter_add', 'untap', 'grant_keyword', 'life_change'}
+
+        is_removal = effect in removal_effects
+        is_buff = effect in buff_effects
+
+        # Fall back to analyzing source card text if no effect specified
+        if not effect:
+            source = state.objects.get(choice.source_id)
+            text = ""
+            if source and source.card_def:
+                text = (source.card_def.text or "").lower()
+                is_removal = any(w in text for w in ["destroy", "exile", "damage", "-", "sacrifice", "return"])
+                is_buff = any(w in text for w in ["+", "gain", "gets", "protection", "indestructible"])
 
         # Categorize options by ownership
         opponent_id = self._get_opponent_id(player_id, state)
