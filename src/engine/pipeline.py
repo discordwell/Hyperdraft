@@ -312,9 +312,10 @@ def _handle_zone_change(event: Event, state: GameState):
 
     # Re-setup interceptors when entering the battlefield
     # This handles cards like Enduring Curiosity that return from graveyard
+    # Only register if object doesn't already have interceptors (avoids double-registration)
     to_zone_type = event.payload.get('to_zone_type')
     if to_zone_type == ZoneType.BATTLEFIELD and obj.card_def:
-        if obj.card_def.setup_interceptors:
+        if obj.card_def.setup_interceptors and not obj.interceptor_ids:
             # Run setup with the current object state (post-type-changes)
             new_interceptors = obj.card_def.setup_interceptors(obj, state) or []
             for interceptor in new_interceptors:
