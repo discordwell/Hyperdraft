@@ -17,7 +17,7 @@ from typing import Callable, Optional, TYPE_CHECKING, Any
 from enum import Enum, auto
 import asyncio
 
-from .types import GameState, Event, EventType, CardType
+from .types import GameState, Event, EventType, CardType, ZoneType
 from .stack import StackManager, StackItem, StackItemType
 from .mana import ManaSystem, ManaCost
 from .pipeline import EventPipeline
@@ -499,7 +499,7 @@ class PrioritySystem:
                 'object_id': action.card_id,
                 'from_zone': f'hand_{action.player_id}',
                 'to_zone': 'battlefield',
-                'to_zone_type': 'BATTLEFIELD'
+                'to_zone_type': ZoneType.BATTLEFIELD
             }
         ))
 
