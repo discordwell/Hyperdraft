@@ -47,14 +47,8 @@ function DeckCardItem({ entry, onRemove, onSetQuantity }: DeckCardItemProps) {
   );
 }
 
-interface CardGroup {
-  name: string;
-  cards: DeckEntry[];
-  count: number;
-}
-
 export function DeckList() {
-  const { currentDeck, searchResults, removeCard, setCardQuantity, clearDeck } =
+  const { currentDeck, searchResults, setCardQuantity, clearDeck } =
     useDeckbuilderStore();
 
   // Group cards by type

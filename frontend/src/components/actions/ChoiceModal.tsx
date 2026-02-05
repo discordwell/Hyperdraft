@@ -16,14 +16,7 @@ interface DivideAllocationChoice extends PendingChoice {
   effect_type?: string;
 }
 
-// Extended PendingChoice for modal_with_targeting
-interface ModalWithTargetingChoice extends PendingChoice {
-  modes?: Array<{
-    text: string;
-    requires_targeting: boolean;
-    description?: string;
-  }>;
-}
+// Note: modal_with_targeting uses standard PendingChoice with extended ChoiceOption properties
 
 interface ChoiceModalProps {
   pendingChoice: PendingChoice;
@@ -57,9 +50,20 @@ export function ChoiceModal({
   const effectType = (pendingChoice as DivideAllocationChoice).effect_type ?? 'damage';
   const isDivideAllocation = choice_type === 'divide_allocation';
 
-  // Normalize options - handle both raw string IDs and {id, label, description?} objects
+  // Normalize options - handle both raw string IDs and object options
+  // Object options may include extended properties like name, type, life (for divide_allocation)
+  type OptionInput = string | {
+    id: string;
+    label?: string;
+    description?: string;
+    name?: string;
+    type?: string;
+    life?: number;
+    index?: number;
+    requires_targeting?: boolean;
+  };
   const options = useMemo(() => {
-    return rawOptions.map((opt: string | { id: string; label?: string; description?: string }) => {
+    return rawOptions.map((opt: OptionInput) => {
       if (typeof opt === 'string') {
         // Raw ID string - convert to option object
         // Check if it's a player ID and use their name
@@ -69,7 +73,8 @@ export function ChoiceModal({
         }
         return { id: opt, label: opt, description: undefined };
       }
-      return { ...opt, description: opt.description };
+      // Preserve all properties from the option object
+      return { ...opt };
     });
   }, [rawOptions, players]);
 

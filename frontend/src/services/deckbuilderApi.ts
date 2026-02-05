@@ -6,7 +6,6 @@
 
 import type {
   DeckData,
-  DeckSummary,
   DeckStats,
   DeckEntry,
   CardSearchRequest,

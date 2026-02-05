@@ -7,7 +7,6 @@
 import { create } from 'zustand';
 import type {
   DeckData,
-  DeckEntry,
   DeckStats,
   DeckSummary,
   CardDefinitionData,
