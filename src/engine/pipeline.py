@@ -231,7 +231,8 @@ def _handle_life_change(event: Event, state: GameState):
 def _handle_draw(event: Event, state: GameState):
     """Handle DRAW event."""
     player_id = event.payload.get('player')
-    count = event.payload.get('count', 1)
+    # Support both 'amount' (used by most cards) and 'count' (legacy)
+    count = event.payload.get('amount') or event.payload.get('count', 1)
 
     # Find player's library and hand
     library_key = f"library_{player_id}"
