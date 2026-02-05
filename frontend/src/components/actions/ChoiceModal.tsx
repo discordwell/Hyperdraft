@@ -2,13 +2,28 @@
  * ChoiceModal Component
  *
  * Modal overlay for player choices like modal abilities, target selection,
- * scry, surveil, and other game decisions.
+ * scry, surveil, divide_allocation, modal_with_targeting, and other game decisions.
  */
 
 import { useCallback, useMemo, useState, useEffect } from 'react';
 import clsx from 'clsx';
 import { Card } from '../cards';
 import type { PendingChoice, CardData, PlayerData } from '../../types';
+
+// Extended PendingChoice for divide_allocation
+interface DivideAllocationChoice extends PendingChoice {
+  total_amount?: number;
+  effect_type?: string;
+}
+
+// Extended PendingChoice for modal_with_targeting
+interface ModalWithTargetingChoice extends PendingChoice {
+  modes?: Array<{
+    text: string;
+    requires_targeting: boolean;
+    description?: string;
+  }>;
+}
 
 interface ChoiceModalProps {
   pendingChoice: PendingChoice;
@@ -32,8 +47,15 @@ export function ChoiceModal({
   isLoading = false,
 }: ChoiceModalProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // For divide_allocation: track amount allocated to each target
+  const [allocations, setAllocations] = useState<Record<string, number>>({});
 
   const { choice_type, prompt, options: rawOptions, min_choices, max_choices } = pendingChoice;
+
+  // Get divide_allocation specific data
+  const totalAmount = (pendingChoice as DivideAllocationChoice).total_amount ?? 0;
+  const effectType = (pendingChoice as DivideAllocationChoice).effect_type ?? 'damage';
+  const isDivideAllocation = choice_type === 'divide_allocation';
 
   // Normalize options - handle both raw string IDs and {id, label, description?} objects
   const options = useMemo(() => {
@@ -54,12 +76,25 @@ export function ChoiceModal({
   // Reset selection when pending choice changes
   useEffect(() => {
     setSelectedIds([]);
+    setAllocations({});
   }, [pendingChoice.source_id, pendingChoice.prompt]);
+
+  // Calculate remaining amount for divide_allocation
+  const allocatedTotal = useMemo(() => {
+    return Object.values(allocations).reduce((sum, val) => sum + val, 0);
+  }, [allocations]);
+  const remainingAmount = totalAmount - allocatedTotal;
 
   // Check if selection is valid
   const isSelectionValid = useMemo(() => {
+    if (isDivideAllocation) {
+      // For divide_allocation: must allocate exact total, each target must have at least 1
+      const hasValidAllocations = Object.values(allocations).every(val => val >= 1);
+      const totalAllocated = Object.values(allocations).reduce((sum, val) => sum + val, 0);
+      return totalAllocated === totalAmount && Object.keys(allocations).length > 0 && hasValidAllocations;
+    }
     return selectedIds.length >= min_choices && selectedIds.length <= max_choices;
-  }, [selectedIds, min_choices, max_choices]);
+  }, [selectedIds, min_choices, max_choices, isDivideAllocation, allocations, totalAmount]);
 
   // Check if we can select more
   const canSelectMore = useMemo(() => {
@@ -68,6 +103,21 @@ export function ChoiceModal({
 
   // Toggle selection of an option
   const toggleSelection = useCallback((optionId: string) => {
+    if (isDivideAllocation) {
+      // For divide_allocation, toggle adds/removes from allocation list
+      setAllocations((prev) => {
+        if (optionId in prev) {
+          // Remove from allocations
+          const { [optionId]: _, ...rest } = prev;
+          return rest;
+        } else {
+          // Add with minimum allocation of 1
+          return { ...prev, [optionId]: 1 };
+        }
+      });
+      return;
+    }
+
     setSelectedIds((prev) => {
       const isSelected = prev.includes(optionId);
 
@@ -85,14 +135,43 @@ export function ChoiceModal({
 
       return prev;
     });
-  }, [canSelectMore, max_choices]);
+  }, [canSelectMore, max_choices, isDivideAllocation]);
+
+  // Adjust allocation for a target (for divide_allocation)
+  const adjustAllocation = useCallback((targetId: string, delta: number) => {
+    setAllocations((prev) => {
+      const current = prev[targetId] ?? 0;
+      const newValue = Math.max(1, Math.min(current + delta, totalAmount));
+
+      // Check if this would exceed total
+      const otherTotal = Object.entries(prev)
+        .filter(([id]) => id !== targetId)
+        .reduce((sum, [, val]) => sum + val, 0);
+
+      if (otherTotal + newValue > totalAmount) {
+        // Cap at remaining available
+        return { ...prev, [targetId]: totalAmount - otherTotal };
+      }
+
+      return { ...prev, [targetId]: newValue };
+    });
+  }, [totalAmount]);
 
   // Handle confirm
   const handleConfirm = useCallback(() => {
     if (isSelectionValid && !isLoading) {
-      onSubmit(selectedIds);
+      if (isDivideAllocation) {
+        // Submit allocations as array of {target_id, amount} objects
+        const allocationList = Object.entries(allocations).map(([targetId, amount]) => ({
+          target_id: targetId,
+          amount
+        }));
+        onSubmit(allocationList as unknown as string[]);
+      } else {
+        onSubmit(selectedIds);
+      }
     }
-  }, [isSelectionValid, isLoading, selectedIds, onSubmit]);
+  }, [isSelectionValid, isLoading, selectedIds, allocations, isDivideAllocation, onSubmit]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -154,6 +233,7 @@ export function ChoiceModal({
   const choiceIcon = useMemo(() => {
     switch (choice_type) {
       case 'modal':
+      case 'modal_with_targeting':
         return '?';
       case 'target':
       case 'target_with_callback':
@@ -162,6 +242,8 @@ export function ChoiceModal({
         return 'S';
       case 'surveil':
         return 'E';
+      case 'divide_allocation':
+        return '÷';
       default:
         return '*';
     }
@@ -171,6 +253,7 @@ export function ChoiceModal({
   const themeColor = useMemo(() => {
     switch (choice_type) {
       case 'modal':
+      case 'modal_with_targeting':
         return 'cyan';
       case 'target':
       case 'target_with_callback':
@@ -179,6 +262,8 @@ export function ChoiceModal({
         return 'blue';
       case 'surveil':
         return 'purple';
+      case 'divide_allocation':
+        return 'rose';
       default:
         return 'cyan';
     }
@@ -205,16 +290,19 @@ export function ChoiceModal({
               themeColor === 'amber' && 'bg-amber-500/20 text-amber-400 border border-amber-500/50',
               themeColor === 'blue' && 'bg-blue-500/20 text-blue-400 border border-blue-500/50',
               themeColor === 'purple' && 'bg-purple-500/20 text-purple-400 border border-purple-500/50',
+              themeColor === 'rose' && 'bg-rose-500/20 text-rose-400 border border-rose-500/50',
             )}>
               {choiceIcon}
             </div>
             <div>
               <h2 className="text-xl font-bold text-white">
                 {choice_type === 'modal' && 'Choose a Mode'}
+                {choice_type === 'modal_with_targeting' && 'Choose a Mode'}
                 {(choice_type === 'target' || choice_type === 'target_with_callback') && 'Select Target'}
                 {choice_type === 'scry' && 'Scry'}
                 {choice_type === 'surveil' && 'Surveil'}
-                {!['modal', 'target', 'target_with_callback', 'scry', 'surveil'].includes(choice_type) && 'Make a Choice'}
+                {choice_type === 'divide_allocation' && `Allocate ${effectType.charAt(0).toUpperCase() + effectType.slice(1)}`}
+                {!['modal', 'modal_with_targeting', 'target', 'target_with_callback', 'scry', 'surveil', 'divide_allocation'].includes(choice_type) && 'Make a Choice'}
               </h2>
               <p className="text-slate-400 text-sm">{prompt}</p>
             </div>
@@ -222,21 +310,44 @@ export function ChoiceModal({
 
           {/* Selection info */}
           <div className="flex items-center gap-4 text-xs mt-3">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-500">Selected:</span>
-              <span className={clsx(
-                'px-2 py-0.5 rounded font-medium',
-                isSelectionValid
-                  ? 'bg-emerald-600/30 text-emerald-300'
-                  : 'bg-slate-600/30 text-slate-400'
-              )}>
-                {selectedIds.length} / {max_choices === min_choices ? min_choices : `${min_choices}-${max_choices}`}
-              </span>
-            </div>
-            {min_choices !== max_choices && (
-              <div className="text-slate-500">
-                (min: {min_choices}, max: {max_choices})
-              </div>
+            {isDivideAllocation ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500">Allocated:</span>
+                  <span className={clsx(
+                    'px-2 py-0.5 rounded font-medium',
+                    isSelectionValid
+                      ? 'bg-emerald-600/30 text-emerald-300'
+                      : 'bg-slate-600/30 text-slate-400'
+                  )}>
+                    {allocatedTotal} / {totalAmount}
+                  </span>
+                </div>
+                {remainingAmount > 0 && (
+                  <div className="text-rose-400">
+                    {remainingAmount} remaining to allocate
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500">Selected:</span>
+                  <span className={clsx(
+                    'px-2 py-0.5 rounded font-medium',
+                    isSelectionValid
+                      ? 'bg-emerald-600/30 text-emerald-300'
+                      : 'bg-slate-600/30 text-slate-400'
+                  )}>
+                    {selectedIds.length} / {max_choices === min_choices ? min_choices : `${min_choices}-${max_choices}`}
+                  </span>
+                </div>
+                {min_choices !== max_choices && (
+                  <div className="text-slate-500">
+                    (min: {min_choices}, max: {max_choices})
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -246,6 +357,120 @@ export function ChoiceModal({
           {options.length === 0 ? (
             <div className="text-slate-500 text-center py-8 italic border border-dashed border-slate-700 rounded-lg">
               No options available.
+            </div>
+          ) : isDivideAllocation ? (
+            // Divide allocation UI - show targets with +/- controls
+            <div className="flex flex-col gap-3">
+              {options.map((option) => {
+                const cardData = cardLookup[option.id];
+                const allocation = allocations[option.id] ?? 0;
+                const isAllocated = allocation > 0;
+
+                return (
+                  <div
+                    key={option.id}
+                    className={clsx(
+                      'p-4 rounded-xl border-2 transition-all duration-200',
+                      isAllocated
+                        ? 'bg-rose-600/20 border-rose-500'
+                        : 'bg-slate-800 border-slate-600 hover:border-rose-500/50'
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      {/* Target info */}
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        {cardData ? (
+                          <>
+                            <div className="w-12 h-12 bg-slate-700 rounded-lg flex items-center justify-center text-lg font-bold">
+                              {cardData.power !== null && cardData.toughness !== null
+                                ? `${cardData.power}/${cardData.toughness}`
+                                : '?'}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-medium text-white truncate">{cardData.name}</div>
+                              <div className="text-xs text-slate-400 truncate">
+                                {cardData.types?.join(' ')}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="min-w-0">
+                            <div className="font-medium text-white truncate">
+                              {option.name || option.label || option.id}
+                            </div>
+                            {option.type === 'player' && option.life !== undefined && (
+                              <div className="text-xs text-slate-400">
+                                Life: {option.life}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Allocation controls */}
+                      <div className="flex items-center gap-2">
+                        {/* Add/Remove button (toggle) */}
+                        {!isAllocated ? (
+                          <button
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-medium text-sm transition-colors"
+                            onClick={() => toggleSelection(option.id)}
+                          >
+                            Add
+                          </button>
+                        ) : (
+                          <>
+                            {/* Decrease */}
+                            <button
+                              className={clsx(
+                                'w-8 h-8 rounded-full flex items-center justify-center font-bold text-lg transition-colors',
+                                allocation > 1
+                                  ? 'bg-slate-600 hover:bg-slate-500 text-white'
+                                  : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                              )}
+                              onClick={() => allocation > 1 && adjustAllocation(option.id, -1)}
+                              disabled={allocation <= 1}
+                            >
+                              −
+                            </button>
+
+                            {/* Current allocation */}
+                            <div className="w-12 h-10 bg-rose-600/30 border border-rose-500 rounded-lg flex items-center justify-center font-bold text-lg text-rose-200">
+                              {allocation}
+                            </div>
+
+                            {/* Increase */}
+                            <button
+                              className={clsx(
+                                'w-8 h-8 rounded-full flex items-center justify-center font-bold text-lg transition-colors',
+                                remainingAmount > 0
+                                  ? 'bg-slate-600 hover:bg-slate-500 text-white'
+                                  : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                              )}
+                              onClick={() => remainingAmount > 0 && adjustAllocation(option.id, 1)}
+                              disabled={remainingAmount <= 0}
+                            >
+                              +
+                            </button>
+
+                            {/* Remove */}
+                            <button
+                              className="w-8 h-8 rounded-full flex items-center justify-center bg-slate-700 hover:bg-red-600 text-slate-400 hover:text-white transition-colors ml-2"
+                              onClick={() => {
+                                setAllocations((prev) => {
+                                  const { [option.id]: _, ...rest } = prev;
+                                  return rest;
+                                });
+                              }}
+                            >
+                              ×
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : isTargetChoice ? (
             // Target choice - show cards if available

@@ -328,6 +328,12 @@ class AIEngine:
         if choice_type in ("target", "target_with_callback"):
             return self._make_target_choice(player_id, choice, state)
 
+        elif choice_type == "divide_allocation":
+            return self._make_divide_allocation_choice(player_id, choice, state)
+
+        elif choice_type == "modal_with_targeting":
+            return self._make_modal_with_targeting_choice(player_id, choice, state)
+
         elif choice_type in ("modal", "modal_with_callback"):
             return self._make_modal_choice(player_id, choice, state)
 
@@ -741,6 +747,288 @@ class AIEngine:
 
         # Default: yes (most "may" abilities are beneficial)
         return [True]
+
+    def _make_divide_allocation_choice(
+        self,
+        player_id: str,
+        choice: 'PendingChoice',
+        state: 'GameState'
+    ) -> list:
+        """
+        Make a damage/counter division allocation choice.
+
+        Strategy:
+        - For damage: allocate lethal damage to highest-threat creatures first
+        - For counters: spread evenly or focus on best targets
+        - Dump remainder on players if creatures are dealt with
+        """
+        from src.engine import CardType
+        from src.engine.queries import get_toughness
+
+        options = choice.options
+        callback_data = choice.callback_data or {}
+        total_amount = callback_data.get('total_amount', 0)
+        effect = callback_data.get('effect', 'damage')
+
+        if not options or total_amount <= 0:
+            return []
+
+        allocations = {}
+
+        if effect == 'damage':
+            # Score targets by threat level
+            scored_targets = []
+            for opt in options:
+                opt_id = opt.get('id') if isinstance(opt, dict) else opt
+                score = self._score_damage_target(opt_id, state, player_id)
+                toughness = self._get_target_toughness(opt_id, state)
+                scored_targets.append((opt_id, score, toughness))
+
+            # Sort by score (highest threat first)
+            scored_targets.sort(key=lambda x: x[1], reverse=True)
+
+            remaining = total_amount
+
+            # First pass: allocate lethal damage to creatures
+            for target_id, score, toughness in scored_targets:
+                if remaining <= 0:
+                    break
+                if toughness is not None and toughness > 0:
+                    # Allocate lethal damage (minimum 1, up to toughness)
+                    allocation = min(toughness, remaining)
+                    allocations[target_id] = allocation
+                    remaining -= allocation
+
+            # Second pass: if we have remaining and there are players, dump on them
+            if remaining > 0:
+                opponent_id = self._get_opponent_id(player_id, state)
+                for target_id, score, toughness in scored_targets:
+                    if target_id in state.players and target_id == opponent_id:
+                        # Dump on opponent
+                        existing = allocations.get(target_id, 0)
+                        allocations[target_id] = existing + remaining
+                        remaining = 0
+                        break
+
+            # If still remaining and we have any targets with allocation, add to highest threat
+            if remaining > 0 and allocations:
+                top_target = scored_targets[0][0]
+                allocations[top_target] = allocations.get(top_target, 0) + remaining
+            elif remaining > 0 and scored_targets:
+                # No allocations yet, put everything on best target
+                allocations[scored_targets[0][0]] = total_amount
+
+        elif effect == 'counter_add':
+            # For counters: focus on best creatures we control
+            scored_targets = []
+            for opt in options:
+                opt_id = opt.get('id') if isinstance(opt, dict) else opt
+                obj = state.objects.get(opt_id)
+                if obj and obj.controller == player_id:
+                    score = self._score_target(opt_id, state, player_id, is_removal=False)
+                    scored_targets.append((opt_id, score))
+
+            if scored_targets:
+                scored_targets.sort(key=lambda x: x[1], reverse=True)
+                # Focus counters on best creature
+                allocations[scored_targets[0][0]] = total_amount
+            elif options:
+                # Fallback: put on first option
+                first_id = options[0].get('id') if isinstance(options[0], dict) else options[0]
+                allocations[first_id] = total_amount
+
+        else:
+            # Default: spread evenly
+            if options:
+                per_target = max(1, total_amount // len(options))
+                remaining = total_amount
+                for opt in options:
+                    opt_id = opt.get('id') if isinstance(opt, dict) else opt
+                    allocation = min(per_target, remaining)
+                    if allocation > 0:
+                        allocations[opt_id] = allocation
+                        remaining -= allocation
+                    if remaining <= 0:
+                        break
+
+        # Return as list of dicts for the game to process
+        return [{'target_id': tid, 'amount': amt} for tid, amt in allocations.items()]
+
+    def _score_damage_target(
+        self,
+        target_id: str,
+        state: 'GameState',
+        player_id: str
+    ) -> float:
+        """Score a target for damage allocation priority."""
+        from src.engine import CardType
+
+        obj = state.objects.get(target_id)
+        if not obj:
+            # Player target
+            if target_id in state.players:
+                player = state.players[target_id]
+                # Prefer opponent, especially at low life
+                if target_id != player_id:
+                    return 50 + (20 - player.life)  # Higher score for lower life
+                return -10  # Don't damage self
+            return 0
+
+        score = 0.0
+
+        # Prefer opponent creatures
+        if obj.controller != player_id:
+            score += 20
+
+        # Creatures score based on threat
+        if CardType.CREATURE in obj.characteristics.types:
+            power = obj.characteristics.power or 0
+            toughness = obj.characteristics.toughness or 0
+            score += power * 3 + toughness
+
+            # Keywords make it more threatening
+            keywords = obj.characteristics.keywords or set()
+            if "flying" in keywords:
+                score += 5
+            if "lifelink" in keywords:
+                score += 5
+            if "deathtouch" in keywords:
+                score += 8
+            if "trample" in keywords:
+                score += 3
+
+        return score
+
+    def _get_target_toughness(self, target_id: str, state: 'GameState') -> int | None:
+        """Get toughness of a target (None for players)."""
+        from src.engine.queries import get_toughness
+
+        obj = state.objects.get(target_id)
+        if obj:
+            try:
+                return get_toughness(obj, state)
+            except:
+                return obj.characteristics.toughness
+        return None  # Players don't have toughness
+
+    def _make_modal_with_targeting_choice(
+        self,
+        player_id: str,
+        choice: 'PendingChoice',
+        state: 'GameState'
+    ) -> list:
+        """
+        Make a modal choice where some modes may require targeting.
+
+        Strategy:
+        - Prefer modes that have valid targets (if targeting required)
+        - Score based on effect type and current game state
+        """
+        from src.engine import CardType
+
+        options = choice.options
+        modes = choice.callback_data.get('modes', [])
+        min_modes = choice.min_choices
+        max_modes = choice.max_choices
+
+        if not options or not modes:
+            return []
+
+        opponent_id = self._get_opponent_id(player_id, state)
+        scored = []
+
+        for i, opt in enumerate(options):
+            mode_idx = opt.get('index', i) if isinstance(opt, dict) else i
+            if mode_idx >= len(modes):
+                continue
+
+            mode = modes[mode_idx]
+            score = 0.0
+
+            # Check if targeting mode has valid targets
+            if mode.get('requires_targeting'):
+                target_filter = mode.get('target_filter', 'any')
+                has_targets = self._has_valid_targets(target_filter, player_id, state)
+                if not has_targets:
+                    score -= 100  # Heavily penalize modes without valid targets
+
+            # Score based on effect
+            mode_text = mode.get('text', '').lower()
+            effect = mode.get('effect', '')
+
+            # Removal modes are high priority if opponent has creatures
+            if effect in ('destroy', 'exile') or any(w in mode_text for w in ['destroy', 'exile']):
+                opp_creatures = self._count_creatures(opponent_id, state) if opponent_id else 0
+                score += 10 if opp_creatures > 0 else 1
+
+            # Damage modes
+            if effect == 'damage' or 'damage' in mode_text:
+                score += 6
+
+            # Draw modes
+            if effect == 'draw' or 'draw' in mode_text:
+                score += 5
+
+            # Buff modes if we have creatures
+            if effect in ('pump', 'counter_add') or '+' in mode_text:
+                our_creatures = self._count_creatures(player_id, state)
+                score += 4 if our_creatures > 0 else 0
+
+            # Life gain
+            if 'life' in mode_text and 'gain' in mode_text:
+                score += 2
+
+            # Token creation
+            if 'create' in mode_text and 'token' in mode_text:
+                score += 4
+
+            # Tap/untap effects
+            if effect == 'tap' or 'tap' in mode_text:
+                opp_creatures = self._count_creatures(opponent_id, state) if opponent_id else 0
+                score += 3 if opp_creatures > 0 else 1
+
+            scored.append((mode_idx, score))
+
+        # Sort by score
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        # Select top modes
+        selected = [idx for idx, _ in scored[:max_modes] if scored[0][1] > -100]
+        return selected[:max(min_modes, 1)] if selected else [scored[0][0]] if scored else []
+
+    def _has_valid_targets(self, target_filter: str, player_id: str, state: 'GameState') -> bool:
+        """Check if there are valid targets for a target filter."""
+        from src.engine import CardType
+
+        battlefield = state.zones.get('battlefield')
+        if not battlefield:
+            return target_filter in ('player', 'opponent', 'any')
+
+        if target_filter == 'any':
+            return True  # Always have players
+
+        if target_filter == 'player':
+            return len(state.players) > 0
+
+        if target_filter == 'opponent':
+            return len(state.players) > 1
+
+        # Check for creatures
+        for obj_id in battlefield.objects:
+            obj = state.objects.get(obj_id)
+            if not obj:
+                continue
+
+            is_creature = CardType.CREATURE in obj.characteristics.types
+
+            if target_filter == 'creature' and is_creature:
+                return True
+            if target_filter == 'opponent_creature' and is_creature and obj.controller != player_id:
+                return True
+            if target_filter == 'your_creature' and is_creature and obj.controller == player_id:
+                return True
+
+        return False
 
     def _count_creatures(self, player_id: str, state: 'GameState') -> int:
         """Count creatures controlled by a player."""
