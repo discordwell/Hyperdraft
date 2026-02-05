@@ -341,7 +341,7 @@ def ashitaka_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             return False
         blocker_id = event.payload.get('blocker_id')
         blocker = state.objects.get(blocker_id)
-        if blocker and blocker.counters.get('curse', 0) > 0:
+        if blocker and blocker.state.state.counters.get('curse', 0) > 0:
             return True
         return False
 
@@ -1323,7 +1323,7 @@ def okkoto_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         return event.payload.get('object_id') == obj.id
 
     def curse_power_handler(event: Event, state: GameState) -> InterceptorResult:
-        curse_counters = obj.counters.get('curse', 0)
+        curse_counters = obj.state.counters.get('curse', 0)
         current = event.payload.get('value', 0)
         new_event = event.copy()
         new_event.payload['value'] = current + curse_counters
@@ -1570,7 +1570,7 @@ def curse_of_the_witch_setup(obj: GameObject, state: GameState) -> list[Intercep
     def upkeep_handler(event: Event, state: GameState) -> InterceptorResult:
         events = []
         for o in state.objects.values():
-            if o.zone == ZoneType.BATTLEFIELD and o.counters.get('curse', 0) > 0:
+            if o.zone == ZoneType.BATTLEFIELD and o.state.counters.get('curse', 0) > 0:
                 events.append(Event(
                     type=EventType.DAMAGE,
                     payload={'target': o.controller, 'amount': 1, 'source': obj.id},
