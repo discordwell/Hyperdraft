@@ -381,7 +381,8 @@ def san_human_form_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             if (o.id != obj.id and
                 o.controller == obj.controller and
                 'Wolf' in o.characteristics.subtypes and
-                o.state == ObjectState.ATTACKING):
+                o.zone == ZoneType.BATTLEFIELD and
+                o.state.tapped):  # Tapped creatures are attacking
                 return True
         return False
 
@@ -894,8 +895,12 @@ def laputa_robot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             return False
         if event.payload.get('attacker_id') != obj.id:
             return False
+        # Count creatures that are attacking (tapped and on battlefield)
         attackers = [o for o in state.objects.values()
-                     if o.controller == obj.controller and o.state == ObjectState.ATTACKING]
+                     if o.controller == obj.controller
+                     and o.zone == ZoneType.BATTLEFIELD
+                     and CardType.CREATURE in o.characteristics.types
+                     and o.state.tapped]
         return len(attackers) == 1
 
     def draw_handler(event: Event, state: GameState) -> InterceptorResult:
