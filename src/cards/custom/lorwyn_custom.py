@@ -6791,7 +6791,7 @@ def preeminent_captain_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 def merrow_commerce_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.UNTAP, payload={'object_id': oid}, source=obj.id) for oid, c in state.objects.items() if c.controller == obj.controller and CardType.CREATURE in c.characteristics.types and 'Merfolk' in c.characteristics.subtypes and c.zone == ZoneType.BATTLEFIELD and c.tapped]
+        return [Event(type=EventType.UNTAP, payload={'object_id': oid}, source=obj.id) for oid, c in state.objects.items() if c.controller == obj.controller and CardType.CREATURE in c.characteristics.types and 'Merfolk' in c.characteristics.subtypes and c.zone == ZoneType.BATTLEFIELD and c.state.tapped]
     return [make_end_step_trigger(obj, effect)]
 
 def surgespanner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
