@@ -110,8 +110,15 @@ def get_permanent_summary(obj) -> str:
         tapped = " (T)" if obj.state.tapped else ""
         return f"{obj.name} {power}/{toughness}{tapped}"
     elif CardType.PLANESWALKER in types:
-        # Get loyalty from state or use base loyalty
-        loyalty = getattr(obj.state, 'loyalty', None) or getattr(obj, 'loyalty', '?')
+        # Get loyalty from abilities list (stored as {'loyalty': X})
+        loyalty = '?'
+        for ability in (obj.characteristics.abilities or []):
+            if isinstance(ability, dict) and 'loyalty' in ability:
+                loyalty = ability['loyalty']
+                break
+        # Also check state counters for current loyalty (may be modified during game)
+        if 'loyalty' in obj.state.counters:
+            loyalty = obj.state.counters['loyalty']
         return f"{obj.name} [L:{loyalty}]"
     elif CardType.LAND in types:
         tapped = " (T)" if obj.state.tapped else ""
