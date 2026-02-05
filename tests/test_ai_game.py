@@ -13,7 +13,11 @@ from src.engine import (
     CardType, AttackDeclaration, BlockDeclaration, ZoneType
 )
 from src.cards import ALL_CARDS
+from src.cards.custom import CUSTOM_CARDS
 from src.decks import load_deck, STANDARD_DECKS, NETDECKS
+
+# Combine standard and custom cards
+COMBINED_CARDS = {**ALL_CARDS, **CUSTOM_CARDS}
 from src.ai import AIEngine, AggroStrategy, ControlStrategy, MidrangeStrategy
 
 
@@ -97,24 +101,38 @@ def get_deck(deck_id: str):
         raise ValueError(f"Unknown deck: {deck_id}")
 
 
-def get_creature_summary(obj) -> str:
-    """Get a short summary of a creature."""
-    power = obj.characteristics.power or 0
-    toughness = obj.characteristics.toughness or 0
-    tapped = " (T)" if obj.state.tapped else ""
-    return f"{obj.name} {power}/{toughness}{tapped}"
+def get_permanent_summary(obj) -> str:
+    """Get a short summary of a permanent."""
+    types = obj.characteristics.types
+    if CardType.CREATURE in types:
+        power = obj.characteristics.power or 0
+        toughness = obj.characteristics.toughness or 0
+        tapped = " (T)" if obj.state.tapped else ""
+        return f"{obj.name} {power}/{toughness}{tapped}"
+    elif CardType.PLANESWALKER in types:
+        # Get loyalty from state or use base loyalty
+        loyalty = getattr(obj.state, 'loyalty', None) or getattr(obj, 'loyalty', '?')
+        return f"{obj.name} [L:{loyalty}]"
+    elif CardType.LAND in types:
+        tapped = " (T)" if obj.state.tapped else ""
+        return f"{obj.name}{tapped}"
+    else:
+        # Artifact, Enchantment, etc.
+        tapped = " (T)" if obj.state.tapped else ""
+        return f"{obj.name}{tapped}"
 
 
 def get_board_state(game: Game, player_id: str) -> list:
-    """Get list of creature names on a player's board."""
-    creatures = []
+    """Get list of permanent names on a player's board (excluding lands)."""
+    permanents = []
     battlefield = game.state.zones.get('battlefield')
     if battlefield:
         for obj_id in battlefield.objects:
             obj = game.state.objects.get(obj_id)
-            if obj and obj.controller == player_id and CardType.CREATURE in obj.characteristics.types:
-                creatures.append(get_creature_summary(obj))
-    return creatures
+            # Include all permanents except lands
+            if obj and obj.controller == player_id and CardType.LAND not in obj.characteristics.types:
+                permanents.append(get_permanent_summary(obj))
+    return permanents
 
 
 async def run_logged_game(
@@ -187,7 +205,7 @@ async def run_logged_game(
             for atk in attacks:
                 obj = game.state.objects.get(atk.attacker_id)
                 if obj:
-                    attacker_names.append(get_creature_summary(obj))
+                    attacker_names.append(get_permanent_summary(obj))
 
             # Find defender
             defender_id = [pid for pid in game.state.players.keys() if pid != player_id][0]
@@ -228,9 +246,9 @@ async def run_logged_game(
     game.combat_manager.get_attack_declarations = make_attacks
     game.combat_manager.get_block_declarations = make_blocks
 
-    # Load decks
-    deck1 = load_deck(ALL_CARDS, get_deck(deck1_id))
-    deck2 = load_deck(ALL_CARDS, get_deck(deck2_id))
+    # Load decks (use COMBINED_CARDS to include custom sets)
+    deck1 = load_deck(COMBINED_CARDS, get_deck(deck1_id))
+    deck2 = load_deck(COMBINED_CARDS, get_deck(deck2_id))
 
     for card in deck1:
         game.add_card_to_library(p1.id, card)

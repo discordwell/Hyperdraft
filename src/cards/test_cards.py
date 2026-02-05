@@ -23,14 +23,48 @@ from src.engine import (
 # =============================================================================
 # "Deal 3 damage to any target."
 
-def lightning_bolt_resolve(event: Event, state: GameState, target_id: str) -> list[Event]:
-    """Resolution function for Lightning Bolt."""
-    return [Event(
-        type=EventType.DAMAGE,
-        payload={'target': target_id, 'amount': 3},
-        source=event.payload.get('source'),
-        controller=event.controller
-    )]
+def lightning_bolt_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolution function for Lightning Bolt.
+
+    Args:
+        targets: List of target lists (targets[0] contains the chosen targets)
+        state: Current game state
+
+    Returns:
+        List of damage events
+    """
+    events = []
+
+    # Find the Lightning Bolt on the stack to get source info
+    source_id = None
+    stack_zone = state.zones.get('stack')
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Lightning Bolt":
+                source_id = obj.id
+                break
+
+    # Process targets
+    if targets and targets[0]:
+        for target in targets[0]:
+            # Handle both Target objects and raw IDs
+            target_id = target.id if hasattr(target, 'id') else target
+            is_player = target.is_player if hasattr(target, 'is_player') else (target_id in state.players)
+
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={
+                    'target': target_id,
+                    'amount': 3,
+                    'is_combat': False,
+                    'is_player': is_player,
+                    'source': source_id
+                },
+                source=source_id
+            ))
+
+    return events
 
 
 LIGHTNING_BOLT = make_instant(
