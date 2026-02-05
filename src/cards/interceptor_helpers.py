@@ -1671,3 +1671,338 @@ def make_targeted_spell_cast_trigger(
         spell_type_filter=spell_type_filter,
         color_filter=color_filter
     )
+
+
+# =============================================================================
+# DIVIDED DAMAGE/COUNTERS HELPERS
+# =============================================================================
+
+def make_divided_damage_etb_trigger(
+    source_obj: GameObject,
+    damage_amount: int,
+    target_filter: str = 'any',
+    max_targets: int = None,
+    prompt: str = None
+) -> Interceptor:
+    """
+    Create an ETB trigger that deals damage divided as you choose among targets.
+
+    Example: "When ~ enters, deal 5 damage divided as you choose among any number of targets."
+
+    Args:
+        source_obj: The object with the trigger
+        damage_amount: Total damage to divide (e.g., 5)
+        target_filter: Target filter type ('any', 'creature', 'opponent_creature', etc.)
+        max_targets: Max targets to select (default: damage_amount, since you must deal at least 1 each)
+        prompt: Custom prompt text
+
+    Returns:
+        An ETB trigger interceptor
+    """
+    actual_max = max_targets if max_targets is not None else damage_amount
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': source_obj.id,
+                'controller': source_obj.controller,
+                'effect': 'damage',
+                'effect_params': {},  # Amount comes from divide_amount
+                'target_filter': target_filter,
+                'min_targets': 1,  # Must have at least 1 target
+                'max_targets': actual_max,
+                'optional': False,
+                'divide_amount': damage_amount,
+                'prompt': prompt or f"Deal {damage_amount} damage divided as you choose among any number of targets"
+            },
+            source=source_obj.id
+        )]
+
+    return make_etb_trigger(source_obj, etb_effect)
+
+
+def make_divided_counters_etb_trigger(
+    source_obj: GameObject,
+    counter_amount: int,
+    counter_type: str = '+1/+1',
+    target_filter: str = 'creature',
+    max_targets: int = None,
+    prompt: str = None
+) -> Interceptor:
+    """
+    Create an ETB trigger that puts counters divided as you choose among targets.
+
+    Example: "When ~ enters, distribute 3 +1/+1 counters among any number of target creatures."
+
+    Args:
+        source_obj: The object with the trigger
+        counter_amount: Total counters to distribute
+        counter_type: Type of counter (default: '+1/+1')
+        target_filter: Target filter type
+        max_targets: Max targets to select
+        prompt: Custom prompt text
+
+    Returns:
+        An ETB trigger interceptor
+    """
+    actual_max = max_targets if max_targets is not None else counter_amount
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': source_obj.id,
+                'controller': source_obj.controller,
+                'effect': 'counter_add',
+                'effect_params': {'counter_type': counter_type},
+                'target_filter': target_filter,
+                'min_targets': 1,
+                'max_targets': actual_max,
+                'optional': False,
+                'divide_amount': counter_amount,
+                'prompt': prompt or f"Distribute {counter_amount} {counter_type} counters among any number of target creatures"
+            },
+            source=source_obj.id
+        )]
+
+    return make_etb_trigger(source_obj, etb_effect)
+
+
+# =============================================================================
+# MULTI-EFFECT TARGETING HELPERS
+# =============================================================================
+
+def make_targeted_multi_effect_etb_trigger(
+    source_obj: GameObject,
+    effects: list[dict],
+    target_filter: str = 'creature',
+    min_targets: int = 1,
+    max_targets: int = 1,
+    optional: bool = False,
+    prompt: str = None
+) -> Interceptor:
+    """
+    Create an ETB trigger that applies multiple effects to targeted creature(s).
+
+    Example: "When ~ enters, tap target creature. It doesn't untap during its controller's next untap step."
+
+    Args:
+        source_obj: The object with the trigger
+        effects: List of effect dicts [{'effect': 'tap'}, {'effect': 'stun'}]
+        target_filter: Target filter type
+        min_targets: Minimum targets
+        max_targets: Maximum targets
+        optional: If True, may choose 0 targets
+        prompt: Custom prompt text
+
+    Supported effects:
+        - 'tap' - Tap target
+        - 'untap' - Untap target
+        - 'stun' - Add stun counter (doesn't untap next untap step)
+        - 'freeze' - Tap + stun combo
+        - 'damage' with params: {'amount': N}
+        - 'pump' with params: {'power_mod': N, 'toughness_mod': M}
+        - 'counter_add' with params: {'counter_type': str, 'amount': N}
+        - 'grant_keyword' with params: {'keyword': str}
+
+    Returns:
+        An ETB trigger interceptor
+    """
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': source_obj.id,
+                'controller': source_obj.controller,
+                'effects': effects,  # Multi-effect list
+                'target_filter': target_filter,
+                'min_targets': min_targets,
+                'max_targets': max_targets,
+                'optional': optional,
+                'prompt': prompt
+            },
+            source=source_obj.id
+        )]
+
+    return make_etb_trigger(source_obj, etb_effect)
+
+
+def make_targeted_multi_effect_attack_trigger(
+    source_obj: GameObject,
+    effects: list[dict],
+    target_filter: str = 'creature',
+    min_targets: int = 1,
+    max_targets: int = 1,
+    optional: bool = False,
+    prompt: str = None
+) -> Interceptor:
+    """
+    Create an attack trigger that applies multiple effects to targeted creature(s).
+
+    Args:
+        source_obj: The creature with the trigger
+        effects: List of effect dicts
+        target_filter: Target filter type
+        min_targets: Minimum targets
+        max_targets: Maximum targets
+        optional: If True, may choose 0 targets
+        prompt: Custom prompt text
+
+    Returns:
+        An attack trigger interceptor
+    """
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': source_obj.id,
+                'controller': source_obj.controller,
+                'effects': effects,
+                'target_filter': target_filter,
+                'min_targets': min_targets,
+                'max_targets': max_targets,
+                'optional': optional,
+                'prompt': prompt
+            },
+            source=source_obj.id
+        )]
+
+    return make_attack_trigger(source_obj, attack_effect)
+
+
+# =============================================================================
+# MODAL WITH TARGETING HELPERS
+# =============================================================================
+
+def make_modal_etb_trigger(
+    source_obj: GameObject,
+    modes: list[dict],
+    min_modes: int = 1,
+    max_modes: int = 1,
+    prompt: str = None
+) -> Interceptor:
+    """
+    Create an ETB trigger with modal choices, where some modes may require targeting.
+
+    Example: "When ~ enters, choose one: Tap target creature; or Untap target creature."
+
+    Args:
+        source_obj: The object with the trigger
+        modes: List of mode dicts, each with:
+            - 'text': str - Description shown in UI
+            - 'requires_targeting': bool - Whether this mode needs targets
+            - 'effect': str - Effect type (for non-targeting or single-effect modes)
+            - 'effects': list - Multi-effect list (overrides 'effect')
+            - 'effect_params': dict - Parameters for the effect
+            - 'target_filter': str - Target filter (only if requires_targeting)
+            - 'min_targets': int - Min targets (default 1)
+            - 'max_targets': int - Max targets (default 1)
+            - 'optional': bool - If targets are optional
+        min_modes: Minimum modes to choose (default 1)
+        max_modes: Maximum modes to choose (default 1, use 2+ for "choose two")
+        prompt: Custom prompt text
+
+    Returns:
+        An ETB trigger interceptor
+
+    Example modes:
+        modes=[
+            {'text': 'Tap target creature', 'requires_targeting': True,
+             'effect': 'tap', 'target_filter': 'creature'},
+            {'text': 'Untap target creature', 'requires_targeting': True,
+             'effect': 'untap', 'target_filter': 'creature'},
+            {'text': 'Draw a card', 'requires_targeting': False,
+             'effect': 'draw', 'effect_params': {'amount': 1}},
+        ]
+    """
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Build options for UI
+        options = []
+        for i, mode in enumerate(modes):
+            options.append({
+                'id': str(i),
+                'index': i,
+                'label': mode.get('text', f'Mode {i + 1}'),
+                'description': mode.get('description', ''),
+                'requires_targeting': mode.get('requires_targeting', False)
+            })
+
+        # Create modal choice
+        choice = PendingChoice(
+            choice_type="modal_with_targeting",
+            player=source_obj.controller,
+            prompt=prompt or "Choose a mode:",
+            options=options,
+            source_id=source_obj.id,
+            min_choices=min_modes,
+            max_choices=max_modes,
+            callback_data={
+                'modes': modes,
+                'controller': source_obj.controller
+            }
+        )
+        state.pending_choice = choice
+        return []  # Choice processing is handled when player submits
+
+    return make_etb_trigger(source_obj, etb_effect)
+
+
+def make_modal_spell_trigger(
+    source_obj: GameObject,
+    modes: list[dict],
+    min_modes: int = 1,
+    max_modes: int = 1,
+    prompt: str = None,
+    spell_type_filter: set = None,
+    controller_only: bool = True
+) -> Interceptor:
+    """
+    Create a spell cast trigger with modal choices.
+
+    Similar to make_modal_etb_trigger but triggers on spell cast.
+
+    Args:
+        source_obj: The object with the trigger
+        modes: List of mode dicts (same format as make_modal_etb_trigger)
+        min_modes: Minimum modes to choose
+        max_modes: Maximum modes to choose
+        prompt: Custom prompt text
+        spell_type_filter: Only trigger on specific spell types
+        controller_only: Only trigger on controller's spells
+
+    Returns:
+        A spell cast trigger interceptor
+    """
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        options = []
+        for i, mode in enumerate(modes):
+            options.append({
+                'id': str(i),
+                'index': i,
+                'label': mode.get('text', f'Mode {i + 1}'),
+                'description': mode.get('description', ''),
+                'requires_targeting': mode.get('requires_targeting', False)
+            })
+
+        choice = PendingChoice(
+            choice_type="modal_with_targeting",
+            player=source_obj.controller,
+            prompt=prompt or "Choose a mode:",
+            options=options,
+            source_id=source_obj.id,
+            min_choices=min_modes,
+            max_choices=max_modes,
+            callback_data={
+                'modes': modes,
+                'controller': source_obj.controller
+            }
+        )
+        state.pending_choice = choice
+        return []
+
+    return make_spell_cast_trigger(
+        source_obj, spell_effect,
+        controller_only=controller_only,
+        spell_type_filter=spell_type_filter
+    )

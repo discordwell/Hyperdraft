@@ -474,15 +474,68 @@ class PendingChoice:
 
         Returns (is_valid, error_message).
         """
+        # Special handling for divide_allocation - selections are {target_id, amount} dicts
+        if self.choice_type == "divide_allocation":
+            return self._validate_divide_allocation(selected)
+
         if len(selected) < self.min_choices:
             return False, f"Must choose at least {self.min_choices} option(s)"
         if len(selected) > self.max_choices:
             return False, f"Cannot choose more than {self.max_choices} option(s)"
 
         # Check all selected options are valid
+        # Handle both raw values and option dicts
+        valid_ids = set()
+        for opt in self.options:
+            if isinstance(opt, dict):
+                valid_ids.add(opt.get('id'))
+            else:
+                valid_ids.add(opt)
+
         for choice in selected:
-            if choice not in self.options:
+            choice_id = choice.get('id') if isinstance(choice, dict) else choice
+            if choice_id not in valid_ids and choice not in self.options:
                 return False, f"Invalid choice: {choice}"
+
+        return True, ""
+
+    def _validate_divide_allocation(self, selected: list[Any]) -> tuple[bool, str]:
+        """Validate a divide_allocation selection."""
+        total_amount = self.callback_data.get('total_amount', 0)
+
+        # Build valid target IDs from options
+        valid_ids = set()
+        for opt in self.options:
+            if isinstance(opt, dict):
+                valid_ids.add(opt.get('id'))
+            else:
+                valid_ids.add(opt)
+
+        # Handle dict-based allocations
+        allocations = {}
+        for item in selected:
+            if isinstance(item, dict):
+                target_id = item.get('target_id') or item.get('id')
+                amount = item.get('amount', 0)
+                if target_id:
+                    allocations[target_id] = amount
+            elif isinstance(item, tuple) and len(item) == 2:
+                allocations[item[0]] = item[1]
+
+        # Validate each target is valid
+        for target_id in allocations:
+            if target_id not in valid_ids:
+                return False, f"Invalid target: {target_id}"
+
+        # Validate amounts
+        for target_id, amount in allocations.items():
+            if amount < 1:
+                return False, f"Each target must receive at least 1"
+
+        # Validate total
+        total = sum(allocations.values())
+        if total != total_amount:
+            return False, f"Must allocate exactly {total_amount}, got {total}"
 
         return True, ""
 

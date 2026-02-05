@@ -718,6 +718,14 @@ class Game:
             # "You may" - selected is [True] or [False]
             events = self._process_may_choice(choice, selected)
 
+        elif choice.choice_type == "divide_allocation":
+            # Damage/counter division - selected is dict of {target_id: amount}
+            events = self._process_divide_allocation_choice(choice, selected)
+
+        elif choice.choice_type == "modal_with_targeting":
+            # Modal choice where some modes require targeting
+            events = self._process_modal_with_targeting_choice(choice, selected)
+
         # Custom choice types can use callback_data['handler'] if provided
         elif 'handler' in choice.callback_data:
             handler = choice.callback_data['handler']
@@ -921,6 +929,141 @@ class Game:
 
         return []
 
+    def _process_divide_allocation_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
+        """
+        Process a divide_allocation choice.
+
+        Args:
+            selected: For divide_allocation, this should be a dict mapping target_id -> amount,
+                      or a list of (target_id, amount) tuples.
+        """
+        # Normalize input - could be dict or list of tuples
+        if isinstance(selected, dict):
+            allocations = selected
+        elif isinstance(selected, list) and len(selected) > 0:
+            if isinstance(selected[0], tuple):
+                allocations = dict(selected)
+            elif isinstance(selected[0], dict):
+                # List of {target_id: ..., amount: ...} dicts
+                allocations = {item.get('target_id') or item.get('id'): item.get('amount', 0)
+                               for item in selected}
+            else:
+                # Fallback: assume it's already a dict
+                allocations = selected[0] if isinstance(selected[0], dict) else {}
+        else:
+            return []
+
+        # Use the handler from callback_data
+        handler = choice.callback_data.get('handler')
+        if handler:
+            return handler(choice, allocations, self.state)
+
+        return []
+
+    def _process_modal_with_targeting_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
+        """
+        Process a modal_with_targeting choice.
+
+        After mode selection, creates TARGET_REQUIRED events for modes that need targeting,
+        or executes non-targeting modes directly.
+
+        Args:
+            selected: List of selected mode indices
+        """
+        modes = choice.callback_data.get('modes', [])
+        source_id = choice.source_id
+
+        events = []
+
+        for mode_idx in selected:
+            # Convert string index to int (choices come as strings)
+            mode_idx = int(mode_idx)
+            if mode_idx < 0 or mode_idx >= len(modes):
+                continue
+
+            mode = modes[mode_idx]
+
+            if mode.get('requires_targeting'):
+                # Create TARGET_REQUIRED for this mode
+                events.append(Event(
+                    type=EventType.TARGET_REQUIRED,
+                    payload={
+                        'source': source_id,
+                        'controller': choice.player,
+                        'effect': mode.get('effect'),
+                        'effect_params': mode.get('effect_params', {}),
+                        'effects': mode.get('effects'),  # For multi-effect modes
+                        'target_filter': mode.get('target_filter', 'any'),
+                        'min_targets': mode.get('min_targets', 1),
+                        'max_targets': mode.get('max_targets', 1),
+                        'optional': mode.get('optional', False),
+                        'prompt': mode.get('text')
+                    },
+                    source=source_id
+                ))
+            else:
+                # Non-targeting mode - execute directly
+                mode_events = self._execute_mode_effect(mode, source_id)
+                events.extend(mode_events)
+
+        return events
+
+    def _execute_mode_effect(self, mode: dict, source_id: str) -> list[Event]:
+        """Execute a non-targeting mode effect directly."""
+        effect = mode.get('effect')
+        params = mode.get('effect_params', {})
+        player_id = mode.get('controller') or self.state.active_player
+
+        events = []
+
+        if effect == 'draw':
+            amount = params.get('amount', 1)
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': player_id, 'amount': amount},
+                source=source_id
+            ))
+
+        elif effect == 'life_gain':
+            amount = params.get('amount', 0)
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': player_id, 'amount': amount},
+                source=source_id
+            ))
+
+        elif effect == 'create_token':
+            token = params.get('token', {})
+            count = params.get('count', 1)
+            events.append(Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': player_id,
+                    'token': token,
+                    'count': count
+                },
+                source=source_id
+            ))
+
+        elif effect == 'mill':
+            amount = params.get('amount', 1)
+            target_player = params.get('target_player', player_id)
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': target_player, 'amount': amount},
+                source=source_id
+            ))
+
+        elif effect == 'scry':
+            amount = params.get('amount', 1)
+            events.append(Event(
+                type=EventType.SCRY,
+                payload={'player': player_id, 'amount': amount, 'source_id': source_id},
+                source=source_id
+            ))
+
+        return events
+
     def has_pending_choice(self) -> bool:
         """Check if the game is waiting for a player choice."""
         return self.state.has_pending_choice()
@@ -1105,7 +1248,7 @@ class Game:
                 'choice_type': choice.choice_type,
             }
 
-        return {
+        result = {
             'id': choice.id,
             'choice_type': choice.choice_type,
             'player': choice.player,
@@ -1115,6 +1258,17 @@ class Game:
             'min_choices': choice.min_choices,
             'max_choices': choice.max_choices,
         }
+
+        # Add divide_allocation-specific data
+        if choice.choice_type == "divide_allocation":
+            result['total_amount'] = choice.callback_data.get('total_amount', 0)
+            result['effect_type'] = choice.callback_data.get('effect', 'damage')
+
+        # Add modal_with_targeting-specific data
+        if choice.choice_type == "modal_with_targeting":
+            result['modes'] = choice.callback_data.get('modes', [])
+
+        return result
 
 
 # =============================================================================
