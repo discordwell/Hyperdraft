@@ -18,11 +18,31 @@ from ..models import (
 
 # Card imports
 from src.cards import ALL_CARDS
+from src.cards.set_registry import get_cards_in_set, get_sets_for_card
 
 # Deck imports
 from src.decks import STANDARD_DECKS, ALL_DECKS, get_deck, get_random_deck, load_deck
 
 router = APIRouter(prefix="/match", tags=["match"])
+
+_CARD_REF_SEP = "::"
+
+
+def _parse_card_ref(ref: str) -> tuple[Optional[str], str]:
+    """
+    Parse a card reference.
+
+    Accepted:
+    - "Card Name" -> (None, "Card Name")  (defaults to MTG domain)
+    - "TMH::Chrono-Berserker" -> ("TMH", "Chrono-Berserker")
+    """
+    raw = (ref or "").strip()
+    if _CARD_REF_SEP in raw:
+        domain, name = raw.split(_CARD_REF_SEP, 1)
+        domain = domain.strip() or None
+        name = name.strip()
+        return domain, name
+    return None, raw
 
 
 @router.get("/decks")
@@ -59,6 +79,8 @@ def get_deck_cards(deck_id: str = None) -> list:
     else:
         deck = get_random_deck()
 
+    # `load_deck` can resolve custom-card domains via set_registry when deck entries
+    # specify `DeckEntry.domain`. For MTG cards, use the canonical ALL_CARDS registry.
     return load_deck(ALL_CARDS, deck)
 
 
@@ -69,9 +91,28 @@ def get_cards_by_names(card_names: list[str]) -> list:
     Returns list of CardDefinition objects.
     """
     cards = []
-    for name in card_names:
-        if name in ALL_CARDS:
-            cards.append(ALL_CARDS[name])
+    for ref in card_names:
+        domain, name = _parse_card_ref(ref)
+        if not name:
+            continue
+
+        card_def = None
+        if domain and domain.upper() != "MTG":
+            domain_cards = get_cards_in_set(domain)
+            card_def = domain_cards.get(name) if domain_cards else None
+        else:
+            card_def = ALL_CARDS.get(name)
+
+        # Unqualified fallback: if the card isn't in MTG, allow an unambiguous
+        # lookup by set code (covers many custom-only names without requiring a domain).
+        if card_def is None and not domain:
+            set_codes = get_sets_for_card(name)
+            if len(set_codes) == 1:
+                domain_cards = get_cards_in_set(set_codes[0])
+                card_def = domain_cards.get(name) if domain_cards else None
+
+        if card_def:
+            cards.append(card_def)
     return cards
 
 

@@ -13,6 +13,10 @@ class DeckEntry:
     """A single entry in a deck (card name + quantity)."""
     card_name: str
     quantity: int
+    # Optional card-space domain. If provided, the loader will resolve this
+    # card name within that domain (e.g., "TMH", "TLAC"). If omitted, the
+    # default domain ("MTG") is used.
+    domain: Optional[str] = None
 
 
 @dataclass
@@ -65,7 +69,11 @@ class Deck:
         """
         cards = []
         for entry in self.mainboard:
-            cards.extend([entry.card_name] * entry.quantity)
+            if entry.domain and entry.domain.upper() != "MTG":
+                ref = f"{entry.domain}::{entry.card_name}"
+            else:
+                ref = entry.card_name
+            cards.extend([ref] * entry.quantity)
         return cards
 
     def to_dict(self) -> dict:
@@ -111,13 +119,35 @@ def load_deck(card_registry: dict, deck: Deck) -> list:
     cards = []
     missing = []
 
+    from src.cards.set_registry import get_cards_in_set, get_sets_for_card
+
     for entry in deck.mainboard:
-        card_def = card_registry.get(entry.card_name)
+        card_def = None
+        domain = (entry.domain or "").strip()
+
+        if domain and domain.upper() != "MTG":
+            # Domain is a set code for now (custom sets, or optionally a specific MTG set).
+            domain_cards = get_cards_in_set(domain)
+            card_def = domain_cards.get(entry.card_name) if domain_cards else None
+        else:
+            # Default MTG domain: use the provided registry (usually ALL_CARDS).
+            card_def = card_registry.get(entry.card_name)
+
+        # If unspecified and not in MTG registry, attempt an unambiguous set lookup.
+        if card_def is None and not domain:
+            set_codes = get_sets_for_card(entry.card_name)
+            if len(set_codes) == 1:
+                domain_cards = get_cards_in_set(set_codes[0])
+                card_def = domain_cards.get(entry.card_name) if domain_cards else None
+
         if card_def:
             for _ in range(entry.quantity):
                 cards.append(card_def)
         else:
-            missing.append(entry.card_name)
+            if domain:
+                missing.append(f"{domain}::{entry.card_name}")
+            else:
+                missing.append(entry.card_name)
 
     if missing:
         print(f"Warning: Missing cards in deck '{deck.name}': {missing}")

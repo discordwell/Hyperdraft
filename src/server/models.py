@@ -112,6 +112,7 @@ class CardData(BaseModel):
     """Card data for API responses."""
     id: str
     name: str
+    domain: Optional[str] = Field(default=None, description="Card domain / cardspace (e.g., MTG, TMH, TLAC)")
     mana_cost: Optional[str] = None
     types: list[str] = Field(default_factory=list)
     subtypes: list[str] = Field(default_factory=list)
@@ -220,6 +221,7 @@ class ActionResultResponse(BaseModel):
 class CardDefinitionData(BaseModel):
     """Card definition for the card database."""
     name: str
+    domain: Optional[str] = Field(default=None, description="Card domain / cardspace (e.g., MTG, TMH, TLAC)")
     mana_cost: Optional[str] = None
     types: list[str] = Field(default_factory=list)
     subtypes: list[str] = Field(default_factory=list)

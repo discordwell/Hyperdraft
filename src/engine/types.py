@@ -404,6 +404,9 @@ class CardDefinition:
     name: str
     mana_cost: Optional[str]
     characteristics: Characteristics
+    # Card space identifier. For printed Magic cards this should be "MTG".
+    # For custom cards, use a set code like "TMH", "TLAC", etc.
+    domain: str = "MTG"
     text: str = ""
     rarity: Optional[str] = None  # 'common', 'uncommon', 'rare', 'mythic'
 
