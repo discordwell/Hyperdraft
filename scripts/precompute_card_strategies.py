@@ -24,6 +24,7 @@ import asyncio
 import os
 import random
 import sys
+import json
 from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
@@ -42,6 +43,7 @@ from src.ai.layers.types import CardStrategy
 from src.ai.research.netdeck_usage import build_netdeck_usage, format_usage_context
 from src.ai.research.scryfall import ScryfallClient
 from src.cards import ALL_CARDS
+from src.cards.set_registry import get_cards_in_set, get_set_info
 
 
 def _load_dotenv_if_present(path: Path) -> None:
@@ -103,6 +105,8 @@ async def _generate_one(
     netdeck_usage_map,
     netdeck_total: int,
     force: bool,
+    extra_context_map: Optional[dict[str, list[str]]] = None,
+    global_context: Optional[list[str]] = None,
 ) -> tuple[str, bool, Optional[str]]:
     """
     Returns: (card_name, did_write, error)
@@ -119,6 +123,9 @@ async def _generate_one(
 
     extra_context: list[str] = []
 
+    if global_context:
+        extra_context.extend(global_context)
+
     # Local "web-derived" context from our netdeck corpus.
     if netdeck_usage_map is not None and netdeck_total > 0:
         usage = format_usage_context(name, netdeck_usage_map, netdeck_total)
@@ -132,6 +139,12 @@ async def _generate_one(
             # Keep short: rulings can be long and repetitive.
             for r in ctx.rulings[:5]:
                 extra_context.append(f"Official ruling: {r}")
+
+    # Extra per-card context (e.g., web research snippets).
+    if extra_context_map:
+        for line in extra_context_map.get(name, []) or []:
+            if line and str(line).strip():
+                extra_context.append(str(line).strip())
 
     prompt = _build_prompt(card_def, extra_context)
 
@@ -205,8 +218,40 @@ async def main_async(args) -> int:
     if not args.no_scryfall:
         scryfall = ScryfallClient()
 
+    extra_context_map: Optional[dict[str, list[str]]] = None
+    if args.extra_context_json:
+        try:
+            raw = json.loads(Path(args.extra_context_json).read_text(encoding="utf-8"))
+            extra_context_map = {}
+            if isinstance(raw, dict):
+                for k, v in raw.items():
+                    if isinstance(v, list):
+                        extra_context_map[str(k)] = [str(x) for x in v if str(x).strip()]
+                    elif isinstance(v, str):
+                        extra_context_map[str(k)] = [v]
+            else:
+                print("extra context json must be an object: {card_name: [..]}", file=sys.stderr)
+        except Exception as e:
+            print(f"Failed to read --extra-context-json: {e}", file=sys.stderr)
+
     # Build card list.
-    names = sorted(ALL_CARDS.keys())
+    global_context: list[str] = []
+
+    if args.set_code:
+        set_info = get_set_info(args.set_code)
+        set_cards = get_cards_in_set(args.set_code)
+        if not set_cards:
+            print(f"Unknown or empty set code: {args.set_code}", file=sys.stderr)
+            return 2
+
+        names = sorted(set_cards.keys())
+        if set_info and set_info.set_type:
+            global_context.append(f"Set context: {set_info.name} ({set_info.code}), {set_info.set_type}.")
+            if set_info.set_type == "standard":
+                global_context.append("Format context: Standard Constructed (not Limited).")
+    else:
+        names = sorted(ALL_CARDS.keys())
+
     if args.shuffle:
         rng = random.Random(args.seed)
         rng.shuffle(names)
@@ -232,6 +277,8 @@ async def main_async(args) -> int:
                 netdeck_usage_map=netdeck_usage_map,
                 netdeck_total=netdeck_total,
                 force=args.force,
+                extra_context_map=extra_context_map,
+                global_context=global_context,
             )
             if err:
                 failed += 1
@@ -263,6 +310,7 @@ def main(argv: list[str]) -> int:
     p.add_argument("--provider", choices=["ollama", "openai", "anthropic"], default=None)
     p.add_argument("--model", default=None, help="Provider model name override")
     p.add_argument("--workers", type=int, default=6, help="Concurrent workers (default: 6)")
+    p.add_argument("--set-code", default=None, help="Restrict to a set code (e.g., MKM, OTJ, BIG)")
     p.add_argument("--limit", type=int, default=0, help="Only process first N cards (default: all)")
     p.add_argument("--offset", type=int, default=0, help="Skip first N cards (default: 0)")
     p.add_argument("--shuffle", action="store_true", help="Shuffle card order (helps parallel runs)")
@@ -270,6 +318,7 @@ def main(argv: list[str]) -> int:
     p.add_argument("--force", action="store_true", help="Regenerate even if cache hit")
     p.add_argument("--no-scryfall", action="store_true", help="Disable Scryfall rulings fetch")
     p.add_argument("--no-netdeck-usage", action="store_true", help="Disable local netdeck usage context")
+    p.add_argument("--extra-context-json", default=None, help="JSON file: {card_name: [\"extra context\", ...]}")
     p.add_argument("--progress-every", type=int, default=50, help="Progress log cadence (default: 50)")
     p.add_argument("--verbose", action="store_true", help="Verbose per-card logging")
     args = p.parse_args(argv)
@@ -282,4 +331,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-
