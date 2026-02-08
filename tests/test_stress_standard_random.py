@@ -141,6 +141,28 @@ def _check_zone_invariants(game: Game) -> None:
             if obj_id not in state.objects:
                 raise AssertionError(f"Zone {zone_key} references missing object {obj_id}")
 
+    # Every object should appear in exactly one zone list.
+    zone_membership_counts: dict[str, int] = {}
+    for zone in state.zones.values():
+        for obj_id in zone.objects:
+            zone_membership_counts[obj_id] = zone_membership_counts.get(obj_id, 0) + 1
+
+    for obj_id, obj in state.objects.items():
+        count = zone_membership_counts.get(obj_id, 0)
+        if count != 1:
+            raise AssertionError(
+                f"Object {obj.name} ({obj_id}) appears in {count} zones (expected exactly 1)"
+            )
+
+    # For every zone membership, obj.zone should match the zone's type.
+    for zone_key, zone in state.zones.items():
+        for obj_id in zone.objects:
+            obj = state.objects[obj_id]
+            if obj.zone != zone.type:
+                raise AssertionError(
+                    f"Object {obj.name} ({obj_id}) in {zone_key} but obj.zone={obj.zone} zone.type={zone.type}"
+                )
+
     # Spot-check object.zone against expected zone types for common keyed zones.
     for pid in state.players.keys():
         for zone_type, zone_key in (
@@ -273,4 +295,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-
