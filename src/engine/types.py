@@ -32,6 +32,7 @@ class EventType(Enum):
     TAP = auto()
     UNTAP = auto()
     GAIN_CONTROL = auto()  # Change a permanent's controller (often until end of turn)
+    CONTROL_CHANGE = auto()  # Alias for GAIN_CONTROL used by some card scripts
     COUNTER_ADDED = auto()
     COUNTER_REMOVED = auto()
     PT_MODIFICATION = auto()  # Temporary P/T changes (until end of turn, etc.)
