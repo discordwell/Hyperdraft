@@ -104,7 +104,8 @@ class StackManager:
     def get_item(self, item_id: str) -> Optional[StackItem]:
         """Get a specific item by ID."""
         for item in self.items:
-            return item if item.id == item_id else None
+            if item.id == item_id:
+                return item
         return None
 
     def push(self, item: StackItem) -> None:
