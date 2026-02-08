@@ -44,7 +44,7 @@ def _extract_deck_ids_from_tournament_html(html: str) -> list[int]:
     # Tournament pages link deck pages like: href="/deck/7608380"
     import re
 
-    for m in re.finditer(r'href=\"/deck/(\\d+)\"', html):
+    for m in re.finditer(r'/deck/([0-9]+)', html):
         did = int(m.group(1))
         if did in seen:
             continue
@@ -99,4 +99,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-
