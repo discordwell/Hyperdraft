@@ -457,6 +457,134 @@ class Game:
             )
         )
 
+        # "Can't block" is commonly expressed as a dedicated event in some sets.
+        # Normalize into a temporary keyword grant so combat rules pick it up.
+        def _cant_block_filter(event: Event, state: GameState) -> bool:
+            return event.type == EventType.CANT_BLOCK
+
+        def _cant_block_handler(event: Event, state: GameState) -> InterceptorResult:
+            object_id = event.payload.get("object_id")
+            duration = event.payload.get("duration", "end_of_turn")
+            if not object_id:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={
+                        "object_id": object_id,
+                        "keyword": "cant_block",
+                        "duration": duration,
+                    },
+                    source=event.source,
+                    controller=event.controller,
+                ),
+            )
+
+        self.register_interceptor(
+            Interceptor(
+                id=new_id(),
+                source="SYSTEM",
+                controller="SYSTEM",
+                priority=InterceptorPriority.TRANSFORM,
+                filter=_cant_block_filter,
+                handler=_cant_block_handler,
+                duration="forever",
+            )
+        )
+
+        # Counterspell glue: some card scripts emit COUNTER_SPELL* events.
+        def _counter_spell_filter(event: Event, state: GameState) -> bool:
+            return event.type in {
+                EventType.COUNTER,
+                EventType.COUNTER_SPELL,
+                EventType.COUNTER_SPELL_UNLESS_PAY,
+            }
+
+        def _counter_spell_handler(event: Event, state: GameState) -> InterceptorResult:
+            spell_id = (
+                event.payload.get("spell_id")
+                or event.payload.get("object_id")
+                or event.payload.get("target")
+                or event.payload.get("target_id")
+            )
+            if not spell_id:
+                return InterceptorResult(action=InterceptorAction.PASS)
+
+            # Best-effort: find a stack item whose card/source id matches the targeted
+            # stack-zone object id, then counter it.
+            for stack_item in list(self.stack.items):
+                if stack_item.card_id == spell_id or stack_item.source_id == spell_id:
+                    counter_events = self.stack.counter(stack_item.id, reason=event.payload.get("reason", "countered"))
+                    return InterceptorResult(
+                        action=InterceptorAction.REACT,
+                        new_events=counter_events,
+                    )
+
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        self.register_interceptor(
+            Interceptor(
+                id=new_id(),
+                source="SYSTEM",
+                controller="SYSTEM",
+                priority=InterceptorPriority.REACT,
+                filter=_counter_spell_filter,
+                handler=_counter_spell_handler,
+                duration="forever",
+            )
+        )
+
+        # Fight glue: two creatures deal damage equal to their power to each other.
+        def _fight_filter(event: Event, state: GameState) -> bool:
+            return event.type == EventType.FIGHT
+
+        def _fight_handler(event: Event, state: GameState) -> InterceptorResult:
+            c1 = event.payload.get("creature1") or event.payload.get("attacker")
+            c2 = event.payload.get("creature2") or event.payload.get("defender")
+            if not c1 or not c2:
+                return InterceptorResult(action=InterceptorAction.PASS)
+
+            o1 = state.objects.get(c1)
+            o2 = state.objects.get(c2)
+            if not o1 or not o2:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            if o1.zone != ZoneType.BATTLEFIELD or o2.zone != ZoneType.BATTLEFIELD:
+                return InterceptorResult(action=InterceptorAction.PASS)
+
+            p1 = get_power(o1, state)
+            p2 = get_power(o2, state)
+
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[
+                    Event(
+                        type=EventType.DAMAGE,
+                        payload={"target": c2, "amount": p1, "is_combat": False, "source": c1},
+                        source=c1,
+                        controller=o1.controller,
+                    ),
+                    Event(
+                        type=EventType.DAMAGE,
+                        payload={"target": c1, "amount": p2, "is_combat": False, "source": c2},
+                        source=c2,
+                        controller=o2.controller,
+                    ),
+                ],
+            )
+
+        self.register_interceptor(
+            Interceptor(
+                id=new_id(),
+                source="SYSTEM",
+                controller="SYSTEM",
+                priority=InterceptorPriority.REACT,
+                filter=_fight_filter,
+                handler=_fight_handler,
+                duration="forever",
+            )
+        )
+
     # =========================================================================
     # Game Flow Methods
     # =========================================================================
