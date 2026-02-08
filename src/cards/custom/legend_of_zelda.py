@@ -164,7 +164,7 @@ def make_triforce_bonus(source_obj: GameObject, power_bonus: int, toughness_bonu
                             if obj.controller == source_obj.controller
                             and obj.zone == ZoneType.BATTLEFIELD
                             and CardType.ARTIFACT in obj.characteristics.types
-                            and 'Triforce' in obj.characteristics.name)
+                            and 'Triforce' in obj.name)
         return triforce_count >= pieces_required
 
     # Manual interceptor creation for Triforce mechanic

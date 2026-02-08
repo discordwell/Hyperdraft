@@ -468,10 +468,10 @@ class SpellCastTrigger(Trigger):
         colors = self.colors
 
         def event_filter(event: 'Event', state: 'GameState') -> bool:
-            if event.type != EventType.CAST:
+            if event.type not in (EventType.CAST, EventType.SPELL_CAST):
                 return False
 
-            caster = event.payload.get('caster')
+            caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
             if not any_player:
                 if controller_only and caster != obj.controller:
                     return False
@@ -480,11 +480,15 @@ class SpellCastTrigger(Trigger):
 
             if spell_types:
                 event_types = set(event.payload.get('types', []))
+                if not event_types and event.payload.get('spell_type') is not None:
+                    event_types = {event.payload.get('spell_type')}
                 if not event_types.intersection(spell_types):
                     return False
 
             if colors:
                 event_colors = set(event.payload.get('colors', []))
+                if not event_colors and event.payload.get('color') is not None:
+                    event_colors = {event.payload.get('color')}
                 if not event_colors.intersection(colors):
                     return False
 

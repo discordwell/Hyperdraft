@@ -196,7 +196,7 @@ def arahbo_the_first_fang_setup(obj: GameObject, state: GameState) -> list[Inter
         return (entering_id != source_obj.id and
                 entering_obj.controller == source_obj.controller and
                 "Cat" in entering_obj.characteristics.subtypes and
-                not entering_obj.characteristics.is_token)
+                not entering_obj.state.is_token)
 
     def other_cat_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(

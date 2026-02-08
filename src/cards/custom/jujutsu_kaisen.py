@@ -19,7 +19,7 @@ from src.engine.abilities import (
     GainLife, LoseLife, DrawCards, AddCounters, CreateToken, DealDamage, Scry, CompositeEffect,
     PTBoost, KeywordGrant,
     OtherCreaturesYouControlFilter, CreaturesWithSubtypeFilter, CreaturesYouControlFilter, OpponentCreaturesFilter,
-    SelfTarget, AnotherCreature, EachOpponentTarget, CreatureWithSubtype
+    SelfTarget, AnotherCreature, ControllerTarget, EachOpponentTarget, CreatureWithSubtype, DamageTarget
 )
 from typing import Optional, Callable
 
@@ -707,7 +707,7 @@ MAHITO = make_creature(
     abilities=[
         TriggeredAbility(
             trigger=DealsDamageTrigger(to_creature=True),
-            effect=AddCounters("-1/-1", 1)
+            effect=AddCounters("-1/-1", 1, target=DamageTarget())
         )
     ]
 )
@@ -2015,7 +2015,7 @@ CURSED_WOMB_DEATH_PAINTING = make_enchantment(
             trigger=UpkeepTrigger(),
             effect=CompositeEffect([
                 CreateToken(name="Curse", power=1, toughness=1, colors={Color.BLACK}, subtypes={"Curse"}),
-                LoseLife(1)
+                LoseLife(1, target=ControllerTarget())
             ])
         )
     ]

@@ -591,8 +591,14 @@ class PrioritySystem:
         events.append(Event(
             type=EventType.CAST,
             payload={
+                # Canonical spell-cast payload (used by spell-cast triggers).
+                'spell_id': action.card_id,
                 'card_id': action.card_id,
-                'controller': action.player_id
+                'caster': action.player_id,
+                'controller': action.player_id,
+                'types': list(card.characteristics.types),
+                'colors': list(card.characteristics.colors),
+                'mana_value': cost.mana_value,
             }
         ))
 

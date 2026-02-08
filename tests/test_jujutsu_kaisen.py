@@ -38,10 +38,42 @@ JUJUTSU_KAISEN_CARDS = jujutsu_kaisen.JUJUTSU_KAISEN_CARDS
 
 
 # =============================================================================
+# HELPERS
+# =============================================================================
+
+def create_on_battlefield(game: Game, player_id: str, card_name: str):
+    """
+    Create a card and move it onto the battlefield via a ZONE_CHANGE event.
+
+    Triggered abilities like ETB (ETBTrigger) listen for ZONE_CHANGE -> BATTLEFIELD.
+    """
+    card_def = JUJUTSU_KAISEN_CARDS[card_name]
+    obj = game.create_object(
+        name=card_name,
+        owner_id=player_id,
+        zone=ZoneType.HAND,
+        characteristics=card_def.characteristics,
+        card_def=card_def
+    )
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': obj.id,
+            'from_zone': f'hand_{player_id}',
+            'to_zone': 'battlefield',
+            'from_zone_type': ZoneType.HAND,
+            'to_zone_type': ZoneType.BATTLEFIELD
+        },
+        source=obj.id,
+        controller=obj.controller
+    ))
+    return obj
+
+
+# =============================================================================
 # ETB TRIGGER TESTS
 # =============================================================================
-# Note: ETB triggers fire automatically during create_object when zone=BATTLEFIELD.
-# We don't need to manually emit ZONE_CHANGE events.
+# Note: ETB triggers fire on ZONE_CHANGE events (to_zone_type == BATTLEFIELD).
 
 def test_jujutsu_first_year_etb_life_gain():
     """Test Jujutsu High First Year gains 2 life on ETB."""
@@ -53,16 +85,7 @@ def test_jujutsu_first_year_etb_life_gain():
     starting_life = p1.life
     print(f"Starting life: {starting_life}")
 
-    card_def = JUJUTSU_KAISEN_CARDS["Jujutsu High First Year"]
-
-    # ETB trigger fires automatically during create_object
-    creature = game.create_object(
-        name="Jujutsu High First Year",
-        owner_id=p1.id,
-        zone=ZoneType.BATTLEFIELD,
-        characteristics=card_def.characteristics,
-        card_def=card_def
-    )
+    create_on_battlefield(game, p1.id, "Jujutsu High First Year")
 
     print(f"Life after ETB: {p1.life}")
     # The trigger should have fired once during creation
@@ -83,16 +106,7 @@ def test_megumi_fushiguro_etb_creates_divine_dog_token():
                            CardType.CREATURE in obj.characteristics.types])
     print(f"Creatures before: {creatures_before}")
 
-    card_def = JUJUTSU_KAISEN_CARDS["Megumi Fushiguro, Ten Shadows"]
-
-    # ETB trigger fires during creation
-    creature = game.create_object(
-        name="Megumi Fushiguro, Ten Shadows",
-        owner_id=p1.id,
-        zone=ZoneType.BATTLEFIELD,
-        characteristics=card_def.characteristics,
-        card_def=card_def
-    )
+    create_on_battlefield(game, p1.id, "Megumi Fushiguro, Ten Shadows")
 
     # Count creatures after ETB
     creatures_after = len([obj for obj in game.state.objects.values()
@@ -139,16 +153,7 @@ def test_finger_bearer_etb_life_loss():
     p2_starting_life = p2.life
     print(f"Opponent starting life: {p2_starting_life}")
 
-    card_def = JUJUTSU_KAISEN_CARDS["Finger Bearer"]
-
-    # ETB trigger fires during creation
-    creature = game.create_object(
-        name="Finger Bearer",
-        owner_id=p1.id,
-        zone=ZoneType.BATTLEFIELD,
-        characteristics=card_def.characteristics,
-        card_def=card_def
-    )
+    create_on_battlefield(game, p1.id, "Finger Bearer")
 
     print(f"Opponent life after ETB: {p2.life}")
     assert p2.life == p2_starting_life - 2, f"Expected {p2_starting_life - 2}, got {p2.life}"
@@ -168,16 +173,7 @@ def test_rabbit_escape_etb_creates_multiple_tokens():
                            CardType.CREATURE in obj.characteristics.types])
     print(f"Creatures before: {creatures_before}")
 
-    card_def = JUJUTSU_KAISEN_CARDS["Rabbit Escape Swarm"]
-
-    # ETB trigger fires during creation
-    creature = game.create_object(
-        name="Rabbit Escape Swarm",
-        owner_id=p1.id,
-        zone=ZoneType.BATTLEFIELD,
-        characteristics=card_def.characteristics,
-        card_def=card_def
-    )
+    create_on_battlefield(game, p1.id, "Rabbit Escape Swarm")
 
     creatures_after = len([obj for obj in game.state.objects.values()
                           if obj.zone == ZoneType.BATTLEFIELD and
@@ -199,16 +195,7 @@ def test_round_deer_etb_life_gain():
     starting_life = p1.life
     print(f"Starting life: {starting_life}")
 
-    card_def = JUJUTSU_KAISEN_CARDS["Round Deer Shikigami"]
-
-    # ETB trigger fires during creation
-    creature = game.create_object(
-        name="Round Deer Shikigami",
-        owner_id=p1.id,
-        zone=ZoneType.BATTLEFIELD,
-        characteristics=card_def.characteristics,
-        card_def=card_def
-    )
+    create_on_battlefield(game, p1.id, "Round Deer Shikigami")
 
     print(f"Life after ETB: {p1.life}")
     assert p1.life == starting_life + 4, f"Expected {starting_life + 4}, got {p1.life}"

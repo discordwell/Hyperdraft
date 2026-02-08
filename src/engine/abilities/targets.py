@@ -329,3 +329,15 @@ class TriggeringObjectTarget(EffectTarget):
     def resolve(self, event, state, source) -> list[str]:
         obj_id = event.payload.get('object_id')
         return [obj_id] if obj_id else []
+
+
+@dataclass
+class DamageTarget(EffectTarget):
+    """The target of a DAMAGE event (event.payload['target'])."""
+
+    def render_text(self, card_name: str) -> str:
+        return "that creature"
+
+    def resolve(self, event, state, source) -> list[str]:
+        target_id = event.payload.get('target')
+        return [target_id] if target_id else []

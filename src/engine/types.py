@@ -325,6 +325,19 @@ class GameObject:
     entered_zone_at: int = 0
     created_at: int = 0
 
+    # ---------------------------------------------------------------------
+    # Compatibility accessors
+    # ---------------------------------------------------------------------
+    # Some older card/test code assigns `obj.attached_to` directly. The actual
+    # attachment state lives on `obj.state.attached_to`.
+    @property
+    def attached_to(self) -> Optional[str]:
+        return self.state.attached_to
+
+    @attached_to.setter
+    def attached_to(self, value: Optional[str]) -> None:
+        self.state.attached_to = value
+
 
 # =============================================================================
 # Zone
@@ -411,13 +424,28 @@ class CardDefinition:
 
     def __post_init__(self):
         """Auto-generate text and setup_interceptors from abilities if provided."""
-        if self.abilities:
-            # Generate text if not provided
-            if not self.text:
-                self.text = self._generate_text()
-            # Generate setup_interceptors if not provided
-            if not self.setup_interceptors:
-                self.setup_interceptors = self._generate_setup()
+        if not self.abilities:
+            return
+
+        # Generate text if not provided.
+        if not self.text:
+            self.text = self._generate_text()
+
+        # Always include declarative ability interceptors. If a card also provides a
+        # custom setup_interceptors, combine both (abilities first, then custom).
+        ability_setup = self._generate_setup()
+        if self.setup_interceptors:
+            custom_setup = self.setup_interceptors
+
+            def combined_setup(obj: 'GameObject', state: 'GameState') -> list['Interceptor']:
+                interceptors: list[Interceptor] = []
+                interceptors.extend(ability_setup(obj, state) or [])
+                interceptors.extend(custom_setup(obj, state) or [])
+                return interceptors
+
+            self.setup_interceptors = combined_setup
+        else:
+            self.setup_interceptors = ability_setup
 
     def _generate_text(self) -> str:
         """Generate rules text from abilities."""

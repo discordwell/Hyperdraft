@@ -107,6 +107,7 @@ from .targets import (
     ControllerTarget,
     EachOpponentTarget,
     TriggeringObjectTarget,
+    DamageTarget,
 )
 
 # Keywords
@@ -190,6 +191,7 @@ __all__ = [
     'ControllerTarget',
     'EachOpponentTarget',
     'TriggeringObjectTarget',
+    'DamageTarget',
 
     # Keywords
     'PASSIVE_KEYWORDS',

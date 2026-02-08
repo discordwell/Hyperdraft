@@ -256,6 +256,135 @@ def _handle_draw(event: Event, state: GameState):
             state.objects[card_id].zone = ZoneType.HAND
 
 
+def _handle_object_created(event: Event, state: GameState):
+    """
+    Handle OBJECT_CREATED event.
+
+    This is primarily used by card implementations to create tokens.
+
+    Common payload keys:
+        - name: str
+        - controller: player_id
+        - owner: player_id (optional, defaults to controller)
+        - zone_type / to_zone_type: ZoneType (optional, defaults to BATTLEFIELD)
+        - types: list[CardType] | set[CardType] (optional, defaults to {CREATURE})
+        - subtypes: list[str] | set[str] (optional)
+        - supertypes: list[str] | set[str] (optional)
+        - colors: list[Color] | set[Color] (optional)
+        - power: int (optional)
+        - toughness: int (optional)
+        - abilities: list[dict] (optional, keyword dicts etc.)
+        - keywords: list[str] (optional, converted into abilities=[{'keyword': ...}])
+        - token / is_token: bool (optional)
+        - tapped: bool (optional)
+        - attach_to / attached_to: object_id (optional)
+
+    Side effects:
+        - event.payload['object_id'] is set to the created object's id.
+        - event.payload['to_zone_type'] is set to the final ZoneType.
+    """
+    from .types import new_id, GameObject, Characteristics, ObjectState
+
+    controller_id = event.payload.get('controller') or event.controller
+    if not controller_id or controller_id not in state.players:
+        return
+
+    owner_id = event.payload.get('owner') or controller_id
+
+    zone_type = (
+        event.payload.get('zone_type')
+        or event.payload.get('to_zone_type')
+        or event.payload.get('zone')
+        or ZoneType.BATTLEFIELD
+    )
+    if isinstance(zone_type, str):
+        # Accept ZoneType names like "BATTLEFIELD"/"battlefield".
+        try:
+            zone_type = ZoneType[zone_type.upper()]
+        except Exception:
+            zone_type = ZoneType.BATTLEFIELD
+
+    types = event.payload.get('types')
+    if types is None:
+        types = {CardType.CREATURE}
+    if isinstance(types, list):
+        types = set(types)
+
+    subtypes = event.payload.get('subtypes', set())
+    if isinstance(subtypes, list):
+        subtypes = set(subtypes)
+
+    supertypes = event.payload.get('supertypes', set())
+    if isinstance(supertypes, list):
+        supertypes = set(supertypes)
+
+    colors = event.payload.get('colors', set())
+    if isinstance(colors, list):
+        colors = set(colors)
+
+    # Abilities/keywords (best-effort). Many callers use `keywords=[...]`.
+    abilities = event.payload.get('abilities', [])
+    if isinstance(abilities, list) and abilities and not isinstance(abilities[0], dict):
+        abilities = []
+
+    keywords = event.payload.get('keywords', [])
+    if keywords and not abilities:
+        abilities = [{'keyword': str(kw).lower()} for kw in keywords]
+
+    characteristics = Characteristics(
+        types=types,
+        subtypes=subtypes,
+        supertypes=supertypes,
+        colors=colors,
+        power=event.payload.get('power'),
+        toughness=event.payload.get('toughness'),
+        abilities=abilities or []
+    )
+
+    is_token = bool(event.payload.get('is_token') or event.payload.get('token'))
+    enters_tapped = bool(event.payload.get('tapped', False))
+
+    obj_id = new_id()
+    created = GameObject(
+        id=obj_id,
+        name=event.payload.get('name', 'Token'),
+        owner=owner_id,
+        controller=controller_id,
+        zone=zone_type,
+        characteristics=characteristics,
+        state=ObjectState(
+            is_token=is_token,
+            tapped=enters_tapped
+        ),
+        created_at=state.next_timestamp(),
+        entered_zone_at=state.timestamp
+    )
+
+    state.objects[obj_id] = created
+
+    # Add to zone list if we can resolve a key.
+    zone_key = None
+    if zone_type in {ZoneType.LIBRARY, ZoneType.HAND, ZoneType.GRAVEYARD}:
+        zone_key = f"{zone_type.name.lower()}_{owner_id}"
+    else:
+        zone_key = zone_type.name.lower()
+
+    if zone_key in state.zones:
+        state.zones[zone_key].objects.append(obj_id)
+
+    # Optional attachment support (Auras/Equipment tokens, etc.)
+    attach_to = event.payload.get('attach_to') or event.payload.get('attached_to')
+    if attach_to and attach_to in state.objects:
+        created.state.attached_to = attach_to
+        host = state.objects[attach_to]
+        if obj_id not in host.state.attachments:
+            host.state.attachments.append(obj_id)
+
+    # Surface created id/zone for downstream triggers/tests.
+    event.payload['object_id'] = obj_id
+    event.payload['to_zone_type'] = zone_type
+
+
 def _handle_zone_change(event: Event, state: GameState):
     """Handle ZONE_CHANGE event."""
     object_id = event.payload.get('object_id')
@@ -1483,6 +1612,7 @@ EVENT_HANDLERS = {
     EventType.DAMAGE: _handle_damage,
     EventType.LIFE_CHANGE: _handle_life_change,
     EventType.DRAW: _handle_draw,
+    EventType.OBJECT_CREATED: _handle_object_created,
     EventType.ZONE_CHANGE: _handle_zone_change,
     EventType.TAP: _handle_tap,
     EventType.UNTAP: _handle_untap,

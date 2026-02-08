@@ -363,7 +363,7 @@ def run_game(
     return state
 
 
-def test_matchup(player_deck_id, ai_deck_id, games=3, verbose=False):
+def run_matchup(player_deck_id, ai_deck_id, games=3, verbose=False):
     """Test a specific matchup multiple times."""
     wins = 0
     losses = 0
@@ -404,7 +404,7 @@ def test_matchup(player_deck_id, ai_deck_id, games=3, verbose=False):
     return {"wins": wins, "losses": losses, "draws": draws}
 
 
-def test_all_matchups(games_per_matchup=2):
+def run_all_matchups(games_per_matchup=2):
     """Test all viable deck matchups."""
     # Decks with all cards available
     complete_decks = [
@@ -421,7 +421,7 @@ def test_all_matchups(games_per_matchup=2):
         for ai_deck in complete_decks[:3]:  # Against first 3 as AI
             if player_deck != ai_deck:
                 key = f"{player_deck} vs {ai_deck}"
-                results[key] = test_matchup(player_deck, ai_deck, games=games_per_matchup)
+                results[key] = run_matchup(player_deck, ai_deck, games=games_per_matchup)
 
     print("\n\n" + "="*60)
     print("OVERALL RESULTS")
@@ -446,9 +446,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.all:
-        test_all_matchups(games_per_matchup=args.games)
+        run_all_matchups(games_per_matchup=args.games)
     elif args.player and args.ai:
-        test_matchup(args.player, args.ai, games=args.games, verbose=args.verbose)
+        run_matchup(args.player, args.ai, games=args.games, verbose=args.verbose)
     elif args.custom:
         run_game(
             verbose=args.verbose,
