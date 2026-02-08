@@ -489,6 +489,7 @@ class PendingChoice:
         for opt in self.options:
             if isinstance(opt, dict):
                 valid_ids.add(opt.get('id'))
+                valid_ids.add(opt.get('index'))
             else:
                 valid_ids.add(opt)
 

@@ -163,14 +163,6 @@ class PendingChoiceWaitingData(BaseModel):
     choice_type: str
 
 
-class ChoiceResultResponse(BaseModel):
-    """Response after submitting a choice."""
-    success: bool
-    message: str = ""
-    new_state: Optional['GameStateResponse'] = None
-    events: list[dict] = Field(default_factory=list)
-
-
 class PlayerData(BaseModel):
     """Player data for API responses."""
     id: str
@@ -207,6 +199,14 @@ class GameStateResponse(BaseModel):
     winner: Optional[str] = None
     pending_choice: Optional[PendingChoiceData] = None  # Choice for this player
     waiting_for_choice: Optional[PendingChoiceWaitingData] = None  # Another player's choice
+
+
+class ChoiceResultResponse(BaseModel):
+    """Response after submitting a choice."""
+    success: bool
+    message: str = ""
+    new_state: Optional[GameStateResponse] = None
+    events: list[dict] = Field(default_factory=list)
 
 
 class ActionResultResponse(BaseModel):

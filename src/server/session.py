@@ -289,6 +289,10 @@ class GameSession:
 
         Returns (success, message).
         """
+        # Combat declarations are not wired through the priority action loop yet.
+        if request.action_type in ("DECLARE_ATTACKERS", "DECLARE_BLOCKERS"):
+            return False, "Manual combat declarations are not supported via /action yet"
+
         # Validate it's this player's turn to act
         priority_player = self.game.get_priority_player()
         if request.player_id != priority_player:
@@ -402,7 +406,10 @@ class GameSession:
         """Get or create the AI engine for this session."""
         if self._ai_engine is None:
             from src.ai import AIEngine
-            self._ai_engine = AIEngine(difficulty=self.ai_difficulty)
+            if self.ai_difficulty == "ultra":
+                self._ai_engine = AIEngine.create_ultra_bot()
+            else:
+                self._ai_engine = AIEngine(difficulty=self.ai_difficulty)
         return self._ai_engine
 
     def _handle_ai_choice(

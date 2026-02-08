@@ -2717,7 +2717,7 @@ def _heartless_act_handle_mode(choice, selected: list, state: GameState) -> list
         return []
 
     selected_mode = selected[0]
-    mode_index = selected_mode["index"]
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     # Gather legal targets based on chosen mode
     legal_targets = []

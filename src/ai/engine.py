@@ -569,6 +569,7 @@ class AIEngine:
 
         # Evaluate each card - put bad cards on bottom
         to_bottom = []
+        current_lands = self._count_lands(player_id, state)
 
         for card_id in options:
             card = state.objects.get(card_id)
@@ -584,7 +585,6 @@ class AIEngine:
                 cmc = cost.mana_value
 
                 # Late-game high drops are fine, early game bottom them
-                current_lands = self._count_lands(player_id, state)
                 if cmc > current_lands + 2:
                     should_bottom = True
 
