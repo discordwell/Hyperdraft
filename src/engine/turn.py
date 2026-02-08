@@ -152,7 +152,11 @@ class TurnManager:
         else:
             self.turn_state.active_player_id = self.turn_order[self.current_player_index]
 
+        # Keep centralized GameState tracking in sync for card logic/interceptors.
+        self.state.active_player = self.turn_state.active_player_id
+
         self.turn_state.turn_number += 1
+        self.state.turn_number = self.turn_state.turn_number
         self._reset_turn_state()
 
         events.extend(await self._emit_turn_start())
@@ -273,6 +277,15 @@ class TurnManager:
         events.extend(await self._emit_step_start())
         if self.priority_system:
             await self.priority_system.run_priority_loop()
+
+        # Combat has ended; creatures are no longer attacking or blocking.
+        battlefield = self.state.zones.get('battlefield')
+        if battlefield:
+            for obj_id in list(battlefield.objects):
+                obj = self.state.objects.get(obj_id)
+                if obj:
+                    obj.state.attacking = False
+                    obj.state.blocking = False
 
         return events
 
@@ -407,6 +420,22 @@ class TurnManager:
                             if mod.get('duration') != 'end_of_turn'
                         ]
 
+                    # Clear end-of-turn temporary keyword/ability grants.
+                    if obj.characteristics and obj.characteristics.abilities:
+                        obj.characteristics.abilities = [
+                            a for a in obj.characteristics.abilities
+                            if not (
+                                isinstance(a, dict)
+                                and a.get("_temporary") is True
+                                and a.get("_duration") == "end_of_turn"
+                            )
+                        ]
+
+                    # Revert end-of-turn control changes.
+                    if hasattr(obj.state, "_restore_controller_eot"):
+                        obj.controller = getattr(obj.state, "_restore_controller_eot")
+                        delattr(obj.state, "_restore_controller_eot")
+
         # End "until end of turn" effects
         # (Would be handled by interceptor duration system)
 
@@ -417,40 +446,61 @@ class TurnManager:
 
     async def _emit_game_start(self) -> list[Event]:
         """Emit game start event."""
-        return [Event(
+        event = Event(
             type=EventType.GAME_START,
             payload={'players': list(self.state.players.keys())}
-        )]
+        )
+        if self.pipeline:
+            self.pipeline.emit(event)
+        return [event]
 
     async def _emit_turn_start(self) -> list[Event]:
         """Emit turn start event."""
-        return [Event(
+        event = Event(
             type=EventType.TURN_START,
             payload={
                 'player': self.turn_state.active_player_id,
                 'turn_number': self.turn_state.turn_number
             }
-        )]
+        )
+        if self.pipeline:
+            self.pipeline.emit(event)
+        return [event]
 
     async def _emit_turn_end(self) -> list[Event]:
         """Emit turn end event."""
-        return [Event(
+        event = Event(
             type=EventType.TURN_END,
             payload={
                 'player': self.turn_state.active_player_id,
                 'turn_number': self.turn_state.turn_number
             }
-        )]
+        )
+        if self.pipeline:
+            self.pipeline.emit(event)
+        return [event]
 
     async def _emit_step_start(self) -> list[Event]:
         """Emit step/phase start event."""
-        return [Event(
+        step = self.turn_state.step.name.lower()
+        # Many card files treat "phase" as a semantic step marker.
+        if self.turn_state.step == Step.BEGINNING_OF_COMBAT:
+            phase = 'combat'
+        else:
+            phase = step
+
+        event = Event(
             type=EventType.PHASE_START,
             payload={
-                'phase': self.turn_state.phase.name,
-                'step': self.turn_state.step.name
+                'phase': phase,
+                'step': step,
+                'active_player': self.turn_state.active_player_id,
+                'turn_number': self.turn_state.turn_number,
             }
-        )]
+        )
+        if self.pipeline:
+            self.pipeline.emit(event)
+        return [event]
 
     def _set_phase(self, phase: Phase) -> None:
         """Set the current phase."""

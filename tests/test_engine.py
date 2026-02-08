@@ -82,7 +82,13 @@ def test_triggered_ability():
     )
 
     print(f"Interceptors registered: {len(game.state.interceptors)}")
-    assert len(game.state.interceptors) == 1
+    # System interceptors (e.g. rules glue) may also be present; assert only the
+    # interceptors registered by Soul Warden itself.
+    soul_interceptors = [
+        i for i in game.state.interceptors.values()
+        if getattr(i, "source", None) == soul_warden.id
+    ]
+    assert len(soul_interceptors) == 1
 
     # Another creature enters
     game.emit(Event(

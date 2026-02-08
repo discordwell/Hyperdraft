@@ -31,9 +31,14 @@ class EventType(Enum):
     # State changes
     TAP = auto()
     UNTAP = auto()
+    GAIN_CONTROL = auto()  # Change a permanent's controller (often until end of turn)
     COUNTER_ADDED = auto()
     COUNTER_REMOVED = auto()
     PT_MODIFICATION = auto()  # Temporary P/T changes (until end of turn, etc.)
+    PT_MODIFIER = auto()      # Alias for PT_MODIFICATION (power_mod/toughness_mod payload)
+    PT_CHANGE = auto()        # Alias for temporary P/T changes (power/toughness deltas)
+    PT_MODIFY = auto()        # Alias for temporary P/T changes (power/toughness deltas)
+    TEMPORARY_PT_CHANGE = auto()  # Alias for temporary P/T changes (power/toughness deltas)
 
     # Combat
     ATTACK_DECLARED = auto()
@@ -87,6 +92,7 @@ class EventType(Enum):
     REVEAL_TOP = auto()        # Reveal top card(s)
     REVEAL_UNTIL_LAND = auto() # Reveal until land found
     EXILE_FROM_TOP = auto()    # Exile top card(s) of library
+    EXILE_TOP = auto()         # Legacy alias for EXILE_FROM_TOP used by some card scripts
     IMPULSE_DRAW = auto()      # Exile top, may play until end of turn
 
     # Token creation
@@ -102,6 +108,7 @@ class EventType(Enum):
     PUMP = auto()              # +X/+Y until end of turn
     TEMPORARY_EFFECT = auto()  # Generic temporary effect
     GRANT_KEYWORD = auto()     # Grant keyword until end of turn
+    KEYWORD_GRANT = auto()     # Alias for GRANT_KEYWORD (keyword until end of turn)
 
     # Conditional effects
     CONDITIONAL_COUNTERS = auto()      # Add counters if condition met
@@ -111,6 +118,8 @@ class EventType(Enum):
 
     # Misc
     EXILE = auto()             # Exile a card/permanent
+    FLICKER = auto()           # Exile and return at the beginning of the next end step
+    UNLOCK_DOOR = auto()       # Duskmourn: unlock a Door/Room (mechanic stub)
     MANIFEST_DREAD = auto()    # Duskmourn manifest dread mechanic
     MANA_ADDED = auto()        # Mana was added to pool
     ADD_MANA = auto()          # Alias for mana production
@@ -124,6 +133,7 @@ class EventType(Enum):
     RETURN_TO_HAND = auto()                # Return permanent to hand
     RETURN_FROM_GRAVEYARD = auto()         # Return card from graveyard
     RETURN_TO_HAND_FROM_GRAVEYARD = auto() # Bounce from graveyard to hand
+    BOUNCE = auto()                        # Alias: return permanent to its owner's hand
     TAP_TARGET = auto()                    # Tap target permanent
     UNTAP_TARGET = auto()                  # Untap target permanent
     UNTAP_ALL = auto()                     # Untap all of type
@@ -137,6 +147,7 @@ class EventType(Enum):
     FREEZE = auto()                        # Freeze a permanent (doesn't untap)
     TRANSFORM = auto()                     # Transform a DFC
     GRANT_ABILITY = auto()                 # Grant an ability temporarily
+    GRANT_RESTRICTION = auto()             # Grant a restriction temporarily (mechanic stub)
     GRANT_UNBLOCKABLE = auto()             # Grant can't be blocked
     GRANT_PT_MODIFIER = auto()             # Grant P/T modifier
     TEMPORARY_BOOST = auto()               # Temporary stat boost (alias for PUMP)
@@ -295,6 +306,10 @@ class ObjectState:
     tapped: bool = False
     flipped: bool = False
     face_down: bool = False
+    # Combat status flags (used by a handful of card scripts that target
+    # "attacking or blocking" creatures).
+    attacking: bool = False
+    blocking: bool = False
     damage: int = 0
     counters: dict[str, int] = field(default_factory=dict)
     attached_to: Optional[str] = None
@@ -337,6 +352,15 @@ class GameObject:
     @attached_to.setter
     def attached_to(self, value: Optional[str]) -> None:
         self.state.attached_to = value
+
+    # Some older card code uses `obj.is_token` directly.
+    @property
+    def is_token(self) -> bool:
+        return bool(self.state.is_token)
+
+    @is_token.setter
+    def is_token(self, value: bool) -> None:
+        self.state.is_token = bool(value)
 
 
 # =============================================================================

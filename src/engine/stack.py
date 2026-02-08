@@ -277,9 +277,8 @@ class StackManager:
 
         # Remove from current zone
         for zone in self.state.zones.values():
-            if card_id in zone.objects:
+            while card_id in zone.objects:
                 zone.objects.remove(card_id)
-                break
 
         # Add to stack zone
         stack_zone = self.state.zones.get('stack')
