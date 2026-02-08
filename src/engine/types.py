@@ -42,6 +42,7 @@ class EventType(Enum):
     TEMPORARY_PT_CHANGE = auto()  # Alias for temporary P/T changes (power/toughness deltas)
 
     # Combat
+    COMBAT_DECLARED = auto()  # Alias used by some card scripts (beginning of combat)
     ATTACK_DECLARED = auto()
     BLOCK_DECLARED = auto()
     DAMAGE = auto()
@@ -61,6 +62,7 @@ class EventType(Enum):
     # Turn structure
     PHASE_START = auto()
     PHASE_END = auto()
+    PHASE_CHANGE = auto()  # Legacy alias used by some card scripts
     TURN_START = auto()
     TURN_END = auto()
     PRIORITY_PASS = auto()
@@ -77,9 +79,11 @@ class EventType(Enum):
     QUERY_TYPES = auto()
     QUERY_COLORS = auto()
     QUERY_ABILITIES = auto()
+    QUERY_COST = auto()
 
     # Targeting
     TARGET_REQUIRED = auto()  # Card requires a target to be chosen
+    TARGET_CHANGED = auto()   # Legacy marker (target changed by an effect)
 
     # Library manipulation
     SCRY = auto()              # Look at top N cards, put any on bottom
@@ -130,6 +134,9 @@ class EventType(Enum):
     # Additional card-used events
     DESTROY = auto()                       # Destroy a permanent
     COUNTER = auto()                       # Counter a spell/ability
+    COUNTER_SPELL = auto()                 # Alias for COUNTER (counter a spell)
+    COUNTER_SPELL_UNLESS_PAY = auto()      # Alias (counter unless pay)
+    SPELL_COUNTERED = auto()               # Marker event (spell was countered)
     COPY_SPELL = auto()                    # Copy a spell on the stack
     RETURN_TO_HAND = auto()                # Return permanent to hand
     RETURN_FROM_GRAVEYARD = auto()         # Return card from graveyard
@@ -169,6 +176,9 @@ class EventType(Enum):
     PUT_TIME_COUNTER = auto()              # Put time counters on permanent
     DECLARE_ATTACKERS = auto()             # Declare attackers step
     AUTO_EQUIP = auto()                    # Auto-equip to creature
+    FIGHT = auto()                         # Two creatures deal damage to each other
+    CANT_BLOCK = auto()                    # Creature can't block (restriction)
+    TURN_FACE_UP = auto()                  # Turn a face-down creature face up
 
 
 class EventStatus(Enum):

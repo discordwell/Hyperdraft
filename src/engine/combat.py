@@ -175,12 +175,24 @@ class CombatManager:
                 type=EventType.ATTACK_DECLARED,
                 payload={
                     'attacker_id': decl.attacker_id,
+                    'attacking_player': active_player,
                     'defending_player': decl.defending_player_id,
                     'is_attacking_planeswalker': decl.is_attacking_planeswalker
                 }
             )
             self._emit_event(attack_event)
             events.append(attack_event)
+
+        # Consolidated combat declaration event (some sets use this instead of per-attacker events).
+        combat_declared = Event(
+            type=EventType.COMBAT_DECLARED,
+            payload={
+                'attacking_player': active_player,
+                'attackers': [d.attacker_id for d in self.combat_state.attackers],
+            },
+        )
+        self._emit_event(combat_declared)
+        events.append(combat_declared)
 
         # Priority after attackers declared
         if self.priority_system:
@@ -232,13 +244,15 @@ class CombatManager:
                 if blocker:
                     blocker.state.blocking = True
 
-                events.append(Event(
+                block_event = Event(
                     type=EventType.BLOCK_DECLARED,
                     payload={
                         'blocker_id': decl.blocker_id,
                         'attacker_id': decl.blocking_attacker_id
                     }
-                ))
+                )
+                self._emit_event(block_event)
+                events.append(block_event)
 
         # Priority after blockers declared
         if self.priority_system:
