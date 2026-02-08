@@ -18,6 +18,8 @@ import asyncio
 import random
 import sys
 from dataclasses import dataclass
+from pathlib import Path
+import re
 
 sys.path.insert(0, ".")
 
@@ -66,6 +68,50 @@ def _pick_colors(rng: random.Random) -> tuple[Color, ...]:
     a, b = rng.sample(all_colors, 2)
     return (a, b)
 
+_CARD_LINE_RE = re.compile(r"^(?P<qty>\d+)\s+(?P<name>.+?)\s*$")
+
+# Names of cards that appear in any downloaded netdeck decklist. When populated
+# (via --exclude-netdeck-cards), the random deck builder will avoid these to
+# bias towards "shitty" cards.
+_EXCLUDED_NETDECK_NAMES: set[str] = set()
+
+
+def _repo_root() -> Path:
+    # tests/test_stress_standard_random.py -> tests -> repo root
+    return Path(__file__).resolve().parents[1]
+
+
+def _load_netdeck_card_names() -> set[str]:
+    root = _repo_root() / "data" / "netdecks" / "mtggoldfish"
+    if not root.exists():
+        return set()
+
+    names: set[str] = set()
+    for path in sorted(root.glob("*.txt")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.lower().startswith("sideboard"):
+                continue
+
+            m = _CARD_LINE_RE.match(line)
+            if not m:
+                continue
+
+            name = m.group("name").strip()
+            # MTGGoldfish exports some multi-face cards as "Front // Back".
+            if " // " in name:
+                name = name.split(" // ", 1)[0].strip()
+            elif "/" in name and "//" not in name:
+                name = name.split("/", 1)[0].strip()
+
+            if name:
+                names.add(name)
+
+    return names
+
 
 def _build_random_deck_for_set(set_code: str, rng: random.Random) -> _BuiltDeck:
     colors = _pick_colors(rng)
@@ -77,6 +123,7 @@ def _build_random_deck_for_set(set_code: str, rng: random.Random) -> _BuiltDeck:
         if CardType.LAND not in c.characteristics.types
         and (c.characteristics.mana_cost or "").strip() != ""
         and (set(c.characteristics.colors or set()) <= allowed)
+        and (c.name not in _EXCLUDED_NETDECK_NAMES)
     ]
 
     # Keep some colorless artifacts/etc. regardless of color identity.
@@ -85,6 +132,7 @@ def _build_random_deck_for_set(set_code: str, rng: random.Random) -> _BuiltDeck:
         if CardType.LAND not in c.characteristics.types
         and (c.characteristics.mana_cost or "").strip() != ""
         and not (c.characteristics.colors or set())
+        and (c.name not in _EXCLUDED_NETDECK_NAMES)
     ]
 
     pool = list({id(c): c for c in (nonlands + colorless)}.values())
@@ -259,6 +307,11 @@ def main(argv: list[str]) -> int:
     p.add_argument("--per-set", type=int, default=0, help="If >0, run N games per Standard set code")
     p.add_argument("--seed", type=int, default=None, help="Random seed")
     p.add_argument("--turns", type=int, default=60, help="Max turns per game (default: 60)")
+    p.add_argument(
+        "--exclude-netdeck-cards",
+        action="store_true",
+        help="Exclude any card name that appears in downloaded MTGGoldfish netdecks (non-meta mode)",
+    )
     args = p.parse_args(argv)
 
     seed = args.seed if args.seed is not None else random.randrange(1_000_000_000)
@@ -266,6 +319,11 @@ def main(argv: list[str]) -> int:
 
     print(f"Seed: {seed}")
     print(f"Standard sets: {_STANDARD_SET_CODES}")
+
+    global _EXCLUDED_NETDECK_NAMES
+    if args.exclude_netdeck_cards:
+        _EXCLUDED_NETDECK_NAMES = _load_netdeck_card_names()
+        print(f"Excluding netdeck cards: {len(_EXCLUDED_NETDECK_NAMES)} names")
 
     try:
         if args.per_set and args.per_set > 0:
