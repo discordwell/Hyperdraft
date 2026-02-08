@@ -340,15 +340,63 @@ class GameSession:
             "SPECIAL_ACTION": ActionType.SPECIAL_ACTION,
         }
 
+        targets = self._coerce_action_targets(request.targets)
+
         return PlayerAction(
             type=action_type_map.get(request.action_type, ActionType.PASS),
             player_id=request.player_id,
             card_id=request.card_id,
-            targets=request.targets,
+            targets=targets,
             x_value=request.x_value,
             ability_id=request.ability_id,
             source_id=request.source_id,
         )
+
+    def _coerce_action_targets(self, raw_targets):
+        """
+        Convert API-provided target IDs into engine Target objects.
+
+        The engine expects `Target` instances for spell resolution (e.g. text-parsed
+        "deals N damage to any target" spells). The API payload uses plain IDs.
+        """
+        if not raw_targets:
+            return []
+
+        from src.engine.targeting import Target
+
+        state = self.game.state
+        coerced = []
+
+        for group in raw_targets:
+            if not group:
+                coerced.append([])
+                continue
+
+            group_targets = []
+            for entry in group:
+                # Support a possible future format for divided effects:
+                # {"target_id": "...", "amount": 2}
+                if isinstance(entry, dict):
+                    target_id = entry.get("target_id") or entry.get("id")
+                    if not target_id:
+                        continue
+                    is_player = target_id in state.players
+                    group_targets.append(
+                        Target(
+                            id=target_id,
+                            is_player=is_player,
+                            divided_amount=entry.get("amount"),
+                        )
+                    )
+                    continue
+
+                target_id = str(entry)
+                is_player = target_id in state.players
+                group_targets.append(Target(id=target_id, is_player=is_player))
+
+            coerced.append(group_targets)
+
+        return coerced
 
     async def _get_human_action(
         self,
