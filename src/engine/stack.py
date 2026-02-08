@@ -8,6 +8,8 @@ wait to resolve. Players can respond to items on the stack.
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Optional, Any
 from enum import Enum, auto
+import inspect
+import os
 
 from .types import (
     GameState, GameObject, ZoneType, CardType,
@@ -182,10 +184,46 @@ class StackManager:
         events = []
         if item.resolve_fn:
             try:
-                events = item.resolve_fn(targets_for_resolve, self.state) or []
+                fn = item.resolve_fn
+
+                # Card scripts vary in their resolve signature:
+                # - Newer scripts: resolve(targets, state)
+                # - Legacy scripts: resolve(event, state)
+                use_event = False
+                try:
+                    sig = inspect.signature(fn)
+                    params = list(sig.parameters.values())
+                    if len(params) >= 2:
+                        p0 = params[0]
+                        if p0.name in {"event", "spell_event", "resolve_event"}:
+                            use_event = True
+                        elif p0.annotation is Event:
+                            use_event = True
+                except Exception:
+                    # Fall back to targets-style.
+                    use_event = False
+
+                if use_event:
+                    resolve_event = Event(
+                        type=EventType.CAST,
+                        payload={"targets": targets_for_resolve},
+                        source=item.source_id,
+                        controller=item.controller_id,
+                    )
+                    events = fn(resolve_event, self.state) or []
+                else:
+                    events = fn(targets_for_resolve, self.state) or []
             except Exception as e:
-                # Log error but don't crash the game
-                print(f"Error resolving {item}: {e}")
+                # Log error but don't crash the game.
+                card_name = None
+                if item.card_id and item.card_id in self.state.objects:
+                    card_name = self.state.objects[item.card_id].name
+                elif item.source_id in self.state.objects:
+                    card_name = self.state.objects[item.source_id].name
+                fn_name = getattr(item.resolve_fn, "__name__", repr(item.resolve_fn))
+                print(f"Error resolving {item} ({card_name or 'unknown'} resolve={fn_name}): {e}")
+                if os.environ.get("HYPERDRAFT_STRICT_STACK") == "1":
+                    raise
 
         # Handle post-resolution
         if item.type == StackItemType.SPELL and item.card_id:
