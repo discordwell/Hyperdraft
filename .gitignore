@@ -17,6 +17,10 @@ dist/
 .env.local
 *.env
 
+# Local notes / scratchpads
+claudepad.md
+oldpad.md
+
 # IDE
 .vscode/
 .idea/
@@ -63,7 +67,7 @@ assets/cache/
 # API Keys
 credentials.json
 *.key
-*.pemfrontend/node_modules/
+*.pem
 
 # Card art cache (Scryfall originals)
 assets/card_art/.cache/
