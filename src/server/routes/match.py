@@ -244,7 +244,9 @@ async def submit_action(
     if not session:
         raise HTTPException(status_code=404, detail="Match not found")
 
-    if session.is_finished:
+    if session.game.is_game_over():
+        session.is_finished = True
+        session.winner_id = session.game.get_winner()
         raise HTTPException(status_code=400, detail="Game is finished")
 
     success, message = await session.handle_action(action)
@@ -279,7 +281,9 @@ async def submit_choice(
     if not session:
         raise HTTPException(status_code=404, detail="Match not found")
 
-    if session.is_finished:
+    if session.game.is_game_over():
+        session.is_finished = True
+        session.winner_id = session.game.get_winner()
         raise HTTPException(status_code=400, detail="Game is finished")
 
     # Check there's actually a pending choice
