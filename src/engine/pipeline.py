@@ -277,10 +277,14 @@ def _handle_draw(event: Event, state: GameState):
                 player.has_lost = True
             break
         card_id = library.objects.pop(0)  # Top of library
+        # Be robust against zone corruption: ensure the card isn't referenced in
+        # any other zone list before we put it into the hand.
+        _remove_object_from_all_zones(card_id, state)
         hand.objects.append(card_id)
 
         if card_id in state.objects:
             state.objects[card_id].zone = ZoneType.HAND
+            state.objects[card_id].entered_zone_at = state.timestamp
 
 
 def _handle_object_created(event: Event, state: GameState):
@@ -412,6 +416,13 @@ def _handle_object_created(event: Event, state: GameState):
     event.payload['to_zone_type'] = zone_type
 
 
+def _remove_object_from_all_zones(object_id: str, state: GameState) -> None:
+    """Remove an object id from every zone list (robust against zone corruption)."""
+    for zone in state.zones.values():
+        while object_id in zone.objects:
+            zone.objects.remove(object_id)
+
+
 def _handle_zone_change(event: Event, state: GameState):
     """Handle ZONE_CHANGE event."""
     object_id = event.payload.get('object_id')
@@ -470,17 +481,9 @@ def _handle_zone_change(event: Event, state: GameState):
     if to_zone_type is not None:
         event.payload['to_zone_type'] = to_zone_type
 
-    # Remove from old zone
-    if from_zone and from_zone in state.zones:
-        zone = state.zones[from_zone]
-        if object_id in zone.objects:
-            zone.objects.remove(object_id)
-    else:
-        # Fallback: remove from whatever zone currently contains the object.
-        for zone in state.zones.values():
-            if object_id in zone.objects:
-                zone.objects.remove(object_id)
-                break
+    # Important: many call sites provide imperfect `from_zone` keys. Be robust
+    # and remove the object from *any* zone that currently references it.
+    _remove_object_from_all_zones(object_id, state)
 
     # Add to new zone
     if to_zone and to_zone in state.zones:
@@ -497,6 +500,7 @@ def _handle_zone_change(event: Event, state: GameState):
     if to_zone_type == ZoneType.BATTLEFIELD:
         # Clear counters (will be re-added if specified in payload)
         obj.state.counters = {}
+        _sync_keyword_counter_abilities(obj)
         # Clear damage
         obj.state.damage = 0
         # Reset tapped state (will be set if entering tapped)
@@ -519,7 +523,12 @@ def _handle_zone_change(event: Event, state: GameState):
     counters = event.payload.get('counters')
     if counters and isinstance(counters, dict):
         for counter_type, amount in counters.items():
+            if isinstance(counter_type, str):
+                normalized = counter_type.strip().lower()
+                if normalized in _KEYWORD_COUNTER_TYPES:
+                    counter_type = normalized
             obj.state.counters[counter_type] = amount  # Set directly since we cleared above
+        _sync_keyword_counter_abilities(obj)
 
     # Re-setup interceptors when entering the battlefield
     # This handles cards like Enduring Curiosity that return from graveyard
@@ -548,6 +557,63 @@ def _handle_untap(event: Event, state: GameState):
         state.objects[object_id].state.tapped = False
 
 
+def _handle_gain_control(event: Event, state: GameState):
+    """Handle GAIN_CONTROL event (controller change, usually temporary)."""
+    object_id = event.payload.get("object_id")
+    new_controller = event.payload.get("new_controller")
+    duration = event.payload.get("duration", "end_of_turn")
+    if isinstance(duration, str):
+        d = duration.strip().lower().replace(" ", "_")
+        if d in {"until_end_of_turn", "until_eot", "eot"}:
+            duration = "end_of_turn"
+
+    if not object_id or object_id not in state.objects or not new_controller:
+        return
+
+    obj = state.objects[object_id]
+    if duration == "end_of_turn" and not hasattr(obj.state, "_restore_controller_eot"):
+        obj.state._restore_controller_eot = obj.controller
+
+    obj.controller = new_controller
+
+
+_KEYWORD_COUNTER_TYPES: set[str] = {
+    # MTG keyword counters (702.* / 122.*). We model these as real keyword
+    # abilities for compatibility with older card logic that checks
+    # `obj.characteristics.keywords` directly.
+    "deathtouch",
+    "double strike",
+    "first strike",
+    "flying",
+    "haste",
+    "hexproof",
+    "indestructible",
+    "lifelink",
+    "menace",
+    "reach",
+    "trample",
+    "vigilance",
+}
+
+
+def _sync_keyword_counter_abilities(obj: GameObject) -> None:
+    """Mirror keyword counters into `obj.characteristics.abilities`."""
+    abilities = obj.characteristics.abilities or []
+
+    # Remove previously injected keyword-counter abilities.
+    abilities = [
+        a for a in abilities
+        if not (isinstance(a, dict) and a.get("_from_counter") is True)
+    ]
+
+    # Add abilities for any active keyword counters.
+    for kw in sorted(_KEYWORD_COUNTER_TYPES):
+        if obj.state.counters.get(kw, 0) > 0:
+            abilities.append({"keyword": kw, "_from_counter": True})
+
+    obj.characteristics.abilities = abilities
+
+
 def _handle_counter_added(event: Event, state: GameState):
     """Handle COUNTER_ADDED event."""
     object_id = event.payload.get('object_id')
@@ -556,8 +622,14 @@ def _handle_counter_added(event: Event, state: GameState):
 
     if object_id in state.objects:
         obj = state.objects[object_id]
+        if isinstance(counter_type, str):
+            normalized = counter_type.strip().lower()
+            if normalized in _KEYWORD_COUNTER_TYPES:
+                counter_type = normalized
         current = obj.state.counters.get(counter_type, 0)
         obj.state.counters[counter_type] = current + amount
+        if counter_type in _KEYWORD_COUNTER_TYPES:
+            _sync_keyword_counter_abilities(obj)
 
 
 def _handle_counter_removed(event: Event, state: GameState):
@@ -568,8 +640,14 @@ def _handle_counter_removed(event: Event, state: GameState):
 
     if object_id in state.objects:
         obj = state.objects[object_id]
+        if isinstance(counter_type, str):
+            normalized = counter_type.strip().lower()
+            if normalized in _KEYWORD_COUNTER_TYPES:
+                counter_type = normalized
         current = obj.state.counters.get(counter_type, 0)
         obj.state.counters[counter_type] = max(0, current - amount)
+        if counter_type in _KEYWORD_COUNTER_TYPES:
+            _sync_keyword_counter_abilities(obj)
 
 
 def _handle_pt_modification(event: Event, state: GameState):
@@ -583,6 +661,10 @@ def _handle_pt_modification(event: Event, state: GameState):
     power_mod = event.payload.get('power_mod', 0)
     toughness_mod = event.payload.get('toughness_mod', 0)
     duration = event.payload.get('duration', 'end_of_turn')
+    if isinstance(duration, str):
+        d = duration.strip().lower().replace(" ", "_")
+        if d in {"until_end_of_turn", "until_eot", "eot"}:
+            duration = "end_of_turn"
 
     if object_id not in state.objects:
         return
@@ -602,6 +684,83 @@ def _handle_pt_modification(event: Event, state: GameState):
     })
 
 
+def _handle_pt_change(event: Event, state: GameState):
+    """
+    Handle PT_CHANGE event - legacy alias for temporary P/T deltas.
+
+    Expected payload keys (common in older card files):
+        object_id: str
+        power: int (delta)
+        toughness: int (delta)
+        duration: str (e.g. 'until_end_of_turn')
+    """
+    object_id = event.payload.get('object_id')
+    power_mod = event.payload.get('power', 0)
+    toughness_mod = event.payload.get('toughness', 0)
+    duration = event.payload.get('duration', 'end_of_turn')
+    if isinstance(duration, str):
+        d = duration.strip().lower().replace(" ", "_")
+        if d in {"until_end_of_turn", "until_eot", "eot"}:
+            duration = "end_of_turn"
+
+    if object_id not in state.objects:
+        return
+
+    obj = state.objects[object_id]
+    if not hasattr(obj.state, 'pt_modifiers'):
+        obj.state.pt_modifiers = []
+
+    obj.state.pt_modifiers.append({
+        'power': power_mod,
+        'toughness': toughness_mod,
+        'duration': duration,
+        'timestamp': state.timestamp
+    })
+
+
+def _handle_grant_keyword(event: Event, state: GameState):
+    """
+    Handle keyword/ability grants that older card files express as events.
+
+    Supported event types:
+      - GRANT_KEYWORD / KEYWORD_GRANT: payload {object_id, keyword, duration}
+      - GRANT_ABILITY: payload {object_id, abilities=[...], duration}
+    """
+    object_id = event.payload.get("object_id")
+    if not object_id or object_id not in state.objects:
+        return
+
+    obj = state.objects[object_id]
+
+    duration = event.payload.get("duration", "end_of_turn")
+    if isinstance(duration, str):
+        d = duration.strip().lower().replace(" ", "_")
+        if d in {"until_end_of_turn", "until_eot", "eot"}:
+            duration = "end_of_turn"
+
+    keywords: list[str] = []
+    if event.type == EventType.GRANT_ABILITY:
+        abilities = event.payload.get("abilities") or []
+        if isinstance(abilities, str):
+            abilities = [abilities]
+        if isinstance(abilities, (list, tuple, set)):
+            keywords = [str(a).strip().lower() for a in abilities if str(a).strip()]
+    else:
+        kw = event.payload.get("keyword")
+        if kw:
+            keywords = [str(kw).strip().lower()]
+
+    if not keywords:
+        return
+
+    for kw in keywords:
+        obj.characteristics.abilities.append({
+            "keyword": kw,
+            "_temporary": True,
+            "_duration": duration,
+        })
+
+
 def _handle_object_destroyed(event: Event, state: GameState):
     """
     Handle OBJECT_DESTROYED - move to graveyard.
@@ -617,11 +776,8 @@ def _handle_object_destroyed(event: Event, state: GameState):
     obj = state.objects[object_id]
     owner_id = obj.owner
 
-    # Remove from current zone
-    for zone in state.zones.values():
-        if object_id in zone.objects:
-            zone.objects.remove(object_id)
-            break
+    # Remove from any zone that currently references it (robust).
+    _remove_object_from_all_zones(object_id, state)
 
     # Add to owner's graveyard
     gy_key = f"graveyard_{owner_id}"
@@ -761,17 +917,174 @@ def _handle_exile(event: Event, state: GameState):
 
         obj = state.objects[object_id]
 
-        # Remove from current zone
-        for zone in state.zones.values():
-            if object_id in zone.objects:
-                zone.objects.remove(object_id)
-                break
+        # Remove from any zone that currently references it (robust).
+        _remove_object_from_all_zones(object_id, state)
 
         # Add to exile zone
         state.zones[exile_key].objects.append(object_id)
 
         # Update object's zone
         obj.zone = ZoneType.EXILE
+        obj.entered_zone_at = state.timestamp
+
+
+def _parse_duration_turns(duration: object, state: GameState) -> Optional[int]:
+    """
+    Convert common duration strings into an inclusive turn number.
+
+    Returns:
+        int: last turn number the permission is valid for (inclusive)
+        None: if unknown/unbounded
+    """
+    if not isinstance(duration, str):
+        return None
+
+    d = duration.strip().lower().replace(" ", "_")
+    if d in {"", "forever"}:
+        return None
+
+    # "next_end_step" is still this turn.
+    if d in {"next_end_step", "end_of_turn", "end_of_this_turn", "this_turn", "until_end_of_turn", "until_eot", "eot"}:
+        return state.turn_number
+
+    if d in {"end_of_next_turn", "until_end_of_next_turn", "next_turn"}:
+        return state.turn_number + 1
+
+    return None
+
+
+def _handle_exile_from_top(event: Event, state: GameState):
+    """
+    Handle EXILE_FROM_TOP and related impulse-exile events.
+
+    Supported event types (various card scripts):
+      - EXILE_FROM_TOP / EXILE_TOP
+      - EXILE_TOP_CARD
+      - EXILE_TOP_PLAY
+      - IMPULSE_DRAW
+
+    Payload (best-effort, keys vary by set):
+      - player: player_id whose library to exile from
+      - count / amount: number of cards to exile (default 1)
+      - may_play: bool (EXILE_TOP_CARD) - whether some player may play the card(s)
+      - caster: player_id who may play the exiled card(s) (if may_play)
+      - until / duration / playable_until: duration string (optional)
+    """
+    player_id = event.payload.get("player") or event.controller or state.active_player
+    if not player_id or player_id not in state.players:
+        return
+
+    amount = event.payload.get("amount")
+    count = event.payload.get("count", amount)
+    if count is None:
+        count = 1
+    try:
+        count = int(count)
+    except Exception:
+        count = 1
+    if count <= 0:
+        return
+
+    library_key = f"library_{player_id}"
+    exile_key = "exile"
+    library = state.zones.get(library_key)
+    exile_zone = state.zones.get(exile_key)
+    if not library or not exile_zone:
+        return
+
+    # Determine whether the exiled cards are playable from exile.
+    may_play = bool(event.payload.get("may_play"))
+    if event.type in {EventType.IMPULSE_DRAW, EventType.EXILE_TOP_PLAY}:
+        may_play = True
+
+    playable_by = event.payload.get("caster") or event.controller or player_id
+    duration = (
+        event.payload.get("until")
+        or event.payload.get("duration")
+        or event.payload.get("playable_until")
+    )
+    expires_turn = _parse_duration_turns(duration, state)
+
+    to_exile = list(library.objects[:count])
+    if not to_exile:
+        return
+
+    for obj_id in to_exile:
+        if obj_id not in state.objects:
+            continue
+
+        # Remove from any zone that currently references it (robust).
+        _remove_object_from_all_zones(obj_id, state)
+
+        exile_zone.objects.append(obj_id)
+        obj = state.objects[obj_id]
+        obj.zone = ZoneType.EXILE
+        obj.entered_zone_at = state.timestamp
+
+        if may_play and playable_by:
+            obj.state._playable_from_exile_by = playable_by
+            if expires_turn is not None:
+                obj.state._playable_from_exile_through_turn = expires_turn
+
+
+def _handle_impulse_to_graveyard(event: Event, state: GameState):
+    """
+    Handle IMPULSE_TO_GRAVEYARD (look at top N, take some, rest to graveyard).
+
+    Payload (best-effort):
+      - player: player_id
+      - look: N (default 1)
+      - take: M (default 1)
+    """
+    player_id = event.payload.get("player") or event.controller or state.active_player
+    if not player_id or player_id not in state.players:
+        return
+
+    look = event.payload.get("look", 1)
+    take = event.payload.get("take", 1)
+    try:
+        look = int(look)
+        take = int(take)
+    except Exception:
+        look = 1
+        take = 1
+
+    if look <= 0:
+        return
+    take = max(0, min(take, look))
+
+    library_key = f"library_{player_id}"
+    hand_key = f"hand_{player_id}"
+    graveyard_key = f"graveyard_{player_id}"
+    library = state.zones.get(library_key)
+    hand = state.zones.get(hand_key)
+    graveyard = state.zones.get(graveyard_key)
+    if not library or not hand or not graveyard:
+        return
+
+    seen = list(library.objects[:look])
+    if not seen:
+        return
+
+    to_hand = seen[:take]
+    to_graveyard = seen[take:]
+
+    for obj_id in to_hand:
+        if obj_id not in state.objects:
+            continue
+        _remove_object_from_all_zones(obj_id, state)
+        hand.objects.append(obj_id)
+        obj = state.objects[obj_id]
+        obj.zone = ZoneType.HAND
+        obj.entered_zone_at = state.timestamp
+
+    for obj_id in to_graveyard:
+        if obj_id not in state.objects:
+            continue
+        _remove_object_from_all_zones(obj_id, state)
+        graveyard.objects.append(obj_id)
+        obj = state.objects[obj_id]
+        obj.zone = ZoneType.GRAVEYARD
         obj.entered_zone_at = state.timestamp
 
 
@@ -791,7 +1104,8 @@ def _handle_surveil(event: Event, state: GameState):
     from .types import PendingChoice
 
     player_id = event.payload.get('player')
-    amount = event.payload.get('amount', 1)
+    # Support both 'amount' and legacy 'count' keys.
+    amount = event.payload.get('amount') or event.payload.get('count', 1)
 
     library_key = f"library_{player_id}"
     graveyard_key = f"graveyard_{player_id}"
@@ -827,6 +1141,15 @@ def _handle_surveil(event: Event, state: GameState):
         state.pending_choice = choice
         return  # Don't process yet - wait for player choice
 
+    # Some call sites emit post-resolution SURVEIL summary payloads where
+    # to_graveyard is a count, not an index/card-id list. In that case, skip
+    # re-processing library order here.
+    if isinstance(to_graveyard_indices, int):
+        return
+
+    if not isinstance(to_graveyard_indices, (list, tuple, set)):
+        return
+
     # Convert to set for O(1) lookup
     graveyard_set = set(to_graveyard_indices)
 
@@ -835,7 +1158,8 @@ def _handle_surveil(event: Event, state: GameState):
     cards_to_keep = []
 
     for i, card_id in enumerate(cards_to_look):
-        if i in graveyard_set:
+        # Accept either indices (int) or direct card IDs (str).
+        if i in graveyard_set or card_id in graveyard_set:
             cards_to_gy.append(card_id)
         else:
             cards_to_keep.append(card_id)
@@ -967,6 +1291,7 @@ def _handle_mill(event: Event, state: GameState):
             break
 
         card_id = library.objects.pop(0)  # Top of library
+        _remove_object_from_all_zones(card_id, state)
         graveyard.objects.append(card_id)
 
         if card_id in state.objects:
@@ -994,20 +1319,27 @@ def _handle_discard(event: Event, state: GameState):
             return
 
         obj = state.objects[object_id]
-        hand_key = f"hand_{obj.owner}"
-        graveyard_key = f"graveyard_{obj.owner}"
-
-        if hand_key not in state.zones or graveyard_key not in state.zones:
+        # Only discard from a hand zone. (Some effects can discard cards a player
+        # doesn't own, so don't assume `hand_{obj.owner}`.)
+        in_hand = any(
+            z.type == ZoneType.HAND and object_id in z.objects
+            for z in state.zones.values()
+        )
+        if not in_hand:
             return
 
-        hand = state.zones[hand_key]
+        # Discarded cards always go to their owner's graveyard.
+        graveyard_key = f"graveyard_{obj.owner}"
+
+        if graveyard_key not in state.zones:
+            return
+
         graveyard = state.zones[graveyard_key]
 
-        if object_id in hand.objects:
-            hand.objects.remove(object_id)
-            graveyard.objects.append(object_id)
-            obj.zone = ZoneType.GRAVEYARD
-            obj.entered_zone_at = state.timestamp
+        _remove_object_from_all_zones(object_id, state)
+        graveyard.objects.append(object_id)
+        obj.zone = ZoneType.GRAVEYARD
+        obj.entered_zone_at = state.timestamp
 
 
 def _handle_target_required(event: Event, state: GameState):
@@ -1695,14 +2027,30 @@ EVENT_HANDLERS = {
     EventType.ZONE_CHANGE: _handle_zone_change,
     EventType.TAP: _handle_tap,
     EventType.UNTAP: _handle_untap,
+    EventType.GAIN_CONTROL: _handle_gain_control,
     EventType.COUNTER_ADDED: _handle_counter_added,
     EventType.COUNTER_REMOVED: _handle_counter_removed,
     EventType.PT_MODIFICATION: _handle_pt_modification,
+    EventType.PT_MODIFIER: _handle_pt_modification,
+    EventType.PT_CHANGE: _handle_pt_change,
+    EventType.PT_MODIFY: _handle_pt_change,
+    EventType.TEMPORARY_PT_CHANGE: _handle_pt_change,
+    EventType.PUMP: _handle_pt_change,
+    EventType.TEMPORARY_BOOST: _handle_pt_change,
+    EventType.GRANT_KEYWORD: _handle_grant_keyword,
+    EventType.KEYWORD_GRANT: _handle_grant_keyword,
+    EventType.GRANT_ABILITY: _handle_grant_keyword,
     EventType.OBJECT_DESTROYED: _handle_object_destroyed,
     EventType.MANA_PRODUCED: _handle_mana_produced,
     EventType.PLAYER_LOSES: _handle_player_loses,
     EventType.CREATE_TOKEN: _handle_create_token,
     EventType.EXILE: _handle_exile,
+    EventType.EXILE_FROM_TOP: _handle_exile_from_top,
+    EventType.EXILE_TOP: _handle_exile_from_top,
+    EventType.EXILE_TOP_CARD: _handle_exile_from_top,
+    EventType.EXILE_TOP_PLAY: _handle_exile_from_top,
+    EventType.IMPULSE_DRAW: _handle_exile_from_top,
+    EventType.IMPULSE_TO_GRAVEYARD: _handle_impulse_to_graveyard,
     EventType.SURVEIL: _handle_surveil,
     EventType.SCRY: _handle_scry,
     EventType.MILL: _handle_mill,

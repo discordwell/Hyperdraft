@@ -88,6 +88,14 @@ class CombatManager:
     def reset_combat(self) -> None:
         """Reset combat state for a new combat phase."""
         self.combat_state = CombatState()
+        # Clear any combat flags from the previous combat.
+        battlefield = self.state.zones.get('battlefield')
+        if battlefield:
+            for obj_id in list(battlefield.objects):
+                obj = self.state.objects.get(obj_id)
+                if obj:
+                    obj.state.attacking = False
+                    obj.state.blocking = False
 
     async def run_combat(self) -> list[Event]:
         """
@@ -152,12 +160,15 @@ class CombatManager:
             # Tap attacking creature (unless vigilance)
             attacker = self.state.objects.get(decl.attacker_id)
             if attacker and not has_ability(attacker, 'vigilance', self.state):
+                attacker.state.attacking = True
                 tap_event = Event(
                     type=EventType.TAP,
                     payload={'object_id': decl.attacker_id}
                 )
                 self._emit_event(tap_event)
                 events.append(tap_event)
+            elif attacker:
+                attacker.state.attacking = True
 
             # Emit attack declared event
             attack_event = Event(
@@ -217,6 +228,9 @@ class CombatManager:
 
                 self.combat_state.blockers.append(decl)
                 self.combat_state.blocked_attackers.add(decl.blocking_attacker_id)
+                blocker = self.state.objects.get(decl.blocker_id)
+                if blocker:
+                    blocker.state.blocking = True
 
                 events.append(Event(
                     type=EventType.BLOCK_DECLARED,

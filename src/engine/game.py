@@ -7,6 +7,7 @@ Integrates all game systems: turns, priority, stack, combat, mana.
 
 from typing import Optional, Callable, TYPE_CHECKING
 import asyncio
+import copy
 
 from .types import (
     GameState, GameObject, Player, Zone, ZoneType,
@@ -125,7 +126,10 @@ class Game:
             owner=owner_id,
             controller=owner_id,
             zone=zone,
-            characteristics=characteristics or Characteristics(),
+            # Characteristics are per-object mutable state (types can change, keyword
+            # counters/grants can add abilities, etc.). Copy to avoid sharing the
+            # CardDefinition template between different physical objects.
+            characteristics=copy.deepcopy(characteristics or Characteristics()),
             state=ObjectState(),
             card_def=card_def,
             created_at=self.state.next_timestamp(),
@@ -250,8 +254,208 @@ class Game:
     def _setup_system_interceptors(self):
         """Set up built-in system interceptors."""
         self._setup_shared_zones()
-        # System interceptors could go here, but we're handling SBAs
-        # explicitly in check_state_based_actions() for clarity
+        # System interceptors (generic rules glue that card files rely on).
+
+        # -----------------------------------------------------------------
+        # FLICKER: exile an object, then return it at the beginning of the
+        # next end step (under its owner's control).
+        # -----------------------------------------------------------------
+        def _flicker_filter(event: Event, state: GameState) -> bool:
+            return event.type == EventType.FLICKER
+
+        def _flicker_handler(event: Event, state: GameState) -> InterceptorResult:
+            object_id = event.payload.get("object_id")
+            if not object_id or object_id not in state.objects:
+                return InterceptorResult(action=InterceptorAction.PASS)
+
+            obj = state.objects[object_id]
+            if obj.zone != ZoneType.BATTLEFIELD:
+                return InterceptorResult(action=InterceptorAction.PASS)
+
+            with_flying_counter = bool(event.payload.get("with_flying_counter"))
+
+            # Register a one-shot delayed return at the beginning of the next end step.
+            return_interceptor_id = new_id()
+
+            def _return_filter(e: Event, s: GameState) -> bool:
+                return e.type == EventType.PHASE_START and e.payload.get("phase") == "end_step"
+
+            def _return_handler(e: Event, s: GameState) -> InterceptorResult:
+                returning = s.objects.get(object_id)
+                if not returning or returning.zone != ZoneType.EXILE:
+                    return InterceptorResult(action=InterceptorAction.PASS)
+
+                # MTG: returns under its owner's control.
+                returning.controller = returning.owner
+
+                payload = {
+                    "object_id": object_id,
+                    "from_zone_type": ZoneType.EXILE,
+                    "to_zone_type": ZoneType.BATTLEFIELD,
+                }
+                if with_flying_counter:
+                    payload["counters"] = {"flying": 1}
+
+                return InterceptorResult(
+                    action=InterceptorAction.REACT,
+                    new_events=[Event(type=EventType.ZONE_CHANGE, payload=payload, source=event.source)],
+                )
+
+            self.register_interceptor(
+                Interceptor(
+                    id=return_interceptor_id,
+                    source=event.source or object_id,
+                    controller=obj.controller,
+                    priority=InterceptorPriority.REACT,
+                    filter=_return_filter,
+                    handler=_return_handler,
+                    duration="forever",
+                    uses_remaining=1,
+                )
+            )
+
+            # Exile now.
+            exile_event = Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    "object_id": object_id,
+                    "from_zone_type": ZoneType.BATTLEFIELD,
+                    "to_zone_type": ZoneType.EXILE,
+                },
+                source=event.source,
+            )
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[exile_event])
+
+        self.register_interceptor(
+            Interceptor(
+                id=new_id(),
+                source="SYSTEM",
+                controller="SYSTEM",
+                priority=InterceptorPriority.REACT,
+                filter=_flicker_filter,
+                handler=_flicker_handler,
+                duration="forever",
+            )
+        )
+
+        # -----------------------------------------------------------------
+        # BOUNCE: return a permanent to its owner's hand.
+        # Many card files express this as EventType.BOUNCE rather than a direct
+        # ZONE_CHANGE, so normalize here.
+        # -----------------------------------------------------------------
+        def _bounce_filter(event: Event, state: GameState) -> bool:
+            return event.type == EventType.BOUNCE
+
+        def _bounce_handler(event: Event, state: GameState) -> InterceptorResult:
+            object_id = event.payload.get("object_id")
+            if not object_id or object_id not in state.objects:
+                return InterceptorResult(action=InterceptorAction.PASS)
+
+            obj = state.objects[object_id]
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        "object_id": object_id,
+                        "from_zone_type": obj.zone,
+                        "to_zone_type": ZoneType.HAND,
+                        "to_zone": f"hand_{obj.owner}",
+                    },
+                    source=event.source,
+                    controller=event.controller,
+                ),
+            )
+
+        self.register_interceptor(
+            Interceptor(
+                id=new_id(),
+                source="SYSTEM",
+                controller="SYSTEM",
+                priority=InterceptorPriority.TRANSFORM,
+                filter=_bounce_filter,
+                handler=_bounce_handler,
+                duration="forever",
+            )
+        )
+
+        # -----------------------------------------------------------------
+        # Legacy event aliases used by some card scripts.
+        # Normalize to core engine events so standard trigger helpers fire.
+        # -----------------------------------------------------------------
+        def _destroy_filter(event: Event, state: GameState) -> bool:
+            return event.type == EventType.DESTROY
+
+        def _destroy_handler(event: Event, state: GameState) -> InterceptorResult:
+            object_id = (
+                event.payload.get("object_id")
+                or event.payload.get("target")
+                or event.payload.get("target_id")
+            )
+            if not object_id:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={"object_id": object_id, "reason": event.payload.get("reason", "destroy")},
+                    source=event.source,
+                    controller=event.controller,
+                ),
+            )
+
+        self.register_interceptor(
+            Interceptor(
+                id=new_id(),
+                source="SYSTEM",
+                controller="SYSTEM",
+                priority=InterceptorPriority.TRANSFORM,
+                filter=_destroy_filter,
+                handler=_destroy_handler,
+                duration="forever",
+            )
+        )
+
+        def _sacrifice_filter(event: Event, state: GameState) -> bool:
+            return event.type == EventType.SACRIFICE
+
+        def _sacrifice_handler(event: Event, state: GameState) -> InterceptorResult:
+            object_id = (
+                event.payload.get("object_id")
+                or event.payload.get("target")
+                or event.payload.get("target_id")
+            )
+            if not object_id or object_id not in state.objects:
+                return InterceptorResult(action=InterceptorAction.PASS)
+
+            obj = state.objects[object_id]
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        "object_id": object_id,
+                        "from_zone_type": obj.zone,
+                        "to_zone_type": ZoneType.GRAVEYARD,
+                        "to_zone": f"graveyard_{obj.owner}",
+                        "reason": event.payload.get("reason", "sacrifice"),
+                    },
+                    source=event.source,
+                    controller=event.controller,
+                ),
+            )
+
+        self.register_interceptor(
+            Interceptor(
+                id=new_id(),
+                source="SYSTEM",
+                controller="SYSTEM",
+                priority=InterceptorPriority.TRANSFORM,
+                filter=_sacrifice_filter,
+                handler=_sacrifice_handler,
+                duration="forever",
+            )
+        )
 
     # =========================================================================
     # Game Flow Methods
@@ -771,7 +975,11 @@ class Game:
             return []
 
         scry_count = choice.callback_data.get('scry_count', len(choice.options))
-        cards_being_scryed = choice.options[:scry_count]
+        # Be robust: only reorder cards that are still in the library.
+        cards_being_scryed = [
+            cid for cid in choice.options[:scry_count]
+            if cid in library.objects
+        ]
 
         # Cards to put on bottom (in order selected)
         bottom_cards = [cid for cid in selected if cid in cards_being_scryed]
@@ -874,12 +1082,15 @@ class Game:
             library_key = f"library_{player_id}"
             library = self.state.zones.get(library_key)
             if library:
+                # Only operate on cards that are actually in the library to avoid
+                # corrupting zone bookkeeping.
+                ordered = [cid for cid in selected if cid in library.objects]
                 # Remove cards from their current position
-                for cid in selected:
+                for cid in ordered:
                     if cid in library.objects:
                         library.objects.remove(cid)
                 # Add in order (first selected = deepest, last = top)
-                library.objects.extend(selected)
+                library.objects.extend(ordered)
 
         return []
 
