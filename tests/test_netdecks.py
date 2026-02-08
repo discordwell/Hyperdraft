@@ -142,6 +142,89 @@ def do_action(match_id, player_id, action_type, card_id=None, targets=None):
         result = json.loads(response.read().decode())
         return result.get("new_state", result)
 
+def submit_choice(match_id, player_id, choice_id, selected):
+    """Submit a pending choice."""
+    payload = {
+        "choice_id": choice_id,
+        "player_id": player_id,
+        "selected": selected,
+    }
+
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(
+        f"{BASE_URL}/{match_id}/choice",
+        data=data,
+        headers={'Content-Type': 'application/json'}
+    )
+    with urllib.request.urlopen(req) as response:
+        result = json.loads(response.read().decode())
+        return result.get("new_state", result)
+
+
+def pick_choice(choice: dict, state: dict, player_id: str) -> list:
+    """Pick a reasonable default selection for a pending choice."""
+    if not choice:
+        return []
+
+    choice_type = choice.get("choice_type")
+    options = choice.get("options") or []
+    min_choices = int(choice.get("min_choices", 1) or 0)
+    max_choices = int(choice.get("max_choices", 1) or 0)
+
+    # For information-reordering choices, default to "no-op".
+    if choice_type in ("scry", "surveil") and min_choices == 0:
+        return []
+
+    # For targeting choices, prefer opponent-controlled objects (or the opponent player).
+    if choice_type and choice_type.startswith("target"):
+        try:
+            opp_id = next(pid for pid in state.get("players", {}) if pid != player_id)
+        except StopIteration:
+            opp_id = None
+
+        controller_by_id = {}
+        for perm in state.get("battlefield", []) or []:
+            perm_id = perm.get("id")
+            if perm_id:
+                controller_by_id[perm_id] = perm.get("controller")
+
+        prioritized = []
+        if opp_id:
+            # Prefer directly targeting the opponent player if available.
+            if opp_id in options:
+                prioritized.append(opp_id)
+            # Prefer opponent-controlled permanents.
+            prioritized.extend([
+                opt for opt in options
+                if isinstance(opt, str) and controller_by_id.get(opt) == opp_id and opt not in prioritized
+            ])
+
+        # Append remaining options in original order.
+        for opt in options:
+            if opt not in prioritized:
+                prioritized.append(opt)
+        options = prioritized
+
+    selected = []
+    for opt in options:
+        if isinstance(opt, dict):
+            if opt.get("id") is not None:
+                selected.append(opt["id"])
+            elif opt.get("index") is not None:
+                selected.append(opt["index"])
+            else:
+                selected.append(opt)
+        else:
+            selected.append(opt)
+
+        if len(selected) >= max(1, min_choices):
+            break
+
+    if max_choices and len(selected) > max_choices:
+        selected = selected[:max_choices]
+
+    return selected
+
 
 def print_state(state, player_id, verbose=True):
     """Print game state summary."""
@@ -320,6 +403,20 @@ def run_game(
     print("="*60)
 
     while not state.get("is_game_over") and action_count < max_actions:
+        # Handle pending choices for the player (targets, modal, scry, etc.)
+        pending_choice = state.get("pending_choice")
+        if pending_choice and pending_choice.get("player") == player_id:
+            selected = pick_choice(pending_choice, state, player_id)
+            if verbose:
+                print(f"  >> Choice: {pending_choice.get('choice_type')} {pending_choice.get('prompt')}")
+            try:
+                state = submit_choice(match_id, player_id, pending_choice["id"], selected)
+            except Exception as e:
+                print(f"Choice error: {e}")
+            action_count += 1
+            time.sleep(0.01)
+            continue
+
         # Print state on turn change
         if state["turn_number"] != last_turn:
             if verbose:
