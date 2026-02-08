@@ -417,30 +417,83 @@ def _handle_zone_change(event: Event, state: GameState):
     object_id = event.payload.get('object_id')
     from_zone = event.payload.get('from_zone')
     to_zone = event.payload.get('to_zone')
+    from_zone_type = event.payload.get('from_zone_type')
+    to_zone_type = event.payload.get('to_zone_type')
 
     if object_id not in state.objects:
         return
 
     obj = state.objects[object_id]
 
+    def _zone_key(zone_type: ZoneType, owner_id: Optional[str]) -> Optional[str]:
+        if zone_type in {ZoneType.LIBRARY, ZoneType.HAND, ZoneType.GRAVEYARD}:
+            return f"{zone_type.name.lower()}_{owner_id}" if owner_id else None
+        return zone_type.name.lower()
+
+    from_owner = event.payload.get('from_zone_owner')
+    to_owner = event.payload.get('to_zone_owner')
+    if from_owner is None and from_zone_type in {ZoneType.LIBRARY, ZoneType.HAND, ZoneType.GRAVEYARD}:
+        from_owner = obj.owner
+    if to_owner is None and to_zone_type in {ZoneType.LIBRARY, ZoneType.HAND, ZoneType.GRAVEYARD}:
+        to_owner = obj.owner
+
+    # Support a more semantic payload format used by some card files:
+    #   {from_zone_type, to_zone_type, to_zone_owner, ...}
+    # Normalize into {from_zone, to_zone} so zone list operations stay consistent.
+    if from_zone is None and from_zone_type:
+        from_zone = _zone_key(from_zone_type, from_owner)
+
+    if to_zone is None and to_zone_type:
+        to_zone = _zone_key(to_zone_type, to_owner)
+
+    # Infer zone types from keys when omitted (helps older callers).
+    if from_zone_type is None and from_zone in state.zones:
+        from_zone_type = state.zones[from_zone].type
+    if to_zone_type is None and to_zone in state.zones:
+        to_zone_type = state.zones[to_zone].type
+
+    # If both are provided but inconsistent (e.g. a replacement effect transforms
+    # to_zone_type without updating to_zone), treat the zone type as canonical
+    # and recompute the zone key.
+    if from_zone_type and from_zone in state.zones and state.zones[from_zone].type != from_zone_type:
+        from_zone = _zone_key(from_zone_type, from_owner)
+    if to_zone_type and to_zone in state.zones and state.zones[to_zone].type != to_zone_type:
+        to_zone = _zone_key(to_zone_type, to_owner)
+
+    # Normalize payload for downstream triggers/filters.
+    if from_zone is not None:
+        event.payload['from_zone'] = from_zone
+    if to_zone is not None:
+        event.payload['to_zone'] = to_zone
+    if from_zone_type is not None:
+        event.payload['from_zone_type'] = from_zone_type
+    if to_zone_type is not None:
+        event.payload['to_zone_type'] = to_zone_type
+
     # Remove from old zone
-    if from_zone in state.zones:
+    if from_zone and from_zone in state.zones:
         zone = state.zones[from_zone]
         if object_id in zone.objects:
             zone.objects.remove(object_id)
+    else:
+        # Fallback: remove from whatever zone currently contains the object.
+        for zone in state.zones.values():
+            if object_id in zone.objects:
+                zone.objects.remove(object_id)
+                break
 
     # Add to new zone
-    if to_zone in state.zones:
+    if to_zone and to_zone in state.zones:
         zone = state.zones[to_zone]
         zone.objects.append(object_id)
 
     # Update object's zone
-    obj.zone = event.payload.get('to_zone_type', obj.zone)
+    if to_zone_type is not None:
+        obj.zone = to_zone_type
     obj.entered_zone_at = state.timestamp
 
     # When entering the battlefield, reset object state (MTG rule: new object)
     # This happens BEFORE applying special enter-the-battlefield modifications
-    to_zone_type = event.payload.get('to_zone_type')
     if to_zone_type == ZoneType.BATTLEFIELD:
         # Clear counters (will be re-added if specified in payload)
         obj.state.counters = {}
@@ -471,7 +524,6 @@ def _handle_zone_change(event: Event, state: GameState):
     # Re-setup interceptors when entering the battlefield
     # This handles cards like Enduring Curiosity that return from graveyard
     # Only register if object doesn't already have interceptors (avoids double-registration)
-    to_zone_type = event.payload.get('to_zone_type')
     if to_zone_type == ZoneType.BATTLEFIELD and obj.card_def:
         if obj.card_def.setup_interceptors and not obj.interceptor_ids:
             # Run setup with the current object state (post-type-changes)

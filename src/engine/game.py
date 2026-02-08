@@ -335,7 +335,13 @@ class Game:
         library = self.state.zones.get(library_key)
 
         if hand and library:
-            # Move all cards from hand to library
+            # Move all cards from hand to library, updating per-object zone metadata.
+            for oid in hand.objects:
+                obj = self.state.objects.get(oid)
+                if obj:
+                    obj.zone = ZoneType.LIBRARY
+                    obj.entered_zone_at = self.state.timestamp
+
             library.objects.extend(hand.objects)
             hand.objects.clear()
             # Shuffle library
@@ -379,7 +385,10 @@ class Game:
         for card in cards_to_bottom:
             if card.id in hand.objects:
                 hand.objects.remove(card.id)
-                library.objects.insert(0, card.id)  # Insert at bottom
+                # Library top is index 0 (DRAW pops 0), so bottom is the end.
+                library.objects.append(card.id)
+                card.zone = ZoneType.LIBRARY
+                card.entered_zone_at = self.state.timestamp
 
     async def run_game(self) -> str:
         """
