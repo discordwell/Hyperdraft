@@ -698,6 +698,15 @@ def _handle_scry(event: Event, state: GameState):
         state.pending_choice = choice
         return  # Don't process yet - wait for player choice
 
+    # Some call sites emit post-resolution SCRY summary payloads where
+    # to_bottom is a count, not an index list. In that case, skip
+    # re-processing library order here.
+    if isinstance(to_bottom_indices, int):
+        return
+
+    if not isinstance(to_bottom_indices, (list, tuple, set)):
+        return
+
     # Convert to set for O(1) lookup
     bottom_set = set(to_bottom_indices)
 

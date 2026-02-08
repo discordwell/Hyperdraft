@@ -5750,7 +5750,7 @@ def _pick_your_poison_execute_mode(choice, selected: list, state: GameState) -> 
         return []
 
     selected_mode = selected[0]
-    mode_index = selected_mode["index"]
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     # Get the caster to identify opponents
     caster_id = choice.player

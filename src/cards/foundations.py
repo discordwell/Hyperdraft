@@ -4166,7 +4166,7 @@ def _valorous_stance_handle_mode(choice, selected: list, state: GameState) -> li
         return []
 
     selected_mode = selected[0]
-    mode_index = selected_mode["index"]
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     legal_targets = []
     for obj_id, obj in state.objects.items():
@@ -4282,7 +4282,7 @@ def _deadly_plot_handle_mode(choice, selected: list, state: GameState) -> list[E
         return []
 
     selected_mode = selected[0]
-    mode_index = selected_mode["index"]
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     legal_targets = []
 
@@ -7065,7 +7065,7 @@ def _abrade_handle_mode(choice, selected: list, state: GameState) -> list[Event]
         return []
 
     selected_mode = selected[0]
-    mode_index = selected_mode["index"]
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     # Gather legal targets based on chosen mode
     legal_targets = []

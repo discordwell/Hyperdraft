@@ -1490,7 +1490,8 @@ def _split_up_execute_mode(choice, selected, state: GameState) -> list[Event]:
     """
     # selected[0] is the mode dict, e.g. {"index": 0, "text": "Destroy all tapped creatures."}
     selected_mode = selected[0]
-    destroy_tapped = selected_mode["index"] == 0
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
+    destroy_tapped = mode_index == 0
 
     # Gather creatures to destroy based on chosen mode
     events = []
@@ -1938,7 +1939,7 @@ def _get_out_target_execute(choice, selected, state: GameState) -> list[Event]:
 def _get_out_mode_selected(choice, selected, state: GameState) -> list[Event]:
     """Handle Get Out mode selection, then prompt for target."""
     selected_mode = selected[0]
-    mode_index = selected_mode["index"]
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     legal_targets = []
     if mode_index == 0:
@@ -2193,7 +2194,7 @@ def _twist_reality_target_execute(choice, selected, state: GameState) -> list[Ev
 def _twist_reality_mode_selected(choice, selected, state: GameState) -> list[Event]:
     """Handle Twist Reality mode selection."""
     selected_mode = selected[0]
-    mode_index = selected_mode["index"]
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     if mode_index == 1:
         # Mode 1: Manifest dread (no targeting needed)
@@ -2988,7 +2989,7 @@ def _live_or_die_target_execute(choice, selected, state: GameState) -> list[Even
 def _live_or_die_mode_selected(choice, selected, state: GameState) -> list[Event]:
     """Handle Live or Die mode selection, then prompt for target."""
     selected_mode = selected[0]
-    mode_index = selected_mode["index"]
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     # Find legal targets based on mode
     legal_targets = []
@@ -4230,7 +4231,7 @@ def _untimely_malfunction_target_execute(choice, selected, state: GameState) -> 
 def _untimely_malfunction_mode_selected(choice, selected, state: GameState) -> list[Event]:
     """Handle Untimely Malfunction mode selection."""
     selected_mode = selected[0]
-    mode_index = selected_mode["index"]
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     legal_targets = []
     min_targets = 1
@@ -4573,7 +4574,7 @@ def _break_down_the_door_target_execute(choice, selected, state: GameState) -> l
 def _break_down_the_door_mode_selected(choice, selected, state: GameState) -> list[Event]:
     """Handle Break Down the Door mode selection."""
     selected_mode = selected[0]
-    mode_index = selected_mode["index"]
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     if mode_index == 2:
         # Mode 2: Manifest dread (no targeting needed)

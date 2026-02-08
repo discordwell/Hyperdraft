@@ -2639,7 +2639,8 @@ def rabid_bite_resolve(targets: list, state: GameState) -> list[Event]:
 
 def _agate_assault_mode_handler(choice, selected, state: GameState) -> list[Event]:
     """Handle Agate Assault mode selection and follow-up targeting."""
-    mode_index = selected[0] if selected else 0
+    selected_mode = selected[0] if selected else 0
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     caster_id = choice.player
     spell_id = choice.source_id
@@ -2759,7 +2760,8 @@ def agate_assault_resolve(targets: list, state: GameState) -> list[Event]:
 
 def _early_winter_mode_handler(choice, selected, state: GameState) -> list[Event]:
     """Handle Early Winter mode selection and follow-up targeting."""
-    mode_index = selected[0] if selected else 0
+    selected_mode = selected[0] if selected else 0
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     caster_id = choice.player
     spell_id = choice.source_id
@@ -2877,7 +2879,8 @@ def early_winter_resolve(targets: list, state: GameState) -> list[Event]:
 
 def _downwind_ambusher_mode_handler(choice, selected, state: GameState) -> list[Event]:
     """Handle Downwind Ambusher mode selection and follow-up targeting."""
-    mode_index = selected[0] if selected else 0
+    selected_mode = selected[0] if selected else 0
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     caster_id = choice.player
     spell_id = choice.source_id
@@ -2995,7 +2998,8 @@ def downwind_ambusher_etb_setup(obj: GameObject, state: GameState) -> list[Inter
 
 def _hivespine_wolverine_mode_handler(choice, selected, state: GameState) -> list[Event]:
     """Handle Hivespine Wolverine mode selection and follow-up targeting."""
-    mode_index = selected[0] if selected else 0
+    selected_mode = selected[0] if selected else 0
+    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
 
     caster_id = choice.player
     source_id = choice.source_id
