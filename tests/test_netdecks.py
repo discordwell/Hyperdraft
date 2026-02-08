@@ -299,6 +299,24 @@ def smart_play(state, player_id):
     opp_id = [p for p in state["players"] if p != player_id][0]
     opp_life = state["players"][opp_id]["life"]
 
+    cast_actions = [a for a in legal if a["type"] == "CAST_SPELL"]
+
+    # Instant-speed interaction: if the opponent has a spell on the stack and we can
+    # cast a counterspell, do it. This exercises stack/priority + target choices.
+    stack = state.get("stack") or []
+    if stack and cast_actions:
+        top = stack[-1]
+        if top.get("controller") and top.get("controller") != player_id:
+            for ca in cast_actions:
+                card = next((c for c in state["hand"] if c["id"] == ca["card_id"]), None)
+                if not card:
+                    continue
+                if "INSTANT" not in (card.get("types") or []):
+                    continue
+                text = (card.get("text") or "").lower()
+                if "counter target" in text:
+                    return ("CAST_SPELL", ca["card_id"], None)
+
     # Get my available mana (count untapped lands)
     my_lands = [p for p in state["battlefield"]
                 if p["controller"] == player_id and "LAND" in p["types"] and not p["tapped"]]
@@ -312,7 +330,6 @@ def smart_play(state, player_id):
             return ("PLAY_LAND", land_actions[0]["card_id"], None)
 
         # Cast creatures (prioritize by mana cost - play cheap ones first)
-        cast_actions = [a for a in legal if a["type"] == "CAST_SPELL"]
         creature_casts = []
         for ca in cast_actions:
             card = next((c for c in state["hand"] if c["id"] == ca["card_id"]), None)
@@ -337,6 +354,10 @@ def smart_play(state, player_id):
             if not card:
                 continue
             if "CREATURE" in card["types"] or "LAND" in card["types"]:
+                continue
+            # Don't proactively fire counterspells into an empty stack.
+            text_lower = (card.get("text") or "").lower()
+            if "counter target" in text_lower:
                 continue
             cost = (card.get("mana_cost") or "").count('{')
             noncreature_casts.append((cost, ca, card))
