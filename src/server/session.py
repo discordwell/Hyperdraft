@@ -73,6 +73,8 @@ class GameSession:
     # AI engine (lazy initialized)
     _ai_engine: Optional[Any] = None
     ai_difficulty: str = "medium"
+    # Decklists as provided to add_cards_to_deck (used for AI layer preparation).
+    deck_card_defs_by_player: dict[str, list[CardDefinition]] = field(default_factory=dict)
 
     def __post_init__(self):
         """Set up game callbacks."""
@@ -116,9 +118,58 @@ class GameSession:
 
     def add_cards_to_deck(self, player_id: str, card_defs: list[CardDefinition]) -> None:
         """Add cards to a player's library."""
+        self.deck_card_defs_by_player.setdefault(player_id, []).extend(card_defs)
         for card_def in card_defs:
             self.game.add_card_to_library(player_id, card_def)
         self.game.shuffle_library(player_id)
+
+    async def _prepare_ai_layers(self) -> None:
+        """
+        Precompute AI strategy layers (Hard/Ultra) from the known decklists.
+
+        The match routes construct both decks server-side, so we can give the bot
+        perfect matchup knowledge (deck + matchup + card layers) without any
+        mid-game inference.
+        """
+        ai_player_ids = [pid for pid in self.player_ids if pid not in self.human_players]
+        if not ai_player_ids:
+            return
+
+        # Only one AIEngine instance is currently stored on the session.
+        ai = self._get_or_create_ai_engine()
+
+        # Not all difficulties use layers.
+        if not getattr(ai, "settings", {}).get("use_layers"):
+            return
+
+        if getattr(ai, "_layers_prepared", False):
+            return
+
+        ai_pid = ai_player_ids[0]
+        our_defs = self.deck_card_defs_by_player.get(ai_pid) or []
+        if not our_defs:
+            return
+
+        our_deck_cards = [cd.name for cd in our_defs]
+
+        opp_pid = next((pid for pid in self.player_ids if pid != ai_pid), None)
+        opp_defs = (self.deck_card_defs_by_player.get(opp_pid) or []) if opp_pid else []
+        opponent_deck_cards = [cd.name for cd in opp_defs] if opp_defs else None
+
+        # Provide a combined card definition map covering both decks (incl. custom domains).
+        card_defs_map: dict[str, CardDefinition] = {}
+        for cd in (our_defs + opp_defs):
+            card_defs_map[cd.name] = cd
+
+        try:
+            await ai.prepare_for_match(
+                our_deck_cards=our_deck_cards,
+                card_defs=card_defs_map,
+                opponent_deck_cards=opponent_deck_cards,
+            )
+        except Exception as e:
+            # Don't hard-fail the match start if LLM/layer generation errors.
+            print(f"AI layer preparation failed: {e}")
 
     async def start_game(self) -> None:
         """Start the game."""
@@ -126,6 +177,9 @@ class GameSession:
             return
 
         self.is_started = True
+
+        # Prepare AI layers before the first priority decision.
+        await self._prepare_ai_layers()
         await self.game.start_game()
 
         # Record initial state
