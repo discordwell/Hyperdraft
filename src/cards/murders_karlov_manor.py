@@ -3752,7 +3752,19 @@ def _handle_deadly_complication_mode(choice, selected: list, state: GameState) -
         return []
 
     events = []
-    mode_indices = [m["index"] for m in selected]
+    # Modal selections can come through as either:
+    # - dicts: {"index": int, "text": str}
+    # - raw ints: index
+    mode_indices = []
+    for m in selected:
+        if isinstance(m, dict):
+            idx = m.get("index")
+        else:
+            idx = m
+        try:
+            mode_indices.append(int(idx))
+        except Exception:
+            continue
 
     spell_id = choice.source_id
     caster_id = choice.player
