@@ -66,7 +66,13 @@ DIMIR_CONTROL_CUSTOM = [
 ]
 
 
-def create_match(player_deck=None, ai_deck=None, player_deck_id=None, ai_deck_id=None):
+def create_match(
+    player_deck=None,
+    ai_deck=None,
+    player_deck_id=None,
+    ai_deck_id=None,
+    ai_difficulty: str = "ultra",
+):
     """
     Create a new match with specified decks.
 
@@ -75,6 +81,9 @@ def create_match(player_deck=None, ai_deck=None, player_deck_id=None, ai_deck_id
     payload = {
         "player_name": "TestPlayer",
     }
+
+    if ai_difficulty:
+        payload["ai_difficulty"] = ai_difficulty
 
     # Player deck: prefer deck_id, fallback to card list
     if player_deck_id:
@@ -256,7 +265,8 @@ def run_game_with_id(
     ai_deck=None,
     player_deck_id=None,
     ai_deck_id=None,
-    description=None
+    description=None,
+    ai_difficulty: str = "ultra",
 ):
     """Run a full game and return (final_state, player_id)."""
     state = run_game(
@@ -266,7 +276,8 @@ def run_game_with_id(
         player_deck_id=player_deck_id,
         ai_deck_id=ai_deck_id,
         description=description,
-        return_player_id=True
+        return_player_id=True,
+        ai_difficulty=ai_difficulty,
     )
     return state
 
@@ -278,7 +289,8 @@ def run_game(
     player_deck_id=None,
     ai_deck_id=None,
     description=None,
-    return_player_id=False
+    return_player_id=False,
+    ai_difficulty: str = "ultra",
 ):
     """Run a full game with smart plays."""
     print("Creating match...")
@@ -286,7 +298,8 @@ def run_game(
         player_deck=player_deck,
         ai_deck=ai_deck,
         player_deck_id=player_deck_id,
-        ai_deck_id=ai_deck_id
+        ai_deck_id=ai_deck_id,
+        ai_difficulty=ai_difficulty,
     )
     match_id = result["match_id"]
     player_id = result["player_id"]
@@ -363,7 +376,7 @@ def run_game(
     return state
 
 
-def run_matchup(player_deck_id, ai_deck_id, games=3, verbose=False):
+def run_matchup(player_deck_id, ai_deck_id, games=3, verbose=False, ai_difficulty: str = "ultra"):
     """Test a specific matchup multiple times."""
     wins = 0
     losses = 0
@@ -380,7 +393,8 @@ def run_matchup(player_deck_id, ai_deck_id, games=3, verbose=False):
             verbose=verbose,
             player_deck_id=player_deck_id,
             ai_deck_id=ai_deck_id,
-            description=f"{player_deck_id} vs {ai_deck_id}"
+            description=f"{player_deck_id} vs {ai_deck_id}",
+            ai_difficulty=ai_difficulty,
         )
 
         if state.get("is_game_over"):
@@ -404,7 +418,7 @@ def run_matchup(player_deck_id, ai_deck_id, games=3, verbose=False):
     return {"wins": wins, "losses": losses, "draws": draws}
 
 
-def run_all_matchups(games_per_matchup=2):
+def run_all_matchups(games_per_matchup=2, ai_difficulty: str = "ultra"):
     """Test all viable deck matchups."""
     # Decks with all cards available
     complete_decks = [
@@ -421,7 +435,7 @@ def run_all_matchups(games_per_matchup=2):
         for ai_deck in complete_decks[:3]:  # Against first 3 as AI
             if player_deck != ai_deck:
                 key = f"{player_deck} vs {ai_deck}"
-                results[key] = run_matchup(player_deck, ai_deck, games=games_per_matchup)
+                results[key] = run_matchup(player_deck, ai_deck, games=games_per_matchup, ai_difficulty=ai_difficulty)
 
     print("\n\n" + "="*60)
     print("OVERALL RESULTS")
@@ -439,6 +453,7 @@ if __name__ == "__main__":
     parser.add_argument("--player", "-p", default=None, help="Player deck ID")
     parser.add_argument("--ai", "-a", default=None, help="AI deck ID")
     parser.add_argument("--custom", action="store_true", help="Use custom deck lists")
+    parser.add_argument("--ai-difficulty", default="ultra", help="AI difficulty (easy, medium, hard, ultra)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument("--games", "-g", type=int, default=1, help="Number of games")
     parser.add_argument("--all", action="store_true", help="Test all matchups")
@@ -446,15 +461,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.all:
-        run_all_matchups(games_per_matchup=args.games)
+        run_all_matchups(games_per_matchup=args.games, ai_difficulty=args.ai_difficulty)
     elif args.player and args.ai:
-        run_matchup(args.player, args.ai, games=args.games, verbose=args.verbose)
+        run_matchup(args.player, args.ai, games=args.games, verbose=args.verbose, ai_difficulty=args.ai_difficulty)
     elif args.custom:
         run_game(
             verbose=args.verbose,
             player_deck=MONO_RED_AGGRO_CUSTOM,
             ai_deck=DIMIR_CONTROL_CUSTOM,
-            description="Custom Mono-Red vs Custom Dimir"
+            description="Custom Mono-Red vs Custom Dimir",
+            ai_difficulty=args.ai_difficulty,
         )
     else:
         # Default: run one game with built-in decks
@@ -462,5 +478,6 @@ if __name__ == "__main__":
             verbose=args.verbose,
             player_deck_id="mono_red_aggro",
             ai_deck_id="dimir_control",
-            description="Mono-Red Aggro vs Dimir Control"
+            description="Mono-Red Aggro vs Dimir Control",
+            ai_difficulty=args.ai_difficulty,
         )
