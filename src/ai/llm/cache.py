@@ -7,6 +7,7 @@ Supports card patterns, deck analysis, and matchup caching.
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 from typing import Optional, Any
@@ -33,7 +34,9 @@ class LLMCache:
     """
 
     # TTLs in seconds
-    CARD_TTL = 86400      # 24 hours
+    # Card strategy is expensive to generate and rarely needs refreshing.
+    # Default to ~1 year, but allow an env override for faster iteration.
+    CARD_TTL = int(os.environ.get("HYPERDRAFT_LLM_CARD_TTL_SECONDS", str(86400 * 365)))
     DECK_TTL = 43200      # 12 hours
     MATCHUP_TTL = 21600   # 6 hours
 
