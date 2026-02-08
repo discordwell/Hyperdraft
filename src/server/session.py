@@ -182,6 +182,12 @@ class GameSession:
 
         Hides hidden information appropriately.
         """
+        # Keep session flags in sync even when the game ends mid-turn (e.g. during a
+        # choice submission while the background loop is still inside run_turn()).
+        if self.game.is_game_over():
+            self.is_finished = True
+            self.winner_id = self.game.get_winner()
+
         game_state = self.game.state
 
         # Get player data
