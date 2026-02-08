@@ -30,6 +30,9 @@ class EventPipeline:
         Emit an event through the pipeline.
         Returns all events that were processed (including triggered ones).
         """
+        # Reset per-emit iteration counter. This is a guard against infinite
+        # event chains within a single emit call, not a global lifetime cap.
+        self._iteration_count = 0
         event.timestamp = self.state.next_timestamp()
         processed = []
         queue = [event]
