@@ -339,11 +339,14 @@ def test_mixed_abilities_and_setup():
     """Test that abilities + custom setup can coexist."""
     print("Testing mixed abilities and custom setup...")
 
+    custom_called = {"value": False}
+
     def custom_setup(obj, state):
+        custom_called["value"] = True
         return []
 
-    # If both abilities AND setup_interceptors are provided,
-    # the manual setup_interceptors should take precedence
+    # If both abilities AND setup_interceptors are provided, we should keep the
+    # user-supplied text, and combine generated interceptors with custom setup.
     MIXED_CARD = make_creature(
         name="Mixed Card",
         power=1, toughness=1,
@@ -359,9 +362,22 @@ def test_mixed_abilities_and_setup():
         setup_interceptors=custom_setup
     )
 
-    # Custom text and setup should be preserved
+    # Custom text should be preserved.
     assert MIXED_CARD.text == "Custom text takes precedence."
-    assert MIXED_CARD.setup_interceptors == custom_setup
+
+    # Both the generated interceptors (from abilities) and the custom setup
+    # should run when the object is created/enters play.
+    game = Game()
+    p1 = game.add_player("P1")
+    obj = game.create_object(
+        name="Mixed Card",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=MIXED_CARD.characteristics,
+        card_def=MIXED_CARD
+    )
+    assert custom_called["value"] is True, "Expected custom setup_interceptors to be invoked"
+    assert len(obj.interceptor_ids) >= 1, "Expected ability-generated interceptors to be registered"
 
     print(f"  Mixed card text: {MIXED_CARD.text}")
     print("  PASSED")

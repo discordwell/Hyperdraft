@@ -834,12 +834,18 @@ class TestSunDappledCelebrant:
         kithkin2 = create_creature_on_battlefield(game, p1, "Kithkeeper")
 
         starting_life = p1.life
+        other_creatures = len([
+            obj for obj in game.state.objects.values()
+            if obj.controller == p1.id
+            and obj.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in obj.characteristics.types
+        ])
 
         # Now create Sun-Dappled Celebrant
         celebrant = create_creature_on_battlefield(game, p1, "Sun-Dappled Celebrant")
 
-        # Should gain 2 life per other creature (2 creatures x 2 = 4 life)
-        expected_life = starting_life + 4
+        # Should gain 2 life per other creature you control.
+        expected_life = starting_life + 2 * other_creatures
         assert p1.life == expected_life, f"Expected {expected_life} life, got {p1.life}"
 
     def test_sun_dappled_celebrant_no_life_with_no_creatures(self):

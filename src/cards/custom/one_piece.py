@@ -222,7 +222,7 @@ def make_crew_bonus(source_obj: GameObject, captain_name: str, power_bonus: int,
         for obj_id, game_obj in state.objects.items():
             if (game_obj.controller == source_obj.controller and
                 game_obj.zone == ZoneType.BATTLEFIELD and
-                game_obj.characteristics.name == captain_name):
+                game_obj.name == captain_name):
                 return True
         return False
     return make_static_pt_boost(source_obj, power_bonus, toughness_bonus, has_captain)
@@ -468,8 +468,8 @@ def marine_recruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             if (game_obj.controller == obj.controller and
                 game_obj.zone == ZoneType.BATTLEFIELD and
                 ('Admiral' in game_obj.characteristics.subtypes or
-                 'Smoker' in game_obj.characteristics.name or
-                 'Garp' in game_obj.characteristics.name)):
+                 'Smoker' in game_obj.name or
+                 'Garp' in game_obj.name)):
                 return True
         return False
     return make_static_pt_boost(obj, 1, 1, has_superior)

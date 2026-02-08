@@ -503,22 +503,27 @@ def make_spell_cast_trigger(
     Priority: REACT
     """
     def default_filter(event: Event, state: GameState, obj: GameObject) -> bool:
-        if event.type != EventType.CAST:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
             return False
 
         # Check controller
-        if controller_only and event.payload.get('caster') != obj.controller:
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        if controller_only and caster != obj.controller:
             return False
 
         # Check spell type
         if spell_type_filter:
             spell_types = set(event.payload.get('types', []))
+            if not spell_types and event.payload.get('spell_type') is not None:
+                spell_types = {event.payload.get('spell_type')}
             if not spell_types.intersection(spell_type_filter):
                 return False
 
         # Check colors
         if color_filter:
             spell_colors = set(event.payload.get('colors', []))
+            if not spell_colors and event.payload.get('color') is not None:
+                spell_colors = {event.payload.get('color')}
             if not spell_colors.intersection(color_filter):
                 return False
 

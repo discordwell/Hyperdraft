@@ -181,10 +181,6 @@ def emit_draw_event(game, player_id):
 
 def test_zelda_princess_of_hyrule_etb():
     """Test Zelda, Princess of Hyrule ETB gains 3 life.
-
-    NOTE: Zelda has both abilities=[ETB(GainLife(3))] AND setup_interceptors for Triforce.
-    When setup_interceptors is provided, the abilities don't auto-generate interceptors.
-    So the ETB trigger doesn't fire. This is a card definition issue, not an engine bug.
     """
     print("\n=== Test: Zelda, Princess of Hyrule ETB ===")
 
@@ -195,10 +191,8 @@ def test_zelda_princess_of_hyrule_etb():
     zelda = create_creature_on_battlefield(game, p1.id, "Zelda, Princess of Hyrule")
 
     print(f"Starting life: {starting_life}, After ETB: {p1.life}")
-    # BUG: Zelda's ETB doesn't fire because setup_interceptors overrides abilities
-    # The card definition should use _triforce_and_etb_setup instead of _triforce_setup
-    assert p1.life == starting_life, f"Expected {starting_life} (ETB not firing due to card definition bug), got {p1.life}"
-    print("PASSED: Zelda ETB not firing (known card definition issue)")
+    assert p1.life == starting_life + 3, f"Expected {starting_life + 3}, got {p1.life}"
+    print("PASSED: Zelda ETB life gain works!")
 
 
 def test_zelda_wielder_of_wisdom_spell_trigger():

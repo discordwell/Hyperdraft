@@ -165,7 +165,7 @@ async def run_game(deck1_id: str, deck2_id: str, max_turns: int = 30, verbose: b
     }
 
 
-def test_matchup(deck1_id: str, deck2_id: str, games: int = 5, verbose: bool = False):
+def run_matchup(deck1_id: str, deck2_id: str, games: int = 5, verbose: bool = False):
     """Test a matchup multiple times."""
     print(f"\n{'='*60}")
     print(f"MATCHUP: {deck1_id} vs {deck2_id}")
@@ -193,7 +193,7 @@ def test_matchup(deck1_id: str, deck2_id: str, games: int = 5, verbose: bool = F
     return {"p1_wins": p1_wins, "p2_wins": p2_wins, "draws": draws}
 
 
-def test_all_matchups(games_per: int = 3, netdecks_only: bool = False):
+def run_all_matchups(games_per: int = 3, netdecks_only: bool = False):
     """Test all deck matchups."""
     if netdecks_only:
         # Use tournament netdecks
@@ -214,7 +214,7 @@ def test_all_matchups(games_per: int = 3, netdecks_only: bool = False):
         for d2 in complete_decks:
             if d1 < d2:  # Only test each pair once
                 key = f"{d1} vs {d2}"
-                results[key] = test_matchup(d1, d2, games=games_per)
+                results[key] = run_matchup(d1, d2, games=games_per)
 
     print("\n" + "="*60)
     print("OVERALL RESULTS")
@@ -247,6 +247,6 @@ if __name__ == "__main__":
         for deck_id, deck in NETDECKS.items():
             print(f"  {deck_id}: {deck.name} ({deck.archetype})")
     elif args.all:
-        test_all_matchups(games_per=args.games, netdecks_only=args.netdecks)
+        run_all_matchups(games_per=args.games, netdecks_only=args.netdecks)
     else:
-        test_matchup(args.deck1, args.deck2, games=args.games, verbose=args.verbose)
+        run_matchup(args.deck1, args.deck2, games=args.games, verbose=args.verbose)
