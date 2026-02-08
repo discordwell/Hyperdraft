@@ -1723,14 +1723,17 @@ def felidar_savior_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 # When this creature enters, create a number of 1/1 white Rabbit creature tokens equal to the number of other creatures you control named Hare Apparent.
 def hare_apparent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # Count other Hare Apparent creatures
+        # Count other Hare Apparent creatures.
         count = 0
         for oid, other_obj in state.objects.items():
-            if (oid != obj.id and
-                other_obj.controller == obj.controller and
-                other_obj.zone == ZoneType.BATTLEFIELD and
-                other_obj.characteristics.name == "Hare Apparent"):
+            if (
+                oid != obj.id
+                and other_obj.controller == obj.controller
+                and other_obj.zone == ZoneType.BATTLEFIELD
+                and other_obj.name == "Hare Apparent"
+            ):
                 count += 1
+
         events = []
         for _ in range(count):
             events.append(Event(
@@ -1748,6 +1751,7 @@ def hare_apparent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id
             ))
         return events
+
     return [make_etb_trigger(obj, effect_fn)]
 
 
