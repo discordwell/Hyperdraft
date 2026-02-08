@@ -32,33 +32,63 @@ from .naruto import NARUTO_CARDS
 from .dragon_ball import DRAGON_BALL_CARDS
 
 
+_CARD_REF_SEP = "::"
+
+# Domain (cardspace) -> set registry for custom sets.
+#
+# Important: This must not be a single dict keyed by bare card name, since many
+# custom sets share names (e.g. basic lands) and will collide.
+CUSTOM_SETS: dict[str, dict] = {
+    # Fan-made versions of official UB sets / other large custom sets
+    "TLAC": AVATAR_TLA_CUSTOM_CARDS,
+    "SPMC": SPIDER_MAN_CUSTOM_CARDS,
+    "FINC": FINAL_FANTASY_CUSTOM_CARDS,
+    "TMH": TEMPORAL_HORIZONS_CARDS,
+    "LRW": LORWYN_CUSTOM_CARDS,
+
+    # Original custom/crossover sets
+    "SWR": STAR_WARS_CARDS,
+    "DMS": DEMON_SLAYER_CARDS,
+    "OPC": ONE_PIECE_CARDS,
+    "PKH": POKEMON_HORIZONS_CARDS,
+    "ZLD": LEGEND_OF_ZELDA_CARDS,
+    "GHB": STUDIO_GHIBLI_CARDS,
+    "MHA": MY_HERO_ACADEMIA_CARDS,
+    "LTR": LORD_OF_THE_RINGS_CARDS,
+    "JJK": JUJUTSU_KAISEN_CARDS,
+    "AOT": ATTACK_ON_TITAN_CARDS,
+    "HPW": HARRY_POTTER_CARDS,
+    "MVL": MARVEL_AVENGERS_CARDS,
+    "NRT": NARUTO_CARDS,
+    "DBZ": DRAGON_BALL_CARDS,
+}
+
+
+def _apply_domains() -> None:
+    """Stamp `domain` on CardDefinitions for custom sets at import time."""
+    for domain, cards in CUSTOM_SETS.items():
+        for card_def in cards.values():
+            try:
+                card_def.domain = domain
+            except Exception:
+                # Some older card definitions may be plain dicts or otherwise not
+                # have a writable attribute; ignore those safely.
+                pass
+
+
+_apply_domains()
+
+
 def build_custom_registry() -> dict:
-    """Build a combined registry of all custom/themed card sets."""
-    registry = {}
+    """
+    Build a combined registry of all custom/themed cards keyed by card ref.
 
-    # Fan-made versions
-    registry.update(AVATAR_TLA_CUSTOM_CARDS)
-    registry.update(SPIDER_MAN_CUSTOM_CARDS)
-    registry.update(FINAL_FANTASY_CUSTOM_CARDS)
-    registry.update(TEMPORAL_HORIZONS_CARDS)
-    registry.update(LORWYN_CUSTOM_CARDS)
-
-    # Original custom sets
-    registry.update(STAR_WARS_CARDS)
-    registry.update(DEMON_SLAYER_CARDS)
-    registry.update(ONE_PIECE_CARDS)
-    registry.update(POKEMON_HORIZONS_CARDS)
-    registry.update(LEGEND_OF_ZELDA_CARDS)
-    registry.update(STUDIO_GHIBLI_CARDS)
-    registry.update(MY_HERO_ACADEMIA_CARDS)
-    registry.update(LORD_OF_THE_RINGS_CARDS)
-    registry.update(JUJUTSU_KAISEN_CARDS)
-    registry.update(ATTACK_ON_TITAN_CARDS)
-    registry.update(HARRY_POTTER_CARDS)
-    registry.update(MARVEL_AVENGERS_CARDS)
-    registry.update(NARUTO_CARDS)
-    registry.update(DRAGON_BALL_CARDS)
-
+    Key format: "{DOMAIN}::{CARD_NAME}" (e.g. "TMH::Chrono-Berserker").
+    """
+    registry: dict[str, object] = {}
+    for domain, cards in CUSTOM_SETS.items():
+        for name, card_def in cards.items():
+            registry[f"{domain}{_CARD_REF_SEP}{name}"] = card_def
     return registry
 
 
@@ -88,5 +118,6 @@ __all__ = [
     'DRAGON_BALL_CARDS',
     # Combined
     'CUSTOM_CARDS',
+    'CUSTOM_SETS',
     'build_custom_registry',
 ]

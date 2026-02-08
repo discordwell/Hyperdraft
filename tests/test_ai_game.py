@@ -13,11 +13,8 @@ from src.engine import (
     CardType, AttackDeclaration, BlockDeclaration, ZoneType
 )
 from src.cards import ALL_CARDS
-from src.cards.custom import CUSTOM_CARDS
 from src.decks import load_deck, STANDARD_DECKS, NETDECKS
 
-# Combine standard and custom cards
-COMBINED_CARDS = {**ALL_CARDS, **CUSTOM_CARDS}
 from src.ai import AIEngine, AggroStrategy, ControlStrategy, MidrangeStrategy
 
 
@@ -253,9 +250,10 @@ async def run_logged_game(
     game.combat_manager.get_attack_declarations = make_attacks
     game.combat_manager.get_block_declarations = make_blocks
 
-    # Load decks (use COMBINED_CARDS to include custom sets)
-    deck1 = load_deck(COMBINED_CARDS, get_deck(deck1_id))
-    deck2 = load_deck(COMBINED_CARDS, get_deck(deck2_id))
+    # Load decks. Custom-card domains are resolved via set_registry when deck
+    # entries include a domain (e.g. "TMH", "TLAC").
+    deck1 = load_deck(ALL_CARDS, get_deck(deck1_id))
+    deck2 = load_deck(ALL_CARDS, get_deck(deck2_id))
 
     for card in deck1:
         game.add_card_to_library(p1.id, card)
