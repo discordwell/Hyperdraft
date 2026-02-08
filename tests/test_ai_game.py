@@ -175,10 +175,24 @@ async def run_logged_game(
     def make_ai_action(player_id: str, state: GameState, legal_actions: list) -> PlayerAction:
         """AI action with logging."""
         ai = ai1 if player_id == p1.id else ai2
-        action = ai.get_action(player_id, state, legal_actions)
 
         # Log the action
         player_name = "P1" if player_id == p1.id else "P2"
+
+        # If the game is waiting for this AI to make a choice (targets, modal, etc.),
+        # resolve it immediately and return PASS to let the priority loop continue.
+        pending_choice = game.get_pending_choice()
+        if pending_choice and pending_choice.player == player_id:
+            selected = ai.make_choice(player_id, pending_choice, state)
+            success, message, _events = game.submit_choice(
+                choice_id=pending_choice.id,
+                player_id=player_id,
+                selected=selected,
+            )
+            logger.log_action(player_name, "CHOICE", details=message if not success else pending_choice.choice_type)
+            return PlayerAction(type=ActionType.PASS, player_id=player_id)
+
+        action = ai.get_action(player_id, state, legal_actions)
 
         if action.type == ActionType.PLAY_LAND and action.card_id:
             card = state.objects.get(action.card_id)
