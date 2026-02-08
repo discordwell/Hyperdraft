@@ -287,11 +287,11 @@ async def submit_choice(
     if not pending_choice:
         raise HTTPException(status_code=400, detail="No pending choice")
 
-    # Submit the choice
-    success, message, events = session.game.submit_choice(
+    # Submit the choice via the session so any waiting human action handler can unblock.
+    success, message, events = await session.handle_choice(
         choice_id=request.choice_id,
         player_id=request.player_id,
-        selected=request.selected
+        selected=request.selected,
     )
 
     if not success:

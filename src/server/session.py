@@ -65,6 +65,10 @@ class GameSession:
     _pending_action_future: Optional[asyncio.Future] = None
     _pending_player_id: Optional[str] = None
     _action_processed_event: Optional[asyncio.Event] = None
+    # Pending human choice (scry/target/modal/etc.)
+    _pending_choice_future: Optional[asyncio.Future] = None
+    _pending_choice_player_id: Optional[str] = None
+    _pending_choice_id: Optional[str] = None
 
     # AI engine (lazy initialized)
     _ai_engine: Optional[Any] = None
@@ -298,6 +302,12 @@ class GameSession:
         if request.player_id != priority_player:
             return False, "Not your turn to act"
 
+        # If the engine is waiting on a PendingChoice, the client must submit /choice
+        # rather than attempting to take an action (PASS, CAST_SPELL, etc.).
+        pending_choice = self.game.get_pending_choice_for_player(request.player_id)
+        if pending_choice:
+            return False, "Waiting for pending choice; use /choice"
+
         # Build PlayerAction from request
         action = self._build_action(request)
 
@@ -404,6 +414,41 @@ class GameSession:
         legal_actions: list[LegalAction]
     ) -> PlayerAction:
         """Handler for getting human player actions."""
+        pending_choice = self.game.get_pending_choice_for_player(player_id)
+        if pending_choice:
+            # The engine is waiting on a PendingChoice, not an action.
+            # Block here until the client submits /choice.
+            loop = asyncio.get_event_loop()
+            self._pending_choice_future = loop.create_future()
+            self._pending_choice_player_id = player_id
+            self._pending_choice_id = pending_choice.id
+
+            if self.on_state_change:
+                state = self.get_client_state(player_id)
+                await self.on_state_change(player_id, state.model_dump())
+
+            try:
+                await asyncio.wait_for(self._pending_choice_future, timeout=300.0)
+            except asyncio.TimeoutError:
+                # Timeout: choose a safe fallback to avoid permanently wedging the match.
+                fallback = []
+                if pending_choice.min_choices:
+                    for opt in pending_choice.options[:pending_choice.min_choices]:
+                        if isinstance(opt, dict):
+                            if opt.get("id") is not None:
+                                fallback.append(opt["id"])
+                            elif opt.get("index") is not None:
+                                fallback.append(opt["index"])
+                            else:
+                                fallback.append(opt)
+                        else:
+                            fallback.append(opt)
+                self.game.submit_choice(pending_choice.id, player_id, fallback)
+
+            # The choice submission already advanced the game. Return a no-op
+            # action so the priority loop continues without counting as a pass.
+            return PlayerAction(type=ActionType.SPECIAL_ACTION, player_id=player_id)
+
         # Create a future to wait for the action
         loop = asyncio.get_event_loop()
         self._pending_action_future = loop.create_future()
@@ -425,6 +470,42 @@ class GameSession:
             if self._action_processed_event:
                 self._action_processed_event.set()
             return PlayerAction(type=ActionType.PASS, player_id=player_id)
+
+    async def handle_choice(self, choice_id: str, player_id: str, selected: list[Any]) -> tuple[bool, str, list[Any]]:
+        """
+        Handle a /choice submission.
+
+        Returns (success, message, events).
+        """
+        success, message, events = self.game.submit_choice(
+            choice_id=choice_id,
+            player_id=player_id,
+            selected=selected,
+        )
+
+        if success:
+            # Unblock a waiting human choice request, if any.
+            if (
+                self._pending_choice_future
+                and not self._pending_choice_future.done()
+                and self._pending_choice_player_id == player_id
+                and (self._pending_choice_id is None or self._pending_choice_id == choice_id)
+            ):
+                self._pending_choice_future.set_result(True)
+
+            self._pending_choice_future = None
+            self._pending_choice_player_id = None
+            self._pending_choice_id = None
+
+            # Record the choice for replays/clients.
+            self._record_frame(action={
+                "type": "choice",
+                "choice_id": choice_id,
+                "player_id": player_id,
+                "selected": selected,
+            })
+
+        return success, message, events
 
     def _get_ai_action(
         self,
