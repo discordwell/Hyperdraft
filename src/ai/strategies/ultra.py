@@ -10,6 +10,8 @@ import hashlib
 from typing import TYPE_CHECKING, Optional
 
 from .base import AIStrategy
+from .aggro import AggroStrategy
+from .control import ControlStrategy
 from .midrange import MidrangeStrategy
 
 if TYPE_CHECKING:
@@ -47,7 +49,25 @@ class UltraStrategy(AIStrategy):
         self.provider = provider
         self.config = config
         self._fallback = MidrangeStrategy()
+        self._pilot_aggro = AggroStrategy()
+        self._pilot_control = ControlStrategy()
+        self._pilot_midrange = MidrangeStrategy()
+        self._deck_analysis = None
+        self._matchup_analysis = None
         self._decision_cache: dict[str, dict] = {}
+
+    def set_card_layers(self, card_name: str, layers: 'CardLayers'):
+        super().set_card_layers(card_name, layers)
+        # These objects are shared across all CardLayers for a match.
+        if layers.deck_analysis:
+            self._deck_analysis = layers.deck_analysis
+        if layers.matchup_analysis:
+            self._matchup_analysis = layers.matchup_analysis
+
+    def clear_layers(self):
+        super().clear_layers()
+        self._deck_analysis = None
+        self._matchup_analysis = None
 
     @property
     def name(self) -> str:
@@ -55,8 +75,9 @@ class UltraStrategy(AIStrategy):
 
     @property
     def reactivity(self) -> float:
-        # Ultra adapts its reactivity based on context
-        return 0.7
+        # Use deck + matchup context to drive "hold up mana" behavior.
+        pilot = self._get_pilot_strategy()
+        return pilot.reactivity
 
     def evaluate_action(
         self,
@@ -71,17 +92,179 @@ class UltraStrategy(AIStrategy):
         Uses cached decisions when available, otherwise
         falls back to MidrangeStrategy for sync evaluation.
         """
-        # Check if we have layers for this card
-        if action.card_id:
-            card = state.objects.get(action.card_id)
-            if card:
-                layers = self.get_layers(card.name)
-                if layers:
-                    # Use programmatic layer scoring (like Hard AI)
-                    return self._score_with_layers(action, state, evaluator, player_id, card, layers)
+        pilot = self._get_pilot_strategy()
+        base = pilot.evaluate_action(action, state, evaluator, player_id)
 
-        # Fallback to midrange
-        return self._fallback.evaluate_action(action, state, evaluator, player_id)
+        if not action.card_id:
+            return base
+
+        card = state.objects.get(action.card_id)
+        if not card:
+            return base
+
+        layers = self.get_layers(card.name)
+        if not layers:
+            return base
+
+        # Add layer-aware bonuses on top of the archetype pilot score.
+        return base + self._layer_bonus(action, state, evaluator, player_id, card, layers)
+
+    def _get_pilot_strategy(self) -> AIStrategy:
+        """
+        Pick a baseline pilot strategy from our deck + matchup role.
+
+        Ultra should feel like it's actually piloting the deck, not just
+        maxing generic heuristics.
+        """
+        # Matchup role should override deck archetype when available.
+        role = (getattr(self._matchup_analysis, "our_role", "") or "").strip().lower()
+        if role == "control":
+            return self._pilot_control
+        if role == "beatdown":
+            return self._pilot_aggro
+
+        archetype = (getattr(self._deck_analysis, "archetype", "") or "").strip().lower()
+        if archetype == "control":
+            return self._pilot_control
+        if archetype == "aggro":
+            return self._pilot_aggro
+        if archetype == "tempo":
+            # Tempo plays proactive threats while keeping interaction up.
+            return self._pilot_midrange
+        if archetype == "combo":
+            return self._pilot_midrange
+        return self._pilot_midrange
+
+    def _layer_bonus(
+        self,
+        action: 'LegalAction',
+        state: 'GameState',
+        evaluator: 'BoardEvaluator',
+        player_id: str,
+        card,
+        layers: 'CardLayers',
+    ) -> float:
+        """
+        Convert layer data into an additive adjustment.
+
+        Keep these bonuses modest: the base pilot strategy already captures
+        generic MTG heuristics; layers provide deck- and matchup-specific nudges.
+        """
+        from src.engine import ActionType
+
+        if action.type != ActionType.CAST_SPELL:
+            return 0.0
+
+        bonus = 0.0
+        turn = state.turn_number if hasattr(state, "turn_number") else 1
+
+        board = evaluator.evaluate(player_id)
+        behind = board < -0.2
+        ahead = board > 0.2
+
+        # === Layer 1: Card strategy ===
+        cs = layers.card_strategy
+
+        # Base priority becomes a gentle additive term.
+        bonus += (cs.base_priority - 0.5) * 0.8
+
+        # Timing nudges.
+        if cs.timing == "early":
+            bonus += 0.15 if turn <= 3 else -0.05
+        elif cs.timing == "late":
+            bonus += 0.15 if turn >= 5 else -0.05
+        elif cs.timing == "reactive":
+            if hasattr(state, "stack") and state.stack:
+                bonus += 0.25
+            else:
+                bonus -= 0.05
+
+        # Role nudges based on pressure.
+        if cs.role == "removal":
+            if behind:
+                bonus += 0.25
+            elif ahead:
+                bonus -= 0.05
+        elif cs.role in ("threat", "finisher"):
+            if ahead:
+                bonus += 0.15
+            elif behind:
+                bonus -= 0.10
+
+        # === Layer 2: Deck role ===
+        if layers.deck_role:
+            dr = layers.deck_role
+            bonus += (dr.role_weight - 1.0) * 0.6
+
+            if dr.is_key_card:
+                bonus += 0.15
+
+            if dr.curve_slot and turn == dr.curve_slot:
+                bonus += 0.10
+            elif dr.curve_slot and turn + 2 < dr.curve_slot:
+                # Avoid firing off slow cards far ahead of schedule.
+                bonus -= 0.05
+
+            # Synergy: if any synergy card is currently on board or in hand, bump.
+            if dr.synergy_cards:
+                synergy_hits = 0
+                synergy_names = set(dr.synergy_cards)
+
+                # Battlefield
+                battlefield = state.zones.get("battlefield")
+                if battlefield:
+                    for obj_id in battlefield.objects:
+                        obj = state.objects.get(obj_id)
+                        if obj and obj.controller == player_id and obj.name in synergy_names:
+                            synergy_hits += 1
+                            if synergy_hits >= 2:
+                                break
+
+                # Hand
+                hand_zone = state.zones.get(f"hand_{player_id}")
+                if hand_zone and synergy_hits < 2:
+                    for obj_id in hand_zone.objects:
+                        obj = state.objects.get(obj_id)
+                        if obj and obj.name in synergy_names:
+                            synergy_hits += 1
+                            if synergy_hits >= 2:
+                                break
+
+                bonus += min(0.20, synergy_hits * 0.10)
+
+        # === Layer 3: Matchup guide ===
+        if layers.matchup_guide:
+            mg = layers.matchup_guide
+            bonus += (mg.priority_modifier - 1.0) * 0.5
+
+            opponent_id = self._get_opponent_id(player_id, state)
+            opp_board = self._get_opponent_board_names(state, opponent_id)
+
+            # If we're supposed to save this for key threats and none are present,
+            # we should slightly prefer holding it unless we're under pressure.
+            if mg.save_for:
+                save_for = set(mg.save_for)
+                present = bool(opp_board & save_for)
+                if present:
+                    bonus += 0.25
+                elif cs.role == "removal" and not behind:
+                    bonus -= 0.15
+
+            # If all visible opposing permanents are "don't bother" targets, nudge down.
+            if mg.dont_use_on and opp_board:
+                dont = set(mg.dont_use_on)
+                if opp_board.issubset(dont):
+                    bonus -= 0.15
+
+        # MatchupAnalysis: if we see a listed threat on board, weight interaction up.
+        if self._matchup_analysis and cs.role == "removal":
+            opponent_id = self._get_opponent_id(player_id, state)
+            opp_board = self._get_opponent_board_names(state, opponent_id)
+            threats = set(getattr(self._matchup_analysis, "their_threats", []) or [])
+            if threats and opp_board & threats:
+                bonus += 0.25
+
+        return bonus
 
     def _score_with_layers(
         self,
@@ -280,9 +463,8 @@ class UltraStrategy(AIStrategy):
         legal_attackers: list[str]
     ) -> list['AttackDeclaration']:
         """Plan attacks using layer knowledge."""
-        # For now, delegate to fallback
-        # Future: Use matchup analysis for attack planning
-        return self._fallback.plan_attacks(state, player_id, evaluator, legal_attackers)
+        pilot = self._get_pilot_strategy()
+        return pilot.plan_attacks(state, player_id, evaluator, legal_attackers)
 
     def plan_blocks(
         self,
@@ -293,9 +475,8 @@ class UltraStrategy(AIStrategy):
         legal_blockers: list[str]
     ) -> list['BlockDeclaration']:
         """Plan blocks using layer knowledge."""
-        # For now, delegate to fallback
-        # Future: Use matchup analysis for block planning
-        return self._fallback.plan_blocks(state, player_id, evaluator, attackers, legal_blockers)
+        pilot = self._get_pilot_strategy()
+        return pilot.plan_blocks(state, player_id, evaluator, attackers, legal_blockers)
 
     def should_counter(
         self,
@@ -308,13 +489,17 @@ class UltraStrategy(AIStrategy):
         # Check if spell is on our threat list
         spell_name = spell_on_stack.name if hasattr(spell_on_stack, 'name') else ""
 
+        if self._matchup_analysis and spell_name in (self._matchup_analysis.their_threats or []):
+            return True
+
         # Look through our layers for matchup data
         for layers in self._layers.values():
             if layers.matchup_guide and spell_name in layers.matchup_guide.save_for:
                 return True
 
         # Fall back
-        return self._fallback.should_counter(spell_on_stack, state, evaluator, player_id)
+        pilot = self._get_pilot_strategy()
+        return pilot.should_counter(spell_on_stack, state, evaluator, player_id)
 
     def clear_decision_cache(self):
         """Clear the decision cache."""

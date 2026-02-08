@@ -69,6 +69,55 @@ class LayerGenerator:
         opp_hash = self._hash_deck(opp_deck)
         return hashlib.sha256(f"{our_hash}:{opp_hash}".encode()).hexdigest()[:16]
 
+    def _infer_deck_metadata(
+        self,
+        deck_cards: list[str],
+        card_defs: Optional[dict[str, 'CardDefinition']] = None,
+    ) -> tuple[str, dict[int, int]]:
+        """
+        Infer deck colors (WUBRG string) and mana curve (mana value -> count).
+
+        This is used only to improve LLM prompt quality. If card_defs is missing,
+        returns ("Unknown", {}).
+        """
+        if not card_defs:
+            return "Unknown", {}
+
+        from src.engine import CardType, ManaCost, Color
+
+        colors: set[Color] = set()
+        curve: dict[int, int] = {}
+
+        for name in deck_cards:
+            cd = card_defs.get(name)
+            if not cd:
+                continue
+
+            if CardType.LAND in cd.characteristics.types:
+                continue
+
+            mana_cost = cd.characteristics.mana_cost or cd.mana_cost or ""
+            try:
+                cost = ManaCost.parse(mana_cost)
+            except Exception:
+                cost = ManaCost()
+
+            colors |= cost.colors
+            mv = cost.mana_value
+            curve[mv] = curve.get(mv, 0) + 1
+
+        color_order = [Color.WHITE, Color.BLUE, Color.BLACK, Color.RED, Color.GREEN]
+        color_letter = {
+            Color.WHITE: "W",
+            Color.BLUE: "U",
+            Color.BLACK: "B",
+            Color.RED: "R",
+            Color.GREEN: "G",
+        }
+        colors_str = "".join(color_letter[c] for c in color_order if c in colors) or "Colorless"
+        curve_sorted = {k: curve[k] for k in sorted(curve.keys())}
+        return colors_str, curve_sorted
+
     # === Card Strategy (Layer 1) ===
 
     async def generate_card_strategy(
@@ -154,7 +203,9 @@ class LayerGenerator:
         self,
         card_def: 'CardDefinition',
         deck_cards: list[str],
-        archetype: str = "midrange"
+        archetype: str = "midrange",
+        deck_colors: str = "Unknown",
+        deck_curve: Optional[dict[int, int]] = None,
     ) -> DeckRole:
         """
         Generate Layer 2 for a card in a deck.
@@ -163,6 +214,8 @@ class LayerGenerator:
             card_def: The card to analyze
             deck_cards: List of all card names in deck
             archetype: Deck archetype
+            deck_colors: Inferred deck colors (WUBRG string) for prompt quality
+            deck_curve: Inferred curve map (mana value -> count) for prompt quality
         """
         deck_hash = self._hash_deck(deck_cards)
 
@@ -175,7 +228,14 @@ class LayerGenerator:
         # Try LLM
         if self._provider_available:
             try:
-                role = await self._llm_deck_role(card_def, deck_cards, deck_hash, archetype)
+                role = await self._llm_deck_role(
+                    card_def,
+                    deck_cards,
+                    deck_hash,
+                    archetype,
+                    deck_colors=deck_colors,
+                    deck_curve=deck_curve,
+                )
                 if self.cache:
                     self.cache.set_deck_role(
                         card_def.name,
@@ -205,7 +265,9 @@ class LayerGenerator:
         card_def: 'CardDefinition',
         deck_cards: list[str],
         deck_hash: str,
-        archetype: str
+        archetype: str,
+        deck_colors: str = "Unknown",
+        deck_curve: Optional[dict[int, int]] = None,
     ) -> DeckRole:
         """Generate deck role using LLM."""
         from src.ai.llm.prompts import (
@@ -216,11 +278,9 @@ class LayerGenerator:
 
         # Summarize deck
         unique_cards = sorted(set(deck_cards))
-        deck_list = "\n".join(f"- {deck_cards.count(c)}x {c}" for c in unique_cards[:20])
+        deck_list = "\n".join(f"- {deck_cards.count(c)}x {c}" for c in unique_cards[:30])
 
-        # Calculate curve
-        curve = {}
-        # Would need card database to calculate properly
+        curve = deck_curve or {}
 
         # Key cards (most copies)
         from collections import Counter
@@ -233,7 +293,7 @@ class LayerGenerator:
             card_type=str(list(card_def.characteristics.types)),
             card_text=card_def.text or "No text",
             archetype=archetype,
-            colors="Unknown",
+            colors=deck_colors,
             key_cards=", ".join(key_cards),
             curve=str(curve),
             deck_list=deck_list
@@ -266,7 +326,8 @@ class LayerGenerator:
         our_deck: list[str],
         opp_deck: list[str],
         our_analysis: Optional[DeckAnalysis] = None,
-        opp_analysis: Optional[DeckAnalysis] = None
+        opp_analysis: Optional[DeckAnalysis] = None,
+        matchup_analysis: Optional[MatchupAnalysis] = None,
     ) -> MatchupGuide:
         """
         Generate Layer 3 for a card vs opponent.
@@ -277,6 +338,7 @@ class LayerGenerator:
             opp_deck: Opponent's deck card names
             our_analysis: Pre-computed deck analysis
             opp_analysis: Pre-computed opponent analysis
+            matchup_analysis: Pre-computed matchup analysis
         """
         matchup_hash = self._hash_matchup(our_deck, opp_deck)
 
@@ -291,7 +353,7 @@ class LayerGenerator:
             try:
                 guide = await self._llm_matchup_guide(
                     card_def, our_deck, opp_deck, matchup_hash,
-                    our_analysis, opp_analysis
+                    our_analysis, opp_analysis, matchup_analysis
                 )
                 if self.cache:
                     self.cache.set_matchup_guide(
@@ -315,7 +377,8 @@ class LayerGenerator:
         opp_deck: list[str],
         matchup_hash: str,
         our_analysis: Optional[DeckAnalysis],
-        opp_analysis: Optional[DeckAnalysis]
+        opp_analysis: Optional[DeckAnalysis],
+        matchup_analysis: Optional[MatchupAnalysis],
     ) -> MatchupGuide:
         """Generate matchup guide using LLM."""
         from src.ai.llm.prompts import (
@@ -337,8 +400,8 @@ class LayerGenerator:
             our_key_cards=", ".join(our_key),
             opp_archetype=opp_analysis.archetype if opp_analysis else "Unknown",
             opp_key_cards=", ".join(opp_key),
-            opp_threats=", ".join(opp_analysis.their_threats if opp_analysis else opp_key[:3]),
-            opp_answers=""
+            opp_threats=", ".join(matchup_analysis.their_threats if matchup_analysis else opp_key[:3]),
+            opp_answers=", ".join(matchup_analysis.their_answers if matchup_analysis else []),
         )
 
         result = await self.provider.complete_json(
@@ -361,7 +424,11 @@ class LayerGenerator:
 
     # === Deck Analysis ===
 
-    async def generate_deck_analysis(self, deck_cards: list[str]) -> DeckAnalysis:
+    async def generate_deck_analysis(
+        self,
+        deck_cards: list[str],
+        card_defs: Optional[dict[str, 'CardDefinition']] = None,
+    ) -> DeckAnalysis:
         """Generate overall deck analysis."""
         deck_hash = self._hash_deck(deck_cards)
 
@@ -374,7 +441,7 @@ class LayerGenerator:
         # Try LLM
         if self._provider_available:
             try:
-                analysis = await self._llm_deck_analysis(deck_cards, deck_hash)
+                analysis = await self._llm_deck_analysis(deck_cards, deck_hash, card_defs=card_defs)
                 if self.cache:
                     self.cache.set_deck_analysis(
                         deck_cards,
@@ -391,7 +458,8 @@ class LayerGenerator:
     async def _llm_deck_analysis(
         self,
         deck_cards: list[str],
-        deck_hash: str
+        deck_hash: str,
+        card_defs: Optional[dict[str, 'CardDefinition']] = None,
     ) -> DeckAnalysis:
         """Generate deck analysis using LLM."""
         from src.ai.llm.prompts import (
@@ -400,15 +468,15 @@ class LayerGenerator:
             DECK_ANALYSIS_SCHEMA
         )
 
-        from collections import Counter
+        deck_colors, deck_curve = self._infer_deck_metadata(deck_cards, card_defs=card_defs)
 
         unique_cards = sorted(set(deck_cards))
         deck_list = "\n".join(f"- {deck_cards.count(c)}x {c}" for c in unique_cards)
 
         prompt = DECK_ANALYSIS_PROMPT.format(
             deck_list=deck_list,
-            colors="Unknown",
-            curve="{}"
+            colors=deck_colors,
+            curve=str(deck_curve)
         )
 
         result = await self.provider.complete_json(
@@ -422,7 +490,7 @@ class LayerGenerator:
             archetype=result.get("archetype", "midrange"),
             win_conditions=result.get("win_conditions", []),
             key_cards=result.get("key_cards", []),
-            curve={},
+            curve=deck_curve,
             game_plan=result.get("game_plan", "")
         )
 
@@ -533,12 +601,13 @@ class LayerGenerator:
         result = {}
 
         # Generate deck analysis
-        our_analysis = await self.generate_deck_analysis(our_deck)
+        our_analysis = await self.generate_deck_analysis(our_deck, card_defs=card_defs)
+        our_colors, our_curve = self._infer_deck_metadata(our_deck, card_defs=card_defs)
         opp_analysis = None
         matchup_analysis = None
 
         if opp_deck:
-            opp_analysis = await self.generate_deck_analysis(opp_deck)
+            opp_analysis = await self.generate_deck_analysis(opp_deck, card_defs=card_defs)
             matchup_analysis = await self.generate_matchup_analysis(
                 our_deck, opp_deck, our_analysis, opp_analysis
             )
@@ -555,7 +624,11 @@ class LayerGenerator:
 
             # Layer 2: Deck role
             deck_role = await self.generate_deck_role(
-                card_def, our_deck, our_analysis.archetype
+                card_def,
+                our_deck,
+                our_analysis.archetype,
+                deck_colors=our_colors,
+                deck_curve=our_curve,
             )
 
             # Layer 3: Matchup guide (if opponent known)
@@ -563,7 +636,7 @@ class LayerGenerator:
             if opp_deck:
                 matchup_guide = await self.generate_matchup_guide(
                     card_def, our_deck, opp_deck,
-                    our_analysis, opp_analysis
+                    our_analysis, opp_analysis, matchup_analysis=matchup_analysis
                 )
 
             result[card_name] = CardLayers(
