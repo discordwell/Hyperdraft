@@ -193,7 +193,8 @@ def rest_in_peace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                     ))
         return events
 
-    interceptors = list(make_etb_trigger(obj, etb_effect))
+    # make_etb_trigger returns a single Interceptor, not an iterable.
+    interceptors = [make_etb_trigger(obj, etb_effect)]
 
     # Replacement effect: graveyard -> exile
     def replace_filter(event: Event, state: GameState) -> bool:

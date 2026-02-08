@@ -110,7 +110,7 @@ class EventPipeline:
                 # Clean up interceptors that only work while on battlefield
                 # Keep interceptors marked 'until_leaves' for one more event cycle
                 # (they needed to fire their death trigger)
-                duration = getattr(interceptor, 'duration', 'while_on_battlefield')
+                duration = getattr(interceptor, 'duration', None) or 'while_on_battlefield'
                 if duration == 'while_on_battlefield':
                     to_remove.append(int_id)
                 elif duration == 'until_leaves':
@@ -124,10 +124,31 @@ class EventPipeline:
                 obj.interceptor_ids.remove(int_id)
 
     def _get_interceptors(self, priority: InterceptorPriority) -> list[Interceptor]:
-        """Get interceptors of a given priority, sorted by timestamp."""
+        """
+        Get interceptors of a given priority, sorted by timestamp.
+
+        Important: Most interceptors are intended to apply only while their source
+        object is on the battlefield. However, we register interceptors when a card
+        object is created (e.g. when building libraries), so we must gate those
+        interceptors here rather than relying on every card file's filter_fn to
+        check zones.
+        """
+
+        def is_active(interceptor: Interceptor) -> bool:
+            duration = getattr(interceptor, 'duration', None) or 'while_on_battlefield'
+            if duration != 'while_on_battlefield':
+                return True
+
+            source_obj = self.state.objects.get(interceptor.source)
+            return bool(source_obj and source_obj.zone == ZoneType.BATTLEFIELD)
+
         return sorted(
-            [i for i in self.state.interceptors.values() if i.priority == priority],
-            key=lambda i: i.timestamp
+            [
+                i
+                for i in self.state.interceptors.values()
+                if i.priority == priority and is_active(i)
+            ],
+            key=lambda i: i.timestamp,
         )
 
     def _run_transform_phase(self, event: Event) -> Event:
