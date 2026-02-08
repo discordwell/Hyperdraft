@@ -327,6 +327,25 @@ def smart_play(state, player_id):
             _, action, card = creature_casts[0]
             return ("CAST_SPELL", action["card_id"], None)
 
+        # Cast noncreature spells that don't require explicit targets (card draw, filtering, etc.).
+        # This increases coverage for the pending choice system (e.g. "look at top N, reorder").
+        noncreature_casts = []
+        for ca in cast_actions:
+            if ca.get("requires_targets"):
+                continue
+            card = next((c for c in state["hand"] if c["id"] == ca["card_id"]), None)
+            if not card:
+                continue
+            if "CREATURE" in card["types"] or "LAND" in card["types"]:
+                continue
+            cost = (card.get("mana_cost") or "").count('{')
+            noncreature_casts.append((cost, ca, card))
+
+        noncreature_casts.sort(key=lambda x: x[0])
+        if noncreature_casts:
+            _, action, _card = noncreature_casts[0]
+            return ("CAST_SPELL", action["card_id"], None)
+
         # Cast burn at opponent's face if they're low
         for ca in cast_actions:
             card = next((c for c in state["hand"] if c["id"] == ca["card_id"]), None)
