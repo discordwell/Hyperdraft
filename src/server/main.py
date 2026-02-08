@@ -7,16 +7,18 @@ FastAPI application with Socket.IO for real-time game updates.
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import socketio
 
 from .routes import match_router, cards_router, bot_game_router, deckbuilder_router
 
-# Card art directory
+# Directories
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 CARD_ART_DIR = PROJECT_ROOT / "assets" / "card_art"
+FRONTEND_DIR = PROJECT_ROOT / "frontend" / "dist"
 from .session import session_manager
 from .models import WSJoinMatch, PlayerActionRequest
 
@@ -251,27 +253,61 @@ app.include_router(cards_router, prefix="/api")
 app.include_router(bot_game_router, prefix="/api")
 app.include_router(deckbuilder_router, prefix="/api")
 
-# Mount static files for card art (under /api so Vite proxy forwards requests)
+# Mount static files for card art
 if CARD_ART_DIR.exists():
     app.mount("/api/card-art", StaticFiles(directory=str(CARD_ART_DIR)), name="card-art")
 
 
 # Health check endpoint
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "hyperdraft-api"}
 
+# Back-compat health check (older clients call /health)
+@app.get("/health")
+async def health_check_legacy():
+    """Health check endpoint (legacy path)."""
+    return {"status": "healthy", "service": "hyperdraft-api"}
 
-@app.get("/")
-async def root():
-    """Root endpoint with API info."""
-    return {
-        "name": "Hyperdraft API",
-        "version": "1.0.0",
-        "docs": "/docs",
-        "health": "/health"
-    }
+
+# Serve frontend if built
+if FRONTEND_DIR.exists():
+    # Mount frontend assets
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIR / "assets")), name="frontend-assets")
+
+    @app.get("/")
+    async def serve_spa_root():
+        """Serve the SPA index.html for root."""
+        return FileResponse(FRONTEND_DIR / "index.html")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(request: Request, full_path: str):
+        """Serve the SPA for all non-API routes."""
+        # Never mask API / Socket.IO paths with a 200 SPA response.
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        if full_path == "socket.io" or full_path.startswith("socket.io/"):
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # Check if it's a static file
+        static_file = FRONTEND_DIR / full_path
+        if static_file.exists() and static_file.is_file():
+            return FileResponse(static_file)
+
+        # Return index.html for SPA routing
+        return FileResponse(FRONTEND_DIR / "index.html")
+else:
+    @app.get("/")
+    async def root():
+        """Root endpoint with API info (no frontend built)."""
+        return {
+            "name": "Hyperdraft API",
+            "version": "1.0.0",
+            "docs": "/docs",
+            "health": "/api/health",
+            "note": "Frontend not built. Run 'cd frontend && npm run build' to serve frontend."
+        }
 
 
 # Mount Socket.IO
