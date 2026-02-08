@@ -2920,37 +2920,70 @@ def kraul_whipcracker_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def meddling_youths_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever you attack with 3+ creatures: investigate"""
-    def attack_filter(event: Event, state: GameState) -> bool:
-        # Check for DECLARE_ATTACKERS event
-        if event.type != EventType.ATTACKERS_DECLARED:
-            return False
-        attackers = event.payload.get('attackers', [])
-        # Count attackers controlled by this creature's controller
-        count = sum(1 for a in attackers if state.objects.get(a) and
-                    state.objects.get(a).controller == obj.controller)
-        return count >= 3
-
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Clue',
-                'controller': obj.controller,
-                'types': [CardType.ARTIFACT],
-                'subtypes': ['Clue'],
-                'colors': []
-            },
-            source=obj.id
-        )]
-
-    return [Interceptor(
-        priority=InterceptorPriority.REACT,
-        filter_fn=attack_filter,
-        handler_fn=lambda e, s: InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=attack_effect(e, s)
+    # Engine emits ATTACK_DECLARED once per attacker. Approximate the "attack with
+    # 3+ creatures" trigger by counting attackers this combat and firing on the
+    # third attacker declared.
+    def reset_filter(event: Event, state: GameState) -> bool:
+        return (
+            event.type == EventType.PHASE_START
+            and event.payload.get("phase") == "combat"
+            and state.active_player == obj.controller
         )
-    )]
+
+    def reset_handler(event: Event, state: GameState) -> InterceptorResult:
+        setattr(obj.state, "_attack_count_this_combat", 0)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get("attacker_id")
+        attacker = state.objects.get(attacker_id) if attacker_id else None
+        return bool(attacker and attacker.controller == obj.controller)
+
+    def attack_handler(event: Event, state: GameState) -> InterceptorResult:
+        current = int(getattr(obj.state, "_attack_count_this_combat", 0))
+        current += 1
+        setattr(obj.state, "_attack_count_this_combat", current)
+
+        if current != 3:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Clue',
+                    'controller': obj.controller,
+                    'types': [CardType.ARTIFACT],
+                    'subtypes': ['Clue'],
+                    'colors': []
+                },
+                source=obj.id
+            )],
+        )
+
+    return [
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=reset_filter,
+            handler=reset_handler,
+            duration='while_on_battlefield',
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=attack_filter,
+            handler=attack_handler,
+            duration='while_on_battlefield',
+        ),
+    ]
 
 
 def shady_informant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
