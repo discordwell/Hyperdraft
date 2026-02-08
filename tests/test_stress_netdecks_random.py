@@ -28,6 +28,7 @@ from src.engine import (
     BlockDeclaration,
     Game,
     PlayerAction,
+    ZoneType,
 )
 
 
@@ -36,6 +37,7 @@ def _check_zone_invariants(game: Game) -> None:
     Basic bookkeeping checks:
     - no duplicates within zones
     - objects referenced by zones exist
+    - object.zone matches membership for common zones
     """
     state = game.state
 
@@ -50,6 +52,23 @@ def _check_zone_invariants(game: Game) -> None:
         for obj_id in zone.objects:
             if obj_id not in state.objects:
                 raise AssertionError(f"Zone {zone_key} references missing object {obj_id}")
+
+    # Spot-check object.zone against expected zone types for common keyed zones.
+    for pid in state.players.keys():
+        for zone_type, zone_key in (
+            (ZoneType.HAND, f"hand_{pid}"),
+            (ZoneType.LIBRARY, f"library_{pid}"),
+            (ZoneType.GRAVEYARD, f"graveyard_{pid}"),
+        ):
+            zone = state.zones.get(zone_key)
+            if not zone:
+                continue
+            for obj_id in zone.objects:
+                obj = state.objects[obj_id]
+                if obj.zone != zone_type:
+                    raise AssertionError(
+                        f"Object {obj.name} ({obj_id}) in {zone_key} but obj.zone={obj.zone}"
+                    )
 
 
 async def _run_one_game(deck1_id: str, deck2_id: str, seed: int, max_turns: int) -> None:
@@ -165,4 +184,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-
