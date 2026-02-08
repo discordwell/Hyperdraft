@@ -12,7 +12,7 @@ from pydantic import TypeAdapter
 
 from src.ai import AIEngine
 from src.cards import ALL_CARDS
-from src.engine import CardType, EventType, Game, ZoneType
+from src.engine import CardType, Event, EventType, Game, ZoneType
 from src.engine.priority import ActionType, PlayerAction
 from src.engine.types import PendingChoice
 from src.server.models import ChoiceResultResponse
@@ -188,3 +188,21 @@ def test_planeswalker_loyalty_activation_only_once_per_turn():
         if (a.ability_id or "").startswith("loyalty:")
     ]
     assert not remaining
+
+
+def test_event_pipeline_iteration_limit_is_per_emit_call():
+    """
+    The pipeline's max-iteration guard should apply per emit() call, not
+    accumulate across the lifetime of a game.
+    """
+    game = Game()
+    p1 = game.add_player("P1")
+    game.add_player("P2")
+
+    # This used to raise after ~1000 total emits due to a global counter.
+    for _ in range(1100):
+        game.emit(Event(
+            type=EventType.PHASE_START,
+            payload={'phase': 'upkeep', 'player': p1.id},
+            controller=p1.id,
+        ))
