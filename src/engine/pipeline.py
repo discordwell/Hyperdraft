@@ -463,6 +463,13 @@ def _handle_zone_change(event: Event, state: GameState):
     if to_zone_type is None and to_zone in state.zones:
         to_zone_type = state.zones[to_zone].type
 
+    # If a caller provided a zone key that doesn't exist (common in older/hand-written
+    # card scripts), fall back to the canonical key derived from the zone type.
+    if from_zone_type and (from_zone is None or from_zone not in state.zones):
+        from_zone = _zone_key(from_zone_type, from_owner)
+    if to_zone_type and (to_zone is None or to_zone not in state.zones):
+        to_zone = _zone_key(to_zone_type, to_owner)
+
     # If both are provided but inconsistent (e.g. a replacement effect transforms
     # to_zone_type without updating to_zone), treat the zone type as canonical
     # and recompute the zone key.
