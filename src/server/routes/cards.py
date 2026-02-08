@@ -22,6 +22,7 @@ def card_def_to_data(name: str, card_def) -> CardDefinitionData:
 
     return CardDefinitionData(
         name=name,
+        domain=getattr(card_def, "domain", None),
         mana_cost=chars.mana_cost,
         types=[t.name for t in chars.types],
         subtypes=list(chars.subtypes),

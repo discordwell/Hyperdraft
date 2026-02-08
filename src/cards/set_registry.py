@@ -164,6 +164,32 @@ SET_REGISTRIES: list[tuple[str, dict]] = [
     ("DBZ", DRAGON_BALL_CARDS),
 ]
 
+_CUSTOM_SET_CODES: set[str] = {code for code, info in SETS.items() if info.set_type == "custom"}
+
+
+def _apply_domains() -> None:
+    """
+    Stamp a stable `domain` on every CardDefinition.
+
+    - Printed MTG cards (including official UB sets) use domain="MTG".
+    - Custom sets use their set code as the domain ("TMH", "TLAC", etc.).
+
+    This allows the rest of the app to disambiguate cards that share a name
+    across multiple card spaces without renaming display names.
+    """
+    for set_code, cards in SET_REGISTRIES:
+        domain = set_code if set_code in _CUSTOM_SET_CODES else "MTG"
+        for card_def in cards.values():
+            # Some older card definitions may be plain dicts or otherwise not
+            # have a writable domain attribute; ignore those safely.
+            try:
+                card_def.domain = domain
+            except Exception:
+                pass
+
+
+_apply_domains()
+
 
 def build_card_to_set_mapping() -> dict[str, list[str]]:
     """

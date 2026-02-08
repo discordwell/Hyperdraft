@@ -560,6 +560,7 @@ class GameSession:
         return CardData(
             id=obj.id,
             name=obj.name,
+            domain=getattr(obj.card_def, "domain", None) if getattr(obj, "card_def", None) else "TOKEN",
             mana_cost=obj.characteristics.mana_cost,
             types=[t.name for t in obj.characteristics.types],
             subtypes=list(obj.characteristics.subtypes),
@@ -578,6 +579,7 @@ class GameSession:
         return CardData(
             id=obj.id,
             name=obj.name,
+            domain=getattr(obj.card_def, "domain", None) if getattr(obj, "card_def", None) else "TOKEN",
             mana_cost=obj.characteristics.mana_cost,
             types=[t.name for t in obj.characteristics.types],
             subtypes=list(obj.characteristics.subtypes),
