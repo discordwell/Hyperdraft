@@ -2028,6 +2028,7 @@ EVENT_HANDLERS = {
     EventType.TAP: _handle_tap,
     EventType.UNTAP: _handle_untap,
     EventType.GAIN_CONTROL: _handle_gain_control,
+    EventType.CONTROL_CHANGE: _handle_gain_control,
     EventType.COUNTER_ADDED: _handle_counter_added,
     EventType.COUNTER_REMOVED: _handle_counter_removed,
     EventType.PT_MODIFICATION: _handle_pt_modification,
