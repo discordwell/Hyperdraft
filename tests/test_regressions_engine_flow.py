@@ -206,3 +206,18 @@ def test_event_pipeline_iteration_limit_is_per_emit_call():
             payload={'phase': 'upkeep', 'player': p1.id},
             controller=p1.id,
         ))
+
+
+def test_drawing_from_empty_library_causes_loss():
+    """A player should lose if they attempt to draw from an empty library."""
+    game = Game()
+    p1 = game.add_player("P1")
+    game.add_player("P2")
+
+    assert game.state.zones[f"library_{p1.id}"].objects == []
+    game.emit(Event(
+        type=EventType.DRAW,
+        payload={'player': p1.id, 'count': 1},
+        controller=p1.id,
+    ))
+    assert game.state.players[p1.id].has_lost is True

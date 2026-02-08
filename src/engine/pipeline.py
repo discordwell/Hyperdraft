@@ -250,7 +250,10 @@ def _handle_draw(event: Event, state: GameState):
 
     for _ in range(count):
         if not library.objects:
-            # TODO: Player loses for drawing from empty library
+            # MTG rule: a player loses the game if they attempt to draw from an empty library.
+            player = state.players.get(player_id)
+            if player:
+                player.has_lost = True
             break
         card_id = library.objects.pop(0)  # Top of library
         hand.objects.append(card_id)
