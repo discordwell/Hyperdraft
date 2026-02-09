@@ -1328,10 +1328,15 @@ def _handle_discard(event: Event, state: GameState):
         obj = state.objects[object_id]
         # Only discard from a hand zone. (Some effects can discard cards a player
         # doesn't own, so don't assume `hand_{obj.owner}`.)
-        in_hand = any(
-            z.type == ZoneType.HAND and object_id in z.objects
-            for z in state.zones.values()
-        )
+        discarding_player: Optional[str] = event.payload.get("player") or event.controller
+        in_hand = False
+        for z in state.zones.values():
+            if z.type == ZoneType.HAND and object_id in z.objects:
+                in_hand = True
+                # Zone owner is the player whose hand this is.
+                discarding_player = discarding_player or z.owner
+                break
+
         if not in_hand:
             return
 
@@ -1347,6 +1352,9 @@ def _handle_discard(event: Event, state: GameState):
         graveyard.objects.append(object_id)
         obj.zone = ZoneType.GRAVEYARD
         obj.entered_zone_at = state.timestamp
+        # Remember who discarded it and when (for "discarded this turn" mechanics).
+        obj.state.last_discarded_turn = state.turn_number
+        obj.state.last_discarded_by = discarding_player
 
 
 def _handle_target_required(event: Event, state: GameState):
