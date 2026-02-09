@@ -206,7 +206,13 @@ class StackManager:
                 if use_event:
                     resolve_event = Event(
                         type=EventType.CAST,
-                        payload={"targets": targets_for_resolve},
+                        payload={
+                            "targets": targets_for_resolve,
+                            # Carry casting metadata through to legacy card scripts
+                            # that resolve via an Event (e.g. "if this spell was cast
+                            # from a graveyard...").
+                            **(item.additional_data or {}),
+                        },
                         source=item.source_id,
                         controller=item.controller_id,
                     )
@@ -252,17 +258,31 @@ class StackManager:
         events = []
 
         if item.type == StackItemType.SPELL and item.card_id:
-            # Move spell to graveyard
-            events.append(Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    'object_id': item.card_id,
-                    'from_zone': 'stack',
-                    'to_zone': f'graveyard_{self.state.objects[item.card_id].owner}',
-                    'to_zone_type': ZoneType.GRAVEYARD,
-                    'reason': reason
-                }
-            ))
+            # Flashback (and similar) replacement: exile the card instead of
+            # putting it anywhere else when it leaves the stack.
+            if item.additional_data.get('flashback'):
+                events.append(Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': item.card_id,
+                        'from_zone': 'stack',
+                        'to_zone': 'exile',
+                        'to_zone_type': ZoneType.EXILE,
+                        'reason': reason,
+                    }
+                ))
+            else:
+                # Default: countered spells go to graveyard.
+                events.append(Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': item.card_id,
+                        'from_zone': 'stack',
+                        'to_zone': f'graveyard_{self.state.objects[item.card_id].owner}',
+                        'to_zone_type': ZoneType.GRAVEYARD,
+                        'reason': reason
+                    }
+                ))
 
         self._emit_event(StackEvent('counter', item, result=reason))
         return events
@@ -294,16 +314,28 @@ class StackManager:
                 }
             ))
         else:
-            # Instants and sorceries go to graveyard
-            events.append(Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    'object_id': item.card_id,
-                    'from_zone': 'stack',
-                    'to_zone': f'graveyard_{card.owner}',
-                    'to_zone_type': ZoneType.GRAVEYARD
-                }
-            ))
+            # Instants and sorceries go to graveyard unless a replacement
+            # effect like flashback exiles them.
+            if item.additional_data.get('flashback'):
+                events.append(Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': item.card_id,
+                        'from_zone': 'stack',
+                        'to_zone': 'exile',
+                        'to_zone_type': ZoneType.EXILE,
+                    }
+                ))
+            else:
+                events.append(Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': item.card_id,
+                        'from_zone': 'stack',
+                        'to_zone': f'graveyard_{card.owner}',
+                        'to_zone_type': ZoneType.GRAVEYARD
+                    }
+                ))
 
         return events
 
@@ -359,7 +391,8 @@ class SpellBuilder:
         controller_id: str,
         targets: list[list[Target]] = None,
         x_value: int = 0,
-        modes: list[int] = None
+        modes: list[int] = None,
+        additional_data: Optional[dict] = None,
     ) -> StackItem:
         """
         Create a spell stack item for a card.
@@ -378,6 +411,10 @@ class SpellBuilder:
             x_value=x_value,
             chosen_modes=modes or []
         )
+
+        if additional_data:
+            # Spell metadata used by rules glue (e.g., flashback exile).
+            item.additional_data.update(dict(additional_data))
 
         # Get resolve function from card definition
         if card.card_def and card.card_def.resolve:
