@@ -27,10 +27,15 @@ if TYPE_CHECKING:
     from .turn import TurnManager
 
 
+# Casting-from-graveyard support (Flashback). This is intentionally minimal
+# and driven by rules text patterns since most sets are imported from Scryfall.
+_FLASHBACK_COST_RE = re.compile(r'flashback\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
+
+
 class ActionType(Enum):
     """Types of actions a player can take."""
     PASS = auto()              # Pass priority
-    CAST_SPELL = auto()        # Cast a spell from hand
+    CAST_SPELL = auto()        # Cast a spell
     ACTIVATE_ABILITY = auto()  # Activate an ability
     PLAY_LAND = auto()         # Play a land
     SPECIAL_ACTION = auto()    # Special actions (morph, suspend, etc.)
@@ -242,6 +247,28 @@ class PrioritySystem:
                         mana_cost=cost
                     ))
 
+        # Casting from graveyard (Flashback).
+        graveyard_key = f"graveyard_{player_id}"
+        graveyard = self.state.zones.get(graveyard_key)
+        if graveyard:
+            for card_id in graveyard.objects:
+                card = self.state.objects.get(card_id)
+                if not card or card.owner != player_id:
+                    continue
+
+                flashback_cost = self._get_flashback_cost(card)
+                if not flashback_cost:
+                    continue
+
+                if self._can_cast(card, player_id, cost_override=flashback_cost):
+                    actions.append(LegalAction(
+                        type=ActionType.CAST_SPELL,
+                        card_id=card_id,
+                        description=f"Cast {card.name} (flashback)",
+                        requires_mana=not flashback_cost.is_free(),
+                        mana_cost=flashback_cost
+                    ))
+
         # Check if player can play lands
         if self._can_play_land(player_id):
             if hand:
@@ -269,16 +296,35 @@ class PrioritySystem:
 
         return actions
 
-    def _can_cast(self, card, player_id: str) -> bool:
-        """Check if a player can cast a card."""
+    def _get_flashback_cost(self, card) -> Optional[ManaCost]:
+        """Parse a card's flashback cost from rules text, if present."""
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        if not text:
+            return None
+
+        match = _FLASHBACK_COST_RE.search(text)
+        if not match:
+            return None
+
+        cost_str = match.group(1)
+        try:
+            return ManaCost.parse(cost_str)
+        except Exception:
+            return None
+
+    def _can_cast(self, card, player_id: str, *, cost_override: Optional[ManaCost] = None) -> bool:
+        """Check if a player can cast a card (optionally using an alternate cost)."""
         # Check if it's a spell (not a land)
         if CardType.LAND in card.characteristics.types:
             return False
 
-        # Cards without a mana cost cannot be cast (back faces of transform cards, etc.)
-        # Note: {0} is a valid free cost, but "" or None means no mana cost defined
+        # Cards without a mana cost cannot be cast (back faces of transform cards, etc.).
+        # Exception: alternate costs like flashback can make them castable.
+        # Note: {0} is a valid free cost, but "" or None means no mana cost defined.
         mana_cost_str = card.characteristics.mana_cost
-        if not mana_cost_str or mana_cost_str.strip() == "":
+        if (cost_override is None) and (not mana_cost_str or mana_cost_str.strip() == ""):
             return False
 
         # Check timing restrictions
@@ -301,7 +347,7 @@ class PrioritySystem:
                 return False
 
         # Check mana cost
-        cost = ManaCost.parse(mana_cost_str)
+        cost = cost_override or ManaCost.parse(mana_cost_str or "")
         if self.mana_system and not cost.is_free():
             if not self.mana_system.can_cast(player_id, cost):
                 return False
@@ -570,10 +616,13 @@ class PrioritySystem:
         if not card:
             return events
 
+        from_graveyard = card.zone == ZoneType.GRAVEYARD
+        flashback_cost = self._get_flashback_cost(card) if from_graveyard else None
+        paid_cost = flashback_cost or ManaCost.parse(card.characteristics.mana_cost or "")
+
         # Pay mana cost
-        cost = ManaCost.parse(card.characteristics.mana_cost or "")
-        if self.mana_system and not cost.is_free():
-            self.mana_system.pay_cost(action.player_id, cost, action.x_value)
+        if self.mana_system and not paid_cost.is_free():
+            self.mana_system.pay_cost(action.player_id, paid_cost, action.x_value)
 
         # Create stack item
         if self.stack:
@@ -584,10 +633,16 @@ class PrioritySystem:
                 controller_id=action.player_id,
                 targets=action.targets,
                 x_value=action.x_value,
-                modes=action.modes
+                modes=action.modes,
+                additional_data={
+                    'from_graveyard': from_graveyard,
+                    'flashback': bool(flashback_cost),
+                }
             )
             self.stack.push(item)
 
+        # Mana value is based on the card's mana cost, not the cost paid (flashback, etc.).
+        printed_cost = ManaCost.parse(card.characteristics.mana_cost or "")
         events.append(Event(
             type=EventType.CAST,
             payload={
@@ -598,7 +653,9 @@ class PrioritySystem:
                 'controller': action.player_id,
                 'types': list(card.characteristics.types),
                 'colors': list(card.characteristics.colors),
-                'mana_value': cost.mana_value,
+                'mana_value': printed_cost.mana_value,
+                'from_graveyard': from_graveyard,
+                'flashback': bool(flashback_cost),
             }
         ))
 
