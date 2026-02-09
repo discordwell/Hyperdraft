@@ -258,9 +258,9 @@ class StackManager:
         events = []
 
         if item.type == StackItemType.SPELL and item.card_id:
-            # Flashback (and similar) replacement: exile the card instead of
-            # putting it anywhere else when it leaves the stack.
-            if item.additional_data.get('flashback'):
+            # Replacement effects (Flashback/Harmonize/etc.): exile the card
+            # instead of putting it anywhere else when it leaves the stack.
+            if item.additional_data.get('exile_on_leave_stack'):
                 events.append(Event(
                     type=EventType.ZONE_CHANGE,
                     payload={
@@ -315,8 +315,8 @@ class StackManager:
             ))
         else:
             # Instants and sorceries go to graveyard unless a replacement
-            # effect like flashback exiles them.
-            if item.additional_data.get('flashback'):
+            # effect like flashback/harmonize exiles them.
+            if item.additional_data.get('exile_on_leave_stack'):
                 events.append(Event(
                     type=EventType.ZONE_CHANGE,
                     payload={

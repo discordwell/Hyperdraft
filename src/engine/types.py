@@ -328,6 +328,9 @@ class ObjectState:
     is_token: bool = False           # True if this is a token (not a card)
     damage_marked: int = 0           # Damage marked this turn (before cleanup)
     crewed_until_eot: bool = False   # True if Vehicle was crewed this turn
+    # Track discard timing for mechanics like Mayhem.
+    last_discarded_turn: Optional[int] = None
+    last_discarded_by: Optional[str] = None
 
 
 @dataclass

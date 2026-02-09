@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 # Casting-from-graveyard support (Flashback). This is intentionally minimal
 # and driven by rules text patterns since most sets are imported from Scryfall.
 _FLASHBACK_COST_RE = re.compile(r'flashback\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
+_HARMONIZE_COST_RE = re.compile(r'harmonize\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
+_MAYHEM_COST_RE = re.compile(r'mayhem\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
 
 
 class ActionType(Enum):
@@ -247,7 +249,7 @@ class PrioritySystem:
                         mana_cost=cost
                     ))
 
-        # Casting from graveyard (Flashback).
+        # Casting from graveyard (Flashback/Harmonize/Mayhem/etc.).
         graveyard_key = f"graveyard_{player_id}"
         graveyard = self.state.zones.get(graveyard_key)
         if graveyard:
@@ -256,17 +258,23 @@ class PrioritySystem:
                 if not card or card.owner != player_id:
                     continue
 
-                flashback_cost = self._get_flashback_cost(card)
-                if not flashback_cost:
-                    continue
+                for desc_suffix, alt_cost, metadata in self._get_graveyard_cast_options(card, player_id):
+                    if alt_cost is None:
+                        # Uses printed cost; still validate castability/mana.
+                        if not self._can_cast(card, player_id):
+                            continue
+                        cost_for_ui = ManaCost.parse(card.characteristics.mana_cost or "")
+                    else:
+                        if not self._can_cast(card, player_id, cost_override=alt_cost):
+                            continue
+                        cost_for_ui = alt_cost
 
-                if self._can_cast(card, player_id, cost_override=flashback_cost):
                     actions.append(LegalAction(
                         type=ActionType.CAST_SPELL,
                         card_id=card_id,
-                        description=f"Cast {card.name} (flashback)",
-                        requires_mana=not flashback_cost.is_free(),
-                        mana_cost=flashback_cost
+                        description=f"Cast {card.name} ({desc_suffix})",
+                        requires_mana=not cost_for_ui.is_free(),
+                        mana_cost=cost_for_ui
                     ))
 
         # Check if player can play lands
@@ -313,6 +321,110 @@ class PrioritySystem:
             return ManaCost.parse(cost_str)
         except Exception:
             return None
+
+    def _get_harmonize_cost(self, card) -> Optional[ManaCost]:
+        """Parse a card's harmonize cost from rules text, if present."""
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        if not text:
+            return None
+
+        match = _HARMONIZE_COST_RE.search(text)
+        if not match:
+            return None
+
+        cost_str = match.group(1)
+        try:
+            return ManaCost.parse(cost_str)
+        except Exception:
+            return None
+
+    def _get_mayhem_cost(self, card) -> Optional[ManaCost]:
+        """Parse a card's mayhem cost from rules text, if present."""
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        if not text:
+            return None
+
+        match = _MAYHEM_COST_RE.search(text)
+        if not match:
+            return None
+
+        cost_str = match.group(1)
+        try:
+            return ManaCost.parse(cost_str)
+        except Exception:
+            return None
+
+    def _discarded_this_turn_by(self, card, player_id: str) -> bool:
+        """Return True if this card was discarded by player_id during the current turn."""
+        st = getattr(card, "state", None)
+        if not st:
+            return False
+
+        last_turn = getattr(st, "last_discarded_turn", None)
+        last_by = getattr(st, "last_discarded_by", None)
+        return last_turn == self.state.turn_number and last_by == player_id
+
+    def _get_graveyard_cast_options(self, card, player_id: str) -> list[tuple[str, Optional[ManaCost], dict]]:
+        """
+        Return a list of (description_suffix, alternate_cost, metadata) options for casting this
+        card from the graveyard.
+
+        `alternate_cost=None` means "cast for printed mana cost".
+        """
+        options: list[tuple[str, Optional[ManaCost], dict]] = []
+
+        # Flashback: cast for flashback cost, then exile it.
+        flashback_cost = self._get_flashback_cost(card)
+        if flashback_cost is not None:
+            options.append((
+                "flashback",
+                flashback_cost,
+                {"flashback": True, "exile_on_leave_stack": True},
+            ))
+
+        # Harmonize: cast for harmonize cost, then exile it.
+        harmonize_cost = self._get_harmonize_cost(card)
+        if harmonize_cost is not None:
+            options.append((
+                "harmonize",
+                harmonize_cost,
+                {"harmonize": True, "exile_on_leave_stack": True},
+            ))
+
+        # Mayhem: cast for mayhem cost if discarded this turn. Does not exile.
+        mayhem_cost = self._get_mayhem_cost(card)
+        if mayhem_cost is not None and self._discarded_this_turn_by(card, player_id):
+            options.append((
+                "mayhem",
+                mayhem_cost,
+                {"mayhem": True},
+            ))
+
+        # Generic "You may cast this card from your graveyard." permission
+        # (no alternate cost). We only support the unconditional form, to avoid
+        # incorrectly enabling conditional/additional-cost variants.
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        if text:
+            for line in text.splitlines():
+                lowered = line.strip().lower()
+                # Require this to be the start of a sentence/line; this avoids
+                # false positives like "Max speed — You may cast..." where the
+                # permission is conditional.
+                if lowered.startswith("you may cast this card from your graveyard."):
+                    options.append((
+                        "from graveyard",
+                        None,
+                        {},
+                    ))
+                    break
+
+        return options
 
     def _can_cast(self, card, player_id: str, *, cost_override: Optional[ManaCost] = None) -> bool:
         """Check if a player can cast a card (optionally using an alternate cost)."""
@@ -617,8 +729,27 @@ class PrioritySystem:
             return events
 
         from_graveyard = card.zone == ZoneType.GRAVEYARD
+
+        # If casting from the graveyard, use the appropriate alternate cost when present.
+        # Note: We assume only one relevant graveyard-cast option exists for a given card.
         flashback_cost = self._get_flashback_cost(card) if from_graveyard else None
-        paid_cost = flashback_cost or ManaCost.parse(card.characteristics.mana_cost or "")
+        harmonize_cost = self._get_harmonize_cost(card) if from_graveyard else None
+        mayhem_cost = self._get_mayhem_cost(card) if from_graveyard else None
+
+        used_flashback = bool(from_graveyard and flashback_cost is not None)
+        used_harmonize = bool(from_graveyard and (not used_flashback) and harmonize_cost is not None)
+        used_mayhem = bool(from_graveyard and (not used_flashback) and (not used_harmonize) and mayhem_cost is not None and self._discarded_this_turn_by(card, action.player_id))
+
+        exile_on_leave_stack = bool((used_flashback or used_harmonize))
+
+        if used_flashback:
+            paid_cost = flashback_cost
+        elif used_harmonize:
+            paid_cost = harmonize_cost
+        elif used_mayhem:
+            paid_cost = mayhem_cost
+        else:
+            paid_cost = ManaCost.parse(card.characteristics.mana_cost or "")
 
         # Pay mana cost
         if self.mana_system and not paid_cost.is_free():
@@ -636,7 +767,10 @@ class PrioritySystem:
                 modes=action.modes,
                 additional_data={
                     'from_graveyard': from_graveyard,
-                    'flashback': bool(flashback_cost),
+                    'flashback': used_flashback,
+                    'harmonize': used_harmonize,
+                    'mayhem': used_mayhem,
+                    'exile_on_leave_stack': exile_on_leave_stack,
                 }
             )
             self.stack.push(item)
@@ -655,7 +789,9 @@ class PrioritySystem:
                 'colors': list(card.characteristics.colors),
                 'mana_value': printed_cost.mana_value,
                 'from_graveyard': from_graveyard,
-                'flashback': bool(flashback_cost),
+                'flashback': used_flashback,
+                'harmonize': used_harmonize,
+                'mayhem': used_mayhem,
             }
         ))
 
