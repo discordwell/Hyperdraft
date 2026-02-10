@@ -139,6 +139,10 @@ def make_death_trigger(
         if event.type == EventType.OBJECT_DESTROYED:
             return event.payload.get('object_id') == obj.id
 
+        # Sacrifice is also a "dies" event when it moves from battlefield to graveyard.
+        if event.type == EventType.SACRIFICE:
+            return event.payload.get('object_id') == obj.id
+
         # Fallback: ZONE_CHANGE from battlefield to graveyard (for exile->graveyard, etc.)
         if event.type == EventType.ZONE_CHANGE:
             return (event.payload.get('object_id') == obj.id and

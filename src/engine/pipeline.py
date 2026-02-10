@@ -89,39 +89,46 @@ class EventPipeline:
         Only cleans up interceptors with duration='while_on_battlefield'.
         """
         # Only clean up after zone changes or destruction
-        if event.type not in (EventType.OBJECT_DESTROYED, EventType.ZONE_CHANGE):
+        if event.type not in (EventType.OBJECT_DESTROYED, EventType.ZONE_CHANGE, EventType.SACRIFICE, EventType.EXILE):
             return
 
-        object_id = event.payload.get('object_id')
-        if not object_id or object_id not in self.state.objects:
-            return
+        # Some events (EXILE) can operate on multiple objects.
+        object_ids: list[str] = []
+        if 'object_id' in event.payload:
+            object_ids.append(event.payload.get('object_id'))
+        if event.type == EventType.EXILE and 'object_ids' in event.payload:
+            object_ids.extend(list(event.payload.get('object_ids') or []))
 
-        obj = self.state.objects[object_id]
+        for object_id in [oid for oid in object_ids if oid]:
+            if object_id not in self.state.objects:
+                continue
 
-        # Only clean up if object left the battlefield
-        if obj.zone == ZoneType.BATTLEFIELD:
-            return
+            obj = self.state.objects[object_id]
 
-        # Remove interceptors marked for cleanup when leaving battlefield
-        to_remove = []
-        for int_id in list(obj.interceptor_ids):
-            interceptor = self.state.interceptors.get(int_id)
-            if interceptor:
-                # Clean up interceptors that only work while on battlefield
-                # Keep interceptors marked 'until_leaves' for one more event cycle
-                # (they needed to fire their death trigger)
-                duration = getattr(interceptor, 'duration', None) or 'while_on_battlefield'
-                if duration == 'while_on_battlefield':
-                    to_remove.append(int_id)
-                elif duration == 'until_leaves':
-                    # Mark for removal next time (already fired)
-                    to_remove.append(int_id)
+            # Only clean up if object left the battlefield
+            if obj.zone == ZoneType.BATTLEFIELD:
+                continue
 
-        for int_id in to_remove:
-            if int_id in self.state.interceptors:
-                del self.state.interceptors[int_id]
-            if int_id in obj.interceptor_ids:
-                obj.interceptor_ids.remove(int_id)
+            # Remove interceptors marked for cleanup when leaving battlefield
+            to_remove = []
+            for int_id in list(obj.interceptor_ids):
+                interceptor = self.state.interceptors.get(int_id)
+                if interceptor:
+                    # Clean up interceptors that only work while on battlefield
+                    # Keep interceptors marked 'until_leaves' for one more event cycle
+                    # (they needed to fire their death trigger)
+                    duration = getattr(interceptor, 'duration', None) or 'while_on_battlefield'
+                    if duration == 'while_on_battlefield':
+                        to_remove.append(int_id)
+                    elif duration == 'until_leaves':
+                        # Mark for removal next time (already fired)
+                        to_remove.append(int_id)
+
+            for int_id in to_remove:
+                if int_id in self.state.interceptors:
+                    del self.state.interceptors[int_id]
+                if int_id in obj.interceptor_ids:
+                    obj.interceptor_ids.remove(int_id)
 
     def _get_interceptors(self, priority: InterceptorPriority) -> list[Interceptor]:
         """
@@ -796,6 +803,45 @@ def _handle_object_destroyed(event: Event, state: GameState):
 
     # NOTE: Interceptor cleanup moved to _cleanup_departed_interceptors()
     # which runs AFTER the REACT phase, allowing death triggers to fire
+
+
+def _handle_sacrifice(event: Event, state: GameState):
+    """
+    Handle SACRIFICE.
+
+    Moves the sacrificed permanent from the battlefield to its owner's graveyard.
+
+    Payload:
+        object_id: str - permanent being sacrificed
+        player: str (optional) - who is sacrificing (defaults to controller)
+    """
+    object_id = event.payload.get('object_id')
+    if not object_id or object_id not in state.objects:
+        return
+
+    obj = state.objects[object_id]
+
+    # Sacrifices only apply to permanents on the battlefield.
+    if obj.zone != ZoneType.BATTLEFIELD:
+        return
+
+    player_id = event.payload.get('player') or event.controller
+    if player_id and obj.controller != player_id:
+        # Can't sacrifice a permanent you don't control.
+        return
+
+    owner_id = obj.owner
+
+    # Remove from any zone that currently references it (robust).
+    _remove_object_from_all_zones(object_id, state)
+
+    # Add to owner's graveyard
+    gy_key = f"graveyard_{owner_id}"
+    if gy_key in state.zones:
+        state.zones[gy_key].objects.append(object_id)
+
+    obj.zone = ZoneType.GRAVEYARD
+    obj.entered_zone_at = state.timestamp
 
 
 def _handle_mana_produced(event: Event, state: GameState):
@@ -2057,6 +2103,7 @@ EVENT_HANDLERS = {
     EventType.KEYWORD_GRANT: _handle_grant_keyword,
     EventType.GRANT_ABILITY: _handle_grant_keyword,
     EventType.OBJECT_DESTROYED: _handle_object_destroyed,
+    EventType.SACRIFICE: _handle_sacrifice,
     EventType.MANA_PRODUCED: _handle_mana_produced,
     EventType.PLAYER_LOSES: _handle_player_loses,
     EventType.CREATE_TOKEN: _handle_create_token,

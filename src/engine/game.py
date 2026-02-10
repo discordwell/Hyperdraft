@@ -1025,7 +1025,25 @@ class Game:
 
         This is the core dispatch for different choice types.
         """
-        events = []
+        events: list[Event] = []
+
+        # Some choices include an explicit handler (closures from card scripts,
+        # engine systems like TARGET_REQUIRED, etc.). Prefer it over the built-in
+        # choice_type dispatch so custom behavior works even for standard types
+        # like "target"/"discard"/"sacrifice".
+        #
+        # Exception: divide_allocation has a special input format that we normalize
+        # before calling the handler.
+        if choice.choice_type == "divide_allocation":
+            return self._process_divide_allocation_choice(choice, selected)
+
+        # modal_with_targeting also needs special handling.
+        if choice.choice_type == "modal_with_targeting":
+            return self._process_modal_with_targeting_choice(choice, selected)
+
+        handler = choice.callback_data.get('handler')
+        if handler:
+            return handler(choice, selected, self.state)
 
         if choice.choice_type == "modal":
             # Modal spell - selected contains mode indices
@@ -1058,19 +1076,6 @@ class Game:
         elif choice.choice_type == "may":
             # "You may" - selected is [True] or [False]
             events = self._process_may_choice(choice, selected)
-
-        elif choice.choice_type == "divide_allocation":
-            # Damage/counter division - selected is dict of {target_id: amount}
-            events = self._process_divide_allocation_choice(choice, selected)
-
-        elif choice.choice_type == "modal_with_targeting":
-            # Modal choice where some modes require targeting
-            events = self._process_modal_with_targeting_choice(choice, selected)
-
-        # Custom choice types can use callback_data['handler'] if provided
-        elif 'handler' in choice.callback_data:
-            handler = choice.callback_data['handler']
-            events = handler(choice, selected, self.state)
 
         return events
 
@@ -1230,17 +1235,11 @@ class Game:
                 type=EventType.DISCARD,
                 payload={
                     'player': choice.player,
-                    'card_id': card_id
+                    'object_id': card_id
                 },
                 source=choice.source_id
             ))
-
-        # Emit the discard events
-        all_events = []
-        for event in events:
-            all_events.extend(self.emit(event))
-
-        return all_events
+        return events
 
     def _process_sacrifice_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
         """Process sacrifice choice."""
@@ -1250,17 +1249,11 @@ class Game:
                 type=EventType.SACRIFICE,
                 payload={
                     'player': choice.player,
-                    'permanent_id': permanent_id
+                    'object_id': permanent_id
                 },
                 source=choice.source_id
             ))
-
-        # Emit the sacrifice events
-        all_events = []
-        for event in events:
-            all_events.extend(self.emit(event))
-
-        return all_events
+        return events
 
     def _process_may_choice(self, choice: PendingChoice, selected: list) -> list[Event]:
         """Process a 'you may' choice."""
