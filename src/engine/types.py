@@ -156,6 +156,9 @@ class EventType(Enum):
     TRANSFORM = auto()                     # Transform a DFC
     GRANT_ABILITY = auto()                 # Grant an ability temporarily
     GRANT_RESTRICTION = auto()             # Grant a restriction temporarily (mechanic stub)
+    GRANT_CAST_FROM_GRAVEYARD = auto()     # Temporarily allow casting spells from your graveyard
+    GRANT_PLAY_LANDS_FROM_GRAVEYARD = auto()  # Temporarily allow playing lands from your graveyard
+    GRANT_EXILE_INSTEAD_OF_GRAVEYARD = auto() # Temporarily replace "to graveyard" with exile
     GRANT_UNBLOCKABLE = auto()             # Grant can't be blocked
     GRANT_PT_MODIFIER = auto()             # Grant P/T modifier
     TEMPORARY_BOOST = auto()               # Temporary stat boost (alias for PUMP)
@@ -646,6 +649,14 @@ class GameState:
 
     # Player choice system - when set, game is paused waiting for input
     pending_choice: Optional['PendingChoice'] = None
+
+    # ---------------------------------------------------------------------
+    # Temporary permissions / replacement effects (turn-based)
+    # ---------------------------------------------------------------------
+    # Values are inclusive turn numbers (<= means active). None means "forever".
+    cast_from_graveyard_until: dict[str, Optional[int]] = field(default_factory=dict)
+    play_lands_from_graveyard_until: dict[str, Optional[int]] = field(default_factory=dict)
+    exile_instead_of_graveyard_until: dict[str, Optional[int]] = field(default_factory=dict)
 
     def next_timestamp(self) -> int:
         self.timestamp += 1
