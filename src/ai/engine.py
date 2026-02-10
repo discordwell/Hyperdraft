@@ -1134,6 +1134,40 @@ class AIEngine:
             if card:
                 base_score += self._get_split_bonus(card, 'right', context, state, player_id)
 
+        # Graveyard keyword activations (Unearth/Embalm/Eternalize) are modeled as
+        # ACTIVATE_ABILITY actions. Many strategies only score CAST_SPELL/PLAY_LAND
+        # by default, so add a simple cross-strategy valuation here.
+        if (
+            action.type == ActionType.ACTIVATE_ABILITY
+            and getattr(action, "ability_id", None)
+            and str(action.ability_id).startswith("graveyard:")
+            and getattr(action, "source_id", None)
+        ):
+            src = state.objects.get(action.source_id)
+            if src:
+                kind = str(action.ability_id).split(":", 1)[1]
+                mana_value = None
+                if getattr(action, "mana_cost", None) is not None:
+                    try:
+                        mana_value = int(action.mana_cost.mana_value)
+                    except Exception:
+                        mana_value = None
+                if mana_value is None:
+                    mana_value = self._get_mana_value(src)
+
+                # Treat as "playing a creature" value.
+                if CardType.CREATURE in src.characteristics.types:
+                    if kind == "eternalize":
+                        stats_total = 8  # 4/4 token
+                    else:
+                        power = src.characteristics.power or 0
+                        toughness = src.characteristics.toughness or 0
+                        stats_total = power + toughness
+
+                    mv = max(1, int(mana_value or 1))
+                    efficiency = stats_total / mv
+                    base_score += 1.0 + (efficiency * 0.3)
+
         return base_score
 
     def _is_counterspell(self, card) -> bool:

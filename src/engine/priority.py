@@ -18,7 +18,11 @@ from enum import Enum, auto
 import asyncio
 import re
 
-from .types import GameState, Event, EventType, CardType, ZoneType, PendingChoice
+from .types import (
+    GameState, Event, EventType, CardType, ZoneType, PendingChoice, Color,
+    Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
+    new_id,
+)
 from .stack import StackManager, StackItem, StackItemType
 from .mana import ManaSystem, ManaCost, ManaType
 from .pipeline import EventPipeline
@@ -44,6 +48,10 @@ if TYPE_CHECKING:
 _FLASHBACK_COST_RE = re.compile(r'flashback\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
 _HARMONIZE_COST_RE = re.compile(r'harmonize\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
 _MAYHEM_COST_RE = re.compile(r'mayhem\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
+_DISTURB_COST_RE = re.compile(r'disturb\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
+_UNEARTH_COST_RE = re.compile(r'unearth\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
+_EMBALM_COST_RE = re.compile(r'embalm\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
+_ETERNALIZE_COST_RE = re.compile(r'eternalize\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
 _ESCAPE_RE = re.compile(
     r'escape\s*[—-]\s*((?:\{[^}]+\})+)\s*,\s*exile\s+(\w+)\s+(?:other\s+)?cards?\s+from your graveyard',
     re.IGNORECASE,
@@ -356,6 +364,51 @@ class PrioritySystem:
                         mana_cost=cost_for_cast
                     ))
 
+            # Graveyard activated abilities (Unearth/Embalm/Eternalize/etc.).
+            for card_id in graveyard.objects:
+                card = self.state.objects.get(card_id)
+                if not card or card.owner != player_id:
+                    continue
+
+                if CardType.CREATURE not in card.characteristics.types:
+                    continue
+
+                # Unearth
+                unearth_cost = self._get_unearth_cost(card)
+                if unearth_cost is not None and self._can_cast(card, player_id, cost_override=unearth_cost):
+                    actions.append(LegalAction(
+                        type=ActionType.ACTIVATE_ABILITY,
+                        source_id=card_id,
+                        ability_id="graveyard:unearth",
+                        description=f"Unearth {card.name} ({unearth_cost.to_string()})",
+                        requires_mana=not unearth_cost.is_free(),
+                        mana_cost=unearth_cost,
+                    ))
+
+                # Embalm
+                embalm_cost = self._get_embalm_cost(card)
+                if embalm_cost is not None and self._can_cast(card, player_id, cost_override=embalm_cost):
+                    actions.append(LegalAction(
+                        type=ActionType.ACTIVATE_ABILITY,
+                        source_id=card_id,
+                        ability_id="graveyard:embalm",
+                        description=f"Embalm {card.name} ({embalm_cost.to_string()})",
+                        requires_mana=not embalm_cost.is_free(),
+                        mana_cost=embalm_cost,
+                    ))
+
+                # Eternalize
+                eternalize_cost = self._get_eternalize_cost(card)
+                if eternalize_cost is not None and self._can_cast(card, player_id, cost_override=eternalize_cost):
+                    actions.append(LegalAction(
+                        type=ActionType.ACTIVATE_ABILITY,
+                        source_id=card_id,
+                        ability_id="graveyard:eternalize",
+                        description=f"Eternalize {card.name} ({eternalize_cost.to_string()})",
+                        requires_mana=not eternalize_cost.is_free(),
+                        mana_cost=eternalize_cost,
+                    ))
+
         # Check if player can play lands
         if self._can_play_land(player_id):
             if hand:
@@ -549,6 +602,78 @@ class PrioritySystem:
         except Exception:
             return None
 
+    def _get_disturb_cost(self, card) -> Optional[ManaCost]:
+        """Parse a card's disturb cost from rules text, if present."""
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        if not text:
+            return None
+
+        match = _DISTURB_COST_RE.search(text)
+        if not match:
+            return None
+
+        cost_str = match.group(1)
+        try:
+            return ManaCost.parse(cost_str)
+        except Exception:
+            return None
+
+    def _get_unearth_cost(self, card) -> Optional[ManaCost]:
+        """Parse a card's unearth cost from rules text, if present."""
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        if not text:
+            return None
+
+        match = _UNEARTH_COST_RE.search(text)
+        if not match:
+            return None
+
+        cost_str = match.group(1)
+        try:
+            return ManaCost.parse(cost_str)
+        except Exception:
+            return None
+
+    def _get_embalm_cost(self, card) -> Optional[ManaCost]:
+        """Parse a card's embalm cost from rules text, if present."""
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        if not text:
+            return None
+
+        match = _EMBALM_COST_RE.search(text)
+        if not match:
+            return None
+
+        cost_str = match.group(1)
+        try:
+            return ManaCost.parse(cost_str)
+        except Exception:
+            return None
+
+    def _get_eternalize_cost(self, card) -> Optional[ManaCost]:
+        """Parse a card's eternalize cost from rules text, if present."""
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        if not text:
+            return None
+
+        match = _ETERNALIZE_COST_RE.search(text)
+        if not match:
+            return None
+
+        cost_str = match.group(1)
+        try:
+            return ManaCost.parse(cost_str)
+        except Exception:
+            return None
+
     def _get_escape_cost_and_exile_count(self, card) -> tuple[Optional[ManaCost], int]:
         """
         Parse an escape cost and its "exile N cards" requirement from rules text.
@@ -733,6 +858,15 @@ class PrioritySystem:
                 alt_mana_cost=escape_cost,
                 metadata={"escape": True},
                 additional_cost_plan=(CostStep(kind="exile_from_graveyard", amount=escape_exile),),
+            ))
+
+        # Disturb: cast for disturb cost from graveyard, then exile it.
+        disturb_cost = self._get_disturb_cost(card)
+        if disturb_cost is not None:
+            options.append(CastOption(
+                description_suffix="disturb",
+                alt_mana_cost=disturb_cost,
+                metadata={"disturb": True, "exile_on_leave_stack": True},
             ))
 
         text = ""
@@ -1795,9 +1929,225 @@ class PrioritySystem:
     async def _handle_activate_ability(self, action: PlayerAction) -> list[Event]:
         """Handle activating an ability."""
         events = []
+        pushed_stack_item = False
         source = self.state.objects.get(action.source_id) if action.source_id else None
 
         if source and action.ability_id:
+            # Graveyard activated abilities (Unearth/Embalm/Eternalize).
+            if action.ability_id.startswith("graveyard:") and self.stack:
+                kind = action.ability_id.split(":", 1)[1]
+
+                # Only the card's owner can activate its graveyard keyword abilities.
+                if source.owner != action.player_id:
+                    return []
+
+                if source.zone != ZoneType.GRAVEYARD:
+                    return []
+
+                def _push_ability(resolve_fn) -> None:
+                    nonlocal pushed_stack_item
+                    item = StackItem(
+                        id="",
+                        type=StackItemType.ACTIVATED_ABILITY,
+                        source_id=source.id,
+                        controller_id=action.player_id,
+                        chosen_targets=action.targets,
+                        resolve_fn=resolve_fn,
+                    )
+                    self.stack.push(item)
+                    pushed_stack_item = True
+
+                if kind == "unearth":
+                    cost = self._get_unearth_cost(source)
+                    if cost is None:
+                        return []
+                    if not self._can_cast(source, action.player_id, cost_override=cost):
+                        return []
+                    if self.mana_system and not cost.is_free():
+                        self.mana_system.pay_cost(action.player_id, cost, 0)
+
+                    def _resolve_unearth(_targets, st: GameState) -> list[Event]:
+                        obj = st.objects.get(source.id)
+                        if not obj or obj.zone != ZoneType.GRAVEYARD:
+                            return []
+
+                        # Mark replacement state: if it would leave the battlefield, exile it instead.
+                        setattr(obj.state, "_exile_on_leave_battlefield", True)
+                        setattr(obj.state, "_unearth_active", True)
+
+                        # One-shot delayed exile at the next end step.
+                        int_id = new_id()
+
+                        def _end_step_filter(e: Event, s: GameState) -> bool:
+                            return e.type == EventType.PHASE_START and e.payload.get("phase") == "end_step"
+
+                        def _end_step_handler(e: Event, s: GameState) -> InterceptorResult:
+                            current = s.objects.get(obj.id)
+                            if not current or current.zone != ZoneType.BATTLEFIELD:
+                                return InterceptorResult(action=InterceptorAction.PASS)
+                            return InterceptorResult(
+                                action=InterceptorAction.REACT,
+                                new_events=[
+                                    Event(
+                                        type=EventType.EXILE,
+                                        payload={"object_id": current.id},
+                                        source=obj.id,
+                                        controller=action.player_id,
+                                    )
+                                ],
+                            )
+
+                        interceptor = Interceptor(
+                            id=int_id,
+                            source=obj.id,
+                            controller=action.player_id,
+                            priority=InterceptorPriority.REACT,
+                            filter=_end_step_filter,
+                            handler=_end_step_handler,
+                            duration="forever",
+                            uses_remaining=1,
+                        )
+                        interceptor.timestamp = st.next_timestamp()
+                        st.interceptors[interceptor.id] = interceptor
+                        if interceptor.id not in obj.interceptor_ids:
+                            obj.interceptor_ids.append(interceptor.id)
+
+                        return [
+                            Event(
+                                type=EventType.ZONE_CHANGE,
+                                payload={
+                                    "object_id": obj.id,
+                                    "from_zone_type": ZoneType.GRAVEYARD,
+                                    "to_zone": "battlefield",
+                                    "to_zone_type": ZoneType.BATTLEFIELD,
+                                },
+                                source=obj.id,
+                                controller=action.player_id,
+                            ),
+                            Event(
+                                type=EventType.GRANT_KEYWORD,
+                                payload={
+                                    "object_id": obj.id,
+                                    "keyword": "haste",
+                                    "duration": "end_of_turn",
+                                },
+                                source=obj.id,
+                                controller=action.player_id,
+                            ),
+                        ]
+
+                    _push_ability(_resolve_unearth)
+
+                elif kind == "embalm":
+                    cost = self._get_embalm_cost(source)
+                    if cost is None:
+                        return []
+                    if not self._can_cast(source, action.player_id, cost_override=cost):
+                        return []
+                    if self.mana_system and not cost.is_free():
+                        self.mana_system.pay_cost(action.player_id, cost, 0)
+
+                    # Snapshot printed characteristics before we exile the card.
+                    snap = {
+                        "name": source.name,
+                        "types": set(source.characteristics.types),
+                        "subtypes": set(source.characteristics.subtypes),
+                        "supertypes": set(source.characteristics.supertypes),
+                        "power": source.characteristics.power,
+                        "toughness": source.characteristics.toughness,
+                        "abilities": list(source.characteristics.abilities or []),
+                    }
+
+                    # Exile the card as part of the activation cost.
+                    events.append(Event(
+                        type=EventType.EXILE,
+                        payload={"object_id": source.id},
+                        source=source.id,
+                        controller=action.player_id,
+                    ))
+
+                    def _resolve_embalm(_targets, st: GameState) -> list[Event]:
+                        # Create the token copy (simplified).
+                        types = set(snap["types"]) | {CardType.CREATURE}
+                        subtypes = set(snap["subtypes"]) | {"Zombie"}
+                        return [
+                            Event(
+                                type=EventType.OBJECT_CREATED,
+                                payload={
+                                    "name": snap["name"],
+                                    "controller": action.player_id,
+                                    "owner": action.player_id,
+                                    "to_zone_type": ZoneType.BATTLEFIELD,
+                                    "types": types,
+                                    "subtypes": subtypes,
+                                    "supertypes": set(snap["supertypes"]),
+                                    "colors": {Color.WHITE},
+                                    "power": snap["power"],
+                                    "toughness": snap["toughness"],
+                                    "abilities": list(snap["abilities"]),
+                                    "is_token": True,
+                                },
+                                source=source.id,
+                                controller=action.player_id,
+                            )
+                        ]
+
+                    _push_ability(_resolve_embalm)
+
+                elif kind == "eternalize":
+                    cost = self._get_eternalize_cost(source)
+                    if cost is None:
+                        return []
+                    if not self._can_cast(source, action.player_id, cost_override=cost):
+                        return []
+                    if self.mana_system and not cost.is_free():
+                        self.mana_system.pay_cost(action.player_id, cost, 0)
+
+                    snap = {
+                        "name": source.name,
+                        "types": set(source.characteristics.types),
+                        "subtypes": set(source.characteristics.subtypes),
+                        "supertypes": set(source.characteristics.supertypes),
+                        "abilities": list(source.characteristics.abilities or []),
+                    }
+
+                    events.append(Event(
+                        type=EventType.EXILE,
+                        payload={"object_id": source.id},
+                        source=source.id,
+                        controller=action.player_id,
+                    ))
+
+                    def _resolve_eternalize(_targets, st: GameState) -> list[Event]:
+                        types = set(snap["types"]) | {CardType.CREATURE}
+                        subtypes = set(snap["subtypes"]) | {"Zombie"}
+                        return [
+                            Event(
+                                type=EventType.OBJECT_CREATED,
+                                payload={
+                                    "name": snap["name"],
+                                    "controller": action.player_id,
+                                    "owner": action.player_id,
+                                    "to_zone_type": ZoneType.BATTLEFIELD,
+                                    "types": types,
+                                    "subtypes": subtypes,
+                                    "supertypes": set(snap["supertypes"]),
+                                    "colors": {Color.BLACK},
+                                    "power": 4,
+                                    "toughness": 4,
+                                    "abilities": list(snap["abilities"]),
+                                    "is_token": True,
+                                },
+                                source=source.id,
+                                controller=action.player_id,
+                            )
+                        ]
+
+                    _push_ability(_resolve_eternalize)
+
+                else:
+                    return []
+
             # Loyalty ability path.
             if action.ability_id.startswith("loyalty:"):
                 parts = action.ability_id.split(":")
@@ -1895,7 +2245,7 @@ class PrioritySystem:
                         pass
 
         # Generic fallback for unknown activated abilities - still put on stack.
-        if not events and self.stack:
+        if not events and self.stack and not pushed_stack_item:
             item = StackItem(
                 id="",
                 type=StackItemType.ACTIVATED_ABILITY,
@@ -1904,6 +2254,7 @@ class PrioritySystem:
                 chosen_targets=action.targets
             )
             self.stack.push(item)
+            pushed_stack_item = True
 
         events.append(Event(
             type=EventType.ACTIVATE,
