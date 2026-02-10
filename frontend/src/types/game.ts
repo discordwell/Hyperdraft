@@ -189,6 +189,16 @@ export interface StartBotGameRequest {
   bot2_deck: string[];
   bot1_difficulty: AIDifficulty;
   bot2_difficulty: AIDifficulty;
+  bot1_brain?: 'heuristic' | 'openai' | 'anthropic' | 'ollama';
+  bot2_brain?: 'heuristic' | 'openai' | 'anthropic' | 'ollama';
+  bot1_model?: string;
+  bot2_model?: string;
+  bot1_name?: string;
+  bot2_name?: string;
+  bot1_temperature?: number;
+  bot2_temperature?: number;
+  record_prompts?: boolean;
+  max_replay_frames?: number;
   delay_ms: number;
 }
 

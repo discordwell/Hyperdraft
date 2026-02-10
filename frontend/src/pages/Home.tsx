@@ -29,6 +29,9 @@ export function Home() {
   const [decks, setDecks] = useState<DeckInfo[]>([]);
   const [playerDeck, setPlayerDeck] = useState<string>('');
   const [aiDeck, setAiDeck] = useState<string>('');
+  const [opusModel, setOpusModel] = useState('claude-opus-4.6');
+  const [gptModel, setGptModel] = useState('gpt-5.3');
+  const [recordPrompts, setRecordPrompts] = useState(false);
 
   useEffect(() => {
     matchAPI.listDecks().then((res) => {
@@ -87,6 +90,35 @@ export function Home() {
       navigate(`/spectate/${response.game_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start bot game');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStartLlmDuel = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await botGameAPI.start({
+        bot1_brain: 'anthropic',
+        bot2_brain: 'openai',
+        bot1_model: opusModel,
+        bot2_model: gptModel,
+        bot1_name: 'Opus 4.6',
+        bot2_name: 'GPT-5.3',
+        bot1_difficulty: difficulty,
+        bot2_difficulty: difficulty,
+        bot1_temperature: 0.2,
+        bot2_temperature: 0.2,
+        record_prompts: recordPrompts,
+        delay_ms: 800,
+        max_replay_frames: 5000,
+      });
+
+      navigate(`/spectate/${response.game_id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start LLM duel');
     } finally {
       setIsLoading(false);
     }
@@ -209,6 +241,54 @@ export function Home() {
           >
             Watch Bot vs Bot
           </button>
+
+          {/* LLM Duel */}
+          <div className="mt-3 p-4 bg-gray-800/60 border border-gray-700 rounded-lg">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="text-sm font-bold text-white">LLM Duel</div>
+                <div className="text-xs text-gray-400">Anthropic vs OpenAI (requires API keys)</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Opus model</label>
+                <input
+                  type="text"
+                  value={opusModel}
+                  onChange={(e) => setOpusModel(e.target.value)}
+                  className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">GPT model</label>
+                <input
+                  type="text"
+                  value={gptModel}
+                  onChange={(e) => setGptModel(e.target.value)}
+                  className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
+                />
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-xs text-gray-400 mb-3 select-none">
+              <input
+                type="checkbox"
+                checked={recordPrompts}
+                onChange={(e) => setRecordPrompts(e.target.checked)}
+              />
+              Record prompts in replay
+            </label>
+
+            <button
+              onClick={handleStartLlmDuel}
+              disabled={isLoading}
+              className="w-full px-4 py-3 bg-purple-700 text-white rounded-lg font-semibold hover:bg-purple-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Watch Opus vs GPT
+            </button>
+          </div>
 
           {/* Deckbuilder Link */}
           <button

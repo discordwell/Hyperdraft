@@ -5,7 +5,7 @@
  */
 
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { Home, GameView, SpectatorView, Deckbuilder, Gatherer } from './pages';
+import { Home, GameView, SpectatorView, ReplayView, Deckbuilder, Gatherer } from './pages';
 
 export function App() {
   return (
@@ -14,6 +14,7 @@ export function App() {
         <Route path="/" element={<Home />} />
         <Route path="/game/:matchId" element={<GameView />} />
         <Route path="/spectate/:gameId" element={<SpectatorView />} />
+        <Route path="/replay/:gameId" element={<ReplayView />} />
         <Route path="/deckbuilder" element={<Deckbuilder />} />
         <Route path="/gatherer" element={<Gatherer />} />
       </Routes>

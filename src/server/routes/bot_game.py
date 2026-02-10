@@ -7,6 +7,7 @@ Endpoints for bot vs bot games and replays.
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Optional
 import asyncio
+import os
 
 from ..session import session_manager, GameSession, generate_id
 from ..models import (
@@ -50,8 +51,40 @@ async def start_bot_game(
     )
 
     # Add bot players
-    bot1_id = session.add_player("Bot 1", is_ai=True)
-    bot2_id = session.add_player("Bot 2", is_ai=True)
+    bot1_display = request.bot1_name or (request.bot1_model if request.bot1_model else "Bot 1")
+    bot2_display = request.bot2_name or (request.bot2_model if request.bot2_model else "Bot 2")
+
+    bot1_id = session.add_player(bot1_display, is_ai=True)
+    bot2_id = session.add_player(bot2_display, is_ai=True)
+
+    # Configure replay + pacing for spectating/replay.
+    session.record_actions_for_replay = True
+    session.spectator_delay_ms = request.delay_ms
+    session.max_replay_frames = request.max_replay_frames
+
+    # Configure bot brains.
+    session.ai_profiles_by_player[bot1_id] = {
+        "brain": request.bot1_brain.value,
+        "difficulty": request.bot1_difficulty.value,
+        "model": request.bot1_model,
+        "temperature": request.bot1_temperature,
+        "record_prompts": request.record_prompts,
+    }
+    session.ai_profiles_by_player[bot2_id] = {
+        "brain": request.bot2_brain.value,
+        "difficulty": request.bot2_difficulty.value,
+        "model": request.bot2_model,
+        "temperature": request.bot2_temperature,
+        "record_prompts": request.record_prompts,
+    }
+
+    # Fast preflight for API-based bots (avoid starting a match that will wedge).
+    if request.bot1_brain.value == "openai" or request.bot2_brain.value == "openai":
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise HTTPException(status_code=400, detail="OPENAI_API_KEY not set")
+    if request.bot1_brain.value == "anthropic" or request.bot2_brain.value == "anthropic":
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not set")
 
     # Build decks
     bot1_deck = []
@@ -80,8 +113,7 @@ async def start_bot_game(
     # Start game in background with delay
     background_tasks.add_task(
         run_bot_game,
-        session,
-        request.delay_ms
+        session
     )
 
     return BotGameResponse(
@@ -90,22 +122,14 @@ async def start_bot_game(
     )
 
 
-async def run_bot_game(session: GameSession, delay_ms: int):
+async def run_bot_game(session: GameSession):
     """Background task to run a bot vs bot game."""
     try:
         await session.start_game()
 
-        delay_seconds = delay_ms / 1000.0
-
         while not session.is_finished:
-            # Run one turn with delay
+            # Run one turn (priority actions inside are paced via session.spectator_delay_ms)
             await session.game.turn_manager.run_turn()
-
-            # Record frame after each turn
-            session._record_frame(action={"type": "turn_complete"})
-
-            # Add delay for spectators
-            await asyncio.sleep(delay_seconds)
 
             # Check game over
             if session.game.is_game_over():
@@ -150,32 +174,48 @@ async def get_bot_game_state(game_id: str) -> GameStateResponse:
 
 
 @router.get("/{game_id}/replay", response_model=ReplayResponse)
-async def get_replay(game_id: str) -> ReplayResponse:
+async def get_replay(game_id: str, since: int = 0, limit: int = 5000) -> ReplayResponse:
     """
-    Get replay data for a completed bot game.
+    Get replay data for a bot game.
+
+    - For running games, returns frames recorded so far.
+    - For finished games, returns frames from the completed replay.
+
+    Query params:
+        since: Frame index to start from (0-based)
+        limit: Max frames to return (paging)
     """
-    # Check completed replays first
+    since = max(0, since)
+    limit = max(1, min(5000, limit))
+
+    # Completed replay
     if game_id in completed_replays:
-        return completed_replays[game_id]
+        replay = completed_replays[game_id]
+        return ReplayResponse(
+            game_id=replay.game_id,
+            winner=replay.winner,
+            total_turns=replay.total_turns,
+            frames=replay.frames[since:since + limit],
+        )
 
     # Check active games
     session = active_bot_games.get(game_id)
     if session:
-        if not session.is_finished:
-            raise HTTPException(
-                status_code=400,
-                detail="Game is still in progress"
+        # If the game finished but wasn't persisted yet, persist it now.
+        if session.is_finished and game_id not in completed_replays:
+            completed_replays[game_id] = ReplayResponse(
+                game_id=session.id,
+                winner=session.winner_id,
+                total_turns=session.game.turn_manager.turn_number,
+                frames=session.replay_frames,
             )
 
-        # Game just finished, create replay
-        replay = ReplayResponse(
+        return ReplayResponse(
             game_id=session.id,
             winner=session.winner_id,
-            total_turns=session.game.turn_manager.turn_number,
-            frames=session.replay_frames
+            total_turns=session.game.turn_manager.turn_number if session.is_started else 0,
+            frames=session.replay_frames[since:since + limit],
         )
-        completed_replays[game_id] = replay
-        return replay
 
     raise HTTPException(status_code=404, detail="Game not found")
 
