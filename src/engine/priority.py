@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional, TYPE_CHECKING, Any
 from enum import Enum, auto
 import asyncio
+import inspect
 import re
 
 from .types import (
@@ -145,11 +146,12 @@ class PrioritySystem:
         # For human players - callback to get their action
         self.get_human_action: Optional[Callable[[str, list[LegalAction]], asyncio.Future]] = None
 
-        # For AI players - callback to get their action
-        self.get_ai_action: Optional[Callable[[str, GameState, list[LegalAction]], PlayerAction]] = None
+        # For AI players - callback to get their action (sync or async)
+        self.get_ai_action: Optional[Callable[[str, GameState, list[LegalAction]], Any]] = None
 
         # Callback invoked after action is processed (for synchronization)
-        self.on_action_processed: Optional[Callable[[], None]] = None
+        # Accepts (action) or () for back-compat; may return an awaitable.
+        self.on_action_processed: Optional[Callable[..., Any]] = None
 
         # Player type tracking
         self.ai_players: set[str] = set()
@@ -210,9 +212,7 @@ class PrioritySystem:
 
             if action.type == ActionType.PASS:
                 self.passed_players.add(self.priority_player)
-                # Signal action was processed (for API synchronization)
-                if self.on_action_processed:
-                    self.on_action_processed()
+                await self._notify_action_processed(action)
 
                 if self._all_players_passed():
                     if self.stack and self.stack.is_empty():
@@ -235,9 +235,7 @@ class PrioritySystem:
                 # Player took an action - reset passes
                 self.passed_players.clear()
                 await self._execute_action(action)
-                # Signal action was processed (for API synchronization)
-                if self.on_action_processed:
-                    self.on_action_processed()
+                await self._notify_action_processed(action)
                 # Player retains priority after acting (rule 116.3c)
                 continue
 
@@ -250,7 +248,10 @@ class PrioritySystem:
         if self.is_ai_player(player_id):
             # AI player
             if self.get_ai_action:
-                return self.get_ai_action(player_id, self.state, legal_actions)
+                result = self.get_ai_action(player_id, self.state, legal_actions)
+                if inspect.isawaitable(result):
+                    return await result
+                return result
             else:
                 # Default: pass priority
                 return PlayerAction(type=ActionType.PASS, player_id=player_id)
@@ -261,6 +262,26 @@ class PrioritySystem:
             else:
                 # No handler - auto-pass
                 return PlayerAction(type=ActionType.PASS, player_id=player_id)
+
+    async def _notify_action_processed(self, action: PlayerAction) -> None:
+        """
+        Invoke the `on_action_processed` hook.
+
+        - Supports both legacy callbacks with no args and newer callbacks that accept
+          the processed `PlayerAction`.
+        - Supports async callbacks by awaiting the return value if awaitable.
+        """
+        if not self.on_action_processed:
+            return
+
+        try:
+            result = self.on_action_processed(action)
+        except TypeError:
+            # Back-compat for older callbacks: on_action_processed()
+            result = self.on_action_processed()
+
+        if inspect.isawaitable(result):
+            await result
 
     def get_legal_actions(self, player_id: str) -> list[LegalAction]:
         """

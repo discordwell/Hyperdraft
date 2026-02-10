@@ -71,10 +71,23 @@ class GameSession:
     _pending_choice_id: Optional[str] = None
 
     # AI engine (lazy initialized)
-    _ai_engine: Optional[Any] = None
+    _ai_engines_by_player: dict[str, Any] = field(default_factory=dict)
+    _choice_engines_by_player: dict[str, Any] = field(default_factory=dict)
     ai_difficulty: str = "medium"
+    # Per-player AI profiles (used for bot-vs-bot and LLM duels).
+    # Example:
+    #   {"brain": "anthropic", "model": "claude-opus-4.6", "temperature": 0.2, "record_prompts": True}
+    ai_profiles_by_player: dict[str, dict[str, Any]] = field(default_factory=dict)
+    _llm_providers_by_player: dict[str, Any] = field(default_factory=dict)
+    _llm_response_cache_by_player: dict[str, dict[str, dict]] = field(default_factory=dict)
     # Decklists as provided to add_cards_to_deck (used for AI layer preparation).
     deck_card_defs_by_player: dict[str, list[CardDefinition]] = field(default_factory=dict)
+
+    # Replay/spectator controls (primarily for /bot-game).
+    record_actions_for_replay: bool = False
+    spectator_delay_ms: int = 0
+    max_replay_frames: int = 5000
+    _replay_truncated: bool = False
 
     def __post_init__(self):
         """Set up game callbacks."""
@@ -86,10 +99,29 @@ class GameSession:
         # Set up action processed callback for synchronization
         self.game.priority_system.on_action_processed = self._on_action_processed
 
-    def _on_action_processed(self):
-        """Called when an action is fully processed by the game loop."""
+    async def _on_action_processed(self, action: Optional[PlayerAction] = None):
+        """
+        Called when an action is fully processed by the game loop.
+
+        Used for:
+        - API synchronization (unblock /action callers)
+        - Bot-game replay recording (per-action frames)
+        - Optional spectator pacing (delay between actions)
+        """
         if self._action_processed_event:
             self._action_processed_event.set()
+
+        if self.record_actions_for_replay:
+            self._record_frame(action=self._serialize_processed_action(action))
+
+        if self.spectator_delay_ms and self.spectator_delay_ms > 0:
+            # Don't slow the game down for "just passing"; it's very spammy and
+            # makes spectating/replays feel glacial.
+            should_delay = True
+            if action is not None and getattr(action, "type", None) == ActionType.PASS:
+                should_delay = False
+            if should_delay:
+                await asyncio.sleep(self.spectator_delay_ms / 1000.0)
 
     def add_player(self, name: str, is_ai: bool = False) -> str:
         """Add a player to the session."""
@@ -135,41 +167,46 @@ class GameSession:
         if not ai_player_ids:
             return
 
-        # Only one AIEngine instance is currently stored on the session.
-        ai = self._get_or_create_ai_engine()
+        for ai_pid in ai_player_ids:
+            profile = self.ai_profiles_by_player.get(ai_pid) or {}
+            brain = (profile.get("brain") or "heuristic").strip().lower()
+            if brain in ("openai", "anthropic", "ollama"):
+                # LLM-driven bots don't use the layer system; avoid extra work/calls.
+                continue
 
-        # Not all difficulties use layers.
-        if not getattr(ai, "settings", {}).get("use_layers"):
-            return
+            ai = self._get_or_create_ai_engine(ai_pid)
 
-        if getattr(ai, "_layers_prepared", False):
-            return
+            # Not all difficulties use layers.
+            if not getattr(ai, "settings", {}).get("use_layers"):
+                continue
 
-        ai_pid = ai_player_ids[0]
-        our_defs = self.deck_card_defs_by_player.get(ai_pid) or []
-        if not our_defs:
-            return
+            if getattr(ai, "_layers_prepared", False):
+                continue
 
-        our_deck_cards = [cd.name for cd in our_defs]
+            our_defs = self.deck_card_defs_by_player.get(ai_pid) or []
+            if not our_defs:
+                continue
 
-        opp_pid = next((pid for pid in self.player_ids if pid != ai_pid), None)
-        opp_defs = (self.deck_card_defs_by_player.get(opp_pid) or []) if opp_pid else []
-        opponent_deck_cards = [cd.name for cd in opp_defs] if opp_defs else None
+            our_deck_cards = [cd.name for cd in our_defs]
 
-        # Provide a combined card definition map covering both decks (incl. custom domains).
-        card_defs_map: dict[str, CardDefinition] = {}
-        for cd in (our_defs + opp_defs):
-            card_defs_map[cd.name] = cd
+            opp_pid = next((pid for pid in self.player_ids if pid != ai_pid), None)
+            opp_defs = (self.deck_card_defs_by_player.get(opp_pid) or []) if opp_pid else []
+            opponent_deck_cards = [cd.name for cd in opp_defs] if opp_defs else None
 
-        try:
-            await ai.prepare_for_match(
-                our_deck_cards=our_deck_cards,
-                card_defs=card_defs_map,
-                opponent_deck_cards=opponent_deck_cards,
-            )
-        except Exception as e:
-            # Don't hard-fail the match start if LLM/layer generation errors.
-            print(f"AI layer preparation failed: {e}")
+            # Provide a combined card definition map covering both decks (incl. custom domains).
+            card_defs_map: dict[str, CardDefinition] = {}
+            for cd in (our_defs + opp_defs):
+                card_defs_map[cd.name] = cd
+
+            try:
+                await ai.prepare_for_match(
+                    our_deck_cards=our_deck_cards,
+                    card_defs=card_defs_map,
+                    opponent_deck_cards=opponent_deck_cards,
+                )
+            except Exception as e:
+                # Don't hard-fail the match start if LLM/layer generation errors.
+                print(f"AI layer preparation failed for {ai_pid}: {e}")
 
     async def start_game(self) -> None:
         """Start the game."""
@@ -567,39 +604,128 @@ class GameSession:
 
         return success, message, events
 
-    def _get_ai_action(
+    async def _get_ai_action(
         self,
         player_id: str,
         state: GameState,
         legal_actions: list[LegalAction]
     ) -> PlayerAction:
-        """Handler for AI player actions."""
-        # First, check if there's a pending choice for the AI
+        """Handler for AI player actions (sync or async brains)."""
+        # First, check if there's a pending choice for the AI.
         pending_choice = self.game.get_pending_choice()
         if pending_choice and pending_choice.player == player_id:
-            # AI needs to make a choice, not take an action
+            # AI needs to make a choice, not take an action.
             self._handle_ai_choice(player_id, pending_choice, state)
-            # Return pass - the choice handling will advance the game
+            # Return pass - the choice handling will advance the game.
             return PlayerAction(type=ActionType.PASS, player_id=player_id)
 
-        # Try to import AI engine (assume it exists)
+        profile = self.ai_profiles_by_player.get(player_id) or {}
+        brain = (profile.get("brain") or "heuristic").strip().lower()
+
+        if brain in ("openai", "anthropic", "ollama"):
+            try:
+                if not self._should_query_llm(player_id, state, legal_actions):
+                    action = PlayerAction(type=ActionType.PASS, player_id=player_id)
+                    action.data["ai"] = {
+                        "brain": brain,
+                        "model": profile.get("model"),
+                        "reasoning": "autopass (gated)",
+                    }
+                    return action
+
+                return await self._get_llm_action(player_id, state, legal_actions, profile)
+            except Exception as e:
+                # LLM failures should not wedge the match.
+                action = self._simple_ai_action(player_id, legal_actions)
+                action.data.setdefault("llm_error", str(e))
+                return action
+
+        # Default: built-in heuristic AI.
         try:
-            from src.ai import AIEngine
-            ai = self._get_or_create_ai_engine()
-            return ai.get_action(player_id, state, legal_actions)
+            ai = self._get_or_create_ai_engine(player_id)
+            action = ai.get_action(player_id, state, legal_actions)
+            action.data.setdefault("ai", {"brain": "heuristic", "difficulty": self._get_ai_difficulty(player_id)})
+            return action
         except ImportError:
-            # AI not available - use simple fallback
             return self._simple_ai_action(player_id, legal_actions)
 
-    def _get_or_create_ai_engine(self) -> 'AIEngine':
-        """Get or create the AI engine for this session."""
-        if self._ai_engine is None:
-            from src.ai import AIEngine
-            if self.ai_difficulty == "ultra":
-                self._ai_engine = AIEngine.create_ultra_bot()
-            else:
-                self._ai_engine = AIEngine(difficulty=self.ai_difficulty)
-        return self._ai_engine
+    def _should_query_llm(
+        self,
+        player_id: str,
+        state: GameState,
+        legal_actions: list[LegalAction],
+    ) -> bool:
+        """
+        Gate LLM calls to avoid querying on every single priority pass.
+
+        Policy:
+        - Always allow if the stack is non-empty (interactive decisions).
+        - Allow during main phases (PRECOMBAT_MAIN/POSTCOMBAT_MAIN at Step.MAIN).
+        - Otherwise, auto-pass without calling the model.
+        """
+        # If the only legal action is PASS, there's nothing to decide.
+        if not legal_actions or all(a.type == ActionType.PASS for a in legal_actions):
+            return False
+
+        try:
+            if hasattr(self.game, "stack") and self.game.stack and not self.game.stack.is_empty():
+                return True
+        except Exception:
+            pass
+
+        try:
+            phase = self.game.get_current_phase()
+            step = self.game.get_current_step()
+            if phase in (Phase.PRECOMBAT_MAIN, Phase.POSTCOMBAT_MAIN) and step == Step.MAIN:
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    def _get_ai_difficulty(self, player_id: str) -> str:
+        profile = self.ai_profiles_by_player.get(player_id) or {}
+        return (profile.get("difficulty") or self.ai_difficulty or "medium").strip().lower()
+
+    def _get_or_create_ai_engine(self, player_id: str) -> 'AIEngine':
+        """Get or create the AI engine for a specific player."""
+        if player_id in self._ai_engines_by_player:
+            return self._ai_engines_by_player[player_id]
+
+        from src.ai import AIEngine
+
+        difficulty = self._get_ai_difficulty(player_id)
+        if difficulty == "ultra":
+            engine = AIEngine.create_ultra_bot()
+        else:
+            engine = AIEngine(difficulty=difficulty)
+
+        self._ai_engines_by_player[player_id] = engine
+        return engine
+
+    def _get_or_create_choice_engine(self, player_id: str) -> 'AIEngine':
+        """Choice helper engine (used for PendingChoice handling)."""
+        if player_id in self._choice_engines_by_player:
+            return self._choice_engines_by_player[player_id]
+
+        from src.ai import AIEngine
+
+        profile = self.ai_profiles_by_player.get(player_id) or {}
+        brain = (profile.get("brain") or "heuristic").strip().lower()
+        difficulty = self._get_ai_difficulty(player_id)
+
+        # Avoid creating an "ultra" engine for LLM-driven bots; it's unnecessary and can
+        # introduce extra provider calls / assumptions. Choices are handled heuristically.
+        if brain in ("openai", "anthropic", "ollama") and difficulty == "ultra":
+            difficulty = "medium"
+
+        if difficulty == "ultra":
+            # Choices don't benefit from full UltraStrategy; keep it lightweight.
+            difficulty = "hard"
+
+        engine = AIEngine(difficulty=difficulty)
+        self._choice_engines_by_player[player_id] = engine
+        return engine
 
     def _handle_ai_choice(
         self,
@@ -609,8 +735,7 @@ class GameSession:
     ) -> None:
         """Have the AI make a pending choice."""
         try:
-            from src.ai import AIEngine
-            ai = self._get_or_create_ai_engine()
+            ai = self._get_or_create_choice_engine(player_id)
 
             # AI makes the choice
             selected = ai.make_choice(player_id, pending_choice, state)
@@ -631,6 +756,17 @@ class GameSession:
                     player_id=player_id,
                     selected=fallback_selected
                 )
+            else:
+                # Record the choice for bot-game replays.
+                if self.record_actions_for_replay:
+                    self._record_frame(action={
+                        "kind": "ai_choice",
+                        "choice_id": pending_choice.id,
+                        "choice_type": getattr(pending_choice, "choice_type", None),
+                        "player_id": player_id,
+                        "player_name": self.player_names.get(player_id, player_id),
+                        "selected": self._jsonify_choice_selected(selected),
+                    })
         except Exception as e:
             print(f"Error in AI choice handling: {e}")
             import traceback
@@ -659,6 +795,375 @@ class GameSession:
 
         # Default: pass
         return PlayerAction(type=ActionType.PASS, player_id=player_id)
+
+    # === LLM Bot Brains ======================================================
+
+    async def _get_llm_action(
+        self,
+        player_id: str,
+        state: GameState,
+        legal_actions: list[LegalAction],
+        profile: dict[str, Any],
+    ) -> PlayerAction:
+        """
+        Choose an action using an LLM provider.
+
+        The LLM MUST select an index from the provided legal action list.
+        Targeting/modes/X-values are handled by the engine via PendingChoice when needed.
+        """
+        provider = self._get_or_create_llm_provider(player_id, profile)
+
+        prompt = self._build_llm_action_prompt(player_id, state, legal_actions)
+        schema = {"action_index": "int", "reasoning": "str"}
+        system = (
+            "You are an expert Magic: The Gathering player.\n"
+            "Choose the best LEGAL action from the provided list.\n"
+            "Avoid passing unless there is a strong reason.\n"
+            "Return JSON only."
+        )
+
+        temperature = float(profile.get("temperature", 0.2))
+        import hashlib
+
+        cache = self._llm_response_cache_by_player.setdefault(player_id, {})
+        cache_key = hashlib.sha256(f"{provider.model_name}\n{system}\n{prompt}".encode("utf-8")).hexdigest()[:24]
+
+        cached = False
+        if cache_key in cache:
+            response = cache[cache_key]
+            cached = True
+        else:
+            response = await provider.complete_json(
+                prompt=prompt,
+                schema=schema,
+                system=system,
+                temperature=temperature,
+            )
+            cache[cache_key] = response
+            # Keep caches bounded (per player).
+            if len(cache) > 512:
+                cache.clear()
+
+        try:
+            idx = int(response.get("action_index", 0))
+        except Exception:
+            idx = 0
+
+        if idx < 0 or idx >= len(legal_actions):
+            idx = 0
+
+        reasoning = str(response.get("reasoning", "") or "").strip()
+
+        chosen = legal_actions[idx] if legal_actions else None
+        if not chosen:
+            return PlayerAction(type=ActionType.PASS, player_id=player_id)
+
+        action = PlayerAction(
+            type=chosen.type,
+            player_id=player_id,
+            card_id=chosen.card_id,
+            ability_id=chosen.ability_id,
+            source_id=chosen.source_id,
+        )
+
+        # Attach structured metadata for replay/debugging.
+        legal_summaries = []
+        for i, la in enumerate(legal_actions):
+            card_name = None
+            if la.card_id:
+                obj = state.objects.get(la.card_id)
+                card_name = obj.name if obj else None
+            legal_summaries.append({
+                "i": i,
+                "type": la.type.name,
+                "description": la.description,
+                "card_name": card_name,
+            })
+
+        ai_meta: dict[str, Any] = {
+            "brain": (profile.get("brain") or "").strip().lower(),
+            "model": provider.model_name,
+            "temperature": temperature,
+            "selected_index": idx,
+            "reasoning": reasoning,
+            "legal_actions": legal_summaries,
+            "llm_response": response,
+            "cached": cached,
+        }
+
+        if bool(profile.get("record_prompts")):
+            # Keep prompts from exploding replay size.
+            max_chars = int(profile.get("max_prompt_chars", 8000))
+            ai_meta["prompt"] = prompt[:max_chars]
+
+        action.data["ai"] = ai_meta
+        return action
+
+    def _get_or_create_llm_provider(self, player_id: str, profile: dict[str, Any]):
+        """Create and cache the LLM provider for a player."""
+        if player_id in self._llm_providers_by_player:
+            return self._llm_providers_by_player[player_id]
+
+        brain = (profile.get("brain") or "").strip().lower()
+        model = (profile.get("model") or "").strip() or None
+
+        from src.ai.llm import LLMConfig, OpenAIProvider, AnthropicProvider, OllamaProvider
+
+        config = LLMConfig()
+
+        if brain == "openai":
+            provider = OpenAIProvider(
+                api_key=config.openai_key,
+                model=model or config.openai_model,
+                timeout=config.timeout,
+            )
+        elif brain == "anthropic":
+            provider = AnthropicProvider(
+                api_key=config.anthropic_key,
+                model=model or config.anthropic_model,
+                timeout=config.timeout,
+            )
+        elif brain == "ollama":
+            provider = OllamaProvider(
+                host=config.ollama_host,
+                model=model or config.ollama_model,
+                timeout=config.timeout,
+            )
+        else:
+            raise RuntimeError(f"Unknown LLM brain: {brain}")
+
+        if not getattr(provider, "is_available", False):
+            raise RuntimeError(f"LLM provider '{brain}' not available (missing key or service down)")
+
+        self._llm_providers_by_player[player_id] = provider
+        return provider
+
+    def _build_llm_action_prompt(
+        self,
+        player_id: str,
+        state: GameState,
+        legal_actions: list[LegalAction],
+    ) -> str:
+        """Build a compact, model-friendly prompt describing state + legal actions."""
+        opponent_id = next((pid for pid in state.players if pid != player_id), None)
+        player = state.players.get(player_id)
+        opponent = state.players.get(opponent_id) if opponent_id else None
+
+        turn = getattr(self.game.turn_manager, "turn_number", 0)
+        phase = self.game.get_current_phase().name if hasattr(self.game, "get_current_phase") else ""
+        step = self.game.get_current_step().name if hasattr(self.game, "get_current_step") else ""
+        active_player = self.game.get_active_player() if hasattr(self.game, "get_active_player") else None
+
+        hand_summary = self._summarize_zone_cards(state, f"hand_{player_id}", max_cards=14, include_cost=True)
+        our_bf = self._summarize_battlefield(state, player_id, max_permanents=16)
+        opp_bf = self._summarize_battlefield(state, opponent_id, max_permanents=16) if opponent_id else "Unknown"
+        stack = self._summarize_zone_cards(state, "stack", max_cards=6, include_cost=False)
+
+        untapped_lands = self._count_untapped_lands(state, player_id)
+
+        # Legal action list.
+        action_lines = []
+        for i, la in enumerate(legal_actions):
+            line = f"{i}. {la.type.name} - {la.description or la.type.name}"
+            if la.card_id:
+                obj = state.objects.get(la.card_id)
+                if obj:
+                    cost = (obj.characteristics.mana_cost or "").strip()
+                    if cost:
+                        line += f" | Cost: {cost}"
+                    if obj.card_def and obj.card_def.text:
+                        text = (obj.card_def.text or "").replace("\n", " ").strip()
+                        if len(text) > 180:
+                            text = text[:177] + "..."
+                        line += f" | Text: {text}"
+            action_lines.append(line)
+
+        actions_block = "\n".join(action_lines) if action_lines else "0. PASS - Pass priority"
+
+        return (
+            "You have priority in a Magic: The Gathering game.\n"
+            "Pick the best legal action index.\n\n"
+            f"Turn: {turn}\n"
+            f"Phase/Step: {phase}/{step}\n"
+            f"Active player: {active_player}\n\n"
+            f"Life: you={player.life if player else '??'} opp={opponent.life if opponent else '??'}\n"
+            f"Untapped lands you control: {untapped_lands}\n\n"
+            f"Your hand: {hand_summary}\n"
+            f"Your battlefield: {our_bf}\n"
+            f"Opponent battlefield: {opp_bf}\n"
+            f"Stack: {stack}\n\n"
+            "Legal actions:\n"
+            f"{actions_block}\n\n"
+            'Respond with ONLY JSON: {"action_index": int, "reasoning": str}\n'
+        )
+
+    def _summarize_zone_cards(
+        self,
+        state: GameState,
+        zone_key: str,
+        max_cards: int = 12,
+        include_cost: bool = False,
+    ) -> str:
+        zone = state.zones.get(zone_key)
+        if not zone or not zone.objects:
+            return "Empty"
+
+        parts = []
+        for obj_id in zone.objects[:max_cards]:
+            obj = state.objects.get(obj_id)
+            if not obj:
+                continue
+            label = obj.name
+            if include_cost and getattr(obj, "characteristics", None):
+                cost = (obj.characteristics.mana_cost or "").strip()
+                if cost:
+                    label = f"{label} {cost}"
+            parts.append(label)
+
+        remaining = max(0, len(zone.objects) - max_cards)
+        if remaining:
+            parts.append(f"...(+{remaining} more)")
+
+        return ", ".join(parts) if parts else "Empty"
+
+    def _summarize_battlefield(
+        self,
+        state: GameState,
+        player_id: Optional[str],
+        max_permanents: int = 16,
+    ) -> str:
+        if not player_id:
+            return "Unknown"
+
+        battlefield = state.zones.get("battlefield")
+        if not battlefield or not battlefield.objects:
+            return "Empty"
+
+        from src.engine import CardType
+
+        parts = []
+        for obj_id in battlefield.objects:
+            obj = state.objects.get(obj_id)
+            if not obj or obj.controller != player_id:
+                continue
+
+            tapped = " (tapped)" if getattr(obj, "state", None) and obj.state.tapped else ""
+            chars = getattr(obj, "characteristics", None)
+            if chars and CardType.CREATURE in chars.types:
+                p = obj.characteristics.power or 0
+                t = obj.characteristics.toughness or 0
+                parts.append(f"{obj.name} {p}/{t}{tapped}")
+            else:
+                parts.append(f"{obj.name}{tapped}")
+
+            if len(parts) >= max_permanents:
+                break
+
+        if not parts:
+            return "Empty"
+
+        if len(parts) >= max_permanents:
+            parts.append("...(more)")
+
+        return ", ".join(parts)
+
+    def _count_untapped_lands(self, state: GameState, player_id: str) -> int:
+        from src.engine import CardType
+
+        battlefield = state.zones.get("battlefield")
+        if not battlefield:
+            return 0
+
+        count = 0
+        for obj_id in battlefield.objects:
+            obj = state.objects.get(obj_id)
+            if not obj or obj.controller != player_id:
+                continue
+            if CardType.LAND in obj.characteristics.types and not obj.state.tapped:
+                count += 1
+        return count
+
+    def _jsonify_choice_selected(self, selected: list[Any]) -> list[Any]:
+        """Best-effort conversion of choice selections into JSON-friendly primitives."""
+        out: list[Any] = []
+        for item in selected or []:
+            if hasattr(item, "id"):
+                out.append(getattr(item, "id"))
+            else:
+                out.append(item)
+        return out
+
+    def _serialize_processed_action(self, action: Optional[PlayerAction]) -> Optional[dict]:
+        """Convert an engine PlayerAction into a replay-friendly dict."""
+        if action is None:
+            return None
+
+        card_name = None
+        if action.card_id:
+            obj = self.game.state.objects.get(action.card_id)
+            if obj:
+                card_name = obj.name
+
+        return {
+            "kind": "action_processed",
+            "player_id": action.player_id,
+            "player_name": self.player_names.get(action.player_id, action.player_id),
+            "action_type": action.type.name if hasattr(action.type, "name") else str(action.type),
+            "card_id": action.card_id,
+            "card_name": card_name,
+            "ability_id": action.ability_id,
+            "source_id": action.source_id,
+            "targets": self._jsonify_action_targets(getattr(action, "targets", None)),
+            "x_value": getattr(action, "x_value", 0),
+            "modes": list(getattr(action, "modes", []) or []),
+            "data": self._jsonify_action_data(getattr(action, "data", {}) or {}),
+        }
+
+    def _jsonify_action_targets(self, targets) -> list[list[str]]:
+        """Convert engine Target objects to plain ids for JSON."""
+        if not targets:
+            return []
+
+        out: list[list[str]] = []
+        for group in targets:
+            if not group:
+                out.append([])
+                continue
+            grp: list[str] = []
+            for t in group:
+                if hasattr(t, "id"):
+                    grp.append(str(getattr(t, "id")))
+                else:
+                    grp.append(str(t))
+            out.append(grp)
+        return out
+
+    def _jsonify_action_data(self, data: dict) -> dict:
+        """
+        Best-effort conversion of PlayerAction.data into JSON.
+
+        This is primarily used for bot metadata (LLM prompts/reasoning). If any
+        value isn't JSON-serializable, we stringify it.
+        """
+        import json
+
+        if not data:
+            return {}
+
+        def coerce(value):
+            if value is None or isinstance(value, (bool, int, float, str)):
+                return value
+            if isinstance(value, list):
+                return [coerce(v) for v in value]
+            if isinstance(value, dict):
+                return {str(k): coerce(v) for k, v in value.items()}
+            try:
+                json.dumps(value)
+                return value
+            except Exception:
+                return str(value)
+
+        return coerce(data)  # type: ignore[return-value]
 
     def _get_attacks(
         self,
@@ -804,6 +1309,12 @@ class GameSession:
 
     def _record_frame(self, action: Optional[dict]) -> None:
         """Record a replay frame."""
+        if self.max_replay_frames and len(self.replay_frames) >= self.max_replay_frames:
+            if not self._replay_truncated:
+                self._replay_truncated = True
+                print(f"Replay frame cap reached for session {self.id} ({self.max_replay_frames}); truncating replay.")
+            return
+
         state = self.get_client_state()
         frame = ReplayFrame(
             turn=state.turn_number,

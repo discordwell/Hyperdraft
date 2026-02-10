@@ -28,6 +28,14 @@ class AIDifficulty(str, Enum):
     ULTRA = "ultra"
 
 
+class BotBrain(str, Enum):
+    """Controller type for bot players."""
+    HEURISTIC = "heuristic"   # Built-in heuristic AIEngine
+    OPENAI = "openai"         # OpenAI API models (requires OPENAI_API_KEY)
+    ANTHROPIC = "anthropic"   # Anthropic API models (requires ANTHROPIC_API_KEY)
+    OLLAMA = "ollama"         # Local Ollama models (requires Ollama running)
+
+
 class ActionType(str, Enum):
     """Player action types."""
     PASS = "PASS"
@@ -86,7 +94,17 @@ class StartBotGameRequest(BaseModel):
     bot2_deck: list[str] = Field(default_factory=list)
     bot1_difficulty: AIDifficulty = AIDifficulty.MEDIUM
     bot2_difficulty: AIDifficulty = AIDifficulty.MEDIUM
-    delay_ms: int = Field(default=1000, ge=100, le=5000, description="Delay between actions in ms")
+    bot1_brain: BotBrain = BotBrain.HEURISTIC
+    bot2_brain: BotBrain = BotBrain.HEURISTIC
+    bot1_model: Optional[str] = Field(default=None, description="Model id (for OpenAI/Anthropic/Ollama brains)")
+    bot2_model: Optional[str] = Field(default=None, description="Model id (for OpenAI/Anthropic/Ollama brains)")
+    bot1_name: Optional[str] = Field(default=None, description="Override display name for bot 1")
+    bot2_name: Optional[str] = Field(default=None, description="Override display name for bot 2")
+    bot1_temperature: float = Field(default=0.2, ge=0.0, le=1.0)
+    bot2_temperature: float = Field(default=0.2, ge=0.0, le=1.0)
+    record_prompts: bool = Field(default=False, description="Store LLM prompts in replay frames (debug)")
+    max_replay_frames: int = Field(default=5000, ge=100, le=50000, description="Cap replay frames to avoid OOM")
+    delay_ms: int = Field(default=1000, ge=0, le=5000, description="Delay between actions in ms")
 
 
 class SubmitChoiceRequest(BaseModel):

@@ -106,6 +106,8 @@ export const botGameAPI = {
         bot2_deck: [],
         bot1_difficulty: 'medium',
         bot2_difficulty: 'medium',
+        bot1_brain: 'heuristic',
+        bot2_brain: 'heuristic',
         delay_ms: 1000,
         ...request,
       }),
@@ -117,8 +119,13 @@ export const botGameAPI = {
   getStatus: (gameId: string): Promise<BotGameStatus> =>
     fetchAPI(`/bot-game/${gameId}/status`),
 
-  getReplay: (gameId: string): Promise<ReplayResponse> =>
-    fetchAPI(`/bot-game/${gameId}/replay`),
+  getReplay: (gameId: string, options?: { since?: number; limit?: number }): Promise<ReplayResponse> => {
+    const params = new URLSearchParams();
+    if (options?.since !== undefined) params.set('since', options.since.toString());
+    if (options?.limit !== undefined) params.set('limit', options.limit.toString());
+    const query = params.toString();
+    return fetchAPI(`/bot-game/${gameId}/replay${query ? `?${query}` : ''}`);
+  },
 
   list: (status?: 'running' | 'finished'): Promise<{ games: BotGameStatus[]; total: number }> => {
     const params = status ? `?status=${status}` : '';

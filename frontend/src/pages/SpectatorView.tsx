@@ -8,7 +8,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { botGameAPI } from '../services/api';
 import { GameBoard } from '../components/game';
-import type { GameState, BotGameStatus } from '../types';
+import type { GameState, BotGameStatus, ReplayFrame } from '../types';
 
 export function SpectatorView() {
   const { gameId } = useParams<{ gameId: string }>();
@@ -20,6 +20,8 @@ export function SpectatorView() {
   const [isLoading, setIsLoading] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
   const [pollInterval, setPollInterval] = useState(1500);
+  const [replayCursor, setReplayCursor] = useState(0);
+  const [recentFrames, setRecentFrames] = useState<ReplayFrame[]>([]);
 
   // Fetch game state
   const fetchState = useCallback(async () => {
@@ -51,6 +53,27 @@ export function SpectatorView() {
     }
   }, [gameId, isPaused]);
 
+  const fetchReplayFrames = useCallback(async () => {
+    if (!gameId || isPaused) return;
+
+    try {
+      const replay = await botGameAPI.getReplay(gameId, { since: replayCursor, limit: 200 });
+      if (replay.frames && replay.frames.length) {
+        setRecentFrames((prev) => [...prev, ...replay.frames].slice(-80));
+        setReplayCursor((c) => c + replay.frames.length);
+      }
+    } catch {
+      // Non-fatal; replay frames may not be ready early in match.
+    }
+  }, [gameId, isPaused, replayCursor]);
+
+  // Reset replay cursor when navigating to a new game
+  useEffect(() => {
+    if (!gameId) return;
+    setReplayCursor(0);
+    setRecentFrames([]);
+  }, [gameId]);
+
   // Initial fetch
   useEffect(() => {
     fetchState();
@@ -63,6 +86,17 @@ export function SpectatorView() {
     const interval = setInterval(fetchState, pollInterval);
     return () => clearInterval(interval);
   }, [gameId, status?.status, isPaused, pollInterval, fetchState]);
+
+  // Poll for replay frames (reasoning / action log)
+  useEffect(() => {
+    if (!gameId || isPaused) return;
+    const interval = setInterval(fetchReplayFrames, pollInterval);
+    return () => clearInterval(interval);
+  }, [gameId, isPaused, pollInterval, fetchReplayFrames]);
+
+  const lastDecision = [...recentFrames].reverse().find((f) => (f.action as any)?.kind === 'action_processed');
+  const lastAction = lastDecision?.action as any;
+  const lastAi = lastAction?.data?.ai;
 
   // Handle speed change
   const handleSpeedChange = (speed: number) => {
@@ -176,6 +210,21 @@ export function SpectatorView() {
         </div>
       </div>
 
+      {/* Last Decision Strip */}
+      {lastDecision && (
+        <div className="bg-gray-900/60 border-b border-gray-800 px-4 py-2 text-xs text-gray-200">
+          <span className="text-gray-400">Last:</span>{' '}
+          <span className="font-semibold text-white">{lastAction?.player_name || lastAction?.player_id}</span>{' '}
+          <span className="text-gray-300">{lastAction?.action_type}{lastAction?.card_name ? ` ${lastAction.card_name}` : ''}</span>
+          {typeof lastAi?.reasoning === 'string' && lastAi.reasoning.trim() && (
+            <span className="text-gray-400"> {' '}| {lastAi.reasoning}</span>
+          )}
+          {typeof lastAi?.model === 'string' && (
+            <span className="text-gray-500"> {' '}({lastAi.model})</span>
+          )}
+        </div>
+      )}
+
       {/* Game Board */}
       <div className="flex-1 relative">
         {gameState ? (
@@ -209,6 +258,14 @@ export function SpectatorView() {
                   className="px-6 py-3 bg-game-accent text-white rounded-lg font-bold hover:bg-red-500"
                 >
                   Back to Menu
+                </button>
+                <button
+                  onClick={() => {
+                    if (gameId) navigate(`/replay/${gameId}`);
+                  }}
+                  className="px-6 py-3 bg-gray-800 text-white rounded-lg font-bold hover:bg-gray-700 border border-gray-600"
+                >
+                  Replay
                 </button>
                 <button
                   onClick={async () => {
