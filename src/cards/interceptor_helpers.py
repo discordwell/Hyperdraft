@@ -137,11 +137,19 @@ def make_death_trigger(
     def default_filter(event: Event, state: GameState, obj: GameObject) -> bool:
         # Primary check: OBJECT_DESTROYED for this creature
         if event.type == EventType.OBJECT_DESTROYED:
-            return event.payload.get('object_id') == obj.id
+            if event.payload.get('object_id') != obj.id:
+                return False
+            # "Dies" means the object actually went to a graveyard. Replacement
+            # effects (Rest in Peace, Unearth, etc.) can change the destination.
+            resolved = state.objects.get(obj.id)
+            return bool(resolved and resolved.zone == ZoneType.GRAVEYARD)
 
         # Sacrifice is also a "dies" event when it moves from battlefield to graveyard.
         if event.type == EventType.SACRIFICE:
-            return event.payload.get('object_id') == obj.id
+            if event.payload.get('object_id') != obj.id:
+                return False
+            resolved = state.objects.get(obj.id)
+            return bool(resolved and resolved.zone == ZoneType.GRAVEYARD)
 
         # Fallback: ZONE_CHANGE from battlefield to graveyard (for exile->graveyard, etc.)
         if event.type == EventType.ZONE_CHANGE:

@@ -532,7 +532,7 @@ def test_ai_can_jump_start_from_graveyard_and_pay_discard_cost():
             card_def=island_def,
         )
 
-    ai = AIEngine(difficulty="medium")
+    ai = AIEngine(difficulty="ultra")
     legal = game.priority_system.get_legal_actions(p1.id)
     action = ai.get_action(p1.id, game.state, legal)
     assert action.type == ActionType.CAST_SPELL
@@ -556,3 +556,323 @@ def test_ai_can_jump_start_from_graveyard_and_pay_discard_cost():
         game.emit(e)
 
     assert jump_obj.zone == ZoneType.EXILE
+
+
+def test_disturb_cast_from_graveyard_exiles_on_resolution():
+    game = Game()
+    p1 = game.add_player("P1")
+    game.add_player("P2")
+
+    disturb_def = _make_noop_instant(
+        name="Test Disturb Spell",
+        mana_cost="{1}{U}",
+        text="Disturb {2}{U} (You may cast this card from your graveyard transformed for its disturb cost.)",
+    )
+    gy_spell = game.create_object(
+        name=disturb_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=disturb_def.characteristics,
+        card_def=disturb_def,
+    )
+
+    island_def = make_land("Island", subtypes={"Island"})
+    for _ in range(3):
+        game.create_object(
+            name="Island",
+            owner_id=p1.id,
+            zone=ZoneType.BATTLEFIELD,
+            characteristics=island_def.characteristics,
+            card_def=island_def,
+        )
+
+    action = PlayerAction(type=ActionType.CAST_SPELL, player_id=p1.id, card_id=gy_spell.id)
+    asyncio.run(game.priority_system._handle_cast_spell(action))
+    assert gy_spell.zone == ZoneType.STACK
+
+    for e in game.resolve_stack():
+        game.emit(e)
+
+    assert gy_spell.zone == ZoneType.EXILE
+
+
+def test_unearth_activated_ability_returns_and_exiles_at_end_step():
+    game = Game()
+    p1 = game.add_player("P1")
+    game.add_player("P2")
+
+    _set_active_main(game, p1.id)
+    game.state.turn_number = 1
+
+    unearth_def = make_creature(
+        name="Test Unearth Creature",
+        power=3,
+        toughness=3,
+        mana_cost="{3}{B}",
+        colors={Color.BLACK},
+        text=(
+            "Unearth {B} ({B}: Return this card from your graveyard to the battlefield. "
+            "It gains haste. Exile it at the beginning of the next end step or if it would leave the battlefield. "
+            "Unearth only as a sorcery.)"
+        ),
+    )
+    gy_creature = game.create_object(
+        name=unearth_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=unearth_def.characteristics,
+        card_def=unearth_def,
+    )
+
+    swamp_def = make_land("Swamp", subtypes={"Swamp"})
+    game.create_object(
+        name="Swamp",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=swamp_def.characteristics,
+        card_def=swamp_def,
+    )
+
+    legal = game.priority_system.get_legal_actions(p1.id)
+    assert any(
+        a.type == ActionType.ACTIVATE_ABILITY
+        and a.source_id == gy_creature.id
+        and a.ability_id == "graveyard:unearth"
+        for a in legal
+    )
+
+    action = PlayerAction(
+        type=ActionType.ACTIVATE_ABILITY,
+        player_id=p1.id,
+        source_id=gy_creature.id,
+        ability_id="graveyard:unearth",
+    )
+    asyncio.run(game.priority_system._execute_action(action))
+    assert gy_creature.zone == ZoneType.GRAVEYARD
+
+    for e in game.resolve_stack():
+        game.emit(e)
+
+    assert gy_creature.zone == ZoneType.BATTLEFIELD
+    assert "haste" in gy_creature.characteristics.keywords
+
+    # Next end step: it should be exiled.
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={"phase": "end_step", "step": "end_step", "active_player": p1.id, "turn_number": 1},
+        controller=p1.id,
+    ))
+    assert gy_creature.zone == ZoneType.EXILE
+
+
+def test_unearth_exiles_instead_of_graveyard_if_destroyed():
+    game = Game()
+    p1 = game.add_player("P1")
+    game.add_player("P2")
+
+    _set_active_main(game, p1.id)
+    game.state.turn_number = 1
+
+    unearth_def = make_creature(
+        name="Test Unearth Creature",
+        power=2,
+        toughness=2,
+        mana_cost="{2}{B}",
+        colors={Color.BLACK},
+        text="Unearth {B} ({B}: Return this card from your graveyard to the battlefield. Unearth only as a sorcery.)",
+    )
+    gy_creature = game.create_object(
+        name=unearth_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=unearth_def.characteristics,
+        card_def=unearth_def,
+    )
+
+    swamp_def = make_land("Swamp", subtypes={"Swamp"})
+    game.create_object(
+        name="Swamp",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=swamp_def.characteristics,
+        card_def=swamp_def,
+    )
+
+    action = PlayerAction(
+        type=ActionType.ACTIVATE_ABILITY,
+        player_id=p1.id,
+        source_id=gy_creature.id,
+        ability_id="graveyard:unearth",
+    )
+    asyncio.run(game.priority_system._execute_action(action))
+    for e in game.resolve_stack():
+        game.emit(e)
+    assert gy_creature.zone == ZoneType.BATTLEFIELD
+
+    game.emit(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": gy_creature.id}))
+    assert gy_creature.zone == ZoneType.EXILE
+
+
+def test_embalm_exiles_card_on_activation_and_creates_white_zombie_token():
+    game = Game()
+    p1 = game.add_player("P1")
+    game.add_player("P2")
+
+    _set_active_main(game, p1.id)
+    game.state.turn_number = 1
+
+    embalm_def = make_creature(
+        name="Test Embalm Creature",
+        power=2,
+        toughness=1,
+        mana_cost="{2}{W}",
+        colors={Color.WHITE},
+        subtypes={"Cleric"},
+        text="Embalm {1}{W} ({1}{W}, Exile this card from your graveyard: Create a token that's a copy of it, except it's a white Zombie in addition to its other types and has no mana cost. Embalm only as a sorcery.)",
+    )
+    gy_creature = game.create_object(
+        name=embalm_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=embalm_def.characteristics,
+        card_def=embalm_def,
+    )
+
+    plains_def = make_land("Plains", subtypes={"Plains"})
+    for _ in range(2):
+        game.create_object(
+            name="Plains",
+            owner_id=p1.id,
+            zone=ZoneType.BATTLEFIELD,
+            characteristics=plains_def.characteristics,
+            card_def=plains_def,
+        )
+
+    action = PlayerAction(
+        type=ActionType.ACTIVATE_ABILITY,
+        player_id=p1.id,
+        source_id=gy_creature.id,
+        ability_id="graveyard:embalm",
+    )
+    asyncio.run(game.priority_system._execute_action(action))
+    assert gy_creature.zone == ZoneType.EXILE
+
+    for e in game.resolve_stack():
+        game.emit(e)
+
+    tokens = [
+        game.state.objects[oid]
+        for oid in game.state.zones["battlefield"].objects
+        if game.state.objects[oid].state.is_token
+    ]
+    assert len(tokens) == 1
+    token = tokens[0]
+    assert token.name == gy_creature.name
+    assert token.characteristics.colors == {Color.WHITE}
+    assert "Zombie" in token.characteristics.subtypes
+    assert token.characteristics.power == 2
+    assert token.characteristics.toughness == 1
+    assert token.characteristics.mana_cost is None
+
+
+def test_eternalize_exiles_card_on_activation_and_creates_black_4_4_zombie_token():
+    game = Game()
+    p1 = game.add_player("P1")
+    game.add_player("P2")
+
+    _set_active_main(game, p1.id)
+    game.state.turn_number = 1
+
+    eternalize_def = make_creature(
+        name="Test Eternalize Creature",
+        power=1,
+        toughness=1,
+        mana_cost="{2}{B}",
+        colors={Color.BLACK},
+        subtypes={"Wizard"},
+        text="Eternalize {3}{B} ({3}{B}, Exile this card from your graveyard: Create a token that's a copy of it, except it's a 4/4 black Zombie creature with no mana cost. Eternalize only as a sorcery.)",
+    )
+    gy_creature = game.create_object(
+        name=eternalize_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=eternalize_def.characteristics,
+        card_def=eternalize_def,
+    )
+
+    swamp_def = make_land("Swamp", subtypes={"Swamp"})
+    for _ in range(4):
+        game.create_object(
+            name="Swamp",
+            owner_id=p1.id,
+            zone=ZoneType.BATTLEFIELD,
+            characteristics=swamp_def.characteristics,
+            card_def=swamp_def,
+        )
+
+    action = PlayerAction(
+        type=ActionType.ACTIVATE_ABILITY,
+        player_id=p1.id,
+        source_id=gy_creature.id,
+        ability_id="graveyard:eternalize",
+    )
+    asyncio.run(game.priority_system._execute_action(action))
+    assert gy_creature.zone == ZoneType.EXILE
+
+    for e in game.resolve_stack():
+        game.emit(e)
+
+    tokens = [
+        game.state.objects[oid]
+        for oid in game.state.zones["battlefield"].objects
+        if game.state.objects[oid].state.is_token
+    ]
+    assert len(tokens) == 1
+    token = tokens[0]
+    assert token.name == gy_creature.name
+    assert token.characteristics.colors == {Color.BLACK}
+    assert "Zombie" in token.characteristics.subtypes
+    assert token.characteristics.power == 4
+    assert token.characteristics.toughness == 4
+    assert token.characteristics.mana_cost is None
+
+
+def test_ai_can_choose_unearth_activation_from_graveyard():
+    game = Game()
+    p1 = game.add_player("P1")
+    game.add_player("P2")
+
+    _set_active_main(game, p1.id)
+    game.state.turn_number = 1
+
+    unearth_def = make_creature(
+        name="AI Unearth Creature",
+        power=4,
+        toughness=4,
+        mana_cost="{5}{B}",
+        colors={Color.BLACK},
+        text="Unearth {B} ({B}: Return this card from your graveyard to the battlefield. Unearth only as a sorcery.)",
+    )
+    gy_creature = game.create_object(
+        name=unearth_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=unearth_def.characteristics,
+        card_def=unearth_def,
+    )
+
+    swamp_def = make_land("Swamp", subtypes={"Swamp"})
+    game.create_object(
+        name="Swamp",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=swamp_def.characteristics,
+        card_def=swamp_def,
+    )
+
+    ai = AIEngine(difficulty="ultra")
+    legal = game.priority_system.get_legal_actions(p1.id)
+    action = ai.get_action(p1.id, game.state, legal)
+    assert action.type == ActionType.ACTIVATE_ABILITY
+    assert action.source_id == gy_creature.id
+    assert action.ability_id == "graveyard:unearth"

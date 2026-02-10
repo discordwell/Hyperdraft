@@ -514,6 +514,17 @@ def _handle_zone_change(event: Event, state: GameState):
     if to_zone_type is not None:
         event.payload['to_zone_type'] = to_zone_type
 
+    # Replacement: per-object "exile if it would leave the battlefield" (Unearth, etc.).
+    # This is distinct from the global "exile instead of graveyard" replacement.
+    if from_zone_type == ZoneType.BATTLEFIELD:
+        exile_on_leave = bool(getattr(getattr(obj, "state", None), "_exile_on_leave_battlefield", False))
+        if exile_on_leave and to_zone_type is not None and to_zone_type != ZoneType.EXILE:
+            to_zone_type = ZoneType.EXILE
+            to_zone = "exile"
+            event.payload["to_zone_type"] = ZoneType.EXILE
+            event.payload["to_zone"] = "exile"
+            event.payload["replacement"] = "exile_on_leave_battlefield"
+
     # Replacement: "exile instead of graveyard" (Rest in Peace, etc.).
     # We apply this as a last-mile destination rewrite for ZONE_CHANGE events
     # targeting a graveyard zone.
@@ -1217,12 +1228,13 @@ def _handle_object_destroyed(event: Event, state: GameState):
 
     obj = state.objects[object_id]
     owner_id = obj.owner
+    exile_on_leave = bool(getattr(getattr(obj, "state", None), "_exile_on_leave_battlefield", False))
 
     # Remove from any zone that currently references it (robust).
     _remove_object_from_all_zones(object_id, state)
 
     # Add to owner's graveyard (or exile, if a replacement effect applies).
-    if _exile_instead_of_graveyard_active(owner_id, state):
+    if exile_on_leave or _exile_instead_of_graveyard_active(owner_id, state):
         dest_key = "exile"
         dest_type = ZoneType.EXILE
     else:
@@ -1254,6 +1266,7 @@ def _handle_sacrifice(event: Event, state: GameState):
         return
 
     obj = state.objects[object_id]
+    exile_on_leave = bool(getattr(getattr(obj, "state", None), "_exile_on_leave_battlefield", False))
 
     # Sacrifices only apply to permanents on the battlefield.
     if obj.zone != ZoneType.BATTLEFIELD:
@@ -1270,7 +1283,7 @@ def _handle_sacrifice(event: Event, state: GameState):
     _remove_object_from_all_zones(object_id, state)
 
     # Add to owner's graveyard (or exile, if a replacement effect applies).
-    if _exile_instead_of_graveyard_active(owner_id, state):
+    if exile_on_leave or _exile_instead_of_graveyard_active(owner_id, state):
         dest_key = "exile"
         dest_type = ZoneType.EXILE
     else:
