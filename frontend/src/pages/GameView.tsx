@@ -9,7 +9,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useGame } from '../hooks/useGame';
 import { useGameStore } from '../stores/gameStore';
 import { useDragDropStore } from '../hooks/useDragDrop';
-import { GameBoard } from '../components/game';
+import { GameBoard, GraveyardModal } from '../components/game';
 import { ActionMenu, TargetPicker, ChoiceModal } from '../components/actions';
 import { matchAPI } from '../services/api';
 import type { CardData, LegalActionData } from '../types';
@@ -29,6 +29,7 @@ export function GameView() {
     playLand,
     selectCard,
     selectAction,
+    startTargeting,
     addTarget,
     cancelTargeting,
     confirmTargets,
@@ -211,14 +212,17 @@ export function GameView() {
     (action: LegalActionData) => {
       selectAction(action);
 
-      // If it's a cast spell action on a specific card, handle it
-      if (action.type === 'CAST_SPELL' && action.card_id) {
-        castSpell(action.card_id);
-      } else if (action.type === 'PLAY_LAND' && action.card_id) {
-        playLand(action.card_id);
+      // If this action requires targets, enter targeting mode.
+      // Server will validate targets; we use a broad allow-list client-side.
+      if (action.type === 'CAST_SPELL' && action.requires_targets && gameState) {
+        const validTargets = [
+          ...gameState.battlefield.map((c) => c.id),
+          ...Object.keys(gameState.players),
+        ];
+        startTargeting('single', validTargets);
       }
     },
-    [selectAction, castSpell, playLand]
+    [selectAction, startTargeting, gameState]
   );
 
   // Handle confirm action
@@ -256,6 +260,7 @@ export function GameView() {
 
   // Track choice submission loading state
   const [isSubmittingChoice, setIsSubmittingChoice] = useState(false);
+  const [isGraveyardOpen, setIsGraveyardOpen] = useState(false);
 
   // Check if there's a pending choice for this player
   const pendingChoice = useMemo(() => {
@@ -288,6 +293,33 @@ export function GameView() {
   const graveyardLookup = useMemo(() => {
     return gameState?.graveyard || {};
   }, [gameState?.graveyard]);
+
+  const myGraveyard = useMemo(() => {
+    if (!gameState || !playerId) return [];
+    return gameState.graveyard?.[playerId] || [];
+  }, [gameState, playerId]);
+
+  const handleGraveyardCast = useCallback(
+    (action: LegalActionData) => {
+      setIsGraveyardOpen(false);
+      selectAction(action);
+
+      if (!gameState) return;
+
+      if (action.type === 'CAST_SPELL' && action.requires_targets) {
+        const validTargets = [
+          ...gameState.battlefield.map((c) => c.id),
+          ...Object.keys(gameState.players),
+        ];
+        startTargeting('single', validTargets);
+        return;
+      }
+
+      // Fire immediately for non-targeted casts (consistent with hand drag-cast).
+      setTimeout(() => sendAction(), 0);
+    },
+    [gameState, selectAction, startTargeting, sendAction]
+  );
 
   // Keyboard shortcuts for auto-pass
   useEffect(() => {
@@ -367,6 +399,16 @@ export function GameView() {
             isLoading={isSubmittingChoice}
           />
         )}
+
+        {/* Graveyard Modal */}
+        <GraveyardModal
+          isOpen={isGraveyardOpen}
+          cards={myGraveyard}
+          legalActions={gameState.legal_actions}
+          canAct={canAct()}
+          onClose={() => setIsGraveyardOpen(false)}
+          onCast={handleGraveyardCast}
+        />
       </div>
 
       {/* Sidebar */}
@@ -407,6 +449,20 @@ export function GameView() {
             onSetAutoPassMode={setAutoPassMode}
             onPassUntilEndOfTurn={enablePassUntilEndOfTurn}
           />
+
+          {/* Zones */}
+          <div className="mt-6 pt-4 border-t border-gray-700">
+            <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">
+              Zones
+            </div>
+            <button
+              onClick={() => setIsGraveyardOpen(true)}
+              className="w-full px-3 py-2 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 transition-all text-sm font-semibold"
+              title="View your graveyard"
+            >
+              Graveyard ({myGraveyard.length})
+            </button>
+          </div>
 
           {/* Error Display */}
           {ui.error && (
