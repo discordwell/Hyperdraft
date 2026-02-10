@@ -304,7 +304,8 @@ class PrioritySystem:
                     continue
 
                 std_plan = self._get_standard_additional_cost_plan(card)
-                for option in self._get_graveyard_cast_options(card, player_id):
+                options = self._get_graveyard_cast_options(card, player_id)
+                for idx, option in enumerate(options):
                     cost_for_ui = option.alt_mana_cost or ManaCost.parse(card.characteristics.mana_cost or "")
                     full_plan = self._concat_cost_plans(std_plan, option.additional_cost_plan)
                     ctx = CastCostContext(
@@ -334,6 +335,7 @@ class PrioritySystem:
                     actions.append(LegalAction(
                         type=ActionType.CAST_SPELL,
                         card_id=card_id,
+                        ability_id=self._cast_option_ability_id(ZoneType.GRAVEYARD, idx, option),
                         description=desc,
                         requires_mana=not cost_for_ui.is_free(),
                         mana_cost=cost_for_ui
@@ -371,6 +373,26 @@ class PrioritySystem:
         if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
             text = card.card_def.text or ""
         return extract_additional_cost_plan(text)
+
+    def _cast_option_ability_id(self, zone: ZoneType, idx: int, option: CastOption) -> str:
+        """
+        Produce a stable identifier for a specific cast option.
+
+        We use LegalAction.ability_id for cast actions to disambiguate multiple
+        supported ways to cast the same card (e.g., flashback vs harmonize).
+        """
+        suffix = (option.description_suffix or "").strip().lower()
+        suffix = re.sub(r"\s+", "_", suffix)
+        suffix = re.sub(r"[^a-z0-9_]+", "", suffix)
+
+        cost_key = "printed"
+        if option.alt_mana_cost is not None:
+            # Strip braces so the id is safe for UI keys/URLs.
+            cost_key = option.alt_mana_cost.to_string().replace("{", "").replace("}", "")
+            cost_key = cost_key.replace("/", "_")
+
+        # Include idx to guarantee uniqueness even if two options share a label/cost.
+        return f"cast:{zone.name.lower()}:{idx}:{suffix}:{cost_key}"
 
     def _concat_cost_plans(self, a: Optional[CostPlan], b: Optional[CostPlan]) -> Optional[CostPlan]:
         if not a and not b:
@@ -907,7 +929,17 @@ class PrioritySystem:
             if not options:
                 return []
 
-            chosen = options[0]
+            chosen = None
+            if action.ability_id:
+                for idx, opt in enumerate(options):
+                    if action.ability_id == self._cast_option_ability_id(ZoneType.GRAVEYARD, idx, opt):
+                        chosen = opt
+                        break
+                if chosen is None:
+                    # Client asked for an option we don't currently recognize as legal.
+                    return []
+            else:
+                chosen = options[0]
             option_plan = chosen.additional_cost_plan
 
             used_flashback = bool(chosen.metadata.get("flashback"))

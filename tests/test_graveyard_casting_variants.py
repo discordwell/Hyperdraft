@@ -200,3 +200,69 @@ def test_mayhem_cast_from_graveyard_uses_mayhem_cost_and_does_not_exile():
     assert hand_card.id in game.state.zones[f"graveyard_{p1.id}"].objects
     assert hand_card.id not in game.state.zones["exile"].objects
 
+
+def test_graveyard_cast_action_ability_id_selects_correct_option():
+    """
+    If a card has multiple supported graveyard-cast options, the client must be
+    able to choose which one. We use LegalAction.ability_id to disambiguate.
+    """
+    game = Game()
+    p1 = game.add_player("P1")
+    game.add_player("P2")
+
+    def noop_resolve(targets, state):
+        return []
+
+    dual = make_instant(
+        name="Test Dual Graveyard Instant",
+        mana_cost="{1}{U}",
+        colors={Color.BLUE},
+        text=(
+            "Flashback {3}{U} (You may cast this card from your graveyard for its flashback cost. Then exile it.)\n"
+            "Harmonize {2}{U} (You may cast this card from your graveyard for its harmonize cost. Then exile this spell.)"
+        ),
+        resolve=noop_resolve,
+    )
+
+    gy_card = game.create_object(
+        name=dual.name,
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=dual.characteristics,
+        card_def=dual,
+    )
+
+    island_def = make_land("Island", subtypes={"Island"})
+    for _ in range(4):
+        game.create_object(
+            name="Island",
+            owner_id=p1.id,
+            zone=ZoneType.BATTLEFIELD,
+            characteristics=island_def.characteristics,
+            card_def=island_def,
+        )
+
+    legal = game.priority_system.get_legal_actions(p1.id)
+    options = [
+        a for a in legal
+        if a.type == ActionType.CAST_SPELL and a.card_id == gy_card.id
+    ]
+    assert len(options) >= 2, "Expected multiple graveyard cast options"
+    assert all(a.ability_id for a in options), "Expected cast options to include ability_id"
+
+    harmonize_action = next(
+        a for a in options if "harmonize" in a.description.lower()
+    )
+
+    action = PlayerAction(
+        type=ActionType.CAST_SPELL,
+        player_id=p1.id,
+        card_id=gy_card.id,
+        ability_id=harmonize_action.ability_id,
+    )
+    asyncio.run(game.priority_system._handle_cast_spell(action))
+    assert gy_card.zone == ZoneType.STACK
+
+    battlefield = game.state.zones["battlefield"].objects
+    tapped = sum(1 for oid in battlefield if game.state.objects[oid].state.tapped)
+    assert tapped == 3, f"Expected 3 tapped lands for harmonize cost, got {tapped}"

@@ -43,6 +43,16 @@ export function ActionMenu({
   // Filter out PASS from the actions list (we have a dedicated button)
   const displayActions = actions.filter((a) => a.type !== 'PASS');
 
+  const isSameAction = (a: LegalActionData | null | undefined, b: LegalActionData): boolean => {
+    if (!a) return false;
+    return (
+      a.type === b.type &&
+      a.card_id === b.card_id &&
+      a.ability_id === b.ability_id &&
+      a.source_id === b.source_id
+    );
+  };
+
   // Determine if auto-pass is actively working
   const isAutoPassing = autoPassMode !== 'off' && !hasActionsOtherThanPass;
 
@@ -89,16 +99,14 @@ export function ActionMenu({
           <div className="flex flex-wrap gap-2 mb-3">
             {displayActions.map((action, idx) => (
               <button
-                key={`${action.type}-${action.card_id || action.ability_id || idx}`}
+                key={`${action.type}:${action.card_id ?? 'none'}:${action.ability_id ?? 'none'}:${action.source_id ?? 'none'}:${idx}`}
                 className={clsx(
                   'px-3 py-2 rounded text-sm font-semibold transition-all',
                   {
                     'bg-blue-600 text-white hover:bg-blue-500':
-                      selectedAction?.card_id === action.card_id &&
-                      selectedAction?.type === action.type,
+                      isSameAction(selectedAction, action),
                     'bg-gray-700 text-gray-200 hover:bg-gray-600':
-                      selectedAction?.card_id !== action.card_id ||
-                      selectedAction?.type !== action.type,
+                      !isSameAction(selectedAction, action),
                     'opacity-50 cursor-not-allowed': isLoading,
                   }
                 )}
