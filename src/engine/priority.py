@@ -18,10 +18,22 @@ from enum import Enum, auto
 import asyncio
 import re
 
-from .types import GameState, Event, EventType, CardType, ZoneType
+from .types import GameState, Event, EventType, CardType, ZoneType, PendingChoice
 from .stack import StackManager, StackItem, StackItemType
 from .mana import ManaSystem, ManaCost, ManaType
 from .pipeline import EventPipeline
+from .casting_costs import (
+    CastCostContext,
+    CostPlan, CostStep,
+    extract_additional_cost_plan,
+    extract_graveyard_permission_cost_plan,
+    add_mana_costs,
+    eligible_hand_cards,
+    eligible_battlefield_permanents,
+    eligible_graveyard_cards,
+    total_counters_on_creatures_you_control,
+    describe_plan,
+)
 
 if TYPE_CHECKING:
     from .turn import TurnManager
@@ -32,6 +44,21 @@ if TYPE_CHECKING:
 _FLASHBACK_COST_RE = re.compile(r'flashback\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
 _HARMONIZE_COST_RE = re.compile(r'harmonize\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
 _MAYHEM_COST_RE = re.compile(r'mayhem\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class CastOption:
+    """
+    A specific way to cast a spell (e.g., flashback from graveyard, normal cast from hand).
+
+    - alt_mana_cost: the cost paid to cast (None = use printed mana cost)
+    - additional_cost_plan: extra non-mana and/or extra-mana costs that must be paid
+      (e.g., "As an additional cost..., discard a card" or "pay 2 life and sacrifice...").
+    """
+    description_suffix: str
+    alt_mana_cost: Optional[ManaCost]
+    metadata: dict
+    additional_cost_plan: Optional[CostPlan] = None
 
 
 class ActionType(Enum):
@@ -239,12 +266,30 @@ class PrioritySystem:
         if hand:
             for card_id in hand.objects:
                 card = self.state.objects.get(card_id)
-                if card and self._can_cast(card, player_id):
-                    cost = ManaCost.parse(card.characteristics.mana_cost or "")
+                if not card:
+                    continue
+
+                cost = ManaCost.parse(card.characteristics.mana_cost or "")
+                std_plan = self._get_standard_additional_cost_plan(card)
+                ctx = CastCostContext(
+                    state=self.state,
+                    mana_system=self.mana_system,
+                    player_id=player_id,
+                    casting_card_id=card_id,
+                    casting_card_name=card.name,
+                    casting_zone=card.zone,
+                    base_mana_cost=cost,
+                    x_value=0,
+                )
+
+                if self._can_cast(card, player_id) and self._can_pay_cost_plan(std_plan, ctx):
+                    desc = f"Cast {card.name}"
+                    if std_plan:
+                        desc = f"{desc} ({describe_plan(std_plan)})"
                     actions.append(LegalAction(
                         type=ActionType.CAST_SPELL,
                         card_id=card_id,
-                        description=f"Cast {card.name}",
+                        description=desc,
                         requires_mana=not cost.is_free(),
                         mana_cost=cost
                     ))
@@ -258,21 +303,38 @@ class PrioritySystem:
                 if not card or card.owner != player_id:
                     continue
 
-                for desc_suffix, alt_cost, metadata in self._get_graveyard_cast_options(card, player_id):
-                    if alt_cost is None:
-                        # Uses printed cost; still validate castability/mana.
+                std_plan = self._get_standard_additional_cost_plan(card)
+                for option in self._get_graveyard_cast_options(card, player_id):
+                    cost_for_ui = option.alt_mana_cost or ManaCost.parse(card.characteristics.mana_cost or "")
+                    full_plan = self._concat_cost_plans(std_plan, option.additional_cost_plan)
+                    ctx = CastCostContext(
+                        state=self.state,
+                        mana_system=self.mana_system,
+                        player_id=player_id,
+                        casting_card_id=card_id,
+                        casting_card_name=card.name,
+                        casting_zone=card.zone,
+                        base_mana_cost=cost_for_ui,
+                        x_value=0,
+                    )
+
+                    if option.alt_mana_cost is None:
                         if not self._can_cast(card, player_id):
                             continue
-                        cost_for_ui = ManaCost.parse(card.characteristics.mana_cost or "")
                     else:
-                        if not self._can_cast(card, player_id, cost_override=alt_cost):
+                        if not self._can_cast(card, player_id, cost_override=option.alt_mana_cost):
                             continue
-                        cost_for_ui = alt_cost
 
+                    if not self._can_pay_cost_plan(full_plan, ctx):
+                        continue
+
+                    desc = f"Cast {card.name} ({option.description_suffix})"
+                    if full_plan:
+                        desc = f"{desc}; {describe_plan(full_plan)}"
                     actions.append(LegalAction(
                         type=ActionType.CAST_SPELL,
                         card_id=card_id,
-                        description=f"Cast {card.name} ({desc_suffix})",
+                        description=desc,
                         requires_mana=not cost_for_ui.is_free(),
                         mana_cost=cost_for_ui
                     ))
@@ -303,6 +365,84 @@ class PrioritySystem:
             actions.extend(crew_actions)
 
         return actions
+
+    def _get_standard_additional_cost_plan(self, card) -> Optional[CostPlan]:
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        return extract_additional_cost_plan(text)
+
+    def _concat_cost_plans(self, a: Optional[CostPlan], b: Optional[CostPlan]) -> Optional[CostPlan]:
+        if not a and not b:
+            return None
+        return tuple(a or ()) + tuple(b or ())
+
+    def _can_pay_cost_plan(self, plan: Optional[CostPlan], ctx: CastCostContext, extra_mana: Optional[ManaCost] = None) -> bool:
+        """
+        Check whether a player can pay an additional-cost plan, including any extra mana.
+
+        This is used for legal-action generation to avoid offering casts that would
+        immediately fail due to missing discard fodder, sacrifice candidates, etc.
+        """
+        extra_mana = extra_mana or ManaCost()
+        plan = plan or ()
+
+        # Base case: all non-mana checks passed; ensure total mana is payable.
+        if not plan:
+            if not ctx.mana_system:
+                return True
+            total = add_mana_costs(ctx.base_mana_cost, extra_mana)
+            return ctx.mana_system.can_cast(ctx.player_id, total, ctx.x_value)
+
+        step = plan[0]
+        rest = plan[1:]
+
+        if step.kind == "pay_life":
+            player = ctx.state.players.get(ctx.player_id)
+            if not player or player.life < step.amount:
+                return False
+            return self._can_pay_cost_plan(rest, ctx, extra_mana)
+
+        if step.kind == "add_mana":
+            return self._can_pay_cost_plan(rest, ctx, add_mana_costs(extra_mana, step.mana_cost or ManaCost()))
+
+        if step.kind == "discard":
+            eligible = eligible_hand_cards(ctx)
+            return len(eligible) >= step.amount and self._can_pay_cost_plan(rest, ctx, extra_mana)
+
+        if step.kind == "sacrifice":
+            eligible = eligible_battlefield_permanents(ctx, step.allowed_types)
+            return len(eligible) >= step.amount and self._can_pay_cost_plan(rest, ctx, extra_mana)
+
+        if step.kind == "tap":
+            eligible = eligible_battlefield_permanents(ctx, step.allowed_types, must_be_untapped=True)
+            return len(eligible) >= step.amount and self._can_pay_cost_plan(rest, ctx, extra_mana)
+
+        if step.kind == "exile_from_graveyard":
+            eligible = eligible_graveyard_cards(ctx)
+            return len(eligible) >= step.amount and self._can_pay_cost_plan(rest, ctx, extra_mana)
+
+        if step.kind == "return_to_hand":
+            eligible = eligible_battlefield_permanents(ctx)
+            return len(eligible) >= step.amount and self._can_pay_cost_plan(rest, ctx, extra_mana)
+
+        if step.kind == "exile_you_control":
+            eligible = eligible_battlefield_permanents(ctx, step.allowed_types)
+            return len(eligible) >= step.amount and self._can_pay_cost_plan(rest, ctx, extra_mana)
+
+        if step.kind == "remove_counters":
+            totals = total_counters_on_creatures_you_control(ctx)
+            return sum(totals.values()) >= step.amount and self._can_pay_cost_plan(rest, ctx, extra_mana)
+
+        if step.kind == "or":
+            for opt in (step.options or ()):
+                combined = tuple(opt) + tuple(rest)
+                if self._can_pay_cost_plan(combined, ctx, extra_mana):
+                    return True
+            return False
+
+        # Unknown cost kind - treat as not payable to avoid offering illegal actions.
+        return False
 
     def _get_flashback_cost(self, card) -> Optional[ManaCost]:
         """Parse a card's flashback cost from rules text, if present."""
@@ -368,59 +508,63 @@ class PrioritySystem:
         last_by = getattr(st, "last_discarded_by", None)
         return last_turn == self.state.turn_number and last_by == player_id
 
-    def _get_graveyard_cast_options(self, card, player_id: str) -> list[tuple[str, Optional[ManaCost], dict]]:
-        """
-        Return a list of (description_suffix, alternate_cost, metadata) options for casting this
-        card from the graveyard.
-
-        `alternate_cost=None` means "cast for printed mana cost".
-        """
-        options: list[tuple[str, Optional[ManaCost], dict]] = []
+    def _get_graveyard_cast_options(self, card, player_id: str) -> list[CastOption]:
+        """Return supported ways to cast this card from the graveyard."""
+        options: list[CastOption] = []
 
         # Flashback: cast for flashback cost, then exile it.
         flashback_cost = self._get_flashback_cost(card)
         if flashback_cost is not None:
-            options.append((
-                "flashback",
-                flashback_cost,
-                {"flashback": True, "exile_on_leave_stack": True},
+            options.append(CastOption(
+                description_suffix="flashback",
+                alt_mana_cost=flashback_cost,
+                metadata={"flashback": True, "exile_on_leave_stack": True},
             ))
 
         # Harmonize: cast for harmonize cost, then exile it.
         harmonize_cost = self._get_harmonize_cost(card)
         if harmonize_cost is not None:
-            options.append((
-                "harmonize",
-                harmonize_cost,
-                {"harmonize": True, "exile_on_leave_stack": True},
+            options.append(CastOption(
+                description_suffix="harmonize",
+                alt_mana_cost=harmonize_cost,
+                metadata={"harmonize": True, "exile_on_leave_stack": True},
             ))
 
         # Mayhem: cast for mayhem cost if discarded this turn. Does not exile.
         mayhem_cost = self._get_mayhem_cost(card)
         if mayhem_cost is not None and self._discarded_this_turn_by(card, player_id):
-            options.append((
-                "mayhem",
-                mayhem_cost,
-                {"mayhem": True},
+            options.append(CastOption(
+                description_suffix="mayhem",
+                alt_mana_cost=mayhem_cost,
+                metadata={"mayhem": True},
             ))
 
-        # Generic "You may cast this card from your graveyard." permission
-        # (no alternate cost). We only support the unconditional form, to avoid
-        # incorrectly enabling conditional/additional-cost variants.
         text = ""
         if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
             text = card.card_def.text or ""
+
+        # Per-card graveyard permission with extra costs:
+        #   "You may cast this card from your graveyard by ... in addition to paying its other costs."
+        permission_plan = extract_graveyard_permission_cost_plan(text)
+        if permission_plan is not None:
+            options.append(CastOption(
+                description_suffix="from graveyard",
+                alt_mana_cost=None,
+                metadata={"from_graveyard_permission": True},
+                additional_cost_plan=permission_plan,
+            ))
+
+        # Generic unconditional permission (no extra cost).
+        # We only support the unconditional form, to avoid incorrectly enabling
+        # conditional variants like "Max speed — You may cast this card from your graveyard."
         if text:
             for line in text.splitlines():
                 lowered = line.strip().lower()
-                # Require this to be the start of a sentence/line; this avoids
-                # false positives like "Max speed — You may cast..." where the
-                # permission is conditional.
                 if lowered.startswith("you may cast this card from your graveyard."):
-                    options.append((
-                        "from graveyard",
-                        None,
-                        {},
+                    options.append(CastOption(
+                        description_suffix="from graveyard",
+                        alt_mana_cost=None,
+                        metadata={},
                     ))
                     break
 
@@ -722,80 +866,662 @@ class PrioritySystem:
 
     async def _handle_cast_spell(self, action: PlayerAction) -> list[Event]:
         """Handle casting a spell."""
-        events = []
+        # Keep the handler async for the main priority loop, but implement casting
+        # synchronously so PendingChoice handlers (which are sync) can reuse it.
+        return self._handle_cast_spell_sync(action)
+
+    def _handle_cast_spell_sync(self, action: PlayerAction) -> list[Event]:
+        """
+        Synchronous cast implementation.
+
+        Notes:
+        - Additional costs may require player choices; in that case, this method
+          sets `state.pending_choice` and returns [].
+        - This method applies non-mana additional costs by emitting events through
+          the pipeline immediately (before moving the spell to the stack).
+        """
+        if not action.card_id:
+            return []
+
+        # Never start resolving a cast while another choice is pending.
+        if self.state.pending_choice is not None:
+            return []
 
         card = self.state.objects.get(action.card_id)
         if not card:
-            return events
+            return []
 
         from_graveyard = card.zone == ZoneType.GRAVEYARD
 
-        # If casting from the graveyard, use the appropriate alternate cost when present.
-        # Note: We assume only one relevant graveyard-cast option exists for a given card.
-        flashback_cost = self._get_flashback_cost(card) if from_graveyard else None
-        harmonize_cost = self._get_harmonize_cost(card) if from_graveyard else None
-        mayhem_cost = self._get_mayhem_cost(card) if from_graveyard else None
+        # Choose a single casting option when casting from the graveyard.
+        # We still do not expose option selection via the action payload yet,
+        # so we pick the first supported option (flashback/harmonize/mayhem/etc.).
+        used_flashback = False
+        used_harmonize = False
+        used_mayhem = False
+        exile_on_leave_stack = False
+        option_plan: Optional[CostPlan] = None
 
-        used_flashback = bool(from_graveyard and flashback_cost is not None)
-        used_harmonize = bool(from_graveyard and (not used_flashback) and harmonize_cost is not None)
-        used_mayhem = bool(from_graveyard and (not used_flashback) and (not used_harmonize) and mayhem_cost is not None and self._discarded_this_turn_by(card, action.player_id))
+        if from_graveyard:
+            options = self._get_graveyard_cast_options(card, action.player_id)
+            if not options:
+                return []
 
-        exile_on_leave_stack = bool((used_flashback or used_harmonize))
+            chosen = options[0]
+            option_plan = chosen.additional_cost_plan
 
-        if used_flashback:
-            paid_cost = flashback_cost
-        elif used_harmonize:
-            paid_cost = harmonize_cost
-        elif used_mayhem:
-            paid_cost = mayhem_cost
+            used_flashback = bool(chosen.metadata.get("flashback"))
+            used_harmonize = bool(chosen.metadata.get("harmonize"))
+            used_mayhem = bool(chosen.metadata.get("mayhem"))
+            exile_on_leave_stack = bool(chosen.metadata.get("exile_on_leave_stack"))
+
+            paid_cost = chosen.alt_mana_cost or ManaCost.parse(card.characteristics.mana_cost or "")
         else:
             paid_cost = ManaCost.parse(card.characteristics.mana_cost or "")
 
-        # Pay mana cost
-        if self.mana_system and not paid_cost.is_free():
-            self.mana_system.pay_cost(action.player_id, paid_cost, action.x_value)
+        printed_cost = ManaCost.parse(card.characteristics.mana_cost or "")
 
-        # Create stack item
-        if self.stack:
-            from .stack import SpellBuilder
-            builder = SpellBuilder(self.state, self.stack)
-            item = builder.cast_spell(
-                card_id=action.card_id,
-                controller_id=action.player_id,
-                targets=action.targets,
-                x_value=action.x_value,
-                modes=action.modes,
-                additional_data={
+        # Build additional cost plan(s).
+        std_plan = self._get_standard_additional_cost_plan(card)
+        full_plan = self._concat_cost_plans(std_plan, option_plan)
+
+        ctx = CastCostContext(
+            state=self.state,
+            mana_system=self.mana_system,
+            player_id=action.player_id,
+            casting_card_id=card.id,
+            casting_card_name=card.name,
+            casting_zone=card.zone,
+            base_mana_cost=paid_cost,
+            x_value=action.x_value,
+        )
+
+        if not self._can_pay_cost_plan(full_plan, ctx):
+            return []
+
+        return self._continue_cast_spell_with_additional_costs(
+            action=action,
+            paid_cost=paid_cost,
+            printed_cost=printed_cost,
+            plan=tuple(full_plan or ()),
+            extra_mana=ManaCost(),
+            from_graveyard=from_graveyard,
+            used_flashback=used_flashback,
+            used_harmonize=used_harmonize,
+            used_mayhem=used_mayhem,
+            exile_on_leave_stack=exile_on_leave_stack,
+        )
+
+    def _emit_cost_events(self, events: list[Event]) -> None:
+        """Emit cost-payment events immediately so later cost steps see updated state."""
+        if not events:
+            return
+        if not self.pipeline:
+            return
+        for e in events:
+            self.pipeline.emit(e)
+
+    def _coerce_selected_ids(self, selected: list[Any]) -> list[str]:
+        ids: list[str] = []
+        for s in selected or []:
+            if isinstance(s, dict):
+                sid = s.get("id") or s.get("target_id") or s.get("index")
+                if sid is not None:
+                    ids.append(str(sid))
+            else:
+                ids.append(str(s))
+        return ids
+
+    def _continue_cast_spell_with_additional_costs(
+        self,
+        *,
+        action: PlayerAction,
+        paid_cost: ManaCost,
+        printed_cost: ManaCost,
+        plan: CostPlan,
+        extra_mana: ManaCost,
+        from_graveyard: bool,
+        used_flashback: bool,
+        used_harmonize: bool,
+        used_mayhem: bool,
+        exile_on_leave_stack: bool,
+    ) -> list[Event]:
+        """
+        Process (and pay) additional costs until either:
+        - another player choice is required (pending_choice set, returns []), or
+        - costs are fully paid and the spell is put on the stack (returns [CAST]).
+        """
+        if not action.card_id:
+            return []
+
+        card = self.state.objects.get(action.card_id)
+        if not card:
+            return []
+
+        # Rebuild context each time so eligibility checks see updated state.
+        ctx = CastCostContext(
+            state=self.state,
+            mana_system=self.mana_system,
+            player_id=action.player_id,
+            casting_card_id=card.id,
+            casting_card_name=card.name,
+            casting_zone=card.zone,
+            base_mana_cost=paid_cost,
+            x_value=action.x_value,
+        )
+
+        # If all additional costs are done, pay mana and cast.
+        if not plan:
+            total_cost = add_mana_costs(paid_cost, extra_mana)
+            if self.mana_system and not total_cost.is_free():
+                self.mana_system.pay_cost(action.player_id, total_cost, action.x_value)
+
+            if self.stack:
+                from .stack import SpellBuilder
+                builder = SpellBuilder(self.state, self.stack)
+                item = builder.cast_spell(
+                    card_id=action.card_id,
+                    controller_id=action.player_id,
+                    targets=action.targets,
+                    x_value=action.x_value,
+                    modes=action.modes,
+                    additional_data={
+                        'from_graveyard': from_graveyard,
+                        'flashback': used_flashback,
+                        'harmonize': used_harmonize,
+                        'mayhem': used_mayhem,
+                        'exile_on_leave_stack': exile_on_leave_stack,
+                    }
+                )
+                self.stack.push(item)
+
+            return [Event(
+                type=EventType.CAST,
+                payload={
+                    # Canonical spell-cast payload (used by spell-cast triggers).
+                    'spell_id': action.card_id,
+                    'card_id': action.card_id,
+                    'caster': action.player_id,
+                    'controller': action.player_id,
+                    'types': list(card.characteristics.types),
+                    'colors': list(card.characteristics.colors),
+                    'mana_value': printed_cost.mana_value,
                     'from_graveyard': from_graveyard,
                     'flashback': used_flashback,
                     'harmonize': used_harmonize,
                     'mayhem': used_mayhem,
-                    'exile_on_leave_stack': exile_on_leave_stack,
+                },
+                source=action.card_id,
+                controller=action.player_id,
+            )]
+
+        step = plan[0]
+        rest = plan[1:]
+
+        # Deterministic cost steps: apply immediately and continue.
+        if step.kind == "pay_life":
+            self._emit_cost_events([
+                Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': action.player_id, 'amount': -step.amount},
+                    source=action.card_id,
+                    controller=action.player_id,
+                )
+            ])
+            return self._continue_cast_spell_with_additional_costs(
+                action=action,
+                paid_cost=paid_cost,
+                printed_cost=printed_cost,
+                plan=rest,
+                extra_mana=extra_mana,
+                from_graveyard=from_graveyard,
+                used_flashback=used_flashback,
+                used_harmonize=used_harmonize,
+                used_mayhem=used_mayhem,
+                exile_on_leave_stack=exile_on_leave_stack,
+            )
+
+        if step.kind == "add_mana":
+            return self._continue_cast_spell_with_additional_costs(
+                action=action,
+                paid_cost=paid_cost,
+                printed_cost=printed_cost,
+                plan=rest,
+                extra_mana=add_mana_costs(extra_mana, step.mana_cost or ManaCost()),
+                from_graveyard=from_graveyard,
+                used_flashback=used_flashback,
+                used_harmonize=used_harmonize,
+                used_mayhem=used_mayhem,
+                exile_on_leave_stack=exile_on_leave_stack,
+            )
+
+        # OR choice: pick if forced, otherwise prompt.
+        if step.kind == "or":
+            options = list(step.options or ())
+            if not options:
+                return []
+
+            payable: list[tuple[int, CostPlan]] = []
+            for idx, opt in enumerate(options):
+                combined = tuple(opt) + tuple(rest)
+                if self._can_pay_cost_plan(combined, ctx, extra_mana):
+                    payable.append((idx, opt))
+
+            if not payable:
+                return []
+
+            if len(payable) == 1:
+                chosen_plan = tuple(payable[0][1]) + tuple(rest)
+                return self._continue_cast_spell_with_additional_costs(
+                    action=action,
+                    paid_cost=paid_cost,
+                    printed_cost=printed_cost,
+                    plan=chosen_plan,
+                    extra_mana=extra_mana,
+                    from_graveyard=from_graveyard,
+                    used_flashback=used_flashback,
+                    used_harmonize=used_harmonize,
+                    used_mayhem=used_mayhem,
+                    exile_on_leave_stack=exile_on_leave_stack,
+                )
+
+            # Prompt the player to choose which additional cost path to take.
+            opt_entries = [
+                {'id': str(idx), 'label': describe_plan(opt_plan)}
+                for idx, opt_plan in payable
+            ]
+
+            def _on_choose_or(choice: PendingChoice, selected: list, state: GameState) -> list[Event]:
+                picked_ids = self._coerce_selected_ids(selected)
+                if not picked_ids:
+                    return []
+                picked = picked_ids[0]
+                chosen = None
+                for idx, opt_plan in payable:
+                    if str(idx) == str(picked):
+                        chosen = opt_plan
+                        break
+                if chosen is None:
+                    return []
+                new_plan = tuple(chosen) + tuple(rest)
+                return self._continue_cast_spell_with_additional_costs(
+                    action=action,
+                    paid_cost=paid_cost,
+                    printed_cost=printed_cost,
+                    plan=new_plan,
+                    extra_mana=extra_mana,
+                    from_graveyard=from_graveyard,
+                    used_flashback=used_flashback,
+                    used_harmonize=used_harmonize,
+                    used_mayhem=used_mayhem,
+                    exile_on_leave_stack=exile_on_leave_stack,
+                )
+
+            self.state.pending_choice = PendingChoice(
+                choice_type="additional_cost_or",
+                player=action.player_id,
+                prompt=f"Choose an additional cost to cast {card.name}",
+                options=opt_entries,
+                source_id=action.card_id,
+                min_choices=1,
+                max_choices=1,
+                callback_data={'handler': _on_choose_or},
+            )
+            return []
+
+        # Choice steps.
+        if step.kind == "discard":
+            options = eligible_hand_cards(ctx)
+            if len(options) < step.amount:
+                return []
+
+            def _on_discard(choice: PendingChoice, selected: list, state: GameState) -> list[Event]:
+                picked = self._coerce_selected_ids(selected)
+                if len(picked) != step.amount:
+                    return []
+                self._emit_cost_events([
+                    Event(
+                        type=EventType.DISCARD,
+                        payload={'player': action.player_id, 'object_id': cid},
+                        source=action.card_id,
+                        controller=action.player_id,
+                    )
+                    for cid in picked
+                ])
+                return self._continue_cast_spell_with_additional_costs(
+                    action=action,
+                    paid_cost=paid_cost,
+                    printed_cost=printed_cost,
+                    plan=rest,
+                    extra_mana=extra_mana,
+                    from_graveyard=from_graveyard,
+                    used_flashback=used_flashback,
+                    used_harmonize=used_harmonize,
+                    used_mayhem=used_mayhem,
+                    exile_on_leave_stack=exile_on_leave_stack,
+                )
+
+            self.state.pending_choice = PendingChoice(
+                choice_type="discard",
+                player=action.player_id,
+                prompt=f"Additional cost: discard {step.amount} card(s) to cast {card.name}",
+                options=options,
+                source_id=action.card_id,
+                min_choices=step.amount,
+                max_choices=step.amount,
+                callback_data={'handler': _on_discard},
+            )
+            return []
+
+        if step.kind == "sacrifice":
+            options = eligible_battlefield_permanents(ctx, step.allowed_types)
+            if len(options) < step.amount:
+                return []
+
+            def _on_sacrifice(choice: PendingChoice, selected: list, state: GameState) -> list[Event]:
+                picked = self._coerce_selected_ids(selected)
+                if len(picked) != step.amount:
+                    return []
+                self._emit_cost_events([
+                    Event(
+                        type=EventType.SACRIFICE,
+                        payload={'player': action.player_id, 'object_id': oid},
+                        source=action.card_id,
+                        controller=action.player_id,
+                    )
+                    for oid in picked
+                ])
+                return self._continue_cast_spell_with_additional_costs(
+                    action=action,
+                    paid_cost=paid_cost,
+                    printed_cost=printed_cost,
+                    plan=rest,
+                    extra_mana=extra_mana,
+                    from_graveyard=from_graveyard,
+                    used_flashback=used_flashback,
+                    used_harmonize=used_harmonize,
+                    used_mayhem=used_mayhem,
+                    exile_on_leave_stack=exile_on_leave_stack,
+                )
+
+            self.state.pending_choice = PendingChoice(
+                choice_type="sacrifice",
+                player=action.player_id,
+                prompt=f"Additional cost: sacrifice {step.amount} permanent(s) to cast {card.name}",
+                options=options,
+                source_id=action.card_id,
+                min_choices=step.amount,
+                max_choices=step.amount,
+                callback_data={'handler': _on_sacrifice},
+            )
+            return []
+
+        if step.kind == "tap":
+            options = eligible_battlefield_permanents(ctx, step.allowed_types, must_be_untapped=True)
+            if len(options) < step.amount:
+                return []
+
+            def _on_tap(choice: PendingChoice, selected: list, state: GameState) -> list[Event]:
+                picked = self._coerce_selected_ids(selected)
+                if len(picked) != step.amount:
+                    return []
+                self._emit_cost_events([
+                    Event(
+                        type=EventType.TAP,
+                        payload={'object_id': oid},
+                        source=action.card_id,
+                        controller=action.player_id,
+                    )
+                    for oid in picked
+                ])
+                return self._continue_cast_spell_with_additional_costs(
+                    action=action,
+                    paid_cost=paid_cost,
+                    printed_cost=printed_cost,
+                    plan=rest,
+                    extra_mana=extra_mana,
+                    from_graveyard=from_graveyard,
+                    used_flashback=used_flashback,
+                    used_harmonize=used_harmonize,
+                    used_mayhem=used_mayhem,
+                    exile_on_leave_stack=exile_on_leave_stack,
+                )
+
+            self.state.pending_choice = PendingChoice(
+                choice_type="tap",
+                player=action.player_id,
+                prompt=f"Additional cost: tap {step.amount} permanent(s) to cast {card.name}",
+                options=options,
+                source_id=action.card_id,
+                min_choices=step.amount,
+                max_choices=step.amount,
+                callback_data={'handler': _on_tap},
+            )
+            return []
+
+        if step.kind == "exile_from_graveyard":
+            options = eligible_graveyard_cards(ctx)
+            if len(options) < step.amount:
+                return []
+
+            def _on_exile(choice: PendingChoice, selected: list, state: GameState) -> list[Event]:
+                picked = self._coerce_selected_ids(selected)
+                if len(picked) != step.amount:
+                    return []
+                self._emit_cost_events([
+                    Event(
+                        type=EventType.EXILE,
+                        payload={'object_id': cid},
+                        source=action.card_id,
+                        controller=action.player_id,
+                    )
+                    for cid in picked
+                ])
+                return self._continue_cast_spell_with_additional_costs(
+                    action=action,
+                    paid_cost=paid_cost,
+                    printed_cost=printed_cost,
+                    plan=rest,
+                    extra_mana=extra_mana,
+                    from_graveyard=from_graveyard,
+                    used_flashback=used_flashback,
+                    used_harmonize=used_harmonize,
+                    used_mayhem=used_mayhem,
+                    exile_on_leave_stack=exile_on_leave_stack,
+                )
+
+            self.state.pending_choice = PendingChoice(
+                choice_type="exile_from_graveyard",
+                player=action.player_id,
+                prompt=f"Additional cost: exile {step.amount} card(s) from your graveyard to cast {card.name}",
+                options=options,
+                source_id=action.card_id,
+                min_choices=step.amount,
+                max_choices=step.amount,
+                callback_data={'handler': _on_exile},
+            )
+            return []
+
+        if step.kind == "return_to_hand":
+            options = eligible_battlefield_permanents(ctx)
+            if len(options) < step.amount:
+                return []
+
+            def _on_return(choice: PendingChoice, selected: list, state: GameState) -> list[Event]:
+                picked = self._coerce_selected_ids(selected)
+                if len(picked) != step.amount:
+                    return []
+                self._emit_cost_events([
+                    Event(
+                        type=EventType.BOUNCE,
+                        payload={'object_id': oid},
+                        source=action.card_id,
+                        controller=action.player_id,
+                    )
+                    for oid in picked
+                ])
+                return self._continue_cast_spell_with_additional_costs(
+                    action=action,
+                    paid_cost=paid_cost,
+                    printed_cost=printed_cost,
+                    plan=rest,
+                    extra_mana=extra_mana,
+                    from_graveyard=from_graveyard,
+                    used_flashback=used_flashback,
+                    used_harmonize=used_harmonize,
+                    used_mayhem=used_mayhem,
+                    exile_on_leave_stack=exile_on_leave_stack,
+                )
+
+            self.state.pending_choice = PendingChoice(
+                choice_type="return_to_hand",
+                player=action.player_id,
+                prompt=f"Additional cost: return {step.amount} permanent(s) you control to its owner's hand to cast {card.name}",
+                options=options,
+                source_id=action.card_id,
+                min_choices=step.amount,
+                max_choices=step.amount,
+                callback_data={'handler': _on_return},
+            )
+            return []
+
+        if step.kind == "exile_you_control":
+            options = eligible_battlefield_permanents(ctx, step.allowed_types)
+            if len(options) < step.amount:
+                return []
+
+            def _on_exile_control(choice: PendingChoice, selected: list, state: GameState) -> list[Event]:
+                picked = self._coerce_selected_ids(selected)
+                if len(picked) != step.amount:
+                    return []
+                self._emit_cost_events([
+                    Event(
+                        type=EventType.EXILE,
+                        payload={'object_id': oid},
+                        source=action.card_id,
+                        controller=action.player_id,
+                    )
+                    for oid in picked
+                ])
+                return self._continue_cast_spell_with_additional_costs(
+                    action=action,
+                    paid_cost=paid_cost,
+                    printed_cost=printed_cost,
+                    plan=rest,
+                    extra_mana=extra_mana,
+                    from_graveyard=from_graveyard,
+                    used_flashback=used_flashback,
+                    used_harmonize=used_harmonize,
+                    used_mayhem=used_mayhem,
+                    exile_on_leave_stack=exile_on_leave_stack,
+                )
+
+            self.state.pending_choice = PendingChoice(
+                choice_type="exile_you_control",
+                player=action.player_id,
+                prompt=f"Additional cost: exile {step.amount} permanent(s) you control to cast {card.name}",
+                options=options,
+                source_id=action.card_id,
+                min_choices=step.amount,
+                max_choices=step.amount,
+                callback_data={'handler': _on_exile_control},
+            )
+            return []
+
+        if step.kind == "remove_counters":
+            totals = total_counters_on_creatures_you_control(ctx)
+            options = []
+            for oid, total in totals.items():
+                obj = self.state.objects.get(oid)
+                if not obj:
+                    continue
+                options.append({'id': oid, 'name': obj.name, 'type': 'creature', 'total_counters': total})
+
+            if sum(totals.values()) < step.amount or not options:
+                return []
+
+            def _validate_remove(choice: PendingChoice, selected_allocs: list[Any]) -> tuple[bool, str]:
+                # selected_allocs is a list of {target_id, amount} dicts from the UI.
+                allocations = {}
+                for item in selected_allocs or []:
+                    if isinstance(item, dict):
+                        tid = item.get('target_id') or item.get('id')
+                        amt = int(item.get('amount', 0))
+                        if tid:
+                            allocations[str(tid)] = amt
+
+                for tid, amt in allocations.items():
+                    if amt < 1:
+                        return False, "Each selected creature must have at least 1 counter removed"
+                    if amt > int(totals.get(tid, 0)):
+                        return False, "Cannot remove more counters than a creature has"
+                return True, ""
+
+            def _on_remove(choice: PendingChoice, allocations: dict, state: GameState) -> list[Event]:
+                # allocations: dict[target_id -> amount]
+                cost_events: list[Event] = []
+                for oid, amt in (allocations or {}).items():
+                    obj = state.objects.get(oid)
+                    if not obj:
+                        continue
+                    remaining = int(amt)
+                    # Remove from +1/+1 first, then other counters deterministically.
+                    counter_types = list((obj.state.counters or {}).keys())
+                    ordered_types = []
+                    if '+1/+1' in counter_types:
+                        ordered_types.append('+1/+1')
+                    for ct in sorted(counter_types):
+                        if ct != '+1/+1':
+                            ordered_types.append(ct)
+
+                    for ct in ordered_types:
+                        if remaining <= 0:
+                            break
+                        current = int((obj.state.counters or {}).get(ct, 0) or 0)
+                        if current <= 0:
+                            continue
+                        take = min(current, remaining)
+                        remaining -= take
+                        cost_events.append(Event(
+                            type=EventType.COUNTER_REMOVED,
+                            payload={'object_id': oid, 'counter_type': ct, 'amount': take},
+                            source=action.card_id,
+                            controller=action.player_id,
+                        ))
+
+                self._emit_cost_events(cost_events)
+                return self._continue_cast_spell_with_additional_costs(
+                    action=action,
+                    paid_cost=paid_cost,
+                    printed_cost=printed_cost,
+                    plan=rest,
+                    extra_mana=extra_mana,
+                    from_graveyard=from_graveyard,
+                    used_flashback=used_flashback,
+                    used_harmonize=used_harmonize,
+                    used_mayhem=used_mayhem,
+                    exile_on_leave_stack=exile_on_leave_stack,
+                )
+
+            self.state.pending_choice = PendingChoice(
+                choice_type="divide_allocation",
+                player=action.player_id,
+                prompt=f"Remove {step.amount} counter(s) from among creatures you control to cast {card.name}",
+                options=options,
+                source_id=action.card_id,
+                min_choices=1,
+                max_choices=len(options),
+                callback_data={
+                    'handler': _on_remove,
+                    'validator': _validate_remove,
+                    'total_amount': step.amount,
+                    'effect': 'counters',
                 }
             )
-            self.stack.push(item)
+            return []
 
-        # Mana value is based on the card's mana cost, not the cost paid (flashback, etc.).
-        printed_cost = ManaCost.parse(card.characteristics.mana_cost or "")
-        events.append(Event(
-            type=EventType.CAST,
-            payload={
-                # Canonical spell-cast payload (used by spell-cast triggers).
-                'spell_id': action.card_id,
-                'card_id': action.card_id,
-                'caster': action.player_id,
-                'controller': action.player_id,
-                'types': list(card.characteristics.types),
-                'colors': list(card.characteristics.colors),
-                'mana_value': printed_cost.mana_value,
-                'from_graveyard': from_graveyard,
-                'flashback': used_flashback,
-                'harmonize': used_harmonize,
-                'mayhem': used_mayhem,
-            }
-        ))
-
-        return events
+        # Unknown cost kind: stop (don't cast).
+        return []
 
     async def _handle_activate_ability(self, action: PlayerAction) -> list[Event]:
         """Handle activating an ability."""

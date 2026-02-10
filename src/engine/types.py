@@ -545,7 +545,13 @@ class PendingChoice:
         """
         # Special handling for divide_allocation - selections are {target_id, amount} dicts
         if self.choice_type == "divide_allocation":
-            return self._validate_divide_allocation(selected)
+            ok, msg = self._validate_divide_allocation(selected)
+            if not ok:
+                return ok, msg
+            validator = self.callback_data.get("validator")
+            if callable(validator):
+                return validator(self, selected)
+            return True, ""
 
         if len(selected) < self.min_choices:
             return False, f"Must choose at least {self.min_choices} option(s)"
@@ -566,6 +572,10 @@ class PendingChoice:
             choice_id = choice.get('id') if isinstance(choice, dict) else choice
             if choice_id not in valid_ids and choice not in self.options:
                 return False, f"Invalid choice: {choice}"
+
+        validator = self.callback_data.get("validator")
+        if callable(validator):
+            return validator(self, selected)
 
         return True, ""
 

@@ -230,9 +230,20 @@ export function ChoiceModal({
     return lookup;
   }, [battlefield, hand, graveyard]);
 
-  // Check if an option represents a card (for target choices)
-  // 'target_with_callback' is used by triggered abilities that need targeting
-  const isTargetChoice = choice_type === 'target' || choice_type === 'target_with_callback';
+  // Check if we should render options as cards (grid).
+  // Many non-target choices still present a list of card/permanent IDs.
+  const isTargetChoice = [
+    'target',
+    'target_with_callback',
+    // Common card/permanent selection choices
+    'discard',
+    'sacrifice',
+    // Additional-cost helper choices
+    'tap',
+    'exile_from_graveyard',
+    'return_to_hand',
+    'exile_you_control',
+  ].includes(choice_type);
 
   // Get icon based on choice type
   const choiceIcon = useMemo(() => {
