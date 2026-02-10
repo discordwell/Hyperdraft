@@ -66,7 +66,9 @@ class EventPipeline:
 
         # 3. RESOLVE PHASE
         event.status = EventStatus.RESOLVING
-        self._resolve_event(event)
+        produced = self._resolve_event(event) or []
+        for e in produced:
+            e.timestamp = self.state.next_timestamp()
         event.status = EventStatus.RESOLVED
         self.state.event_log.append(event)
 
@@ -79,7 +81,9 @@ class EventPipeline:
         # This happens AFTER REACT so death triggers can fire
         self._cleanup_departed_interceptors(event)
 
-        return triggered
+        # Events produced by resolution are treated like triggered events and
+        # will be processed by this emit() call's queue.
+        return list(produced) + list(triggered)
 
     def _cleanup_departed_interceptors(self, event: Event):
         """
@@ -220,11 +224,26 @@ class EventPipeline:
             if interceptor.uses_remaining <= 0:
                 del self.state.interceptors[interceptor.id]
 
-    def _resolve_event(self, event: Event):
-        """Actually apply the event to game state."""
+    def _resolve_event(self, event: Event) -> list[Event]:
+        """
+        Actually apply the event to game state.
+
+        Some resolution handlers return follow-up events (e.g. RETURN_* helpers
+        that normalize into ZONE_CHANGE events). The pipeline will enqueue and
+        process those events as part of this emit() call.
+        """
         handler = EVENT_HANDLERS.get(event.type)
         if handler:
-            handler(event, self.state)
+            out = handler(event, self.state)
+            if out is None:
+                return []
+            if isinstance(out, Event):
+                return [out]
+            if isinstance(out, list):
+                return [e for e in out if isinstance(e, Event)]
+            # Unknown handler return type; ignore for safety.
+            return []
+        return []
 
 
 # =============================================================================
@@ -494,6 +513,18 @@ def _handle_zone_change(event: Event, state: GameState):
         event.payload['from_zone_type'] = from_zone_type
     if to_zone_type is not None:
         event.payload['to_zone_type'] = to_zone_type
+
+    # Replacement: "exile instead of graveyard" (Rest in Peace, etc.).
+    # We apply this as a last-mile destination rewrite for ZONE_CHANGE events
+    # targeting a graveyard zone.
+    if to_zone_type == ZoneType.GRAVEYARD:
+        dest_owner = to_owner or obj.owner
+        if dest_owner and _exile_instead_of_graveyard_active(dest_owner, state):
+            to_zone_type = ZoneType.EXILE
+            to_zone = "exile"
+            event.payload["to_zone_type"] = ZoneType.EXILE
+            event.payload["to_zone"] = "exile"
+            event.payload["replacement"] = "exile_instead_of_graveyard"
 
     # Important: many call sites provide imperfect `from_zone` keys. Be robust
     # and remove the object from *any* zone that currently references it.
@@ -775,6 +806,403 @@ def _handle_grant_keyword(event: Event, state: GameState):
         })
 
 
+def _turn_permission_active(expires_turn: Optional[int], state: GameState) -> bool:
+    """Return True if an inclusive-turn permission is active."""
+    if expires_turn is None:
+        return True
+    return state.turn_number <= int(expires_turn)
+
+
+def _merge_turn_permission(existing: Optional[int], new: Optional[int]) -> Optional[int]:
+    """Combine two inclusive-turn permissions (None = forever)."""
+    if existing is None or new is None:
+        return None
+    return max(int(existing), int(new))
+
+
+def _set_turn_permission(mapping: dict[str, Optional[int]], player_id: str, expires_turn: Optional[int]) -> None:
+    """
+    Extend/overwrite a player's permission in-place.
+
+    - If the player already has a "forever" permission (None), keep it.
+    - Otherwise, take the max(expiry).
+    """
+    if not player_id:
+        return
+    if player_id in mapping:
+        mapping[player_id] = _merge_turn_permission(mapping.get(player_id), expires_turn)
+    else:
+        mapping[player_id] = expires_turn
+
+
+def _exile_instead_of_graveyard_active(player_id: str, state: GameState) -> bool:
+    mapping = getattr(state, "exile_instead_of_graveyard_until", {}) or {}
+    if player_id not in mapping:
+        return False
+    return _turn_permission_active(mapping.get(player_id), state)
+
+
+def _handle_grant_cast_from_graveyard(event: Event, state: GameState):
+    """
+    Handle GRANT_CAST_FROM_GRAVEYARD.
+
+    Payload (best-effort):
+      - player / controller: player_id
+      - duration: string ("this_turn", "end_of_turn", "forever", etc.)
+      - until_turn: explicit inclusive turn number (optional)
+    """
+    player_id = event.payload.get("player") or event.payload.get("controller") or event.controller or state.active_player
+    if not player_id:
+        return
+
+    expires_turn = event.payload.get("until_turn")
+    if expires_turn is not None:
+        try:
+            expires_turn = int(expires_turn)
+        except Exception:
+            expires_turn = None
+    else:
+        duration = event.payload.get("duration", "this_turn")
+        expires_turn = _parse_duration_turns(duration, state)
+
+    _set_turn_permission(state.cast_from_graveyard_until, player_id, expires_turn)
+
+
+def _handle_grant_play_lands_from_graveyard(event: Event, state: GameState):
+    """
+    Handle GRANT_PLAY_LANDS_FROM_GRAVEYARD.
+
+    Payload (best-effort):
+      - player / controller: player_id
+      - duration / until_turn
+    """
+    player_id = event.payload.get("player") or event.payload.get("controller") or event.controller or state.active_player
+    if not player_id:
+        return
+
+    expires_turn = event.payload.get("until_turn")
+    if expires_turn is not None:
+        try:
+            expires_turn = int(expires_turn)
+        except Exception:
+            expires_turn = None
+    else:
+        duration = event.payload.get("duration", "this_turn")
+        expires_turn = _parse_duration_turns(duration, state)
+
+    _set_turn_permission(state.play_lands_from_graveyard_until, player_id, expires_turn)
+
+
+def _handle_grant_exile_instead_of_graveyard(event: Event, state: GameState):
+    """
+    Handle GRANT_EXILE_INSTEAD_OF_GRAVEYARD.
+
+    Payload (best-effort):
+      - player / controller: player_id (whose graveyard is replaced)
+      - duration / until_turn
+    """
+    player_id = event.payload.get("player") or event.payload.get("controller") or event.controller or state.active_player
+    if not player_id:
+        return
+
+    expires_turn = event.payload.get("until_turn")
+    if expires_turn is not None:
+        try:
+            expires_turn = int(expires_turn)
+        except Exception:
+            expires_turn = None
+    else:
+        duration = event.payload.get("duration", "this_turn")
+        expires_turn = _parse_duration_turns(duration, state)
+
+    _set_turn_permission(state.exile_instead_of_graveyard_until, player_id, expires_turn)
+
+
+def _filter_graveyard_cards(
+    state: GameState,
+    player_id: str,
+    *,
+    card_type: Optional[CardType] = None,
+    max_mana_value: Optional[int] = None,
+) -> list[str]:
+    gy = state.zones.get(f"graveyard_{player_id}")
+    if not gy:
+        return []
+
+    out: list[str] = []
+    for cid in list(gy.objects):
+        obj = state.objects.get(cid)
+        if not obj or obj.zone != ZoneType.GRAVEYARD:
+            continue
+        if card_type and card_type not in obj.characteristics.types:
+            continue
+        if max_mana_value is not None:
+            from .mana import ManaCost
+            mv = ManaCost.parse(obj.characteristics.mana_cost or "").mana_value
+            if mv > int(max_mana_value):
+                continue
+        out.append(cid)
+    return out
+
+
+def _handle_return_to_hand_from_graveyard(event: Event, state: GameState):
+    """
+    Handle RETURN_TO_HAND_FROM_GRAVEYARD.
+
+    Payload (best-effort):
+      - player / controller: chooser (defaults to event.controller / state.active_player)
+      - object_id: specific card to return (optional)
+      - card_type: string ("creature", "land", etc.) (optional)
+      - max_mv: int (optional)
+      - amount: int (optional, default 1)
+    """
+    player_id = event.payload.get("player") or event.payload.get("controller") or event.controller or state.active_player
+    if not player_id:
+        return []
+
+    object_id = event.payload.get("object_id")
+    amount = event.payload.get("amount", 1)
+    try:
+        amount = int(amount)
+    except Exception:
+        amount = 1
+    if amount <= 0:
+        return []
+
+    type_token = (event.payload.get("card_type") or event.payload.get("filter") or "").strip().lower()
+    type_map = {
+        "land": CardType.LAND,
+        "creature": CardType.CREATURE,
+        "artifact": CardType.ARTIFACT,
+        "enchantment": CardType.ENCHANTMENT,
+        "planeswalker": CardType.PLANESWALKER,
+        "instant": CardType.INSTANT,
+        "sorcery": CardType.SORCERY,
+    }
+    ct = type_map.get(type_token) if type_token else None
+    max_mv = event.payload.get("max_mv")
+    if max_mv is None:
+        max_mv = event.payload.get("max_mana_value")
+    if max_mv is not None:
+        try:
+            max_mv = int(max_mv)
+        except Exception:
+            max_mv = None
+
+    # Direct return of a specific card.
+    if object_id and object_id in state.objects:
+        obj = state.objects[object_id]
+        if obj.zone == ZoneType.GRAVEYARD:
+            return [Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    "object_id": object_id,
+                    "from_zone": f"graveyard_{obj.owner}",
+                    "from_zone_type": ZoneType.GRAVEYARD,
+                    "to_zone": f"hand_{obj.owner}",
+                    "to_zone_type": ZoneType.HAND,
+                },
+                source=event.source,
+                controller=player_id,
+            )]
+        return []
+
+    eligible = _filter_graveyard_cards(state, player_id, card_type=ct, max_mana_value=max_mv)
+    if len(eligible) < amount:
+        return []
+
+    # If there's no choice, execute immediately.
+    if len(eligible) == amount:
+        out: list[Event] = []
+        for cid in eligible:
+            obj = state.objects.get(cid)
+            if not obj:
+                continue
+            out.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    "object_id": cid,
+                    "from_zone": f"graveyard_{obj.owner}",
+                    "from_zone_type": ZoneType.GRAVEYARD,
+                    "to_zone": f"hand_{obj.owner}",
+                    "to_zone_type": ZoneType.HAND,
+                },
+                source=event.source,
+                controller=player_id,
+            ))
+        return out
+
+    def _on_choose(choice: PendingChoice, selected: list, st: GameState) -> list[Event]:
+        picked = []
+        for s in selected or []:
+            if isinstance(s, dict):
+                sid = s.get("id") or s.get("target_id")
+                if sid is not None:
+                    picked.append(str(sid))
+            else:
+                picked.append(str(s))
+        picked = [cid for cid in picked if cid in eligible][:amount]
+        out: list[Event] = []
+        for cid in picked:
+            obj = st.objects.get(cid)
+            if not obj or obj.zone != ZoneType.GRAVEYARD:
+                continue
+            out.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    "object_id": cid,
+                    "from_zone": f"graveyard_{obj.owner}",
+                    "to_zone": f"hand_{obj.owner}",
+                    "to_zone_type": ZoneType.HAND,
+                },
+                source=event.source,
+                controller=player_id,
+            ))
+        return out
+
+    state.pending_choice = PendingChoice(
+        choice_type="target_with_callback",
+        player=player_id,
+        prompt=f"Return {amount} card(s) from your graveyard to your hand",
+        options=eligible,
+        source_id=event.source or "",
+        min_choices=amount,
+        max_choices=amount,
+        callback_data={"handler": _on_choose},
+    )
+    return []
+
+
+def _handle_return_from_graveyard(event: Event, state: GameState):
+    """
+    Handle RETURN_FROM_GRAVEYARD (to battlefield).
+
+    Payload (best-effort):
+      - player / controller: chooser (defaults to event.controller / state.active_player)
+      - object_id: specific card to return (optional)
+      - card_type: string ("creature", etc.) (optional)
+      - max_mv: int (optional)
+      - amount: int (optional, default 1)
+    """
+    player_id = event.payload.get("player") or event.payload.get("controller") or event.controller or state.active_player
+    if not player_id:
+        return []
+
+    # Back-compat: some older card scripts use RETURN_FROM_GRAVEYARD with
+    # payload {"to": "hand"} for "return ... to your hand" effects.
+    to = event.payload.get("to")
+    if isinstance(to, str) and to.strip().lower() in {"hand", "to_hand"}:
+        return _handle_return_to_hand_from_graveyard(event, state) or []
+
+    object_id = event.payload.get("object_id")
+    amount = event.payload.get("amount", 1)
+    try:
+        amount = int(amount)
+    except Exception:
+        amount = 1
+    if amount <= 0:
+        return []
+
+    type_token = (event.payload.get("card_type") or event.payload.get("filter") or "").strip().lower()
+    type_map = {
+        "land": CardType.LAND,
+        "creature": CardType.CREATURE,
+        "artifact": CardType.ARTIFACT,
+        "enchantment": CardType.ENCHANTMENT,
+        "planeswalker": CardType.PLANESWALKER,
+    }
+    ct = type_map.get(type_token) if type_token else None
+    max_mv = event.payload.get("max_mv")
+    if max_mv is None:
+        max_mv = event.payload.get("max_mana_value")
+    if max_mv is not None:
+        try:
+            max_mv = int(max_mv)
+        except Exception:
+            max_mv = None
+
+    if object_id and object_id in state.objects:
+        obj = state.objects[object_id]
+        if obj.zone == ZoneType.GRAVEYARD:
+            return [Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    "object_id": object_id,
+                    "from_zone": f"graveyard_{obj.owner}",
+                    "from_zone_type": ZoneType.GRAVEYARD,
+                    "to_zone": "battlefield",
+                    "to_zone_type": ZoneType.BATTLEFIELD,
+                },
+                source=event.source,
+                controller=player_id,
+            )]
+        return []
+
+    eligible = _filter_graveyard_cards(state, player_id, card_type=ct, max_mana_value=max_mv)
+    if len(eligible) < amount:
+        return []
+
+    if len(eligible) == amount:
+        out: list[Event] = []
+        for cid in eligible:
+            obj = state.objects.get(cid)
+            if not obj:
+                continue
+            out.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    "object_id": cid,
+                    "from_zone": f"graveyard_{obj.owner}",
+                    "from_zone_type": ZoneType.GRAVEYARD,
+                    "to_zone": "battlefield",
+                    "to_zone_type": ZoneType.BATTLEFIELD,
+                },
+                source=event.source,
+                controller=player_id,
+            ))
+        return out
+
+    def _on_choose(choice: PendingChoice, selected: list, st: GameState) -> list[Event]:
+        picked = []
+        for s in selected or []:
+            if isinstance(s, dict):
+                sid = s.get("id") or s.get("target_id")
+                if sid is not None:
+                    picked.append(str(sid))
+            else:
+                picked.append(str(s))
+        picked = [cid for cid in picked if cid in eligible][:amount]
+        out: list[Event] = []
+        for cid in picked:
+            obj = st.objects.get(cid)
+            if not obj or obj.zone != ZoneType.GRAVEYARD:
+                continue
+            out.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    "object_id": cid,
+                    "from_zone": f"graveyard_{obj.owner}",
+                    "to_zone": "battlefield",
+                    "to_zone_type": ZoneType.BATTLEFIELD,
+                },
+                source=event.source,
+                controller=player_id,
+            ))
+        return out
+
+    state.pending_choice = PendingChoice(
+        choice_type="target_with_callback",
+        player=player_id,
+        prompt=f"Return {amount} card(s) from your graveyard to the battlefield",
+        options=eligible,
+        source_id=event.source or "",
+        min_choices=amount,
+        max_choices=amount,
+        callback_data={"handler": _on_choose},
+    )
+    return []
+
+
 def _handle_object_destroyed(event: Event, state: GameState):
     """
     Handle OBJECT_DESTROYED - move to graveyard.
@@ -793,12 +1221,18 @@ def _handle_object_destroyed(event: Event, state: GameState):
     # Remove from any zone that currently references it (robust).
     _remove_object_from_all_zones(object_id, state)
 
-    # Add to owner's graveyard
-    gy_key = f"graveyard_{owner_id}"
-    if gy_key in state.zones:
-        state.zones[gy_key].objects.append(object_id)
+    # Add to owner's graveyard (or exile, if a replacement effect applies).
+    if _exile_instead_of_graveyard_active(owner_id, state):
+        dest_key = "exile"
+        dest_type = ZoneType.EXILE
+    else:
+        dest_key = f"graveyard_{owner_id}"
+        dest_type = ZoneType.GRAVEYARD
 
-    obj.zone = ZoneType.GRAVEYARD
+    if dest_key in state.zones:
+        state.zones[dest_key].objects.append(object_id)
+
+    obj.zone = dest_type
     obj.entered_zone_at = state.timestamp
 
     # NOTE: Interceptor cleanup moved to _cleanup_departed_interceptors()
@@ -835,12 +1269,18 @@ def _handle_sacrifice(event: Event, state: GameState):
     # Remove from any zone that currently references it (robust).
     _remove_object_from_all_zones(object_id, state)
 
-    # Add to owner's graveyard
-    gy_key = f"graveyard_{owner_id}"
-    if gy_key in state.zones:
-        state.zones[gy_key].objects.append(object_id)
+    # Add to owner's graveyard (or exile, if a replacement effect applies).
+    if _exile_instead_of_graveyard_active(owner_id, state):
+        dest_key = "exile"
+        dest_type = ZoneType.EXILE
+    else:
+        dest_key = f"graveyard_{owner_id}"
+        dest_type = ZoneType.GRAVEYARD
 
-    obj.zone = ZoneType.GRAVEYARD
+    if dest_key in state.zones:
+        state.zones[dest_key].objects.append(object_id)
+
+    obj.zone = dest_type
     obj.entered_zone_at = state.timestamp
 
 
@@ -1108,11 +1548,12 @@ def _handle_impulse_to_graveyard(event: Event, state: GameState):
 
     library_key = f"library_{player_id}"
     hand_key = f"hand_{player_id}"
-    graveyard_key = f"graveyard_{player_id}"
     library = state.zones.get(library_key)
     hand = state.zones.get(hand_key)
+    graveyard_key = f"graveyard_{player_id}"
     graveyard = state.zones.get(graveyard_key)
-    if not library or not hand or not graveyard:
+    exile_zone = state.zones.get("exile")
+    if not library or not hand or not graveyard or not exile_zone:
         return
 
     seen = list(library.objects[:look])
@@ -1135,9 +1576,14 @@ def _handle_impulse_to_graveyard(event: Event, state: GameState):
         if obj_id not in state.objects:
             continue
         _remove_object_from_all_zones(obj_id, state)
-        graveyard.objects.append(obj_id)
-        obj = state.objects[obj_id]
-        obj.zone = ZoneType.GRAVEYARD
+        if _exile_instead_of_graveyard_active(player_id, state):
+            exile_zone.objects.append(obj_id)
+            obj = state.objects[obj_id]
+            obj.zone = ZoneType.EXILE
+        else:
+            graveyard.objects.append(obj_id)
+            obj = state.objects[obj_id]
+            obj.zone = ZoneType.GRAVEYARD
         obj.entered_zone_at = state.timestamp
 
 
@@ -1168,6 +1614,7 @@ def _handle_surveil(event: Event, state: GameState):
 
     library = state.zones[library_key]
     graveyard = state.zones[graveyard_key]
+    exile_zone = state.zones.get("exile")
 
     # Get top N cards (without removing yet)
     cards_to_look = library.objects[:amount]
@@ -1224,12 +1671,20 @@ def _handle_surveil(event: Event, state: GameState):
     # Put cards back on top (cards_to_keep) - in original order
     library.objects = cards_to_keep + library.objects
 
-    # Put cards in graveyard
+    exile_instead = bool(player_id and _exile_instead_of_graveyard_active(player_id, state) and exile_zone)
+
+    # Put cards in graveyard (or exile, if a replacement effect applies).
     for card_id in cards_to_gy:
-        graveyard.objects.append(card_id)
-        if card_id in state.objects:
+        if card_id not in state.objects:
+            continue
+        _remove_object_from_all_zones(card_id, state)
+        if exile_instead and exile_zone is not None:
+            exile_zone.objects.append(card_id)
+            state.objects[card_id].zone = ZoneType.EXILE
+        else:
+            graveyard.objects.append(card_id)
             state.objects[card_id].zone = ZoneType.GRAVEYARD
-            state.objects[card_id].entered_zone_at = state.timestamp
+        state.objects[card_id].entered_zone_at = state.timestamp
 
 
 def _handle_scry(event: Event, state: GameState):
@@ -1333,11 +1788,21 @@ def _handle_mill(event: Event, state: GameState):
     library_key = f"library_{player_id}"
     graveyard_key = f"graveyard_{player_id}"
 
-    if library_key not in state.zones or graveyard_key not in state.zones:
+    if library_key not in state.zones:
         return
 
     library = state.zones[library_key]
-    graveyard = state.zones[graveyard_key]
+
+    exile_instead = bool(player_id and _exile_instead_of_graveyard_active(player_id, state))
+    if exile_instead:
+        dest_zone = state.zones.get("exile")
+        dest_type = ZoneType.EXILE
+    else:
+        dest_zone = state.zones.get(graveyard_key)
+        dest_type = ZoneType.GRAVEYARD
+
+    if not dest_zone:
+        return
 
     for _ in range(count):
         if not library.objects:
@@ -1345,10 +1810,10 @@ def _handle_mill(event: Event, state: GameState):
 
         card_id = library.objects.pop(0)  # Top of library
         _remove_object_from_all_zones(card_id, state)
-        graveyard.objects.append(card_id)
+        dest_zone.objects.append(card_id)
 
         if card_id in state.objects:
-            state.objects[card_id].zone = ZoneType.GRAVEYARD
+            state.objects[card_id].zone = dest_type
             state.objects[card_id].entered_zone_at = state.timestamp
 
 
@@ -1386,17 +1851,23 @@ def _handle_discard(event: Event, state: GameState):
         if not in_hand:
             return
 
-        # Discarded cards always go to their owner's graveyard.
-        graveyard_key = f"graveyard_{obj.owner}"
+        # Discarded cards go to their owner's graveyard unless a replacement
+        # effect exiles them instead.
+        if _exile_instead_of_graveyard_active(obj.owner, state):
+            dest_key = "exile"
+            dest_type = ZoneType.EXILE
+        else:
+            dest_key = f"graveyard_{obj.owner}"
+            dest_type = ZoneType.GRAVEYARD
 
-        if graveyard_key not in state.zones:
+        if dest_key not in state.zones:
             return
 
-        graveyard = state.zones[graveyard_key]
+        dest = state.zones[dest_key]
 
         _remove_object_from_all_zones(object_id, state)
-        graveyard.objects.append(object_id)
-        obj.zone = ZoneType.GRAVEYARD
+        dest.objects.append(object_id)
+        obj.zone = dest_type
         obj.entered_zone_at = state.timestamp
         # Remember who discarded it and when (for "discarded this turn" mechanics).
         obj.state.last_discarded_turn = state.turn_number
@@ -2102,6 +2573,11 @@ EVENT_HANDLERS = {
     EventType.GRANT_KEYWORD: _handle_grant_keyword,
     EventType.KEYWORD_GRANT: _handle_grant_keyword,
     EventType.GRANT_ABILITY: _handle_grant_keyword,
+    EventType.GRANT_CAST_FROM_GRAVEYARD: _handle_grant_cast_from_graveyard,
+    EventType.GRANT_PLAY_LANDS_FROM_GRAVEYARD: _handle_grant_play_lands_from_graveyard,
+    EventType.GRANT_EXILE_INSTEAD_OF_GRAVEYARD: _handle_grant_exile_instead_of_graveyard,
+    EventType.RETURN_TO_HAND_FROM_GRAVEYARD: _handle_return_to_hand_from_graveyard,
+    EventType.RETURN_FROM_GRAVEYARD: _handle_return_from_graveyard,
     EventType.OBJECT_DESTROYED: _handle_object_destroyed,
     EventType.SACRIFICE: _handle_sacrifice,
     EventType.MANA_PRODUCED: _handle_mana_produced,

@@ -44,6 +44,13 @@ if TYPE_CHECKING:
 _FLASHBACK_COST_RE = re.compile(r'flashback\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
 _HARMONIZE_COST_RE = re.compile(r'harmonize\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
 _MAYHEM_COST_RE = re.compile(r'mayhem\s*[—-]?\s*((?:\{[^}]+\})+)', re.IGNORECASE)
+_ESCAPE_RE = re.compile(
+    r'escape\s*[—-]\s*((?:\{[^}]+\})+)\s*,\s*exile\s+(\w+)\s+(?:other\s+)?cards?\s+from your graveyard',
+    re.IGNORECASE,
+)
+_JUMP_START_RE = re.compile(r'\bjump-start\b', re.IGNORECASE)
+_RETRACE_RE = re.compile(r'\bretrace\b', re.IGNORECASE)
+_DELVE_RE = re.compile(r'\bdelve\b', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -269,7 +276,10 @@ class PrioritySystem:
                 if not card:
                     continue
 
-                cost = ManaCost.parse(card.characteristics.mana_cost or "")
+                mana_cost_str = card.characteristics.mana_cost
+                cost = ManaCost.parse(mana_cost_str or "")
+                delve_discount = self._delve_discount(card, player_id, cost)
+                cost_for_cast = self._reduce_generic_cost(cost, delve_discount)
                 std_plan = self._get_standard_additional_cost_plan(card)
                 ctx = CastCostContext(
                     state=self.state,
@@ -278,11 +288,13 @@ class PrioritySystem:
                     casting_card_id=card_id,
                     casting_card_name=card.name,
                     casting_zone=card.zone,
-                    base_mana_cost=cost,
+                    base_mana_cost=cost_for_cast,
                     x_value=0,
                 )
 
-                if self._can_cast(card, player_id) and self._can_pay_cost_plan(std_plan, ctx):
+                # Don't accidentally allow cards with no printed mana cost.
+                cost_override = cost_for_cast if (mana_cost_str and mana_cost_str.strip() != "") else None
+                if self._can_cast(card, player_id, cost_override=cost_override) and self._can_pay_cost_plan(std_plan, ctx):
                     desc = f"Cast {card.name}"
                     if std_plan:
                         desc = f"{desc} ({describe_plan(std_plan)})"
@@ -290,8 +302,8 @@ class PrioritySystem:
                         type=ActionType.CAST_SPELL,
                         card_id=card_id,
                         description=desc,
-                        requires_mana=not cost.is_free(),
-                        mana_cost=cost
+                        requires_mana=not cost_for_cast.is_free(),
+                        mana_cost=cost_for_cast
                     ))
 
         # Casting from graveyard (Flashback/Harmonize/Mayhem/etc.).
@@ -306,7 +318,10 @@ class PrioritySystem:
                 std_plan = self._get_standard_additional_cost_plan(card)
                 options = self._get_graveyard_cast_options(card, player_id)
                 for idx, option in enumerate(options):
-                    cost_for_ui = option.alt_mana_cost or ManaCost.parse(card.characteristics.mana_cost or "")
+                    mana_cost_str = card.characteristics.mana_cost
+                    cost_for_ui = option.alt_mana_cost or ManaCost.parse(mana_cost_str or "")
+                    delve_discount = self._delve_discount(card, player_id, cost_for_ui)
+                    cost_for_cast = self._reduce_generic_cost(cost_for_ui, delve_discount)
                     full_plan = self._concat_cost_plans(std_plan, option.additional_cost_plan)
                     ctx = CastCostContext(
                         state=self.state,
@@ -315,16 +330,16 @@ class PrioritySystem:
                         casting_card_id=card_id,
                         casting_card_name=card.name,
                         casting_zone=card.zone,
-                        base_mana_cost=cost_for_ui,
+                        base_mana_cost=cost_for_cast,
                         x_value=0,
                     )
 
-                    if option.alt_mana_cost is None:
-                        if not self._can_cast(card, player_id):
-                            continue
-                    else:
-                        if not self._can_cast(card, player_id, cost_override=option.alt_mana_cost):
-                            continue
+                    # Only allow printed-cost options if a printed mana cost exists.
+                    if option.alt_mana_cost is None and (not mana_cost_str or mana_cost_str.strip() == ""):
+                        continue
+
+                    if not self._can_cast(card, player_id, cost_override=cost_for_cast):
+                        continue
 
                     if not self._can_pay_cost_plan(full_plan, ctx):
                         continue
@@ -337,8 +352,8 @@ class PrioritySystem:
                         card_id=card_id,
                         ability_id=self._cast_option_ability_id(ZoneType.GRAVEYARD, idx, option),
                         description=desc,
-                        requires_mana=not cost_for_ui.is_free(),
-                        mana_cost=cost_for_ui
+                        requires_mana=not cost_for_cast.is_free(),
+                        mana_cost=cost_for_cast
                     ))
 
         # Check if player can play lands
@@ -351,6 +366,20 @@ class PrioritySystem:
                             type=ActionType.PLAY_LAND,
                             card_id=card_id,
                             description=f"Play {card.name}"
+                        ))
+            if self._graveyard_land_permission_active(player_id):
+                gy = self.state.zones.get(f"graveyard_{player_id}")
+                if gy:
+                    for card_id in gy.objects:
+                        card = self.state.objects.get(card_id)
+                        if not card or card.owner != player_id:
+                            continue
+                        if CardType.LAND not in card.characteristics.types:
+                            continue
+                        actions.append(LegalAction(
+                            type=ActionType.PLAY_LAND,
+                            card_id=card_id,
+                            description=f"Play {card.name} (from graveyard)"
                         ))
 
         # Check for activatable abilities on permanents
@@ -429,7 +458,7 @@ class PrioritySystem:
             return self._can_pay_cost_plan(rest, ctx, add_mana_costs(extra_mana, step.mana_cost or ManaCost()))
 
         if step.kind == "discard":
-            eligible = eligible_hand_cards(ctx)
+            eligible = eligible_hand_cards(ctx, step.allowed_types)
             return len(eligible) >= step.amount and self._can_pay_cost_plan(rest, ctx, extra_mana)
 
         if step.kind == "sacrifice":
@@ -520,6 +549,123 @@ class PrioritySystem:
         except Exception:
             return None
 
+    def _get_escape_cost_and_exile_count(self, card) -> tuple[Optional[ManaCost], int]:
+        """
+        Parse an escape cost and its "exile N cards" requirement from rules text.
+
+        Expected pattern (common reminder text):
+          "Escape—{3}{G}{G}, Exile three other cards from your graveyard."
+        """
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        if not text:
+            return (None, 0)
+
+        match = _ESCAPE_RE.search(text)
+        if not match:
+            return (None, 0)
+
+        cost_str = match.group(1)
+        count_token = match.group(2)
+        try:
+            cost = ManaCost.parse(cost_str)
+        except Exception:
+            return (None, 0)
+
+        token = (count_token or "").strip().lower()
+        if not token:
+            return (cost, 0)
+
+        if token.isdigit():
+            return (cost, int(token))
+
+        words = {
+            "a": 1,
+            "an": 1,
+            "one": 1,
+            "two": 2,
+            "three": 3,
+            "four": 4,
+            "five": 5,
+            "six": 6,
+            "seven": 7,
+            "eight": 8,
+            "nine": 9,
+            "ten": 10,
+        }
+        return (cost, int(words.get(token) or 0))
+
+    def _has_jump_start(self, card) -> bool:
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        return bool(text and _JUMP_START_RE.search(text))
+
+    def _has_retrace(self, card) -> bool:
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        return bool(text and _RETRACE_RE.search(text))
+
+    def _has_delve(self, card) -> bool:
+        text = ""
+        if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
+            text = card.card_def.text or ""
+        return bool(text and _DELVE_RE.search(text))
+
+    def _graveyard_cast_permission_active(self, player_id: str) -> bool:
+        perms = getattr(self.state, "cast_from_graveyard_until", {}) or {}
+        if player_id not in perms:
+            return False
+        expires = perms.get(player_id)
+        if expires is None:
+            return True
+        return self.state.turn_number <= int(expires)
+
+    def _graveyard_land_permission_active(self, player_id: str) -> bool:
+        perms = getattr(self.state, "play_lands_from_graveyard_until", {}) or {}
+        if player_id not in perms:
+            return False
+        expires = perms.get(player_id)
+        if expires is None:
+            return True
+        return self.state.turn_number <= int(expires)
+
+    def _delve_discount(self, card, player_id: str, cost: ManaCost) -> int:
+        """
+        Compute the maximum Delve discount available for this cast.
+
+        We only reduce the generic portion of the mana cost and we exclude the
+        casting card itself when casting from the graveyard.
+        """
+        if not self._has_delve(card):
+            return 0
+        if cost.generic <= 0:
+            return 0
+        gy = self.state.zones.get(f"graveyard_{player_id}")
+        if not gy:
+            return 0
+        eligible = [cid for cid in gy.objects if cid != getattr(card, "id", None)]
+        return min(cost.generic, len(eligible))
+
+    def _reduce_generic_cost(self, cost: ManaCost, reduce_by: int) -> ManaCost:
+        if reduce_by <= 0:
+            return cost
+        return ManaCost(
+            white=cost.white,
+            blue=cost.blue,
+            black=cost.black,
+            red=cost.red,
+            green=cost.green,
+            colorless=cost.colorless,
+            generic=max(0, cost.generic - int(reduce_by)),
+            snow=cost.snow,
+            x_count=cost.x_count,
+            hybrid=list(cost.hybrid),
+            phyrexian=list(cost.phyrexian),
+        )
+
     def _discarded_this_turn_by(self, card, player_id: str) -> bool:
         """Return True if this card was discarded by player_id during the current turn."""
         st = getattr(card, "state", None)
@@ -561,6 +707,34 @@ class PrioritySystem:
                 metadata={"mayhem": True},
             ))
 
+        # Jump-start: cast for printed cost, discard a card, then exile it.
+        if self._has_jump_start(card):
+            options.append(CastOption(
+                description_suffix="jump-start",
+                alt_mana_cost=None,
+                metadata={"jump_start": True, "exile_on_leave_stack": True},
+                additional_cost_plan=(CostStep(kind="discard", amount=1),),
+            ))
+
+        # Retrace: cast for printed cost, discard a land card. Does not exile.
+        if self._has_retrace(card):
+            options.append(CastOption(
+                description_suffix="retrace",
+                alt_mana_cost=None,
+                metadata={"retrace": True},
+                additional_cost_plan=(CostStep(kind="discard", amount=1, allowed_types={CardType.LAND}),),
+            ))
+
+        # Escape: cast for escape cost, exile N other cards from your graveyard.
+        escape_cost, escape_exile = self._get_escape_cost_and_exile_count(card)
+        if escape_cost is not None and escape_exile > 0:
+            options.append(CastOption(
+                description_suffix="escape",
+                alt_mana_cost=escape_cost,
+                metadata={"escape": True},
+                additional_cost_plan=(CostStep(kind="exile_from_graveyard", amount=escape_exile),),
+            ))
+
         text = ""
         if getattr(card, "card_def", None) and getattr(card.card_def, "text", None):
             text = card.card_def.text or ""
@@ -589,6 +763,14 @@ class PrioritySystem:
                         metadata={},
                     ))
                     break
+
+        # Global permission ("You may cast spells from your graveyard this turn").
+        if self._graveyard_cast_permission_active(player_id):
+            options.append(CastOption(
+                description_suffix="from graveyard",
+                alt_mana_cost=None,
+                metadata={"from_graveyard_global": True},
+            ))
 
         return options
 
@@ -953,6 +1135,11 @@ class PrioritySystem:
 
         printed_cost = ManaCost.parse(card.characteristics.mana_cost or "")
 
+        # Delve: automatically apply the maximum generic-cost reduction available
+        # for this cast, and pay it by exiling cards from the caster's graveyard.
+        delve_exile_count = self._delve_discount(card, action.player_id, paid_cost)
+        paid_cost = self._reduce_generic_cost(paid_cost, delve_exile_count)
+
         # Build additional cost plan(s).
         std_plan = self._get_standard_additional_cost_plan(card)
         full_plan = self._concat_cost_plans(std_plan, option_plan)
@@ -982,6 +1169,7 @@ class PrioritySystem:
             used_harmonize=used_harmonize,
             used_mayhem=used_mayhem,
             exile_on_leave_stack=exile_on_leave_stack,
+            delve_exile_count=delve_exile_count,
         )
 
     def _emit_cost_events(self, events: list[Event]) -> None:
@@ -1017,6 +1205,7 @@ class PrioritySystem:
         used_harmonize: bool,
         used_mayhem: bool,
         exile_on_leave_stack: bool,
+        delve_exile_count: int = 0,
     ) -> list[Event]:
         """
         Process (and pay) additional costs until either:
@@ -1044,7 +1233,44 @@ class PrioritySystem:
 
         # If all additional costs are done, pay mana and cast.
         if not plan:
-            total_cost = add_mana_costs(paid_cost, extra_mana)
+            # Delve: pay for {1} per exiled card by exiling from our graveyard.
+            # We model this as an automatic maximum reduction (no prompt).
+            effective_paid_cost = paid_cost
+            if delve_exile_count and delve_exile_count > 0:
+                eligible = eligible_graveyard_cards(ctx)
+                actual = min(int(delve_exile_count), len(eligible))
+                missing = int(delve_exile_count) - actual
+
+                # If we can't exile as many cards as we discounted (because some other
+                # cost step already moved cards out of the graveyard), undo the
+                # over-discount by adding generic mana back.
+                if missing > 0:
+                    effective_paid_cost = ManaCost(
+                        white=paid_cost.white,
+                        blue=paid_cost.blue,
+                        black=paid_cost.black,
+                        red=paid_cost.red,
+                        green=paid_cost.green,
+                        colorless=paid_cost.colorless,
+                        generic=paid_cost.generic + missing,
+                        snow=paid_cost.snow,
+                        x_count=paid_cost.x_count,
+                        hybrid=list(paid_cost.hybrid),
+                        phyrexian=list(paid_cost.phyrexian),
+                    )
+
+                to_exile = list(eligible[:actual])
+                self._emit_cost_events([
+                    Event(
+                        type=EventType.EXILE,
+                        payload={'object_id': cid},
+                        source=action.card_id,
+                        controller=action.player_id,
+                    )
+                    for cid in to_exile
+                ])
+
+            total_cost = add_mana_costs(effective_paid_cost, extra_mana)
             if self.mana_system and not total_cost.is_free():
                 self.mana_system.pay_cost(action.player_id, total_cost, action.x_value)
 
@@ -1111,6 +1337,7 @@ class PrioritySystem:
                 used_harmonize=used_harmonize,
                 used_mayhem=used_mayhem,
                 exile_on_leave_stack=exile_on_leave_stack,
+                delve_exile_count=delve_exile_count,
             )
 
         if step.kind == "add_mana":
@@ -1125,6 +1352,7 @@ class PrioritySystem:
                 used_harmonize=used_harmonize,
                 used_mayhem=used_mayhem,
                 exile_on_leave_stack=exile_on_leave_stack,
+                delve_exile_count=delve_exile_count,
             )
 
         # OR choice: pick if forced, otherwise prompt.
@@ -1155,6 +1383,7 @@ class PrioritySystem:
                     used_harmonize=used_harmonize,
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
+                    delve_exile_count=delve_exile_count,
                 )
 
             # Prompt the player to choose which additional cost path to take.
@@ -1187,6 +1416,7 @@ class PrioritySystem:
                     used_harmonize=used_harmonize,
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
+                    delve_exile_count=delve_exile_count,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1203,7 +1433,7 @@ class PrioritySystem:
 
         # Choice steps.
         if step.kind == "discard":
-            options = eligible_hand_cards(ctx)
+            options = eligible_hand_cards(ctx, step.allowed_types)
             if len(options) < step.amount:
                 return []
 
@@ -1231,6 +1461,7 @@ class PrioritySystem:
                     used_harmonize=used_harmonize,
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
+                    delve_exile_count=delve_exile_count,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1274,6 +1505,7 @@ class PrioritySystem:
                     used_harmonize=used_harmonize,
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
+                    delve_exile_count=delve_exile_count,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1317,6 +1549,7 @@ class PrioritySystem:
                     used_harmonize=used_harmonize,
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
+                    delve_exile_count=delve_exile_count,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1360,6 +1593,7 @@ class PrioritySystem:
                     used_harmonize=used_harmonize,
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
+                    delve_exile_count=delve_exile_count,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1403,6 +1637,7 @@ class PrioritySystem:
                     used_harmonize=used_harmonize,
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
+                    delve_exile_count=delve_exile_count,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1446,6 +1681,7 @@ class PrioritySystem:
                     used_harmonize=used_harmonize,
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
+                    delve_exile_count=delve_exile_count,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1533,6 +1769,7 @@ class PrioritySystem:
                     used_harmonize=used_harmonize,
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
+                    delve_exile_count=delve_exile_count,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1687,12 +1924,32 @@ class PrioritySystem:
         if not card:
             return events
 
-        # Move land from hand to battlefield
+        # Must be a land.
+        if CardType.LAND not in card.characteristics.types:
+            return events
+
+        # Determine the source zone. By default, lands are played from hand.
+        from_zone = None
+        from_zone_type = None
+        if card.zone == ZoneType.HAND:
+            from_zone = f"hand_{action.player_id}"
+            from_zone_type = ZoneType.HAND
+        elif card.zone == ZoneType.GRAVEYARD:
+            # Effects like Crucible of Worlds can permit playing lands from graveyard.
+            if not self._graveyard_land_permission_active(action.player_id):
+                return events
+            from_zone = f"graveyard_{card.owner}"
+            from_zone_type = ZoneType.GRAVEYARD
+        else:
+            return events
+
+        # Move land to battlefield
         events.append(Event(
             type=EventType.ZONE_CHANGE,
             payload={
                 'object_id': action.card_id,
-                'from_zone': f'hand_{action.player_id}',
+                'from_zone': from_zone,
+                'from_zone_type': from_zone_type,
                 'to_zone': 'battlefield',
                 'to_zone_type': ZoneType.BATTLEFIELD
             }

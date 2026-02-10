@@ -230,6 +230,7 @@ _PAY_MANA_RE = re.compile(r"^pay\s+((?:\{[^}]+\})+)$", re.IGNORECASE)
 _PAY_LIFE_RE = re.compile(r"^pay\s+(\d+)\s+life$", re.IGNORECASE)
 _DISCARD_RE = re.compile(r"^discard\s+(?:a|an|one)\s+card$", re.IGNORECASE)
 _DISCARD_N_RE = re.compile(r"^discard\s+(\d+)\s+cards?$", re.IGNORECASE)
+_DISCARD_TYPED_RE = re.compile(r"^discard\s+(?:a|an|one)\s+(\w+)\s+card$", re.IGNORECASE)
 _SACRIFICE_RE = re.compile(r"^(?:sacrifice|sacrificing)\s+(?:a|an|one)\s+(.+)$", re.IGNORECASE)
 _TAP_RE = re.compile(r"^(?:tap|tapping)\s+(\w+)\s+untapped\s+(.+?)\s+you control$", re.IGNORECASE)
 _EXILE_FROM_GY_RE = re.compile(r"^(?:exile|exiling)\s+(\w+)\s+cards?\s+from your graveyard$", re.IGNORECASE)
@@ -316,6 +317,23 @@ def _parse_single_phrase(expr: str) -> Optional[CostStep]:
     m = _PAY_LIFE_RE.match(expr)
     if m:
         return CostStep(kind="pay_life", amount=int(m.group(1)))
+
+    # discard a <type> card (e.g. "discard a land card")
+    m = _DISCARD_TYPED_RE.match(expr)
+    if m:
+        type_word = (m.group(1) or "").strip().lower()
+        type_map = {
+            "land": CardType.LAND,
+            "creature": CardType.CREATURE,
+            "artifact": CardType.ARTIFACT,
+            "enchantment": CardType.ENCHANTMENT,
+            "planeswalker": CardType.PLANESWALKER,
+            "instant": CardType.INSTANT,
+            "sorcery": CardType.SORCERY,
+        }
+        ct = type_map.get(type_word)
+        if ct is not None:
+            return CostStep(kind="discard", amount=1, allowed_types={ct})
 
     # discard a card / discard N cards
     if _DISCARD_RE.match(expr):
@@ -421,12 +439,23 @@ def _parse_permanent_type_list(text: str) -> set[CardType]:
 # =============================================================================
 
 
-def eligible_hand_cards(ctx: CastCostContext) -> list[str]:
+def eligible_hand_cards(ctx: CastCostContext, allowed_types: Optional[set[CardType]] = None) -> list[str]:
     hand = ctx.state.zones.get(f"hand_{ctx.player_id}")
     if not hand:
         return []
     # Can't discard the spell being cast if it's currently in the hand.
-    return [cid for cid in hand.objects if cid != ctx.casting_card_id]
+    out: list[str] = []
+    for cid in hand.objects:
+        if cid == ctx.casting_card_id:
+            continue
+        if allowed_types:
+            obj = ctx.state.objects.get(cid)
+            if not obj:
+                continue
+            if not (obj.characteristics.types & allowed_types):
+                continue
+        out.append(cid)
+    return out
 
 
 def eligible_battlefield_permanents(ctx: CastCostContext, allowed_types: Optional[set[CardType]] = None, *, must_be_untapped: bool = False) -> list[str]:
@@ -467,4 +496,3 @@ def total_counters_on_creatures_you_control(ctx: CastCostContext) -> dict[str, i
             continue
         totals[oid] = sum(int(v) for v in (obj.state.counters or {}).values() if isinstance(v, int) and v > 0)
     return {k: v for k, v in totals.items() if v > 0}
-
