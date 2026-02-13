@@ -361,7 +361,7 @@ class ObjectState:
     stealth: bool = False             # Can't be targeted
     windfury: bool = False            # Can attack twice per turn
     attacks_this_turn: int = 0        # Track attacks for Windfury
-    summoning_sickness: bool = True   # Can't attack first turn (Charge bypasses)
+    summoning_sickness: bool = False  # Set True on battlefield entry (pipeline.py:628)
     weapon_durability: int = 0        # For weapon cards
     weapon_attack: int = 0            # For weapon cards
 

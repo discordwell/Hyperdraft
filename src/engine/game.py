@@ -196,7 +196,9 @@ class Game:
             # counters/grants can add abilities, etc.). Copy to avoid sharing the
             # CardDefinition template between different physical objects.
             characteristics=copy.deepcopy(characteristics or Characteristics()),
-            state=ObjectState(),
+            state=ObjectState(
+                summoning_sickness=(zone == ZoneType.BATTLEFIELD)
+            ),
             card_def=card_def,
             created_at=self.state.next_timestamp(),
             entered_zone_at=self.state.timestamp
