@@ -106,13 +106,34 @@ RAID_LEADER = make_minion(
     setup_interceptors=raid_leader_setup
 )
 
+def shattered_sun_cleric_battlecry_basic(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Give a friendly minion +1/+1."""
+    battlefield = state.zones.get('battlefield')
+    if not battlefield:
+        return []
+    friendly_minions = []
+    for minion_id in battlefield.objects:
+        minion = state.objects.get(minion_id)
+        if minion and minion.controller == obj.controller and minion.id != obj.id:
+            if CardType.MINION in minion.characteristics.types:
+                friendly_minions.append(minion_id)
+    if friendly_minions:
+        target_id = random.choice(friendly_minions)
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': target_id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'permanent'},
+            source=obj.id
+        )]
+    return []
+
 SHATTERED_SUN_CLERIC = make_minion(
     name="Shattered Sun Cleric",
     attack=3,
     health=2,
     mana_cost="{3}",
     text="Battlecry: Give a friendly minion +1/+1",
-    rarity="Common"
+    rarity="Common",
+    battlecry=shattered_sun_cleric_battlecry_basic
 )
 
 CHILLWIND_YETI = make_minion(
@@ -242,13 +263,35 @@ HARVEST_GOLEM = make_minion(
     rarity="Common"
 )
 
+def ironforge_rifleman_battlecry_basic(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Deal 1 damage to a random enemy."""
+    enemies = []
+    for pid, player in state.players.items():
+        if pid != obj.controller and player.hero_id:
+            enemies.append(player.hero_id)
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
+                enemies.append(mid)
+    if enemies:
+        target_id = random.choice(enemies)
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': target_id, 'amount': 1, 'source': obj.id},
+            source=obj.id
+        )]
+    return []
+
 IRONFORGE_RIFLEMAN = make_minion(
     name="Ironforge Rifleman",
     attack=2,
     health=2,
     mana_cost="{3}",
     text="Battlecry: Deal 1 damage",
-    rarity="Common"
+    rarity="Common",
+    battlecry=ironforge_rifleman_battlecry_basic
 )
 
 NIGHTBLADE = make_minion(

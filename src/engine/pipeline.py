@@ -1484,6 +1484,8 @@ def _handle_create_token(event: Event, state: GameState):
             token_state.stealth = True
         if 'windfury' in token_keywords:
             token_state.windfury = True
+        if 'frozen' in token_keywords:
+            token_state.frozen = True
 
         token = GameObject(
             id=obj_id,
