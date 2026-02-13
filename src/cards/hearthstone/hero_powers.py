@@ -125,9 +125,10 @@ def lesser_heal_effect(obj: GameObject, state: GameState) -> list[Event]:
 
     # Heal hero (can't go above max)
     heal_amount = min(2, 30 - player.life)
-    if heal_amount > 0:
-        player.life += heal_amount
+    if heal_amount <= 0:
+        return []
 
+    # Only return the event - _handle_life_change will apply the change
     return [Event(
         type=EventType.LIFE_CHANGE,
         payload={'player': obj.controller, 'amount': heal_amount},

@@ -148,11 +148,9 @@ class HearthstoneTurnManager(TurnManager):
         if not active_player:
             return events
 
-        # Gain mana crystal
-        from .game import Game
-        if hasattr(self, 'mana_system'):
-            # This will be set by Game class
-            pass
+        # Gain mana crystal and refill
+        if hasattr(self, 'mana_system') and self.mana_system:
+            self.mana_system.on_turn_start(active_player_id)
         else:
             # Direct manipulation if mana system not available
             if active_player.mana_crystals < 10:

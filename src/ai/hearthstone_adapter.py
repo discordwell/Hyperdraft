@@ -9,6 +9,7 @@ from typing import Optional, TYPE_CHECKING
 
 from .engine import AIEngine
 from .evaluator import BoardEvaluator
+from src.engine.types import ZoneType
 
 if TYPE_CHECKING:
     from src.engine.types import GameState, Event, GameObject
@@ -382,23 +383,34 @@ class HearthstoneAIAdapter:
         1. Check if can attack (not frozen, attacks_this_turn < max)
         2. Choose target (face vs trade)
         3. Execute attack
+        4. Check state-based actions (remove dead minions)
         """
         events = []
 
         attackers = self._get_available_attackers(state, player_id)
 
         for attacker_id in attackers:
+            # Verify attacker is still on the battlefield
+            attacker = state.objects.get(attacker_id)
+            if not attacker or attacker.zone != ZoneType.BATTLEFIELD:
+                continue
+
             target_id = self._choose_attack_target(attacker_id, state, player_id)
 
             if target_id:
                 attack_events = await self._execute_attack(attacker_id, target_id, game)
                 events.extend(attack_events)
 
+                # Check state-based actions after each attack (remove dead minions)
+                if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
+                    await game.turn_manager._check_state_based_actions()
+
         return events
 
     def _get_available_attackers(self, state: 'GameState', player_id: str) -> list[str]:
-        """Find all minions that can attack."""
+        """Find all minions and heroes that can attack."""
         from src.engine.types import CardType
+        from src.engine.queries import get_power
 
         battlefield = state.zones.get('battlefield')
         if not battlefield:
@@ -411,9 +423,21 @@ class HearthstoneAIAdapter:
             if not obj or obj.controller != player_id:
                 continue
 
-            # Must be a minion
-            if CardType.MINION not in obj.characteristics.types:
+            is_minion = CardType.MINION in obj.characteristics.types
+            is_hero = CardType.HERO in obj.characteristics.types
+
+            if not is_minion and not is_hero:
                 continue
+
+            # 0-attack minions can't attack
+            if is_minion and get_power(obj, state) <= 0:
+                continue
+
+            # Heroes need a weapon to attack
+            if is_hero:
+                player = state.players.get(player_id)
+                if not player or player.weapon_attack <= 0:
+                    continue
 
             # Can't be frozen
             if obj.state.frozen:
@@ -422,17 +446,16 @@ class HearthstoneAIAdapter:
             # Check if already attacked (or has charge/haste)
             has_charge = 'charge' in obj.characteristics.keywords or 'haste' in obj.characteristics.keywords
 
-            # Summoning sickness check
-            if obj.state.summoning_sickness and not has_charge:
-                continue
+            # Summoning sickness check (only for minions)
+            if is_minion and obj.state.summoning_sickness and not has_charge:
+                has_rush = 'rush' in obj.characteristics.keywords
+                if not has_rush:
+                    continue
 
             # Check attack count
-            if obj.state.attacks_this_turn >= 1:
-                # Windfury allows 2 attacks
-                if 'windfury' not in obj.characteristics.keywords:
-                    continue
-                if obj.state.attacks_this_turn >= 2:
-                    continue
+            max_attacks = 2 if obj.state.windfury else 1
+            if obj.state.attacks_this_turn >= max_attacks:
+                continue
 
             attackers.append(obj_id)
 
@@ -440,27 +463,36 @@ class HearthstoneAIAdapter:
 
     def _choose_attack_target(self, attacker_id: str, state: 'GameState', player_id: str) -> Optional[str]:
         """
-        Choose what to attack with this minion.
+        Choose what to attack with this minion/hero.
 
         Returns target ID (minion or enemy hero).
         """
         from src.engine.types import CardType
+        from src.engine.queries import get_power, has_ability
 
         attacker = state.objects.get(attacker_id)
         if not attacker:
             return None
 
+        # Rush minions with summoning sickness can only attack minions
+        is_rush_restricted = (
+            CardType.MINION in attacker.characteristics.types and
+            attacker.state.summoning_sickness and
+            has_ability(attacker, 'rush', state) and
+            not has_ability(attacker, 'charge', state)
+        )
+
         # Find enemy player
-        enemy_id = None
+        enemy_pid = None
         for pid, player in state.players.items():
             if pid != player_id:
-                enemy_id = pid
+                enemy_pid = pid
                 break
 
-        if not enemy_id:
+        if not enemy_pid:
             return None
 
-        enemy_player = state.players[enemy_id]
+        enemy_player = state.players[enemy_pid]
 
         # Check for Taunt minions (MUST attack them)
         taunt_minions = self._get_enemy_taunt_minions(state, player_id)
@@ -476,14 +508,28 @@ class HearthstoneAIAdapter:
         # No taunt requirement - decide between face and trades
         enemy_minions = self._get_enemy_minions(state, player_id)
 
+        # Rush-restricted minions can only hit minions
+        if is_rush_restricted:
+            if enemy_minions:
+                for minion_id in enemy_minions:
+                    if self._is_favorable_trade(attacker_id, minion_id, state):
+                        return minion_id
+                return enemy_minions[0]
+            return None  # No valid targets for Rush minion
+
         # Strategy decision
         strategy = self.ai_engine.strategy.name if hasattr(self.ai_engine.strategy, 'name') else 'midrange'
 
         # Aggro: Prefer face
         if strategy == 'aggro' or self.difficulty == 'easy':
-            # Check if we can lethal
-            attacker_power = attacker.characteristics.power or 0
-            if enemy_player.life <= attacker_power:
+            # Check if we can lethal (account for armor)
+            attacker_power = get_power(attacker, state)
+            if CardType.HERO in attacker.characteristics.types:
+                player = state.players.get(player_id)
+                if player:
+                    attacker_power = player.weapon_attack
+            effective_hp = enemy_player.life + enemy_player.armor
+            if effective_hp <= attacker_power:
                 return enemy_player.hero_id  # Kill shot!
 
             # Otherwise, mostly go face
@@ -491,9 +537,9 @@ class HearthstoneAIAdapter:
                 return enemy_player.hero_id
 
         # Control/Midrange: Look for good trades
-        for enemy_id in enemy_minions:
-            if self._is_favorable_trade(attacker_id, enemy_id, state):
-                return enemy_id
+        for minion_id in enemy_minions:
+            if self._is_favorable_trade(attacker_id, minion_id, state):
+                return minion_id
 
         # No good trades, go face
         return enemy_player.hero_id
@@ -521,7 +567,7 @@ class HearthstoneAIAdapter:
         return taunt_minions
 
     def _get_enemy_minions(self, state: 'GameState', player_id: str) -> list[str]:
-        """Get all enemy minions."""
+        """Get all targetable enemy minions (excludes stealthed)."""
         from src.engine.types import CardType
 
         battlefield = state.zones.get('battlefield')
@@ -536,6 +582,9 @@ class HearthstoneAIAdapter:
                 continue
 
             if CardType.MINION in obj.characteristics.types:
+                # Can't target stealthed minions
+                if obj.state.stealth:
+                    continue
                 enemy_minions.append(obj_id)
 
         return enemy_minions

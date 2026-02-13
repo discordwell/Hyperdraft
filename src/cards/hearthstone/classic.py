@@ -261,11 +261,13 @@ def harvest_golem_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
         type=EventType.CREATE_TOKEN,
         payload={
             'controller': obj.controller,
-            'name': 'Damaged Golem',
-            'power': 2,
-            'toughness': 1,
-            'types': [CardType.MINION],
-            'subtypes': ['Mechanical']
+            'token': {
+                'name': 'Damaged Golem',
+                'power': 2,
+                'toughness': 1,
+                'types': {CardType.MINION},
+                'subtypes': {'Mech'},
+            }
         },
         source=obj.id
     )]
