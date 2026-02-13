@@ -203,17 +203,19 @@ class HearthstoneTurnManager(TurnManager):
                 self.pipeline.emit(fatigue_event)
             events.append(fatigue_event)
 
-            # Apply damage to hero
-            life_change_event = Event(
-                type=EventType.LIFE_CHANGE,
-                payload={
-                    'player': active_player_id,
-                    'amount': -active_player.fatigue_damage
-                }
-            )
-            if self.pipeline:
-                self.pipeline.emit(life_change_event)
-            events.append(life_change_event)
+            # Apply damage to hero (uses DAMAGE so armor absorbs it)
+            if active_player.hero_id:
+                damage_event = Event(
+                    type=EventType.DAMAGE,
+                    payload={
+                        'target': active_player.hero_id,
+                        'amount': active_player.fatigue_damage,
+                        'source': 'fatigue'
+                    }
+                )
+                if self.pipeline:
+                    self.pipeline.emit(damage_event)
+                events.append(damage_event)
 
         # Check state-based actions (player death from fatigue, minion death, etc.)
         await self._check_state_based_actions()
@@ -272,6 +274,17 @@ class HearthstoneTurnManager(TurnManager):
                 if hero:
                     hero.state.weapon_attack = 0
                     hero.state.weapon_durability = 0
+
+        # Clear end-of-turn PT modifiers on all battlefield objects
+        battlefield = self.state.zones.get('battlefield')
+        if battlefield:
+            for obj_id in list(battlefield.objects):
+                obj = self.state.objects.get(obj_id)
+                if obj and hasattr(obj.state, 'pt_modifiers'):
+                    obj.state.pt_modifiers = [
+                        mod for mod in obj.state.pt_modifiers
+                        if mod.get('duration') != 'end_of_turn'
+                    ]
 
         # Reset combat state
         if self.combat_manager:

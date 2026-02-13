@@ -278,24 +278,6 @@ def loot_hoarder_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
     )]
 
 
-def harvest_golem_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
-    """Deathrattle: Summon a 2/1 Damaged Golem."""
-    return [Event(
-        type=EventType.CREATE_TOKEN,
-        payload={
-            'controller': obj.controller,
-            'token': {
-                'name': 'Damaged Golem',
-                'power': 2,
-                'toughness': 1,
-                'types': {CardType.MINION},
-                'subtypes': {'Mech'},
-            }
-        },
-        source=obj.id
-    )]
-
-
 # =============================================================================
 # Classic Minions
 # =============================================================================

@@ -501,33 +501,45 @@ class HearthstoneAIAdapter:
         2. Choose target (face vs trade)
         3. Execute attack
         4. Check state-based actions (remove dead minions)
+
+        Re-checks for available attackers after each pass to handle
+        Windfury (2 attacks per turn) and other multi-attack effects.
         """
         events = []
+        max_attack_rounds = 15  # Safety limit
 
-        attackers = self._get_available_attackers(state, player_id)
+        for _ in range(max_attack_rounds):
+            attackers = self._get_available_attackers(state, player_id)
+            if not attackers:
+                break
 
-        for attacker_id in attackers:
-            # Verify attacker is still on the battlefield
-            attacker = state.objects.get(attacker_id)
-            if not attacker or attacker.zone != ZoneType.BATTLEFIELD:
-                continue
+            made_attack = False
+            for attacker_id in attackers:
+                # Verify attacker is still on the battlefield
+                attacker = state.objects.get(attacker_id)
+                if not attacker or attacker.zone != ZoneType.BATTLEFIELD:
+                    continue
 
-            target_id = self._choose_attack_target(attacker_id, state, player_id)
+                target_id = self._choose_attack_target(attacker_id, state, player_id)
 
-            if target_id:
-                attack_events = await self._execute_attack(attacker_id, target_id, game)
-                events.extend(attack_events)
+                if target_id:
+                    attack_events = await self._execute_attack(attacker_id, target_id, game)
+                    events.extend(attack_events)
+                    made_attack = True
 
-                # Check state-based actions after each attack (remove dead minions)
-                if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
-                    await game.turn_manager._check_state_based_actions()
+                    # Check state-based actions after each attack (remove dead minions)
+                    if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
+                        await game.turn_manager._check_state_based_actions()
+
+            if not made_attack:
+                break
 
         return events
 
     def _get_available_attackers(self, state: 'GameState', player_id: str) -> list[str]:
         """Find all minions and heroes that can attack."""
         from src.engine.types import CardType
-        from src.engine.queries import get_power
+        from src.engine.queries import get_power, has_ability
 
         battlefield = state.zones.get('battlefield')
         if not battlefield:
@@ -561,11 +573,11 @@ class HearthstoneAIAdapter:
                 continue
 
             # Check if already attacked (or has charge/haste)
-            has_charge = 'charge' in obj.characteristics.keywords or 'haste' in obj.characteristics.keywords
+            has_charge = has_ability(obj, 'charge', state) or has_ability(obj, 'haste', state)
 
             # Summoning sickness check (only for minions)
             if is_minion and obj.state.summoning_sickness and not has_charge:
-                has_rush = 'rush' in obj.characteristics.keywords
+                has_rush = has_ability(obj, 'rush', state)
                 if not has_rush:
                     continue
 
@@ -664,6 +676,7 @@ class HearthstoneAIAdapter:
     def _get_enemy_taunt_minions(self, state: 'GameState', player_id: str) -> list[str]:
         """Find all enemy minions with Taunt."""
         from src.engine.types import CardType
+        from src.engine.queries import has_ability
 
         battlefield = state.zones.get('battlefield')
         if not battlefield:
@@ -678,7 +691,7 @@ class HearthstoneAIAdapter:
 
             if CardType.MINION in obj.characteristics.types:
                 # Stealthed taunts don't enforce taunt (can't be targeted)
-                if 'taunt' in obj.characteristics.keywords and not obj.state.stealth:
+                if has_ability(obj, 'taunt', state) and not obj.state.stealth:
                     taunt_minions.append(obj_id)
 
         return taunt_minions
