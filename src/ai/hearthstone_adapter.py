@@ -65,6 +65,9 @@ class HearthstoneAIAdapter:
             if card_action:
                 play_events = await self._execute_card_play(card_action, game_state, game)
                 events.extend(play_events)
+                # Check SBAs after each card play (battlecries may kill minions)
+                if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
+                    await game.turn_manager._check_state_based_actions()
             else:
                 break
 
@@ -81,6 +84,9 @@ class HearthstoneAIAdapter:
                 if card_action:
                     play_events = await self._execute_card_play(card_action, game_state, game)
                     events.extend(play_events)
+                    # Check SBAs after each card play
+                    if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
+                        await game.turn_manager._check_state_based_actions()
                 else:
                     break
 
