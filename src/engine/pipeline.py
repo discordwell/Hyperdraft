@@ -2732,6 +2732,15 @@ def _create_effect_event(
     return events
 
 
+def _handle_freeze_target(event: Event, state: GameState):
+    """Handle FREEZE_TARGET event - freeze a minion or hero."""
+    target_id = event.payload.get('target')
+    if not target_id or target_id not in state.objects:
+        return
+    obj = state.objects[target_id]
+    obj.state.frozen = True
+
+
 # =============================================================================
 # Event Handler Registry
 # =============================================================================
@@ -2780,4 +2789,5 @@ EVENT_HANDLERS = {
     EventType.MILL: _handle_mill,
     EventType.DISCARD: _handle_discard,
     EventType.TARGET_REQUIRED: _handle_target_required,
+    EventType.FREEZE_TARGET: _handle_freeze_target,
 }
