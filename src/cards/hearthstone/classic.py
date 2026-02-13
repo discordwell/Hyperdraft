@@ -599,6 +599,9 @@ def polymorph_effect(obj: GameObject, state: GameState, targets: list[list[str]]
             del state.interceptors[int_id]
     target.interceptor_ids.clear()
 
+    # Clear card_def so interceptors can't re-register if Sheep re-enters battlefield
+    target.card_def = None
+
     return [Event(
         type=EventType.TRANSFORM,
         payload={'object_id': target_id, 'new_name': 'Sheep'},
