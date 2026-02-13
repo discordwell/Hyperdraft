@@ -452,6 +452,7 @@ class Player:
     fatigue_damage: int = 0                   # Next fatigue damage amount
     weapon_attack: int = 0                    # Current weapon attack
     weapon_durability: int = 0                # Current weapon durability
+    max_life: int = 30                        # Max hero HP (healing cap)
 
 
 # =============================================================================

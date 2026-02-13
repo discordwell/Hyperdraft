@@ -93,6 +93,10 @@ class HearthstoneTurnManager(TurnManager):
         self.hs_turn_state.phase = HearthstonePhase.DRAW
         events.extend(await self._run_draw_phase())
 
+        # If fatigue killed a player during draw, stop the turn immediately
+        if self._is_game_over():
+            return events
+
         # Main Phase (actions handled by player/AI, not automatic)
         self.hs_turn_state.phase = HearthstonePhase.MAIN
         events.extend(await self._run_main_phase_start())
@@ -107,7 +111,10 @@ class HearthstoneTurnManager(TurnManager):
                 await self._check_state_based_actions()
 
         # End Phase (auto-end for AI, manual for humans)
-        if hasattr(self, 'hearthstone_ai_handler') and self._is_ai_player(self.hs_turn_state.active_player_id):
+        # Skip if game is already over (e.g. AI lethal during main phase)
+        if (not self._is_game_over() and
+                hasattr(self, 'hearthstone_ai_handler') and
+                self._is_ai_player(self.hs_turn_state.active_player_id)):
             events.extend(await self.end_turn())
 
         return events
@@ -437,6 +444,11 @@ class HearthstoneTurnManager(TurnManager):
         """Check if player is AI-controlled."""
         return player_id in self.ai_players
 
+    def _is_game_over(self) -> bool:
+        """Check if the game is over (any player has lost)."""
+        alive = [p for p in self.state.players.values() if not p.has_lost]
+        return len(alive) <= 1
+
     async def _run_ai_turn(self) -> list[Event]:
         """Execute AI turn using the configured handler."""
         if not self.hearthstone_ai_handler:
@@ -474,8 +486,14 @@ class HearthstoneTurnManager(TurnManager):
         return self.hs_turn_state.active_player_id
 
     @property
-    def phase(self) -> HearthstonePhase:
-        return self.hs_turn_state.phase
+    def phase(self) -> Phase:
+        """Map Hearthstone phases to MTG Phase enum for client compatibility."""
+        phase_to_mtg = {
+            HearthstonePhase.DRAW: Phase.BEGINNING,
+            HearthstonePhase.MAIN: Phase.PRECOMBAT_MAIN,
+            HearthstonePhase.END: Phase.ENDING,
+        }
+        return phase_to_mtg.get(self.hs_turn_state.phase, Phase.PRECOMBAT_MAIN)
 
     @property
     def step(self) -> Step:

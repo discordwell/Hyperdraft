@@ -333,7 +333,10 @@ class GameSession:
                 armor=player.armor,
                 hero_id=player.hero_id,
                 weapon_attack=player.weapon_attack,
-                weapon_durability=player.weapon_durability
+                weapon_durability=player.weapon_durability,
+                fatigue_damage=player.fatigue_damage,
+                hero_power_used=player.hero_power_used,
+                hero_power_id=player.hero_power_id
             )
 
         # Get battlefield
@@ -1517,7 +1520,8 @@ class GameSession:
             stealth=obj.state.stealth,
             windfury=obj.state.windfury,
             frozen=obj.state.frozen,
-            summoning_sickness=obj.state.summoning_sickness
+            summoning_sickness=obj.state.summoning_sickness,
+            attacks_this_turn=obj.state.attacks_this_turn
         )
 
     def _serialize_card(self, obj) -> CardData:

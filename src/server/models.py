@@ -151,6 +151,7 @@ class CardData(BaseModel):
     windfury: bool = False
     frozen: bool = False
     summoning_sickness: bool = False
+    attacks_this_turn: int = 0
 
 
 class StackItemData(BaseModel):
@@ -206,6 +207,9 @@ class PlayerData(BaseModel):
     hero_id: Optional[str] = None
     weapon_attack: int = 0
     weapon_durability: int = 0
+    fatigue_damage: int = 0
+    hero_power_used: bool = False
+    hero_power_id: Optional[str] = None
 
 
 class CombatData(BaseModel):

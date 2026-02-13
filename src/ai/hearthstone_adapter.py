@@ -507,8 +507,8 @@ class HearthstoneAIAdapter:
         if game.pipeline:
             processed_events = game.pipeline.emit(power_event)
 
-            # Only deduct mana if event wasn't prevented
-            if any(e.status == EventStatus.PREVENTED for e in processed_events):
+            # Only deduct mana if the hero power event itself wasn't prevented
+            if power_event.status == EventStatus.PREVENTED:
                 return events
 
             events.extend(processed_events)
