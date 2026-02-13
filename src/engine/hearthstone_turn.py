@@ -85,6 +85,7 @@ class HearthstoneTurnManager(TurnManager):
 
         self.hs_turn_state.turn_number += 1
         self.state.turn_number = self.hs_turn_state.turn_number
+        self.turn_state.turn_number = self.hs_turn_state.turn_number
 
         events.extend(await self._emit_turn_start())
 

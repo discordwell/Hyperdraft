@@ -104,10 +104,11 @@ class Game:
         self.priority_system.mana_system = self.mana_system
         self.priority_system.pipeline = self.pipeline
 
-        # Turn manager needs priority, combat, and pipeline
+        # Turn manager needs priority, combat, pipeline, and mana
         self.turn_manager.priority_system = self.priority_system
         self.turn_manager.combat_manager = self.combat_manager
         self.turn_manager.pipeline = self.pipeline
+        self.turn_manager.mana_system = self.mana_system
 
         # Combat manager needs turn, priority, and pipeline
         self.combat_manager.turn_manager = self.turn_manager
@@ -715,9 +716,16 @@ class Game:
         player_ids = list(self.state.players.keys())
         self.turn_manager.set_turn_order(player_ids)
 
-        # Draw starting hands and handle mulligans (London Mulligan)
-        for player_id in player_ids:
-            await self._resolve_mulligans(player_id)
+        # Draw starting hands
+        if self.state.game_mode == "hearthstone":
+            # Hearthstone: Player 1 draws 3, Player 2 draws 4
+            for i, player_id in enumerate(player_ids):
+                draw_count = 3 if i == 0 else 4
+                self.draw_cards(player_id, draw_count)
+        else:
+            # MTG: London Mulligan
+            for player_id in player_ids:
+                await self._resolve_mulligans(player_id)
 
         await self.turn_manager.start_game()
 
