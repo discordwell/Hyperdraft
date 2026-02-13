@@ -598,6 +598,8 @@ def _handle_zone_change(event: Event, state: GameState):
         obj.state.damage = 0
         # Reset tapped state (will be set if entering tapped)
         obj.state.tapped = False
+        # Reset summoning sickness (new objects can't attack the turn they enter)
+        obj.state.summoning_sickness = True
 
     # Handle "as enchantment only" - for cards like Enduring Curiosity
     # that return from graveyard without their creature type
@@ -668,6 +670,9 @@ def _handle_gain_control(event: Event, state: GameState):
         obj.state._restore_controller_eot = obj.controller
 
     obj.controller = new_controller
+
+    # Stolen minions can't attack the turn they're taken (summoning sickness)
+    obj.state.summoning_sickness = True
 
 
 _KEYWORD_COUNTER_TYPES: set[str] = {
