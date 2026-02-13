@@ -273,11 +273,14 @@ def shapeshift_effect(obj: GameObject, state: GameState) -> list[Event]:
     events = []
 
     # +1 Attack this turn (temporary, cleared at end of turn)
-    player.weapon_attack = 1
-    player.weapon_durability = 1  # 1 use only
+    # ADD to existing weapon attack (don't replace it)
+    player.weapon_attack += 1
+    # If no weapon equipped (durability 0), give 1 temporary durability so hero can attack
+    if player.weapon_durability <= 0:
+        player.weapon_durability = 1
     player._shapeshift_attack = True  # Mark as temporary for end-of-turn cleanup
-    hero.state.weapon_attack = 1
-    hero.state.weapon_durability = 1
+    hero.state.weapon_attack = player.weapon_attack
+    hero.state.weapon_durability = player.weapon_durability
 
     # +1 Armor
     player.armor += 1

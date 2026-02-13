@@ -280,14 +280,13 @@ class HearthstoneTurnManager(TurnManager):
                         break
 
             if real_weapon:
-                # Restore real weapon stats (Shapeshift overwrote them)
-                active_player.weapon_attack = real_weapon.characteristics.power or 0
-                active_player.weapon_durability = real_weapon.characteristics.toughness or 0
+                # Remove Shapeshift's +1 attack bonus (keep durability as-is,
+                # combat already manages durability loss on attack)
+                active_player.weapon_attack = max(0, active_player.weapon_attack - 1)
                 if active_player.hero_id:
                     hero = self.state.objects.get(active_player.hero_id)
                     if hero:
                         hero.state.weapon_attack = active_player.weapon_attack
-                        hero.state.weapon_durability = active_player.weapon_durability
             else:
                 # No real weapon - zero out the temporary attack
                 active_player.weapon_attack = 0

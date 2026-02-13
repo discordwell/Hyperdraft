@@ -44,8 +44,8 @@ def frostbolt_effect(obj: GameObject, state: GameState, targets: list[list[str]]
         source=obj.id
     )]
 
-    # Freeze the target
-    if target:
+    # Freeze the target (only if still on battlefield)
+    if target and target.zone == ZoneType.BATTLEFIELD:
         target.state.frozen = True
 
     return events
