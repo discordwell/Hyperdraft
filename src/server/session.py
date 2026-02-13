@@ -337,6 +337,9 @@ class GameSession:
                 fatigue_damage=player.fatigue_damage,
                 hero_power_used=player.hero_power_used,
                 hero_power_id=player.hero_power_id,
+                hero_power_name=self._get_hero_power_name(player),
+                hero_power_cost=self._get_hero_power_cost(player),
+                hero_power_text=self._get_hero_power_text(player),
                 max_life=player.max_life
             )
 
@@ -1498,6 +1501,28 @@ class GameSession:
         # Mulligan hands with 0-1 or 6+ lands
         return False
 
+    def _get_hero_power_name(self, player) -> str | None:
+        if not player.hero_power_id:
+            return None
+        hp = self.game.state.objects.get(player.hero_power_id)
+        return hp.name if hp else None
+
+    def _get_hero_power_cost(self, player) -> int:
+        if not player.hero_power_id:
+            return 2
+        hp = self.game.state.objects.get(player.hero_power_id)
+        if hp and hp.characteristics.mana_cost:
+            import re
+            nums = re.findall(r'\{(\d+)\}', hp.characteristics.mana_cost)
+            return sum(int(n) for n in nums) if nums else 2
+        return 2
+
+    def _get_hero_power_text(self, player) -> str | None:
+        if not player.hero_power_id:
+            return None
+        hp = self.game.state.objects.get(player.hero_power_id)
+        return hp.card_def.text if hp and hp.card_def else None
+
     def _serialize_permanent(self, obj) -> CardData:
         """Serialize a permanent for the client."""
         from src.engine.queries import get_power, get_toughness, is_creature
@@ -1517,6 +1542,7 @@ class GameSession:
             damage=obj.state.damage,
             controller=obj.controller,
             owner=obj.owner,
+            keywords=list(obj.characteristics.keywords),
             divine_shield=obj.state.divine_shield,
             stealth=obj.state.stealth,
             windfury=obj.state.windfury,

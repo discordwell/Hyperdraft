@@ -54,6 +54,7 @@ export interface CardData {
   damage: number;
   controller: string | null;
   owner: string | null;
+  keywords?: string[];
   // Hearthstone state
   divine_shield?: boolean;
   stealth?: boolean;
@@ -101,6 +102,9 @@ export interface PlayerData {
   fatigue_damage?: number;
   hero_power_used?: boolean;
   hero_power_id?: string | null;
+  hero_power_name?: string | null;
+  hero_power_cost?: number;
+  hero_power_text?: string | null;
   max_life?: number;
 }
 
