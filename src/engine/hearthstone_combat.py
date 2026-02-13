@@ -203,7 +203,7 @@ class HearthstoneCombatManager:
             return False
 
         # Check windfury limit
-        max_attacks = 2 if attacker.state.windfury else 1
+        max_attacks = 2 if has_ability(attacker, 'windfury', self.state) else 1
         if attacker.state.attacks_this_turn >= max_attacks:
             return False
 
