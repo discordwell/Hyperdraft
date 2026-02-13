@@ -456,7 +456,8 @@ def _handle_object_created(event: Event, state: GameState):
     obj_id = new_id()
     obj_state = ObjectState(
         is_token=is_token,
-        tapped=enters_tapped
+        tapped=enters_tapped,
+        summoning_sickness=(zone_type == ZoneType.BATTLEFIELD)
     )
 
     # Apply keyword states from abilities (mirror make_minion behavior)
@@ -1454,7 +1455,8 @@ def _handle_create_token(event: Event, state: GameState):
         obj_id = new_id()
         token_state = ObjectState(
             is_token=True,
-            tapped=enters_tapped
+            tapped=enters_tapped,
+            summoning_sickness=True  # Tokens can't attack the turn they're created
         )
 
         # Apply keyword states from abilities (mirror make_minion behavior)
