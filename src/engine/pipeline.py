@@ -327,13 +327,26 @@ def _handle_draw(event: Event, state: GameState):
 
     library = state.zones[library_key]
     hand = state.zones[hand_key]
+    fatigue_events = []
 
     for _ in range(count):
         if not library.objects:
             if state.game_mode == "hearthstone":
-                # Hearthstone: Drawing from empty deck is handled separately (fatigue)
-                # Don't mark as lost here, fatigue damage is applied by turn manager
-                pass
+                # Hearthstone: each draw from empty deck deals increasing fatigue damage.
+                # This applies to ALL draws (turn draw, card effects, deathrattles).
+                player = state.players.get(player_id)
+                if player:
+                    player.fatigue_damage += 1
+                    if player.hero_id:
+                        fatigue_events.append(Event(
+                            type=EventType.DAMAGE,
+                            payload={
+                                'target': player.hero_id,
+                                'amount': player.fatigue_damage,
+                                'source': 'fatigue'
+                            }
+                        ))
+                continue  # Each remaining draw triggers separate fatigue
             else:
                 # MTG rule: a player loses the game if they attempt to draw from an empty library.
                 player = state.players.get(player_id)
@@ -363,6 +376,10 @@ def _handle_draw(event: Event, state: GameState):
         if card_id in state.objects:
             state.objects[card_id].zone = ZoneType.HAND
             state.objects[card_id].entered_zone_at = state.timestamp
+
+    # Return fatigue damage events so the pipeline processes them
+    if fatigue_events:
+        return fatigue_events
 
 
 def _handle_object_created(event: Event, state: GameState):

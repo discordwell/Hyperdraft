@@ -377,19 +377,25 @@ class HearthstoneTurnManager(TurnManager):
         if battlefield:
             for obj_id in list(battlefield.objects):
                 obj = self.state.objects.get(obj_id)
-                if obj:
-                    # Check if minion (use is_creature which works for both MTG creatures and HS minions)
-                    if is_creature(obj, self.state):
-                        toughness = get_toughness(obj, self.state)
-                        # Minion dies if damage >= toughness OR if toughness <= 0
-                        if obj.state.damage >= toughness or toughness <= 0:
-                            # Minion dies
-                            death_event = Event(
-                                type=EventType.OBJECT_DESTROYED,
-                                payload={'object_id': obj.id, 'reason': 'lethal_damage'}
-                            )
-                            if self.pipeline:
-                                self.pipeline.emit(death_event)
+                if not obj:
+                    continue
+                # Guard: a deathrattle from a previously-processed death in this
+                # same SBA pass may have already destroyed this minion (e.g. via
+                # direct OBJECT_DESTROYED). Skip objects no longer on battlefield.
+                if obj.zone != ZoneType.BATTLEFIELD:
+                    continue
+                # Check if minion (use is_creature which works for both MTG creatures and HS minions)
+                if is_creature(obj, self.state):
+                    toughness = get_toughness(obj, self.state)
+                    # Minion dies if damage >= toughness OR if toughness <= 0
+                    if obj.state.damage >= toughness or toughness <= 0:
+                        # Minion dies
+                        death_event = Event(
+                            type=EventType.OBJECT_DESTROYED,
+                            payload={'object_id': obj.id, 'reason': 'lethal_damage'}
+                        )
+                        if self.pipeline:
+                            self.pipeline.emit(death_event)
 
     # Override MTG-specific methods to no-op
 
