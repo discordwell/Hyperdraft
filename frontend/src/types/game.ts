@@ -140,6 +140,7 @@ export interface ChoiceOption {
 }
 
 export interface PendingChoice {
+  id: string;
   choice_type: 'modal' | 'target' | 'scry' | 'surveil' | string;
   player: string;
   prompt: string;

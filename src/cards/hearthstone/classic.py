@@ -36,19 +36,20 @@ def frostbolt_effect(obj: GameObject, state: GameState, targets: list[list[str]]
         return []
 
     target_id = targets[0][0]
-    target = state.objects.get(target_id)
 
-    events = [Event(
-        type=EventType.DAMAGE,
-        payload={'target': target_id, 'amount': 3, 'source': obj.id},
-        source=obj.id
-    )]
-
-    # Freeze the target (only if still on battlefield)
-    if target and target.zone == ZoneType.BATTLEFIELD:
-        target.state.frozen = True
-
-    return events
+    # Damage first, then freeze (both go through event pipeline)
+    return [
+        Event(
+            type=EventType.DAMAGE,
+            payload={'target': target_id, 'amount': 3, 'source': obj.id},
+            source=obj.id
+        ),
+        Event(
+            type=EventType.FREEZE_TARGET,
+            payload={'target': target_id},
+            source=obj.id
+        )
+    ]
 
 
 def arcane_intellect_effect(obj: GameObject, state: GameState, targets: list[list[str]]) -> list[Event]:
