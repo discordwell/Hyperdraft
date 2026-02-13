@@ -95,6 +95,8 @@ export interface PlayerData {
   mana_crystals_available?: number;
   armor?: number;
   hero_id?: string | null;
+  weapon_attack?: number;
+  weapon_durability?: number;
 }
 
 // Combat Data

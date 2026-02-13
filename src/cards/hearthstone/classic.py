@@ -10,7 +10,7 @@ Real Hearthstone cards with full mechanics:
 """
 
 from src.engine.game import make_minion, make_spell, make_weapon
-from src.engine.types import Color, Event, EventType, CardType, GameObject, GameState
+from src.engine.types import Color, Event, EventType, CardType, GameObject, GameState, ZoneType
 
 
 # =============================================================================
@@ -568,7 +568,9 @@ def polymorph_effect(obj: GameObject, state: GameState, targets: list[list[str]]
     target_id = targets[0][0]
     target = state.objects.get(target_id)
 
-    if not target or CardType.MINION not in target.characteristics.types:
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    if CardType.MINION not in target.characteristics.types:
         return []
 
     # Transform into Sheep - clear everything
@@ -636,7 +638,9 @@ def mind_control_effect(obj: GameObject, state: GameState, targets: list[list[st
     target_id = targets[0][0]
     target = state.objects.get(target_id)
 
-    if not target or CardType.MINION not in target.characteristics.types:
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    if CardType.MINION not in target.characteristics.types:
         return []
 
     # Only return the event - _handle_gain_control will change the controller

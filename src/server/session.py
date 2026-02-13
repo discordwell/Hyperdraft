@@ -326,7 +326,9 @@ class GameSession:
                 mana_crystals=player.mana_crystals,
                 mana_crystals_available=player.mana_crystals_available,
                 armor=player.armor,
-                hero_id=player.hero_id
+                hero_id=player.hero_id,
+                weapon_attack=player.weapon_attack,
+                weapon_durability=player.weapon_durability
             )
 
         # Get battlefield
