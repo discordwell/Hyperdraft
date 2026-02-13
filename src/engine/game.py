@@ -867,11 +867,18 @@ class Game:
         return len(alive_players) <= 1
 
     def get_winner(self) -> Optional[str]:
-        """Get the winning player's ID."""
+        """Get the winning player's ID, or None for draw/ongoing."""
         alive = [p for p in self.state.players.values() if not p.has_lost]
         if len(alive) == 1:
             return alive[0].id
         return None
+
+    def is_draw(self) -> bool:
+        """Check if the game ended in a draw (all players lost)."""
+        if not self.is_game_over():
+            return False
+        alive = [p for p in self.state.players.values() if not p.has_lost]
+        return len(alive) == 0
 
     # =========================================================================
     # Hearthstone Actions
