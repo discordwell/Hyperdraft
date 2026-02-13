@@ -235,15 +235,20 @@ class GameSession:
             # Setup Hearthstone AI adapter
             from src.ai.hearthstone_adapter import HearthstoneAIAdapter
 
-            # Create AI handler (reuse first AI engine if available)
+            # Default difficulty from first AI profile (or 'medium')
             if self.ai_profiles_by_player:
-                # Get first AI profile to determine difficulty
                 first_profile = next(iter(self.ai_profiles_by_player.values()))
                 difficulty = first_profile.get('difficulty', 'medium')
             else:
                 difficulty = 'medium'
 
             ai_adapter = HearthstoneAIAdapter(difficulty=difficulty)
+
+            # Set per-player difficulty overrides for bot-vs-bot
+            for pid, profile in self.ai_profiles_by_player.items():
+                player_diff = profile.get('difficulty', difficulty)
+                ai_adapter.player_difficulties[pid] = player_diff
+
             self.game.set_hearthstone_ai_handler(ai_adapter)
         else:
             # MTG mode - prepare AI layers before the first priority decision

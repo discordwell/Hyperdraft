@@ -213,6 +213,18 @@ async def run_bot_game(session: GameSession):
             # Run one turn (priority actions inside are paced via session.spectator_delay_ms)
             await session.game.turn_manager.run_turn()
 
+            # In Hearthstone mode, the priority system loop is bypassed so
+            # _on_action_processed never fires.  Record a frame per turn
+            # so that replays capture the game progression.
+            if session.game.state.game_mode == "hearthstone" and session.record_actions_for_replay:
+                active = session.game.get_active_player()
+                session._record_frame(action={
+                    "kind": "action_processed",
+                    "player_id": active,
+                    "player_name": session.player_names.get(active, active or ""),
+                    "action_type": "END_TURN",
+                })
+
             # Check game over
             if session.game.is_game_over():
                 session.is_finished = True

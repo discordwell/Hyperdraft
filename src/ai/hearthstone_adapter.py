@@ -37,6 +37,14 @@ class HearthstoneAIAdapter:
         self.ai_engine = ai_engine or AIEngine(difficulty=difficulty)
         self.evaluator = None  # Created per-turn with current state
         self.difficulty = difficulty
+        # Per-player difficulty overrides (for bot-vs-bot with different difficulties)
+        self.player_difficulties: dict[str, str] = {}
+
+    def _get_difficulty(self, player_id: str = None) -> str:
+        """Get difficulty for a specific player, falling back to default."""
+        if player_id and player_id in self.player_difficulties:
+            return self.player_difficulties[player_id]
+        return self.difficulty
 
     async def take_turn(self, player_id: str, game_state: 'GameState', game) -> list['Event']:
         """
@@ -184,13 +192,14 @@ class HearthstoneAIAdapter:
         playable_cards.sort(key=lambda x: x['score'], reverse=True)
 
         # Add some randomness based on difficulty
-        if self.difficulty == 'easy':
+        diff = self._get_difficulty(player_id)
+        if diff == 'easy':
             # 40% chance to pick random card
             if random.random() < 0.4:
                 chosen = random.choice(playable_cards)
             else:
                 chosen = playable_cards[0]
-        elif self.difficulty == 'medium':
+        elif diff == 'medium':
             # Pick from top 50%
             top_half = max(1, len(playable_cards) // 2)
             chosen = random.choice(playable_cards[:top_half])
@@ -662,7 +671,7 @@ class HearthstoneAIAdapter:
         strategy = self.ai_engine.strategy.name if hasattr(self.ai_engine.strategy, 'name') else 'midrange'
 
         # Aggro: Prefer face
-        if strategy == 'aggro' or self.difficulty == 'easy':
+        if strategy == 'aggro' or self._get_difficulty(player_id) == 'easy':
             # Check if we can lethal (account for armor)
             attacker_power = get_power(attacker, state)
             if CardType.HERO in attacker.characteristics.types:

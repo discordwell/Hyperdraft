@@ -287,6 +287,7 @@ class HearthstoneTurnManager(TurnManager):
                     hero = self.state.objects.get(active_player.hero_id)
                     if hero:
                         hero.state.weapon_attack = active_player.weapon_attack
+                        hero.state.weapon_durability = active_player.weapon_durability
             else:
                 # No real weapon - zero out the temporary attack
                 active_player.weapon_attack = 0
@@ -457,3 +458,13 @@ class HearthstoneTurnManager(TurnManager):
     @property
     def phase(self) -> HearthstonePhase:
         return self.hs_turn_state.phase
+
+    @property
+    def step(self) -> Step:
+        """Map Hearthstone phases to Step enum for client compatibility."""
+        phase_to_step = {
+            HearthstonePhase.DRAW: Step.DRAW,
+            HearthstonePhase.MAIN: Step.MAIN,
+            HearthstonePhase.END: Step.END_STEP,
+        }
+        return phase_to_step.get(self.hs_turn_state.phase, Step.MAIN)
