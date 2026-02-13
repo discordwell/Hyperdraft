@@ -604,6 +604,7 @@ def polymorph_effect(obj: GameObject, state: GameState, targets: list[list[str]]
     target.state.stealth = False
     target.state.windfury = False
     target.state.frozen = False
+    target.state.summoning_sickness = True  # Sheep can't attack this turn
 
     # Remove all interceptors (deathrattles, triggers, etc.)
     for int_id in list(target.interceptor_ids):
@@ -656,12 +657,14 @@ def mind_control_effect(obj: GameObject, state: GameState, targets: list[list[st
     if not target or CardType.MINION not in target.characteristics.types:
         return []
 
-    # Change controller
-    target.controller = obj.controller
-
+    # Only return the event - _handle_gain_control will change the controller
     return [Event(
         type=EventType.CONTROL_CHANGE,
-        payload={'object_id': target_id, 'new_controller': obj.controller},
+        payload={
+            'object_id': target_id,
+            'new_controller': obj.controller,
+            'duration': 'permanent'  # Mind Control is permanent, not end-of-turn
+        },
         source=obj.id
     )]
 
