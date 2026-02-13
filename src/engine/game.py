@@ -155,11 +155,7 @@ class Game:
         player.hero_id = hero.id
         player.life = hero_def.characteristics.toughness or 30
 
-        # Set up hero interceptors
-        if hero_def.setup_interceptors:
-            interceptors = hero_def.setup_interceptors(hero, self.state)
-            for interceptor in interceptors:
-                self.register_interceptor(interceptor, hero)
+        # Note: create_object already runs card_def.setup_interceptors
 
         # Create hero power in command zone
         hero_power = self.create_object(
@@ -171,11 +167,7 @@ class Game:
         )
         player.hero_power_id = hero_power.id
 
-        # Set up hero power interceptors
-        if hero_power_def.setup_interceptors:
-            interceptors = hero_power_def.setup_interceptors(hero_power, self.state)
-            for interceptor in interceptors:
-                self.register_interceptor(interceptor, hero_power)
+        # Note: create_object already runs card_def.setup_interceptors
 
     def _setup_shared_zones(self):
         """Create battlefield, stack, exile, command zones."""
@@ -996,10 +988,13 @@ class Game:
         )
 
         # Position in library
+        # create_object appends to the end of the zone list.
+        # The draw handler pops from index 0 (top of library).
+        # So end-of-list = bottom, beginning-of-list = top.
         library_key = f"library_{player_id}"
         library = self.state.zones.get(library_key)
-        if library and position == 'bottom':
-            # Move to bottom (it was added to top by create_object)
+        if library and position == 'top':
+            # Move to top (index 0); create_object placed it at the end (bottom)
             library.objects.remove(obj.id)
             library.objects.insert(0, obj.id)
 
@@ -1892,7 +1887,8 @@ def make_spell(
         text=text,
         rarity=rarity,
         spell_effect=spell_effect,
-        requires_target=requires_target
+        requires_target=requires_target,
+        domain="HEARTHSTONE"
     )
 
 

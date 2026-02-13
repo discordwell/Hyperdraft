@@ -324,6 +324,7 @@ class GameSession:
                 hand_size=len(self.game.get_hand(pid)),
                 library_size=self.game.get_library_size(pid),
                 mana_crystals=player.mana_crystals,
+                mana_crystals_available=player.mana_crystals_available,
                 armor=player.armor,
                 hero_id=player.hero_id
             )
@@ -1504,7 +1505,12 @@ class GameSession:
             counters=dict(obj.state.counters),
             damage=obj.state.damage,
             controller=obj.controller,
-            owner=obj.owner
+            owner=obj.owner,
+            divine_shield=obj.state.divine_shield,
+            stealth=obj.state.stealth,
+            windfury=obj.state.windfury,
+            frozen=obj.state.frozen,
+            summoning_sickness=obj.state.summoning_sickness
         )
 
     def _serialize_card(self, obj) -> CardData:

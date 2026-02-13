@@ -136,6 +136,15 @@ def has_ability(obj: GameObject, ability_name: str, state: GameState) -> bool:
         if ability.get('name') == ability_name or ability.get('keyword') == ability_name:
             return True
 
+    # Check Hearthstone state flags (keywords can be set directly on state)
+    hs_state_keywords = {
+        'divine_shield': obj.state.divine_shield,
+        'stealth': obj.state.stealth,
+        'windfury': obj.state.windfury,
+    }
+    if hs_state_keywords.get(ability_name, False):
+        return True
+
     # Check granted abilities via QUERY interceptors
     interceptors = [
         i for i in state.interceptors.values()
