@@ -124,7 +124,8 @@ def lesser_heal_effect(obj: GameObject, state: GameState) -> list[Event]:
         return []
 
     # Heal hero (can't go above max)
-    heal_amount = min(2, 30 - player.life)
+    max_hp = getattr(player, 'max_life', 30) or 30
+    heal_amount = min(2, max_hp - player.life)
     if heal_amount <= 0:
         return []
 
