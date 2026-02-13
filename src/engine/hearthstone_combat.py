@@ -57,15 +57,21 @@ class HearthstoneCombatManager:
         # Returns: (attacker_id, target_id)
         self.get_attack_decision: Optional[Callable[[str, list[str], list[str]], tuple[str, str]]] = None
 
-    def reset_combat(self) -> None:
-        """Reset combat state for a new turn."""
-        # Clear attacks_this_turn for all minions and heroes
+    def reset_combat(self, player_id: str = None) -> None:
+        """Reset combat state for a new turn.
+
+        Args:
+            player_id: If provided, only reset for this player's creatures.
+                       If None, reset all (backwards-compatible for MTG).
+        """
         battlefield = self.state.zones.get('battlefield')
         if battlefield:
             for obj_id in list(battlefield.objects):
                 obj = self.state.objects.get(obj_id)
                 if obj and (CardType.MINION in obj.characteristics.types or
                            CardType.HERO in obj.characteristics.types):
+                    if player_id and obj.controller != player_id:
+                        continue
                     obj.state.attacks_this_turn = 0
                     obj.state.attacking = False
 

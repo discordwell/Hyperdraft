@@ -337,9 +337,9 @@ class HearthstoneTurnManager(TurnManager):
                     if obj.state.attacks_this_turn == 0:
                         obj.state.frozen = False
 
-        # Reset combat state (clears attacks_this_turn — must be AFTER freeze check)
+        # Reset combat state for active player only (must be AFTER freeze check)
         if self.combat_manager:
-            self.combat_manager.reset_combat()
+            self.combat_manager.reset_combat(player_id=self.hs_turn_state.active_player_id)
 
         return events
 
