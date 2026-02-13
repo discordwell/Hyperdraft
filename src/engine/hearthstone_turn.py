@@ -259,6 +259,20 @@ class HearthstoneTurnManager(TurnManager):
             self.pipeline.emit(phase_event)
         events.append(phase_event)
 
+        # Clean up temporary hero attack (Druid Shapeshift "+1 Attack this turn")
+        active_player = self.state.players.get(self.hs_turn_state.active_player_id)
+        if active_player and getattr(active_player, '_shapeshift_attack', False):
+            # Only clear if no real weapon card is equipped
+            active_player.weapon_attack = 0
+            active_player.weapon_durability = 0
+            active_player._shapeshift_attack = False
+            # Clear hero object weapon state too
+            if active_player.hero_id:
+                hero = self.state.objects.get(active_player.hero_id)
+                if hero:
+                    hero.state.weapon_attack = 0
+                    hero.state.weapon_durability = 0
+
         # Reset combat state
         if self.combat_manager:
             self.combat_manager.reset_combat()

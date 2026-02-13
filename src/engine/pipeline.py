@@ -268,6 +268,11 @@ def _handle_damage(event: Event, state: GameState):
     if target_id in state.objects:
         obj = state.objects[target_id]
 
+        # Hearthstone: Divine Shield absorbs all damage and is removed
+        if state.game_mode == "hearthstone" and obj.state.divine_shield:
+            obj.state.divine_shield = False
+            return  # No damage applied
+
         # Hearthstone: Damage to HERO reduces player life (and may apply armor)
         from .types import CardType
         if CardType.HERO in obj.characteristics.types and state.game_mode == "hearthstone":
