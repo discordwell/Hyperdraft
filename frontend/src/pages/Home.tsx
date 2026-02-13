@@ -24,12 +24,13 @@ export function Home() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone'>('mtg');
   const [playerName, setPlayerName] = useState('Player');
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard' | 'ultra'>('medium');
   const [decks, setDecks] = useState<DeckInfo[]>([]);
   const [playerDeck, setPlayerDeck] = useState<string>('');
   const [aiDeck, setAiDeck] = useState<string>('');
-  const [opusModel, setOpusModel] = useState('claude-opus-4.6');
+  const [claudexModel, setClaudexModel] = useState('claude-opus-4.6');
   const [gptModel, setGptModel] = useState('gpt-5.3');
   const [recordPrompts, setRecordPrompts] = useState(false);
 
@@ -82,6 +83,9 @@ export function Home() {
 
     try {
       const response = await botGameAPI.start({
+        mode: gameMode,
+        bot1_deck_id: playerDeck || undefined,
+        bot2_deck_id: aiDeck || undefined,
         bot1_difficulty: difficulty,
         bot2_difficulty: difficulty,
         delay_ms: 1500,
@@ -101,11 +105,13 @@ export function Home() {
 
     try {
       const response = await botGameAPI.start({
+        bot1_deck_id: playerDeck || undefined,
+        bot2_deck_id: aiDeck || undefined,
         bot1_brain: 'anthropic',
         bot2_brain: 'openai',
-        bot1_model: opusModel,
+        bot1_model: claudexModel,
         bot2_model: gptModel,
-        bot1_name: 'Opus 4.6',
+        bot1_name: 'Claudex',
         bot2_name: 'GPT-5.3',
         bot1_difficulty: difficulty,
         bot2_difficulty: difficulty,
@@ -119,6 +125,61 @@ export function Home() {
       navigate(`/spectate/${response.game_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start LLM duel');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStartUltraMirror = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await botGameAPI.start({
+        bot1_deck_id: playerDeck || undefined,
+        bot2_deck_id: aiDeck || undefined,
+        bot1_brain: 'heuristic',
+        bot2_brain: 'heuristic',
+        bot1_name: 'Ultra Bot A',
+        bot2_name: 'Ultra Bot B',
+        bot1_difficulty: 'ultra',
+        bot2_difficulty: 'ultra',
+        delay_ms: 900,
+        max_replay_frames: 5000,
+      });
+
+      navigate(`/spectate/${response.game_id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start Ultra vs Ultra');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStartClaudexVsUltra = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await botGameAPI.start({
+        bot1_deck_id: playerDeck || undefined,
+        bot2_deck_id: aiDeck || undefined,
+        bot1_brain: 'anthropic',
+        bot2_brain: 'heuristic',
+        bot1_model: claudexModel,
+        bot1_name: 'Claudex',
+        bot2_name: 'Ultra Bot',
+        bot1_difficulty: 'ultra',
+        bot2_difficulty: 'ultra',
+        bot1_temperature: 0.2,
+        record_prompts: recordPrompts,
+        delay_ms: 900,
+        max_replay_frames: 5000,
+      });
+
+      navigate(`/spectate/${response.game_id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start Claudex vs Ultra');
     } finally {
       setIsLoading(false);
     }
@@ -144,6 +205,35 @@ export function Home() {
 
         {/* Main Menu Card */}
         <div className="bg-game-surface rounded-lg border border-gray-700 p-6">
+          {/* Game Mode */}
+          <div className="mb-4">
+            <label className="block text-sm text-gray-400 mb-1">
+              Game Mode
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setGameMode('mtg')}
+                className={`flex-1 px-4 py-2 rounded transition-colors ${
+                  gameMode === 'mtg'
+                    ? 'bg-game-accent text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                Magic: The Gathering
+              </button>
+              <button
+                onClick={() => setGameMode('hearthstone')}
+                className={`flex-1 px-4 py-2 rounded transition-colors ${
+                  gameMode === 'hearthstone'
+                    ? 'bg-game-accent text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                Hearthstone
+              </button>
+            </div>
+          </div>
+
           {/* Player Name */}
           <div className="mb-4">
             <label className="block text-sm text-gray-400 mb-1">
@@ -242,22 +332,42 @@ export function Home() {
             Watch Bot vs Bot
           </button>
 
+          <div className="mt-3">
+            <div className="text-xs text-gray-400 mb-2">Battle Presets</div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleStartUltraMirror}
+                disabled={isLoading}
+                className="px-3 py-2 bg-indigo-700 text-white rounded-lg text-sm font-semibold hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Ultra vs Ultra
+              </button>
+              <button
+                onClick={handleStartClaudexVsUltra}
+                disabled={isLoading}
+                className="px-3 py-2 bg-teal-700 text-white rounded-lg text-sm font-semibold hover:bg-teal-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Claudex vs Ultra
+              </button>
+            </div>
+          </div>
+
           {/* LLM Duel */}
           <div className="mt-3 p-4 bg-gray-800/60 border border-gray-700 rounded-lg">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <div className="text-sm font-bold text-white">LLM Duel</div>
+                <div className="text-sm font-bold text-white">Custom LLM Duel</div>
                 <div className="text-xs text-gray-400">Anthropic vs OpenAI (requires API keys)</div>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2 mb-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Opus model</label>
+                <label className="block text-xs text-gray-400 mb-1">Claudex model</label>
                 <input
                   type="text"
-                  value={opusModel}
-                  onChange={(e) => setOpusModel(e.target.value)}
+                  value={claudexModel}
+                  onChange={(e) => setClaudexModel(e.target.value)}
                   className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
                 />
               </div>
@@ -286,7 +396,7 @@ export function Home() {
               disabled={isLoading}
               className="w-full px-4 py-3 bg-purple-700 text-white rounded-lg font-semibold hover:bg-purple-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Watch Opus vs GPT
+              Watch Claudex vs GPT
             </button>
           </div>
 

@@ -183,6 +183,17 @@ class EventType(Enum):
     CANT_BLOCK = auto()                    # Creature can't block (restriction)
     TURN_FACE_UP = auto()                  # Turn a face-down creature face up
 
+    # Hearthstone mechanics
+    HERO_POWER_ACTIVATE = auto()           # Activate hero power
+    WEAPON_EQUIP = auto()                  # Equip weapon to hero
+    WEAPON_ATTACK = auto()                 # Hero attacks with weapon
+    WEAPON_DURABILITY_LOSS = auto()        # Weapon loses durability
+    DIVINE_SHIELD_BREAK = auto()           # Divine shield is broken
+    FREEZE_TARGET = auto()                 # Freeze a minion or hero
+    SECRET_TRIGGER = auto()                # Secret card triggers
+    FATIGUE_DAMAGE = auto()                # Damage from drawing empty deck
+    ARMOR_GAIN = auto()                    # Hero gains armor
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
@@ -264,6 +275,7 @@ class Interceptor:
 # =============================================================================
 
 class CardType(Enum):
+    # MTG card types
     CREATURE = auto()
     INSTANT = auto()
     SORCERY = auto()
@@ -271,6 +283,14 @@ class CardType(Enum):
     ARTIFACT = auto()
     LAND = auto()
     PLANESWALKER = auto()
+
+    # Hearthstone card types
+    MINION = auto()      # Hearthstone creature
+    SPELL = auto()       # Hearthstone instant
+    WEAPON = auto()      # Hero equipment
+    HERO = auto()        # Player avatar
+    HERO_POWER = auto()  # Repeatable ability
+    SECRET = auto()      # Opponent-turn trigger
 
 
 class Color(Enum):
@@ -334,6 +354,15 @@ class ObjectState:
     # Track discard timing for mechanics like Mayhem.
     last_discarded_turn: Optional[int] = None
     last_discarded_by: Optional[str] = None
+
+    # Hearthstone-specific (optional, unused in MTG)
+    divine_shield: bool = False       # Prevents first damage
+    frozen: bool = False              # Can't attack next turn
+    stealth: bool = False             # Can't be targeted
+    windfury: bool = False            # Can attack twice per turn
+    attacks_this_turn: int = 0        # Track attacks for Windfury
+    weapon_durability: int = 0        # For weapon cards
+    weapon_attack: int = 0            # For weapon cards
 
 
 @dataclass
@@ -412,6 +441,17 @@ class Player:
     has_lost: bool = False
     has_won: bool = False
 
+    # Hearthstone-specific (optional, unused in MTG)
+    mana_crystals: int = 0                    # Max mana crystals (0-10)
+    mana_crystals_available: int = 0          # Available to spend this turn
+    armor: int = 0                            # Damage reduction
+    hero_id: Optional[str] = None             # Hero object ID
+    hero_power_id: Optional[str] = None       # Hero power object ID
+    hero_power_used: bool = False             # Used this turn
+    fatigue_damage: int = 0                   # Next fatigue damage amount
+    weapon_attack: int = 0                    # Current weapon attack
+    weapon_durability: int = 0                # Current weapon durability
+
 
 # =============================================================================
 # Card Face (for split/adventure cards)
@@ -459,6 +499,12 @@ class CardDefinition:
 
     # Function for spell/ability resolution
     resolve: Optional[Callable[['Event', 'GameState'], list[Event]]] = None
+
+    # Hearthstone-specific fields
+    battlecry: Optional[Callable[['GameObject', 'GameState'], list[Event]]] = None
+    deathrattle: Optional[Callable[['GameObject', 'GameState'], list[Event]]] = None
+    spell_effect: Optional[Callable[['GameObject', 'GameState', list[list[str]]], list[Event]]] = None
+    requires_target: bool = False
 
     # Multi-face card support
     adventure: Optional[CardFace] = None      # Adventure spell portion
@@ -640,6 +686,10 @@ class GameState:
     # Land play tracking (for "one land per turn" rule)
     lands_played_this_turn: int = 0
     lands_allowed_this_turn: int = 1  # Can be increased by effects like Exploration
+
+    # Game mode configuration
+    game_mode: str = "mtg"           # "mtg" or "hearthstone"
+    max_hand_size: int = 7           # 7 for MTG, 10 for Hearthstone
 
     # Pending events (the "stack")
     pending_events: list[Event] = field(default_factory=list)

@@ -10,6 +10,16 @@ import { botGameAPI } from '../services/api';
 import { GameBoard } from '../components/game';
 import type { ReplayFrame, ReplayResponse, GameState } from '../types';
 
+type ReplayMode = 'action' | 'phase';
+
+interface PhaseSlice {
+  start: number;
+  end: number;
+  turn: number;
+  phase: string;
+  step: string;
+}
+
 function getSpectatorPlayerId(state: GameState | null): string {
   if (!state) return '';
   const ids = Object.keys(state.players);
@@ -63,6 +73,69 @@ function findNextInteresting(frames: ReplayFrame[], fromIndex: number): number |
   return null;
 }
 
+function buildPhaseSlices(frames: ReplayFrame[]): PhaseSlice[] {
+  const slices: PhaseSlice[] = [];
+
+  for (let i = 0; i < frames.length; i += 1) {
+    const frame = frames[i];
+    const prev = slices[slices.length - 1];
+
+    if (!prev || prev.turn !== frame.turn || prev.phase !== frame.phase || prev.step !== frame.step) {
+      slices.push({
+        start: i,
+        end: i,
+        turn: frame.turn,
+        phase: frame.phase,
+        step: frame.step,
+      });
+      continue;
+    }
+
+    prev.end = i;
+  }
+
+  return slices;
+}
+
+function countInterestingInSlice(frames: ReplayFrame[], slice: PhaseSlice): number {
+  let count = 0;
+  for (let i = slice.start; i <= slice.end; i += 1) {
+    if (isInteresting(frames[i])) count += 1;
+  }
+  return count;
+}
+
+function findPrevTurnSlice(slices: PhaseSlice[], currentPhaseIndex: number): number | null {
+  if (currentPhaseIndex <= 0) return null;
+
+  const currentTurn = slices[currentPhaseIndex].turn;
+  for (let i = currentPhaseIndex - 1; i >= 0; i -= 1) {
+    if (slices[i].turn < currentTurn) {
+      const turn = slices[i].turn;
+      let firstForTurn = i;
+      while (firstForTurn > 0 && slices[firstForTurn - 1].turn === turn) {
+        firstForTurn -= 1;
+      }
+      return firstForTurn;
+    }
+  }
+
+  return null;
+}
+
+function findNextTurnSlice(slices: PhaseSlice[], currentPhaseIndex: number): number | null {
+  if (currentPhaseIndex >= slices.length - 1) return null;
+
+  const currentTurn = slices[currentPhaseIndex].turn;
+  for (let i = currentPhaseIndex + 1; i < slices.length; i += 1) {
+    if (slices[i].turn > currentTurn) {
+      return i;
+    }
+  }
+
+  return null;
+}
+
 export function ReplayView() {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
@@ -74,6 +147,7 @@ export function ReplayView() {
   const [frameIndex, setFrameIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speedMs, setSpeedMs] = useState(300);
+  const [viewMode, setViewMode] = useState<ReplayMode>('phase');
 
   // Load replay frames (up to the server cap)
   useEffect(() => {
@@ -102,12 +176,65 @@ export function ReplayView() {
   }, [gameId]);
 
   const frames = replay?.frames || [];
+  const phaseSlices = useMemo(() => buildPhaseSlices(frames), [frames]);
+
+  const phaseIndexByFrame = useMemo(() => {
+    const indexMap: number[] = Array(frames.length).fill(0);
+    phaseSlices.forEach((slice, phaseIndex) => {
+      for (let i = slice.start; i <= slice.end; i += 1) {
+        indexMap[i] = phaseIndex;
+      }
+    });
+    return indexMap;
+  }, [frames.length, phaseSlices]);
+
   const clampedIndex = Math.max(0, Math.min(frameIndex, Math.max(0, frames.length - 1)));
   const currentFrame = frames.length ? frames[clampedIndex] : null;
   const currentState = (currentFrame?.state as any) || null;
 
+  const currentPhaseIndex = frames.length ? phaseIndexByFrame[clampedIndex] || 0 : 0;
+  const currentPhaseSlice = phaseSlices[currentPhaseIndex] || null;
+
+  const visibleIndex = viewMode === 'phase' ? currentPhaseIndex : clampedIndex;
+  const visibleTotal = viewMode === 'phase' ? phaseSlices.length : frames.length;
+
   const spectatorPlayerId = useMemo(() => getSpectatorPlayerId(currentState), [currentState]);
-  const actionSummary = useMemo(() => summarizeFrameAction(currentFrame), [currentFrame]);
+
+  const phaseRepresentativeFrame = useMemo(() => {
+    if (!currentPhaseSlice) return currentFrame;
+
+    for (let i = currentPhaseSlice.end; i >= currentPhaseSlice.start; i -= 1) {
+      if (isInteresting(frames[i])) return frames[i];
+    }
+
+    return frames[currentPhaseSlice.end] || currentFrame;
+  }, [currentFrame, currentPhaseSlice, frames]);
+
+  const actionSummary = useMemo(
+    () => summarizeFrameAction(viewMode === 'phase' ? phaseRepresentativeFrame : currentFrame),
+    [currentFrame, phaseRepresentativeFrame, viewMode],
+  );
+
+  const prevJumpDisabled = useMemo(() => {
+    if (!frames.length) return true;
+    if (viewMode === 'phase') {
+      return findPrevTurnSlice(phaseSlices, currentPhaseIndex) === null;
+    }
+    return findPrevInteresting(frames, clampedIndex) === null;
+  }, [clampedIndex, currentPhaseIndex, frames, phaseSlices, viewMode]);
+
+  const nextJumpDisabled = useMemo(() => {
+    if (!frames.length) return true;
+    if (viewMode === 'phase') {
+      return findNextTurnSlice(phaseSlices, currentPhaseIndex) === null;
+    }
+    return findNextInteresting(frames, clampedIndex) === null;
+  }, [clampedIndex, currentPhaseIndex, frames, phaseSlices, viewMode]);
+
+  const canStepBackward = viewMode === 'phase' ? currentPhaseIndex > 0 : clampedIndex > 0;
+  const canStepForward = viewMode === 'phase'
+    ? currentPhaseIndex < phaseSlices.length - 1
+    : clampedIndex < frames.length - 1;
 
   // Playback loop
   useEffect(() => {
@@ -116,25 +243,34 @@ export function ReplayView() {
 
     const t = setInterval(() => {
       setFrameIndex((i) => {
-        const next = i + 1;
-        if (next >= frames.length) {
-          // Stop at end
-          return i;
+        if (viewMode === 'phase') {
+          const phaseIndex = phaseIndexByFrame[i] || 0;
+          const nextPhase = phaseIndex + 1;
+          if (nextPhase >= phaseSlices.length) return i;
+          return phaseSlices[nextPhase].start;
         }
-        return next;
+
+        const nextFrame = i + 1;
+        if (nextFrame >= frames.length) return i;
+        return nextFrame;
       });
     }, speedMs);
 
     return () => clearInterval(t);
-  }, [isPlaying, frames.length, speedMs]);
+  }, [frames.length, isPlaying, phaseIndexByFrame, phaseSlices, speedMs, viewMode]);
 
   // Auto-stop at end
   useEffect(() => {
     if (!isPlaying) return;
-    if (frames.length && clampedIndex >= frames.length - 1) {
+
+    const atEnd = viewMode === 'phase'
+      ? phaseSlices.length > 0 && currentPhaseIndex >= phaseSlices.length - 1
+      : frames.length > 0 && clampedIndex >= frames.length - 1;
+
+    if (atEnd) {
       setIsPlaying(false);
     }
-  }, [isPlaying, clampedIndex, frames.length]);
+  }, [clampedIndex, currentPhaseIndex, frames.length, isPlaying, phaseSlices.length, viewMode]);
 
   if (isLoading) {
     return (
@@ -163,6 +299,10 @@ export function ReplayView() {
     );
   }
 
+  const currentPhaseLabel = currentPhaseSlice
+    ? `Turn ${currentPhaseSlice.turn} • ${currentPhaseSlice.phase}/${currentPhaseSlice.step}`
+    : `Turn ${currentFrame?.turn ?? 0} • ${currentFrame?.phase ?? ''}/${currentFrame?.step ?? ''}`;
+
   return (
     <div className="min-h-screen bg-game-bg flex flex-col">
       {/* Header */}
@@ -174,28 +314,58 @@ export function ReplayView() {
           <div className="min-w-0">
             <h1 className="text-xl font-bold text-white truncate">Replay</h1>
             <p className="text-xs text-gray-400 truncate">
-              {actionSummary.title}{actionSummary.model ? ` • ${actionSummary.model}` : ''}
+              {currentPhaseLabel}
+              {actionSummary.model ? ` • ${actionSummary.model}` : ''}
             </p>
           </div>
         </div>
 
         {/* Controls */}
         <div className="flex items-center gap-3">
+          <div className="flex items-center bg-gray-800 rounded border border-gray-700 overflow-hidden">
+            <button
+              onClick={() => setViewMode('phase')}
+              className={`px-2 py-1 text-xs ${viewMode === 'phase' ? 'bg-game-accent text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+            >
+              Phase
+            </button>
+            <button
+              onClick={() => setViewMode('action')}
+              className={`px-2 py-1 text-xs ${viewMode === 'action' ? 'bg-game-accent text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+            >
+              Action
+            </button>
+          </div>
+
           <button
             onClick={() => {
+              if (viewMode === 'phase') {
+                const prevTurnPhase = findPrevTurnSlice(phaseSlices, currentPhaseIndex);
+                if (prevTurnPhase !== null) setFrameIndex(phaseSlices[prevTurnPhase].start);
+                return;
+              }
+
               const i = findPrevInteresting(frames, clampedIndex);
               if (i !== null) setFrameIndex(i);
             }}
             className="px-2 py-1 bg-gray-800 text-white rounded hover:bg-gray-700 border border-gray-700"
-            disabled={findPrevInteresting(frames, clampedIndex) === null}
-            title="Previous non-PASS action"
+            disabled={prevJumpDisabled}
+            title={viewMode === 'phase' ? 'Previous turn' : 'Previous non-PASS action'}
           >
             ⏮
           </button>
           <button
-            onClick={() => setFrameIndex((i) => Math.max(0, i - 1))}
+            onClick={() => {
+              if (viewMode === 'phase') {
+                const prevPhase = Math.max(0, currentPhaseIndex - 1);
+                setFrameIndex(phaseSlices[prevPhase]?.start ?? clampedIndex);
+                return;
+              }
+
+              setFrameIndex((i) => Math.max(0, i - 1));
+            }}
             className="px-2 py-1 bg-gray-700 text-white rounded hover:bg-gray-600"
-            disabled={clampedIndex <= 0}
+            disabled={!canStepBackward}
           >
             ◀
           </button>
@@ -207,26 +377,40 @@ export function ReplayView() {
             {isPlaying ? '⏸ Pause' : '▶ Play'}
           </button>
           <button
-            onClick={() => setFrameIndex((i) => Math.min(frames.length - 1, i + 1))}
+            onClick={() => {
+              if (viewMode === 'phase') {
+                const nextPhase = Math.min(phaseSlices.length - 1, currentPhaseIndex + 1);
+                setFrameIndex(phaseSlices[nextPhase]?.start ?? clampedIndex);
+                return;
+              }
+
+              setFrameIndex((i) => Math.min(frames.length - 1, i + 1));
+            }}
             className="px-2 py-1 bg-gray-700 text-white rounded hover:bg-gray-600"
-            disabled={clampedIndex >= frames.length - 1}
+            disabled={!canStepForward}
           >
             ▶
           </button>
           <button
             onClick={() => {
+              if (viewMode === 'phase') {
+                const nextTurnPhase = findNextTurnSlice(phaseSlices, currentPhaseIndex);
+                if (nextTurnPhase !== null) setFrameIndex(phaseSlices[nextTurnPhase].start);
+                return;
+              }
+
               const i = findNextInteresting(frames, clampedIndex);
               if (i !== null) setFrameIndex(i);
             }}
             className="px-2 py-1 bg-gray-800 text-white rounded hover:bg-gray-700 border border-gray-700"
-            disabled={findNextInteresting(frames, clampedIndex) === null}
-            title="Next non-PASS action"
+            disabled={nextJumpDisabled}
+            title={viewMode === 'phase' ? 'Next turn' : 'Next non-PASS action'}
           >
             ⏭
           </button>
 
           <div className="text-gray-400 text-sm tabular-nums">
-            {frames.length ? `${clampedIndex + 1}/${frames.length}` : '0/0'}
+            {visibleTotal ? `${visibleIndex + 1}/${visibleTotal}` : '0/0'}
           </div>
 
           <select
@@ -247,13 +431,24 @@ export function ReplayView() {
         <input
           type="range"
           min={0}
-          max={Math.max(0, frames.length - 1)}
-          value={clampedIndex}
-          onChange={(e) => setFrameIndex(parseInt(e.target.value, 10))}
+          max={Math.max(0, visibleTotal - 1)}
+          value={visibleIndex}
+          onChange={(e) => {
+            const index = parseInt(e.target.value, 10);
+            if (viewMode === 'phase') {
+              setFrameIndex(phaseSlices[index]?.start ?? 0);
+            } else {
+              setFrameIndex(index);
+            }
+          }}
           className="flex-1"
         />
         <div className="text-xs text-gray-400">
-          Turn {currentFrame?.turn ?? 0} • {currentFrame?.phase ?? ''}/{currentFrame?.step ?? ''}
+          {viewMode === 'phase' ? (
+            <>{currentPhaseLabel} • {currentPhaseSlice ? `${currentPhaseSlice.end - currentPhaseSlice.start + 1} frames` : '0 frames'}</>
+          ) : (
+            <>Turn {currentFrame?.turn ?? 0} • {currentFrame?.phase ?? ''}/{currentFrame?.step ?? ''}</>
+          )}
         </div>
       </div>
 
@@ -270,8 +465,18 @@ export function ReplayView() {
         </div>
 
         <div className="border-l border-gray-700 bg-game-surface p-4 overflow-auto">
-          <h2 className="text-white font-bold mb-2">Decision</h2>
-          <div className="text-gray-300 text-sm mb-3">{actionSummary.title}</div>
+          <h2 className="text-white font-bold mb-2">
+            {viewMode === 'phase' ? 'Phase Summary' : 'Decision'}
+          </h2>
+          <div className="text-gray-300 text-sm mb-1">{currentPhaseLabel}</div>
+          <div className="text-gray-400 text-xs mb-3">{actionSummary.title}</div>
+
+          {viewMode === 'phase' && currentPhaseSlice && (
+            <div className="mb-4 text-xs text-gray-400">
+              {countInterestingInSlice(frames, currentPhaseSlice)} non-pass action(s) in this phase window
+            </div>
+          )}
+
           {actionSummary.reasoning && (
             <div className="mb-4">
               <div className="text-xs text-gray-400 mb-1">Reasoning</div>
@@ -288,31 +493,65 @@ export function ReplayView() {
           )}
 
           <div className="mt-6">
-            <h3 className="text-white font-bold mb-2">Frames</h3>
+            <h3 className="text-white font-bold mb-2">{viewMode === 'phase' ? 'Phases' : 'Frames'}</h3>
             <div className="text-xs text-gray-400 mb-2">Click to jump</div>
-            <div className="space-y-1">
-              {frames.slice(Math.max(0, clampedIndex - 30), Math.min(frames.length, clampedIndex + 31)).map((f, offset) => {
-                const i = Math.max(0, clampedIndex - 30) + offset;
-                const s = summarizeFrameAction(f);
-                const isActive = i === clampedIndex;
-                return (
-                  <button
-                    key={i}
-                    onClick={() => setFrameIndex(i)}
-                    className={`w-full text-left px-2 py-1 rounded border ${
-                      isActive
-                        ? 'bg-gray-800 border-game-accent text-white'
-                        : 'bg-gray-900/30 border-gray-700 text-gray-300 hover:bg-gray-800/60'
-                    }`}
-                  >
-                    <div className="text-xs truncate">
-                      <span className="text-gray-500 mr-2">#{i + 1}</span>
-                      {s.title}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+
+            {viewMode === 'phase' ? (
+              <div className="space-y-1">
+                {phaseSlices
+                  .slice(Math.max(0, currentPhaseIndex - 20), Math.min(phaseSlices.length, currentPhaseIndex + 21))
+                  .map((slice, offset) => {
+                    const phaseListStart = Math.max(0, currentPhaseIndex - 20);
+                    const phaseIdx = phaseListStart + offset;
+                    const isActive = phaseIdx === currentPhaseIndex;
+                    const interestingCount = countInterestingInSlice(frames, slice);
+
+                    return (
+                      <button
+                        key={`${slice.start}-${slice.end}`}
+                        onClick={() => setFrameIndex(slice.start)}
+                        className={`w-full text-left px-2 py-1 rounded border ${
+                          isActive
+                            ? 'bg-gray-800 border-game-accent text-white'
+                            : 'bg-gray-900/30 border-gray-700 text-gray-300 hover:bg-gray-800/60'
+                        }`}
+                      >
+                        <div className="text-xs truncate">
+                          <span className="text-gray-500 mr-2">#{phaseIdx + 1}</span>
+                          Turn {slice.turn} {slice.phase}/{slice.step}
+                        </div>
+                        <div className="text-[11px] text-gray-500">
+                          {slice.end - slice.start + 1} frame(s) • {interestingCount} non-pass
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {frames.slice(Math.max(0, clampedIndex - 30), Math.min(frames.length, clampedIndex + 31)).map((f, offset) => {
+                  const i = Math.max(0, clampedIndex - 30) + offset;
+                  const s = summarizeFrameAction(f);
+                  const isActive = i === clampedIndex;
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => setFrameIndex(i)}
+                      className={`w-full text-left px-2 py-1 rounded border ${
+                        isActive
+                          ? 'bg-gray-800 border-game-accent text-white'
+                          : 'bg-gray-900/30 border-gray-700 text-gray-300 hover:bg-gray-800/60'
+                      }`}
+                    >
+                      <div className="text-xs truncate">
+                        <span className="text-gray-500 mr-2">#{i + 1}</span>
+                        {s.title}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

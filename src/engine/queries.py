@@ -133,7 +133,7 @@ def has_ability(obj: GameObject, ability_name: str, state: GameState) -> bool:
     """Check if object has a specific ability (keyword or other)."""
     # Check base abilities
     for ability in obj.characteristics.abilities:
-        if ability.get('name') == ability_name:
+        if ability.get('name') == ability_name or ability.get('keyword') == ability_name:
             return True
 
     # Check granted abilities via QUERY interceptors
@@ -157,8 +157,9 @@ def has_ability(obj: GameObject, ability_name: str, state: GameState) -> bool:
 
 
 def is_creature(obj: GameObject, state: GameState) -> bool:
-    """Check if object is currently a creature."""
-    return CardType.CREATURE in get_types(obj, state)
+    """Check if object is currently a creature (or minion in Hearthstone)."""
+    types = get_types(obj, state)
+    return CardType.CREATURE in types or CardType.MINION in types
 
 
 # =============================================================================

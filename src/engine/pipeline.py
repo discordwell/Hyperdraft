@@ -264,10 +264,28 @@ def _handle_damage(event: Event, state: GameState):
         player.life -= amount
         return
 
-    # Damage to creature
+    # Damage to creature/hero
     if target_id in state.objects:
         obj = state.objects[target_id]
-        obj.state.damage += amount
+
+        # Hearthstone: Damage to HERO reduces player life (and may apply armor)
+        from .types import CardType
+        if CardType.HERO in obj.characteristics.types and state.game_mode == "hearthstone":
+            # Find the player who owns this hero
+            player = state.players.get(obj.owner)
+            if player:
+                # Apply armor first
+                if player.armor > 0:
+                    armor_absorbed = min(player.armor, amount)
+                    player.armor -= armor_absorbed
+                    amount -= armor_absorbed
+
+                # Remaining damage goes to life
+                if amount > 0:
+                    player.life -= amount
+        else:
+            # Regular creature damage
+            obj.state.damage += amount
 
 
 def _handle_life_change(event: Event, state: GameState):
@@ -297,11 +315,30 @@ def _handle_draw(event: Event, state: GameState):
 
     for _ in range(count):
         if not library.objects:
-            # MTG rule: a player loses the game if they attempt to draw from an empty library.
-            player = state.players.get(player_id)
-            if player:
-                player.has_lost = True
+            if state.game_mode == "hearthstone":
+                # Hearthstone: Drawing from empty deck is handled separately (fatigue)
+                # Don't mark as lost here, fatigue damage is applied by turn manager
+                pass
+            else:
+                # MTG rule: a player loses the game if they attempt to draw from an empty library.
+                player = state.players.get(player_id)
+                if player:
+                    player.has_lost = True
             break
+
+        # Check hand size limit (Hearthstone mode)
+        if state.game_mode == "hearthstone" and len(hand.objects) >= state.max_hand_size:
+            # Overdraw - burn the card
+            card_id = library.objects.pop(0)
+            graveyard_key = f"graveyard_{player_id}"
+            if graveyard_key in state.zones:
+                _remove_object_from_all_zones(card_id, state)
+                state.zones[graveyard_key].objects.append(card_id)
+                if card_id in state.objects:
+                    state.objects[card_id].zone = ZoneType.GRAVEYARD
+                    state.objects[card_id].entered_zone_at = state.timestamp
+            continue
+
         card_id = library.objects.pop(0)  # Top of library
         # Be robust against zone corruption: ensure the card isn't referenced in
         # any other zone list before we put it into the hand.

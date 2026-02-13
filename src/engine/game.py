@@ -41,16 +41,22 @@ class Game:
     - Targeting System
     """
 
-    def __init__(self):
+    def __init__(self, mode: str = "mtg"):
         self.state = GameState()
+        self.state.game_mode = mode
+
+        # Set mode-specific defaults
+        if mode == "hearthstone":
+            self.state.max_hand_size = 10
+
         self.pipeline = EventPipeline(self.state)
 
-        # Initialize subsystems
-        self.mana_system = ManaSystem(self.state)
+        # Initialize subsystems using factory methods
+        self.mana_system = self._create_mana_system()
         self.stack = StackManager(self.state)
-        self.turn_manager = TurnManager(self.state)
+        self.turn_manager = self._create_turn_manager()
         self.priority_system = PrioritySystem(self.state)
-        self.combat_manager = CombatManager(self.state)
+        self.combat_manager = self._create_combat_manager()
         self.targeting_system = TargetingSystem(self.state)
 
         # Wire up subsystem dependencies
@@ -65,8 +71,33 @@ class Game:
 
         self._setup_system_interceptors()
 
+    def _create_mana_system(self):
+        """Factory method for creating mode-specific mana system."""
+        if self.state.game_mode == "hearthstone":
+            from .hearthstone_mana import HearthstoneManaSystem
+            return HearthstoneManaSystem(self.state)
+        return ManaSystem(self.state)
+
+    def _create_combat_manager(self):
+        """Factory method for creating mode-specific combat manager."""
+        if self.state.game_mode == "hearthstone":
+            from .hearthstone_combat import HearthstoneCombatManager
+            return HearthstoneCombatManager(self.state)
+        return CombatManager(self.state)
+
+    def _create_turn_manager(self):
+        """Factory method for creating mode-specific turn manager."""
+        if self.state.game_mode == "hearthstone":
+            from .hearthstone_turn import HearthstoneTurnManager
+            return HearthstoneTurnManager(self.state)
+        return TurnManager(self.state)
+
     def _connect_subsystems(self):
         """Wire up dependencies between subsystems."""
+        # Store game reference for subsystems to access
+        self.state._game = self
+        self.pipeline.game = self
+
         # Priority system needs other systems
         self.priority_system.stack = self.stack
         self.priority_system.turn_manager = self.turn_manager
@@ -102,6 +133,48 @@ class Game:
                 type=zone_type,
                 owner=player_id
             )
+
+    def setup_hearthstone_player(self, player: Player, hero_def, hero_power_def):
+        """
+        Set up a Hearthstone player with hero and hero power.
+
+        Args:
+            player: Player object
+            hero_def: Hero CardDefinition
+            hero_power_def: Hero Power CardDefinition
+        """
+        # Create hero on battlefield
+        hero = self.create_object(
+            name=hero_def.name,
+            owner_id=player.id,
+            zone=ZoneType.BATTLEFIELD,
+            characteristics=copy.deepcopy(hero_def.characteristics),
+            card_def=hero_def
+        )
+        player.hero_id = hero.id
+        player.life = hero_def.characteristics.toughness or 30
+
+        # Set up hero interceptors
+        if hero_def.setup_interceptors:
+            interceptors = hero_def.setup_interceptors(hero, self.state)
+            for interceptor in interceptors:
+                self.register_interceptor(interceptor, hero)
+
+        # Create hero power in command zone
+        hero_power = self.create_object(
+            name=hero_power_def.name,
+            owner_id=player.id,
+            zone=ZoneType.COMMAND,
+            characteristics=copy.deepcopy(hero_power_def.characteristics),
+            card_def=hero_power_def
+        )
+        player.hero_power_id = hero_power.id
+
+        # Set up hero power interceptors
+        if hero_power_def.setup_interceptors:
+            interceptors = hero_power_def.setup_interceptors(hero_power, self.state)
+            for interceptor in interceptors:
+                self.register_interceptor(interceptor, hero_power)
 
     def _setup_shared_zones(self):
         """Create battlefield, stack, exile, command zones."""
@@ -585,6 +658,49 @@ class Game:
             )
         )
 
+        # Hearthstone Divine Shield interceptor
+        if self.state.game_mode == "hearthstone":
+            def _divine_shield_filter(event: Event, state: GameState) -> bool:
+                if event.type != EventType.DAMAGE:
+                    return False
+                target_id = event.payload.get("target")
+                if not target_id:
+                    return False
+                target = state.objects.get(target_id)
+                return target is not None and target.state.divine_shield
+
+            def _divine_shield_handler(event: Event, state: GameState) -> InterceptorResult:
+                target_id = event.payload.get("target")
+                target = state.objects[target_id]
+
+                # Break the shield
+                target.state.divine_shield = False
+
+                # Emit shield break event
+                shield_break = Event(
+                    type=EventType.DIVINE_SHIELD_BREAK,
+                    payload={'target': target_id},
+                    source=event.source
+                )
+
+                # Prevent the damage
+                return InterceptorResult(
+                    action=InterceptorAction.PREVENT,
+                    new_events=[shield_break]
+                )
+
+            self.register_interceptor(
+                Interceptor(
+                    id=new_id(),
+                    source="SYSTEM",
+                    controller="SYSTEM",
+                    priority=InterceptorPriority.PREVENT,
+                    filter=_divine_shield_filter,
+                    handler=_divine_shield_handler,
+                    duration="forever",
+                )
+            )
+
     # =========================================================================
     # Game Flow Methods
     # =========================================================================
@@ -750,12 +866,62 @@ class Game:
         return None
 
     # =========================================================================
+    # Hearthstone Actions
+    # =========================================================================
+
+    async def use_hero_power(self, player_id: str, target_id: str = None) -> bool:
+        """
+        Use a player's hero power.
+
+        Returns True if successful, False if blocked (insufficient mana,
+        already used this turn, etc.)
+        """
+        player = self.state.players.get(player_id)
+        if not player or not player.hero_power_id:
+            return False
+
+        # Already used this turn
+        if player.hero_power_used:
+            return False
+
+        # Not enough mana (hero powers cost 2)
+        if player.mana_crystals_available < 2:
+            return False
+
+        # Emit hero power activation event
+        payload = {'hero_power_id': player.hero_power_id, 'player': player_id}
+        if target_id:
+            payload['target'] = target_id
+
+        power_event = Event(
+            type=EventType.HERO_POWER_ACTIVATE,
+            payload=payload,
+            source=player.hero_power_id
+        )
+        processed = self.pipeline.emit(power_event)
+
+        # Check if event was prevented by an interceptor
+        if any(e.status == EventStatus.PREVENTED for e in processed):
+            return False
+
+        # Deduct mana and mark as used only after successful activation
+        player.mana_crystals_available -= 2
+        player.hero_power_used = True
+
+        return True
+
+    # =========================================================================
     # Player Setup
     # =========================================================================
 
     def set_ai_player(self, player_id: str) -> None:
         """Mark a player as AI-controlled."""
         self.priority_system.set_ai_player(player_id)
+
+        # Also register with Hearthstone turn manager if in Hearthstone mode
+        if self.state.game_mode == "hearthstone":
+            if hasattr(self.turn_manager, 'set_ai_player'):
+                self.turn_manager.set_ai_player(player_id)
 
     def set_human_action_handler(
         self,
@@ -770,6 +936,11 @@ class Game:
     ) -> None:
         """Set the handler for AI player decisions."""
         self.priority_system.get_ai_action = handler
+
+    def set_hearthstone_ai_handler(self, handler) -> None:
+        """Set the Hearthstone AI handler for turn execution."""
+        if hasattr(self.turn_manager, 'set_ai_handler'):
+            self.turn_manager.set_ai_handler(handler)
 
     def set_attack_handler(
         self,
@@ -1679,6 +1850,44 @@ def make_instant(
     )
 
 
+def make_spell(
+    name: str,
+    mana_cost: str = "",
+    colors: set = None,
+    text: str = "",
+    rarity: str = None,
+    spell_effect = None,
+    requires_target: bool = False
+) -> 'CardDefinition':
+    """
+    Helper to create Hearthstone spell card definitions.
+
+    Args:
+        name: Card name
+        mana_cost: Mana cost (e.g., "{3}")
+        colors: Set of colors
+        text: Card text
+        rarity: Card rarity
+        spell_effect: Function(obj, state, targets) -> list[Event]
+        requires_target: Whether spell requires a target
+    """
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.SPELL},
+            colors=colors or set(),
+            mana_cost=mana_cost
+        ),
+        text=text,
+        rarity=rarity,
+        spell_effect=spell_effect,
+        requires_target=requires_target
+    )
+
+
 def make_enchantment(
     name: str,
     mana_cost: str = "",
@@ -1832,4 +2041,389 @@ def make_planeswalker(
         rarity=rarity,
         abilities=abilities or [],
         setup_interceptors=setup_interceptors
+    )
+
+
+# =============================================================================
+# Hearthstone Card Factories
+# =============================================================================
+
+def make_hero(
+    name: str,
+    hero_class: str,
+    starting_life: int = 30,
+    text: str = "",
+    rarity: str = None,
+    setup_interceptors = None
+) -> 'CardDefinition':
+    """
+    Create a Hearthstone hero card.
+
+    Args:
+        name: Hero name
+        hero_class: Hero class (e.g., "Mage", "Warrior", "Hunter")
+        starting_life: Starting health (default 30)
+        text: Hero card text
+        rarity: Rarity string
+        setup_interceptors: Optional setup function for hero effects
+    """
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=None,
+        characteristics=Characteristics(
+            types={CardType.HERO},
+            subtypes={hero_class},
+            toughness=starting_life  # Use toughness for hero health
+        ),
+        text=text,
+        rarity=rarity,
+        abilities=[],
+        setup_interceptors=setup_interceptors,
+        domain="HEARTHSTONE"
+    )
+
+
+def make_hero_power(
+    name: str,
+    cost: int = 2,
+    text: str = "",
+    effect = None,
+    setup_interceptors = None
+) -> 'CardDefinition':
+    """
+    Create a Hearthstone hero power card.
+
+    Args:
+        name: Hero power name
+        cost: Mana cost (default 2)
+        text: Hero power description
+        effect: Function called when activated: (obj: GameObject, state: GameState) -> list[Event]
+        setup_interceptors: Optional setup function for complex hero powers
+    """
+    from .types import CardDefinition, Characteristics
+
+    # Create setup function that handles hero power activation
+    def hero_power_setup(obj: 'GameObject', state: 'GameState') -> list['Interceptor']:
+        from .types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, Event, EventType
+
+        if not effect and not setup_interceptors:
+            return []
+
+        # If custom setup provided, use it
+        if setup_interceptors:
+            return setup_interceptors(obj, state)
+
+        # Standard hero power interceptor
+        def filter_fn(event: Event, s: 'GameState') -> bool:
+            return (
+                event.type == EventType.HERO_POWER_ACTIVATE and
+                event.payload.get('hero_power_id') == obj.id
+            )
+
+        def handler_fn(event: Event, s: 'GameState') -> 'InterceptorResult':
+            # Check if already used this turn
+            player = s.players.get(obj.controller)
+            if player and player.hero_power_used:
+                return InterceptorResult(action=InterceptorAction.PREVENT)
+
+            # Check mana cost
+            # (Mana check should be done before emitting this event)
+
+            # Mark as used
+            if player:
+                player.hero_power_used = True
+
+            # Execute effect
+            new_events = effect(obj, s) if effect else []
+
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=new_events
+            )
+
+        return [Interceptor(
+            id=f"hero_power_{obj.id}",
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filter_fn,
+            handler=handler_fn,
+            duration='permanent'  # Hero powers are in command zone, not battlefield
+        )]
+
+    return CardDefinition(
+        name=name,
+        mana_cost=f"{{{cost}}}",  # Store as mana cost string
+        characteristics=Characteristics(
+            types={CardType.HERO_POWER},
+            mana_cost=f"{{{cost}}}"
+        ),
+        text=text,
+        abilities=[],
+        setup_interceptors=hero_power_setup,
+        domain="HEARTHSTONE"
+    )
+
+
+def make_weapon(
+    name: str,
+    attack: int,
+    durability: int,
+    mana_cost: str = "",
+    text: str = "",
+    rarity: str = None,
+    abilities: list = None,
+    setup_interceptors = None
+) -> 'CardDefinition':
+    """
+    Create a Hearthstone weapon card.
+
+    Args:
+        name: Weapon name
+        attack: Weapon attack value
+        durability: Weapon durability
+        mana_cost: Mana cost string
+        text: Weapon card text
+        rarity: Rarity string
+        abilities: List of keyword abilities
+        setup_interceptors: Optional setup function
+    """
+    from .types import CardDefinition, Characteristics
+
+    # Auto-equip weapon on ETB
+    def weapon_setup(obj: 'GameObject', state: 'GameState') -> list['Interceptor']:
+        from .types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, Event, EventType, ZoneType
+
+        interceptors = []
+
+        # Add custom interceptors if provided
+        if setup_interceptors:
+            interceptors.extend(setup_interceptors(obj, state))
+
+        # Equip on ETB
+        def equip_filter(event: Event, s: 'GameState') -> bool:
+            return (
+                event.type == EventType.ZONE_CHANGE and
+                event.payload.get('object_id') == obj.id and
+                event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD
+            )
+
+        def equip_handler(event: Event, s: 'GameState') -> 'InterceptorResult':
+            # Find hero
+            player = s.players.get(obj.controller)
+            if player and player.hero_id:
+                hero = s.objects.get(player.hero_id)
+                if hero:
+                    hero.state.weapon_attack = attack
+                    hero.state.weapon_durability = durability
+
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        interceptors.append(Interceptor(
+            id=f"weapon_equip_{obj.id}",
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=equip_filter,
+            handler=equip_handler,
+            duration='while_on_battlefield',
+            uses_remaining=1
+        ))
+
+        return interceptors
+
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.WEAPON},
+            power=attack,
+            toughness=durability,
+            mana_cost=mana_cost
+        ),
+        text=text,
+        rarity=rarity,
+        abilities=abilities or [],
+        setup_interceptors=weapon_setup,
+        domain="HEARTHSTONE"
+    )
+
+
+def make_minion(
+    name: str,
+    attack: int,
+    health: int,
+    mana_cost: str = "",
+    subtypes: set[str] = None,
+    text: str = "",
+    rarity: str = None,
+    abilities: list = None,
+    keywords: set[str] = None,
+    battlecry = None,
+    deathrattle = None,
+    setup_interceptors = None
+) -> 'CardDefinition':
+    """
+    Create a Hearthstone minion card.
+
+    Args:
+        name: Minion name
+        attack: Attack value
+        health: Health value
+        mana_cost: Mana cost string
+        subtypes: Minion types (e.g., {"Beast", "Murloc"})
+        text: Card text
+        rarity: Rarity string
+        abilities: List of keyword abilities (charge, taunt, etc.)
+        keywords: Set of keywords (charge, taunt, divine_shield, etc.)
+        battlecry: Function called on ETB: (obj: GameObject, state: GameState) -> list[Event]
+        deathrattle: Function called on death: (obj: GameObject, state: GameState) -> list[Event]
+        setup_interceptors: Optional custom setup function
+    """
+    from .types import CardDefinition, Characteristics
+
+    # Combine battlecry/deathrattle with custom setup
+    def minion_setup(obj: 'GameObject', state: 'GameState') -> list['Interceptor']:
+        from src.cards.interceptor_helpers import make_etb_trigger, make_death_trigger
+
+        interceptors = []
+
+        # Apply keyword states (Hearthstone keywords)
+        if keywords:
+            if 'divine_shield' in keywords:
+                obj.state.divine_shield = True
+            if 'stealth' in keywords:
+                obj.state.stealth = True
+            if 'windfury' in keywords:
+                obj.state.windfury = True
+
+        # Add battlecry (ETB trigger)
+        if battlecry:
+            # Wrap battlecry to convert (obj, state) -> (event, state)
+            def battlecry_wrapper(event: Event, state: 'GameState') -> list[Event]:
+                return battlecry(obj, state)
+            interceptors.append(make_etb_trigger(obj, battlecry_wrapper))
+
+        # Add deathrattle (death trigger)
+        if deathrattle:
+            # Wrap deathrattle to convert (obj, state) -> (event, state)
+            def deathrattle_wrapper(event: Event, state: 'GameState') -> list[Event]:
+                return deathrattle(obj, state)
+            interceptors.append(make_death_trigger(obj, deathrattle_wrapper))
+
+        # Add custom interceptors
+        if setup_interceptors:
+            interceptors.extend(setup_interceptors(obj, state))
+
+        return interceptors
+
+    # Convert keywords to abilities format
+    char_abilities = abilities or []
+    if keywords:
+        for keyword in keywords:
+            char_abilities.append({'keyword': keyword})
+
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.MINION},
+            subtypes=subtypes or set(),
+            power=attack,
+            toughness=health,
+            mana_cost=mana_cost,
+            abilities=char_abilities
+        ),
+        text=text,
+        rarity=rarity,
+        abilities=char_abilities,
+        battlecry=battlecry,
+        deathrattle=deathrattle,
+        setup_interceptors=minion_setup if (battlecry or deathrattle or setup_interceptors or keywords) else None,
+        domain="HEARTHSTONE"
+    )
+
+
+def make_secret(
+    name: str,
+    mana_cost: str = "",
+    text: str = "",
+    trigger_filter = None,
+    trigger_effect = None,
+    setup_interceptors = None
+) -> 'CardDefinition':
+    """
+    Create a Hearthstone secret card.
+
+    Args:
+        name: Secret name
+        mana_cost: Mana cost string
+        text: Secret description
+        trigger_filter: Function determining when secret triggers: (event: Event, state: GameState) -> bool
+        trigger_effect: Function called when triggered: (obj: GameObject, state: GameState) -> list[Event]
+        setup_interceptors: Optional custom setup function
+    """
+    from .types import CardDefinition, Characteristics
+
+    def secret_setup(obj: 'GameObject', state: 'GameState') -> list['Interceptor']:
+        from .types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, Event, EventType
+
+        if not trigger_filter or not trigger_effect:
+            if setup_interceptors:
+                return setup_interceptors(obj, state)
+            return []
+
+        # Secret interceptor - triggers on opponent's actions
+        def filter_fn(event: Event, s: 'GameState') -> bool:
+            # Only trigger during opponent's turn
+            if s.active_player == obj.controller:
+                return False
+            return trigger_filter(event, s)
+
+        def handler_fn(event: Event, s: 'GameState') -> 'InterceptorResult':
+            # Execute secret effect
+            new_events = trigger_effect(obj, s)
+
+            # Destroy the secret after triggering
+            from .types import ZoneType
+            destroy_event = Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': obj.id,
+                    'from_zone_type': obj.zone,
+                    'to_zone_type': ZoneType.GRAVEYARD
+                },
+                source=obj.id
+            )
+            new_events.append(destroy_event)
+
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=new_events
+            )
+
+        return [Interceptor(
+            id=f"secret_{obj.id}",
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filter_fn,
+            handler=handler_fn,
+            duration='while_on_battlefield',
+            uses_remaining=1
+        )]
+
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.SECRET},
+            mana_cost=mana_cost
+        ),
+        text=text,
+        abilities=[],
+        setup_interceptors=secret_setup,
+        domain="HEARTHSTONE"
     )
