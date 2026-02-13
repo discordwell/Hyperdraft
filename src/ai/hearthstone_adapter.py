@@ -96,8 +96,8 @@ class HearthstoneAIAdapter:
         if not player:
             return False
 
-        # No mana left for cards
-        if player.mana_crystals_available <= 0:
+        # No mana left (but allow 0-cost cards like Wisp and Backstab)
+        if player.mana_crystals_available < 0:
             return False
 
         # Hand is empty
@@ -425,8 +425,25 @@ class HearthstoneAIAdapter:
         if player.mana_crystals_available < 2:
             return False
 
-        # Use hero power if we have leftover mana
-        # (Better than wasting mana)
+        # Check if hero power creates tokens and board is full
+        # (Shaman Totemic Call, Paladin Reinforce can't be used with 7 minions)
+        if player.hero_power_id:
+            from src.engine.types import CardType
+            hero_power_obj = state.objects.get(player.hero_power_id)
+            if hero_power_obj and hero_power_obj.card_def:
+                hp_text = (hero_power_obj.card_def.text or '').lower()
+                if 'summon' in hp_text:
+                    battlefield = state.zones.get('battlefield')
+                    if battlefield:
+                        minion_count = sum(
+                            1 for oid in battlefield.objects
+                            if oid in state.objects
+                            and state.objects[oid].controller == player_id
+                            and CardType.MINION in state.objects[oid].characteristics.types
+                        )
+                        if minion_count >= 7:
+                            return False
+
         return True
 
     async def _use_hero_power(self, player_id: str, state: 'GameState', game) -> list['Event']:
