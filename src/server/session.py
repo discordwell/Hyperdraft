@@ -1558,7 +1558,7 @@ class GameSession:
         )
 
     def _serialize_card(self, obj) -> CardData:
-        """Serialize a card for the client."""
+        """Serialize a card for the client (hand/graveyard)."""
         return CardData(
             id=obj.id,
             name=obj.name,
@@ -1570,7 +1570,8 @@ class GameSession:
             toughness=obj.characteristics.toughness,
             text=obj.card_def.text if obj.card_def else "",
             controller=obj.controller,
-            owner=obj.owner
+            owner=obj.owner,
+            keywords=list(obj.characteristics.keywords),
         )
 
     def _serialize_stack_item(self, item) -> StackItemData:

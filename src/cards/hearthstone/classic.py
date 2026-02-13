@@ -299,7 +299,7 @@ BLOODFEN_RAPTOR = make_minion(
     mana_cost="{2}",
     text="",
     rarity="Common",
-    subtypes=["Beast"]
+    subtypes={"Beast"}
 )
 
 LOOT_HOARDER = make_minion(

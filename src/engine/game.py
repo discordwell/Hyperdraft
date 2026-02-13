@@ -2332,6 +2332,8 @@ def make_minion(
                 obj.state.stealth = True
             if 'windfury' in keywords:
                 obj.state.windfury = True
+            if 'frozen' in keywords:
+                obj.state.frozen = True
 
         # Add battlecry (ETB trigger)
         if battlecry:
