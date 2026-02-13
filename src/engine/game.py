@@ -2211,9 +2211,14 @@ def make_weapon(
             )
 
         def equip_handler(event: Event, s: 'GameState') -> 'InterceptorResult':
-            # Find hero
+            # Find hero and player
             player = s.players.get(obj.controller)
             if player and player.hero_id:
+                # Set weapon stats on PLAYER (where combat manager checks)
+                player.weapon_attack = attack
+                player.weapon_durability = durability
+
+                # Also set on hero object state for consistency
                 hero = s.objects.get(player.hero_id)
                 if hero:
                     hero.state.weapon_attack = attack
