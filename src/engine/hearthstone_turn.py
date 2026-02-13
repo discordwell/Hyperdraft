@@ -168,15 +168,14 @@ class HearthstoneTurnManager(TurnManager):
         # Reset hero power
         active_player.hero_power_used = False
 
-        # Unfreeze minions and clear summoning sickness for active player
+        # Clear summoning sickness for active player's minions at turn start
+        # (Freeze is handled at end of turn — see _run_end_phase)
         from .types import CardType
         battlefield = self.state.zones.get('battlefield')
         if battlefield:
             for obj_id in list(battlefield.objects):
                 obj = self.state.objects.get(obj_id)
                 if obj and obj.controller == active_player_id:
-                    if obj.state.frozen:
-                        obj.state.frozen = False
                     # Clear summoning sickness at start of controller's turn
                     if CardType.MINION in obj.characteristics.types:
                         obj.state.summoning_sickness = False
@@ -273,6 +272,9 @@ class HearthstoneTurnManager(TurnManager):
         active_player = self.state.players.get(self.hs_turn_state.active_player_id)
         if active_player and getattr(active_player, '_shapeshift_attack', False):
             active_player._shapeshift_attack = False
+            pre_attack = getattr(active_player, '_pre_shapeshift_weapon_attack', None)
+            if hasattr(active_player, '_pre_shapeshift_weapon_attack'):
+                del active_player._pre_shapeshift_weapon_attack
 
             # Check if a real weapon card is on the battlefield for this player
             from .types import CardType
@@ -287,9 +289,12 @@ class HearthstoneTurnManager(TurnManager):
                         break
 
             if real_weapon:
-                # Remove Shapeshift's +1 attack bonus (keep durability as-is,
-                # combat already manages durability loss on attack)
-                active_player.weapon_attack = max(0, active_player.weapon_attack - 1)
+                # Only remove the +1 bonus if weapon_attack still includes it.
+                # If a new weapon was equipped after Shapeshift, the bonus was
+                # overwritten and we should not subtract from the new weapon.
+                if pre_attack is not None and active_player.weapon_attack == pre_attack + 1:
+                    active_player.weapon_attack = pre_attack
+                # else: weapon was replaced after Shapeshift, don't touch it
                 if active_player.hero_id:
                     hero = self.state.objects.get(active_player.hero_id)
                     if hero:
@@ -316,7 +321,23 @@ class HearthstoneTurnManager(TurnManager):
                         if mod.get('duration') != 'end_of_turn'
                     ]
 
-        # Reset combat state
+        # Unfreeze characters that didn't attack this turn.
+        # In Hearthstone, freeze wears off at the END of the frozen character's
+        # controller's turn — not at the start. This ensures a frozen minion
+        # misses a full turn of attacks before unfreezing.
+        battlefield = self.state.zones.get('battlefield')
+        if battlefield:
+            for obj_id in list(battlefield.objects):
+                obj = self.state.objects.get(obj_id)
+                if (obj and obj.controller == self.hs_turn_state.active_player_id
+                        and obj.state.frozen):
+                    # Only unfreeze if the character didn't attack this turn.
+                    # If it attacked AND got frozen (e.g. Water Elemental), it
+                    # stays frozen through the next turn.
+                    if obj.state.attacks_this_turn == 0:
+                        obj.state.frozen = False
+
+        # Reset combat state (clears attacks_this_turn — must be AFTER freeze check)
         if self.combat_manager:
             self.combat_manager.reset_combat()
 
