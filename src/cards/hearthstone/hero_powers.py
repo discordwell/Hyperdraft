@@ -193,7 +193,7 @@ DAGGER_MASTERY = make_hero_power(
 
 # Shaman Hero Power
 def totemic_call_effect(obj: GameObject, state: GameState) -> list[Event]:
-    """Summon a random Totem."""
+    """Summon a random basic Totem (no duplicates of existing totems)."""
     import random
     totems = [
         ('Healing Totem', 0, 2, []),
@@ -201,6 +201,21 @@ def totemic_call_effect(obj: GameObject, state: GameState) -> list[Event]:
         ('Stoneclaw Totem', 0, 2, [{'keyword': 'taunt'}]),
         ('Wrath of Air Totem', 0, 2, []),
     ]
+
+    # Exclude totems already on the battlefield (Hearthstone: no duplicate basic totems)
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        existing_names = set()
+        for oid in battlefield.objects:
+            o = state.objects.get(oid)
+            if (o and o.controller == obj.controller and
+                    'Totem' in o.characteristics.subtypes):
+                existing_names.add(o.name)
+        totems = [t for t in totems if t[0] not in existing_names]
+
+    if not totems:
+        return []  # All 4 basic totems already on board
+
     totem_name, power, toughness, abilities = random.choice(totems)
 
     return [Event(
@@ -229,17 +244,10 @@ TOTEMIC_CALL = make_hero_power(
 
 # Warlock Hero Power
 def life_tap_effect(obj: GameObject, state: GameState) -> list[Event]:
-    """Draw a card and take 2 damage."""
+    """Take 2 damage, then draw a card."""
     events = []
 
-    # Draw a card
-    events.append(Event(
-        type=EventType.DRAW,
-        payload={'player': obj.controller, 'count': 1},
-        source=obj.id
-    ))
-
-    # Take 2 damage to hero
+    # Take 2 damage to hero first (Hearthstone ordering: damage before draw)
     player = state.players.get(obj.controller)
     if player and player.hero_id:
         events.append(Event(
@@ -247,6 +255,13 @@ def life_tap_effect(obj: GameObject, state: GameState) -> list[Event]:
             payload={'target': player.hero_id, 'amount': 2, 'source': obj.id},
             source=obj.id
         ))
+
+    # Then draw a card
+    events.append(Event(
+        type=EventType.DRAW,
+        payload={'player': obj.controller, 'count': 1},
+        source=obj.id
+    ))
 
     return events
 

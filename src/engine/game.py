@@ -709,6 +709,10 @@ class Game:
         """
         # Set up turn order
         player_ids = list(self.state.players.keys())
+        if self.state.game_mode == "hearthstone":
+            # Hearthstone: randomize who goes first
+            import random
+            random.shuffle(player_ids)
         self.turn_manager.set_turn_order(player_ids)
 
         # Draw starting hands
