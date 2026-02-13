@@ -393,7 +393,15 @@ class HearthstoneAIAdapter:
 
         # For damage spells, prefer enemy hero; for transform/control, prefer minions
         spell_name = card_def.name.lower() if card_def.name else ''
-        if 'polymorph' in spell_name or 'mind control' in spell_name or 'backstab' in spell_name:
+        if 'backstab' in spell_name:
+            # Backstab only works on undamaged minions
+            undamaged = [m for m in enemy_minions if state.objects[m].state.damage == 0]
+            if undamaged:
+                from src.engine.queries import get_toughness
+                best = max(undamaged, key=lambda m: get_toughness(state.objects[m], state))
+                return [[best]]
+            return []  # No valid targets, don't waste the card
+        elif 'polymorph' in spell_name or 'mind control' in spell_name:
             # Target biggest enemy minion
             if enemy_minions:
                 from src.engine.queries import get_toughness
