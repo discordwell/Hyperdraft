@@ -204,6 +204,8 @@ class PlayerData(BaseModel):
     mana_crystals_available: int = 0
     armor: int = 0
     hero_id: Optional[str] = None
+    weapon_attack: int = 0
+    weapon_durability: int = 0
 
 
 class CombatData(BaseModel):

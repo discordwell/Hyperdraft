@@ -154,17 +154,35 @@ def dagger_mastery_effect(obj: GameObject, state: GameState) -> list[Event]:
     if not hero:
         return []
 
+    events = []
+
+    # Destroy existing weapon cards on battlefield (replacing old weapon)
+    from src.engine.types import ZoneType
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for card_id in list(battlefield.objects):
+            card = state.objects.get(card_id)
+            if (card and card.controller == obj.controller and
+                    CardType.WEAPON in card.characteristics.types):
+                events.append(Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': card_id, 'reason': 'weapon_replaced'},
+                    source=obj.id
+                ))
+
     # Equip dagger
     player.weapon_attack = 1
     player.weapon_durability = 2
     hero.state.weapon_attack = 1
     hero.state.weapon_durability = 2
 
-    return [Event(
+    events.append(Event(
         type=EventType.WEAPON_EQUIP,
         payload={'hero_id': hero.id, 'attack': 1, 'durability': 2},
         source=obj.id
-    )]
+    ))
+
+    return events
 
 DAGGER_MASTERY = make_hero_power(
     name="Dagger Mastery",

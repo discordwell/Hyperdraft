@@ -265,16 +265,38 @@ class HearthstoneTurnManager(TurnManager):
         # Clean up temporary hero attack (Druid Shapeshift "+1 Attack this turn")
         active_player = self.state.players.get(self.hs_turn_state.active_player_id)
         if active_player and getattr(active_player, '_shapeshift_attack', False):
-            # Only clear if no real weapon card is equipped
-            active_player.weapon_attack = 0
-            active_player.weapon_durability = 0
             active_player._shapeshift_attack = False
-            # Clear hero object weapon state too
-            if active_player.hero_id:
-                hero = self.state.objects.get(active_player.hero_id)
-                if hero:
-                    hero.state.weapon_attack = 0
-                    hero.state.weapon_durability = 0
+
+            # Check if a real weapon card is on the battlefield for this player
+            from .types import CardType
+            real_weapon = None
+            battlefield = self.state.zones.get('battlefield')
+            if battlefield:
+                for card_id in battlefield.objects:
+                    card = self.state.objects.get(card_id)
+                    if (card and card.controller == self.hs_turn_state.active_player_id and
+                            CardType.WEAPON in card.characteristics.types):
+                        real_weapon = card
+                        break
+
+            if real_weapon:
+                # Restore real weapon stats (Shapeshift overwrote them)
+                active_player.weapon_attack = real_weapon.characteristics.power or 0
+                active_player.weapon_durability = real_weapon.characteristics.toughness or 0
+                if active_player.hero_id:
+                    hero = self.state.objects.get(active_player.hero_id)
+                    if hero:
+                        hero.state.weapon_attack = active_player.weapon_attack
+                        hero.state.weapon_durability = active_player.weapon_durability
+            else:
+                # No real weapon - zero out the temporary attack
+                active_player.weapon_attack = 0
+                active_player.weapon_durability = 0
+                if active_player.hero_id:
+                    hero = self.state.objects.get(active_player.hero_id)
+                    if hero:
+                        hero.state.weapon_attack = 0
+                        hero.state.weapon_durability = 0
 
         # Clear end-of-turn PT modifiers on all battlefield objects
         battlefield = self.state.zones.get('battlefield')

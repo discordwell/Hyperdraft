@@ -302,7 +302,7 @@ class HearthstoneCombatManager:
                     'source': attacker_id,
                     'target': target_id,
                     'amount': attacker_power,
-                    'combat': True
+                    'is_combat': True
                 },
                 source=attacker_id
             )
@@ -321,7 +321,7 @@ class HearthstoneCombatManager:
                         'source': target_id,
                         'target': attacker_id,
                         'amount': target_power,
-                        'combat': True
+                        'is_combat': True
                     },
                     source=target_id
                 )
