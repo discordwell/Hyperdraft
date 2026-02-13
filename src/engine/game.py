@@ -2338,12 +2338,20 @@ def make_minion(
             if 'frozen' in keywords:
                 obj.state.frozen = True
 
-        # Add battlecry (ETB trigger)
+        # Add battlecry (ETB trigger - only when played from hand)
         if battlecry:
             # Wrap battlecry to convert (obj, state) -> (event, state)
             def battlecry_wrapper(event: Event, state: 'GameState') -> list[Event]:
                 return battlecry(obj, state)
-            interceptors.append(make_etb_trigger(obj, battlecry_wrapper))
+
+            # Battlecries only trigger when played from hand, not when summoned by effects
+            def battlecry_filter(event: Event, state: 'GameState', obj: GameObject) -> bool:
+                return (event.type == EventType.ZONE_CHANGE and
+                        event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD and
+                        event.payload.get('from_zone_type') == ZoneType.HAND and
+                        event.payload.get('object_id') == obj.id)
+
+            interceptors.append(make_etb_trigger(obj, battlecry_wrapper, filter_fn=battlecry_filter))
 
         # Add deathrattle (death trigger)
         if deathrattle:

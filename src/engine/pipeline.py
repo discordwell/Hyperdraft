@@ -264,9 +264,21 @@ def _handle_damage(event: Event, state: GameState):
     if amount <= 0:
         return
 
-    # Damage to player
+    # Damage to player (MTG path - direct player damage)
     if target_id in state.players:
         player = state.players[target_id]
+        if state.game_mode == "hearthstone":
+            # In Hearthstone, damage should target hero objects, not player IDs.
+            # Redirect to hero so armor is applied correctly.
+            if player.hero_id and player.hero_id in state.objects:
+                hero = state.objects[player.hero_id]
+                if player.armor > 0:
+                    armor_absorbed = min(player.armor, amount)
+                    player.armor -= armor_absorbed
+                    amount -= armor_absorbed
+                if amount > 0:
+                    player.life -= amount
+                return
         player.life -= amount
         return
 
@@ -1364,8 +1376,10 @@ def _handle_object_destroyed(event: Event, state: GameState):
     obj.entered_zone_at = state.timestamp
 
     # Hearthstone: clear weapon stats when a weapon is destroyed
+    # Skip clearing if weapon was replaced — the new weapon already set correct stats
     from .types import CardType
-    if state.game_mode == "hearthstone" and CardType.WEAPON in obj.characteristics.types:
+    if (state.game_mode == "hearthstone" and CardType.WEAPON in obj.characteristics.types
+            and event.payload.get('reason') != 'weapon_replaced'):
         player = state.players.get(obj.controller)
         if player:
             player.weapon_attack = 0

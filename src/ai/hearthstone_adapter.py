@@ -355,7 +355,27 @@ class HearthstoneAIAdapter:
             events.append(zone_event)
 
         elif CardType.SPELL in card.characteristics.types:
-            # Cast spell - emit zone change to graveyard
+            # Emit SPELL_CAST event (triggers "whenever you cast a spell" effects)
+            spell_cast_event = Event(
+                type=EventType.SPELL_CAST,
+                payload={'spell_id': card_id, 'caster': player_id},
+                source=card_id
+            )
+            if game.pipeline:
+                game.pipeline.emit(spell_cast_event)
+            events.append(spell_cast_event)
+
+            # Execute spell effect BEFORE moving to graveyard
+            card_def = card.card_def
+            if card_def and hasattr(card_def, 'spell_effect') and card_def.spell_effect:
+                targets = self._choose_spell_targets(card, state, player_id)
+                effect_events = card_def.spell_effect(card, state, targets)
+                for ev in effect_events:
+                    if game.pipeline:
+                        game.pipeline.emit(ev)
+                    events.append(ev)
+
+            # Move spell to graveyard AFTER effect resolves
             zone_event = Event(
                 type=EventType.ZONE_CHANGE,
                 payload={
@@ -370,16 +390,6 @@ class HearthstoneAIAdapter:
             if game.pipeline:
                 game.pipeline.emit(zone_event)
             events.append(zone_event)
-
-            # Execute spell effect (make_spell doesn't register interceptors)
-            card_def = card.card_def
-            if card_def and hasattr(card_def, 'spell_effect') and card_def.spell_effect:
-                targets = self._choose_spell_targets(card, state, player_id)
-                effect_events = card_def.spell_effect(card, state, targets)
-                for ev in effect_events:
-                    if game.pipeline:
-                        game.pipeline.emit(ev)
-                    events.append(ev)
 
         elif CardType.WEAPON in card.characteristics.types:
             # Play weapon to battlefield (triggers equip interceptor via ZONE_CHANGE)
