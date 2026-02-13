@@ -268,10 +268,9 @@ def _handle_damage(event: Event, state: GameState):
     if target_id in state.objects:
         obj = state.objects[target_id]
 
-        # Hearthstone: Divine Shield absorbs all damage and is removed
-        if state.game_mode == "hearthstone" and obj.state.divine_shield:
-            obj.state.divine_shield = False
-            return  # No damage applied
+        # Note: Divine Shield is handled by a PREVENT interceptor registered in
+        # Game.__init__. DAMAGE events targeting shielded minions are prevented
+        # before reaching this handler.
 
         # Hearthstone: Damage to HERO reduces player life (and may apply armor)
         from .types import CardType
@@ -299,7 +298,12 @@ def _handle_life_change(event: Event, state: GameState):
     amount = event.payload.get('amount', 0)
 
     if player_id in state.players:
-        state.players[player_id].life += amount
+        player = state.players[player_id]
+        player.life += amount
+        # Hearthstone: cap healing at max HP (default 30)
+        if state.game_mode == "hearthstone" and amount > 0:
+            max_hp = getattr(player, 'max_life', 30) or 30
+            player.life = min(player.life, max_hp)
 
 
 def _handle_draw(event: Event, state: GameState):
