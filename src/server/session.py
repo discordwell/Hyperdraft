@@ -343,9 +343,15 @@ class GameSession:
                 max_life=player.max_life
             )
 
-        # Get battlefield
+        # Get battlefield (exclude heroes/hero powers in HS mode — those are in player data)
         battlefield = []
         for obj in self.game.get_battlefield():
+            if game_state.game_mode == "hearthstone":
+                from src.engine.types import CardType
+                if CardType.HERO in obj.characteristics.types:
+                    continue
+                if CardType.HERO_POWER in obj.characteristics.types:
+                    continue
             battlefield.append(self._serialize_permanent(obj))
 
         # Get stack

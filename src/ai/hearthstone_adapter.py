@@ -435,10 +435,10 @@ class HearthstoneAIAdapter:
                 return [[best]]
             return []  # No valid targets, don't waste the card
         elif 'polymorph' in spell_name or 'mind control' in spell_name:
-            # These only target minions, not heroes
+            # These only target minions, not heroes — pick highest-threat (power)
             if enemy_minions:
-                from src.engine.queries import get_toughness
-                best = max(enemy_minions, key=lambda m: get_toughness(state.objects[m], state))
+                from src.engine.queries import get_power as _gp
+                best = max(enemy_minions, key=lambda m: _gp(state.objects[m], state))
                 return [[best]]
             return []  # No valid minion targets, don't waste the card
         else:
@@ -463,8 +463,13 @@ class HearthstoneAIAdapter:
         if player.hero_power_used:
             return False
 
-        # Not enough mana (hero powers cost 2)
-        if player.mana_crystals_available < 2:
+        # Not enough mana — read actual cost from hero power object
+        hp_cost = 2
+        if player.hero_power_id:
+            hp_obj = state.objects.get(player.hero_power_id)
+            if hp_obj:
+                hp_cost = self._get_mana_cost(hp_obj) or 2
+        if player.mana_crystals_available < hp_cost:
             return False
 
         # Check if hero power creates tokens and board is full
@@ -515,8 +520,12 @@ class HearthstoneAIAdapter:
         else:
             events.append(power_event)
 
-        # Deduct mana after successful activation
-        player.mana_crystals_available -= 2
+        # Deduct mana after successful activation (use actual cost)
+        hp_cost = 2
+        hp_obj = state.objects.get(player.hero_power_id)
+        if hp_obj:
+            hp_cost = self._get_mana_cost(hp_obj) or 2
+        player.mana_crystals_available -= hp_cost
 
         return events
 
