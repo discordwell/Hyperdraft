@@ -445,7 +445,8 @@ class HearthstoneAIAdapter:
         spell_name = card_def.name.lower() if card_def.name else ''
         if 'backstab' in spell_name:
             # Backstab only works on undamaged minions
-            undamaged = [m for m in enemy_minions if state.objects[m].state.damage == 0]
+            undamaged = [m for m in enemy_minions
+                         if m in state.objects and state.objects[m].state.damage == 0]
             if undamaged:
                 from src.engine.queries import get_toughness
                 best = max(undamaged, key=lambda m: get_toughness(state.objects[m], state))
@@ -453,9 +454,10 @@ class HearthstoneAIAdapter:
             return []  # No valid targets, don't waste the card
         elif 'polymorph' in spell_name or 'mind control' in spell_name:
             # These only target minions, not heroes — pick highest-threat (power)
-            if enemy_minions:
+            valid_minions = [m for m in enemy_minions if m in state.objects]
+            if valid_minions:
                 from src.engine.queries import get_power as _gp
-                best = max(enemy_minions, key=lambda m: _gp(state.objects[m], state))
+                best = max(valid_minions, key=lambda m: _gp(state.objects[m], state))
                 return [[best]]
             return []  # No valid minion targets, don't waste the card
         else:
@@ -619,10 +621,10 @@ class HearthstoneAIAdapter:
             if is_minion and get_power(obj, state) <= 0:
                 continue
 
-            # Heroes need a weapon to attack
+            # Heroes need a weapon with durability to attack
             if is_hero:
                 player = state.players.get(player_id)
-                if not player or player.weapon_attack <= 0:
+                if not player or player.weapon_attack <= 0 or player.weapon_durability <= 0:
                     continue
 
             # Can't be frozen
@@ -678,7 +680,9 @@ class HearthstoneAIAdapter:
         if not enemy_pid:
             return None
 
-        enemy_player = state.players[enemy_pid]
+        enemy_player = state.players.get(enemy_pid)
+        if not enemy_player:
+            return None
 
         # Check for Taunt minions (MUST attack them)
         taunt_minions = self._get_enemy_taunt_minions(state, player_id)
