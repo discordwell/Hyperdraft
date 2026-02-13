@@ -718,10 +718,21 @@ class Game:
 
         # Draw starting hands
         if self.state.game_mode == "hearthstone":
-            # Hearthstone: Player 1 draws 3, Player 2 draws 4
+            # Hearthstone: Player 1 draws 3, Player 2 draws 4 + The Coin
             for i, player_id in enumerate(player_ids):
                 draw_count = 3 if i == 0 else 4
                 self.draw_cards(player_id, draw_count)
+
+            # Give player 2 The Coin
+            from src.cards.hearthstone.basic import THE_COIN
+            import copy
+            self.create_object(
+                name="The Coin",
+                owner_id=player_ids[1],
+                zone=ZoneType.HAND,
+                characteristics=copy.deepcopy(THE_COIN.characteristics),
+                card_def=THE_COIN
+            )
         else:
             # MTG: London Mulligan
             for player_id in player_ids:

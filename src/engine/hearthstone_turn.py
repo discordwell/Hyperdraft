@@ -390,7 +390,13 @@ class HearthstoneTurnManager(TurnManager):
 
         Loops until stable because deathrattles can deal hero damage
         (e.g. Abomination) or spawn new minions that die immediately.
+
+        When pipeline.sba_deferred is True, returns immediately so that
+        AOE damage can resolve simultaneously before deaths are checked.
         """
+        if self.pipeline and self.pipeline.sba_deferred:
+            return
+
         from .queries import get_toughness, is_creature
 
         for _ in range(20):  # Safety cap to prevent infinite loops

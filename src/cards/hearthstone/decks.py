@@ -15,23 +15,24 @@ from src.cards.hearthstone.classic import *
 # Mage Deck - Tempo/Spell Focus
 # =============================================================================
 MAGE_DECK = [
-    # 1-drops (4 cards)
-    WISP, WISP,
-    ELVEN_ARCHER, ELVEN_ARCHER,
+    # 1-drops (2 cards)
+    ARCANE_MISSILES, ARCANE_MISSILES,
 
-    # 2-drops (4 cards)
+    # 2-drops (6 cards)
+    KNIFE_JUGGLER, KNIFE_JUGGLER,
+    FROSTBOLT, FROSTBOLT,
     BLOODFEN_RAPTOR, BLOODFEN_RAPTOR,
-    RIVER_CROCOLISK, RIVER_CROCOLISK,
 
     # 3-drops (6 cards)
     SHATTERED_SUN_CLERIC, SHATTERED_SUN_CLERIC,
     IRONFORGE_RIFLEMAN, IRONFORGE_RIFLEMAN,
     HARVEST_GOLEM, HARVEST_GOLEM,
 
-    # 4-drops (6 cards)
-    CHILLWIND_YETI, CHILLWIND_YETI,
-    GNOMISH_INVENTOR, GNOMISH_INVENTOR,
+    # 4-drops (8 cards)
+    WATER_ELEMENTAL, WATER_ELEMENTAL,
+    FIREBALL, FIREBALL,
     SEN_JIN_SHIELDMASTA, SEN_JIN_SHIELDMASTA,
+    GNOMISH_INVENTOR, GNOMISH_INVENTOR,
 
     # 5-drops (2 cards)
     NIGHTBLADE, NIGHTBLADE,
@@ -39,10 +40,9 @@ MAGE_DECK = [
     # 6-drops (2 cards)
     BOULDERFIST_OGRE, BOULDERFIST_OGRE,
 
-    # Spells (6 cards)
-    ARCANE_MISSILES, ARCANE_MISSILES,
-    FROSTBOLT, FROSTBOLT,
-    FIREBALL, FIREBALL,
+    # 7-drops (4 cards)
+    FLAMESTRIKE, FLAMESTRIKE,
+    STORMWIND_CHAMPION, STORMWIND_CHAMPION,
 ]
 
 # =============================================================================
@@ -90,9 +90,9 @@ HUNTER_DECK = [
     LEPER_GNOME, LEPER_GNOME,
 
     # 2-drops (8 cards)
+    KNIFE_JUGGLER, KNIFE_JUGGLER,
     BLOODFEN_RAPTOR, BLOODFEN_RAPTOR,
     RIVER_CROCOLISK, RIVER_CROCOLISK,
-    NOVICE_ENGINEER, NOVICE_ENGINEER,
     LOOT_HOARDER, LOOT_HOARDER,
 
     # 3-drops (8 cards)
@@ -258,8 +258,8 @@ WARLOCK_DECK = [
     STONETUSK_BOAR, STONETUSK_BOAR,
 
     # 2-drops (8 cards)
+    KNIFE_JUGGLER, KNIFE_JUGGLER,
     BLOODFEN_RAPTOR, BLOODFEN_RAPTOR,
-    RIVER_CROCOLISK, RIVER_CROCOLISK,
     ACIDIC_SWAMP_OOZE, ACIDIC_SWAMP_OOZE,
     LOOT_HOARDER, LOOT_HOARDER,
 

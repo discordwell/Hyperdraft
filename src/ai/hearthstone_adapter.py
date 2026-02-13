@@ -369,14 +369,24 @@ class HearthstoneAIAdapter:
             events.append(spell_cast_event)
 
             # Execute spell effect BEFORE moving to graveyard
+            # Defer SBA checks so AOE damage resolves simultaneously
             card_def = card.card_def
             if card_def and hasattr(card_def, 'spell_effect') and card_def.spell_effect:
                 targets = self._choose_spell_targets(card, state, player_id)
                 effect_events = card_def.spell_effect(card, state, targets)
-                for ev in effect_events:
+                try:
                     if game.pipeline:
-                        game.pipeline.emit(ev)
-                    events.append(ev)
+                        game.pipeline.sba_deferred = True
+                    for ev in effect_events:
+                        if game.pipeline:
+                            game.pipeline.emit(ev)
+                        events.append(ev)
+                finally:
+                    if game.pipeline:
+                        game.pipeline.sba_deferred = False
+                # Single SBA check after all spell damage resolves
+                if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
+                    await game.turn_manager._check_state_based_actions()
 
             # Move spell to graveyard AFTER effect resolves
             zone_event = Event(
