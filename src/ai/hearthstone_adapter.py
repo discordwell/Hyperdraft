@@ -752,7 +752,12 @@ class HearthstoneAIAdapter:
             player = state.players.get(attacker.controller)
             if player:
                 attacker_power = player.weapon_attack
-        attacker_health = get_toughness(attacker, state) - attacker.state.damage
+        # Hero effective HP is player.life + armor (not toughness - damage)
+        if CardType.HERO in attacker.characteristics.types:
+            player = state.players.get(attacker.controller)
+            attacker_health = (player.life + player.armor) if player else 0
+        else:
+            attacker_health = get_toughness(attacker, state) - attacker.state.damage
 
         defender_power = get_power(defender, state)
         defender_health = get_toughness(defender, state) - defender.state.damage
