@@ -160,6 +160,22 @@ class HearthstoneCombatManager:
                     attacker.state.weapon_attack = 0
                     attacker.state.weapon_durability = 0
 
+                    # Move weapon cards to graveyard
+                    battlefield = self.state.zones.get('battlefield')
+                    if battlefield:
+                        for card_id in list(battlefield.objects):
+                            card = self.state.objects.get(card_id)
+                            if (card and card.controller == attacker.owner and
+                                    CardType.WEAPON in card.characteristics.types):
+                                destroy_event = Event(
+                                    type=EventType.OBJECT_DESTROYED,
+                                    payload={'object_id': card_id, 'reason': 'weapon_broke'},
+                                    source=attacker_id
+                                )
+                                if self.pipeline:
+                                    self.pipeline.emit(destroy_event)
+                                events.append(destroy_event)
+
         attacker.state.attacking = False
 
         return events

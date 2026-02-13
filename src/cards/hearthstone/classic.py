@@ -157,8 +157,6 @@ def arcane_missiles_effect(obj: GameObject, state: GameState, targets: list[list
 
 def acidic_swamp_ooze_battlecry(obj: GameObject, state: GameState) -> list[Event]:
     """Battlecry: Destroy opponent's weapon."""
-    events = []
-
     # Find opponent
     opponent_id = None
     for player_id in state.players:
@@ -166,12 +164,37 @@ def acidic_swamp_ooze_battlecry(obj: GameObject, state: GameState) -> list[Event
             opponent_id = player_id
             break
 
-    if opponent_id:
-        opponent = state.players[opponent_id]
-        if opponent.weapon_attack > 0 or opponent.weapon_durability > 0:
-            opponent.weapon_attack = 0
-            opponent.weapon_durability = 0
-            # Could emit WEAPON_DESTROYED event
+    if not opponent_id:
+        return []
+
+    opponent = state.players[opponent_id]
+    if opponent.weapon_attack <= 0 and opponent.weapon_durability <= 0:
+        return []
+
+    # Clear weapon stats on player
+    opponent.weapon_attack = 0
+    opponent.weapon_durability = 0
+
+    # Clear weapon stats on hero object too
+    if opponent.hero_id:
+        hero = state.objects.get(opponent.hero_id)
+        if hero:
+            hero.state.weapon_attack = 0
+            hero.state.weapon_durability = 0
+
+    # Move weapon cards to graveyard
+    events = []
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for card_id in list(battlefield.objects):
+            card = state.objects.get(card_id)
+            if (card and card.controller == opponent_id and
+                    CardType.WEAPON in card.characteristics.types):
+                events.append(Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': card_id, 'reason': 'weapon_destroyed'},
+                    source=obj.id
+                ))
 
     return events
 
@@ -195,7 +218,7 @@ def shattered_sun_cleric_battlecry(obj: GameObject, state: GameState) -> list[Ev
         target_id = random.choice(friendly_minions)
         return [Event(
             type=EventType.PT_MODIFICATION,
-            payload={'object_id': target_id, 'power': 1, 'toughness': 1, 'duration': 'permanent'},
+            payload={'object_id': target_id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'permanent'},
             source=obj.id
         )]
 
@@ -213,22 +236,22 @@ def novice_engineer_battlecry(obj: GameObject, state: GameState) -> list[Event]:
 
 def ironforge_rifleman_battlecry(obj: GameObject, state: GameState) -> list[Event]:
     """Battlecry: Deal 1 damage."""
-    # Find any enemy (AI will target)
-    battlefield = state.zones.get('battlefield')
-    if not battlefield:
-        return []
-
+    # Find any enemy target (minion or hero)
     enemies = []
-    for minion_id in battlefield.objects:
-        minion = state.objects.get(minion_id)
-        if minion and minion.controller != obj.controller:
-            if CardType.MINION in minion.characteristics.types or CardType.HERO in minion.characteristics.types:
-                enemies.append(minion_id)
 
-    # Add enemy heroes
+    # Enemy hero
     for player_id, player in state.players.items():
         if player_id != obj.controller and player.hero_id:
             enemies.append(player.hero_id)
+
+    # Enemy minions on battlefield
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for minion_id in battlefield.objects:
+            minion = state.objects.get(minion_id)
+            if minion and minion.controller != obj.controller:
+                if CardType.MINION in minion.characteristics.types:
+                    enemies.append(minion_id)
 
     if enemies:
         import random
@@ -566,12 +589,27 @@ def polymorph_effect(obj: GameObject, state: GameState, targets: list[list[str]]
     if not target or CardType.MINION not in target.characteristics.types:
         return []
 
-    # Transform into Sheep (just set power/toughness and remove abilities)
+    # Transform into Sheep - clear everything
     target.characteristics.power = 1
     target.characteristics.toughness = 1
     target.characteristics.abilities = []
     target.characteristics.subtypes = {"Sheep"}
     target.name = "Sheep"
+
+    # Clear damage (Sheep is a fresh 1/1)
+    target.state.damage = 0
+
+    # Clear Hearthstone state flags
+    target.state.divine_shield = False
+    target.state.stealth = False
+    target.state.windfury = False
+    target.state.frozen = False
+
+    # Remove all interceptors (deathrattles, triggers, etc.)
+    for int_id in list(target.interceptor_ids):
+        if int_id in state.interceptors:
+            del state.interceptors[int_id]
+    target.interceptor_ids.clear()
 
     return [Event(
         type=EventType.TRANSFORM,

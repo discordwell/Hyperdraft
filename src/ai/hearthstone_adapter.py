@@ -234,6 +234,16 @@ class HearthstoneAIAdapter:
             if enemy_minions > 2:
                 score += 15
 
+        # Weapons provide repeated value (attack over multiple turns)
+        if CardType.WEAPON in card.characteristics.types:
+            weapon_attack = card.characteristics.power or 0
+            weapon_durability = card.characteristics.toughness or 0
+            score += weapon_attack * weapon_durability * 5
+            # Don't play weapon if we already have one equipped
+            player = state.players.get(player_id)
+            if player and player.weapon_durability > 0:
+                score -= 30  # Deprioritize replacing existing weapon
+
         return score
 
     def _count_enemy_minions(self, state: 'GameState', player_id: str) -> int:
@@ -332,6 +342,23 @@ class HearthstoneAIAdapter:
                     if game.pipeline:
                         game.pipeline.emit(ev)
                     events.append(ev)
+
+        elif CardType.WEAPON in card.characteristics.types:
+            # Play weapon to battlefield (triggers equip interceptor via ZONE_CHANGE)
+            zone_event = Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': card_id,
+                    'from_zone': f'hand_{player_id}',
+                    'from_zone_type': ZoneType.HAND,
+                    'to_zone': 'battlefield',
+                    'to_zone_type': ZoneType.BATTLEFIELD
+                },
+                source=card_id
+            )
+            if game.pipeline:
+                game.pipeline.emit(zone_event)
+            events.append(zone_event)
 
         return events
 

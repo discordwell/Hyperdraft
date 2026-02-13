@@ -2214,6 +2214,23 @@ def make_weapon(
             # Find hero and player
             player = s.players.get(obj.controller)
             if player and player.hero_id:
+                # Destroy existing weapon cards on battlefield (replace old weapon)
+                battlefield = s.zones.get('battlefield')
+                if battlefield:
+                    for card_id in list(battlefield.objects):
+                        if card_id == obj.id:
+                            continue  # Don't destroy self
+                        card = s.objects.get(card_id)
+                        if (card and card.controller == obj.controller and
+                                CardType.WEAPON in card.characteristics.types):
+                            # Remove old weapon from battlefield
+                            if card_id in battlefield.objects:
+                                battlefield.objects.remove(card_id)
+                            graveyard_key = f"graveyard_{card.owner}"
+                            if graveyard_key in s.zones:
+                                s.zones[graveyard_key].objects.append(card_id)
+                            card.zone = ZoneType.GRAVEYARD
+
                 # Set weapon stats on PLAYER (where combat manager checks)
                 player.weapon_attack = attack
                 player.weapon_durability = durability
