@@ -359,43 +359,55 @@ class HearthstoneTurnManager(TurnManager):
         Check and process state-based actions in Hearthstone:
         - Players with life <= 0 lose the game
         - Minions with health <= 0 die
-        """
-        # Check player life totals
-        for player in self.state.players.values():
-            if player.life <= 0 and not player.has_lost:
-                event = Event(
-                    type=EventType.PLAYER_LOSES,
-                    payload={'player': player.id, 'reason': 'life'}
-                )
-                if self.pipeline:
-                    self.pipeline.emit(event)
-                player.has_lost = True
 
-        # Check minion health
+        Loops until stable because deathrattles can deal hero damage
+        (e.g. Abomination) or spawn new minions that die immediately.
+        """
         from .queries import get_toughness, is_creature
-        battlefield = self.state.zones.get('battlefield')
-        if battlefield:
-            for obj_id in list(battlefield.objects):
-                obj = self.state.objects.get(obj_id)
-                if not obj:
-                    continue
-                # Guard: a deathrattle from a previously-processed death in this
-                # same SBA pass may have already destroyed this minion (e.g. via
-                # direct OBJECT_DESTROYED). Skip objects no longer on battlefield.
-                if obj.zone != ZoneType.BATTLEFIELD:
-                    continue
-                # Check if minion (use is_creature which works for both MTG creatures and HS minions)
-                if is_creature(obj, self.state):
-                    toughness = get_toughness(obj, self.state)
-                    # Minion dies if damage >= toughness OR if toughness <= 0
-                    if obj.state.damage >= toughness or toughness <= 0:
-                        # Minion dies
-                        death_event = Event(
-                            type=EventType.OBJECT_DESTROYED,
-                            payload={'object_id': obj.id, 'reason': 'lethal_damage'}
-                        )
-                        if self.pipeline:
-                            self.pipeline.emit(death_event)
+
+        for _ in range(20):  # Safety cap to prevent infinite loops
+            changed = False
+
+            # Check player life totals
+            for player in self.state.players.values():
+                if player.life <= 0 and not player.has_lost:
+                    event = Event(
+                        type=EventType.PLAYER_LOSES,
+                        payload={'player': player.id, 'reason': 'life'}
+                    )
+                    if self.pipeline:
+                        self.pipeline.emit(event)
+                    player.has_lost = True
+                    changed = True
+
+            # Check minion health
+            battlefield = self.state.zones.get('battlefield')
+            if battlefield:
+                for obj_id in list(battlefield.objects):
+                    obj = self.state.objects.get(obj_id)
+                    if not obj:
+                        continue
+                    # Guard: a deathrattle from a previously-processed death in this
+                    # same SBA pass may have already destroyed this minion (e.g. via
+                    # direct OBJECT_DESTROYED). Skip objects no longer on battlefield.
+                    if obj.zone != ZoneType.BATTLEFIELD:
+                        continue
+                    # Check if minion (use is_creature which works for both MTG creatures and HS minions)
+                    if is_creature(obj, self.state):
+                        toughness = get_toughness(obj, self.state)
+                        # Minion dies if damage >= toughness OR if toughness <= 0
+                        if obj.state.damage >= toughness or toughness <= 0:
+                            # Minion dies
+                            death_event = Event(
+                                type=EventType.OBJECT_DESTROYED,
+                                payload={'object_id': obj.id, 'reason': 'lethal_damage'}
+                            )
+                            if self.pipeline:
+                                self.pipeline.emit(death_event)
+                            changed = True
+
+            if not changed:
+                break
 
     # Override MTG-specific methods to no-op
 

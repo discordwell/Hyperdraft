@@ -2220,7 +2220,8 @@ def make_weapon(
             # Find hero and player
             player = s.players.get(obj.controller)
             if player and player.hero_id:
-                # Destroy existing weapon cards on battlefield (replace old weapon)
+                # Collect old weapon cards to destroy via pipeline
+                destroy_events = []
                 battlefield = s.zones.get('battlefield')
                 if battlefield:
                     for card_id in list(battlefield.objects):
@@ -2229,13 +2230,11 @@ def make_weapon(
                         card = s.objects.get(card_id)
                         if (card and card.controller == obj.controller and
                                 CardType.WEAPON in card.characteristics.types):
-                            # Remove old weapon from battlefield
-                            if card_id in battlefield.objects:
-                                battlefield.objects.remove(card_id)
-                            graveyard_key = f"graveyard_{card.owner}"
-                            if graveyard_key in s.zones:
-                                s.zones[graveyard_key].objects.append(card_id)
-                            card.zone = ZoneType.GRAVEYARD
+                            destroy_events.append(Event(
+                                type=EventType.OBJECT_DESTROYED,
+                                payload={'object_id': card_id, 'reason': 'weapon_replaced'},
+                                source=obj.id
+                            ))
 
                 # Set weapon stats on PLAYER (where combat manager checks)
                 player.weapon_attack = attack
@@ -2246,6 +2245,12 @@ def make_weapon(
                 if hero:
                     hero.state.weapon_attack = attack
                     hero.state.weapon_durability = durability
+
+                if destroy_events:
+                    return InterceptorResult(
+                        action=InterceptorAction.REACT,
+                        new_events=destroy_events
+                    )
 
             return InterceptorResult(action=InterceptorAction.PASS)
 
