@@ -68,10 +68,21 @@ class HearthstoneAIAdapter:
             else:
                 break
 
-        # Hero power phase
+        # Hero power phase (use leftover mana for hero power)
         if self._should_use_hero_power(game_state, player_id):
             power_events = await self._use_hero_power(player_id, game_state, game)
             events.extend(power_events)
+
+            # After hero power, try to play more cards with remaining mana
+            for _ in range(max_plays):
+                if not self._should_continue_playing(game_state, player_id):
+                    break
+                card_action = self._choose_card_to_play(game_state, player_id, game)
+                if card_action:
+                    play_events = await self._execute_card_play(card_action, game_state, game)
+                    events.extend(play_events)
+                else:
+                    break
 
         # Attack phase
         attack_events = await self._execute_attacks(player_id, game_state, game)
@@ -85,12 +96,8 @@ class HearthstoneAIAdapter:
         if not player:
             return False
 
-        # Reserve 2 mana for hero power if not yet used
-        reserved = 2 if not player.hero_power_used and player.mana_crystals >= 2 else 0
-        available_for_cards = player.mana_crystals_available - reserved
-
         # No mana left for cards
-        if available_for_cards <= 0:
+        if player.mana_crystals_available <= 0:
             return False
 
         # Hand is empty
@@ -116,9 +123,7 @@ class HearthstoneAIAdapter:
 
         playable_cards = []
 
-        # Reserve 2 mana for hero power if not yet used
-        reserved = 2 if not player.hero_power_used and player.mana_crystals >= 2 else 0
-        available_for_cards = player.mana_crystals_available - reserved
+        available_for_cards = player.mana_crystals_available
 
         # Check board limit for minions
         from src.engine.types import CardType

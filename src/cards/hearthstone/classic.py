@@ -691,13 +691,56 @@ FIERY_WAR_AXE = make_weapon(
     rarity="Common"
 )
 
+def truesilver_champion_setup(obj: GameObject, state: GameState):
+    """Whenever your hero attacks, restore 2 Health to it."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult
+    from src.engine.types import new_id
+
+    def attack_filter(event, s):
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        # Trigger when the weapon owner's hero attacks
+        attacker_id = event.payload.get('attacker_id')
+        attacker = s.objects.get(attacker_id)
+        if not attacker:
+            return False
+        return (CardType.HERO in attacker.characteristics.types and
+                attacker.controller == obj.controller)
+
+    def attack_handler(event, s):
+        player = s.players.get(obj.controller)
+        if not player:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        heal_amount = min(2, 30 - player.life)
+        if heal_amount <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': heal_amount},
+                source=obj.id
+            )]
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=attack_handler,
+        duration='while_on_battlefield'
+    )]
+
 TRUESILVER_CHAMPION = make_weapon(
     name="Truesilver Champion",
     attack=4,
     durability=2,
     mana_cost="{4}",
     text="Whenever your hero attacks, restore 2 Health to it.",
-    rarity="Common"
+    rarity="Common",
+    setup_interceptors=truesilver_champion_setup
 )
 
 ARCANITE_REAPER = make_weapon(
