@@ -891,8 +891,17 @@ class Game:
         if player.hero_power_used:
             return False
 
-        # Not enough mana (hero powers cost 2)
-        if player.mana_crystals_available < 2:
+        # Determine hero power cost from the hero power object
+        hero_power_cost = 2  # default
+        hp_obj = self.state.objects.get(player.hero_power_id)
+        if hp_obj and hp_obj.characteristics and hp_obj.characteristics.mana_cost:
+            import re
+            nums = re.findall(r'\{(\d+)\}', hp_obj.characteristics.mana_cost)
+            if nums:
+                hero_power_cost = max(0, sum(int(n) for n in nums))
+
+        # Not enough mana
+        if player.mana_crystals_available < hero_power_cost:
             return False
 
         # Emit hero power activation event
@@ -912,7 +921,7 @@ class Game:
             return False
 
         # Deduct mana and mark as used only after successful activation
-        player.mana_crystals_available -= 2
+        player.mana_crystals_available -= hero_power_cost
         player.hero_power_used = True
 
         return True

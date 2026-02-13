@@ -235,7 +235,7 @@ class HearthstoneAIAdapter:
         for num in numbers:
             total += int(num)
 
-        return total
+        return max(0, total)
 
     def _score_card_play(self, card: 'GameObject', state: 'GameState', player_id: str) -> float:
         """
@@ -310,12 +310,9 @@ class HearthstoneAIAdapter:
         # Move card to battlefield or resolve spell
         events = []
 
-        # Deduct mana
         player_id = card.owner
         player = state.players.get(player_id)
-        if player:
-            cost = self._get_mana_cost(card)
-            player.mana_crystals_available -= cost
+        cost = self._get_mana_cost(card) if player else 0
 
         # Cast the card
         from src.engine.types import CardType
@@ -323,7 +320,7 @@ class HearthstoneAIAdapter:
         from src.engine.types import ZoneType
 
         if CardType.MINION in card.characteristics.types:
-            # Check board limit (7 minions max in Hearthstone)
+            # Check board limit BEFORE deducting mana (7 minions max in Hearthstone)
             if state.game_mode == "hearthstone":
                 battlefield = state.zones.get('battlefield')
                 if battlefield:
@@ -334,9 +331,11 @@ class HearthstoneAIAdapter:
                         and CardType.MINION in state.objects[oid].characteristics.types
                     )
                     if minion_count >= 7:
-                        # Refund mana and skip
-                        player.mana_crystals_available += cost
                         return events
+
+            # Deduct mana after board-full check
+            if player:
+                player.mana_crystals_available -= cost
 
             # Play minion to battlefield via ZONE_CHANGE event (triggers ETB)
             zone_event = Event(
@@ -355,6 +354,10 @@ class HearthstoneAIAdapter:
             events.append(zone_event)
 
         elif CardType.SPELL in card.characteristics.types:
+            # Deduct mana
+            if player:
+                player.mana_crystals_available -= cost
+
             # Emit SPELL_CAST event (triggers "whenever you cast a spell" effects)
             spell_cast_event = Event(
                 type=EventType.SPELL_CAST,
@@ -392,6 +395,10 @@ class HearthstoneAIAdapter:
             events.append(zone_event)
 
         elif CardType.WEAPON in card.characteristics.types:
+            # Deduct mana
+            if player:
+                player.mana_crystals_available -= cost
+
             # Play weapon to battlefield (triggers equip interceptor via ZONE_CHANGE)
             zone_event = Event(
                 type=EventType.ZONE_CHANGE,
