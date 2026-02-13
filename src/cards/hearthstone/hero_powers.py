@@ -192,14 +192,88 @@ DAGGER_MASTERY = make_hero_power(
 
 
 # Shaman Hero Power
+
+def healing_totem_setup(obj: GameObject, state: GameState):
+    """At the end of your turn, restore 1 Health to all friendly minions."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+
+    def end_turn_filter(event, s):
+        return (event.type == EventType.PHASE_END and
+                event.payload.get('phase') == 'end' and
+                event.payload.get('player') == obj.controller)
+
+    def end_turn_handler(event, s):
+        battlefield = s.zones.get('battlefield')
+        if battlefield:
+            for mid in battlefield.objects:
+                m = s.objects.get(mid)
+                if (m and m.controller == obj.controller and
+                        CardType.MINION in m.characteristics.types and
+                        m.state.damage > 0):
+                    m.state.damage = max(0, m.state.damage - 1)
+        # Direct state manipulation - no events needed for minion heal
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=end_turn_filter,
+        handler=end_turn_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+def wrath_of_air_setup(obj: GameObject, state: GameState):
+    """Spell Damage +1: All spell damage events from the controller get +1."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+
+    def spell_damage_filter(event, s):
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('from_spell'):
+            return False
+        # Check source spell is controlled by same player
+        source_id = event.payload.get('source') or event.source
+        source_obj = s.objects.get(source_id)
+        if source_obj and source_obj.controller == obj.controller:
+            return True
+        return False
+
+    def spell_damage_handler(event, s):
+        # Boost damage by 1
+        modified = Event(
+            type=event.type,
+            payload={**event.payload, 'amount': event.payload.get('amount', 0) + 1},
+            source=event.source,
+            controller=event.controller
+        )
+        modified.timestamp = event.timestamp
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=modified
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.TRANSFORM,
+        filter=spell_damage_filter,
+        handler=spell_damage_handler,
+        duration='while_on_battlefield'
+    )]
+
+
 def totemic_call_effect(obj: GameObject, state: GameState) -> list[Event]:
     """Summon a random basic Totem (no duplicates of existing totems)."""
     import random
     totems = [
-        ('Healing Totem', 0, 2, []),
-        ('Searing Totem', 1, 1, []),
-        ('Stoneclaw Totem', 0, 2, [{'keyword': 'taunt'}]),
-        ('Wrath of Air Totem', 0, 2, []),
+        ('Healing Totem', 0, 2, [], healing_totem_setup),
+        ('Searing Totem', 1, 1, [], None),
+        ('Stoneclaw Totem', 0, 2, [{'keyword': 'taunt'}], None),
+        ('Wrath of Air Totem', 0, 2, [], wrath_of_air_setup),
     ]
 
     # Exclude totems already on the battlefield (Hearthstone: no duplicate basic totems)
@@ -216,20 +290,24 @@ def totemic_call_effect(obj: GameObject, state: GameState) -> list[Event]:
     if not totems:
         return []  # All 4 basic totems already on board
 
-    totem_name, power, toughness, abilities = random.choice(totems)
+    totem_name, power, toughness, abilities, setup_fn = random.choice(totems)
+
+    token_data = {
+        'name': totem_name,
+        'power': power,
+        'toughness': toughness,
+        'types': [CardType.MINION],
+        'subtypes': {'Totem'},
+        'abilities': abilities,
+    }
+    if setup_fn:
+        token_data['setup_interceptors'] = setup_fn
 
     return [Event(
         type=EventType.CREATE_TOKEN,
         payload={
             'controller': obj.controller,
-            'token': {
-                'name': totem_name,
-                'power': power,
-                'toughness': toughness,
-                'types': [CardType.MINION],
-                'subtypes': {'Totem'},
-                'abilities': abilities,
-            }
+            'token': token_data
         },
         source=obj.id
     )]

@@ -5,8 +5,29 @@ Basic minions and spells available to all players.
 """
 
 import random
-from src.engine.game import make_minion, make_weapon
+from src.engine.game import make_minion, make_weapon, make_spell
 from src.engine.types import Event, EventType, GameObject, GameState, CardType, ZoneType
+
+
+# =============================================================================
+# The Coin
+# =============================================================================
+
+def coin_effect(obj: GameObject, state: GameState, targets: list[list[str]]) -> list[Event]:
+    """Gain 1 Mana Crystal this turn only."""
+    player = state.players.get(obj.controller)
+    if player:
+        player.mana_crystals_available += 1
+    return []
+
+THE_COIN = make_spell(
+    name="The Coin",
+    mana_cost="{0}",
+    text="Gain 1 Mana Crystal this turn only.",
+    rarity="Common",
+    spell_effect=coin_effect,
+    requires_target=False
+)
 
 
 # Neutral Minions

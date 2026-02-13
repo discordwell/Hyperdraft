@@ -24,6 +24,7 @@ class EventPipeline:
         self.state = state
         self.max_iterations = max_iterations
         self._iteration_count = 0
+        self.sba_deferred = False  # When True, SBA checks skip death processing
 
     def emit(self, event: Event) -> list[Event]:
         """
@@ -1565,6 +1566,15 @@ def _handle_create_token(event: Event, state: GameState):
         battlefield_key = 'battlefield'
         if battlefield_key in state.zones:
             state.zones[battlefield_key].objects.append(obj_id)
+
+        # Run setup_interceptors if provided in token payload
+        setup_fn = token_data.get('setup_interceptors')
+        if setup_fn:
+            interceptors = setup_fn(token, state)
+            for interceptor in (interceptors or []):
+                interceptor.timestamp = state.next_timestamp()
+                state.interceptors[interceptor.id] = interceptor
+                token.interceptor_ids.append(interceptor.id)
 
 
 def _handle_exile(event: Event, state: GameState):

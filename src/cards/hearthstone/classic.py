@@ -25,7 +25,7 @@ def fireball_effect(obj: GameObject, state: GameState, targets: list[list[str]])
     target_id = targets[0][0]
     return [Event(
         type=EventType.DAMAGE,
-        payload={'target': target_id, 'amount': 6, 'source': obj.id},
+        payload={'target': target_id, 'amount': 6, 'source': obj.id, 'from_spell': True},
         source=obj.id
     )]
 
@@ -41,7 +41,7 @@ def frostbolt_effect(obj: GameObject, state: GameState, targets: list[list[str]]
     return [
         Event(
             type=EventType.DAMAGE,
-            payload={'target': target_id, 'amount': 3, 'source': obj.id},
+            payload={'target': target_id, 'amount': 3, 'source': obj.id, 'from_spell': True},
             source=obj.id
         ),
         Event(
@@ -81,7 +81,7 @@ def consecration_effect(obj: GameObject, state: GameState, targets: list[list[st
                 if CardType.MINION in minion.characteristics.types:
                     events.append(Event(
                         type=EventType.DAMAGE,
-                        payload={'target': minion_id, 'amount': 2, 'source': obj.id},
+                        payload={'target': minion_id, 'amount': 2, 'source': obj.id, 'from_spell': True},
                         source=obj.id
                     ))
 
@@ -90,7 +90,7 @@ def consecration_effect(obj: GameObject, state: GameState, targets: list[list[st
         if player_id != obj.controller and player.hero_id:
             events.append(Event(
                 type=EventType.DAMAGE,
-                payload={'target': player.hero_id, 'amount': 2, 'source': obj.id},
+                payload={'target': player.hero_id, 'amount': 2, 'source': obj.id, 'from_spell': True},
                 source=obj.id
             ))
 
@@ -109,7 +109,7 @@ def backstab_effect(obj: GameObject, state: GameState, targets: list[list[str]])
     if target and target.state.damage == 0:
         return [Event(
             type=EventType.DAMAGE,
-            payload={'target': target_id, 'amount': 2, 'source': obj.id},
+            payload={'target': target_id, 'amount': 2, 'source': obj.id, 'from_spell': True},
             source=obj.id
         )]
 
@@ -145,7 +145,7 @@ def arcane_missiles_effect(obj: GameObject, state: GameState, targets: list[list
             target_id = random.choice(enemy_targets)
             events.append(Event(
                 type=EventType.DAMAGE,
-                payload={'target': target_id, 'amount': 1, 'source': obj.id},
+                payload={'target': target_id, 'amount': 1, 'source': obj.id, 'from_spell': True},
                 source=obj.id
             ))
 
@@ -497,6 +497,97 @@ VENTURE_CO_MERCENARY = make_minion(
     rarity="Common"
 )
 
+
+def knife_juggler_setup(obj: GameObject, state: GameState):
+    """After you summon a minion, deal 1 damage to a random enemy."""
+    import random as rng
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+
+    def summon_filter(event, s):
+        if event.type == EventType.ZONE_CHANGE:
+            # A minion entered the battlefield under our control (not Knife Juggler itself)
+            if (event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD and
+                    event.payload.get('object_id') != obj.id):
+                entering = s.objects.get(event.payload.get('object_id'))
+                if entering and entering.controller == obj.controller:
+                    if CardType.MINION in entering.characteristics.types:
+                        return True
+        if event.type == EventType.CREATE_TOKEN:
+            if event.payload.get('controller') == obj.controller:
+                return True
+        return False
+
+    def summon_handler(event, s):
+        # Pick a random enemy (minion or hero)
+        enemies = []
+        for pid, player in s.players.items():
+            if pid != obj.controller and player.hero_id:
+                enemies.append(player.hero_id)
+        battlefield = s.zones.get('battlefield')
+        if battlefield:
+            for mid in battlefield.objects:
+                m = s.objects.get(mid)
+                if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
+                    enemies.append(mid)
+        if enemies:
+            target = rng.choice(enemies)
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': target, 'amount': 1, 'source': obj.id},
+                    source=obj.id
+                )]
+            )
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=summon_filter,
+        handler=summon_handler,
+        duration='while_on_battlefield'
+    )]
+
+KNIFE_JUGGLER = make_minion(
+    name="Knife Juggler",
+    attack=3,
+    health=2,
+    mana_cost="{2}",
+    text="After you summon a minion, deal 1 damage to a random enemy.",
+    rarity="Rare",
+    setup_interceptors=knife_juggler_setup
+)
+
+
+def water_elemental_setup(obj: GameObject, state: GameState):
+    """Freeze any character damaged by this minion."""
+    from src.cards.interceptor_helpers import make_damage_trigger
+
+    def freeze_effect(event, s):
+        target_id = event.payload.get('target')
+        if target_id:
+            return [Event(
+                type=EventType.FREEZE_TARGET,
+                payload={'target': target_id},
+                source=obj.id
+            )]
+        return []
+
+    return [make_damage_trigger(obj, freeze_effect)]
+
+WATER_ELEMENTAL = make_minion(
+    name="Water Elemental",
+    attack=3,
+    health=6,
+    mana_cost="{4}",
+    text="Freeze any character damaged by this minion.",
+    rarity="Common",
+    setup_interceptors=water_elemental_setup
+)
+
 # =============================================================================
 # Classic Spells
 # =============================================================================
@@ -558,6 +649,35 @@ ARCANE_MISSILES = make_spell(
     colors={Color.BLUE},
     rarity="Common",
     spell_effect=arcane_missiles_effect,
+    requires_target=False
+)
+
+
+def flamestrike_effect(obj: GameObject, state: GameState, targets: list[list[str]]) -> list[Event]:
+    """Flamestrike: Deal 4 damage to all enemy minions."""
+    events = []
+
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for minion_id in battlefield.objects:
+            minion = state.objects.get(minion_id)
+            if minion and minion.controller != obj.controller:
+                if CardType.MINION in minion.characteristics.types:
+                    events.append(Event(
+                        type=EventType.DAMAGE,
+                        payload={'target': minion_id, 'amount': 4, 'source': obj.id, 'from_spell': True},
+                        source=obj.id
+                    ))
+
+    return events
+
+FLAMESTRIKE = make_spell(
+    name="Flamestrike",
+    mana_cost="{7}",
+    text="Deal 4 damage to all enemy minions.",
+    colors={Color.RED},
+    rarity="Common",
+    spell_effect=flamestrike_effect,
     requires_target=False
 )
 
@@ -782,6 +902,7 @@ CLASSIC_MINIONS = [
     WISP,
     ACIDIC_SWAMP_OOZE,
     BLOODFEN_RAPTOR,
+    KNIFE_JUGGLER,
     LOOT_HOARDER,
     NOVICE_ENGINEER,
     HARVEST_GOLEM,
@@ -791,6 +912,7 @@ CLASSIC_MINIONS = [
     CHILLWIND_YETI,
     SEN_JIN_SHIELDMASTA,
     SILVERMOON_GUARDIAN,
+    WATER_ELEMENTAL,
     ABOMINATION,
     STRANGLETHORN_TIGER,
     VENTURE_CO_MERCENARY,
@@ -802,6 +924,7 @@ CLASSIC_MINIONS = [
 CLASSIC_SPELLS = [
     ARCANE_MISSILES,
     FIREBALL,
+    FLAMESTRIKE,
     FROSTBOLT,
     ARCANE_INTELLECT,
     POLYMORPH,
