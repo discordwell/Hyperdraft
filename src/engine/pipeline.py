@@ -59,10 +59,11 @@ class EventPipeline:
         event = self._run_transform_phase(event)
 
         # 2. PREVENT PHASE
-        if self._run_prevent_phase(event):
+        prevented, prevent_side_effects = self._run_prevent_phase(event)
+        if prevented:
             event.status = EventStatus.PREVENTED
             self.state.event_log.append(event)
-            return []
+            return prevent_side_effects
 
         # 3. RESOLVE PHASE
         event.status = EventStatus.RESOLVING
@@ -182,8 +183,8 @@ class EventPipeline:
 
         return event
 
-    def _run_prevent_phase(self, event: Event) -> bool:
-        """Run all PREVENT interceptors. Returns True if event was prevented."""
+    def _run_prevent_phase(self, event: Event) -> tuple[bool, list[Event]]:
+        """Run all PREVENT interceptors. Returns (prevented, side_effect_events)."""
         for interceptor in self._get_interceptors(InterceptorPriority.PREVENT):
             if not interceptor.filter(event, self.state):
                 continue
@@ -192,11 +193,16 @@ class EventPipeline:
 
             if result.action == InterceptorAction.PREVENT:
                 self._consume_use(interceptor)
-                return True
+                # Collect side-effect events (e.g. DIVINE_SHIELD_BREAK)
+                side_effects = []
+                for new_event in (result.new_events or []):
+                    new_event.timestamp = self.state.next_timestamp()
+                    side_effects.append(new_event)
+                return True, side_effects
 
             self._consume_use(interceptor)
 
-        return False
+        return False, []
 
     def _run_react_phase(self, event: Event) -> list[Event]:
         """Run all REACT interceptors. Returns triggered events."""
@@ -448,6 +454,20 @@ def _handle_object_created(event: Event, state: GameState):
     enters_tapped = bool(event.payload.get('tapped', False))
 
     obj_id = new_id()
+    obj_state = ObjectState(
+        is_token=is_token,
+        tapped=enters_tapped
+    )
+
+    # Apply keyword states from abilities (mirror make_minion behavior)
+    obj_keywords = {a.get('keyword', '').lower() for a in characteristics.abilities if a.get('keyword')}
+    if 'divine_shield' in obj_keywords:
+        obj_state.divine_shield = True
+    if 'stealth' in obj_keywords:
+        obj_state.stealth = True
+    if 'windfury' in obj_keywords:
+        obj_state.windfury = True
+
     created = GameObject(
         id=obj_id,
         name=event.payload.get('name', 'Token'),
@@ -455,10 +475,7 @@ def _handle_object_created(event: Event, state: GameState):
         controller=controller_id,
         zone=zone_type,
         characteristics=characteristics,
-        state=ObjectState(
-            is_token=is_token,
-            tapped=enters_tapped
-        ),
+        state=obj_state,
         created_at=state.next_timestamp(),
         entered_zone_at=state.timestamp
     )
@@ -1435,6 +1452,20 @@ def _handle_create_token(event: Event, state: GameState):
 
         # Create the token object
         obj_id = new_id()
+        token_state = ObjectState(
+            is_token=True,
+            tapped=enters_tapped
+        )
+
+        # Apply keyword states from abilities (mirror make_minion behavior)
+        token_keywords = {a.get('keyword', '').lower() for a in characteristics.abilities if a.get('keyword')}
+        if 'divine_shield' in token_keywords:
+            token_state.divine_shield = True
+        if 'stealth' in token_keywords:
+            token_state.stealth = True
+        if 'windfury' in token_keywords:
+            token_state.windfury = True
+
         token = GameObject(
             id=obj_id,
             name=token_data.get('name', 'Token'),
@@ -1442,10 +1473,7 @@ def _handle_create_token(event: Event, state: GameState):
             controller=controller_id,
             zone=ZoneType.BATTLEFIELD,
             characteristics=characteristics,
-            state=ObjectState(
-                is_token=True,
-                tapped=enters_tapped
-            ),
+            state=token_state,
             created_at=state.next_timestamp(),
             entered_zone_at=state.timestamp
         )
