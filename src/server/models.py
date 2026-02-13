@@ -145,6 +145,7 @@ class CardData(BaseModel):
     damage: int = 0
     controller: Optional[str] = None
     owner: Optional[str] = None
+    keywords: list[str] = Field(default_factory=list)
     # Hearthstone-specific state
     divine_shield: bool = False
     stealth: bool = False
@@ -210,6 +211,9 @@ class PlayerData(BaseModel):
     fatigue_damage: int = 0
     hero_power_used: bool = False
     hero_power_id: Optional[str] = None
+    hero_power_name: Optional[str] = None
+    hero_power_cost: int = 2
+    hero_power_text: Optional[str] = None
     max_life: int = 30
 
 
