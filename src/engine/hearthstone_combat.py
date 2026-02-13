@@ -228,10 +228,10 @@ class HearthstoneCombatManager:
                 if attacker.state.summoning_sickness:
                     return False
 
-        # Heroes can attack if they have weapon attack
+        # Heroes can attack if they have weapon attack AND durability
         if CardType.HERO in attacker.characteristics.types:
             player = self.state.players.get(attacker.owner)
-            if not player or player.weapon_attack <= 0:
+            if not player or player.weapon_attack <= 0 or player.weapon_durability <= 0:
                 return False
 
         return True
