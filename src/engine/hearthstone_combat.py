@@ -191,8 +191,12 @@ class HearthstoneCombatManager:
         if attacker.state.attacks_this_turn >= max_attacks:
             return False
 
-        # Check summoning sickness for minions
+        # Check summoning sickness and power for minions
         if CardType.MINION in attacker.characteristics.types:
+            # 0-attack minions can't attack
+            if get_power(attacker, self.state) <= 0:
+                return False
+
             # Has Charge or Rush?
             has_charge = has_ability(attacker, 'charge', self.state)
             has_rush = has_ability(attacker, 'rush', self.state)

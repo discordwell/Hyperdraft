@@ -5,7 +5,7 @@ Basic minions and spells available to all players.
 """
 
 from src.engine.game import make_minion, make_weapon
-from src.engine.types import Event, EventType, GameObject, GameState
+from src.engine.types import Event, EventType, GameObject, GameState, CardType
 
 
 # Neutral Minions
@@ -168,14 +168,14 @@ HARVEST_GOLEM = make_minion(
     deathrattle=lambda obj, state: [Event(
         type=EventType.CREATE_TOKEN,
         payload={
-            'name': 'Damaged Golem',
             'controller': obj.controller,
-            'owner': obj.controller,
-            'types': ['MINION'],
-            'subtypes': ['Mech'],
-            'power': 2,
-            'toughness': 1,
-            'zone_type': 'BATTLEFIELD'
+            'token': {
+                'name': 'Damaged Golem',
+                'power': 2,
+                'toughness': 1,
+                'types': {CardType.MINION},
+                'subtypes': {'Mech'},
+            }
         },
         source=obj.id
     )],
