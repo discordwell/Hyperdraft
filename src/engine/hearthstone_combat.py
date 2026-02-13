@@ -59,12 +59,13 @@ class HearthstoneCombatManager:
 
     def reset_combat(self) -> None:
         """Reset combat state for a new turn."""
-        # Clear attacks_this_turn for all minions
+        # Clear attacks_this_turn for all minions and heroes
         battlefield = self.state.zones.get('battlefield')
         if battlefield:
             for obj_id in list(battlefield.objects):
                 obj = self.state.objects.get(obj_id)
-                if obj and CardType.MINION in obj.characteristics.types:
+                if obj and (CardType.MINION in obj.characteristics.types or
+                           CardType.HERO in obj.characteristics.types):
                     obj.state.attacks_this_turn = 0
                     obj.state.attacking = False
 
@@ -98,6 +99,15 @@ class HearthstoneCombatManager:
         # Check if attack is legal
         if not self._can_attack(attacker_id, attacker.controller):
             return events
+
+        # Rush restriction: minions with Rush + summoning sickness can only attack minions
+        if (CardType.MINION in attacker.characteristics.types and
+            attacker.state.summoning_sickness and
+            has_ability(attacker, 'rush', self.state) and
+            not has_ability(attacker, 'charge', self.state)):
+            # Target must be a minion, not a hero
+            if CardType.HERO in target.characteristics.types:
+                return events
 
         # Check taunt requirement
         if not self._check_taunt_requirement(attacker.controller, target_id):
@@ -143,9 +153,12 @@ class HearthstoneCombatManager:
                 events.append(durability_event)
 
                 player.weapon_durability -= 1
+                attacker.state.weapon_durability = player.weapon_durability
                 if player.weapon_durability <= 0:
                     # Weapon is destroyed
                     player.weapon_attack = 0
+                    attacker.state.weapon_attack = 0
+                    attacker.state.weapon_durability = 0
 
         attacker.state.attacking = False
 
@@ -228,7 +241,8 @@ class HearthstoneCombatManager:
                 if CardType.MINION not in obj.characteristics.types:
                     continue
 
-                if has_ability(obj, 'taunt', self.state):
+                # Stealthed minions don't enforce taunt
+                if has_ability(obj, 'taunt', self.state) and not obj.state.stealth:
                     taunt_minions.append(obj_id)
 
         # If there are Taunt minions, target must be one of them

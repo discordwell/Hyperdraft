@@ -55,8 +55,11 @@ class HearthstoneAIAdapter:
 
         events = []
 
-        # Play cards phase
-        while self._should_continue_playing(game_state, player_id):
+        # Play cards phase (safety limit prevents infinite loops)
+        max_plays = 15
+        for _ in range(max_plays):
+            if not self._should_continue_playing(game_state, player_id):
+                break
             card_action = self._choose_card_to_play(game_state, player_id, game)
             if card_action:
                 play_events = await self._execute_card_play(card_action, game_state, game)
@@ -116,9 +119,27 @@ class HearthstoneAIAdapter:
         reserved = 2 if not player.hero_power_used and player.mana_crystals >= 2 else 0
         available_for_cards = player.mana_crystals_available - reserved
 
+        # Check board limit for minions
+        from src.engine.types import CardType
+        board_full = False
+        if state.game_mode == "hearthstone":
+            battlefield = state.zones.get('battlefield')
+            if battlefield:
+                minion_count = sum(
+                    1 for oid in battlefield.objects
+                    if oid in state.objects
+                    and state.objects[oid].controller == player_id
+                    and CardType.MINION in state.objects[oid].characteristics.types
+                )
+                board_full = minion_count >= 7
+
         for card_id in hand_zone.objects:
             card = state.objects.get(card_id)
             if not card:
+                continue
+
+            # Skip minions if board is full
+            if board_full and CardType.MINION in card.characteristics.types:
                 continue
 
             # Check mana cost (accounting for hero power reservation)
@@ -250,6 +271,8 @@ class HearthstoneAIAdapter:
         # Cast the card
         from src.engine.types import CardType
 
+        from src.engine.types import ZoneType
+
         if CardType.MINION in card.characteristics.types:
             # Check board limit (7 minions max in Hearthstone)
             if state.game_mode == "hearthstone":
@@ -266,38 +289,38 @@ class HearthstoneAIAdapter:
                         player.mana_crystals_available += cost
                         return events
 
-            # Play minion to battlefield
-            hand_zone = state.zones.get(f'hand_{player_id}')
-            battlefield = state.zones.get('battlefield')
-
-            if hand_zone and battlefield:
-                hand_zone.objects.remove(card_id)
-                battlefield.objects.append(card_id)
-                card.zone = 'battlefield'
-
-                # Zone change event (triggers ETB)
-                zone_event = Event(
-                    type=EventType.ZONE_CHANGE,
-                    payload={
-                        'object_id': card_id,
-                        'from_zone': f'hand_{player_id}',
-                        'to_zone': 'battlefield'
-                    },
-                    source=card_id
-                )
-                if game.pipeline:
-                    game.pipeline.emit(zone_event)
-                events.append(zone_event)
+            # Play minion to battlefield via ZONE_CHANGE event (triggers ETB)
+            zone_event = Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': card_id,
+                    'from_zone': f'hand_{player_id}',
+                    'from_zone_type': ZoneType.HAND,
+                    'to_zone': 'battlefield',
+                    'to_zone_type': ZoneType.BATTLEFIELD
+                },
+                source=card_id
+            )
+            if game.pipeline:
+                game.pipeline.emit(zone_event)
+            events.append(zone_event)
 
         elif CardType.SPELL in card.characteristics.types:
-            # Cast spell (simplified - goes to graveyard)
-            hand_zone = state.zones.get(f'hand_{player_id}')
-            graveyard = state.zones.get(f'graveyard_{player_id}')
-
-            if hand_zone and graveyard:
-                hand_zone.objects.remove(card_id)
-                graveyard.objects.append(card_id)
-                card.zone = f'graveyard_{player_id}'
+            # Cast spell - emit zone change to graveyard (triggers spell effects via interceptors)
+            zone_event = Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': card_id,
+                    'from_zone': f'hand_{player_id}',
+                    'from_zone_type': ZoneType.HAND,
+                    'to_zone': f'graveyard_{player_id}',
+                    'to_zone_type': ZoneType.GRAVEYARD
+                },
+                source=card_id
+            )
+            if game.pipeline:
+                game.pipeline.emit(zone_event)
+            events.append(zone_event)
 
         return events
 
@@ -491,7 +514,8 @@ class HearthstoneAIAdapter:
                 continue
 
             if CardType.MINION in obj.characteristics.types:
-                if 'taunt' in obj.characteristics.keywords:
+                # Stealthed taunts don't enforce taunt (can't be targeted)
+                if 'taunt' in obj.characteristics.keywords and not obj.state.stealth:
                     taunt_minions.append(obj_id)
 
         return taunt_minions

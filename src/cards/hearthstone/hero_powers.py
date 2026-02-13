@@ -10,10 +10,26 @@ from src.engine.types import Event, EventType, GameObject, GameState, CardType
 
 # Mage Hero Power
 def fireblast_effect(obj: GameObject, state: GameState) -> list[Event]:
-    """Deal 1 damage to target."""
-    # In a real implementation, this would require targeting
-    # For now, return a placeholder damage event
-    return []
+    """Deal 1 damage to enemy hero (auto-target for AI)."""
+    # Find opponent's hero
+    opponent_id = None
+    for pid in state.players.keys():
+        if pid != obj.controller:
+            opponent_id = pid
+            break
+
+    if not opponent_id:
+        return []
+
+    opponent = state.players[opponent_id]
+    if not opponent.hero_id:
+        return []
+
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': opponent.hero_id, 'amount': 1, 'source': obj.id},
+        source=obj.id
+    )]
 
 FIREBLAST = make_hero_power(
     name="Fireblast",
@@ -102,9 +118,21 @@ REINFORCE = make_hero_power(
 
 # Priest Hero Power
 def lesser_heal_effect(obj: GameObject, state: GameState) -> list[Event]:
-    """Restore 2 Health to target."""
-    # Requires targeting - placeholder
-    return []
+    """Restore 2 Health to own hero (auto-target for AI)."""
+    player = state.players.get(obj.controller)
+    if not player or not player.hero_id:
+        return []
+
+    # Heal hero (can't go above max)
+    heal_amount = min(2, 30 - player.life)
+    if heal_amount > 0:
+        player.life += heal_amount
+
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': obj.controller, 'amount': heal_amount},
+        source=obj.id
+    )]
 
 LESSER_HEAL = make_hero_power(
     name="Lesser Heal",
@@ -148,12 +176,12 @@ def totemic_call_effect(obj: GameObject, state: GameState) -> list[Event]:
     """Summon a random Totem."""
     import random
     totems = [
-        ('Healing Totem', 0, 2),
-        ('Searing Totem', 1, 1),
-        ('Stoneclaw Totem', 0, 2),  # Would have Taunt
-        ('Wrath of Air Totem', 0, 2),
+        ('Healing Totem', 0, 2, []),
+        ('Searing Totem', 1, 1, []),
+        ('Stoneclaw Totem', 0, 2, [{'keyword': 'taunt'}]),
+        ('Wrath of Air Totem', 0, 2, []),
     ]
-    totem_name, power, toughness = random.choice(totems)
+    totem_name, power, toughness, abilities = random.choice(totems)
 
     return [Event(
         type=EventType.CREATE_TOKEN,
@@ -165,6 +193,7 @@ def totemic_call_effect(obj: GameObject, state: GameState) -> list[Event]:
                 'toughness': toughness,
                 'types': [CardType.MINION],
                 'subtypes': {'Totem'},
+                'abilities': abilities,
             }
         },
         source=obj.id
