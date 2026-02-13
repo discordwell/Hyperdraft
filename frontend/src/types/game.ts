@@ -54,6 +54,12 @@ export interface CardData {
   damage: number;
   controller: string | null;
   owner: string | null;
+  // Hearthstone state
+  divine_shield?: boolean;
+  stealth?: boolean;
+  windfury?: boolean;
+  frozen?: boolean;
+  summoning_sickness?: boolean;
 }
 
 // Stack Item
@@ -86,6 +92,7 @@ export interface PlayerData {
   library_size: number;
   // Hearthstone fields
   mana_crystals?: number;
+  mana_crystals_available?: number;
   armor?: number;
   hero_id?: string | null;
 }

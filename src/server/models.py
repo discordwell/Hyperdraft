@@ -145,6 +145,12 @@ class CardData(BaseModel):
     damage: int = 0
     controller: Optional[str] = None
     owner: Optional[str] = None
+    # Hearthstone-specific state
+    divine_shield: bool = False
+    stealth: bool = False
+    windfury: bool = False
+    frozen: bool = False
+    summoning_sickness: bool = False
 
 
 class StackItemData(BaseModel):
@@ -195,6 +201,7 @@ class PlayerData(BaseModel):
     library_size: int = 0
     # Hearthstone fields
     mana_crystals: int = 0
+    mana_crystals_available: int = 0
     armor: int = 0
     hero_id: Optional[str] = None
 
