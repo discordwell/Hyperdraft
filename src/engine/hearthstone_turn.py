@@ -162,7 +162,8 @@ class HearthstoneTurnManager(TurnManager):
         # Reset hero power
         active_player.hero_power_used = False
 
-        # Unfreeze minions controlled by active player
+        # Unfreeze minions and clear summoning sickness for active player
+        from .types import CardType
         battlefield = self.state.zones.get('battlefield')
         if battlefield:
             for obj_id in list(battlefield.objects):
@@ -170,6 +171,9 @@ class HearthstoneTurnManager(TurnManager):
                 if obj and obj.controller == active_player_id:
                     if obj.state.frozen:
                         obj.state.frozen = False
+                    # Clear summoning sickness at start of controller's turn
+                    if CardType.MINION in obj.characteristics.types:
+                        obj.state.summoning_sickness = False
 
         # Draw a card
         library_zone_id = f"library_{active_player_id}"

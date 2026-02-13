@@ -164,6 +164,7 @@ async def test_taunt_divine_shield():
         characteristics=CHILLWIND_YETI.characteristics,
         card_def=CHILLWIND_YETI
     )
+    attacker.state.summoning_sickness = False
 
     print(f"  Taunt minion: shield={taunt_shield.state.divine_shield}")
     print(f"  Attempting to attack non-taunt minion...")

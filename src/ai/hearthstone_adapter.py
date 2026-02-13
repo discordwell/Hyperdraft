@@ -81,8 +81,12 @@ class HearthstoneAIAdapter:
         if not player:
             return False
 
-        # No mana left
-        if player.mana_crystals_available <= 0:
+        # Reserve 2 mana for hero power if not yet used
+        reserved = 2 if not player.hero_power_used and player.mana_crystals >= 2 else 0
+        available_for_cards = player.mana_crystals_available - reserved
+
+        # No mana left for cards
+        if available_for_cards <= 0:
             return False
 
         # Hand is empty
@@ -108,14 +112,18 @@ class HearthstoneAIAdapter:
 
         playable_cards = []
 
+        # Reserve 2 mana for hero power if not yet used
+        reserved = 2 if not player.hero_power_used and player.mana_crystals >= 2 else 0
+        available_for_cards = player.mana_crystals_available - reserved
+
         for card_id in hand_zone.objects:
             card = state.objects.get(card_id)
             if not card:
                 continue
 
-            # Check mana cost
+            # Check mana cost (accounting for hero power reservation)
             cost = self._get_mana_cost(card)
-            if cost > player.mana_crystals_available:
+            if cost > available_for_cards:
                 continue
 
             playable_cards.append({
@@ -243,6 +251,21 @@ class HearthstoneAIAdapter:
         from src.engine.types import CardType
 
         if CardType.MINION in card.characteristics.types:
+            # Check board limit (7 minions max in Hearthstone)
+            if state.game_mode == "hearthstone":
+                battlefield = state.zones.get('battlefield')
+                if battlefield:
+                    minion_count = sum(
+                        1 for oid in battlefield.objects
+                        if oid in state.objects
+                        and state.objects[oid].controller == player_id
+                        and CardType.MINION in state.objects[oid].characteristics.types
+                    )
+                    if minion_count >= 7:
+                        # Refund mana and skip
+                        player.mana_crystals_available += cost
+                        return events
+
             # Play minion to battlefield
             hand_zone = state.zones.get(f'hand_{player_id}')
             battlefield = state.zones.get('battlefield')
@@ -298,17 +321,13 @@ class HearthstoneAIAdapter:
 
     async def _use_hero_power(self, player_id: str, state: 'GameState', game) -> list['Event']:
         """Activate hero power."""
-        from src.engine.types import Event, EventType
+        from src.engine.types import Event, EventType, EventStatus
 
         player = state.players.get(player_id)
         if not player or not player.hero_power_id:
             return []
 
         events = []
-
-        # Deduct mana
-        player.mana_crystals_available -= 2
-        # Note: hero_power_used flag is set by the interceptor, not here
 
         # Emit hero power activation event
         power_event = Event(
@@ -318,9 +337,17 @@ class HearthstoneAIAdapter:
         )
         if game.pipeline:
             processed_events = game.pipeline.emit(power_event)
+
+            # Only deduct mana if event wasn't prevented
+            if any(e.status == EventStatus.PREVENTED for e in processed_events):
+                return events
+
             events.extend(processed_events)
         else:
             events.append(power_event)
+
+        # Deduct mana after successful activation
+        player.mana_crystals_available -= 2
 
         return events
 
@@ -373,8 +400,8 @@ class HearthstoneAIAdapter:
             has_charge = 'charge' in obj.characteristics.keywords or 'haste' in obj.characteristics.keywords
 
             # Summoning sickness check
-            # TODO: Track when minion entered battlefield
-            # For now, assume charge minions can attack
+            if obj.state.summoning_sickness and not has_charge:
+                continue
 
             # Check attack count
             if obj.state.attacks_this_turn >= 1:

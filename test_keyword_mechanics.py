@@ -52,6 +52,7 @@ async def test_divine_shield_blocks_damage():
         characteristics=BLOODFEN_RAPTOR.characteristics,
         card_def=BLOODFEN_RAPTOR
     )
+    attacker.state.summoning_sickness = False
 
     print(f"  Shielded minion: {shielded.characteristics.power}/{shielded.characteristics.toughness}")
     print(f"  Has Divine Shield: {shielded.state.divine_shield}")
@@ -116,6 +117,7 @@ async def test_divine_shield_breaks_then_takes_damage():
         characteristics=BLOODFEN_RAPTOR.characteristics,
         card_def=BLOODFEN_RAPTOR
     )
+    attacker1.state.summoning_sickness = False
 
     attacker2 = game.create_object(
         name="Raptor2",
@@ -124,6 +126,7 @@ async def test_divine_shield_breaks_then_takes_damage():
         characteristics=BLOODFEN_RAPTOR.characteristics,
         card_def=BLOODFEN_RAPTOR
     )
+    attacker2.state.summoning_sickness = False
 
     print(f"  Shielded minion: 3/{shielded.characteristics.toughness}")
     print(f"  Shield: {shielded.state.divine_shield}")
@@ -190,6 +193,7 @@ async def test_stealth_cant_be_targeted():
         characteristics=BLOODFEN_RAPTOR.characteristics,
         card_def=BLOODFEN_RAPTOR
     )
+    attacker.state.summoning_sickness = False
 
     print(f"  Stealthed: {stealthed.state.stealth}")
     print(f"  Attempting to attack stealthed minion...")
@@ -235,6 +239,7 @@ async def test_stealth_breaks_on_attack():
         card_def=BLOODFEN_RAPTOR
     )
     stealthed.state.stealth = True
+    stealthed.state.summoning_sickness = False
 
     # Create target
     target = game.create_object(
@@ -287,6 +292,7 @@ async def test_windfury_double_attack():
         card_def=BLOODFEN_RAPTOR
     )
     windfury.state.windfury = True
+    windfury.state.summoning_sickness = False
 
     # Create target
     target = game.create_object(
