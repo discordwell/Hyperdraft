@@ -152,6 +152,7 @@ class Game:
             characteristics=copy.deepcopy(hero_def.characteristics),
             card_def=hero_def
         )
+        hero.state.summoning_sickness = False  # Heroes never have summoning sickness
         player.hero_id = hero.id
         player.life = hero_def.characteristics.toughness or 30
         player.max_life = player.life
