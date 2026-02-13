@@ -159,6 +159,14 @@ class HearthstoneAIAdapter:
             if cost > available_for_cards:
                 continue
 
+            # Skip targeted spells with no valid targets
+            if CardType.SPELL in card.characteristics.types:
+                card_def = card.card_def
+                if card_def and getattr(card_def, 'requires_target', False):
+                    targets = self._choose_spell_targets(card, state, player_id)
+                    if not targets:
+                        continue
+
             playable_cards.append({
                 'card_id': card_id,
                 'card': card,
@@ -506,7 +514,7 @@ class HearthstoneAIAdapter:
         Windfury (2 attacks per turn) and other multi-attack effects.
         """
         events = []
-        max_attack_rounds = 15  # Safety limit
+        max_attack_rounds = 20  # Safety limit (7 minions x 2 windfury + hero = 15 max)
 
         for _ in range(max_attack_rounds):
             attackers = self._get_available_attackers(state, player_id)
@@ -582,7 +590,7 @@ class HearthstoneAIAdapter:
                     continue
 
             # Check attack count
-            max_attacks = 2 if obj.state.windfury else 1
+            max_attacks = 2 if has_ability(obj, 'windfury', state) else 1
             if obj.state.attacks_this_turn >= max_attacks:
                 continue
 
