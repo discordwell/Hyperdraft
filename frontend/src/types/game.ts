@@ -42,6 +42,7 @@ export type Step =
 export interface CardData {
   id: string;
   name: string;
+  domain?: string | null;
   mana_cost: string | null;
   types: string[];
   subtypes: string[];
@@ -83,6 +84,10 @@ export interface PlayerData {
   has_lost: boolean;
   hand_size: number;
   library_size: number;
+  // Hearthstone fields
+  mana_crystals?: number;
+  armor?: number;
+  hero_id?: string | null;
 }
 
 // Combat Data
@@ -144,6 +149,8 @@ export interface GameState {
   is_game_over: boolean;
   winner: string | null;
   pending_choice?: PendingChoice | null;
+  game_mode?: 'mtg' | 'hearthstone';
+  max_hand_size?: number;
 }
 
 // Request/Response Types
