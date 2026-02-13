@@ -307,7 +307,7 @@ class HearthstoneAIAdapter:
             events.append(zone_event)
 
         elif CardType.SPELL in card.characteristics.types:
-            # Cast spell - emit zone change to graveyard (triggers spell effects via interceptors)
+            # Cast spell - emit zone change to graveyard
             zone_event = Event(
                 type=EventType.ZONE_CHANGE,
                 payload={
@@ -323,7 +323,61 @@ class HearthstoneAIAdapter:
                 game.pipeline.emit(zone_event)
             events.append(zone_event)
 
+            # Execute spell effect (make_spell doesn't register interceptors)
+            card_def = card.card_def
+            if card_def and hasattr(card_def, 'spell_effect') and card_def.spell_effect:
+                targets = self._choose_spell_targets(card, state, player_id)
+                effect_events = card_def.spell_effect(card, state, targets)
+                for ev in effect_events:
+                    if game.pipeline:
+                        game.pipeline.emit(ev)
+                    events.append(ev)
+
         return events
+
+    def _choose_spell_targets(self, card: 'GameObject', state: 'GameState', player_id: str) -> list[list[str]]:
+        """Choose targets for a spell. Returns list of target lists."""
+        from src.engine.types import CardType
+
+        card_def = card.card_def
+        if not card_def or not card_def.requires_target:
+            return []
+
+        # Find an enemy target (prefer minions with highest health, fall back to hero)
+        enemy_minions = []
+        enemy_hero_id = None
+
+        battlefield = state.zones.get('battlefield')
+        if battlefield:
+            for obj_id in battlefield.objects:
+                obj = state.objects.get(obj_id)
+                if obj and obj.controller != player_id:
+                    if CardType.MINION in obj.characteristics.types and not obj.state.stealth:
+                        enemy_minions.append(obj_id)
+
+        for pid, player in state.players.items():
+            if pid != player_id and player.hero_id:
+                enemy_hero_id = player.hero_id
+
+        # For damage spells, prefer enemy hero; for transform/control, prefer minions
+        spell_name = card_def.name.lower() if card_def.name else ''
+        if 'polymorph' in spell_name or 'mind control' in spell_name or 'backstab' in spell_name:
+            # Target biggest enemy minion
+            if enemy_minions:
+                from src.engine.queries import get_toughness
+                best = max(enemy_minions, key=lambda m: get_toughness(state.objects[m], state))
+                return [[best]]
+        else:
+            # Damage spells - target enemy hero
+            if enemy_hero_id:
+                return [[enemy_hero_id]]
+
+        # Fallback
+        if enemy_minions:
+            return [[enemy_minions[0]]]
+        if enemy_hero_id:
+            return [[enemy_hero_id]]
+        return []
 
     def _should_use_hero_power(self, state: 'GameState', player_id: str) -> bool:
         """Check if AI should use hero power this turn."""
