@@ -316,7 +316,12 @@ def _handle_draw(event: Event, state: GameState):
     """Handle DRAW event."""
     player_id = event.payload.get('player')
     # Support both 'amount' (used by most cards) and 'count' (legacy)
-    count = event.payload.get('amount') or event.payload.get('count', 1)
+    # Use 'is not None' to avoid treating 0 as falsy
+    count = event.payload.get('amount')
+    if count is None:
+        count = event.payload.get('count', 1)
+    if count <= 0:
+        return
 
     # Find player's library and hand
     library_key = f"library_{player_id}"
