@@ -154,9 +154,11 @@ def dagger_mastery_effect(obj: GameObject, state: GameState) -> list[Event]:
     if not hero:
         return []
 
-    # Equip dagger (set on player, not hero state)
+    # Equip dagger
     player.weapon_attack = 1
     player.weapon_durability = 2
+    hero.state.weapon_attack = 1
+    hero.state.weapon_durability = 2
 
     return [Event(
         type=EventType.WEAPON_EQUIP,
@@ -256,6 +258,8 @@ def shapeshift_effect(obj: GameObject, state: GameState) -> list[Event]:
     player.weapon_attack = 1
     player.weapon_durability = 1  # 1 use only
     player._shapeshift_attack = True  # Mark as temporary for end-of-turn cleanup
+    hero.state.weapon_attack = 1
+    hero.state.weapon_durability = 1
 
     # +1 Armor
     player.armor += 1

@@ -75,6 +75,9 @@ class HearthstoneAIAdapter:
         if self._should_use_hero_power(game_state, player_id):
             power_events = await self._use_hero_power(player_id, game_state, game)
             events.extend(power_events)
+            # Check SBAs after hero power (damage may kill hero/minions)
+            if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
+                await game.turn_manager._check_state_based_actions()
 
             # After hero power, try to play more cards with remaining mana
             for _ in range(max_plays):
@@ -416,11 +419,12 @@ class HearthstoneAIAdapter:
                 return [[best]]
             return []  # No valid targets, don't waste the card
         elif 'polymorph' in spell_name or 'mind control' in spell_name:
-            # Target biggest enemy minion
+            # These only target minions, not heroes
             if enemy_minions:
                 from src.engine.queries import get_toughness
                 best = max(enemy_minions, key=lambda m: get_toughness(state.objects[m], state))
                 return [[best]]
+            return []  # No valid minion targets, don't waste the card
         else:
             # Damage spells - target enemy hero
             if enemy_hero_id:
@@ -733,6 +737,7 @@ class HearthstoneAIAdapter:
 
         Favorable = We kill it and survive, or both die but ours is cheaper.
         """
+        from src.engine.types import CardType
         from src.engine.queries import get_power, get_toughness
 
         attacker = state.objects.get(attacker_id)
@@ -742,6 +747,11 @@ class HearthstoneAIAdapter:
             return False
 
         attacker_power = get_power(attacker, state)
+        # Heroes attack with weapon, not base power
+        if CardType.HERO in attacker.characteristics.types:
+            player = state.players.get(attacker.controller)
+            if player:
+                attacker_power = player.weapon_attack
         attacker_health = get_toughness(attacker, state) - attacker.state.damage
 
         defender_power = get_power(defender, state)
