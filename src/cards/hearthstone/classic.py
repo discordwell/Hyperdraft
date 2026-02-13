@@ -580,8 +580,11 @@ def polymorph_effect(obj: GameObject, state: GameState, targets: list[list[str]]
     target.characteristics.subtypes = {"Sheep"}
     target.name = "Sheep"
 
-    # Clear damage (Sheep is a fresh 1/1)
+    # Clear damage and PT modifiers (Sheep is a fresh 1/1)
     target.state.damage = 0
+    target.state.counters = {}
+    if hasattr(target.state, 'pt_modifiers'):
+        target.state.pt_modifiers = []
 
     # Clear Hearthstone state flags
     target.state.divine_shield = False
@@ -697,7 +700,8 @@ def truesilver_champion_setup(obj: GameObject, state: GameState):
         player = s.players.get(obj.controller)
         if not player:
             return InterceptorResult(action=InterceptorAction.PASS)
-        heal_amount = min(2, 30 - player.life)
+        max_hp = getattr(player, 'max_life', 30) or 30
+        heal_amount = min(2, max_hp - player.life)
         if heal_amount <= 0:
             return InterceptorResult(action=InterceptorAction.PASS)
         return InterceptorResult(

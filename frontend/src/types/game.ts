@@ -101,6 +101,7 @@ export interface PlayerData {
   fatigue_damage?: number;
   hero_power_used?: boolean;
   hero_power_id?: string | null;
+  max_life?: number;
 }
 
 // Combat Data

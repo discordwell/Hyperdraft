@@ -336,7 +336,8 @@ class GameSession:
                 weapon_durability=player.weapon_durability,
                 fatigue_damage=player.fatigue_damage,
                 hero_power_used=player.hero_power_used,
-                hero_power_id=player.hero_power_id
+                hero_power_id=player.hero_power_id,
+                max_life=player.max_life
             )
 
         # Get battlefield

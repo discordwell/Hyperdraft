@@ -210,6 +210,7 @@ class PlayerData(BaseModel):
     fatigue_damage: int = 0
     hero_power_used: bool = False
     hero_power_id: Optional[str] = None
+    max_life: int = 30
 
 
 class CombatData(BaseModel):
