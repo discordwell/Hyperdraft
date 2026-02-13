@@ -60,6 +60,7 @@ export interface CardData {
   windfury?: boolean;
   frozen?: boolean;
   summoning_sickness?: boolean;
+  attacks_this_turn?: number;
 }
 
 // Stack Item
@@ -97,6 +98,9 @@ export interface PlayerData {
   hero_id?: string | null;
   weapon_attack?: number;
   weapon_durability?: number;
+  fatigue_damage?: number;
+  hero_power_used?: boolean;
+  hero_power_id?: string | null;
 }
 
 // Combat Data

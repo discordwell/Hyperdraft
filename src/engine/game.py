@@ -154,6 +154,7 @@ class Game:
         )
         player.hero_id = hero.id
         player.life = hero_def.characteristics.toughness or 30
+        player.max_life = player.life
 
         # Note: create_object already runs card_def.setup_interceptors
 
@@ -902,8 +903,8 @@ class Game:
         )
         processed = self.pipeline.emit(power_event)
 
-        # Check if event was prevented by an interceptor
-        if any(e.status == EventStatus.PREVENTED for e in processed):
+        # Check if the hero power event itself was prevented (not follow-up events)
+        if power_event.status == EventStatus.PREVENTED:
             return False
 
         # Deduct mana and mark as used only after successful activation

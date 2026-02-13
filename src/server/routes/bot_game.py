@@ -181,9 +181,11 @@ async def start_bot_game(
             session.game.setup_hearthstone_player(p1, HEROES[hero1_class], HERO_POWERS[hero1_class])
             session.game.setup_hearthstone_player(p2, HEROES[hero2_class], HERO_POWERS[hero2_class])
 
-            # Use class-appropriate decks
-            bot1_deck = get_deck_for_hero(hero1_class)
-            bot2_deck = get_deck_for_hero(hero2_class)
+            # Use class-appropriate decks only if user didn't provide custom decks
+            if not request.bot1_deck and not request.bot1_deck_id:
+                bot1_deck = get_deck_for_hero(hero1_class)
+            if not request.bot2_deck and not request.bot2_deck_id:
+                bot2_deck = get_deck_for_hero(hero2_class)
 
     # Add cards to libraries
     session.add_cards_to_deck(bot1_id, bot1_deck)
@@ -231,8 +233,9 @@ async def run_bot_game(session: GameSession):
                 session.winner_id = session.game.get_winner()
                 break
 
-            # Safety limit
-            if session.game.turn_manager.turn_number > 100:
+            # Safety limit (HS games are faster; 50 turns ~25 rounds)
+            turn_limit = 50 if session.game.state.game_mode == "hearthstone" else 100
+            if session.game.turn_manager.turn_number > turn_limit:
                 session.is_finished = True
                 break
 
