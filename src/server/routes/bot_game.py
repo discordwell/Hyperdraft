@@ -6,7 +6,6 @@ Endpoints for bot vs bot games and replays.
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Optional
-import asyncio
 import os
 
 from ..session import session_manager, GameSession, generate_id
@@ -15,9 +14,11 @@ from ..models import (
     ReplayResponse, GameStateResponse
 )
 
-# Card imports
+# Card/deck imports
+from src.cards import ALL_CARDS
 from src.cards.test_cards import TEST_CARDS
-from src.engine import Game
+from src.cards.set_registry import get_cards_in_set, get_sets_for_card
+from src.decks import ALL_DECKS, get_random_deck, load_deck
 
 router = APIRouter(prefix="/bot-game", tags=["bot-game"])
 
@@ -35,6 +36,56 @@ def get_default_deck() -> list:
     return deck
 
 
+def get_deck_cards(deck_id: Optional[str] = None) -> list:
+    """
+    Get cards for a deck by ID or random if no ID provided.
+
+    Returns list of CardDefinition objects ready for gameplay.
+    """
+    if deck_id and deck_id in ALL_DECKS:
+        deck = ALL_DECKS[deck_id]
+    else:
+        deck = get_random_deck()
+
+    return load_deck(ALL_CARDS, deck)
+
+
+def _parse_card_ref(ref: str) -> tuple[Optional[str], str]:
+    """Parse card refs like 'TMH::Chrono-Berserker' or plain 'Card Name'."""
+    raw = (ref or "").strip()
+    if "::" in raw:
+        domain, name = raw.split("::", 1)
+        return (domain.strip() or None), name.strip()
+    return None, raw
+
+
+def get_cards_by_names(card_names: list[str]) -> list:
+    """Resolve explicit card-name refs into CardDefinitions."""
+    cards = []
+    for ref in card_names:
+        domain, name = _parse_card_ref(ref)
+        if not name:
+            continue
+
+        card_def = None
+        if domain and domain.upper() != "MTG":
+            domain_cards = get_cards_in_set(domain)
+            card_def = domain_cards.get(name) if domain_cards else None
+        else:
+            card_def = ALL_CARDS.get(name)
+
+        if card_def is None and not domain:
+            set_codes = get_sets_for_card(name)
+            if len(set_codes) == 1:
+                domain_cards = get_cards_in_set(set_codes[0])
+                card_def = domain_cards.get(name) if domain_cards else None
+
+        if card_def:
+            cards.append(card_def)
+
+    return cards
+
+
 @router.post("/start", response_model=BotGameResponse)
 async def start_bot_game(
     request: StartBotGameRequest,
@@ -47,7 +98,8 @@ async def start_bot_game(
     """
     # Create session
     session = await session_manager.create_session(
-        mode="bot_vs_bot"
+        mode="bot_vs_bot",
+        game_mode=request.mode
     )
 
     # Add bot players
@@ -87,21 +139,51 @@ async def start_bot_game(
             raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not set")
 
     # Build decks
-    bot1_deck = []
-    if request.bot1_deck:
-        for card_name in request.bot1_deck:
-            if card_name in TEST_CARDS:
-                bot1_deck.append(TEST_CARDS[card_name])
+    if request.bot1_deck_id:
+        bot1_deck = get_deck_cards(request.bot1_deck_id)
+    elif request.bot1_deck:
+        bot1_deck = get_cards_by_names(request.bot1_deck)
     else:
         bot1_deck = get_default_deck()
 
-    bot2_deck = []
-    if request.bot2_deck:
-        for card_name in request.bot2_deck:
-            if card_name in TEST_CARDS:
-                bot2_deck.append(TEST_CARDS[card_name])
+    if request.bot2_deck_id:
+        bot2_deck = get_deck_cards(request.bot2_deck_id)
+    elif request.bot2_deck:
+        bot2_deck = get_cards_by_names(request.bot2_deck)
     else:
         bot2_deck = get_default_deck()
+
+    if not bot1_deck:
+        raise HTTPException(status_code=400, detail="bot1 deck is empty (invalid deck_id or card list)")
+    if not bot2_deck:
+        raise HTTPException(status_code=400, detail="bot2 deck is empty (invalid deck_id or card list)")
+
+    # Setup Hearthstone heroes if in Hearthstone mode
+    if request.mode == "hearthstone":
+        from src.cards.hearthstone.heroes import HEROES
+        from src.cards.hearthstone.hero_powers import HERO_POWERS
+        from src.cards.hearthstone.decks import get_deck_for_hero
+        import random
+
+        # Get players from game
+        player_ids = list(session.game.state.players.keys())
+        if len(player_ids) >= 2:
+            # Randomly select two different hero classes
+            available_heroes = ["Mage", "Warrior", "Hunter", "Paladin", "Priest", "Rogue", "Shaman", "Warlock", "Druid"]
+            hero1_class = random.choice(available_heroes)
+            available_heroes.remove(hero1_class)
+            hero2_class = random.choice(available_heroes)
+
+            # Setup heroes for both players
+            p1 = session.game.state.players[player_ids[0]]
+            p2 = session.game.state.players[player_ids[1]]
+
+            session.game.setup_hearthstone_player(p1, HEROES[hero1_class], HERO_POWERS[hero1_class])
+            session.game.setup_hearthstone_player(p2, HEROES[hero2_class], HERO_POWERS[hero2_class])
+
+            # Use class-appropriate decks
+            bot1_deck = get_deck_for_hero(hero1_class)
+            bot2_deck = get_deck_for_hero(hero2_class)
 
     # Add cards to libraries
     session.add_cards_to_deck(bot1_id, bot1_deck)

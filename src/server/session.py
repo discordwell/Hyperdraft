@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from typing import Optional, Callable, Any
 from uuid import uuid4
 import time
+import re
+import logging
 
 from src.engine import (
     Game, GameState, Player, PlayerAction, ActionType, LegalAction,
@@ -22,6 +24,8 @@ from .models import (
     LegalActionData, CombatData, PlayerActionRequest, ReplayFrame,
     PendingChoiceData, PendingChoiceWaitingData
 )
+
+logger = logging.getLogger(__name__)
 
 
 def generate_id() -> str:
@@ -80,6 +84,8 @@ class GameSession:
     ai_profiles_by_player: dict[str, dict[str, Any]] = field(default_factory=dict)
     _llm_providers_by_player: dict[str, Any] = field(default_factory=dict)
     _llm_response_cache_by_player: dict[str, dict[str, dict]] = field(default_factory=dict)
+    _last_processed_action: Optional[dict[str, Any]] = None
+    _last_non_pass_action: Optional[dict[str, Any]] = None
     # Decklists as provided to add_cards_to_deck (used for AI layer preparation).
     deck_card_defs_by_player: dict[str, list[CardDefinition]] = field(default_factory=dict)
 
@@ -111,8 +117,14 @@ class GameSession:
         if self._action_processed_event:
             self._action_processed_event.set()
 
+        serialized_action = self._serialize_processed_action(action)
+        if serialized_action:
+            self._last_processed_action = serialized_action
+            if serialized_action.get("action_type") != "PASS":
+                self._last_non_pass_action = serialized_action
+
         if self.record_actions_for_replay:
-            self._record_frame(action=self._serialize_processed_action(action))
+            self._record_frame(action=serialized_action)
 
         if self.spectator_delay_ms and self.spectator_delay_ms > 0:
             # Don't slow the game down for "just passing"; it's very spammy and
@@ -170,8 +182,11 @@ class GameSession:
         for ai_pid in ai_player_ids:
             profile = self.ai_profiles_by_player.get(ai_pid) or {}
             brain = (profile.get("brain") or "heuristic").strip().lower()
-            if brain in ("openai", "anthropic", "ollama"):
-                # LLM-driven bots don't use the layer system; avoid extra work/calls.
+            difficulty = profile.get("difficulty", "medium")
+
+            # LLM-driven bots only need layers if they're using Ultra difficulty
+            # (for their heuristic fallback engine)
+            if brain in ("openai", "anthropic", "ollama") and difficulty != "ultra":
                 continue
 
             ai = self._get_or_create_ai_engine(ai_pid)
@@ -215,8 +230,25 @@ class GameSession:
 
         self.is_started = True
 
-        # Prepare AI layers before the first priority decision.
-        await self._prepare_ai_layers()
+        # Setup AI handlers based on game mode
+        if self.game.state.game_mode == "hearthstone":
+            # Setup Hearthstone AI adapter
+            from src.ai.hearthstone_adapter import HearthstoneAIAdapter
+
+            # Create AI handler (reuse first AI engine if available)
+            if self.ai_profiles_by_player:
+                # Get first AI profile to determine difficulty
+                first_profile = next(iter(self.ai_profiles_by_player.values()))
+                difficulty = first_profile.get('difficulty', 'medium')
+            else:
+                difficulty = 'medium'
+
+            ai_adapter = HearthstoneAIAdapter(difficulty=difficulty)
+            self.game.set_hearthstone_ai_handler(ai_adapter)
+        else:
+            # MTG mode - prepare AI layers before the first priority decision
+            await self._prepare_ai_layers()
+
         await self.game.start_game()
 
         # Record initial state
@@ -290,7 +322,10 @@ class GameSession:
                 life=player.life,
                 has_lost=player.has_lost,
                 hand_size=len(self.game.get_hand(pid)),
-                library_size=self.game.get_library_size(pid)
+                library_size=self.game.get_library_size(pid),
+                mana_crystals=player.mana_crystals,
+                armor=player.armor,
+                hero_id=player.hero_id
             )
 
         # Get battlefield
@@ -381,7 +416,9 @@ class GameSession:
             is_game_over=self.is_finished,
             winner=self.winner_id,
             pending_choice=pending_choice_data,
-            waiting_for_choice=waiting_for_choice_data
+            waiting_for_choice=waiting_for_choice_data,
+            game_mode=game_state.game_mode,
+            max_hand_size=game_state.max_hand_size
         )
 
     async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
@@ -624,13 +661,31 @@ class GameSession:
 
         if brain in ("openai", "anthropic", "ollama"):
             try:
-                if not self._should_query_llm(player_id, state, legal_actions):
+                mode = self._llm_decision_mode(player_id, state, legal_actions)
+
+                if mode == "skip":
                     action = PlayerAction(type=ActionType.PASS, player_id=player_id)
                     action.data["ai"] = {
                         "brain": brain,
                         "model": profile.get("model"),
-                        "reasoning": "autopass (gated)",
+                        "reasoning": "autopass (no non-pass legal actions)",
                     }
+                    return action
+
+                if mode == "interrupt":
+                    should_interrupt, gate_meta = await self._llm_should_interrupt(
+                        player_id=player_id,
+                        state=state,
+                        legal_actions=legal_actions,
+                        profile=profile,
+                    )
+                    if not should_interrupt:
+                        action = PlayerAction(type=ActionType.PASS, player_id=player_id)
+                        action.data["ai"] = gate_meta
+                        return action
+
+                    action = self._pick_interrupt_action(player_id, state, legal_actions)
+                    action.data["ai"] = gate_meta
                     return action
 
                 return await self._get_llm_action(player_id, state, legal_actions, profile)
@@ -649,39 +704,210 @@ class GameSession:
         except ImportError:
             return self._simple_ai_action(player_id, legal_actions)
 
-    def _should_query_llm(
+    def _llm_decision_mode(
         self,
         player_id: str,
         state: GameState,
         legal_actions: list[LegalAction],
-    ) -> bool:
+    ) -> str:
         """
-        Gate LLM calls to avoid querying on every single priority pass.
+        Choose LLM behavior for this priority window.
 
-        Policy:
-        - Always allow if the stack is non-empty (interactive decisions).
-        - Allow during main phases (PRECOMBAT_MAIN/POSTCOMBAT_MAIN at Step.MAIN).
-        - Otherwise, auto-pass without calling the model.
+        Returns one of:
+        - "full": ask model to select an action index (our own main-phase planning)
+        - "interrupt": off-phase yes/no interrupt gate
+        - "skip": no meaningful actions beyond pass
         """
-        # If the only legal action is PASS, there's nothing to decide.
         if not legal_actions or all(a.type == ActionType.PASS for a in legal_actions):
-            return False
+            return "skip"
+
+        active_player = self.game.get_active_player()
+        phase = self.game.get_current_phase()
+        step = self.game.get_current_step()
+
+        # Full planning only for our own main phase.
+        if (
+            active_player == player_id
+            and phase in (Phase.PRECOMBAT_MAIN, Phase.POSTCOMBAT_MAIN)
+            and step == Step.MAIN
+        ):
+            return "full"
+
+        return "interrupt"
+
+    def _pick_interrupt_action(
+        self,
+        player_id: str,
+        state: GameState,
+        legal_actions: list[LegalAction],
+    ) -> PlayerAction:
+        """Select a non-pass action without making a second LLM call."""
+        non_pass = [a for a in legal_actions if a.type != ActionType.PASS]
+        if not non_pass:
+            return PlayerAction(type=ActionType.PASS, player_id=player_id)
 
         try:
-            if hasattr(self.game, "stack") and self.game.stack and not self.game.stack.is_empty():
-                return True
+            ai = self._get_or_create_ai_engine(player_id)
+            action = ai.get_action(player_id, state, non_pass)
+            if action.type != ActionType.PASS:
+                return action
         except Exception:
             pass
 
-        try:
-            phase = self.game.get_current_phase()
-            step = self.game.get_current_step()
-            if phase in (Phase.PRECOMBAT_MAIN, Phase.POSTCOMBAT_MAIN) and step == Step.MAIN:
-                return True
-        except Exception:
-            pass
+        # Fallback to simple AI if heuristic engine fails.
+        fallback = self._simple_ai_action(player_id, non_pass)
+        if fallback.type != ActionType.PASS:
+            return fallback
 
-        return False
+        # Last resort: first legal non-pass action.
+        first = non_pass[0]
+        return PlayerAction(
+            type=first.type,
+            player_id=player_id,
+            card_id=first.card_id,
+            ability_id=first.ability_id,
+            source_id=first.source_id,
+        )
+
+    async def _llm_should_interrupt(
+        self,
+        player_id: str,
+        state: GameState,
+        legal_actions: list[LegalAction],
+        profile: dict[str, Any],
+    ) -> tuple[bool, dict[str, Any]]:
+        """
+        Off-phase interrupt gate with a single LLM call.
+
+        The model gets a compact "what opponent just did" context and must answer
+        exactly "yes" or "no".
+        """
+        provider = self._get_or_create_llm_provider(player_id, profile)
+        prompt = self._build_llm_interrupt_prompt(player_id, state, legal_actions)
+        system = (
+            "You are a real-time MTG interrupt gate.\n"
+            "Decide whether to interrupt RIGHT NOW.\n"
+            "Output exactly one token: yes or no.\n"
+            "No punctuation. No explanation."
+        )
+
+        import hashlib
+
+        cache = self._llm_response_cache_by_player.setdefault(player_id, {})
+        cache_key = hashlib.sha256(
+            f"interrupt\n{provider.model_name}\n{system}\n{prompt}".encode("utf-8")
+        ).hexdigest()[:24]
+
+        cached = False
+        if cache_key in cache:
+            raw_text = str(cache[cache_key].get("raw", "")).strip()
+            cached = True
+        else:
+            response = await provider.complete(
+                prompt=prompt,
+                system=system,
+                temperature=0.0,
+            )
+            raw_text = (response.content or "").strip()
+            cache[cache_key] = {"raw": raw_text}
+            if len(cache) > 512:
+                cache.clear()
+
+        lower = raw_text.strip().lower()
+        match = re.search(r"\b(yes|no)\b", lower)
+        if match:
+            decision = match.group(1)
+        elif lower.startswith("y"):
+            decision = "yes"
+        else:
+            decision = "no"
+
+        meta: dict[str, Any] = {
+            "brain": (profile.get("brain") or "").strip().lower(),
+            "model": provider.model_name,
+            "mode": "interrupt_gate",
+            "decision": decision,
+            "reasoning": f"interrupt gate: {decision}",
+            "raw": raw_text[:120],
+            "cached": cached,
+            "opponent_action": self._describe_last_opponent_action(player_id),
+        }
+
+        if bool(profile.get("record_prompts")):
+            max_chars = int(profile.get("max_prompt_chars", 8000))
+            meta["prompt"] = prompt[:max_chars]
+
+        return decision == "yes", meta
+
+    def _describe_last_opponent_action(self, player_id: str) -> str:
+        """Human-readable summary of the most recent opponent non-pass action."""
+        action = self._last_non_pass_action
+        if not action:
+            return "No recent opponent action."
+        if action.get("player_id") == player_id:
+            return "Most recent non-pass action was ours."
+
+        who = action.get("player_name") or action.get("player_id") or "Opponent"
+        action_type = action.get("action_type") or "ACTION"
+        card_name = action.get("card_name") or ""
+        if card_name:
+            return f"{who} {action_type} {card_name}"
+        return f"{who} {action_type}"
+
+    def _build_llm_interrupt_prompt(
+        self,
+        player_id: str,
+        state: GameState,
+        legal_actions: list[LegalAction],
+    ) -> str:
+        """Prompt for the off-phase interrupt yes/no gate."""
+        non_pass = [a for a in legal_actions if a.type != ActionType.PASS]
+        opponent_id = next((pid for pid in state.players if pid != player_id), None)
+        player = state.players.get(player_id)
+        opponent = state.players.get(opponent_id) if opponent_id else None
+
+        turn = getattr(self.game.turn_manager, "turn_number", 0)
+        phase = self.game.get_current_phase().name
+        step = self.game.get_current_step().name
+        active = self.game.get_active_player()
+
+        stack_summary = self._summarize_zone_cards(state, "stack", max_cards=6, include_cost=False)
+        our_board = self._summarize_battlefield(state, player_id, max_permanents=14)
+        opp_board = self._summarize_battlefield(state, opponent_id, max_permanents=14) if opponent_id else "Unknown"
+        untapped_lands = self._count_untapped_lands(state, player_id)
+        last_opp_action = self._describe_last_opponent_action(player_id)
+
+        action_lines = []
+        for i, action in enumerate(non_pass):
+            name = ""
+            if action.card_id:
+                obj = state.objects.get(action.card_id)
+                if obj:
+                    name = obj.name
+            desc = action.description or action.type.name
+            if name and name not in desc:
+                desc = f"{desc} [{name}]"
+            action_lines.append(f"- {i + 1}. {desc}")
+        legal_block = "\n".join(action_lines) if action_lines else "- none"
+
+        return (
+            "State snapshot for interrupt decision:\n"
+            f"Turn: {turn}\n"
+            f"Phase/Step: {phase}/{step}\n"
+            f"Active player: {active}\n"
+            f"Our life: {player.life if player else '??'} | Opp life: {opponent.life if opponent else '??'}\n"
+            f"Untapped lands we control: {untapped_lands}\n"
+            f"Most recent opponent action: {last_opp_action}\n"
+            f"Stack: {stack_summary}\n"
+            f"Our battlefield: {our_board}\n"
+            f"Opponent battlefield: {opp_board}\n"
+            "Available non-pass responses right now:\n"
+            f"{legal_block}\n\n"
+            "Decision policy:\n"
+            "- yes: interrupt now only if a response is materially better than passing.\n"
+            "- no: pass if action is low-value, speculative, or not time-sensitive.\n\n"
+            "Answer with only: yes or no."
+        )
 
     def _get_ai_difficulty(self, player_id: str) -> str:
         profile = self.ai_profiles_by_player.get(player_id) or {}
@@ -694,11 +920,24 @@ class GameSession:
 
         from src.ai import AIEngine
 
+        profile = self.ai_profiles_by_player.get(player_id) or {}
+        brain = (profile.get("brain") or "heuristic").strip().lower()
         difficulty = self._get_ai_difficulty(player_id)
+
         if difficulty == "ultra":
             engine = AIEngine.create_ultra_bot()
         else:
             engine = AIEngine(difficulty=difficulty)
+
+        # For LLM-brain bots, this engine is only used as a lightweight fallback
+        # selector (post-yes interrupt).
+        if brain in ("openai", "anthropic", "ollama") and difficulty == "ultra":
+            player_name = profile.get("name", player_id)
+            has_layers = getattr(engine, "_layers_prepared", False)
+            layer_status = "with strategy layers" if has_layers else "without strategy layers (will use Midrange fallback)"
+            logger.info(
+                f"LLM bot '{player_name}' ({brain}) using Ultra fallback engine {layer_status}"
+            )
 
         self._ai_engines_by_player[player_id] = engine
         return engine
@@ -1340,12 +1579,13 @@ class SessionManager:
         self,
         mode: str = "human_vs_bot",
         player_name: str = "Player",
-        ai_difficulty: str = "medium"
+        ai_difficulty: str = "medium",
+        game_mode: str = "mtg"
     ) -> GameSession:
         """Create a new game session."""
         async with self._lock:
             session_id = generate_id()
-            game = Game()
+            game = Game(mode=game_mode)
 
             session = GameSession(
                 id=session_id,

@@ -185,8 +185,11 @@ export interface ActionResultResponse {
 
 // Bot Game Types
 export interface StartBotGameRequest {
+  mode?: 'mtg' | 'hearthstone';
   bot1_deck: string[];
   bot2_deck: string[];
+  bot1_deck_id?: string;
+  bot2_deck_id?: string;
   bot1_difficulty: AIDifficulty;
   bot2_difficulty: AIDifficulty;
   bot1_brain?: 'heuristic' | 'openai' | 'anthropic' | 'ollama';

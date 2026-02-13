@@ -90,8 +90,11 @@ class PlayerActionRequest(BaseModel):
 
 class StartBotGameRequest(BaseModel):
     """Request to start a bot vs bot game."""
+    mode: str = Field(default="mtg", description="Game mode: 'mtg' or 'hearthstone'")
     bot1_deck: list[str] = Field(default_factory=list)
     bot2_deck: list[str] = Field(default_factory=list)
+    bot1_deck_id: Optional[str] = Field(default=None, description="Deck ID from /match/decks (e.g., mono_red_netdeck)")
+    bot2_deck_id: Optional[str] = Field(default=None, description="Deck ID from /match/decks (e.g., azorius_simulacrum_netdeck)")
     bot1_difficulty: AIDifficulty = AIDifficulty.MEDIUM
     bot2_difficulty: AIDifficulty = AIDifficulty.MEDIUM
     bot1_brain: BotBrain = BotBrain.HEURISTIC
@@ -190,6 +193,10 @@ class PlayerData(BaseModel):
     has_lost: bool = False
     hand_size: int = 0
     library_size: int = 0
+    # Hearthstone fields
+    mana_crystals: int = 0
+    armor: int = 0
+    hero_id: Optional[str] = None
 
 
 class CombatData(BaseModel):
@@ -218,6 +225,8 @@ class GameStateResponse(BaseModel):
     winner: Optional[str] = None
     pending_choice: Optional[PendingChoiceData] = None  # Choice for this player
     waiting_for_choice: Optional[PendingChoiceWaitingData] = None  # Another player's choice
+    game_mode: str = "mtg"  # "mtg" or "hearthstone"
+    max_hand_size: int = 7  # 7 for MTG, 10 for Hearthstone
 
 
 class ChoiceResultResponse(BaseModel):
