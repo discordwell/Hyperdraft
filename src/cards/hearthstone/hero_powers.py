@@ -123,16 +123,14 @@ def lesser_heal_effect(obj: GameObject, state: GameState) -> list[Event]:
     if not player or not player.hero_id:
         return []
 
-    # Heal hero (can't go above max)
-    max_hp = getattr(player, 'max_life', 30) or 30
-    heal_amount = min(2, max_hp - player.life)
-    if heal_amount <= 0:
+    # Skip if already at max HP
+    if player.life >= (getattr(player, 'max_life', 30) or 30):
         return []
 
-    # Only return the event - _handle_life_change will apply the change
+    # Emit full heal amount - pipeline's _handle_life_change caps at max_life
     return [Event(
         type=EventType.LIFE_CHANGE,
-        payload={'player': obj.controller, 'amount': heal_amount},
+        payload={'player': obj.controller, 'amount': 2},
         source=obj.id
     )]
 

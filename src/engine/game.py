@@ -2138,9 +2138,8 @@ def make_hero_power(
             # Check mana cost
             # (Mana check should be done before emitting this event)
 
-            # Mark as used
-            if player:
-                player.hero_power_used = True
+            # Note: hero_power_used is marked by use_hero_power() after emit()
+            # to avoid double-marking when both interceptor and caller set it.
 
             # Execute effect
             new_events = effect(obj, s) if effect else []

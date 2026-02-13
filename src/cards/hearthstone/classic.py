@@ -718,15 +718,15 @@ def truesilver_champion_setup(obj: GameObject, state: GameState):
         player = s.players.get(obj.controller)
         if not player:
             return InterceptorResult(action=InterceptorAction.PASS)
-        max_hp = getattr(player, 'max_life', 30) or 30
-        heal_amount = min(2, max_hp - player.life)
-        if heal_amount <= 0:
+        # Skip if already at max HP
+        if player.life >= (getattr(player, 'max_life', 30) or 30):
             return InterceptorResult(action=InterceptorAction.PASS)
+        # Emit full heal amount - pipeline's _handle_life_change caps at max_life
         return InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=[Event(
                 type=EventType.LIFE_CHANGE,
-                payload={'player': obj.controller, 'amount': heal_amount},
+                payload={'player': obj.controller, 'amount': 2},
                 source=obj.id
             )]
         )
