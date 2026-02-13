@@ -485,6 +485,10 @@ def _handle_object_created(event: Event, state: GameState):
         obj_state.stealth = True
     if 'windfury' in obj_keywords:
         obj_state.windfury = True
+    if 'frozen' in obj_keywords:
+        obj_state.frozen = True
+    if 'charge' in obj_keywords:
+        obj_state.summoning_sickness = False
 
     created = GameObject(
         id=obj_id,
@@ -621,6 +625,27 @@ def _handle_zone_change(event: Event, state: GameState):
     # Important: many call sites provide imperfect `from_zone` keys. Be robust
     # and remove the object from *any* zone that currently references it.
     _remove_object_from_all_zones(object_id, state)
+
+    # Hearthstone: enforce 7-minion board limit at the pipeline level
+    if (state.game_mode == "hearthstone" and
+            to_zone_type == ZoneType.BATTLEFIELD and
+            CardType.MINION in obj.characteristics.types):
+        battlefield = state.zones.get('battlefield')
+        if battlefield:
+            minion_count = sum(
+                1 for oid in battlefield.objects
+                if oid in state.objects
+                and state.objects[oid].controller == obj.controller
+                and CardType.MINION in state.objects[oid].characteristics.types
+            )
+            if minion_count >= 7:
+                # Board full - send to graveyard instead
+                dest_key = f"graveyard_{obj.owner}"
+                if dest_key in state.zones:
+                    state.zones[dest_key].objects.append(object_id)
+                obj.zone = ZoneType.GRAVEYARD
+                obj.entered_zone_at = state.timestamp
+                return
 
     # Add to new zone
     if to_zone and to_zone in state.zones:
@@ -1333,6 +1358,19 @@ def _handle_object_destroyed(event: Event, state: GameState):
     obj.zone = dest_type
     obj.entered_zone_at = state.timestamp
 
+    # Hearthstone: clear weapon stats when a weapon is destroyed
+    from .types import CardType
+    if state.game_mode == "hearthstone" and CardType.WEAPON in obj.characteristics.types:
+        player = state.players.get(obj.controller)
+        if player:
+            player.weapon_attack = 0
+            player.weapon_durability = 0
+        hero_id = player.hero_id if player else None
+        if hero_id and hero_id in state.objects:
+            hero = state.objects[hero_id]
+            hero.state.weapon_attack = 0
+            hero.state.weapon_durability = 0
+
     # NOTE: Interceptor cleanup moved to _cleanup_departed_interceptors()
     # which runs AFTER the REACT phase, allowing death triggers to fire
 
@@ -1486,6 +1524,8 @@ def _handle_create_token(event: Event, state: GameState):
             token_state.windfury = True
         if 'frozen' in token_keywords:
             token_state.frozen = True
+        if 'charge' in token_keywords:
+            token_state.summoning_sickness = False
 
         token = GameObject(
             id=obj_id,
