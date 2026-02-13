@@ -1384,6 +1384,19 @@ def _handle_create_token(event: Event, state: GameState):
         return
 
     for _ in range(count):
+        # Hearthstone: enforce 7-minion board limit
+        if state.game_mode == "hearthstone":
+            battlefield = state.zones.get('battlefield')
+            if battlefield:
+                minion_count = sum(
+                    1 for oid in battlefield.objects
+                    if oid in state.objects
+                    and state.objects[oid].controller == controller_id
+                    and CardType.MINION in state.objects[oid].characteristics.types
+                )
+                if minion_count >= 7:
+                    return  # Board full, can't create token
+
         # Build characteristics from token data
         types = token_data.get('types', {CardType.CREATURE})
         if isinstance(types, list):

@@ -184,11 +184,10 @@ class HearthstoneCombatManager:
             has_charge = has_ability(attacker, 'charge', self.state)
             has_rush = has_ability(attacker, 'rush', self.state)
 
-            # If no charge/rush, must have been on battlefield at start of turn
+            # If no charge/rush, can't attack with summoning sickness
             if not has_charge and not has_rush:
-                # For now, assume we track this via a timestamp or flag
-                # TODO: Implement proper summoning sickness tracking
-                pass
+                if attacker.state.summoning_sickness:
+                    return False
 
         # Heroes can attack if they have weapon attack
         if CardType.HERO in attacker.characteristics.types:
