@@ -646,6 +646,24 @@ def mind_control_effect(obj: GameObject, state: GameState, targets: list[list[st
     if CardType.MINION not in target.characteristics.types:
         return []
 
+    # Check board limit: in Hearthstone, if the caster has 7 minions,
+    # Mind Control destroys the target instead of stealing it
+    if state.game_mode == "hearthstone":
+        battlefield = state.zones.get('battlefield')
+        if battlefield:
+            minion_count = sum(
+                1 for oid in battlefield.objects
+                if oid in state.objects
+                and state.objects[oid].controller == obj.controller
+                and CardType.MINION in state.objects[oid].characteristics.types
+            )
+            if minion_count >= 7:
+                return [Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': target_id, 'reason': 'mind_control_board_full'},
+                    source=obj.id
+                )]
+
     # Only return the event - _handle_gain_control will change the controller
     return [Event(
         type=EventType.CONTROL_CHANGE,
