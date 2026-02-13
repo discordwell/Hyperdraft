@@ -76,6 +76,9 @@ class HearthstoneAIAdapter:
                 # Check SBAs after each card play (battlecries may kill minions)
                 if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
                     await game.turn_manager._check_state_based_actions()
+                # Stop immediately if someone died mid-turn
+                if game.is_game_over():
+                    return events
             else:
                 break
 
@@ -86,6 +89,8 @@ class HearthstoneAIAdapter:
             # Check SBAs after hero power (damage may kill hero/minions)
             if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
                 await game.turn_manager._check_state_based_actions()
+            if game.is_game_over():
+                return events
 
             # After hero power, try to play more cards with remaining mana
             for _ in range(max_plays):
@@ -98,6 +103,8 @@ class HearthstoneAIAdapter:
                     # Check SBAs after each card play
                     if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
                         await game.turn_manager._check_state_based_actions()
+                    if game.is_game_over():
+                        return events
                 else:
                     break
 
@@ -551,6 +558,9 @@ class HearthstoneAIAdapter:
                     # Check state-based actions after each attack (remove dead minions)
                     if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
                         await game.turn_manager._check_state_based_actions()
+                    # Stop if someone died from combat damage
+                    if game.is_game_over():
+                        return events
 
             if not made_attack:
                 break
