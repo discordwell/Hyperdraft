@@ -2118,12 +2118,20 @@ def faceless_manipulator_battlecry(obj: GameObject, state: GameState) -> list[Ev
     obj.name = target.name
     obj.characteristics.power = target.characteristics.power
     obj.characteristics.toughness = target.characteristics.toughness
+    obj.characteristics.mana_cost = target.characteristics.mana_cost
     obj.characteristics.subtypes = set(target.characteristics.subtypes)
     obj.characteristics.abilities = list(target.characteristics.abilities)
     obj.state.damage = 0
     obj.state.divine_shield = target.state.divine_shield
     obj.state.stealth = target.state.stealth
     obj.state.windfury = target.state.windfury
+    # Copy card_def and re-run setup_interceptors for abilities (auras, triggers, etc.)
+    if target.card_def:
+        obj.card_def = target.card_def
+        if hasattr(target.card_def, 'setup_interceptors') and target.card_def.setup_interceptors:
+            new_interceptors = target.card_def.setup_interceptors(obj, state)
+            if new_interceptors:
+                state.interceptors.extend(new_interceptors)
     return [Event(type=EventType.TRANSFORM, payload={
         'object_id': obj.id, 'new_name': target.name, 'copy_from': target_id
     }, source=obj.id)]
@@ -2731,7 +2739,7 @@ def ysera_setup(obj: GameObject, state: GameState):
             action=InterceptorAction.REACT,
             new_events=[Event(type=EventType.ADD_TO_HAND, payload={
                 'player': obj.controller,
-                'card': dream_card,
+                'card_def': dream_card,
             }, source=obj.id)]
         )
 
@@ -3432,7 +3440,7 @@ def lorewalker_cho_setup(obj: GameObject, state: GameState):
             action=InterceptorAction.REACT,
             new_events=[Event(type=EventType.ADD_TO_HAND, payload={
                 'player': other_player,
-                'card': card_info,
+                'card_def': card_info,
             }, source=obj.id)]
         )
 
@@ -3470,10 +3478,12 @@ def king_mukla_battlecry(obj: GameObject, state: GameState) -> list[Event]:
             for _ in range(2):
                 events.append(Event(type=EventType.ADD_TO_HAND, payload={
                     'player': pid,
-                    'card_name': 'Banana',
-                    'card_cost': '{1}',
-                    'card_types': {CardType.SPELL},
-                    'card_text': 'Give a minion +1/+1.',
+                    'card_def': {
+                        'name': 'Banana',
+                        'mana_cost': '{1}',
+                        'types': {CardType.SPELL},
+                        'text': 'Give a minion +1/+1.',
+                    },
                 }, source=obj.id))
             return events
     return []
