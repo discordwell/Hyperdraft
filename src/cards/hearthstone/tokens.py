@@ -1,5 +1,4 @@
 from src.engine.game import make_minion
-from src.engine.types import CardType
 from src.cards.interceptor_helpers import make_static_pt_boost, other_friendly_minions, make_spell_damage_boost
 
 # Token definitions - uncollectible minions summoned by other cards
@@ -197,13 +196,18 @@ HUFFER = make_minion(
 )
 
 # Totemic Call tokens
+def _healing_totem_setup(obj, state):
+    from src.cards.hearthstone.hero_powers import healing_totem_setup
+    return healing_totem_setup(obj, state)
+
 HEALING_TOTEM = make_minion(
     name="Healing Totem",
     attack=0,
     health=2,
     mana_cost="{0}",
     subtypes={"Totem"},
-    text=""
+    text="At the end of your turn, restore 1 Health to all friendly minions.",
+    setup_interceptors=_healing_totem_setup
 )
 
 SEARING_TOTEM = make_minion(

@@ -64,9 +64,9 @@ def northshire_cleric_setup(obj: GameObject, state: GameState) -> list[Intercept
     def heal_filter(event: Event, s: GameState) -> bool:
         if event.type != EventType.LIFE_CHANGE:
             return False
-        target = event.payload.get('target')
-        if target and target in s.objects:
-            # Healing to a minion
+        # Check for minion heal (object_id key) with positive amount
+        object_id = event.payload.get('object_id')
+        if object_id and object_id in s.objects:
             return event.payload.get('amount', 0) > 0
         return False
 
@@ -204,12 +204,17 @@ def holy_nova_effect(obj: GameObject, state: GameState, targets: list) -> list[E
         source=obj.id
     ))
 
-    # Heal friendly minions
+    # Heal friendly minions (emit events so Northshire Cleric triggers)
     for mid in get_friendly_minions(obj, state, exclude_self=False):
         m = state.objects.get(mid)
         if m and m.state.damage > 0:
             heal_amount = min(m.state.damage, 2)
             m.state.damage -= heal_amount
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'object_id': mid, 'amount': heal_amount},
+                source=obj.id
+            ))
 
     return events
 
@@ -295,34 +300,42 @@ def lightwell_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 event.payload.get('player') == obj.controller)
 
     def heal_handler(event: Event, s: GameState) -> InterceptorResult:
-        # Find damaged friendly characters
-        damaged = []
+        # Find all damaged friendly characters (minions + hero)
+        candidates = []
         for mid in get_friendly_minions(obj, s, exclude_self=False):
             m = s.objects.get(mid)
             if m and m.state.damage > 0:
-                damaged.append(mid)
+                candidates.append(('minion', mid))
 
-        # Check if hero is damaged
-        hero = s.players[obj.controller].hero
-        if hero and hero.life < hero.starting_life:
-            # Heal hero
-            heal_amount = min(3, hero.starting_life - hero.life)
+        player = s.players.get(obj.controller)
+        if player and player.life < (getattr(player, 'max_life', 30) or 30):
+            candidates.append(('hero', obj.controller))
+
+        if not candidates:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        choice_type, choice_id = random.choice(candidates)
+        if choice_type == 'hero':
             return InterceptorResult(
                 action=InterceptorAction.REACT,
                 new_events=[Event(
                     type=EventType.LIFE_CHANGE,
-                    payload={'player': obj.controller, 'amount': heal_amount},
+                    payload={'player': obj.controller, 'amount': 3},
                     source=obj.id
                 )]
             )
-        elif damaged:
-            # Heal a random damaged minion
-            target = random.choice(damaged)
-            m = s.objects[target]
+        else:
+            m = s.objects[choice_id]
             heal_amount = min(m.state.damage, 3)
             m.state.damage -= heal_amount
-
-        return InterceptorResult(action=InterceptorAction.PASS)
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'object_id': choice_id, 'amount': heal_amount},
+                    source=obj.id
+                )]
+            )
 
     return [Interceptor(
         id=new_id(),
@@ -473,12 +486,18 @@ AUCHENAI_SOULPRIEST = make_minion(
 
 def circle_of_healing_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
     """Restore 4 Health to ALL minions."""
+    events = []
     for mid in get_all_minions(state):
         m = state.objects.get(mid)
         if m and m.state.damage > 0:
             heal_amount = min(m.state.damage, 4)
             m.state.damage -= heal_amount
-    return []
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'object_id': mid, 'amount': heal_amount},
+                source=obj.id
+            ))
+    return events
 
 CIRCLE_OF_HEALING = make_spell(
     name="Circle of Healing",
@@ -488,13 +507,35 @@ CIRCLE_OF_HEALING = make_spell(
 )
 
 
+def lightspawn_setup(obj, state):
+    """This minion's Attack is always equal to its Health."""
+    def query_power_filter(event, s):
+        if event.type != EventType.QUERY_POWER:
+            return False
+        return event.payload.get('object_id') == obj.id
+
+    def set_attack_to_health(event, s):
+        source = s.objects.get(obj.id)
+        if source:
+            health = source.characteristics.toughness - source.state.damage
+            new_event = event.copy()
+            new_event.payload['value'] = health
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.RESOLVE, filter=query_power_filter, handler=set_attack_to_health,
+        duration='while_on_battlefield'
+    )]
+
 LIGHTSPAWN = make_minion(
     name="Lightspawn",
     attack=0,
     health=5,
     mana_cost="{4}",
     text="This minion's Attack is always equal to its Health.",
-    battlecry=lambda obj, state: []  # Text only
+    setup_interceptors=lightspawn_setup
 )
 
 

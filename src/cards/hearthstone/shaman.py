@@ -1,7 +1,7 @@
 """Hearthstone Shaman Cards - Basic + Classic"""
 import random
 from src.engine.game import make_minion, make_spell, make_weapon
-from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType
+from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType, Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
 from src.cards.interceptor_helpers import (
     get_enemy_targets, get_enemy_minions, get_friendly_minions, get_all_minions,
     get_enemy_hero_id, other_friendly_minions, make_static_pt_boost,
@@ -43,7 +43,9 @@ FROST_SHOCK = make_spell(
 def rockbiter_weapon_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
     """Give a friendly character +3 Attack this turn."""
     friendly_targets = get_friendly_minions(obj, state, exclude_self=False)
-    friendly_targets.append(obj.controller)  # Can target own hero
+    player = state.players.get(obj.controller)
+    if player and player.hero_id:
+        friendly_targets.append(player.hero_id)  # Can target own hero
     events = []
     if friendly_targets:
         target = random.choice(friendly_targets)
@@ -57,17 +59,17 @@ def rockbiter_weapon_effect(obj: GameObject, state: GameState, targets: list) ->
 
 ROCKBITER_WEAPON = make_spell(
     name="Rockbiter Weapon",
-    mana_cost="{2}",
+    mana_cost="{1}",
     text="Give a friendly character +3 Attack this turn.",
     spell_effect=rockbiter_weapon_effect
 )
 
 
 def windfury_spell_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
-    """Give a minion Windfury."""
-    all_minions = get_all_minions(state)
-    if all_minions:
-        target_id = random.choice(all_minions)
+    """Give a friendly minion Windfury."""
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    if friendly:
+        target_id = random.choice(friendly)
         target = state.objects.get(target_id)
         if target and target.zone == ZoneType.BATTLEFIELD:
             target.state.windfury = True
@@ -412,13 +414,49 @@ STORMFORGED_AXE = make_weapon(
 )
 
 
+def unbound_elemental_setup(obj, state):
+    """Whenever you play a card with Overload, gain +1/+1."""
+    def overload_filter(event, s):
+        # Trigger when any spell/minion with overload is played by same controller
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST, EventType.ZONE_CHANGE):
+            return False
+        # Check if the source card has overload text (simplified check)
+        source_id = event.payload.get('spell_id') or event.payload.get('object_id') or event.source
+        source_obj = s.objects.get(source_id)
+        if source_obj and source_obj.controller == obj.controller:
+            card_def = getattr(source_obj, 'card_def', None)
+            if card_def and 'Overload' in (card_def.get('text', '') or ''):
+                return True
+        return False
+
+    def gain_stats(event, s):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'permanent'},
+                source=obj.id
+            )]
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=overload_filter,
+        handler=gain_stats,
+        duration='while_on_battlefield'
+    )]
+
 UNBOUND_ELEMENTAL = make_minion(
     name="Unbound Elemental",
     attack=2,
     health=4,
     mana_cost="{3}",
     subtypes={"Elemental"},
-    text="Whenever you play a card with Overload, gain +1/+1."
+    text="Whenever you play a card with Overload, gain +1/+1.",
+    setup_interceptors=unbound_elemental_setup
 )
 
 
@@ -466,11 +504,38 @@ EARTH_ELEMENTAL = make_minion(
 
 
 def doomhammer_setup(obj, state):
-    # Apply overload immediately when weapon is equipped
+    """Windfury. Overload: (2). Grant Windfury to hero when equipped."""
     player = state.players.get(obj.controller)
     if player:
         player.overloaded_mana += 2
-    return []
+        # Grant Windfury to the hero
+        hero = state.objects.get(player.hero_id)
+        if hero:
+            hero.state.windfury = True
+
+    # Interceptor: remove Windfury from hero when weapon is destroyed
+    def weapon_break_filter(event, s):
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        return event.payload.get('object_id') == obj.id
+
+    def weapon_break_handler(event, s):
+        p = s.players.get(obj.controller)
+        if p:
+            h = s.objects.get(p.hero_id)
+            if h:
+                h.state.windfury = False
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=weapon_break_filter,
+        handler=weapon_break_handler,
+        duration='while_on_battlefield'
+    )]
 
 
 DOOMHAMMER = make_weapon(
@@ -489,7 +554,7 @@ AL_AKIR_THE_WINDLORD = make_minion(
     health=5,
     mana_cost="{8}",
     subtypes={"Elemental"},
-    keywords={"charge", "taunt"},
+    keywords={"charge", "taunt", "windfury", "divine_shield"},
     text="Windfury, Charge, Divine Shield, Taunt.",
 )
 
@@ -530,19 +595,25 @@ def ancestral_healing_effect(obj: GameObject, state: GameState, targets: list) -
     if not target or target.zone != ZoneType.BATTLEFIELD:
         return []
 
-    # Heal to full
-    target.state.damage = 0
+    events = []
+    # Heal to full via clearing damage
+    if target.state.damage > 0:
+        heal_amount = target.state.damage
+        target.state.damage = 0
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'target': target_id, 'amount': heal_amount},
+            source=obj.id
+        ))
 
-    # Grant Taunt
-    if not target.characteristics.abilities:
-        target.characteristics.abilities = []
-    target.characteristics.abilities.append({'keyword': 'taunt'})
-
-    return [Event(
-        type=EventType.LIFE_CHANGE,
-        payload={'target': target_id, 'amount': 999, 'source': obj.id},
+    # Grant Taunt via event
+    events.append(Event(
+        type=EventType.KEYWORD_GRANT,
+        payload={'object_id': target_id, 'keyword': 'taunt'},
         source=obj.id
-    )]
+    ))
+
+    return events
 
 
 ANCESTRAL_HEALING = make_spell(
@@ -567,6 +638,7 @@ DUST_DEVIL = make_minion(
     health=1,
     mana_cost="{1}",
     subtypes={"Elemental"},
+    keywords={"windfury"},
     text="Windfury. Overload: (2).",
     battlecry=dust_devil_on_play
 )
@@ -584,12 +656,12 @@ SHAMAN_BASIC = [
     HEX,
     LIGHTNING_BOLT,
     FERAL_SPIRIT,
-    LAVA_BURST,
     BLOODLUST,
     FIRE_ELEMENTAL,
 ]
 
 SHAMAN_CLASSIC = [
+    LAVA_BURST,
     EARTH_SHOCK,
     FORKED_LIGHTNING,
     LIGHTNING_STORM,

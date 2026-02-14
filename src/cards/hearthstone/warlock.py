@@ -1,7 +1,7 @@
 """Hearthstone Warlock Cards - Basic + Classic"""
 import random
 from src.engine.game import make_minion, make_spell
-from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType
+from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType, Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
 from src.cards.interceptor_helpers import (
     get_enemy_targets, get_enemy_minions, get_all_minions, get_enemy_hero_id,
     make_end_of_turn_trigger, make_whenever_takes_damage_trigger
@@ -30,7 +30,7 @@ def soulfire_effect(obj, state, targets):
         discard_id = random.choice(list(hand.objects))
         events.append(Event(
             type=EventType.DISCARD,
-            payload={'player': obj.controller, 'card_id': discard_id},
+            payload={'player': obj.controller, 'object_id': discard_id},
             source=obj.id
         ))
     return events
@@ -47,12 +47,16 @@ def mortal_coil_effect(obj, state, targets):
             payload={'target': target, 'amount': 1, 'source': obj.id, 'from_spell': True},
             source=obj.id
         ))
-        # Simplified: just draw a card
-        events.append(Event(
-            type=EventType.DRAW,
-            payload={'player': obj.controller, 'count': 1},
-            source=obj.id
-        ))
+        # Check if target will die from this damage
+        target_obj = state.objects.get(target)
+        if target_obj:
+            effective_hp = target_obj.characteristics.toughness - target_obj.state.damage
+            if effective_hp <= 1:
+                events.append(Event(
+                    type=EventType.DRAW,
+                    payload={'player': obj.controller, 'count': 1},
+                    source=obj.id
+                ))
     return events
 
 
@@ -82,13 +86,11 @@ def drain_life_effect(obj, state, targets):
             source=obj.id
         ))
     # Heal your hero
-    player = state.players.get(obj.controller)
-    if player and player.hero_id:
-        events.append(Event(
-            type=EventType.LIFE_CHANGE,
-            payload={'target': player.hero_id, 'amount': 2, 'source': obj.id},
-            source=obj.id
-        ))
+    events.append(Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': obj.controller, 'amount': 2},
+        source=obj.id
+    ))
     return events
 
 
@@ -117,8 +119,7 @@ def hellfire_effect(obj, state, targets):
 
 
 def power_overwhelming_effect(obj, state, targets):
-    """Give a friendly minion +4/+4 until end of turn."""
-    events = []
+    """Give a friendly minion +4/+4 until end of turn. Then, it dies."""
     battlefield = state.zones.get('battlefield')
     friendly_minions = []
     if battlefield:
@@ -127,46 +128,117 @@ def power_overwhelming_effect(obj, state, targets):
             if m and CardType.MINION in m.characteristics.types and m.controller == obj.controller:
                 friendly_minions.append(mid)
 
-    if friendly_minions:
-        target = random.choice(friendly_minions)
-        events.append(Event(
-            type=EventType.PT_MODIFICATION,
-            payload={
-                'target': target,
-                'power_mod': 4,
-                'toughness_mod': 4,
-                'duration': 'end_of_turn',
-                'source': obj.id
-            },
-            source=obj.id
-        ))
-    return events
+    if not friendly_minions:
+        return []
+
+    target = random.choice(friendly_minions)
+
+    # Register end-of-turn interceptor to destroy the minion
+    def end_turn_filter(event, s):
+        return event.type == EventType.TURN_END and event.payload.get('player') == obj.controller
+
+    def end_turn_handler(event, s):
+        # Self-remove this interceptor
+        int_id = end_turn_handler._interceptor_id
+        if int_id in s.interceptors:
+            del s.interceptors[int_id]
+        # Destroy the buffed minion
+        target_obj = s.objects.get(target)
+        if target_obj and target_obj.zone == ZoneType.BATTLEFIELD:
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': target, 'reason': 'power_overwhelming'},
+                    source=obj.id
+                )]
+            )
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    int_obj = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=end_turn_filter,
+        handler=end_turn_handler,
+        duration='until_end_of_turn'
+    )
+    end_turn_handler._interceptor_id = int_obj.id
+    state.interceptors[int_obj.id] = int_obj
+
+    return [Event(
+        type=EventType.PT_MODIFICATION,
+        payload={
+            'object_id': target,
+            'power_mod': 4,
+            'toughness_mod': 4,
+            'duration': 'end_of_turn',
+        },
+        source=obj.id
+    )]
 
 
 def demonfire_effect(obj, state, targets):
     """Deal 2 damage to a minion. If it's a friendly Demon, give it +2/+2 instead."""
-    # Simplified: deal 2 to random enemy minion
     events = []
-    enemy_minions = get_enemy_minions(obj, state)
-    if enemy_minions:
-        target = random.choice(enemy_minions)
+    # Check for friendly Demons first
+    battlefield = state.zones.get('battlefield')
+    friendly_demons = []
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if (m and m.controller == obj.controller and
+                CardType.MINION in m.characteristics.types and
+                'Demon' in m.characteristics.subtypes):
+                friendly_demons.append(mid)
+    if friendly_demons:
+        target = random.choice(friendly_demons)
         events.append(Event(
-            type=EventType.DAMAGE,
-            payload={'target': target, 'amount': 2, 'source': obj.id, 'from_spell': True},
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': target, 'power_mod': 2, 'toughness_mod': 2, 'duration': 'permanent'},
             source=obj.id
         ))
+    else:
+        enemy_minions = get_enemy_minions(obj, state)
+        if enemy_minions:
+            target = random.choice(enemy_minions)
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': target, 'amount': 2, 'source': obj.id, 'from_spell': True},
+                source=obj.id
+            ))
     return events
 
 
 def shadowflame_effect(obj, state, targets):
     """Destroy a friendly minion and deal its Attack damage to all enemy minions."""
-    # Simplified: deal 3 damage to all enemy minions
     events = []
+    # Find a friendly minion to sacrifice
+    battlefield = state.zones.get('battlefield')
+    friendly_minions = []
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if m and CardType.MINION in m.characteristics.types and m.controller == obj.controller:
+                friendly_minions.append(mid)
+    if not friendly_minions:
+        return []
+    # Pick the highest-attack friendly minion for AI
+    sacrifice = max(friendly_minions, key=lambda mid: state.objects[mid].characteristics.power)
+    sacrifice_attack = state.objects[sacrifice].characteristics.power
+    # Destroy the sacrificed minion
+    events.append(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': sacrifice, 'reason': 'shadowflame'},
+        source=obj.id
+    ))
+    # Deal its attack damage to all enemy minions
     enemy_minions = get_enemy_minions(obj, state)
     for mid in enemy_minions:
         events.append(Event(
             type=EventType.DAMAGE,
-            payload={'target': mid, 'amount': 3, 'source': obj.id, 'from_spell': True},
+            payload={'target': mid, 'amount': sacrifice_attack, 'source': obj.id, 'from_spell': True},
             source=obj.id
         ))
     return events
@@ -174,7 +246,6 @@ def shadowflame_effect(obj, state, targets):
 
 def bane_of_doom_effect(obj, state, targets):
     """Deal 2 damage to a character. If that kills it, summon a random Demon."""
-    # Simplified: deal 2 damage, summon a 6/6 Infernal token
     events = []
     enemies = get_enemy_targets(obj, state)
     if enemies:
@@ -184,20 +255,25 @@ def bane_of_doom_effect(obj, state, targets):
             payload={'target': target, 'amount': 2, 'source': obj.id, 'from_spell': True},
             source=obj.id
         ))
-    # Summon 6/6 Infernal token
-    events.append(Event(
-        type=EventType.CREATE_TOKEN,
-        payload={
-            'controller': obj.controller,
-            'name': 'Infernal',
-            'power': 6,
-            'toughness': 6,
-            'mana_cost': '{6}',
-            'subtypes': {'Demon'},
-            'source': obj.id
-        },
-        source=obj.id
-    ))
+        # Only summon if target will die
+        target_obj = state.objects.get(target)
+        if target_obj:
+            effective_hp = target_obj.characteristics.toughness - target_obj.state.damage
+            if effective_hp <= 2:
+                events.append(Event(
+                    type=EventType.CREATE_TOKEN,
+                    payload={
+                        'controller': obj.controller,
+                        'token': {
+                            'name': 'Infernal',
+                            'power': 6,
+                            'toughness': 6,
+                            'types': {CardType.MINION},
+                            'subtypes': {'Demon'},
+                        }
+                    },
+                    source=obj.id
+                ))
     return events
 
 
@@ -213,13 +289,11 @@ def siphon_soul_effect(obj, state, targets):
             source=obj.id
         ))
     # Heal your hero
-    player = state.players.get(obj.controller)
-    if player and player.hero_id:
-        events.append(Event(
-            type=EventType.LIFE_CHANGE,
-            payload={'target': player.hero_id, 'amount': 3, 'source': obj.id},
-            source=obj.id
-        ))
+    events.append(Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': obj.controller, 'amount': 3},
+        source=obj.id
+    ))
     return events
 
 
@@ -289,7 +363,7 @@ def succubus_battlecry(obj, state):
         discard_id = random.choice(list(hand.objects))
         events.append(Event(
             type=EventType.DISCARD,
-            payload={'player': obj.controller, 'card_id': discard_id},
+            payload={'player': obj.controller, 'object_id': discard_id},
             source=obj.id
         ))
     return events
@@ -341,16 +415,13 @@ def doomguard_battlecry(obj, state):
     hand = state.zones.get(hand_key)
     if hand and hand.objects:
         cards_to_discard = min(2, len(hand.objects))
-        for _ in range(cards_to_discard):
-            if hand.objects:
-                discard_id = random.choice(list(hand.objects))
-                events.append(Event(
-                    type=EventType.DISCARD,
-                    payload={'player': obj.controller, 'card_id': discard_id},
-                    source=obj.id
-                ))
-                if discard_id in hand.objects:
-                    hand.objects.remove(discard_id)
+        discard_ids = random.sample(list(hand.objects), cards_to_discard)
+        for discard_id in discard_ids:
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': obj.controller, 'object_id': discard_id},
+                source=obj.id
+            ))
     return events
 
 
@@ -379,11 +450,10 @@ def blood_imp_setup(obj: GameObject, state: GameState):
             return [Event(
                 type=EventType.PT_MODIFICATION,
                 payload={
-                    'target': target,
+                    'object_id': target,
                     'power_mod': 0,
                     'toughness_mod': 1,
                     'duration': 'permanent',
-                    'source': obj.id
                 },
                 source=obj.id
             )]
@@ -398,7 +468,7 @@ def blood_imp_setup(obj: GameObject, state: GameState):
 
 SOULFIRE = make_spell(
     name="Soulfire",
-    mana_cost="{1}",
+    mana_cost="{0}",
     spell_effect=soulfire_effect,
     text="Deal 4 damage. Discard a random card."
 )
@@ -423,7 +493,7 @@ VOIDWALKER = make_minion(
     health=3,
     mana_cost="{1}",
     subtypes={"Demon"},
-    keywords={"Taunt"},
+    keywords={"taunt"},
     text="Taunt"
 )
 
@@ -489,7 +559,7 @@ BLOOD_IMP = make_minion(
     health=1,
     mana_cost="{1}",
     subtypes={"Demon"},
-    keywords={"Stealth"},
+    keywords={"stealth"},
     setup_interceptors=blood_imp_setup,
     text="Stealth. At the end of your turn, give another random friendly minion +1 Health."
 )
@@ -551,7 +621,7 @@ FELGUARD = make_minion(
     health=5,
     mana_cost="{3}",
     subtypes={"Demon"},
-    keywords={"Taunt"},
+    keywords={"taunt"},
     battlecry=felguard_battlecry,
     text="Taunt. Battlecry: Destroy one of your Mana Crystals."
 )
@@ -572,7 +642,7 @@ DOOMGUARD = make_minion(
     health=7,
     mana_cost="{5}",
     subtypes={"Demon"},
-    keywords={"Charge"},
+    keywords={"charge"},
     battlecry=doomguard_battlecry,
     text="Charge. Battlecry: Discard 2 random cards."
 )

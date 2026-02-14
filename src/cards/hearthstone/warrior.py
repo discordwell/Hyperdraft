@@ -46,9 +46,37 @@ WHIRLWIND = make_spell(
 def heroic_strike_effect(obj, state, targets):
     """Give your hero +4 Attack this turn."""
     player = state.players.get(obj.controller)
-    if player:
-        player.weapon_attack += 4
-        # TODO: Should expire at end of turn
+    if not player:
+        return []
+
+    player.weapon_attack += 4
+
+    # Register end-of-turn cleanup interceptor to remove the +4 attack
+    def end_turn_filter(event, s):
+        return event.type == EventType.TURN_END and event.payload.get('player') == obj.controller
+
+    def end_turn_handler(event, s):
+        p = s.players.get(obj.controller)
+        if p:
+            p.weapon_attack = max(0, p.weapon_attack - 4)
+        # Self-remove this interceptor
+        int_id = end_turn_handler._interceptor_id
+        if int_id in s.interceptors:
+            del s.interceptors[int_id]
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    int_obj = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=end_turn_filter,
+        handler=end_turn_handler,
+        duration='until_end_of_turn'
+    )
+    end_turn_handler._interceptor_id = int_obj.id
+    state.interceptors[int_obj.id] = int_obj
+
     return []
 
 HEROIC_STRIKE = make_spell(
@@ -112,13 +140,43 @@ CHARGE_SPELL = make_spell(
     spell_effect=charge_spell_effect
 )
 
+def warsong_commander_setup(obj, state):
+    """Whenever you summon a minion with 3 or less Attack, give it Charge."""
+    def summon_filter(event, s):
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == obj.id:
+            return False
+        entering = s.objects.get(entering_id)
+        return (entering and entering.controller == obj.controller and
+                CardType.MINION in entering.characteristics.types and
+                entering.characteristics.power <= 3)
+
+    def grant_charge(event, s):
+        entering_id = event.payload.get('object_id')
+        entering = s.objects.get(entering_id)
+        if entering:
+            if not any(a.get('keyword') == 'charge' for a in (entering.characteristics.abilities or [])):
+                entering.characteristics.abilities.append({'keyword': 'charge'})
+            entering.state.summoning_sickness = False
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=summon_filter, handler=grant_charge,
+        duration='while_on_battlefield'
+    )]
+
 WARSONG_COMMANDER = make_minion(
     name="Warsong Commander",
     attack=2,
     health=3,
     mana_cost="{3}",
-    text="Whenever you summon a minion with 3 or less Attack, give it Charge."
-    # Note: Text only - complex trigger not implemented
+    text="Whenever you summon a minion with 3 or less Attack, give it Charge.",
+    setup_interceptors=warsong_commander_setup
 )
 
 KOR_KRON_ELITE = make_minion(
@@ -169,10 +227,14 @@ def upgrade_effect(obj, state, targets):
             break
 
     if weapon_id:
-        # Upgrade existing weapon
-        weapon = state.objects[weapon_id]
-        weapon.state.weapon_attack += 1
-        weapon.state.weapon_durability += 1
+        # Upgrade existing weapon - modify player stats (combat reads these)
+        player.weapon_attack += 1
+        player.weapon_durability += 1
+        # Also sync hero state
+        hero = state.objects.get(player.hero_id)
+        if hero:
+            hero.state.weapon_attack = player.weapon_attack
+            hero.state.weapon_durability = player.weapon_durability
         return []
     else:
         # Equip 1/3 weapon
@@ -393,11 +455,20 @@ BATTLE_RAGE = make_spell(
     spell_effect=battle_rage_effect
 )
 
+def commanding_shout_effect(obj, state, targets):
+    """Your minions can't be reduced below 1 Health this turn. Draw a card."""
+    # Min-1-health effect not implemented, but at minimum draw the card
+    return [Event(
+        type=EventType.DRAW,
+        payload={'player': obj.controller, 'count': 1},
+        source=obj.id
+    )]
+
 COMMANDING_SHOUT = make_spell(
     name="Commanding Shout",
     mana_cost="{2}",
-    text="Your minions can't be reduced below 1 Health this turn."
-    # Note: Text only - complex effect not implemented
+    text="Your minions can't be reduced below 1 Health this turn. Draw a card.",
+    spell_effect=commanding_shout_effect
 )
 
 def rampage_effect(obj, state, targets):
@@ -459,10 +530,14 @@ def armorsmith_setup(obj, state):
                 CardType.MINION in target.characteristics.types)
 
     def gain_armor(event, s):
-        player = s.players.get(obj.controller)
-        if player:
-            player.armor += 1
-        return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.ARMOR_GAIN,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id
+            )]
+        )
 
     return [Interceptor(
         id=new_id(),

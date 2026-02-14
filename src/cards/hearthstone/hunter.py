@@ -60,9 +60,9 @@ def hunters_mark_effect(obj, state, targets):
     if targets:
         target_obj = state.objects.get(targets[0])
         if target_obj and CardType.MINION in target_obj.characteristics.types:
-            damage = target_obj.characteristics.toughness - 1
-            if damage > 0:
-                return [Event(type=EventType.DAMAGE, payload={'target': targets[0], 'amount': damage, 'source': obj.id, 'from_spell': True}, source=obj.id)]
+            # Set health to 1: reduce toughness and clear excess damage
+            target_obj.characteristics.toughness = 1
+            target_obj.state.damage = 0
     return []
 
 
@@ -124,11 +124,12 @@ KILL_COMMAND = make_spell(
 
 # 6. ANIMAL_COMPANION - 3 mana spell, Summon a random Beast companion
 def animal_companion_effect(obj, state, targets):
+    from src.cards.hearthstone.tokens import leokk_setup
     choice = random.choice(['huffer', 'leokk', 'misha'])
     if choice == 'huffer':
         token = {'name': 'Huffer', 'power': 4, 'toughness': 2, 'types': {CardType.MINION}, 'subtypes': {'Beast'}, 'keywords': {'charge'}}
     elif choice == 'leokk':
-        token = {'name': 'Leokk', 'power': 2, 'toughness': 4, 'types': {CardType.MINION}, 'subtypes': {'Beast'}}
+        token = {'name': 'Leokk', 'power': 2, 'toughness': 4, 'types': {CardType.MINION}, 'subtypes': {'Beast'}, 'setup_interceptors': leokk_setup}
     else:  # misha
         token = {'name': 'Misha', 'power': 4, 'toughness': 4, 'types': {CardType.MINION}, 'subtypes': {'Beast'}, 'keywords': {'taunt'}}
     return [Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'token': token}, source=obj.id)]
@@ -150,7 +151,7 @@ def houndmaster_battlecry(obj, state):
         target = random.choice(beasts)
         return [
             Event(type=EventType.PT_MODIFICATION, payload={'object_id': target, 'power_mod': 2, 'toughness_mod': 2, 'duration': 'permanent'}, source=obj.id),
-            Event(type=EventType.KEYWORD_GRANT, payload={'target': target, 'keyword': 'taunt'}, source=obj.id)
+            Event(type=EventType.KEYWORD_GRANT, payload={'object_id': target, 'keyword': 'taunt'}, source=obj.id)
         ]
     return []
 
@@ -188,13 +189,43 @@ MULTI_SHOT = make_spell(
 
 
 # 9. TUNDRA_RHINO - 2/5 Beast, cost 5, Your Beasts have Charge
+def tundra_rhino_setup(obj, state):
+    """Your Beasts have Charge — grant charge and remove summoning sickness from friendly Beasts."""
+    def beast_charge_filter(event, s):
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        summoned_id = event.payload.get('object_id')
+        summoned = s.objects.get(summoned_id)
+        return (summoned and summoned.controller == obj.controller and
+                'Beast' in summoned.characteristics.subtypes)
+
+    def beast_charge_handler(event, s):
+        summoned_id = event.payload.get('object_id')
+        summoned = s.objects.get(summoned_id)
+        if summoned:
+            if not any(a.get('keyword') == 'charge' for a in (summoned.characteristics.abilities or [])):
+                summoned.characteristics.abilities.append({'keyword': 'charge'})
+            summoned.state.summoning_sickness = False
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=beast_charge_filter,
+        handler=beast_charge_handler,
+        duration='while_on_battlefield'
+    )]
+
 TUNDRA_RHINO = make_minion(
     name="Tundra Rhino",
     attack=2,
     health=5,
     mana_cost="{5}",
     subtypes={'Beast'},
-    text="Your Beasts have Charge."
+    text="Your Beasts have Charge.",
+    setup_interceptors=tundra_rhino_setup
 )
 
 
@@ -260,7 +291,7 @@ def bestial_wrath_effect(obj, state, targets):
     if targets:
         target_obj = state.objects.get(targets[0])
         if target_obj and 'Beast' in target_obj.characteristics.subtypes:
-            return [Event(type=EventType.PT_MODIFICATION, payload={'target': targets[0], 'power': 2, 'toughness': 0, 'duration': 'end_of_turn'}, source=obj.id)]
+            return [Event(type=EventType.PT_MODIFICATION, payload={'object_id': targets[0], 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'}, source=obj.id)]
     return []
 
 
@@ -274,167 +305,149 @@ BESTIAL_WRATH = make_spell(
 
 
 # 2. EXPLOSIVE_TRAP - 2 mana Secret, When your hero is attacked, deal 2 damage to all enemies
-def explosive_trap_setup(obj, state):
-    def trigger_fn(event, state):
-        if event.type == EventType.ATTACK_DECLARED:
-            player = state.players.get(obj.controller)
-            if player and event.payload.get('target') == player.hero_id:
-                return True
-        return False
+def _explosive_trap_filter(event, state):
+    return event.type == EventType.ATTACK_DECLARED
 
-    def effect_fn(event, state):
-        events = []
-        battlefield = state.zones.get('battlefield')
-        if battlefield:
-            for mid in list(battlefield.objects):
-                m = state.objects.get(mid)
-                if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
-                    events.append(Event(type=EventType.DAMAGE, payload={'target': mid, 'amount': 2, 'source': obj.id}, source=obj.id))
-        for pid, p in state.players.items():
-            if pid != obj.controller and p.hero_id:
-                events.append(Event(type=EventType.DAMAGE, payload={'target': p.hero_id, 'amount': 2, 'source': obj.id}, source=obj.id))
-        if events:
-            return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
-        return InterceptorResult(action=InterceptorAction.PASS)
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=trigger_fn,
-        handler=effect_fn,
-        duration='while_on_battlefield'
-    )]
-
+def _explosive_trap_effect(obj, state):
+    events = []
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in list(battlefield.objects):
+            m = state.objects.get(mid)
+            if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
+                events.append(Event(type=EventType.DAMAGE, payload={'target': mid, 'amount': 2, 'source': obj.id}, source=obj.id))
+    for pid, p in state.players.items():
+        if pid != obj.controller and p.hero_id:
+            events.append(Event(type=EventType.DAMAGE, payload={'target': p.hero_id, 'amount': 2, 'source': obj.id}, source=obj.id))
+    return events
 
 EXPLOSIVE_TRAP = make_secret(
     name="Explosive Trap",
     mana_cost="{2}",
     text="Secret: When your hero is attacked, deal 2 damage to all enemies.",
-    setup_interceptors=explosive_trap_setup
+    trigger_filter=_explosive_trap_filter,
+    trigger_effect=_explosive_trap_effect
 )
 
 
 # 3. FREEZING_TRAP - 2 mana Secret, When an enemy minion attacks, return it to its owner's hand
-def freezing_trap_setup(obj, state):
-    def trigger_fn(event, state):
-        if event.type == EventType.ATTACK_DECLARED:
-            attacker_id = event.payload.get('attacker')
-            attacker = state.objects.get(attacker_id)
-            if attacker and attacker.controller != obj.controller and CardType.MINION in attacker.characteristics.types:
-                return True
+def _freezing_trap_filter(event, state):
+    if event.type != EventType.ATTACK_DECLARED:
         return False
+    attacker_id = event.payload.get('attacker_id')
+    attacker = state.objects.get(attacker_id)
+    return attacker and CardType.MINION in attacker.characteristics.types
 
-    def effect_fn(event, state):
-        attacker_id = event.payload.get('attacker')
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[Event(type=EventType.RETURN_TO_HAND, payload={'target': attacker_id}, source=obj.id)]
-        )
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=trigger_fn,
-        handler=effect_fn,
-        duration='while_on_battlefield'
-    )]
-
+def _freezing_trap_effect(obj, state):
+    # Return the most recent attacker to hand
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        enemy_minions = [mid for mid in battlefield.objects
+                        if state.objects.get(mid) and state.objects[mid].controller != obj.controller
+                        and CardType.MINION in state.objects[mid].characteristics.types]
+        if enemy_minions:
+            return [Event(type=EventType.RETURN_TO_HAND, payload={'object_id': enemy_minions[-1]}, source=obj.id)]
+    return []
 
 FREEZING_TRAP = make_secret(
     name="Freezing Trap",
     mana_cost="{2}",
     text="Secret: When an enemy minion attacks, return it to its owner's hand. It costs (2) more.",
-    setup_interceptors=freezing_trap_setup
+    trigger_filter=_freezing_trap_filter,
+    trigger_effect=_freezing_trap_effect
 )
 
 
 # 4. SNIPE - 2 mana Secret, When your opponent plays a minion, deal 4 damage to it
-def snipe_setup(obj, state):
-    def trigger_fn(event, state):
-        if event.type == EventType.ZONE_CHANGE:
-            summoned_id = event.payload.get('minion_id')
-            summoned = state.objects.get(summoned_id)
-            if summoned and summoned.controller != obj.controller:
-                return True
-        return False
+def _snipe_filter(event, state):
+    return event.type == EventType.ZONE_CHANGE
 
-    def effect_fn(event, state):
-        summoned_id = event.payload.get('minion_id')
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[Event(type=EventType.DAMAGE, payload={'target': summoned_id, 'amount': 4, 'source': obj.id}, source=obj.id)]
-        )
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=trigger_fn,
-        handler=effect_fn,
-        duration='while_on_battlefield'
-    )]
-
+def _snipe_effect(obj, state):
+    # Deal 4 damage to most recently summoned enemy minion
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        enemy_minions = [mid for mid in battlefield.objects
+                        if state.objects.get(mid) and state.objects[mid].controller != obj.controller
+                        and CardType.MINION in state.objects[mid].characteristics.types]
+        if enemy_minions:
+            return [Event(type=EventType.DAMAGE, payload={'target': enemy_minions[-1], 'amount': 4, 'source': obj.id}, source=obj.id)]
+    return []
 
 SNIPE = make_secret(
     name="Snipe",
     mana_cost="{2}",
     text="Secret: When your opponent plays a minion, deal 4 damage to it.",
-    setup_interceptors=snipe_setup
+    trigger_filter=_snipe_filter,
+    trigger_effect=_snipe_effect
 )
 
 
 # 5. SNAKE_TRAP - 2 mana Secret, When a friendly minion is attacked, summon three 1/1 Snakes
-def snake_trap_setup(obj, state):
-    def trigger_fn(event, state):
-        if event.type == EventType.ATTACK_DECLARED:
-            target_id = event.payload.get('target')
-            target = state.objects.get(target_id)
-            if target and target.controller == obj.controller and CardType.MINION in target.characteristics.types:
-                return True
+def _snake_trap_filter(event, state):
+    if event.type != EventType.ATTACK_DECLARED:
+        return False
+    target_id = event.payload.get('target_id')
+    target = state.objects.get(target_id)
+    return target and target.controller != state.active_player and CardType.MINION in target.characteristics.types
+
+def _snake_trap_effect(obj, state):
+    snake_token = {'name': 'Snake', 'power': 1, 'toughness': 1, 'types': {CardType.MINION}, 'subtypes': {'Beast'}}
+    return [
+        Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'token': snake_token}, source=obj.id),
+        Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'token': snake_token}, source=obj.id),
+        Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'token': snake_token}, source=obj.id),
+    ]
+
+SNAKE_TRAP = make_secret(
+    name="Snake Trap",
+    mana_cost="{2}",
+    text="Secret: When one of your minions is attacked, summon three 1/1 Snakes.",
+    trigger_filter=_snake_trap_filter,
+    trigger_effect=_snake_trap_effect
+)
+
+
+# 6. EAGLEHORN_BOW - 3/2 weapon, cost 3, Whenever a Secret is revealed, gain +1 Durability
+def eaglehorn_bow_setup(obj, state):
+    """Whenever a friendly Secret is revealed, gain +1 Durability."""
+    def secret_filter(event, s):
+        # Secrets are removed from play when triggered — look for SECRET_REVEALED or
+        # ZONE_CHANGE of a secret leaving the battlefield
+        if event.type == EventType.ZONE_CHANGE:
+            leaving_id = event.payload.get('object_id')
+            leaving = s.objects.get(leaving_id)
+            if leaving and leaving.controller == obj.controller:
+                if CardType.SPELL in leaving.characteristics.types:
+                    if event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD:
+                        return True
         return False
 
-    def effect_fn(event, state):
-        snake_token = {'name': 'Snake', 'power': 1, 'toughness': 1, 'types': {CardType.MINION}, 'subtypes': {'Beast'}}
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[
-                Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'token': snake_token}, source=obj.id),
-                Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'token': snake_token}, source=obj.id),
-                Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'token': snake_token}, source=obj.id),
-            ]
-        )
+    def gain_durability(event, s):
+        player = s.players.get(obj.controller)
+        if player:
+            player.weapon_durability += 1
+            hero = s.objects.get(player.hero_id)
+            if hero:
+                hero.state.weapon_durability = player.weapon_durability
+        return InterceptorResult(action=InterceptorAction.REACT)
 
     return [Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
         priority=InterceptorPriority.REACT,
-        filter=trigger_fn,
-        handler=effect_fn,
+        filter=secret_filter,
+        handler=gain_durability,
         duration='while_on_battlefield'
     )]
 
-
-SNAKE_TRAP = make_secret(
-    name="Snake Trap",
-    mana_cost="{2}",
-    text="Secret: When one of your minions is attacked, summon three 1/1 Snakes.",
-    setup_interceptors=snake_trap_setup
-)
-
-
-# 6. EAGLEHORN_BOW - 3/2 weapon, cost 3, Whenever a Secret is revealed, gain +1 Durability
 EAGLEHORN_BOW = make_weapon(
     name="Eaglehorn Bow",
     attack=3,
     durability=2,
     mana_cost="{3}",
-    text="Whenever a friendly Secret is revealed, gain +1 Durability."
+    text="Whenever a friendly Secret is revealed, gain +1 Durability.",
+    setup_interceptors=eaglehorn_bow_setup
 )
 
 
@@ -443,7 +456,7 @@ def deadly_shot_effect(obj, state, targets):
     enemy_minions = get_enemy_minions(obj, state)
     if enemy_minions:
         target = random.choice(enemy_minions)
-        return [Event(type=EventType.OBJECT_DESTROYED, payload={'target': target}, source=obj.id)]
+        return [Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': target, 'reason': 'deadly_shot'}, source=obj.id)]
     return []
 
 
@@ -474,7 +487,7 @@ UNLEASH_THE_HOUNDS = make_spell(
 def scavenging_hyena_setup(obj, state):
     def trigger_fn(event, state):
         if event.type == EventType.OBJECT_DESTROYED:
-            died_id = event.payload.get('permanent_id')
+            died_id = event.payload.get('object_id')
             died = state.objects.get(died_id)
             if died and died.controller == obj.controller and 'Beast' in died.characteristics.subtypes:
                 return True
@@ -483,7 +496,7 @@ def scavenging_hyena_setup(obj, state):
     def effect_fn(event, state):
         return InterceptorResult(
             action=InterceptorAction.REACT,
-            new_events=[Event(type=EventType.PT_MODIFICATION, payload={'target': obj.id, 'power': 2, 'toughness': 1, 'duration': 'permanent'}, source=obj.id)]
+            new_events=[Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 2, 'toughness_mod': 1, 'duration': 'permanent'}, source=obj.id)]
         )
 
     return [Interceptor(

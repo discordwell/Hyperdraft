@@ -94,22 +94,12 @@ SAVAGE_ROAR = make_spell(
 
 def healing_touch_effect(obj, state, targets):
     """Restore 8 Health."""
-    # Heal friendly character (prefer hero if low health, else damaged minion)
-    player = state.players.get(obj.controller)
-    if player and player.life < 20:
-        player.life = min(30, player.life + 8)
-        return []
-    # Otherwise heal a damaged minion
-    friendly = get_friendly_minions(obj, state, exclude_self=False)
-    damaged = [mid for mid in friendly if state.objects.get(mid) and
-               state.objects[mid].damage > 0]
-    if damaged:
-        target = random.choice(damaged)
-        return [Event(type=EventType.LIFE_CHANGE, payload={'target': target, 'amount': 8}, source=obj.id)]
-    # Default: heal hero
-    if player:
-        player.life = min(30, player.life + 8)
-    return []
+    # Heal hero
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': obj.controller, 'amount': 8},
+        source=obj.id
+    )]
 
 HEALING_TOUCH = make_spell(
     name="Healing Touch",
@@ -476,7 +466,7 @@ def cenarius_battlecry(obj, state):
                 'token': {
                     'name': 'Treant',
                     'power': 2,
-                    'toughness': 4,
+                    'toughness': 2,
                     'types': {CardType.MINION},
                     'abilities': [{'keyword': 'taunt'}]
                 }
@@ -488,7 +478,7 @@ CENARIUS = make_minion(
     attack=5,
     health=8,
     mana_cost="{9}",
-    text="Choose One - Give your other minions +2/+2; or Summon two 2/4 Treants with Taunt.",
+    text="Choose One - Give your other minions +2/+2; or Summon two 2/2 Treants with Taunt.",
     rarity="Legendary",
     battlecry=cenarius_battlecry
 )

@@ -95,9 +95,10 @@ def mana_wyrm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         return InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=[Event(type=EventType.PT_MODIFICATION, payload={
-                'target': obj.id,
+                'object_id': obj.id,
                 'power_mod': 1,
-                'permanent': True
+                'toughness_mod': 0,
+                'duration': 'permanent'
             }, source=obj.id)]
         )
 
@@ -204,7 +205,7 @@ def vaporize_filter(event: Event, state: GameState) -> bool:
     """Trigger when a minion attacks your hero."""
     if event.type != EventType.ATTACK_DECLARED:
         return False
-    target = event.payload.get('target')
+    target = event.payload.get('target_id')
     if not target:
         return False
     target_obj = state.objects.get(target)
@@ -218,10 +219,10 @@ def vaporize_effect(obj: GameObject, state: GameState) -> list[Event]:
     # Find the attacker from recent events
     for event in reversed(state.events[-5:]):
         if event.type == EventType.ATTACK_DECLARED:
-            attacker = event.payload.get('attacker')
-            if attacker:
-                return [Event(type=EventType.DESTROY, payload={
-                    'target': attacker
+            attacker_id = event.payload.get('attacker_id')
+            if attacker_id:
+                return [Event(type=EventType.OBJECT_DESTROYED, payload={
+                    'object_id': attacker_id, 'reason': 'vaporize'
                 }, source=obj.id)]
     return []
 
@@ -237,7 +238,7 @@ def ice_barrier_filter(event: Event, state: GameState) -> bool:
     """Trigger when your hero is attacked."""
     if event.type != EventType.ATTACK_DECLARED:
         return False
-    target = event.payload.get('target')
+    target = event.payload.get('target_id')
     if not target:
         return False
     target_obj = state.objects.get(target)
@@ -278,26 +279,31 @@ SPELLBENDER = make_secret(
 # ============================================================================
 
 def cone_of_cold_effect(obj: GameObject, state: GameState, targets=None) -> list[Event]:
-    """Deal 1 damage to a random enemy minion and Freeze it."""
+    """Deal 1 damage to a minion and the minions next to it, and Freeze them."""
     enemy_minions = get_enemy_minions(obj, state)
     if not enemy_minions:
         return []
 
-    target = random.choice(enemy_minions)
-    return [
-        Event(type=EventType.DAMAGE, payload={
-            'target': target,
-            'amount': 1
-        }, source=obj.id),
-        Event(type=EventType.FREEZE_TARGET, payload={
-            'target': target
-        }, source=obj.id)
-    ]
+    # Pick a primary target, then up to 2 "adjacent" (random others)
+    primary = random.choice(enemy_minions)
+    others = [m for m in enemy_minions if m != primary]
+    adjacent = random.sample(others, min(2, len(others)))
+    hit_targets = [primary] + adjacent
+
+    events = []
+    for tid in hit_targets:
+        events.append(Event(type=EventType.DAMAGE, payload={
+            'target': tid, 'amount': 1, 'source': obj.id, 'from_spell': True
+        }, source=obj.id))
+        events.append(Event(type=EventType.FREEZE_TARGET, payload={
+            'target': tid
+        }, source=obj.id))
+    return events
 
 CONE_OF_COLD = make_spell(
     name="Cone of Cold",
-    mana_cost="{4}",
-    text="Deal 1 damage to a random enemy minion and Freeze it.",
+    mana_cost="{3}",
+    text="Freeze a minion and the minions next to it, and deal 1 damage to them.",
     spell_effect=cone_of_cold_effect
 )
 
@@ -323,15 +329,19 @@ BLIZZARD = make_spell(
 )
 
 def pyroblast_effect(obj: GameObject, state: GameState, targets=None) -> list[Event]:
-    """Deal 10 damage to a random enemy."""
-    targets = get_enemy_targets(obj, state)
-    if not targets:
-        return []
-
-    target = random.choice(targets)
+    """Deal 10 damage."""
+    if targets:
+        target = targets[0] if isinstance(targets[0], str) else targets[0]
+    else:
+        enemy_targets = get_enemy_targets(obj, state)
+        if not enemy_targets:
+            return []
+        target = random.choice(enemy_targets)
     return [Event(type=EventType.DAMAGE, payload={
         'target': target,
-        'amount': 10
+        'amount': 10,
+        'source': obj.id,
+        'from_spell': True,
     }, source=obj.id)]
 
 PYROBLAST = make_spell(
