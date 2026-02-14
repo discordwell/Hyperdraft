@@ -1,7 +1,7 @@
 """Hearthstone Paladin Cards - Basic + Classic"""
 import random
 from src.engine.game import make_minion, make_spell, make_weapon, make_secret
-from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType
+from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType, Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
 from src.cards.interceptor_helpers import (
     get_enemy_targets, get_enemy_minions, get_friendly_minions, get_enemy_hero_id,
     other_friendly_minions, make_static_pt_boost
@@ -165,7 +165,14 @@ NOBLE_SACRIFICE = make_secret(
 
 def redemption_filter(event, state):
     """Trigger when a friendly minion dies"""
-    return event.type == EventType.OBJECT_DESTROYED
+    if event.type != EventType.OBJECT_DESTROYED:
+        return False
+    died_id = event.payload.get('object_id')
+    died = state.objects.get(died_id)
+    # Note: make_secret framework ensures this only fires on opponent's turn,
+    # so we check controller here to ensure the dying minion is ours
+    return (died and CardType.MINION in died.characteristics.types
+            and died.controller != state.active_player)
 
 def redemption_effect(obj, state):
     """Return the minion to life with 1 Health"""
@@ -186,11 +193,24 @@ REDEMPTION = make_secret(
 
 def repentance_filter(event, state):
     """Trigger when opponent plays a minion"""
-    return event.type == EventType.ZONE_CHANGE
+    if event.type != EventType.ZONE_CHANGE:
+        return False
+    obj_id = event.payload.get('object_id')
+    obj_ref = state.objects.get(obj_id)
+    return (obj_ref and CardType.MINION in obj_ref.characteristics.types
+            and obj_ref.controller == state.active_player)
 
 def repentance_effect(obj, state):
     """Reduce the minion's Health to 1"""
-    # Simplified: deal damage to reduce health to 1
+    # Find the most recently played enemy minion and set its health to 1
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in reversed(list(battlefield.objects)):
+            m = state.objects.get(mid)
+            if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
+                m.characteristics.toughness = 1
+                m.state.damage = 0
+                break
     return []
 
 REPENTANCE = make_secret(
@@ -204,7 +224,12 @@ REPENTANCE = make_secret(
 
 def avenge_filter(event, state):
     """Trigger when a friendly minion dies"""
-    return event.type == EventType.OBJECT_DESTROYED
+    if event.type != EventType.OBJECT_DESTROYED:
+        return False
+    died_id = event.payload.get('object_id')
+    died = state.objects.get(died_id)
+    return (died and CardType.MINION in died.characteristics.types
+            and died.controller != state.active_player)
 
 def avenge_effect(obj, state):
     """Give a random friendly minion +3/+2"""
@@ -277,12 +302,63 @@ DIVINE_FAVOR = make_spell(
 )
 
 
+def sword_of_justice_setup(obj, state):
+    """Whenever you summon a minion, give it +1/+1 and this loses 1 Durability."""
+    def summon_filter(event, s):
+        if event.type == EventType.ZONE_CHANGE:
+            if event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD:
+                entering_id = event.payload.get('object_id')
+                entering = s.objects.get(entering_id)
+                if entering and entering.controller == obj.controller and entering.id != obj.id:
+                    if CardType.MINION in entering.characteristics.types:
+                        return True
+        if event.type == EventType.CREATE_TOKEN:
+            if event.payload.get('controller') == obj.controller:
+                return True
+        return False
+
+    def buff_and_lose_durability(event, s):
+        # Find the minion that just entered
+        target_id = event.payload.get('object_id')
+        events = []
+        if target_id:
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': target_id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'permanent'},
+                source=obj.id
+            ))
+        # Lose 1 durability
+        player = s.players.get(obj.controller)
+        if player:
+            player.weapon_durability -= 1
+            hero = s.objects.get(player.hero_id)
+            if hero:
+                hero.state.weapon_durability = player.weapon_durability
+            if player.weapon_durability <= 0:
+                events.append(Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': obj.id, 'reason': 'durability'},
+                    source=obj.id
+                ))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=summon_filter,
+        handler=buff_and_lose_durability,
+        duration='while_on_battlefield'
+    )]
+
 SWORD_OF_JUSTICE = make_weapon(
     name="Sword of Justice",
     attack=1,
     durability=5,
     mana_cost="{3}",
-    text="Whenever you summon a minion, give it +1/+1 and this loses 1 Durability."
+    text="Whenever you summon a minion, give it +1/+1 and this loses 1 Durability.",
+    setup_interceptors=sword_of_justice_setup
 )
 
 

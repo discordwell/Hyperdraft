@@ -474,7 +474,9 @@ class HearthstoneAIAdapter:
             # Defer SBA checks so AOE damage resolves simultaneously
             card_def = card.card_def
             if card_def and hasattr(card_def, 'spell_effect') and card_def.spell_effect:
-                targets = self._choose_spell_targets(card, state, player_id)
+                targets_nested = self._choose_spell_targets(card, state, player_id)
+                # Flatten nested target lists: [[id1], [id2]] -> [id1, id2]
+                targets = [t for sublist in targets_nested for t in sublist]
                 effect_events = card_def.spell_effect(card, state, targets)
                 try:
                     if game.pipeline:

@@ -542,14 +542,20 @@ def darkscale_healer_battlecry(obj: GameObject, state: GameState) -> list[Event]
         payload={'player': obj.controller, 'amount': 2},
         source=obj.id
     ))
-    # Heal friendly minions (reduce damage)
+    # Heal friendly minions (reduce damage + emit events)
     battlefield = state.zones.get('battlefield')
     if battlefield:
         for mid in battlefield.objects:
             m = state.objects.get(mid)
             if m and m.controller == obj.controller and CardType.MINION in m.characteristics.types:
                 if m.state.damage > 0:
-                    m.state.damage = max(0, m.state.damage - 2)
+                    heal_amount = min(m.state.damage, 2)
+                    m.state.damage -= heal_amount
+                    events.append(Event(
+                        type=EventType.LIFE_CHANGE,
+                        payload={'object_id': mid, 'amount': heal_amount},
+                        source=obj.id
+                    ))
     return events
 
 DARKSCALE_HEALER = make_minion(
