@@ -400,7 +400,11 @@ class HearthstoneAIAdapter:
         for num in numbers:
             total += int(num)
 
-        # Apply cost modifiers from player
+        # Dynamic self-cost replaces parsed base (Sea Giant, Mountain Giant, Molten Giant, etc.)
+        if card.card_def and hasattr(card.card_def, 'dynamic_cost') and card.card_def.dynamic_cost:
+            total = max(0, card.card_def.dynamic_cost(card, state))
+
+        # Apply cost modifiers from player (after dynamic cost so modifiers stack on top)
         if state and player_id:
             player = state.players.get(player_id)
             if player:
@@ -415,10 +419,6 @@ class HearthstoneAIAdapter:
                         if mod_floor > floor:
                             floor = mod_floor
                 total = max(floor, total)
-
-        # Dynamic self-cost (Sea Giant, Mountain Giant, Molten Giant, etc.)
-        if card.card_def and hasattr(card.card_def, 'dynamic_cost') and card.card_def.dynamic_cost:
-            total = max(0, card.card_def.dynamic_cost(card, state))
 
         return max(0, total)
 
