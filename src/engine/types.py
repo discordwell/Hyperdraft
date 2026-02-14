@@ -194,6 +194,7 @@ class EventType(Enum):
     SECRET_TRIGGER = auto()                # Secret card triggers
     FATIGUE_DAMAGE = auto()                # Damage from drawing empty deck
     ARMOR_GAIN = auto()                    # Hero gains armor
+    ADD_TO_HAND = auto()                   # Add a card definition to hand as new object
 
 
 class EventStatus(Enum):
@@ -456,6 +457,7 @@ class Player:
     max_life: int = 30                        # Max hero HP (healing cap)
     overloaded_mana: int = 0                  # Mana locked next turn (Shaman Overload)
     cards_played_this_turn: int = 0           # Cards played this turn (Rogue Combo)
+    cost_modifiers: list = field(default_factory=list)  # [{card_type, amount, duration, uses_remaining, floor}]
 
 
 # =============================================================================

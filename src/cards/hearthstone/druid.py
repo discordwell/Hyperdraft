@@ -1,7 +1,7 @@
 """Hearthstone Druid Cards - Basic + Classic"""
 import random
 from src.engine.game import make_minion, make_spell
-from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType
+from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType, Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
 from src.cards.interceptor_helpers import (
     get_enemy_targets, get_enemy_minions, get_friendly_minions, get_all_minions,
     get_enemy_hero_id
@@ -575,12 +575,58 @@ SAVAGERY = make_spell(
 )
 
 
+def soul_of_the_forest_effect(obj, state, targets):
+    """Give your minions 'Deathrattle: Summon a 2/2 Treant.'"""
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+
+    for mid in friendly:
+        minion = state.objects.get(mid)
+        if not minion:
+            continue
+
+        captured_mid = mid
+        captured_controller = minion.controller
+
+        def make_dr_filter(target_id):
+            def dr_filter(event, state):
+                if event.type != EventType.OBJECT_DESTROYED:
+                    return False
+                return event.payload.get('object_id') == target_id
+            return dr_filter
+
+        def make_dr_handler(controller_id):
+            def dr_handler(event, state):
+                return InterceptorResult(
+                    action=InterceptorAction.REACT,
+                    new_events=[Event(type=EventType.CREATE_TOKEN, payload={
+                        'controller': controller_id,
+                        'token': {
+                            'name': 'Treant',
+                            'power': 2,
+                            'toughness': 2,
+                            'types': {CardType.MINION},
+                        }
+                    }, source=event.payload.get('object_id', ''))]
+                )
+            return dr_handler
+
+        interceptor = Interceptor(
+            id=new_id(), source=captured_mid, controller=captured_controller,
+            priority=InterceptorPriority.REACT,
+            filter=make_dr_filter(captured_mid),
+            handler=make_dr_handler(captured_controller),
+            duration='once'
+        )
+        state.interceptors[interceptor.id] = interceptor
+
+    return []
+
 SOUL_OF_THE_FOREST = make_spell(
     name="Soul of the Forest",
     mana_cost="{4}",
     text="Give your minions \"Deathrattle: Summon a 2/2 Treant.\"",
     rarity="Common",
-    spell_effect=lambda obj, state, targets: []
+    spell_effect=soul_of_the_forest_effect
 )
 
 

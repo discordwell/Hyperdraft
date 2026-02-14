@@ -357,11 +357,30 @@ LIGHTWELL = make_minion(
 )
 
 
+def shadow_madness_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Gain control of an enemy minion with 3 or less Attack until end of turn."""
+    enemy_minions = get_enemy_minions(obj, state)
+    valid = [m for m in enemy_minions if state.objects.get(m) and state.objects[m].characteristics.power <= 3]
+    if not valid:
+        return []
+    target_id = random.choice(valid)
+    target_obj = state.objects[target_id]
+    return [Event(
+        type=EventType.GAIN_CONTROL,
+        payload={
+            'object_id': target_id,
+            'new_controller': obj.controller,
+            'duration': 'end_of_turn',
+            'original_controller': target_obj.controller
+        },
+        source=obj.id
+    )]
+
 SHADOW_MADNESS = make_spell(
     name="Shadow Madness",
     mana_cost="{4}",
     text="Gain control of an enemy minion with 3 or less Attack until end of turn.",
-    spell_effect=lambda obj, state, targets: []  # Text only
+    spell_effect=shadow_madness_effect
 )
 
 
@@ -413,15 +432,79 @@ TEMPLE_ENFORCER = make_minion(
 )
 
 
+def cabal_shadow_priest_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Take control of an enemy minion that has 2 or less Attack (permanently)."""
+    enemy_minions = get_enemy_minions(obj, state)
+    valid = [m for m in enemy_minions if state.objects.get(m) and state.objects[m].characteristics.power <= 2]
+    if not valid:
+        return []
+    target_id = random.choice(valid)
+    return [Event(
+        type=EventType.GAIN_CONTROL,
+        payload={
+            'object_id': target_id,
+            'new_controller': obj.controller
+        },
+        source=obj.id
+    )]
+
 CABAL_SHADOW_PRIEST = make_minion(
     name="Cabal Shadow Priest",
     attack=4,
     health=5,
     mana_cost="{6}",
     text="Battlecry: Take control of an enemy minion with 2 or less Attack.",
-    battlecry=lambda obj, state: []  # Text only
+    battlecry=cabal_shadow_priest_battlecry
 )
 
+
+def prophet_velen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Double the damage and healing of your spells and Hero Power."""
+    def spell_damage_filter(event: Event, s: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('from_spell'):
+            return False
+        source_id = event.payload.get('source') or event.source
+        source = s.objects.get(source_id)
+        return source is not None and source.controller == obj.controller
+
+    def double_damage(event: Event, s: GameState) -> InterceptorResult:
+        new_payload = dict(event.payload)
+        new_payload['amount'] = new_payload.get('amount', 0) * 2
+        modified = Event(type=event.type, payload=new_payload, source=event.source)
+        modified.timestamp = event.timestamp
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=modified)
+
+    def healing_filter(event: Event, s: GameState) -> bool:
+        if event.type != EventType.LIFE_CHANGE:
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return False  # Not healing
+        source_id = event.source
+        source = s.objects.get(source_id)
+        return source is not None and source.controller == obj.controller
+
+    def double_healing(event: Event, s: GameState) -> InterceptorResult:
+        new_payload = dict(event.payload)
+        new_payload['amount'] = new_payload.get('amount', 0) * 2
+        modified = Event(type=event.type, payload=new_payload, source=event.source)
+        modified.timestamp = event.timestamp
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=modified)
+
+    return [
+        Interceptor(
+            id=new_id(), source=obj.id, controller=obj.controller,
+            priority=InterceptorPriority.TRANSFORM, filter=spell_damage_filter,
+            handler=double_damage, duration='while_on_battlefield'
+        ),
+        Interceptor(
+            id=new_id(), source=obj.id, controller=obj.controller,
+            priority=InterceptorPriority.TRANSFORM, filter=healing_filter,
+            handler=double_healing, duration='while_on_battlefield'
+        ),
+    ]
 
 PROPHET_VELEN = make_minion(
     name="Prophet Velen",
@@ -430,7 +513,7 @@ PROPHET_VELEN = make_minion(
     mana_cost="{7}",
     rarity="Legendary",
     text="Double the damage and healing of your spells and Hero Power.",
-    battlecry=lambda obj, state: []  # Text only
+    setup_interceptors=prophet_velen_setup
 )
 
 
@@ -474,13 +557,55 @@ MASS_DISPEL = make_spell(
 )
 
 
+def auchenai_soulpriest_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Your cards and powers that restore Health now deal damage instead."""
+    def healing_filter(event: Event, s: GameState) -> bool:
+        if event.type != EventType.LIFE_CHANGE:
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return False  # Not healing, nothing to convert
+        # Check if the source of this healing is controlled by us
+        source_id = event.source
+        source = s.objects.get(source_id)
+        if source and source.controller == obj.controller:
+            return True
+        return False
+
+    def convert_to_damage(event: Event, s: GameState) -> InterceptorResult:
+        amount = event.payload.get('amount', 0)
+        # Determine the target: either a minion (object_id) or a player (player)
+        target = event.payload.get('object_id') or event.payload.get('player')
+        if not target:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # If target is a player ID, find their hero_id for damage targeting
+        if target in s.players:
+            hero_id = s.players[target].hero_id
+            if hero_id:
+                target = hero_id
+            else:
+                return InterceptorResult(action=InterceptorAction.PASS)
+        # Replace healing with damage
+        new_event = Event(
+            type=EventType.DAMAGE,
+            payload={'target': target, 'amount': amount, 'source': event.source},
+            source=event.source
+        )
+        return InterceptorResult(action=InterceptorAction.REPLACE, transformed_event=new_event)
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.TRANSFORM, filter=healing_filter,
+        handler=convert_to_damage, duration='while_on_battlefield'
+    )]
+
 AUCHENAI_SOULPRIEST = make_minion(
     name="Auchenai Soulpriest",
     attack=3,
     health=5,
     mana_cost="{4}",
     text="Your cards and powers that restore Health now deal damage instead.",
-    battlecry=lambda obj, state: []  # Text only
+    setup_interceptors=auchenai_soulpriest_setup
 )
 
 
@@ -525,7 +650,7 @@ def lightspawn_setup(obj, state):
 
     return [Interceptor(
         id=new_id(), source=obj.id, controller=obj.controller,
-        priority=InterceptorPriority.RESOLVE, filter=query_power_filter, handler=set_attack_to_health,
+        priority=InterceptorPriority.TRANSFORM, filter=query_power_filter, handler=set_attack_to_health,
         duration='while_on_battlefield'
     )]
 
@@ -538,19 +663,118 @@ LIGHTSPAWN = make_minion(
     setup_interceptors=lightspawn_setup
 )
 
+def mindgames_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Put a copy of a random minion from your opponent's deck into the battlefield."""
+    # Find opponent's library and pick a random minion
+    for pid in state.players:
+        if pid != obj.controller:
+            lib_key = f"library_{pid}"
+            library = state.zones.get(lib_key)
+            if not library:
+                continue
+            minions = []
+            for card_id in library.objects:
+                card = state.objects.get(card_id)
+                if card and CardType.MINION in card.characteristics.types:
+                    minions.append(card)
+            if minions:
+                chosen = random.choice(minions)
+                return [Event(
+                    type=EventType.CREATE_TOKEN,
+                    payload={
+                        'controller': obj.controller,
+                        'token': {
+                            'name': chosen.name,
+                            'power': chosen.characteristics.power,
+                            'toughness': chosen.characteristics.toughness,
+                            'types': {CardType.MINION},
+                            'subtypes': set(chosen.characteristics.subtypes) if chosen.characteristics.subtypes else set(),
+                        }
+                    },
+                    source=obj.id
+                )]
+    # No minions found in opponent deck - summon a 0/1 Shadow of Nothing (HS flavor)
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': obj.controller,
+            'token': {
+                'name': 'Shadow of Nothing',
+                'power': 0,
+                'toughness': 1,
+                'types': {CardType.MINION},
+            }
+        },
+        source=obj.id
+    )]
+
 MINDGAMES = make_spell(
     name="Mindgames",
     mana_cost="{4}",
     text="Put a copy of a random minion from your opponent's deck into the battlefield.",
-    spell_effect=lambda obj, state, targets: []
+    spell_effect=mindgames_effect
 )
 
+
+def shadowform_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Your Hero Power becomes 'Deal 2 damage'. If already in Shadowform, becomes 'Deal 3 damage'."""
+    from src.engine.types import Characteristics, ObjectState
+    from src.cards.hearthstone.hero_powers import MIND_SPIKE, MIND_SHATTER
+
+    player = state.players.get(obj.controller)
+    if not player or not player.hero_power_id:
+        return []
+
+    current_hp = state.objects.get(player.hero_power_id)
+
+    # Check if already in Shadowform (Mind Spike -> upgrade to Mind Shatter)
+    if current_hp and current_hp.name == "Mind Spike":
+        new_hp_def = MIND_SHATTER
+    else:
+        new_hp_def = MIND_SPIKE
+
+    # Remove old hero power interceptors from state
+    if current_hp:
+        for iid in list(current_hp.interceptor_ids):
+            state.interceptors.pop(iid, None)
+
+    # Create new hero power object
+    new_hp_id = new_id()
+    new_hp = GameObject(
+        id=new_hp_id,
+        name=new_hp_def.name,
+        owner=obj.controller,
+        controller=obj.controller,
+        zone=ZoneType.COMMAND,
+        characteristics=Characteristics(
+            types={CardType.HERO_POWER},
+            mana_cost=new_hp_def.mana_cost,
+        ),
+        state=ObjectState(),
+        card_def=new_hp_def,
+        created_at=state.next_timestamp(),
+        entered_zone_at=state.timestamp,
+    )
+    state.objects[new_hp_id] = new_hp
+
+    # Run setup_interceptors from the hero power definition to register its activation handler
+    if new_hp_def.setup_interceptors:
+        interceptors = new_hp_def.setup_interceptors(new_hp, state)
+        for interceptor in (interceptors or []):
+            interceptor.timestamp = state.next_timestamp()
+            state.interceptors[interceptor.id] = interceptor
+            new_hp.interceptor_ids.append(interceptor.id)
+
+    # Update player's hero power reference
+    player.hero_power_id = new_hp_id
+    player.hero_power_used = False  # Reset hero power usage for the new power
+    return []
 
 SHADOWFORM = make_spell(
     name="Shadowform",
     mana_cost="{3}",
     text="Your Hero Power becomes 'Deal 2 damage'.",
-    spell_effect=lambda obj, state, targets: []
+    spell_effect=shadowform_effect
 )
 
 

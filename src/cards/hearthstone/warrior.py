@@ -457,12 +457,52 @@ BATTLE_RAGE = make_spell(
 
 def commanding_shout_effect(obj, state, targets):
     """Your minions can't be reduced below 1 Health this turn. Draw a card."""
-    # Min-1-health effect not implemented, but at minimum draw the card
-    return [Event(
+    events = [Event(
         type=EventType.DRAW,
         payload={'player': obj.controller, 'count': 1},
         source=obj.id
     )]
+
+    # Set up TRANSFORM interceptor to prevent lethal damage to friendly minions this turn
+    def damage_filter(event, s):
+        if event.type != EventType.DAMAGE:
+            return False
+        target_id = event.payload.get('target')
+        target = s.objects.get(target_id)
+        if not target:
+            return False
+        if CardType.MINION not in target.characteristics.types:
+            return False
+        return target.controller == obj.controller
+
+    def cap_damage(event, s):
+        target_id = event.payload.get('target')
+        target = s.objects.get(target_id)
+        if not target:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        current_hp = target.characteristics.toughness - getattr(target.state, 'damage', 0)
+        damage = event.payload.get('amount', 0)
+        if damage >= current_hp:
+            # Cap damage so minion stays at 1 HP
+            new_damage = max(0, current_hp - 1)
+            new_payload = dict(event.payload)
+            new_payload['amount'] = new_damage
+            new_event = Event(type=event.type, payload=new_payload, source=event.source)
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    int_obj = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.TRANSFORM,
+        filter=damage_filter,
+        handler=cap_damage,
+        duration='end_of_turn'
+    )
+    state.interceptors[int_obj.id] = int_obj
+
+    return events
 
 COMMANDING_SHOUT = make_spell(
     name="Commanding Shout",
@@ -493,14 +533,60 @@ RAMPAGE = make_spell(
     spell_effect=rampage_effect
 )
 
+
+def gorehowl_setup(obj, state):
+    """Attacking a minion costs 1 Attack instead of 1 Durability."""
+    def attack_filter(event, s):
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        if not attacker_id:
+            return False
+        # Check if the attacker is the hero who has this weapon
+        player = None
+        for pid, p in s.players.items():
+            if p.hero_id == attacker_id:
+                player = p
+                break
+        if not player or player.id != obj.controller:
+            return False
+        # Only for attacking minions (not heroes)
+        target_id = event.payload.get('target_id')
+        target = s.objects.get(target_id)
+        return target and CardType.MINION in target.characteristics.types
+
+    def modify_attack(event, s):
+        player = s.players.get(obj.controller)
+        if player:
+            # Reduce weapon attack by 1 instead of losing durability
+            player.weapon_attack = max(0, player.weapon_attack - 1)
+            # Prevent durability loss by incrementing it back (will be decremented by combat)
+            player.weapon_durability += 1
+            # If weapon attack reaches 0, destroy the weapon
+            if player.weapon_attack <= 0:
+                player.weapon_attack = 0
+                player.weapon_durability = 0
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=modify_attack,
+        duration='while_on_battlefield'
+    )]
+
+
 GOREHOWL = make_weapon(
     name="Gorehowl",
     attack=7,
     durability=1,
     mana_cost="{7}",
     text="Attacking a minion costs 1 Attack instead of 1 Durability.",
-    rarity="Epic"
-    # Note: Text only - special attack mechanic not implemented
+    rarity="Epic",
+    setup_interceptors=gorehowl_setup
 )
 
 def grommash_setup(obj, state):

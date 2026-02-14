@@ -393,6 +393,83 @@ SHAPESHIFT = make_hero_power(
 )
 
 
+# ============================================================================
+# SHADOWFORM HERO POWERS (Priest - Shadowform spell upgrades)
+# ============================================================================
+
+def mind_spike_effect(obj: GameObject, state: GameState) -> list[Event]:
+    """Deal 2 damage to a random enemy."""
+    import random
+    from src.cards.interceptor_helpers import get_enemy_targets as _get_enemy_targets
+    enemy_targets = _get_enemy_targets(obj, state)
+    if not enemy_targets:
+        return []
+    target = random.choice(enemy_targets)
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target, 'amount': 2, 'source': obj.id},
+        source=obj.id
+    )]
+
+MIND_SPIKE = make_hero_power(
+    name="Mind Spike",
+    cost=2,
+    text="Hero Power: Deal 2 damage.",
+    effect=mind_spike_effect
+)
+
+
+def mind_shatter_effect(obj: GameObject, state: GameState) -> list[Event]:
+    """Deal 3 damage to a random enemy."""
+    import random
+    from src.cards.interceptor_helpers import get_enemy_targets as _get_enemy_targets
+    enemy_targets = _get_enemy_targets(obj, state)
+    if not enemy_targets:
+        return []
+    target = random.choice(enemy_targets)
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target, 'amount': 3, 'source': obj.id},
+        source=obj.id
+    )]
+
+MIND_SHATTER = make_hero_power(
+    name="Mind Shatter",
+    cost=2,
+    text="Hero Power: Deal 3 damage.",
+    effect=mind_shatter_effect
+)
+
+
+# ============================================================================
+# INFERNO HERO POWER (Warlock - Lord Jaraxxus)
+# ============================================================================
+
+def inferno_effect(obj: GameObject, state: GameState) -> list[Event]:
+    """Summon a 6/6 Infernal."""
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': obj.controller,
+            'token': {
+                'name': 'Infernal',
+                'power': 6,
+                'toughness': 6,
+                'types': {CardType.MINION},
+                'subtypes': {'Demon'},
+            }
+        },
+        source=obj.id
+    )]
+
+INFERNO_HERO_POWER = make_hero_power(
+    name="INFERNO!",
+    cost=2,
+    text="Hero Power: Summon a 6/6 Infernal.",
+    effect=inferno_effect
+)
+
+
 # Hero power registry
 HERO_POWERS = {
     "Mage": FIREBLAST,

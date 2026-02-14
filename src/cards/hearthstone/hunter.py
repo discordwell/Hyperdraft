@@ -568,18 +568,62 @@ def _misdirection_filter(event, state):
 
 def _misdirection_effect(obj, state):
     """Redirect the attack to a random other character."""
-    # Just deal 2 damage to a random enemy (simplified)
-    enemies = []
+    # Find the attacking character from recent events
+    attacker_id = None
+    original_target = None
+    for event in reversed(state.event_log[-5:]):
+        if event.type == EventType.ATTACK_DECLARED:
+            attacker_id = event.payload.get('attacker_id')
+            original_target = event.payload.get('target_id')
+            break
+
+    if not attacker_id:
+        return []
+
+    # Get all possible redirect targets (all characters except attacker and original target)
+    possible_targets = []
     battlefield = state.zones.get('battlefield')
     if battlefield:
-        for mid in battlefield.objects:
-            m = state.objects.get(mid)
-            if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
-                enemies.append(mid)
-    if enemies:
-        target = random.choice(enemies)
-        return [Event(type=EventType.DAMAGE, payload={'target': target, 'amount': 2, 'source': obj.id}, source=obj.id)]
-    return []
+        for oid in battlefield.objects:
+            o = state.objects.get(oid)
+            if o and oid != attacker_id and oid != original_target:
+                if CardType.MINION in o.characteristics.types:
+                    possible_targets.append(oid)
+
+    # Add heroes as possible targets (except original target and attacker)
+    for pid, player in state.players.items():
+        if player.hero_id and player.hero_id != attacker_id and player.hero_id != original_target:
+            possible_targets.append(player.hero_id)
+
+    if not possible_targets:
+        return []
+
+    new_target = random.choice(possible_targets)
+
+    # Deal the attacker's damage to the new target
+    attacker = state.objects.get(attacker_id)
+    if not attacker:
+        return []
+
+    # Get attack power from the attacker
+    attack_power = 0
+    if CardType.MINION in attacker.characteristics.types:
+        attack_power = attacker.characteristics.power or 0
+    else:
+        # Hero - use weapon attack
+        for pid, p in state.players.items():
+            if p.hero_id == attacker_id:
+                attack_power = p.weapon_attack
+                break
+
+    if attack_power <= 0:
+        return []
+
+    return [Event(type=EventType.DAMAGE, payload={
+        'target': new_target,
+        'amount': attack_power,
+        'source': attacker_id
+    }, source=obj.id)]
 
 MISDIRECTION = make_secret(
     name="Misdirection",
