@@ -213,8 +213,10 @@ class Game:
         if zone_key and zone_key in self.state.zones:
             self.state.zones[zone_key].objects.append(obj_id)
 
-        # If card_def has setup_interceptors, run it
-        if card_def and card_def.setup_interceptors:
+        # If card_def has setup_interceptors, run it — but only for objects
+        # entering zones where interceptors should be active (battlefield, command).
+        # Cards in library/hand get their interceptors set up when they enter play.
+        if card_def and card_def.setup_interceptors and zone in (ZoneType.BATTLEFIELD, ZoneType.COMMAND):
             interceptors = card_def.setup_interceptors(obj, self.state)
             for interceptor in (interceptors or []):
                 self.register_interceptor(interceptor, obj)
