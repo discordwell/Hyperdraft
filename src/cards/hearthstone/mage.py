@@ -28,7 +28,7 @@ def mirror_image_effect(obj: GameObject, state: GameState, targets=None) -> list
                 'power': 0,
                 'toughness': 2,
                 'types': {CardType.MINION},
-                'keywords': {'Taunt'},
+                'keywords': {'taunt'},
             }
         }, source=obj.id),
         Event(type=EventType.CREATE_TOKEN, payload={
@@ -38,7 +38,7 @@ def mirror_image_effect(obj: GameObject, state: GameState, targets=None) -> list
                 'power': 0,
                 'toughness': 2,
                 'types': {CardType.MINION},
-                'keywords': {'Taunt'},
+                'keywords': {'taunt'},
             }
         }, source=obj.id)
     ]
@@ -55,7 +55,8 @@ def arcane_explosion_effect(obj: GameObject, state: GameState, targets=None) -> 
     enemy_minions = get_enemy_minions(obj, state)
     return [Event(type=EventType.DAMAGE, payload={
         'target': minion_id,
-        'amount': 1
+        'amount': 1,
+        'source': obj.id
     }, source=obj.id) for minion_id in enemy_minions]
 
 ARCANE_EXPLOSION = make_spell(
@@ -314,7 +315,8 @@ def blizzard_effect(obj: GameObject, state: GameState, targets=None) -> list[Eve
     for minion_id in enemy_minions:
         events.append(Event(type=EventType.DAMAGE, payload={
             'target': minion_id,
-            'amount': 2
+            'amount': 2,
+            'source': obj.id
         }, source=obj.id))
         events.append(Event(type=EventType.FREEZE_TARGET, payload={
             'target': minion_id
