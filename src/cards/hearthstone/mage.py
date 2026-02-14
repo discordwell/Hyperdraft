@@ -56,7 +56,8 @@ def arcane_explosion_effect(obj: GameObject, state: GameState, targets=None) -> 
     return [Event(type=EventType.DAMAGE, payload={
         'target': minion_id,
         'amount': 1,
-        'source': obj.id
+        'source': obj.id,
+        'from_spell': True
     }, source=obj.id) for minion_id in enemy_minions]
 
 ARCANE_EXPLOSION = make_spell(
@@ -316,7 +317,8 @@ def blizzard_effect(obj: GameObject, state: GameState, targets=None) -> list[Eve
         events.append(Event(type=EventType.DAMAGE, payload={
             'target': minion_id,
             'amount': 2,
-            'source': obj.id
+            'source': obj.id,
+            'from_spell': True
         }, source=obj.id))
         events.append(Event(type=EventType.FREEZE_TARGET, payload={
             'target': minion_id
@@ -365,6 +367,65 @@ ETHEREAL_ARCANIST = make_minion(
     text="If you control a Secret at the end of your turn, gain +2/+2."
 )
 
+def ice_lance_effect(obj: GameObject, state: GameState, targets=None) -> list[Event]:
+    """Freeze a character. If it was already Frozen, deal 4 damage instead."""
+    enemy_targets = get_enemy_targets(obj, state)
+    if not enemy_targets:
+        return []
+    target_id = random.choice(enemy_targets)
+    target = state.objects.get(target_id)
+    if target and getattr(target.state, 'frozen', False):
+        # Already frozen, deal 4 damage
+        return [Event(type=EventType.DAMAGE, payload={
+            'target': target_id, 'amount': 4, 'source': obj.id, 'from_spell': True
+        }, source=obj.id)]
+    else:
+        # Freeze the character
+        return [Event(type=EventType.FREEZE_TARGET, payload={'target': target_id}, source=obj.id)]
+
+ICE_LANCE = make_spell(
+    name="Ice Lance",
+    mana_cost="{1}",
+    text="Freeze a character. If it was already Frozen, deal 4 damage instead.",
+    spell_effect=ice_lance_effect
+)
+
+def archmage_antonidas_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast a spell, add a Fireball to your hand (simplified: draw a card)."""
+    def spell_cast_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        return caster == obj.controller
+
+    def add_fireball(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.DRAW, payload={
+                'player': obj.controller, 'count': 1
+            }, source=obj.id)]
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=spell_cast_filter,
+        handler=add_fireball,
+        duration='while_on_battlefield'
+    )]
+
+ARCHMAGE_ANTONIDAS = make_minion(
+    name="Archmage Antonidas",
+    attack=5,
+    health=7,
+    mana_cost="{7}",
+    text="Whenever you cast a spell, add a Fireball to your hand.",
+    rarity="Legendary",
+    setup_interceptors=archmage_antonidas_setup
+)
+
 # ============================================================================
 # EXPORTS
 # ============================================================================
@@ -396,7 +457,9 @@ MAGE_CLASSIC = [
     CONE_OF_COLD,
     BLIZZARD,
     PYROBLAST,
-    ETHEREAL_ARCANIST
+    ETHEREAL_ARCANIST,
+    ICE_LANCE,
+    ARCHMAGE_ANTONIDAS
 ]
 
 MAGE_CARDS = MAGE_BASIC + MAGE_CLASSIC

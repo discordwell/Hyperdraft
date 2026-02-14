@@ -538,6 +538,21 @@ LIGHTSPAWN = make_minion(
     setup_interceptors=lightspawn_setup
 )
 
+MINDGAMES = make_spell(
+    name="Mindgames",
+    mana_cost="{4}",
+    text="Put a copy of a random minion from your opponent's deck into the battlefield.",
+    spell_effect=lambda obj, state, targets: []
+)
+
+
+SHADOWFORM = make_spell(
+    name="Shadowform",
+    mana_cost="{3}",
+    text="Your Hero Power becomes 'Deal 2 damage'.",
+    spell_effect=lambda obj, state, targets: []
+)
+
 
 # ============================================================================
 # EXPORTS
@@ -570,6 +585,8 @@ PRIEST_CLASSIC = [
     AUCHENAI_SOULPRIEST,
     CIRCLE_OF_HEALING,
     LIGHTSPAWN,
+    MINDGAMES,
+    SHADOWFORM,
 ]
 
 PRIEST_CARDS = PRIEST_BASIC + PRIEST_CLASSIC

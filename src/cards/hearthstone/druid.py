@@ -172,6 +172,25 @@ IRONBARK_PROTECTOR = make_minion(
 )
 
 
+def moonfire_effect(obj, state, targets):
+    """Deal 1 damage."""
+    enemies = get_enemy_targets(obj, state)
+    if enemies:
+        target = random.choice(enemies)
+        return [Event(type=EventType.DAMAGE,
+                     payload={'target': target, 'amount': 1, 'source': obj.id, 'from_spell': True},
+                     source=obj.id)]
+    return []
+
+MOONFIRE = make_spell(
+    name="Moonfire",
+    mana_cost="{0}",
+    text="Deal 1 damage.",
+    rarity="Free",
+    spell_effect=moonfire_effect
+)
+
+
 DRUID_BASIC = [
     CLAW,
     MARK_OF_THE_WILD,
@@ -181,6 +200,7 @@ DRUID_BASIC = [
     SWIPE,
     STARFIRE,
     IRONBARK_PROTECTOR,
+    MOONFIRE,
 ]
 
 
@@ -466,7 +486,7 @@ def cenarius_battlecry(obj, state):
                 'token': {
                     'name': 'Treant',
                     'power': 2,
-                    'toughness': 2,
+                    'toughness': 4,
                     'types': {CardType.MINION},
                     'abilities': [{'keyword': 'taunt'}]
                 }
@@ -478,7 +498,7 @@ CENARIUS = make_minion(
     attack=5,
     health=8,
     mana_cost="{9}",
-    text="Choose One - Give your other minions +2/+2; or Summon two 2/2 Treants with Taunt.",
+    text="Choose One - Give your other minions +2/+2; or Summon two 2/4 Treants with Taunt.",
     rarity="Legendary",
     battlecry=cenarius_battlecry
 )
@@ -533,6 +553,59 @@ MARK_OF_NATURE = make_spell(
 )
 
 
+def savagery_effect(obj, state, targets):
+    """Deal damage equal to your hero's Attack to a minion."""
+    player = state.players.get(obj.controller)
+    hero_attack = player.weapon_attack if player else 0
+    if hero_attack > 0:
+        enemies = get_enemy_minions(obj, state)
+        if enemies:
+            target = random.choice(enemies)
+            return [Event(type=EventType.DAMAGE,
+                         payload={'target': target, 'amount': hero_attack, 'source': obj.id, 'from_spell': True},
+                         source=obj.id)]
+    return []
+
+SAVAGERY = make_spell(
+    name="Savagery",
+    mana_cost="{1}",
+    text="Deal damage equal to your hero's Attack to a minion.",
+    rarity="Rare",
+    spell_effect=savagery_effect
+)
+
+
+SOUL_OF_THE_FOREST = make_spell(
+    name="Soul of the Forest",
+    mana_cost="{4}",
+    text="Give your minions \"Deathrattle: Summon a 2/2 Treant.\"",
+    rarity="Common",
+    spell_effect=lambda obj, state, targets: []
+)
+
+
+def gift_of_the_wild_effect(obj, state, targets):
+    """Give all friendly minions +2/+2 and Taunt."""
+    events = []
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    for mid in friendly:
+        events.append(Event(type=EventType.PT_MODIFICATION,
+            payload={'object_id': mid, 'power_mod': 2, 'toughness_mod': 2, 'duration': 'permanent'},
+            source=obj.id))
+        events.append(Event(type=EventType.KEYWORD_GRANT,
+            payload={'object_id': mid, 'keyword': 'taunt'},
+            source=obj.id))
+    return events
+
+GIFT_OF_THE_WILD = make_spell(
+    name="Gift of the Wild",
+    mana_cost="{8}",
+    text="Give your minions +2/+2 and Taunt.",
+    rarity="Common",
+    spell_effect=gift_of_the_wild_effect
+)
+
+
 DRUID_CLASSIC = [
     INNERVATE,
     NATURALIZE,
@@ -548,6 +621,9 @@ DRUID_CLASSIC = [
     CENARIUS,
     BITE,
     MARK_OF_NATURE,
+    SAVAGERY,
+    SOUL_OF_THE_FOREST,
+    GIFT_OF_THE_WILD,
 ]
 
 

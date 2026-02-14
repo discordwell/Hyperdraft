@@ -665,6 +665,49 @@ SENSE_DEMONS = make_spell(
 )
 
 
+def sacrificial_pact_effect(obj, state, targets):
+    """Destroy a friendly Demon. Restore 5 Health to your hero."""
+    events = []
+    battlefield = state.zones.get('battlefield')
+    friendly_demons = []
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if (m and m.controller == obj.controller and
+                CardType.MINION in m.characteristics.types and
+                'Demon' in m.characteristics.subtypes):
+                friendly_demons.append(mid)
+    if friendly_demons:
+        target = random.choice(friendly_demons)
+        events.append(Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={'object_id': target, 'reason': 'sacrificial_pact'},
+            source=obj.id
+        ))
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 5},
+            source=obj.id
+        ))
+    return events
+
+SACRIFICIAL_PACT = make_spell(
+    name="Sacrificial Pact",
+    mana_cost="{0}",
+    spell_effect=sacrificial_pact_effect,
+    text="Destroy a Demon. Restore 5 Health to your hero."
+)
+
+VOID_TERROR = make_minion(
+    name="Void Terror",
+    attack=3,
+    health=3,
+    mana_cost="{3}",
+    subtypes={"Demon"},
+    text="Battlecry: Destroy the minions on either side of this minion and gain their Attack and Health."
+)
+
+
 # ============================================================================
 # EXPORTS
 # ============================================================================
@@ -695,7 +738,9 @@ WARLOCK_CLASSIC = [
     PIT_LORD,
     DOOMGUARD,
     LORD_JARAXXUS,
-    SENSE_DEMONS
+    SENSE_DEMONS,
+    SACRIFICIAL_PACT,
+    VOID_TERROR
 ]
 
 WARLOCK_CARDS = WARLOCK_BASIC + WARLOCK_CLASSIC

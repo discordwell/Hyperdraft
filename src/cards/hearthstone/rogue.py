@@ -414,6 +414,45 @@ PREPARATION = make_spell(
     spell_effect=preparation_effect
 )
 
+# SHADOWSTEP - 0 mana spell, Return a friendly minion to your hand. It costs (2) less.
+def shadowstep_effect(obj, state, targets):
+    """Return a friendly minion to your hand. It costs (2) less."""
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    if friendly:
+        target = random.choice(friendly)
+        return [Event(
+            type=EventType.RETURN_TO_HAND,
+            payload={'object_id': target},
+            source=obj.id
+        )]
+    return []
+
+SHADOWSTEP = make_spell(
+    name="Shadowstep",
+    mana_cost="{0}",
+    text="Return a friendly minion to your hand. It costs (2) less.",
+    spell_effect=shadowstep_effect
+)
+
+# HEADCRACK - 3 mana spell, Deal 2 damage to the enemy hero
+def headcrack_effect(obj, state, targets):
+    """Deal 2 damage to the enemy hero."""
+    hero_id = get_enemy_hero_id(obj, state)
+    if hero_id:
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': hero_id, 'amount': 2, 'source': obj.id, 'from_spell': True},
+            source=obj.id
+        )]
+    return []
+
+HEADCRACK = make_spell(
+    name="Headcrack",
+    mana_cost="{3}",
+    text="Deal 2 damage to the enemy hero. Combo: Return this to your hand next turn.",
+    spell_effect=headcrack_effect
+)
+
 
 # ============================================================================
 # EXPORTS
@@ -446,6 +485,8 @@ ROGUE_CLASSIC = [
     KIDNAPPER,
     EDWIN_VANCLEEF,
     PREPARATION,
+    SHADOWSTEP,
+    HEADCRACK,
 ]
 
 ROGUE_CARDS = ROGUE_BASIC + ROGUE_CLASSIC

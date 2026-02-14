@@ -112,6 +112,16 @@ def _other_friendly_minions(source: GameObject):
                 target.zone == ZoneType.BATTLEFIELD)
     return filter_fn
 
+def _other_friendly_murlocs(source):
+    """Filter factory: other Murlocs you control."""
+    def filter_fn(target, state):
+        return (target.id != source.id and
+                target.controller == source.controller and
+                CardType.MINION in target.characteristics.types and
+                'Murloc' in target.characteristics.subtypes and
+                target.zone == ZoneType.BATTLEFIELD)
+    return filter_fn
+
 def raid_leader_setup(obj: GameObject, state: GameState):
     from src.cards.interceptor_helpers import make_static_pt_boost
     return make_static_pt_boost(obj, power_mod=1, toughness_mod=0,
@@ -673,6 +683,98 @@ ARCANITE_REAPER = make_weapon(
 )
 
 
+# Grimscale Oracle - Murloc lord
+
+def grimscale_oracle_setup(obj, state):
+    from src.cards.interceptor_helpers import make_static_pt_boost
+    return make_static_pt_boost(obj, power_mod=1, toughness_mod=0,
+                                affects_filter=_other_friendly_murlocs(obj))
+
+GRIMSCALE_ORACLE = make_minion(
+    name="Grimscale Oracle",
+    attack=1,
+    health=1,
+    mana_cost="{1}",
+    subtypes={"Murloc"},
+    text="Your other Murlocs have +1 Attack.",
+    rarity="Common",
+    setup_interceptors=grimscale_oracle_setup
+)
+
+BLUEGILL_WARRIOR = make_minion(
+    name="Bluegill Warrior",
+    attack=2,
+    health=1,
+    mana_cost="{2}",
+    subtypes={"Murloc"},
+    text="Charge",
+    abilities=[{'keyword': 'charge'}],
+    rarity="Common"
+)
+
+IRONFUR_GRIZZLY = make_minion(
+    name="Ironfur Grizzly",
+    attack=3,
+    health=3,
+    mana_cost="{3}",
+    subtypes={"Beast"},
+    text="Taunt",
+    abilities=[{'keyword': 'taunt'}],
+    rarity="Common"
+)
+
+def dragonling_mechanic_battlecry(obj, state):
+    """Battlecry: Summon a 2/1 Mechanical Dragonling."""
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': obj.controller,
+            'token': {
+                'name': 'Mechanical Dragonling',
+                'power': 2,
+                'toughness': 1,
+                'types': {CardType.MINION},
+                'subtypes': {'Mech'},
+            }
+        },
+        source=obj.id
+    )]
+
+DRAGONLING_MECHANIC = make_minion(
+    name="Dragonling Mechanic",
+    attack=2,
+    health=4,
+    mana_cost="{4}",
+    text="Battlecry: Summon a 2/1 Mechanical Dragonling",
+    rarity="Common",
+    battlecry=dragonling_mechanic_battlecry
+)
+
+BOOTY_BAY_BODYGUARD = make_minion(
+    name="Booty Bay Bodyguard",
+    attack=5,
+    health=4,
+    mana_cost="{5}",
+    text="Taunt",
+    abilities=[{'keyword': 'taunt'}],
+    rarity="Common"
+)
+
+def archmage_setup(obj, state):
+    from src.cards.interceptor_helpers import make_spell_damage_boost
+    return [make_spell_damage_boost(obj, amount=1)]
+
+ARCHMAGE = make_minion(
+    name="Archmage",
+    attack=4,
+    health=7,
+    mana_cost="{6}",
+    text="Spell Damage +1",
+    rarity="Common",
+    setup_interceptors=archmage_setup
+)
+
+
 # All basic cards
 BASIC_CARDS = [
     WISP,
@@ -711,6 +813,12 @@ BASIC_CARDS = [
     IRONFORGE_RIFLEMAN,
     NIGHTBLADE,
     STORMWIND_CHAMPION,
+    GRIMSCALE_ORACLE,
+    BLUEGILL_WARRIOR,
+    IRONFUR_GRIZZLY,
+    DRAGONLING_MECHANIC,
+    BOOTY_BAY_BODYGUARD,
+    ARCHMAGE,
     LIGHT_S_JUSTICE,
     FIERY_WAR_AXE,
     ARCANITE_REAPER,
