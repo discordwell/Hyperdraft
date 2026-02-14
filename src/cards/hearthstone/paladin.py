@@ -201,31 +201,72 @@ NOBLE_SACRIFICE = make_secret(
 )
 
 
-def redemption_filter(event, state):
-    """Trigger when a friendly minion dies"""
-    if event.type != EventType.OBJECT_DESTROYED:
-        return False
-    died_id = event.payload.get('object_id')
-    died = state.objects.get(died_id)
-    # Note: make_secret framework ensures this only fires on opponent's turn,
-    # so we check controller here to ensure the dying minion is ours
-    return (died and CardType.MINION in died.characteristics.types
-            and died.controller != state.active_player)
+def _redemption_setup(obj, state):
+    """Secret: When a friendly minion dies, return it to life with 1 Health."""
 
-def redemption_effect(obj, state):
-    """Return the minion to life with 1 Health"""
-    # Simplified: create a 1/1 token (actual implementation would copy the minion)
-    return [Event(type=EventType.CREATE_TOKEN, payload={
-        'controller': obj.controller,
-        'token': {'name': 'Redeemed Minion', 'power': 1, 'toughness': 1, 'types': {CardType.MINION}}
-    }, source=obj.id)]
+    def filter_fn(event, s):
+        # Only trigger during opponent's turn
+        if s.active_player == obj.controller:
+            return False
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        died_id = event.payload.get('object_id')
+        died = s.objects.get(died_id)
+        return (died is not None and CardType.MINION in died.characteristics.types
+                and died.controller == obj.controller)
+
+    def handler_fn(event, s):
+        died_id = event.payload.get('object_id')
+        died = s.objects.get(died_id)
+        if not died:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        # Resummon the specific minion that died with 1 Health
+        token_payload = {
+            'controller': obj.controller,
+            'token': {
+                'name': died.name,
+                'power': died.characteristics.power,
+                'toughness': 1,  # Returns with 1 Health
+                'types': {CardType.MINION},
+                'subtypes': set(died.characteristics.subtypes) if died.characteristics.subtypes else set(),
+            }
+        }
+        # Preserve card_def so the resummoned minion has its abilities
+        if died.card_def:
+            token_payload['token']['card_def'] = died.card_def
+
+        new_events = [
+            Event(type=EventType.CREATE_TOKEN, payload=token_payload, source=obj.id),
+            # Destroy the secret after triggering
+            Event(type=EventType.ZONE_CHANGE, payload={
+                'object_id': obj.id,
+                'from_zone_type': obj.zone,
+                'to_zone_type': ZoneType.GRAVEYARD
+            }, source=obj.id),
+        ]
+
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events
+        )
+
+    return [Interceptor(
+        id=f"secret_{obj.id}",
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=filter_fn,
+        handler=handler_fn,
+        duration='while_on_battlefield',
+        uses_remaining=1
+    )]
 
 REDEMPTION = make_secret(
     name="Redemption",
     mana_cost="{1}",
     text="Secret: When a friendly minion dies, return it to life with 1 Health.",
-    trigger_filter=redemption_filter,
-    trigger_effect=redemption_effect
+    setup_interceptors=_redemption_setup
 )
 
 
@@ -327,10 +368,28 @@ ALDOR_PEACEKEEPER = make_minion(
 
 
 def divine_favor_effect(obj, state, targets):
-    """Draw cards until you have as many in hand as your opponent (simplified: draw 2)"""
-    return [Event(type=EventType.DRAW,
-                  payload={'player': obj.controller, 'count': 2},
-                  source=obj.id)]
+    """Draw cards until you have as many in hand as your opponent."""
+    # Count cards in own hand
+    own_hand_key = f"hand_{obj.controller}"
+    own_hand = state.zones.get(own_hand_key)
+    own_count = len(own_hand.objects) if own_hand else 0
+
+    # Find opponent's hand size
+    opponent_count = 0
+    for pid in state.players:
+        if pid != obj.controller:
+            opp_hand_key = f"hand_{pid}"
+            opp_hand = state.zones.get(opp_hand_key)
+            opponent_count = len(opp_hand.objects) if opp_hand else 0
+            break
+
+    # Draw the difference (only if opponent has more)
+    cards_to_draw = opponent_count - own_count
+    if cards_to_draw > 0:
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller, 'count': cards_to_draw},
+                      source=obj.id)]
+    return []
 
 DIVINE_FAVOR = make_spell(
     name="Divine Favor",
@@ -528,13 +587,53 @@ BLESSED_CHAMPION = make_spell(
 
 
 def holy_wrath_effect(obj, state, targets):
-    """Draw a card and deal damage equal to its cost. (Simplified: draw + deal 3)"""
-    events = [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
-    hero_id = get_enemy_hero_id(obj, state)
-    if hero_id:
-        events.append(Event(type=EventType.DAMAGE,
-            payload={'target': hero_id, 'amount': 3, 'source': obj.id, 'from_spell': True},
-            source=obj.id))
+    """Draw a card and deal damage equal to its cost."""
+    import re
+
+    # Draw the card manually to inspect its cost
+    lib_key = f"library_{obj.controller}"
+    hand_key = f"hand_{obj.controller}"
+    library = state.zones.get(lib_key)
+    hand = state.zones.get(hand_key)
+
+    if not library or not library.objects or not hand:
+        return []
+
+    # Check hand size limit (Hearthstone)
+    if state.game_mode == "hearthstone" and len(hand.objects) >= state.max_hand_size:
+        # Overdraw - burn the card, deal 0 damage
+        card_id = library.objects.pop(0)
+        graveyard_key = f"graveyard_{obj.controller}"
+        if graveyard_key in state.zones:
+            state.zones[graveyard_key].objects.append(card_id)
+            card = state.objects.get(card_id)
+            if card:
+                card.zone = ZoneType.GRAVEYARD
+                card.entered_zone_at = state.timestamp
+        return []
+
+    # Draw the card
+    card_id = library.objects.pop(0)
+    hand.objects.append(card_id)
+    card = state.objects.get(card_id)
+    drawn_cost = 0
+    if card:
+        card.zone = ZoneType.HAND
+        card.entered_zone_at = state.timestamp
+        # Parse the drawn card's mana cost
+        cost_str = card.characteristics.mana_cost or "{0}"
+        numbers = re.findall(r'\{(\d+)\}', cost_str)
+        drawn_cost = sum(int(n) for n in numbers)
+
+    # Deal damage equal to the drawn card's cost to a random enemy
+    events = []
+    if drawn_cost > 0:
+        enemy_targets = get_enemy_targets(obj, state)
+        if enemy_targets:
+            target = random.choice(enemy_targets)
+            events.append(Event(type=EventType.DAMAGE,
+                payload={'target': target, 'amount': drawn_cost, 'source': obj.id, 'from_spell': True},
+                source=obj.id))
     return events
 
 HOLY_WRATH = make_spell(

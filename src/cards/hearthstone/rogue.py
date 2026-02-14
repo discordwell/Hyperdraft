@@ -1,7 +1,8 @@
 """Hearthstone Rogue Cards - Basic + Classic"""
 import random
+import re
 from src.engine.game import make_minion, make_spell, make_weapon
-from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType
+from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType, Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
 from src.cards.interceptor_helpers import (
     get_enemy_targets, get_enemy_minions, get_friendly_minions, get_enemy_hero_id
 )
@@ -205,10 +206,46 @@ COLD_BLOOD = make_spell(
 def conceal_effect(obj, state, targets):
     """Give all friendly minions Stealth until your next turn."""
     friendly = get_friendly_minions(obj, state, exclude_self=False)
+    stealthed_ids = []
     for mid in friendly:
         m = state.objects.get(mid)
         if m:
             m.state.stealth = True
+            stealthed_ids.append(mid)
+
+    if not stealthed_ids:
+        return []
+
+    # Register start-of-turn interceptor to remove stealth at start of your next turn
+    controller_id = obj.controller
+
+    def start_turn_filter(event, s):
+        return (event.type == EventType.TURN_START and
+                event.payload.get('player') == controller_id)
+
+    def start_turn_handler(event, s):
+        for mid in stealthed_ids:
+            m = s.objects.get(mid)
+            if m and m.zone == ZoneType.BATTLEFIELD:
+                m.state.stealth = False
+        # Self-remove this interceptor
+        int_id = start_turn_handler._interceptor_id
+        if int_id in s.interceptors:
+            del s.interceptors[int_id]
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    int_obj = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=controller_id,
+        priority=InterceptorPriority.REACT,
+        filter=start_turn_filter,
+        handler=start_turn_handler,
+        duration='until_next_turn'
+    )
+    start_turn_handler._interceptor_id = int_obj.id
+    state.interceptors[int_obj.id] = int_obj
+
     return []
 
 CONCEAL = make_spell(
@@ -420,9 +457,77 @@ PERDITIONS_BLADE = make_weapon(
     setup_interceptors=perditions_blade_setup
 )
 
-# MASTER_OF_DISGUISE - 4/4, cost 4, Battlecry: Give Stealth (text only)
+# MASTER_OF_DISGUISE - 4/4, cost 4, Battlecry: Give a friendly minion Stealth until it deals damage or your next turn
 def master_of_disguise_battlecry(obj, state):
-    """Battlecry: Give a friendly minion Stealth (text only)"""
+    """Battlecry: Give a friendly minion Stealth until it deals damage or your next turn."""
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    # Exclude self
+    friendly = [mid for mid in friendly if mid != obj.id]
+    if not friendly:
+        return []
+
+    target_id = random.choice(friendly)
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+
+    target.state.stealth = True
+    controller_id = obj.controller
+
+    # Create a removal function that both interceptors can use
+    def remove_stealth_and_cleanup(s, cleanup_int_id, partner_int_id):
+        t = s.objects.get(target_id)
+        if t and t.zone == ZoneType.BATTLEFIELD:
+            t.state.stealth = False
+        # Remove both interceptors
+        for iid in [cleanup_int_id, partner_int_id]:
+            if iid in s.interceptors:
+                del s.interceptors[iid]
+
+    # Interceptor 1: Remove stealth when the minion deals damage
+    def damage_filter(event, s):
+        if event.type != EventType.DAMAGE:
+            return False
+        return event.payload.get('source') == target_id
+
+    def damage_handler(event, s):
+        remove_stealth_and_cleanup(s, damage_handler._interceptor_id, turn_handler._interceptor_id)
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    # Interceptor 2: Remove stealth at start of your next turn
+    def turn_filter(event, s):
+        return (event.type == EventType.TURN_START and
+                event.payload.get('player') == controller_id)
+
+    def turn_handler(event, s):
+        remove_stealth_and_cleanup(s, turn_handler._interceptor_id, damage_handler._interceptor_id)
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    int_damage = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=controller_id,
+        priority=InterceptorPriority.REACT,
+        filter=damage_filter,
+        handler=damage_handler,
+        duration='until_triggered'
+    )
+    damage_handler._interceptor_id = int_damage.id
+
+    int_turn = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=controller_id,
+        priority=InterceptorPriority.REACT,
+        filter=turn_filter,
+        handler=turn_handler,
+        duration='until_triggered'
+    )
+    turn_handler._interceptor_id = int_turn.id
+
+    state.interceptors[int_damage.id] = int_damage
+    state.interceptors[int_turn.id] = int_turn
+
     return []
 
 MASTER_OF_DISGUISE = make_minion(
@@ -430,7 +535,7 @@ MASTER_OF_DISGUISE = make_minion(
     mana_cost="{4}",
     attack=4,
     health=4,
-    text="Battlecry: Give a friendly minion Stealth.",
+    text="Battlecry: Give a friendly minion Stealth until it deals damage or your next turn.",
     battlecry=master_of_disguise_battlecry
 )
 
@@ -500,14 +605,27 @@ PREPARATION = make_spell(
 def shadowstep_effect(obj, state, targets):
     """Return a friendly minion to your hand. It costs (2) less."""
     friendly = get_friendly_minions(obj, state, exclude_self=False)
-    if friendly:
-        target = random.choice(friendly)
-        return [Event(
-            type=EventType.RETURN_TO_HAND,
-            payload={'object_id': target},
-            source=obj.id
-        )]
-    return []
+    if not friendly:
+        return []
+
+    target_id = random.choice(friendly)
+    target = state.objects.get(target_id)
+
+    events = [Event(
+        type=EventType.RETURN_TO_HAND,
+        payload={'object_id': target_id},
+        source=obj.id
+    )]
+
+    # Reduce the returned card's mana cost by 2 (min 0)
+    if target:
+        cost_str = target.characteristics.mana_cost or "{0}"
+        numbers = re.findall(r'\{(\d+)\}', cost_str)
+        current_cost = sum(int(n) for n in numbers) if numbers else 0
+        new_cost = max(0, current_cost - 2)
+        target.characteristics.mana_cost = "{" + str(new_cost) + "}"
+
+    return events
 
 SHADOWSTEP = make_spell(
     name="Shadowstep",
@@ -516,17 +634,54 @@ SHADOWSTEP = make_spell(
     spell_effect=shadowstep_effect
 )
 
-# HEADCRACK - 3 mana spell, Deal 2 damage to the enemy hero
+# HEADCRACK - 3 mana spell, Deal 2 damage to the enemy hero. Combo: Return this to your hand next turn.
 def headcrack_effect(obj, state, targets):
-    """Deal 2 damage to the enemy hero."""
+    """Deal 2 damage to the enemy hero. Combo: Return this to your hand next turn."""
+    events = []
     hero_id = get_enemy_hero_id(obj, state)
     if hero_id:
-        return [Event(
+        events.append(Event(
             type=EventType.DAMAGE,
             payload={'target': hero_id, 'amount': 2, 'source': obj.id, 'from_spell': True},
             source=obj.id
-        )]
-    return []
+        ))
+
+    # Combo: If a card was played this turn before Headcrack, return it to hand at start of next turn
+    player = state.players.get(obj.controller)
+    if player and player.cards_played_this_turn > 0:
+        controller_id = obj.controller
+        card_def = obj.card_def  # Save reference to Headcrack's card definition
+
+        def start_turn_filter(event, s):
+            return (event.type == EventType.TURN_START and
+                    event.payload.get('player') == controller_id)
+
+        def start_turn_handler(event, s):
+            # Add a copy of Headcrack to the player's hand
+            result_events = [Event(
+                type=EventType.ADD_TO_HAND,
+                payload={'player': controller_id, 'card_def': card_def},
+                source=obj.id
+            )]
+            # Self-remove this interceptor
+            int_id = start_turn_handler._interceptor_id
+            if int_id in s.interceptors:
+                del s.interceptors[int_id]
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=result_events)
+
+        int_obj = Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=controller_id,
+            priority=InterceptorPriority.REACT,
+            filter=start_turn_filter,
+            handler=start_turn_handler,
+            duration='until_triggered'
+        )
+        start_turn_handler._interceptor_id = int_obj.id
+        state.interceptors[int_obj.id] = int_obj
+
+    return events
 
 HEADCRACK = make_spell(
     name="Headcrack",

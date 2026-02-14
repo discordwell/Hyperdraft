@@ -314,13 +314,57 @@ def twisting_nether_effect(obj, state, targets):
 
 
 def sense_demons_effect(obj, state, targets):
-    """Draw 2 Demons from your deck. Simplified: Draw 2 cards."""
+    """Draw 2 Demons from your deck. If you can't, draw Worthless Imps instead."""
     events = []
-    events.append(Event(
-        type=EventType.DRAW,
-        payload={'player': obj.controller, 'count': 2},
-        source=obj.id
-    ))
+    lib_key = f"library_{obj.controller}"
+    hand_key = f"hand_{obj.controller}"
+    library = state.zones.get(lib_key)
+    hand = state.zones.get(hand_key)
+
+    if not library or not hand:
+        return events
+
+    # Find all Demons in the deck
+    demon_ids = []
+    for card_id in library.objects:
+        card = state.objects.get(card_id)
+        if card and 'Demon' in card.characteristics.subtypes:
+            demon_ids.append(card_id)
+
+    # Draw up to 2 Demons
+    demons_drawn = 0
+    for demon_id in demon_ids[:2]:
+        if state.game_mode == "hearthstone" and len(hand.objects) >= state.max_hand_size:
+            break  # Hand is full
+        # Move demon from library to hand
+        if demon_id in library.objects:
+            library.objects.remove(demon_id)
+            hand.objects.append(demon_id)
+            demon = state.objects.get(demon_id)
+            if demon:
+                demon.zone = ZoneType.HAND
+                demon.entered_zone_at = state.timestamp
+            demons_drawn += 1
+
+    # For each Demon not found, create a Worthless Imp (1/1 Demon, 0 mana)
+    imps_needed = 2 - demons_drawn
+    for _ in range(imps_needed):
+        events.append(Event(
+            type=EventType.ADD_TO_HAND,
+            payload={
+                'player': obj.controller,
+                'card_def': {
+                    'name': 'Worthless Imp',
+                    'mana_cost': '{0}',
+                    'types': {CardType.MINION},
+                    'subtypes': {'Demon'},
+                    'power': 1,
+                    'toughness': 1,
+                }
+            },
+            source=obj.id
+        ))
+
     return events
 
 

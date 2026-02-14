@@ -288,11 +288,47 @@ SAVANNAH_HIGHMANE = make_minion(
 
 # 1. BESTIAL_WRATH - 1 mana spell, Give a friendly Beast +2 Attack and Immune this turn
 def bestial_wrath_effect(obj, state, targets):
-    if targets:
-        target_obj = state.objects.get(targets[0])
-        if target_obj and 'Beast' in target_obj.characteristics.subtypes:
-            return [Event(type=EventType.PT_MODIFICATION, payload={'object_id': targets[0], 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'}, source=obj.id)]
-    return []
+    if not targets:
+        return []
+    target_id = targets[0]
+    target_obj = state.objects.get(target_id)
+    if not target_obj or 'Beast' not in target_obj.characteristics.subtypes:
+        return []
+
+    events = [Event(type=EventType.PT_MODIFICATION, payload={'object_id': target_id, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'}, source=obj.id)]
+
+    # Grant Immune keyword until end of turn
+    if not target_obj.characteristics.abilities:
+        target_obj.characteristics.abilities = []
+    target_obj.characteristics.abilities.append({'keyword': 'immune'})
+
+    # Register end-of-turn cleanup to remove Immune
+    def end_turn_filter(event, s):
+        return event.type == EventType.TURN_END and event.payload.get('player') == obj.controller
+
+    def end_turn_handler(event, s):
+        t = s.objects.get(target_id)
+        if t and t.characteristics.abilities:
+            t.characteristics.abilities = [a for a in t.characteristics.abilities if a.get('keyword') != 'immune']
+        # Self-remove this interceptor
+        int_id = end_turn_handler._interceptor_id
+        if int_id in s.interceptors:
+            del s.interceptors[int_id]
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    int_obj = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=end_turn_filter,
+        handler=end_turn_handler,
+        duration='until_end_of_turn'
+    )
+    end_turn_handler._interceptor_id = int_obj.id
+    state.interceptors[int_obj.id] = int_obj
+
+    return events
 
 
 BESTIAL_WRATH = make_spell(
@@ -330,7 +366,7 @@ EXPLOSIVE_TRAP = make_secret(
 )
 
 
-# 3. FREEZING_TRAP - 2 mana Secret, When an enemy minion attacks, return it to its owner's hand
+# 3. FREEZING_TRAP - 2 mana Secret, When an enemy minion attacks, return it to its owner's hand. It costs (2) more.
 def _freezing_trap_filter(event, state):
     if event.type != EventType.ATTACK_DECLARED:
         return False
@@ -339,14 +375,24 @@ def _freezing_trap_filter(event, state):
     return attacker and CardType.MINION in attacker.characteristics.types
 
 def _freezing_trap_effect(obj, state):
-    # Return the most recent attacker to hand
+    import re as _re
+    # Return the most recent attacker to hand and increase its cost by 2
     battlefield = state.zones.get('battlefield')
     if battlefield:
         enemy_minions = [mid for mid in battlefield.objects
                         if state.objects.get(mid) and state.objects[mid].controller != obj.controller
                         and CardType.MINION in state.objects[mid].characteristics.types]
         if enemy_minions:
-            return [Event(type=EventType.RETURN_TO_HAND, payload={'object_id': enemy_minions[-1]}, source=obj.id)]
+            target_id = enemy_minions[-1]
+            target = state.objects.get(target_id)
+            # Increase the returned card's mana cost by 2
+            if target:
+                cost_str = target.characteristics.mana_cost or "{0}"
+                numbers = _re.findall(r'\{(\d+)\}', cost_str)
+                current_cost = sum(int(n) for n in numbers) if numbers else 0
+                new_cost = current_cost + 2
+                target.characteristics.mana_cost = "{" + str(new_cost) + "}"
+            return [Event(type=EventType.RETURN_TO_HAND, payload={'object_id': target_id}, source=obj.id)]
     return []
 
 FREEZING_TRAP = make_secret(
@@ -534,25 +580,113 @@ KING_KRUSH = make_minion(
 
 
 # 11. GLADIATORS_LONGBOW - 5/2 weapon, cost 7, Your hero is Immune while attacking
+def gladiators_longbow_setup(obj, state):
+    """Your hero is Immune while attacking."""
+    controller_id = obj.controller
+
+    # When hero attacks (ATTACK_DECLARED with hero as attacker), grant Immune
+    def attack_filter(event, s):
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        player = s.players.get(controller_id)
+        return player and attacker_id == player.hero_id
+
+    def attack_handler(event, s):
+        player = s.players.get(controller_id)
+        if not player or not player.hero_id:
+            return InterceptorResult(action=InterceptorAction.REACT)
+        hero = s.objects.get(player.hero_id)
+        if hero:
+            if not hero.characteristics.abilities:
+                hero.characteristics.abilities = []
+            hero.characteristics.abilities.append({'keyword': 'immune'})
+
+        # Register a one-shot interceptor to remove Immune after combat resolves (after DAMAGE)
+        def post_combat_filter(evt, st):
+            # Remove immune after any damage event involving the hero as target or after attack completes
+            return evt.type == EventType.DAMAGE or evt.type == EventType.TURN_END
+
+        def post_combat_handler(evt, st):
+            p = st.players.get(controller_id)
+            if p and p.hero_id:
+                h = st.objects.get(p.hero_id)
+                if h and h.characteristics.abilities:
+                    h.characteristics.abilities = [a for a in h.characteristics.abilities if a.get('keyword') != 'immune']
+            # Self-remove
+            pc_id = post_combat_handler._interceptor_id
+            if pc_id in st.interceptors:
+                del st.interceptors[pc_id]
+            return InterceptorResult(action=InterceptorAction.REACT)
+
+        pc_int = Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=controller_id,
+            priority=InterceptorPriority.REACT,
+            filter=post_combat_filter,
+            handler=post_combat_handler,
+            duration='once'
+        )
+        post_combat_handler._interceptor_id = pc_int.id
+        s.interceptors[pc_int.id] = pc_int
+
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=controller_id,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=attack_handler,
+        duration='while_on_battlefield'
+    )]
+
 GLADIATORS_LONGBOW = make_weapon(
     name="Gladiator's Longbow",
     attack=5,
     durability=2,
     mana_cost="{7}",
-    text="Your hero is Immune while attacking."
+    text="Your hero is Immune while attacking.",
+    setup_interceptors=gladiators_longbow_setup
 )
 
 
-# 12. FLARE - 2 mana spell, Destroy all enemy Secrets. Draw a card. (Simplified: draw a card)
+# 12. FLARE - 2 mana spell, All enemy minions lose Stealth. Destroy all enemy Secrets. Draw a card.
 def flare_effect(obj, state, targets):
-    """Destroy all enemy Secrets. Draw a card. (Simplified: draw a card)"""
-    return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
+    """All enemy minions lose Stealth. Destroy all enemy Secrets. Draw a card."""
+    events = []
+
+    # Remove Stealth from all enemy minions
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in list(battlefield.objects):
+            m = state.objects.get(mid)
+            if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
+                if m.state.stealth:
+                    m.state.stealth = False
+
+    # Destroy all enemy Secrets (secrets are on the battlefield with SECRET card type)
+    if battlefield:
+        for oid in list(battlefield.objects):
+            o = state.objects.get(oid)
+            if o and o.controller != obj.controller and CardType.SECRET in o.characteristics.types:
+                events.append(Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': oid, 'reason': 'flare'},
+                    source=obj.id
+                ))
+
+    # Draw a card
+    events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id))
+    return events
 
 
 FLARE = make_spell(
     name="Flare",
     mana_cost="{2}",
-    text="Destroy all enemy Secrets. Draw a card.",
+    text="All enemy minions lose Stealth. Destroy all enemy Secrets. Draw a card.",
     spell_effect=flare_effect
 )
 
@@ -637,15 +771,16 @@ MISDIRECTION = make_secret(
 # 14. EXPLOSIVE_SHOT - 5 mana spell, Deal 5 damage to a minion and 2 damage to adjacent minions
 def explosive_shot_effect(obj, state, targets):
     """Deal 5 damage to a minion and 2 damage to adjacent minions."""
+    from src.cards.interceptor_helpers import get_adjacent_enemy_minions
     enemy_minions = get_enemy_minions(obj, state)
     if not enemy_minions:
         return []
     primary = random.choice(enemy_minions)
     events = [Event(type=EventType.DAMAGE, payload={'target': primary, 'amount': 5, 'source': obj.id, 'from_spell': True}, source=obj.id)]
-    # "Adjacent" simplified: up to 2 other random enemy minions get 2 damage
-    others = [m for m in enemy_minions if m != primary]
-    for target in others[:2]:
-        events.append(Event(type=EventType.DAMAGE, payload={'target': target, 'amount': 2, 'source': obj.id, 'from_spell': True}, source=obj.id))
+    # Deal 2 damage to positionally adjacent minions
+    adjacent = get_adjacent_enemy_minions(primary, state)
+    for adj_id in adjacent:
+        events.append(Event(type=EventType.DAMAGE, payload={'target': adj_id, 'amount': 2, 'source': obj.id, 'from_spell': True}, source=obj.id))
     return events
 
 

@@ -416,6 +416,10 @@ class HearthstoneAIAdapter:
                             floor = mod_floor
                 total = max(floor, total)
 
+        # Dynamic self-cost (Sea Giant, Mountain Giant, Molten Giant, etc.)
+        if card.card_def and hasattr(card.card_def, 'dynamic_cost') and card.card_def.dynamic_cost:
+            total = max(0, card.card_def.dynamic_cost(card, state))
+
         return max(0, total)
 
     async def _execute_card_play(self, card_action: dict, state: 'GameState', game) -> list['Event']:
