@@ -93,7 +93,7 @@ TIMBER_WOLF = make_minion(
 
 # 4. TRACKING - 1 mana spell, Draw a card (Simplified from look at top 3 choose 1)
 def tracking_effect(obj, state, targets):
-    return [Event(type=EventType.DRAW, payload={'player': obj.controller}, source=obj.id)]
+    return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
 
 
 TRACKING = make_spell(
@@ -233,7 +233,7 @@ TUNDRA_RHINO = make_minion(
 def starving_buzzard_setup(obj, state):
     def trigger_fn(event, state):
         if event.type == EventType.ZONE_CHANGE:
-            summoned_id = event.payload.get('minion_id')
+            summoned_id = event.payload.get('object_id')
             summoned = state.objects.get(summoned_id)
             if summoned and summoned.controller == obj.controller and 'Beast' in summoned.characteristics.subtypes:
                 return True
@@ -543,6 +543,76 @@ GLADIATORS_LONGBOW = make_weapon(
 )
 
 
+# 12. FLARE - 2 mana spell, Destroy all enemy Secrets. Draw a card. (Simplified: draw a card)
+def flare_effect(obj, state, targets):
+    """Destroy all enemy Secrets. Draw a card. (Simplified: draw a card)"""
+    return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
+
+
+FLARE = make_spell(
+    name="Flare",
+    mana_cost="{2}",
+    text="Destroy all enemy Secrets. Draw a card.",
+    spell_effect=flare_effect
+)
+
+
+# 13. MISDIRECTION - 2 mana Secret, When a character attacks your hero, instead it attacks another random character
+def _misdirection_filter(event, state):
+    if event.type != EventType.ATTACK_DECLARED:
+        return False
+    target_id = event.payload.get('target_id')
+    target = state.objects.get(target_id)
+    # Trigger when hero is attacked
+    return target and CardType.MINION not in target.characteristics.types
+
+def _misdirection_effect(obj, state):
+    """Redirect the attack to a random other character."""
+    # Just deal 2 damage to a random enemy (simplified)
+    enemies = []
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
+                enemies.append(mid)
+    if enemies:
+        target = random.choice(enemies)
+        return [Event(type=EventType.DAMAGE, payload={'target': target, 'amount': 2, 'source': obj.id}, source=obj.id)]
+    return []
+
+MISDIRECTION = make_secret(
+    name="Misdirection",
+    mana_cost="{2}",
+    text="Secret: When a character attacks your hero, instead it attacks another random character.",
+    trigger_filter=_misdirection_filter,
+    trigger_effect=_misdirection_effect
+)
+
+
+# 14. EXPLOSIVE_SHOT - 5 mana spell, Deal 5 damage to a minion and 2 damage to adjacent minions
+def explosive_shot_effect(obj, state, targets):
+    """Deal 5 damage to a minion and 2 damage to adjacent minions."""
+    enemy_minions = get_enemy_minions(obj, state)
+    if not enemy_minions:
+        return []
+    primary = random.choice(enemy_minions)
+    events = [Event(type=EventType.DAMAGE, payload={'target': primary, 'amount': 5, 'source': obj.id, 'from_spell': True}, source=obj.id)]
+    # "Adjacent" simplified: up to 2 other random enemy minions get 2 damage
+    others = [m for m in enemy_minions if m != primary]
+    for target in others[:2]:
+        events.append(Event(type=EventType.DAMAGE, payload={'target': target, 'amount': 2, 'source': obj.id, 'from_spell': True}, source=obj.id))
+    return events
+
+
+EXPLOSIVE_SHOT = make_spell(
+    name="Explosive Shot",
+    mana_cost="{5}",
+    text="Deal 5 damage to a minion and 2 damage to adjacent minions.",
+    spell_effect=explosive_shot_effect
+)
+
+
 # ============================================================================
 # CARD LISTS
 # ============================================================================
@@ -573,6 +643,9 @@ HUNTER_CLASSIC = [
     SCAVENGING_HYENA,
     KING_KRUSH,
     GLADIATORS_LONGBOW,
+    FLARE,
+    MISDIRECTION,
+    EXPLOSIVE_SHOT,
 ]
 
 HUNTER_CARDS = HUNTER_BASIC + HUNTER_CLASSIC

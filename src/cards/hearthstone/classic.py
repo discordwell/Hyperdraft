@@ -2534,6 +2534,322 @@ DREAD_CORSAIR = make_minion(
     keywords={"taunt"}
 )
 
+# =============================================================================
+# Additional Classic Neutral Minions
+# =============================================================================
+
+# --- Vanilla/Keyword Cards ---
+
+SHIELDBEARER = make_minion(name="Shieldbearer", attack=0, health=4, mana_cost="{1}", text="Taunt", rarity="Common", keywords={"taunt"})
+
+YOUNG_DRAGONHAWK = make_minion(name="Young Dragonhawk", attack=1, health=1, mana_cost="{1}", subtypes={"Beast"}, text="Windfury", rarity="Common", keywords={"windfury"})
+
+BLOODSAIL_CORSAIR = make_minion(name="Bloodsail Corsair", attack=1, health=2, mana_cost="{1}", subtypes={"Pirate"}, text="Battlecry: Remove 1 Durability from your opponent's weapon. (Text only)", rarity="Rare")
+
+SOUTHSEA_DECKHAND = make_minion(name="Southsea Deckhand", attack=1, health=2, mana_cost="{1}", subtypes={"Pirate"}, text="Has Charge while you have a weapon equipped. (Text only)", rarity="Common")
+
+ANCIENT_WATCHER = make_minion(name="Ancient Watcher", attack=4, health=5, mana_cost="{2}", text="Can't Attack.", rarity="Rare")
+
+BLOODSAIL_RAIDER = make_minion(name="Bloodsail Raider", attack=2, health=3, mana_cost="{2}", subtypes={"Pirate"}, text="Battlecry: Gain Attack equal to the Attack of your weapon. (Text only)", rarity="Common")
+
+TAUREN_WARRIOR = make_minion(name="Tauren Warrior", attack=2, health=3, mana_cost="{3}", text="Taunt. Enrage: +3 Attack.", rarity="Common", keywords={"taunt"})
+
+THRALLMAR_FARSEER = make_minion(name="Thrallmar Farseer", attack=2, health=3, mana_cost="{3}", text="Windfury", rarity="Common", keywords={"windfury"})
+
+ARCANE_GOLEM = make_minion(name="Arcane Golem", attack=4, health=2, mana_cost="{3}", text="Charge. Battlecry: Give your opponent a Mana Crystal. (Text only)", rarity="Rare", keywords={"charge"})
+
+MOGUSHAN_WARDEN = make_minion(name="Mogu'shan Warden", attack=1, health=7, mana_cost="{4}", text="Taunt", rarity="Common", keywords={"taunt"})
+
+FEN_CREEPER = make_minion(name="Fen Creeper", attack=3, health=6, mana_cost="{5}", text="Taunt", rarity="Common", keywords={"taunt"})
+
+# --- Angry Chicken (Enrage effect) ---
+
+def angry_chicken_setup(obj, state):
+    from src.cards.interceptor_helpers import make_enrage_trigger
+    return make_enrage_trigger(obj, attack_bonus=5)
+
+ANGRY_CHICKEN = make_minion(name="Angry Chicken", attack=1, health=1, mana_cost="{1}", subtypes={"Beast"}, text="Enrage: +5 Attack.", rarity="Rare", setup_interceptors=angry_chicken_setup)
+
+# --- Battlecry Cards ---
+
+def youthful_brewmaster_battlecry(obj, state):
+    """Return a friendly minion to your hand."""
+    battlefield = state.zones.get('battlefield')
+    if not battlefield:
+        return []
+    friendly_minions = []
+    for mid in battlefield.objects:
+        m = state.objects.get(mid)
+        if m and m.controller == obj.controller and m.id != obj.id and CardType.MINION in m.characteristics.types:
+            friendly_minions.append(mid)
+    if friendly_minions:
+        target_id = random.choice(friendly_minions)
+        return [Event(type=EventType.RETURN_TO_HAND, payload={'object_id': target_id}, source=obj.id)]
+    return []
+
+YOUTHFUL_BREWMASTER = make_minion(name="Youthful Brewmaster", attack=3, health=2, mana_cost="{2}", text="Battlecry: Return a friendly minion from the battlefield to your hand.", rarity="Common", battlecry=youthful_brewmaster_battlecry)
+
+def coldlight_seer_battlecry(obj, state):
+    """Give your other Murlocs +2 Health."""
+    events = []
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if (m and m.id != obj.id and m.controller == obj.controller and
+                CardType.MINION in m.characteristics.types and 'Murloc' in m.characteristics.subtypes):
+                events.append(Event(type=EventType.PT_MODIFICATION,
+                    payload={'object_id': mid, 'power_mod': 0, 'toughness_mod': 2, 'duration': 'permanent'},
+                    source=obj.id))
+    return events
+
+COLDLIGHT_SEER = make_minion(name="Coldlight Seer", attack=2, health=3, mana_cost="{3}", subtypes={"Murloc"}, text="Battlecry: Give your other Murlocs +2 Health.", rarity="Rare", battlecry=coldlight_seer_battlecry)
+
+def blood_knight_battlecry(obj, state):
+    """Remove all Divine Shields, gain +3/+3 for each."""
+    count = 0
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if m and CardType.MINION in m.characteristics.types and getattr(m.state, 'divine_shield', False):
+                m.state.divine_shield = False
+                count += 1
+    if count > 0:
+        return [Event(type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': count * 3, 'toughness_mod': count * 3, 'duration': 'permanent'},
+            source=obj.id)]
+    return []
+
+BLOOD_KNIGHT = make_minion(name="Blood Knight", attack=3, health=3, mana_cost="{3}", text="Battlecry: All minions lose Divine Shield. Gain +3/+3 for each Shield lost.", rarity="Epic", battlecry=blood_knight_battlecry)
+
+def tinkmaster_overspark_battlecry(obj, state):
+    """Transform a random minion into a 5/5 Devilsaur or a 1/1 Squirrel."""
+    battlefield = state.zones.get('battlefield')
+    if not battlefield:
+        return []
+    minions = [mid for mid in battlefield.objects if mid != obj.id and state.objects.get(mid) and CardType.MINION in state.objects[mid].characteristics.types]
+    if not minions:
+        return []
+    target_id = random.choice(minions)
+    target = state.objects[target_id]
+    if random.random() < 0.5:
+        target.characteristics.power = 5
+        target.characteristics.toughness = 5
+        target.name = "Devilsaur"
+        target.characteristics.subtypes = {"Beast"}
+    else:
+        target.characteristics.power = 1
+        target.characteristics.toughness = 1
+        target.name = "Squirrel"
+        target.characteristics.subtypes = {"Beast"}
+    target.state.damage = 0
+    target.characteristics.abilities = []
+    for int_id in list(target.interceptor_ids):
+        if int_id in state.interceptors:
+            del state.interceptors[int_id]
+    target.interceptor_ids.clear()
+    target.card_def = None
+    return [Event(type=EventType.TRANSFORM, payload={'object_id': target_id, 'new_name': target.name}, source=obj.id)]
+
+TINKMASTER_OVERSPARK = make_minion(name="Tinkmaster Overspark", attack=3, health=3, mana_cost="{3}", text="Battlecry: Transform another random minion into a 5/5 Devilsaur or a 1/1 Squirrel.", rarity="Legendary", battlecry=tinkmaster_overspark_battlecry)
+
+def priestess_of_elune_battlecry(obj, state):
+    """Restore 4 Health to your hero."""
+    return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 4}, source=obj.id)]
+
+PRIESTESS_OF_ELUNE = make_minion(name="Priestess of Elune", attack=5, health=4, mana_cost="{6}", text="Battlecry: Restore 4 Health to your hero.", rarity="Common", battlecry=priestess_of_elune_battlecry)
+
+# --- Aura/Triggered Effects ---
+
+def murloc_tidecaller_setup(obj, state):
+    """Whenever a Murloc is summoned, gain +1 Attack."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    def murloc_summon_filter(event, s):
+        if event.type == EventType.ZONE_CHANGE:
+            summoned_id = event.payload.get('object_id')
+            summoned = s.objects.get(summoned_id)
+            if summoned and summoned.id != obj.id and 'Murloc' in summoned.characteristics.subtypes:
+                return True
+        if event.type == EventType.CREATE_TOKEN:
+            token = event.payload.get('token', {})
+            if 'Murloc' in token.get('subtypes', set()):
+                return True
+        return False
+    def gain_attack(event, s):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'permanent'}, source=obj.id)])
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=murloc_summon_filter, handler=gain_attack, duration='while_on_battlefield')]
+
+MURLOC_TIDECALLER = make_minion(name="Murloc Tidecaller", attack=1, health=2, mana_cost="{1}", subtypes={"Murloc"}, text="Whenever you summon a Murloc, gain +1 Attack.", rarity="Rare", setup_interceptors=murloc_tidecaller_setup)
+
+def secretkeeper_setup(obj, state):
+    """Whenever a Secret is played, gain +1/+1."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    def secret_filter(event, s):
+        if event.type in (EventType.CAST, EventType.SPELL_CAST, EventType.ZONE_CHANGE):
+            source_id = event.payload.get('spell_id') or event.payload.get('object_id') or event.source
+            source_obj = s.objects.get(source_id)
+            if source_obj and CardType.SPELL in source_obj.characteristics.types:
+                card_def = getattr(source_obj, 'card_def', None)
+                if card_def and 'Secret' in (card_def.get('text', '') or ''):
+                    return True
+        return False
+    def gain_stats(event, s):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'permanent'}, source=obj.id)])
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=secret_filter, handler=gain_stats, duration='while_on_battlefield')]
+
+SECRETKEEPER = make_minion(name="Secretkeeper", attack=1, health=2, mana_cost="{1}", text="Whenever a Secret is played, gain +1/+1.", rarity="Rare", setup_interceptors=secretkeeper_setup)
+
+def lightwarden_setup(obj, state):
+    """Whenever a character is healed, gain +2 Attack."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    def heal_filter(event, s):
+        return event.type == EventType.LIFE_CHANGE and event.payload.get('amount', 0) > 0
+    def gain_attack(event, s):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'permanent'}, source=obj.id)])
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=heal_filter, handler=gain_attack, duration='while_on_battlefield')]
+
+LIGHTWARDEN = make_minion(name="Lightwarden", attack=1, health=2, mana_cost="{1}", text="Whenever a character is healed, gain +2 Attack.", rarity="Rare", setup_interceptors=lightwarden_setup)
+
+def mana_addict_setup(obj, state):
+    """Whenever you cast a spell, gain +2 Attack this turn."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    def spell_filter(event, s):
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        return caster == obj.controller
+    def gain_attack(event, s):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'}, source=obj.id)])
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=spell_filter, handler=gain_attack, duration='while_on_battlefield')]
+
+MANA_ADDICT = make_minion(name="Mana Addict", attack=1, health=3, mana_cost="{2}", text="Whenever you cast a spell, gain +2 Attack this turn.", rarity="Rare", setup_interceptors=mana_addict_setup)
+
+def flesheating_ghoul_setup(obj, state):
+    """Whenever a minion dies, gain +1 Attack."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    def death_filter(event, s):
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        died_id = event.payload.get('object_id')
+        return died_id != obj.id
+    def gain_attack(event, s):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'permanent'}, source=obj.id)])
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=death_filter, handler=gain_attack, duration='while_on_battlefield')]
+
+FLESHEATING_GHOUL = make_minion(name="Flesheating Ghoul", attack=2, health=3, mana_cost="{3}", text="Whenever a minion dies, gain +1 Attack.", rarity="Common", setup_interceptors=flesheating_ghoul_setup)
+
+def murloc_warleader_setup(obj, state):
+    """Your other Murlocs have +2 Attack."""
+    def murloc_filter(target, s):
+        return (target.id != obj.id and target.controller == obj.controller and
+                CardType.MINION in target.characteristics.types and
+                'Murloc' in target.characteristics.subtypes and
+                target.zone == ZoneType.BATTLEFIELD)
+    from src.cards.interceptor_helpers import make_static_pt_boost
+    return make_static_pt_boost(obj, power_mod=2, toughness_mod=0, affects_filter=murloc_filter)
+
+MURLOC_WARLEADER = make_minion(name="Murloc Warleader", attack=3, health=3, mana_cost="{3}", subtypes={"Murloc"}, text="Your other Murlocs have +2 Attack.", rarity="Epic", setup_interceptors=murloc_warleader_setup)
+
+def southsea_captain_setup(obj, state):
+    """Your other Pirates have +1/+1."""
+    def pirate_filter(target, s):
+        return (target.id != obj.id and target.controller == obj.controller and
+                CardType.MINION in target.characteristics.types and
+                'Pirate' in target.characteristics.subtypes and
+                target.zone == ZoneType.BATTLEFIELD)
+    from src.cards.interceptor_helpers import make_static_pt_boost
+    return make_static_pt_boost(obj, power_mod=1, toughness_mod=1, affects_filter=pirate_filter)
+
+SOUTHSEA_CAPTAIN = make_minion(name="Southsea Captain", attack=3, health=3, mana_cost="{3}", subtypes={"Pirate"}, text="Your other Pirates have +1/+1.", rarity="Epic", setup_interceptors=southsea_captain_setup)
+
+def gadgetzan_auctioneer_setup(obj, state):
+    """Whenever you cast a spell, draw a card."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    def spell_filter(event, s):
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        return caster == obj.controller
+    def draw_card(event, s):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)])
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=spell_filter, handler=draw_card, duration='while_on_battlefield')]
+
+GADGETZAN_AUCTIONEER = make_minion(name="Gadgetzan Auctioneer", attack=4, health=4, mana_cost="{6}", text="Whenever you cast a spell, draw a card.", rarity="Rare", setup_interceptors=gadgetzan_auctioneer_setup)
+
+# --- Text-only Cards ---
+
+SPITEFUL_SMITH = make_minion(name="Spiteful Smith", attack=4, health=6, mana_cost="{5}", text="Enrage: Your weapon has +2 Attack.", rarity="Common")
+
+MANA_WRAITH = make_minion(name="Mana Wraith", attack=2, health=2, mana_cost="{2}", text="ALL minions cost (1) more.", rarity="Rare")
+
+PINT_SIZED_SUMMONER = make_minion(name="Pint-Sized Summoner", attack=2, health=2, mana_cost="{2}", text="The first minion you play each turn costs (1) less.", rarity="Rare")
+
+NOZDORMU = make_minion(name="Nozdormu", attack=8, health=8, mana_cost="{9}", subtypes={"Dragon"}, text="Players only have 15 seconds to take their turns.", rarity="Legendary")
+
+# --- Legendaries with Effects ---
+
+def nat_pagle_setup(obj, state):
+    """At the start of your turn, you have a 50% chance to draw an extra card."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    def turn_start_filter(event, s):
+        return (event.type == EventType.PHASE_START and event.payload.get('player') == obj.controller)
+    def maybe_draw(event, s):
+        if random.random() < 0.5:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+                Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)])
+        return InterceptorResult(action=InterceptorAction.PASS)
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=turn_start_filter, handler=maybe_draw, duration='while_on_battlefield')]
+
+NAT_PAGLE = make_minion(name="Nat Pagle", attack=0, health=4, mana_cost="{2}", text="At the start of your turn, you have a 50% chance to draw an extra card.", rarity="Legendary", setup_interceptors=nat_pagle_setup)
+
+LOREWALKER_CHO = make_minion(name="Lorewalker Cho", attack=0, health=4, mana_cost="{2}", text="Whenever a player casts a spell, put a copy into the other player's hand.", rarity="Legendary")
+
+MILLHOUSE_MANASTORM = make_minion(name="Millhouse Manastorm", attack=4, health=4, mana_cost="{2}", text="Battlecry: Enemy spells cost (0) next turn.", rarity="Legendary")
+
+KING_MUKLA = make_minion(name="King Mukla", attack=5, health=5, mana_cost="{3}", subtypes={"Beast"}, text="Battlecry: Give your opponent 2 Bananas.", rarity="Legendary")
+
+def hogger_setup(obj, state):
+    """At the end of your turn, summon a 2/2 Gnoll with Taunt."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    def end_turn_filter(event, s):
+        return event.type == EventType.TURN_END and event.payload.get('player') == obj.controller
+    def summon_gnoll(event, s):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.CREATE_TOKEN, payload={
+                'controller': obj.controller,
+                'token': {'name': 'Gnoll', 'power': 2, 'toughness': 2, 'types': {CardType.MINION}, 'keywords': {'taunt'}}
+            }, source=obj.id)])
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=end_turn_filter, handler=summon_gnoll, duration='while_on_battlefield')]
+
+HOGGER = make_minion(name="Hogger", attack=4, health=4, mana_cost="{6}", text="At the end of your turn, summon a 2/2 Gnoll with Taunt.", rarity="Legendary", setup_interceptors=hogger_setup)
+
+def doomsayer_setup(obj, state):
+    """At the start of your turn, destroy ALL minions."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    def turn_start_filter(event, s):
+        return (event.type == EventType.PHASE_START and event.payload.get('player') == obj.controller)
+    def destroy_all(event, s):
+        events = []
+        battlefield = s.zones.get('battlefield')
+        if battlefield:
+            for mid in list(battlefield.objects):
+                m = s.objects.get(mid)
+                if m and CardType.MINION in m.characteristics.types:
+                    events.append(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': mid, 'reason': 'doomsayer'}, source=obj.id))
+        if events:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+        return InterceptorResult(action=InterceptorAction.PASS)
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=turn_start_filter, handler=destroy_all, duration='while_on_battlefield')]
+
+DOOMSAYER = make_minion(name="Doomsayer", attack=0, health=7, mana_cost="{2}", text="At the start of your turn, destroy ALL minions.", rarity="Epic", setup_interceptors=doomsayer_setup)
+
 
 # =============================================================================
 # Card Collections
@@ -2548,6 +2864,14 @@ CLASSIC_MINIONS = [
     WORGEN_INFILTRATOR,
     YOUNG_PRIESTESS,
     HUNGRY_CRAB,
+    SHIELDBEARER,
+    YOUNG_DRAGONHAWK,
+    BLOODSAIL_CORSAIR,
+    SOUTHSEA_DECKHAND,
+    ANGRY_CHICKEN,
+    MURLOC_TIDECALLER,
+    SECRETKEEPER,
+    LIGHTWARDEN,
     # 2-Cost
     ACIDIC_SWAMP_OOZE,
     BLOODFEN_RAPTOR,
@@ -2565,6 +2889,16 @@ CLASSIC_MINIONS = [
     AMANI_BERSERKER,
     MURLOC_TIDEHUNTER,
     MAD_SCIENTIST,
+    ANCIENT_WATCHER,
+    BLOODSAIL_RAIDER,
+    YOUTHFUL_BREWMASTER,
+    MANA_ADDICT,
+    MANA_WRAITH,
+    PINT_SIZED_SUMMONER,
+    NAT_PAGLE,
+    LOREWALKER_CHO,
+    MILLHOUSE_MANASTORM,
+    DOOMSAYER,
     # 3-Cost
     EARTHEN_RING_FARSEER,
     HARVEST_GOLEM,
@@ -2584,6 +2918,16 @@ CLASSIC_MINIONS = [
     RAGING_WORGEN,
     IRONBEAK_OWL,
     WOLFRIDER,
+    TAUREN_WARRIOR,
+    THRALLMAR_FARSEER,
+    ARCANE_GOLEM,
+    COLDLIGHT_SEER,
+    BLOOD_KNIGHT,
+    TINKMASTER_OVERSPARK,
+    FLESHEATING_GHOUL,
+    MURLOC_WARLEADER,
+    SOUTHSEA_CAPTAIN,
+    KING_MUKLA,
     # 4-Cost
     CHILLWIND_YETI,
     SEN_JIN_SHIELDMASTA,
@@ -2599,6 +2943,7 @@ CLASSIC_MINIONS = [
     STORMWIND_KNIGHT,
     WATER_ELEMENTAL,
     DREAD_CORSAIR,
+    MOGUSHAN_WARDEN,
     # 5-Cost
     ABOMINATION,
     STRANGLETHORN_TIGER,
@@ -2611,6 +2956,8 @@ CLASSIC_MINIONS = [
     SILVER_HAND_KNIGHT,
     BIG_GAME_HUNTER,
     LEEROY_JENKINS,
+    FEN_CREEPER,
+    SPITEFUL_SMITH,
     # 6-Cost
     BOULDERFIST_OGRE,
     RECKLESS_ROCKETEER,
@@ -2622,6 +2969,9 @@ CLASSIC_MINIONS = [
     THE_BLACK_KNIGHT,
     THE_BEAST,
     WINDFURY_HARPY,
+    PRIESTESS_OF_ELUNE,
+    GADGETZAN_AUCTIONEER,
+    HOGGER,
     # 7+ Cost
     RAVENHOLDT_ASSASSIN,
     BARON_GEDDON,
@@ -2635,6 +2985,7 @@ CLASSIC_MINIONS = [
     SEA_GIANT,
     MOUNTAIN_GIANT,
     MOLTEN_GIANT,
+    NOZDORMU,
 ]
 
 CLASSIC_SPELLS = [

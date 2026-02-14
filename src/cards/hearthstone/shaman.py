@@ -13,6 +13,28 @@ from src.cards.interceptor_helpers import (
 # BASIC SHAMAN CARDS
 # ============================================================================
 
+def totemic_might_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Give your Totems +2 Health."""
+    events = []
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    for mid in friendly:
+        m = state.objects.get(mid)
+        if m and 'Totem' in m.characteristics.subtypes:
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': mid, 'power_mod': 0, 'toughness_mod': 2, 'duration': 'permanent'},
+                source=obj.id
+            ))
+    return events
+
+TOTEMIC_MIGHT = make_spell(
+    name="Totemic Might",
+    mana_cost="{0}",
+    text="Give your Totems +2 Health.",
+    spell_effect=totemic_might_effect
+)
+
+
 def frost_shock_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
     """Deal 1 damage to an enemy character and Freeze it."""
     enemies = get_enemy_targets(obj, state)
@@ -644,11 +666,32 @@ DUST_DEVIL = make_minion(
 )
 
 
+def windspeaker_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Give a friendly minion Windfury."""
+    friendly = get_friendly_minions(obj, state, exclude_self=True)
+    if friendly:
+        target_id = random.choice(friendly)
+        target = state.objects.get(target_id)
+        if target:
+            target.state.windfury = True
+    return []
+
+WINDSPEAKER = make_minion(
+    name="Windspeaker",
+    attack=3,
+    health=3,
+    mana_cost="{4}",
+    text="Battlecry: Give a friendly minion Windfury.",
+    battlecry=windspeaker_battlecry
+)
+
+
 # ============================================================================
 # CARD LISTS
 # ============================================================================
 
 SHAMAN_BASIC = [
+    TOTEMIC_MIGHT,
     FROST_SHOCK,
     ROCKBITER_WEAPON,
     WINDFURY_SPELL,
@@ -675,6 +718,7 @@ SHAMAN_CLASSIC = [
     ANCESTRAL_SPIRIT,
     ANCESTRAL_HEALING,
     DUST_DEVIL,
+    WINDSPEAKER,
 ]
 
 SHAMAN_CARDS = SHAMAN_BASIC + SHAMAN_CLASSIC

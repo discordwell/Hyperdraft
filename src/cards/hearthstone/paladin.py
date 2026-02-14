@@ -139,6 +139,14 @@ GUARDIAN_OF_KINGS = make_minion(
 )
 
 
+BLESSING_OF_WISDOM = make_spell(
+    name="Blessing of Wisdom",
+    mana_cost="{1}",
+    text="Choose a minion. Whenever it attacks, draw a card.",
+    spell_effect=lambda obj, state, targets: []
+)
+
+
 # ============================================================================
 # CLASSIC PALADIN CARDS
 # ============================================================================
@@ -418,6 +426,95 @@ TIRION_FORDRING = make_minion(
 )
 
 
+def _eye_for_an_eye_filter(event, state):
+    """Trigger when your hero takes damage."""
+    if event.type != EventType.DAMAGE:
+        return False
+    target_id = event.payload.get('target')
+    target = state.objects.get(target_id)
+    return target and CardType.MINION not in target.characteristics.types
+
+def _eye_for_an_eye_effect(obj, state):
+    """Deal same damage to enemy hero."""
+    # Find the most recent damage event to our hero
+    for event in reversed(state.events[-10:]):
+        if event.type == EventType.DAMAGE:
+            amount = event.payload.get('amount', 0)
+            hero_id = get_enemy_hero_id(obj, state)
+            if hero_id and amount > 0:
+                return [Event(type=EventType.DAMAGE,
+                    payload={'target': hero_id, 'amount': amount, 'source': obj.id},
+                    source=obj.id)]
+    return []
+
+EYE_FOR_AN_EYE = make_secret(
+    name="Eye for an Eye",
+    mana_cost="{1}",
+    text="Secret: When your hero takes damage, deal that much damage to the enemy hero.",
+    trigger_filter=_eye_for_an_eye_filter,
+    trigger_effect=_eye_for_an_eye_effect
+)
+
+
+def argent_protector_battlecry(obj, state):
+    """Battlecry: Give a friendly minion Divine Shield."""
+    friendly = get_friendly_minions(obj, state, exclude_self=True)
+    if friendly:
+        target_id = random.choice(friendly)
+        target_obj = state.objects.get(target_id)
+        if target_obj:
+            target_obj.state.divine_shield = True
+    return []
+
+ARGENT_PROTECTOR = make_minion(
+    name="Argent Protector",
+    attack=2,
+    health=2,
+    mana_cost="{2}",
+    text="Battlecry: Give a friendly minion Divine Shield.",
+    battlecry=argent_protector_battlecry
+)
+
+
+def blessed_champion_effect(obj, state, targets):
+    """Double a minion's Attack."""
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    if friendly:
+        target_id = random.choice(friendly)
+        m = state.objects.get(target_id)
+        if m:
+            current_attack = m.characteristics.power
+            return [Event(type=EventType.PT_MODIFICATION,
+                payload={'object_id': target_id, 'power_mod': current_attack, 'toughness_mod': 0, 'duration': 'permanent'},
+                source=obj.id)]
+    return []
+
+BLESSED_CHAMPION = make_spell(
+    name="Blessed Champion",
+    mana_cost="{5}",
+    text="Double a minion's Attack.",
+    spell_effect=blessed_champion_effect
+)
+
+
+def holy_wrath_effect(obj, state, targets):
+    """Draw a card and deal damage equal to its cost. (Simplified: draw + deal 3)"""
+    events = [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
+    hero_id = get_enemy_hero_id(obj, state)
+    if hero_id:
+        events.append(Event(type=EventType.DAMAGE,
+            payload={'target': hero_id, 'amount': 3, 'source': obj.id, 'from_spell': True},
+            source=obj.id))
+    return events
+
+HOLY_WRATH = make_spell(
+    name="Holy Wrath",
+    mana_cost="{5}",
+    text="Draw a card and deal damage equal to its cost.",
+    spell_effect=holy_wrath_effect
+)
+
+
 # ============================================================================
 # CARD LISTS
 # ============================================================================
@@ -432,6 +529,7 @@ PALADIN_BASIC = [
     HAMMER_OF_WRATH,
     TRUESILVER_CHAMPION,  # Re-imported from classic.py
     GUARDIAN_OF_KINGS,
+    BLESSING_OF_WISDOM,
 ]
 
 PALADIN_CLASSIC = [
@@ -439,10 +537,14 @@ PALADIN_CLASSIC = [
     REDEMPTION,
     REPENTANCE,
     AVENGE,
+    EYE_FOR_AN_EYE,
     EQUALITY,
+    ARGENT_PROTECTOR,
     ALDOR_PEACEKEEPER,
     DIVINE_FAVOR,
     SWORD_OF_JUSTICE,
+    BLESSED_CHAMPION,
+    HOLY_WRATH,
     AVENGING_WRATH,
     LAY_ON_HANDS,
     TIRION_FORDRING,
