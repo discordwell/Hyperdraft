@@ -15,9 +15,38 @@ from src.cards.interceptor_helpers import (
 def claw_effect(obj, state, targets):
     """Give your hero +2 Attack this turn and 2 Armor."""
     player = state.players.get(obj.controller)
-    if player:
-        player.weapon_attack += 2
-        player.armor += 2
+    if not player:
+        return []
+
+    player.weapon_attack += 2
+    player.armor += 2
+
+    # Register end-of-turn cleanup interceptor to remove the +2 attack
+    def end_turn_filter(event, s):
+        return event.type == EventType.TURN_END and event.payload.get('player') == obj.controller
+
+    def end_turn_handler(event, s):
+        p = s.players.get(obj.controller)
+        if p:
+            p.weapon_attack = max(0, p.weapon_attack - 2)
+        # Self-remove this interceptor
+        int_id = end_turn_handler._interceptor_id
+        if int_id in s.interceptors:
+            del s.interceptors[int_id]
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    int_obj = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=end_turn_filter,
+        handler=end_turn_handler,
+        duration='until_end_of_turn'
+    )
+    end_turn_handler._interceptor_id = int_obj.id
+    state.interceptors[int_obj.id] = int_obj
+
     return []
 
 CLAW = make_spell(
@@ -72,15 +101,44 @@ WILD_GROWTH = make_spell(
 def savage_roar_effect(obj, state, targets):
     """Give your characters +2 Attack this turn."""
     events = []
-    # Buff all friendly minions
+    # Buff all friendly minions (+2 Attack this turn)
     for mid in get_friendly_minions(obj, state, exclude_self=False):
         events.append(Event(type=EventType.PT_MODIFICATION,
             payload={'object_id': mid, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'},
             source=obj.id))
     # Give hero +2 attack this turn
     player = state.players.get(obj.controller)
-    if player:
-        player.weapon_attack += 2
+    if not player:
+        return events
+
+    player.weapon_attack += 2
+
+    # Register end-of-turn cleanup interceptor to remove the hero +2 attack
+    def end_turn_filter(event, s):
+        return event.type == EventType.TURN_END and event.payload.get('player') == obj.controller
+
+    def end_turn_handler(event, s):
+        p = s.players.get(obj.controller)
+        if p:
+            p.weapon_attack = max(0, p.weapon_attack - 2)
+        # Self-remove this interceptor
+        int_id = end_turn_handler._interceptor_id
+        if int_id in s.interceptors:
+            del s.interceptors[int_id]
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    int_obj = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=end_turn_filter,
+        handler=end_turn_handler,
+        duration='until_end_of_turn'
+    )
+    end_turn_handler._interceptor_id = int_obj.id
+    state.interceptors[int_obj.id] = int_obj
+
     return events
 
 SAVAGE_ROAR = make_spell(
@@ -507,9 +565,38 @@ CENARIUS = make_minion(
 def bite_effect(obj, state, targets):
     """Give your hero +4 Attack this turn and 4 Armor."""
     player = state.players.get(obj.controller)
-    if player:
-        player.weapon_attack += 4
-        player.armor += 4
+    if not player:
+        return []
+
+    player.weapon_attack += 4
+    player.armor += 4
+
+    # Register end-of-turn cleanup interceptor to remove the +4 attack
+    def end_turn_filter(event, s):
+        return event.type == EventType.TURN_END and event.payload.get('player') == obj.controller
+
+    def end_turn_handler(event, s):
+        p = s.players.get(obj.controller)
+        if p:
+            p.weapon_attack = max(0, p.weapon_attack - 4)
+        # Self-remove this interceptor
+        int_id = end_turn_handler._interceptor_id
+        if int_id in s.interceptors:
+            del s.interceptors[int_id]
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    int_obj = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=end_turn_filter,
+        handler=end_turn_handler,
+        duration='until_end_of_turn'
+    )
+    end_turn_handler._interceptor_id = int_obj.id
+    state.interceptors[int_obj.id] = int_obj
+
     return []
 
 BITE = make_spell(

@@ -107,13 +107,38 @@ WINDFURY_SPELL = make_spell(
 
 
 def flametongue_totem_setup(obj: GameObject, state: GameState) -> list:
-    """Adjacent minions have +2 Attack. (Simplified: other friendly minions +2 Attack)"""
-    return make_static_pt_boost(
-        obj,
-        power_mod=2,
-        toughness_mod=0,
-        affects_filter=other_friendly_minions(obj)
-    )
+    """Adjacent minions have +2 Attack."""
+    from src.cards.interceptor_helpers import get_adjacent_minions
+
+    source_id = obj.id
+
+    def adj_power_filter(event: Event, s: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        target_id = event.payload.get('object_id')
+        source = s.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        left, right = get_adjacent_minions(source_id, s)
+        return target_id in (left, right)
+
+    def adj_power_handler(event: Event, s: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + 2
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=adj_power_filter,
+        handler=adj_power_handler,
+        duration='while_on_battlefield'
+    )]
 
 
 FLAMETONGUE_TOTEM = make_minion(
@@ -582,12 +607,42 @@ AL_AKIR_THE_WINDLORD = make_minion(
 
 
 def far_sight_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
-    """Draw a card. It costs (3) less. (Simplified: draw a card)."""
-    return [Event(
-        type=EventType.DRAW,
-        payload={'player': obj.controller, 'count': 1},
-        source=obj.id
-    )]
+    """Draw a card. It costs (3) less."""
+    import re
+
+    # Perform the draw directly (move top card from library to hand)
+    lib_key = f"library_{obj.controller}"
+    hand_key = f"hand_{obj.controller}"
+    library = state.zones.get(lib_key)
+    hand = state.zones.get(hand_key)
+    if not library or not library.objects or not hand:
+        return []
+
+    # Check hand size limit (Hearthstone mode)
+    if state.game_mode == "hearthstone" and len(hand.objects) >= state.max_hand_size:
+        # Overdraw - burn the card, no cost reduction
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id
+        )]
+
+    # Draw the card manually
+    card_id = library.objects.pop(0)
+    hand.objects.append(card_id)
+    card = state.objects.get(card_id)
+    if card:
+        card.zone = ZoneType.HAND
+        card.entered_zone_at = state.timestamp
+
+        # Apply (3) cost reduction by modifying the card's mana_cost directly
+        cost_str = card.characteristics.mana_cost or "{0}"
+        numbers = re.findall(r'\{(\d+)\}', cost_str)
+        current_cost = sum(int(n) for n in numbers)
+        new_cost = max(0, current_cost - 3)
+        card.characteristics.mana_cost = "{" + str(new_cost) + "}"
+
+    return []
 
 
 FAR_SIGHT = make_spell(

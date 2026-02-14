@@ -489,13 +489,19 @@ STRANGLETHORN_TIGER = make_minion(
     keywords={"stealth"}
 )
 
+def venture_co_mercenary_setup(obj: GameObject, state: GameState):
+    """Your minions cost (3) more."""
+    from src.cards.interceptor_helpers import make_cost_reduction_aura
+    return make_cost_reduction_aura(obj, CardType.MINION, -3)
+
 VENTURE_CO_MERCENARY = make_minion(
     name="Venture Co. Mercenary",
     attack=7,
     health=6,
     mana_cost="{5}",
     text="Your minions cost (3) more.",
-    rarity="Common"
+    rarity="Common",
+    setup_interceptors=venture_co_mercenary_setup
 )
 
 
@@ -1005,19 +1011,65 @@ YOUNG_PRIESTESS = make_minion(
     setup_interceptors=young_priestess_setup
 )
 
+def hungry_crab_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Destroy a Murloc and gain +2/+2."""
+    battlefield = state.zones.get('battlefield')
+    if not battlefield:
+        return []
+    murlocs = []
+    for mid in battlefield.objects:
+        m = state.objects.get(mid)
+        if m and mid != obj.id and CardType.MINION in m.characteristics.types and 'Murloc' in (m.characteristics.subtypes or set()):
+            murlocs.append(mid)
+    if not murlocs:
+        return []
+    target = random.choice(murlocs)
+    return [
+        Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': target, 'reason': 'hungry_crab'}, source=obj.id),
+        Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 2, 'toughness_mod': 2, 'duration': 'permanent'}, source=obj.id),
+    ]
+
 HUNGRY_CRAB = make_minion(
     name="Hungry Crab",
     attack=1,
     health=2,
     mana_cost="{1}",
     subtypes={"Beast"},
-    text="Battlecry: Destroy a Murloc and gain +2/+2. (Text only)",
-    rarity="Epic"
+    text="Battlecry: Destroy a Murloc and gain +2/+2.",
+    rarity="Epic",
+    battlecry=hungry_crab_battlecry
 )
 
 # =============================================================================
 # Additional Classic Neutral Minions (2-Cost)
 # =============================================================================
+
+def dire_wolf_alpha_setup(obj: GameObject, state: GameState):
+    """Adjacent minions have +1 Attack."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    from src.cards.interceptor_helpers import get_adjacent_minions
+    source_id = obj.id
+
+    def adj_power_filter(event, s):
+        if event.type != EventType.QUERY_POWER:
+            return False
+        target_id = event.payload.get('object_id')
+        source = s.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        left, right = get_adjacent_minions(source_id, s)
+        return target_id in (left, right)
+
+    def adj_power_handler(event, s):
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + 1
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(
+        id=new_id(), source=source_id, controller=obj.controller,
+        priority=InterceptorPriority.QUERY, filter=adj_power_filter,
+        handler=adj_power_handler, duration='while_on_battlefield'
+    )]
 
 DIRE_WOLF_ALPHA = make_minion(
     name="Dire Wolf Alpha",
@@ -1025,9 +1077,36 @@ DIRE_WOLF_ALPHA = make_minion(
     health=2,
     mana_cost="{2}",
     subtypes={"Beast"},
-    text="Your other minions have +1 Attack. (Simplified from adjacent)",
-    rarity="Common"
+    text="Adjacent minions have +1 Attack.",
+    rarity="Common",
+    setup_interceptors=dire_wolf_alpha_setup
 )
+
+def faerie_dragon_setup(obj: GameObject, state: GameState):
+    """Can't be targeted by Spells or Hero Powers."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    source_id = obj.id
+
+    def ability_filter(event, s):
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        return event.payload.get('object_id') == source_id
+
+    def ability_handler(event, s):
+        new_event = event.copy()
+        granted = list(new_event.payload.get('granted', []))
+        if 'elusive' not in granted:
+            granted.append('elusive')
+        new_event.payload['granted'] = granted
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [
+        Interceptor(
+            id=new_id(), source=source_id, controller=obj.controller,
+            priority=InterceptorPriority.QUERY, filter=ability_filter,
+            handler=ability_handler, duration='while_on_battlefield'
+        ),
+    ]
 
 FAERIE_DRAGON = make_minion(
     name="Faerie Dragon",
@@ -1036,38 +1115,30 @@ FAERIE_DRAGON = make_minion(
     mana_cost="{2}",
     subtypes={"Dragon"},
     text="Can't be targeted by spells or Hero Powers.",
-    rarity="Common"
+    rarity="Common",
+    setup_interceptors=faerie_dragon_setup
 )
 
 def sunfury_protector_battlecry(obj: GameObject, state: GameState) -> list[Event]:
-    """Battlecry: Give adjacent minions Taunt (simplified: give a random friendly minion Taunt)."""
-    battlefield = state.zones.get('battlefield')
-    if not battlefield:
-        return []
-
-    friendly_minions = []
-    for minion_id in battlefield.objects:
-        minion = state.objects.get(minion_id)
-        if minion and minion.controller == obj.controller and minion.id != obj.id:
-            if CardType.MINION in minion.characteristics.types:
-                friendly_minions.append(minion_id)
-
-    if friendly_minions:
-        target_id = random.choice(friendly_minions)
-        return [Event(
-            type=EventType.KEYWORD_GRANT,
-            payload={'object_id': target_id, 'keyword': 'taunt'},
-            source=obj.id
-        )]
-
-    return []
+    """Battlecry: Give adjacent minions Taunt."""
+    from src.cards.interceptor_helpers import get_adjacent_minions
+    left, right = get_adjacent_minions(obj.id, state)
+    events = []
+    for adj_id in [left, right]:
+        if adj_id:
+            events.append(Event(
+                type=EventType.KEYWORD_GRANT,
+                payload={'object_id': adj_id, 'keyword': 'taunt'},
+                source=obj.id
+            ))
+    return events
 
 SUNFURY_PROTECTOR = make_minion(
     name="Sunfury Protector",
     attack=2,
     health=3,
     mana_cost="{2}",
-    text="Battlecry: Give adjacent minions Taunt. (Simplified)",
+    text="Battlecry: Give adjacent minions Taunt.",
     rarity="Rare",
     battlecry=sunfury_protector_battlecry
 )
@@ -1128,6 +1199,11 @@ def bloodmage_thalnos_deathrattle(obj: GameObject, state: GameState) -> list[Eve
         source=obj.id
     )]
 
+def bloodmage_thalnos_setup(obj: GameObject, state: GameState):
+    """Spell Damage +1."""
+    from src.cards.interceptor_helpers import make_spell_damage_boost
+    return [make_spell_damage_boost(obj, 1)]
+
 BLOODMAGE_THALNOS = make_minion(
     name="Bloodmage Thalnos",
     attack=1,
@@ -1135,7 +1211,8 @@ BLOODMAGE_THALNOS = make_minion(
     mana_cost="{2}",
     text="Spell Damage +1. Deathrattle: Draw a card.",
     rarity="Legendary",
-    deathrattle=bloodmage_thalnos_deathrattle
+    deathrattle=bloodmage_thalnos_deathrattle,
+    setup_interceptors=bloodmage_thalnos_setup
 )
 
 def master_swordsmith_setup(obj: GameObject, state: GameState):
@@ -1192,13 +1269,39 @@ MASTER_SWORDSMITH = make_minion(
     setup_interceptors=master_swordsmith_setup
 )
 
+def crazed_alchemist_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Swap a minion's Attack and Health."""
+    battlefield = state.zones.get('battlefield')
+    if not battlefield:
+        return []
+    targets = []
+    for mid in battlefield.objects:
+        m = state.objects.get(mid)
+        if m and mid != obj.id and CardType.MINION in m.characteristics.types:
+            targets.append(mid)
+    if not targets:
+        return []
+    target_id = random.choice(targets)
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    cur_power = target.characteristics.power or 0
+    cur_tough = target.characteristics.toughness or 0
+    # Swap: new power = old toughness, new toughness = old power
+    power_diff = cur_tough - cur_power
+    tough_diff = cur_power - cur_tough
+    return [Event(type=EventType.PT_MODIFICATION, payload={
+        'object_id': target_id, 'power_mod': power_diff, 'toughness_mod': tough_diff, 'duration': 'permanent'
+    }, source=obj.id)]
+
 CRAZED_ALCHEMIST = make_minion(
     name="Crazed Alchemist",
     attack=2,
     health=2,
     mana_cost="{2}",
-    text="Battlecry: Swap a minion's Attack and Health. (Text only)",
-    rarity="Rare"
+    text="Battlecry: Swap a minion's Attack and Health.",
+    rarity="Rare",
+    battlecry=crazed_alchemist_battlecry
 )
 
 def mad_bomber_battlecry(obj: GameObject, state: GameState) -> list[Event]:
@@ -1287,13 +1390,30 @@ MURLOC_TIDEHUNTER = make_minion(
     battlecry=murloc_tidehunter_battlecry
 )
 
+def mad_scientist_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    """Deathrattle: Put a Secret from your deck into the battlefield."""
+    deck_zone = state.zones.get(f'deck_{obj.controller}')
+    if not deck_zone:
+        return []
+    for card_id in deck_zone.objects:
+        card = state.objects.get(card_id)
+        if card and card.characteristics and CardType.SECRET in card.characteristics.types:
+            return [Event(type=EventType.ZONE_CHANGE, payload={
+                'object_id': card_id,
+                'from_zone': f'deck_{obj.controller}',
+                'to_zone': 'battlefield',
+                'controller': obj.controller
+            }, source=obj.id)]
+    return []
+
 MAD_SCIENTIST = make_minion(
     name="Mad Scientist",
     attack=2,
     health=2,
     mana_cost="{2}",
-    text="Deathrattle: Put a Secret from your deck into the battlefield. (Text only)",
-    rarity="Common"
+    text="Deathrattle: Put a Secret from your deck into the battlefield.",
+    rarity="Common",
+    deathrattle=mad_scientist_deathrattle
 )
 
 # =============================================================================
@@ -1425,13 +1545,33 @@ INJURED_BLADEMASTER = make_minion(
     battlecry=injured_blademaster_battlecry
 )
 
+def mind_control_tech_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: If your opponent has 4 or more minions, take control of one at random."""
+    battlefield = state.zones.get('battlefield')
+    if not battlefield:
+        return []
+    enemy_minions = []
+    for mid in battlefield.objects:
+        m = state.objects.get(mid)
+        if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
+            enemy_minions.append(mid)
+    if len(enemy_minions) < 4:
+        return []
+    target = random.choice(enemy_minions)
+    return [Event(type=EventType.CONTROL_CHANGE, payload={
+        'object_id': target,
+        'new_controller': obj.controller,
+        'duration': 'permanent'
+    }, source=obj.id)]
+
 MIND_CONTROL_TECH = make_minion(
     name="Mind Control Tech",
     attack=3,
     health=3,
     mana_cost="{3}",
-    text="Battlecry: If your opponent has 4 or more minions, take control of one at random. (Text only)",
-    rarity="Rare"
+    text="Battlecry: If your opponent has 4 or more minions, take control of one at random.",
+    rarity="Rare",
+    battlecry=mind_control_tech_battlecry
 )
 
 def coldlight_oracle_battlecry(obj: GameObject, state: GameState) -> list[Event]:
@@ -1491,15 +1631,64 @@ IMP_MASTER = make_minion(
     setup_interceptors=imp_master_setup
 )
 
+def alarm_o_bot_setup(obj: GameObject, state: GameState):
+    """At the start of your turn, swap this minion with a random one from your hand."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    from src.cards.interceptor_helpers import make_start_of_turn_trigger
+
+    def swap_effect(event, s):
+        hand = s.zones.get(f"hand_{obj.controller}")
+        if not hand:
+            return []
+        # Find minion cards in hand
+        minion_ids = []
+        for card_id in hand.objects:
+            card = s.objects.get(card_id)
+            if card and CardType.MINION in card.characteristics.types:
+                minion_ids.append(card_id)
+        if not minion_ids:
+            return []
+        chosen_id = random.choice(minion_ids)
+        # Return Alarm-o-Bot to hand, put chosen minion on battlefield
+        return [
+            Event(type=EventType.RETURN_TO_HAND,
+                  payload={'object_id': obj.id, 'owner': obj.controller},
+                  source=obj.id),
+            Event(type=EventType.ZONE_CHANGE,
+                  payload={'object_id': chosen_id, 'from_zone_type': ZoneType.HAND,
+                           'to_zone_type': ZoneType.BATTLEFIELD, 'controller': obj.controller},
+                  source=obj.id),
+        ]
+
+    return [make_start_of_turn_trigger(obj, swap_effect)]
+
 ALARM_O_BOT = make_minion(
     name="Alarm-o-Bot",
     attack=0,
     health=3,
     mana_cost="{3}",
     subtypes={"Mech"},
-    text="At the start of your turn, swap this minion with a random one in your hand. (Text only)",
-    rarity="Rare"
+    text="At the start of your turn, swap this minion with a random one in your hand.",
+    rarity="Rare",
+    setup_interceptors=alarm_o_bot_setup
 )
+
+def emperor_cobra_setup(obj: GameObject, state: GameState):
+    """Poisonous: Destroy any minion damaged by this minion."""
+    from src.cards.interceptor_helpers import make_damage_trigger
+
+    def destroy_damaged(event, s):
+        target_id = event.payload.get('target')
+        target = s.objects.get(target_id)
+        if target and CardType.MINION in target.characteristics.types:
+            return [Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': target_id, 'reason': 'poisonous'},
+                source=obj.id
+            )]
+        return []
+
+    return [make_damage_trigger(obj, destroy_damaged)]
 
 EMPEROR_COBRA = make_minion(
     name="Emperor Cobra",
@@ -1507,8 +1696,9 @@ EMPEROR_COBRA = make_minion(
     health=3,
     mana_cost="{3}",
     subtypes={"Beast"},
-    text="Destroy any minion damaged by this minion. (Poisonous - text only)",
-    rarity="Rare"
+    text="Poisonous",
+    rarity="Rare",
+    setup_interceptors=emperor_cobra_setup
 )
 
 def demolisher_setup(obj: GameObject, state: GameState):
@@ -1666,32 +1856,22 @@ DARK_IRON_DWARF = make_minion(
 )
 
 def defender_of_argus_battlecry(obj: GameObject, state: GameState) -> list[Event]:
-    """Battlecry: Give adjacent minions +1/+1 and Taunt (simplified: 2 random friendly)."""
-    battlefield = state.zones.get('battlefield')
-    if not battlefield:
-        return []
-
-    friendly_minions = []
-    for minion_id in battlefield.objects:
-        minion = state.objects.get(minion_id)
-        if minion and minion.controller == obj.controller and minion.id != obj.id:
-            if CardType.MINION in minion.characteristics.types:
-                friendly_minions.append(minion_id)
-
+    """Battlecry: Give adjacent minions +1/+1 and Taunt."""
+    from src.cards.interceptor_helpers import get_adjacent_minions
+    left, right = get_adjacent_minions(obj.id, state)
     events = []
-    targets = random.sample(friendly_minions, min(2, len(friendly_minions)))
-    for target_id in targets:
-        events.append(Event(
-            type=EventType.PT_MODIFICATION,
-            payload={'object_id': target_id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'permanent'},
-            source=obj.id
-        ))
-        events.append(Event(
-            type=EventType.KEYWORD_GRANT,
-            payload={'object_id': target_id, 'keyword': 'taunt'},
-            source=obj.id
-        ))
-
+    for adj_id in [left, right]:
+        if adj_id:
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': adj_id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'permanent'},
+                source=obj.id
+            ))
+            events.append(Event(
+                type=EventType.KEYWORD_GRANT,
+                payload={'object_id': adj_id, 'keyword': 'taunt'},
+                source=obj.id
+            ))
     return events
 
 DEFENDER_OF_ARGUS = make_minion(
@@ -1699,7 +1879,7 @@ DEFENDER_OF_ARGUS = make_minion(
     attack=2,
     health=3,
     mana_cost="{4}",
-    text="Battlecry: Give adjacent minions +1/+1 and Taunt. (Simplified)",
+    text="Battlecry: Give adjacent minions +1/+1 and Taunt.",
     rarity="Rare",
     battlecry=defender_of_argus_battlecry
 )
@@ -1823,13 +2003,26 @@ VIOLET_TEACHER = make_minion(
     setup_interceptors=violet_teacher_setup
 )
 
+def ancient_mage_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Give adjacent minions Spell Damage +1."""
+    from src.cards.interceptor_helpers import get_adjacent_minions
+    left, right = get_adjacent_minions(obj.id, state)
+    events = []
+    for adj_id in [left, right]:
+        if adj_id:
+            events.append(Event(type=EventType.KEYWORD_GRANT, payload={
+                'object_id': adj_id, 'keyword': 'spell_damage', 'value': 1
+            }, source=obj.id))
+    return events
+
 ANCIENT_MAGE = make_minion(
     name="Ancient Mage",
     attack=2,
     health=5,
     mana_cost="{4}",
-    text="Battlecry: Give adjacent minions Spell Damage +1. (Text only)",
-    rarity="Rare"
+    text="Battlecry: Give adjacent minions Spell Damage +1.",
+    rarity="Rare",
+    battlecry=ancient_mage_battlecry
 )
 
 STORMWIND_KNIGHT = make_minion(
@@ -1854,6 +2047,11 @@ def azure_drake_battlecry(obj: GameObject, state: GameState) -> list[Event]:
         source=obj.id
     )]
 
+def azure_drake_setup(obj: GameObject, state: GameState):
+    """Spell Damage +1."""
+    from src.cards.interceptor_helpers import make_spell_damage_boost
+    return [make_spell_damage_boost(obj, 1)]
+
 AZURE_DRAKE = make_minion(
     name="Azure Drake",
     attack=4,
@@ -1862,7 +2060,8 @@ AZURE_DRAKE = make_minion(
     subtypes={"Dragon"},
     text="Spell Damage +1. Battlecry: Draw a card.",
     rarity="Rare",
-    battlecry=azure_drake_battlecry
+    battlecry=azure_drake_battlecry,
+    setup_interceptors=azure_drake_setup
 )
 
 def stampeding_kodo_battlecry(obj: GameObject, state: GameState) -> list[Event]:
@@ -1900,14 +2099,58 @@ STAMPEDING_KODO = make_minion(
     battlecry=stampeding_kodo_battlecry
 )
 
+def faceless_manipulator_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Choose a minion and become a copy of it."""
+    battlefield = state.zones.get('battlefield')
+    if not battlefield:
+        return []
+    targets = []
+    for mid in battlefield.objects:
+        m = state.objects.get(mid)
+        if m and mid != obj.id and CardType.MINION in m.characteristics.types:
+            targets.append(mid)
+    if not targets:
+        return []
+    target_id = random.choice(targets)
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    obj.name = target.name
+    obj.characteristics.power = target.characteristics.power
+    obj.characteristics.toughness = target.characteristics.toughness
+    obj.characteristics.subtypes = set(target.characteristics.subtypes)
+    obj.characteristics.abilities = list(target.characteristics.abilities)
+    obj.state.damage = 0
+    obj.state.divine_shield = target.state.divine_shield
+    obj.state.stealth = target.state.stealth
+    obj.state.windfury = target.state.windfury
+    return [Event(type=EventType.TRANSFORM, payload={
+        'object_id': obj.id, 'new_name': target.name, 'copy_from': target_id
+    }, source=obj.id)]
+
 FACELESS_MANIPULATOR = make_minion(
     name="Faceless Manipulator",
     attack=3,
     health=3,
     mana_cost="{5}",
-    text="Battlecry: Choose a minion and become a copy of it. (Text only)",
-    rarity="Epic"
+    text="Battlecry: Choose a minion and become a copy of it.",
+    rarity="Epic",
+    battlecry=faceless_manipulator_battlecry
 )
+
+def captain_greenskin_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Give your weapon +1/+1."""
+    player = state.players.get(obj.controller)
+    if not player or player.weapon_attack <= 0:
+        return []
+    player.weapon_attack += 1
+    player.weapon_durability += 1
+    if player.hero_id:
+        hero = state.objects.get(player.hero_id)
+        if hero:
+            hero.state.weapon_attack = player.weapon_attack
+            hero.state.weapon_durability = player.weapon_durability
+    return []
 
 CAPTAIN_GREENSKIN = make_minion(
     name="Captain Greenskin",
@@ -1915,17 +2158,52 @@ CAPTAIN_GREENSKIN = make_minion(
     health=4,
     mana_cost="{5}",
     subtypes={"Pirate"},
-    text="Battlecry: Give your weapon +1/+1. (Text only)",
-    rarity="Legendary"
+    text="Battlecry: Give your weapon +1/+1.",
+    rarity="Legendary",
+    battlecry=captain_greenskin_battlecry
 )
+
+def harrison_jones_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Destroy your opponent's weapon and draw cards equal to its Durability."""
+    for pid, player in state.players.items():
+        if pid != obj.controller and (player.weapon_attack > 0 or player.weapon_durability > 0):
+            durability = player.weapon_durability
+            player.weapon_attack = 0
+            player.weapon_durability = 0
+            if player.hero_id:
+                hero = state.objects.get(player.hero_id)
+                if hero:
+                    hero.state.weapon_attack = 0
+                    hero.state.weapon_durability = 0
+            events = []
+            battlefield = state.zones.get('battlefield')
+            if battlefield:
+                for card_id in list(battlefield.objects):
+                    card = state.objects.get(card_id)
+                    if (card and card.controller == pid and
+                            CardType.WEAPON in card.characteristics.types):
+                        events.append(Event(
+                            type=EventType.OBJECT_DESTROYED,
+                            payload={'object_id': card_id, 'reason': 'harrison_jones'},
+                            source=obj.id
+                        ))
+            if durability > 0:
+                events.append(Event(
+                    type=EventType.DRAW,
+                    payload={'player': obj.controller, 'count': durability},
+                    source=obj.id
+                ))
+            return events
+    return []
 
 HARRISON_JONES = make_minion(
     name="Harrison Jones",
     attack=5,
     health=4,
     mana_cost="{5}",
-    text="Battlecry: Destroy your opponent's weapon and draw cards equal to its Durability. (Text only)",
-    rarity="Legendary"
+    text="Battlecry: Destroy your opponent's weapon and draw cards equal to its Durability.",
+    rarity="Legendary",
+    battlecry=harrison_jones_battlecry
 )
 
 def silver_hand_knight_battlecry(obj: GameObject, state: GameState) -> list[Event]:
@@ -2302,8 +2580,9 @@ GRUUL = make_minion(
 )
 
 def ragnaros_setup(obj: GameObject, state: GameState):
-    """At the end of your turn, deal 8 damage to a random enemy."""
+    """Can't Attack. At the end of your turn, deal 8 damage to a random enemy."""
     from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    from src.cards.interceptor_helpers import make_cant_attack
 
     def end_turn_filter(event, s):
         return event.type == EventType.TURN_END and event.payload.get('player') == obj.controller
@@ -2327,7 +2606,7 @@ def ragnaros_setup(obj: GameObject, state: GameState):
             )
         return InterceptorResult(action=InterceptorAction.PASS)
 
-    return [Interceptor(
+    return [make_cant_attack(obj), Interceptor(
         id=new_id(), source=obj.id, controller=obj.controller,
         priority=InterceptorPriority.REACT, filter=end_turn_filter, handler=fire_handler,
         duration='while_on_battlefield'
@@ -2415,6 +2694,11 @@ ONYXIA = make_minion(
     battlecry=onyxia_battlecry
 )
 
+def malygos_setup(obj: GameObject, state: GameState):
+    """Spell Damage +5."""
+    from src.cards.interceptor_helpers import make_spell_damage_boost
+    return [make_spell_damage_boost(obj, 5)]
+
 MALYGOS = make_minion(
     name="Malygos",
     attack=4,
@@ -2422,20 +2706,33 @@ MALYGOS = make_minion(
     mana_cost="{9}",
     subtypes={"Dragon"},
     text="Spell Damage +5",
-    rarity="Legendary"
+    rarity="Legendary",
+    setup_interceptors=malygos_setup
 )
 
+DREAM_CARDS = [
+    {'name': 'Dream', 'mana_cost': '{0}', 'text': 'Return a minion to its owner\'s hand.'},
+    {'name': 'Nightmare', 'mana_cost': '{0}', 'text': 'Give a minion +5/+5. At the start of your next turn, destroy it.'},
+    {'name': 'Ysera Awakens', 'mana_cost': '{2}', 'text': 'Deal 5 damage to all characters except Ysera.'},
+    {'name': 'Laughing Sister', 'mana_cost': '{3}', 'text': 'Can\'t be targeted by spells or Hero Powers.', 'power': 3, 'toughness': 5, 'types': {CardType.MINION}},
+    {'name': 'Emerald Drake', 'mana_cost': '{4}', 'text': '', 'power': 7, 'toughness': 6, 'types': {CardType.MINION}, 'subtypes': {'Dragon'}},
+]
+
 def ysera_setup(obj: GameObject, state: GameState):
-    """At the end of your turn, add a Dream Card to your hand (simplified: draw a card)."""
+    """At the end of your turn, add a random Dream Card to your hand."""
     from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
 
     def end_turn_filter(event, s):
         return event.type == EventType.TURN_END and event.payload.get('player') == obj.controller
 
     def dream_handler(event, s):
+        dream_card = random.choice(DREAM_CARDS)
         return InterceptorResult(
             action=InterceptorAction.REACT,
-            new_events=[Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id)]
+            new_events=[Event(type=EventType.ADD_TO_HAND, payload={
+                'player': obj.controller,
+                'card': dream_card,
+            }, source=obj.id)]
         )
 
     return [Interceptor(
@@ -2496,32 +2793,76 @@ DEATHWING = make_minion(
     battlecry=deathwing_battlecry
 )
 
+def sea_giant_cost(card, state):
+    """Costs (1) less for each minion on the battlefield."""
+    base = 10
+    if state:
+        from src.cards.interceptor_helpers import get_all_minions
+        count = len(get_all_minions(state))
+        return max(0, base - count)
+    return base
+
 SEA_GIANT = make_minion(
     name="Sea Giant",
     attack=8,
     health=8,
     mana_cost="{10}",
-    text="Costs (1) less for each other minion on the battlefield. (Text only)",
+    text="Costs (1) less for each minion on the battlefield.",
     rarity="Epic"
 )
+SEA_GIANT.dynamic_cost = sea_giant_cost
+
+def mountain_giant_cost(card, state):
+    """Costs (1) less for each other card in your hand."""
+    base = 12
+    if state and card.controller:
+        hand = state.zones.get(f'hand_{card.controller}')
+        if hand:
+            cards_in_hand = len(hand.objects) - 1  # minus self
+            return max(0, base - cards_in_hand)
+    return base
 
 MOUNTAIN_GIANT = make_minion(
     name="Mountain Giant",
     attack=8,
     health=8,
     mana_cost="{12}",
-    text="Costs (1) less for each other card in your hand. (Text only)",
+    text="Costs (1) less for each other card in your hand.",
     rarity="Epic"
 )
+MOUNTAIN_GIANT.dynamic_cost = mountain_giant_cost
+
+def molten_giant_cost(card, state):
+    """Costs (1) less for each damage your hero has taken."""
+    base = 20
+    if state and card.controller:
+        player = state.players.get(card.controller)
+        if player and player.hero_id:
+            hero = state.objects.get(player.hero_id)
+            if hero:
+                damage_taken = hero.state.damage if hero.state else 0
+                return max(0, base - damage_taken)
+    return base
 
 MOLTEN_GIANT = make_minion(
     name="Molten Giant",
     attack=8,
     health=8,
     mana_cost="{20}",
-    text="Costs (1) less for each damage your hero has taken. (Text only)",
+    text="Costs (1) less for each damage your hero has taken.",
     rarity="Epic"
 )
+MOLTEN_GIANT.dynamic_cost = molten_giant_cost
+
+def dread_corsair_cost(card, state):
+    """Costs (1) less per point of your weapon's Attack."""
+    base = 4
+    if state and card.controller:
+        player = state.players.get(card.controller)
+        if player:
+            weapon_atk = player.weapon_attack or 0
+            return max(0, base - weapon_atk)
+    return base
 
 DREAD_CORSAIR = make_minion(
     name="Dread Corsair",
@@ -2529,10 +2870,11 @@ DREAD_CORSAIR = make_minion(
     health=3,
     mana_cost="{4}",
     subtypes={"Pirate"},
-    text="Taunt. Costs (1) less per Attack of your weapon. (Text only)",
+    text="Taunt. Costs (1) less per Attack of your weapon.",
     rarity="Rare",
     keywords={"taunt"}
 )
+DREAD_CORSAIR.dynamic_cost = dread_corsair_cost
 
 # =============================================================================
 # Additional Classic Neutral Minions
@@ -2544,19 +2886,96 @@ SHIELDBEARER = make_minion(name="Shieldbearer", attack=0, health=4, mana_cost="{
 
 YOUNG_DRAGONHAWK = make_minion(name="Young Dragonhawk", attack=1, health=1, mana_cost="{1}", subtypes={"Beast"}, text="Windfury", rarity="Common", keywords={"windfury"})
 
-BLOODSAIL_CORSAIR = make_minion(name="Bloodsail Corsair", attack=1, health=2, mana_cost="{1}", subtypes={"Pirate"}, text="Battlecry: Remove 1 Durability from your opponent's weapon. (Text only)", rarity="Rare")
+def bloodsail_corsair_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Remove 1 Durability from your opponent's weapon."""
+    for pid, player in state.players.items():
+        if pid != obj.controller and player.weapon_durability > 0:
+            player.weapon_durability -= 1
+            if player.hero_id:
+                hero = state.objects.get(player.hero_id)
+                if hero:
+                    hero.state.weapon_durability = player.weapon_durability
+            if player.weapon_durability <= 0:
+                player.weapon_attack = 0
+                if player.hero_id:
+                    hero = state.objects.get(player.hero_id)
+                    if hero:
+                        hero.state.weapon_attack = 0
+                        hero.state.weapon_durability = 0
+            return []
+    return []
 
-SOUTHSEA_DECKHAND = make_minion(name="Southsea Deckhand", attack=1, health=2, mana_cost="{1}", subtypes={"Pirate"}, text="Has Charge while you have a weapon equipped. (Text only)", rarity="Common")
+BLOODSAIL_CORSAIR = make_minion(name="Bloodsail Corsair", attack=1, health=2, mana_cost="{1}", subtypes={"Pirate"}, text="Battlecry: Remove 1 Durability from your opponent's weapon.", rarity="Rare", battlecry=bloodsail_corsair_battlecry)
 
-ANCIENT_WATCHER = make_minion(name="Ancient Watcher", attack=4, health=5, mana_cost="{2}", text="Can't Attack.", rarity="Rare")
+def southsea_deckhand_setup(obj: GameObject, state: GameState):
+    """Has Charge while you have a weapon equipped."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    source_id = obj.id
 
-BLOODSAIL_RAIDER = make_minion(name="Bloodsail Raider", attack=2, health=3, mana_cost="{2}", subtypes={"Pirate"}, text="Battlecry: Gain Attack equal to the Attack of your weapon. (Text only)", rarity="Common")
+    def ability_filter(event, s):
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        return event.payload.get('object_id') == source_id
 
-TAUREN_WARRIOR = make_minion(name="Tauren Warrior", attack=2, health=3, mana_cost="{3}", text="Taunt. Enrage: +3 Attack.", rarity="Common", keywords={"taunt"})
+    def ability_handler(event, s):
+        # Check if controller has a weapon equipped
+        player = s.players.get(obj.controller)
+        if player and player.weapon_attack > 0 and player.weapon_durability > 0:
+            new_event = event.copy()
+            granted = list(new_event.payload.get('granted', []))
+            if 'charge' not in granted:
+                granted.append('charge')
+            new_event.payload['granted'] = granted
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    return [Interceptor(
+        id=new_id(), source=source_id, controller=obj.controller,
+        priority=InterceptorPriority.QUERY, filter=ability_filter,
+        handler=ability_handler, duration='while_on_battlefield'
+    )]
+
+SOUTHSEA_DECKHAND = make_minion(name="Southsea Deckhand", attack=1, health=2, mana_cost="{1}", subtypes={"Pirate"}, text="Has Charge while you have a weapon equipped.", rarity="Common", setup_interceptors=southsea_deckhand_setup)
+
+def ancient_watcher_setup(obj: GameObject, state: GameState):
+    """Can't Attack."""
+    from src.cards.interceptor_helpers import make_cant_attack
+    return [make_cant_attack(obj)]
+
+ANCIENT_WATCHER = make_minion(name="Ancient Watcher", attack=4, health=5, mana_cost="{2}", text="Can't Attack.", rarity="Rare", setup_interceptors=ancient_watcher_setup)
+
+def bloodsail_raider_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Gain Attack equal to the Attack of your weapon."""
+    player = state.players.get(obj.controller)
+    if not player or player.weapon_attack <= 0:
+        return []
+    atk = player.weapon_attack
+    return [Event(type=EventType.PT_MODIFICATION, payload={
+        'object_id': obj.id, 'power_mod': atk, 'toughness_mod': 0, 'duration': 'permanent'
+    }, source=obj.id)]
+
+BLOODSAIL_RAIDER = make_minion(name="Bloodsail Raider", attack=2, health=3, mana_cost="{2}", subtypes={"Pirate"}, text="Battlecry: Gain Attack equal to the Attack of your weapon.", rarity="Common", battlecry=bloodsail_raider_battlecry)
+
+def tauren_warrior_setup(obj: GameObject, state: GameState):
+    """Enrage: +3 Attack."""
+    from src.cards.interceptor_helpers import make_enrage_trigger
+    return make_enrage_trigger(obj, attack_bonus=3)
+
+TAUREN_WARRIOR = make_minion(name="Tauren Warrior", attack=2, health=3, mana_cost="{3}", text="Taunt. Enrage: +3 Attack.", rarity="Common", keywords={"taunt"}, setup_interceptors=tauren_warrior_setup)
 
 THRALLMAR_FARSEER = make_minion(name="Thrallmar Farseer", attack=2, health=3, mana_cost="{3}", text="Windfury", rarity="Common", keywords={"windfury"})
 
-ARCANE_GOLEM = make_minion(name="Arcane Golem", attack=4, health=2, mana_cost="{3}", text="Charge. Battlecry: Give your opponent a Mana Crystal. (Text only)", rarity="Rare", keywords={"charge"})
+def arcane_golem_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Give your opponent a Mana Crystal."""
+    for pid, player in state.players.items():
+        if pid != obj.controller:
+            if player.mana_crystals < 10:
+                player.mana_crystals += 1
+                player.mana_crystals_available += 1
+            return []
+    return []
+
+ARCANE_GOLEM = make_minion(name="Arcane Golem", attack=4, health=2, mana_cost="{3}", text="Charge. Battlecry: Give your opponent a Mana Crystal.", rarity="Rare", keywords={"charge"}, battlecry=arcane_golem_battlecry)
 
 MOGUSHAN_WARDEN = make_minion(name="Mogu'shan Warden", attack=1, health=7, mana_cost="{4}", text="Taunt", rarity="Common", keywords={"taunt"})
 
@@ -2785,11 +3204,166 @@ GADGETZAN_AUCTIONEER = make_minion(name="Gadgetzan Auctioneer", attack=4, health
 
 # --- Text-only Cards ---
 
-SPITEFUL_SMITH = make_minion(name="Spiteful Smith", attack=4, health=6, mana_cost="{5}", text="Enrage: Your weapon has +2 Attack.", rarity="Common")
+def spiteful_smith_setup(obj: GameObject, state: GameState):
+    """Enrage: Your weapon has +2 Attack."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    source_id = obj.id
 
-MANA_WRAITH = make_minion(name="Mana Wraith", attack=2, health=2, mana_cost="{2}", text="ALL minions cost (1) more.", rarity="Rare")
+    def weapon_dmg_filter(event, s):
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        # Check if the attacker is our controller's hero
+        source = s.objects.get(event.payload.get('source', ''))
+        if not source or CardType.HERO not in source.characteristics.types:
+            return False
+        if source.controller != obj.controller:
+            return False
+        # Check if controller has a weapon
+        player = s.players.get(obj.controller)
+        if not player or player.weapon_attack <= 0:
+            return False
+        # Check if Spiteful Smith is damaged (enraged)
+        smith = s.objects.get(source_id)
+        if not smith or smith.zone != ZoneType.BATTLEFIELD or smith.state.damage <= 0:
+            return False
+        return True
 
-PINT_SIZED_SUMMONER = make_minion(name="Pint-Sized Summoner", attack=2, health=2, mana_cost="{2}", text="The first minion you play each turn costs (1) less.", rarity="Rare")
+    def weapon_dmg_handler(event, s):
+        new_event = event.copy()
+        new_event.payload['amount'] = event.payload.get('amount', 0) + 2
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(
+        id=new_id(), source=source_id, controller=obj.controller,
+        priority=InterceptorPriority.TRANSFORM, filter=weapon_dmg_filter,
+        handler=weapon_dmg_handler, duration='while_on_battlefield'
+    )]
+
+SPITEFUL_SMITH = make_minion(name="Spiteful Smith", attack=4, health=6, mana_cost="{5}", text="Enrage: Your weapon has +2 Attack.", rarity="Common", setup_interceptors=spiteful_smith_setup)
+
+def mana_wraith_setup(obj: GameObject, state: GameState):
+    """ALL minions cost (1) more."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    modifier_id = f"mana_wraith_{obj.id}"
+
+    def etb_filter(event, s) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        return (event.payload.get('object_id') == obj.id and
+                event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD)
+
+    def add_modifier(event, s):
+        for pid, player in s.players.items():
+            player.cost_modifiers.append({
+                'id': modifier_id,
+                'card_type': CardType.MINION,
+                'amount': -1,  # negative = cost increase
+                'duration': 'while_on_battlefield',
+                'source': obj.id,
+                'floor': 0,
+            })
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def leave_filter(event, s) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        return (event.payload.get('object_id') == obj.id and
+                event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD and
+                event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD)
+
+    def remove_modifier(event, s):
+        for pid, player in s.players.items():
+            player.cost_modifiers = [m for m in player.cost_modifiers if m.get('id') != modifier_id]
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def death_filter(event, s) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        return event.payload.get('object_id') == obj.id
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                     priority=InterceptorPriority.REACT, filter=etb_filter,
+                     handler=add_modifier, duration='permanent'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                     priority=InterceptorPriority.REACT, filter=leave_filter,
+                     handler=remove_modifier, duration='permanent'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                     priority=InterceptorPriority.REACT, filter=death_filter,
+                     handler=remove_modifier, duration='permanent'),
+    ]
+
+MANA_WRAITH = make_minion(name="Mana Wraith", attack=2, health=2, mana_cost="{2}", text="ALL minions cost (1) more.", rarity="Rare", setup_interceptors=mana_wraith_setup)
+
+def pint_sized_summoner_setup(obj: GameObject, state: GameState):
+    """The first minion you play each turn costs (1) less."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+    modifier_id = f"pint_sized_{obj.id}"
+
+    def add_modifier_to_player(s):
+        player = s.players.get(obj.controller)
+        if player:
+            # Remove old one first if it exists
+            player.cost_modifiers = [m for m in player.cost_modifiers if m.get('id') != modifier_id]
+            player.cost_modifiers.append({
+                'id': modifier_id,
+                'card_type': CardType.MINION,
+                'amount': 1,
+                'duration': 'while_on_battlefield',
+                'source': obj.id,
+                'floor': 0,
+                'uses_remaining': 1,
+            })
+
+    # Add modifier on ETB
+    def etb_filter(event, s):
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        return (event.payload.get('object_id') == obj.id and
+                event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD)
+
+    def etb_handler(event, s):
+        add_modifier_to_player(s)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    # Refresh modifier each turn start
+    def turn_start_filter(event, s):
+        if event.type != EventType.TURN_START:
+            return False
+        if event.payload.get('player') != obj.controller:
+            return False
+        source = s.objects.get(obj.id)
+        return bool(source and source.zone == ZoneType.BATTLEFIELD)
+
+    def turn_start_handler(event, s):
+        add_modifier_to_player(s)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    # Remove modifier on leave
+    def leave_filter(event, s):
+        if event.type == EventType.ZONE_CHANGE:
+            return (event.payload.get('object_id') == obj.id and
+                    event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD and
+                    event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD)
+        if event.type == EventType.OBJECT_DESTROYED:
+            return event.payload.get('object_id') == obj.id
+        return False
+
+    def leave_handler(event, s):
+        player = s.players.get(obj.controller)
+        if player:
+            player.cost_modifiers = [m for m in player.cost_modifiers if m.get('id') != modifier_id]
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=etb_filter, handler=etb_handler, duration='permanent'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=turn_start_filter, handler=turn_start_handler, duration='while_on_battlefield'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=leave_filter, handler=leave_handler, duration='permanent'),
+    ]
+
+PINT_SIZED_SUMMONER = make_minion(name="Pint-Sized Summoner", attack=2, health=2, mana_cost="{2}", text="The first minion you play each turn costs (1) less.", rarity="Rare", setup_interceptors=pint_sized_summoner_setup)
 
 NOZDORMU = make_minion(name="Nozdormu", attack=8, health=8, mana_cost="{9}", subtypes={"Dragon"}, text="Players only have 15 seconds to take their turns.", rarity="Legendary")
 
@@ -2809,11 +3383,102 @@ def nat_pagle_setup(obj, state):
 
 NAT_PAGLE = make_minion(name="Nat Pagle", attack=0, health=4, mana_cost="{2}", text="At the start of your turn, you have a 50% chance to draw an extra card.", rarity="Legendary", setup_interceptors=nat_pagle_setup)
 
-LOREWALKER_CHO = make_minion(name="Lorewalker Cho", attack=0, health=4, mana_cost="{2}", text="Whenever a player casts a spell, put a copy into the other player's hand.", rarity="Legendary")
+def lorewalker_cho_setup(obj: GameObject, state: GameState):
+    """Whenever a player casts a spell, put a copy into the other player's hand."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
 
-MILLHOUSE_MANASTORM = make_minion(name="Millhouse Manastorm", attack=4, health=4, mana_cost="{2}", text="Battlecry: Enemy spells cost (0) next turn.", rarity="Legendary")
+    def spell_filter(event, s):
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        # Triggers on ANY player casting a spell
+        return True
 
-KING_MUKLA = make_minion(name="King Mukla", attack=5, health=5, mana_cost="{3}", subtypes={"Beast"}, text="Battlecry: Give your opponent 2 Bananas.", rarity="Legendary")
+    def copy_handler(event, s):
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        # Find the other player
+        other_player = None
+        for pid in s.players:
+            if pid != caster:
+                other_player = pid
+                break
+        if not other_player:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        # Get the spell info to create a copy
+        spell_id = event.payload.get('spell_id') or event.payload.get('object_id')
+        spell_obj = s.objects.get(spell_id) if spell_id else None
+        card_info = {}
+        if spell_obj and spell_obj.card_def:
+            card_info = {
+                'name': spell_obj.card_def.name,
+                'mana_cost': spell_obj.card_def.mana_cost,
+                'text': spell_obj.card_def.text,
+            }
+        elif spell_obj:
+            card_info = {
+                'name': spell_obj.name,
+                'mana_cost': spell_obj.characteristics.mana_cost,
+                'text': '',
+            }
+        else:
+            # Fallback: use event payload
+            card_info = {
+                'name': event.payload.get('spell_name', 'Spell'),
+                'mana_cost': event.payload.get('mana_cost', '{0}'),
+                'text': '',
+            }
+
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.ADD_TO_HAND, payload={
+                'player': other_player,
+                'card': card_info,
+            }, source=obj.id)]
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=spell_filter,
+        handler=copy_handler, duration='while_on_battlefield'
+    )]
+
+LOREWALKER_CHO = make_minion(name="Lorewalker Cho", attack=0, health=4, mana_cost="{2}", text="Whenever a player casts a spell, put a copy into the other player's hand.", rarity="Legendary", setup_interceptors=lorewalker_cho_setup)
+
+def millhouse_manastorm_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Enemy spells cost (0) next turn."""
+    from src.engine.types import new_id as _new_id
+    for pid, player in state.players.items():
+        if pid != obj.controller:
+            # All enemy spells cost (0) for the entire next turn (no uses_remaining limit)
+            player.cost_modifiers.append({
+                'id': f"millhouse_{_new_id()}",
+                'card_type': CardType.SPELL,
+                'amount': 100,
+                'duration': 'this_turn',
+                'floor': 0,
+            })
+            return []
+    return []
+
+MILLHOUSE_MANASTORM = make_minion(name="Millhouse Manastorm", attack=4, health=4, mana_cost="{2}", text="Battlecry: Enemy spells cost (0) next turn.", rarity="Legendary", battlecry=millhouse_manastorm_battlecry)
+
+def king_mukla_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Give your opponent 2 Bananas."""
+    for pid in state.players:
+        if pid != obj.controller:
+            events = []
+            for _ in range(2):
+                events.append(Event(type=EventType.ADD_TO_HAND, payload={
+                    'player': pid,
+                    'card_name': 'Banana',
+                    'card_cost': '{1}',
+                    'card_types': {CardType.SPELL},
+                    'card_text': 'Give a minion +1/+1.',
+                }, source=obj.id))
+            return events
+    return []
+
+KING_MUKLA = make_minion(name="King Mukla", attack=5, health=5, mana_cost="{3}", subtypes={"Beast"}, text="Battlecry: Give your opponent 2 Bananas.", rarity="Legendary", battlecry=king_mukla_battlecry)
 
 def hogger_setup(obj, state):
     """At the end of your turn, summon a 2/2 Gnoll with Taunt."""

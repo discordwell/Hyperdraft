@@ -227,12 +227,45 @@ HOLY_NOVA = make_spell(
 
 
 def mind_vision_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
-    """Put a copy of a random card in your opponent's hand into your hand. (Simplified: draw a card)"""
-    return [Event(
-        type=EventType.DRAW,
-        payload={'player': obj.controller, 'count': 1},
-        source=obj.id
-    )]
+    """Put a copy of a random card in your opponent's hand into your hand."""
+    # Find opponent's hand
+    for pid in state.players:
+        if pid != obj.controller:
+            hand_key = f"hand_{pid}"
+            hand = state.zones.get(hand_key)
+            if hand and hand.objects:
+                # Pick a random card from opponent's hand
+                card_id = random.choice(list(hand.objects))
+                card = state.objects.get(card_id)
+                if card and card.card_def:
+                    # Create a copy in our hand using ADD_TO_HAND with the card's definition
+                    return [Event(
+                        type=EventType.ADD_TO_HAND,
+                        payload={
+                            'player': obj.controller,
+                            'card_def': card.card_def
+                        },
+                        source=obj.id
+                    )]
+                elif card:
+                    # Fallback: create a copy from characteristics if no card_def
+                    return [Event(
+                        type=EventType.ADD_TO_HAND,
+                        payload={
+                            'player': obj.controller,
+                            'card_def': {
+                                'name': card.name,
+                                'mana_cost': card.characteristics.mana_cost,
+                                'types': set(card.characteristics.types),
+                                'subtypes': set(card.characteristics.subtypes) if card.characteristics.subtypes else set(),
+                                'power': card.characteristics.power,
+                                'toughness': card.characteristics.toughness,
+                            }
+                        },
+                        source=obj.id
+                    )]
+            break
+    return []
 
 MIND_VISION = make_spell(
     name="Mind Vision",
@@ -518,12 +551,45 @@ PROPHET_VELEN = make_minion(
 
 
 def thoughtsteal_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
-    """Copy 2 cards from opponent's deck. (Simplified: draw 2 cards)"""
-    return [Event(
-        type=EventType.DRAW,
-        payload={'player': obj.controller, 'count': 2},
-        source=obj.id
-    )]
+    """Copy 2 cards from your opponent's deck and put them into your hand."""
+    events = []
+    for pid in state.players:
+        if pid != obj.controller:
+            lib_key = f"library_{pid}"
+            library = state.zones.get(lib_key)
+            if library and library.objects:
+                # Pick up to 2 random cards from opponent's deck (without removing them)
+                sample_size = min(2, len(library.objects))
+                chosen_ids = random.sample(list(library.objects), sample_size)
+                for card_id in chosen_ids:
+                    card = state.objects.get(card_id)
+                    if card and card.card_def:
+                        events.append(Event(
+                            type=EventType.ADD_TO_HAND,
+                            payload={
+                                'player': obj.controller,
+                                'card_def': card.card_def
+                            },
+                            source=obj.id
+                        ))
+                    elif card:
+                        events.append(Event(
+                            type=EventType.ADD_TO_HAND,
+                            payload={
+                                'player': obj.controller,
+                                'card_def': {
+                                    'name': card.name,
+                                    'mana_cost': card.characteristics.mana_cost,
+                                    'types': set(card.characteristics.types),
+                                    'subtypes': set(card.characteristics.subtypes) if card.characteristics.subtypes else set(),
+                                    'power': card.characteristics.power,
+                                    'toughness': card.characteristics.toughness,
+                                }
+                            },
+                            source=obj.id
+                        ))
+            break
+    return events
 
 THOUGHTSTEAL = make_spell(
     name="Thoughtsteal",

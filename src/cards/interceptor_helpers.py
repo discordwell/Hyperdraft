@@ -2545,6 +2545,32 @@ def make_cost_reduction_aura(obj, card_type_filter, amount, floor=0):
     ]
 
 
+def make_cant_attack(source_obj: GameObject) -> Interceptor:
+    """
+    Create a "Can't Attack" interceptor (HS: Ancient Watcher, Ragnaros).
+    PREVENT interceptor on ATTACK_DECLARED when attacker is this object.
+    """
+    source_id = source_obj.id
+
+    def cant_attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        return event.payload.get('attacker_id') == source_id
+
+    def cant_attack_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    return Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=cant_attack_filter,
+        handler=cant_attack_handler,
+        duration='while_on_battlefield'
+    )
+
+
 def add_one_shot_cost_reduction(player, card_type_filter, amount, duration='this_turn'):
     """
     Add a one-shot cost reduction modifier to a player.
