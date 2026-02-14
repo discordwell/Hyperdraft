@@ -165,6 +165,16 @@ class HearthstoneTurnManager(TurnManager):
                 active_player.mana_crystals += 1
             active_player.mana_crystals_available = active_player.mana_crystals
 
+        # Apply Overload: lock mana from previous turn's overloaded cards
+        if active_player.overloaded_mana > 0:
+            active_player.mana_crystals_available = max(
+                0, active_player.mana_crystals_available - active_player.overloaded_mana
+            )
+            active_player.overloaded_mana = 0
+
+        # Reset combo counter
+        active_player.cards_played_this_turn = 0
+
         # Reset hero power
         active_player.hero_power_used = False
 

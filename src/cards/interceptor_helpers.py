@@ -1965,6 +1965,372 @@ def make_modal_etb_trigger(
     return make_etb_trigger(source_obj, etb_effect)
 
 
+# =============================================================================
+# HEARTHSTONE-SPECIFIC HELPERS
+# =============================================================================
+
+def other_friendly_minions(source: GameObject) -> Callable[[GameObject, GameState], bool]:
+    """Filter: Other minions you control (HS uses MINION, not CREATURE)."""
+    def filter_fn(target: GameObject, state: GameState) -> bool:
+        return (target.id != source.id and
+                target.controller == source.controller and
+                CardType.MINION in target.characteristics.types and
+                target.zone == ZoneType.BATTLEFIELD)
+    return filter_fn
+
+
+def friendly_minions(source: GameObject) -> Callable[[GameObject, GameState], bool]:
+    """Filter: All minions you control including self."""
+    def filter_fn(target: GameObject, state: GameState) -> bool:
+        return (target.controller == source.controller and
+                CardType.MINION in target.characteristics.types and
+                target.zone == ZoneType.BATTLEFIELD)
+    return filter_fn
+
+
+def friendly_minions_with_subtype(source: GameObject, subtype: str) -> Callable[[GameObject, GameState], bool]:
+    """Filter: Your minions with the given subtype."""
+    def filter_fn(target: GameObject, state: GameState) -> bool:
+        return (target.controller == source.controller and
+                CardType.MINION in target.characteristics.types and
+                subtype in target.characteristics.subtypes and
+                target.zone == ZoneType.BATTLEFIELD)
+    return filter_fn
+
+
+def other_friendly_minions_with_subtype(source: GameObject, subtype: str) -> Callable[[GameObject, GameState], bool]:
+    """Filter: Other minions you control with the given subtype."""
+    def filter_fn(target: GameObject, state: GameState) -> bool:
+        return (target.id != source.id and
+                target.controller == source.controller and
+                CardType.MINION in target.characteristics.types and
+                subtype in target.characteristics.subtypes and
+                target.zone == ZoneType.BATTLEFIELD)
+    return filter_fn
+
+
+def get_enemy_targets(obj: GameObject, state: GameState) -> list[str]:
+    """Get all valid enemy targets (hero + minions) for targeting effects."""
+    enemies = []
+    for pid, player in state.players.items():
+        if pid != obj.controller and player.hero_id:
+            enemies.append(player.hero_id)
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
+                enemies.append(mid)
+    return enemies
+
+
+def get_all_targets(obj: GameObject, state: GameState) -> list[str]:
+    """Get all valid targets (all heroes + all minions) for targeting effects."""
+    targets = []
+    for pid, player in state.players.items():
+        if player.hero_id:
+            targets.append(player.hero_id)
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if m and CardType.MINION in m.characteristics.types:
+                targets.append(mid)
+    return targets
+
+
+def get_friendly_minions(obj: GameObject, state: GameState, exclude_self: bool = True) -> list[str]:
+    """Get all friendly minion IDs on the battlefield."""
+    minions = []
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if m and m.controller == obj.controller and CardType.MINION in m.characteristics.types:
+                if not exclude_self or m.id != obj.id:
+                    minions.append(mid)
+    return minions
+
+
+def get_enemy_minions(obj: GameObject, state: GameState) -> list[str]:
+    """Get all enemy minion IDs on the battlefield."""
+    minions = []
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
+                minions.append(mid)
+    return minions
+
+
+def get_all_minions(state: GameState) -> list[str]:
+    """Get all minion IDs on the battlefield."""
+    minions = []
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if m and CardType.MINION in m.characteristics.types:
+                minions.append(mid)
+    return minions
+
+
+def get_enemy_hero_id(obj: GameObject, state: GameState) -> str | None:
+    """Get the opponent's hero object ID."""
+    for pid, player in state.players.items():
+        if pid != obj.controller and player.hero_id:
+            return player.hero_id
+    return None
+
+
+def make_enrage_trigger(
+    source_obj: GameObject,
+    attack_bonus: int = 0,
+    keywords: set[str] | None = None
+) -> list[Interceptor]:
+    """
+    Create an Enrage effect: while damaged, gain +attack and/or keywords.
+
+    Works via QUERY interceptors that check obj.state.damage > 0.
+    """
+    interceptors = []
+    source_id = source_obj.id
+
+    if attack_bonus > 0:
+        def enrage_power_filter(event: Event, state: GameState) -> bool:
+            if event.type != EventType.QUERY_POWER:
+                return False
+            if event.payload.get('object_id') != source_id:
+                return False
+            source = state.objects.get(source_id)
+            return bool(source and source.zone == ZoneType.BATTLEFIELD and source.state.damage > 0)
+
+        def enrage_power_handler(event: Event, state: GameState) -> InterceptorResult:
+            current = event.payload.get('value', 0)
+            new_event = event.copy()
+            new_event.payload['value'] = current + attack_bonus
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=new_event
+            )
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=source_obj.id,
+            controller=source_obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=enrage_power_filter,
+            handler=enrage_power_handler,
+            duration='while_on_battlefield'
+        ))
+
+    if keywords:
+        def enrage_ability_filter(event: Event, state: GameState) -> bool:
+            if event.type != EventType.QUERY_ABILITIES:
+                return False
+            if event.payload.get('object_id') != source_id:
+                return False
+            source = state.objects.get(source_id)
+            return bool(source and source.zone == ZoneType.BATTLEFIELD and source.state.damage > 0)
+
+        def enrage_ability_handler(event: Event, state: GameState) -> InterceptorResult:
+            new_event = event.copy()
+            granted = list(new_event.payload.get('granted', []))
+            for kw in keywords:
+                if kw not in granted:
+                    granted.append(kw)
+            new_event.payload['granted'] = granted
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=new_event
+            )
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=source_obj.id,
+            controller=source_obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=enrage_ability_filter,
+            handler=enrage_ability_handler,
+            duration='while_on_battlefield'
+        ))
+
+    return interceptors
+
+
+def make_spell_damage_boost(source_obj: GameObject, amount: int = 1) -> Interceptor:
+    """
+    Create a Spell Damage +N interceptor.
+
+    Increases damage from spells controlled by the same player by +N.
+    """
+    source_id = source_obj.id
+
+    def spell_dmg_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('from_spell'):
+            return False
+        # Only boost spells from same controller
+        source = state.objects.get(event.source)
+        if not source:
+            return False
+        # Check source minion is still on battlefield
+        boost_source = state.objects.get(source_id)
+        if not boost_source or boost_source.zone != ZoneType.BATTLEFIELD:
+            return False
+        return source.controller == boost_source.controller
+
+    def spell_dmg_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['amount'] = event.payload.get('amount', 0) + amount
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.TRANSFORM,
+        filter=spell_dmg_filter,
+        handler=spell_dmg_handler,
+        duration='while_on_battlefield'
+    )
+
+
+def make_end_of_turn_trigger(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+    controller_only: bool = True
+) -> Interceptor:
+    """Create an end-of-turn trigger (HS: fires at PHASE_END with phase='end')."""
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_END:
+            return False
+        if event.payload.get('phase') != 'end':
+            return False
+        if controller_only and event.payload.get('player') != source_obj.controller:
+            return False
+        return True
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_events = effect_fn(event, state)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )
+
+
+def make_start_of_turn_trigger(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+    controller_only: bool = True
+) -> Interceptor:
+    """Create a start-of-turn trigger (HS: fires at TURN_START)."""
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.TURN_START:
+            return False
+        if controller_only and event.payload.get('player') != source_obj.controller:
+            return False
+        return True
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_events = effect_fn(event, state)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )
+
+
+def make_whenever_healed_trigger(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+    self_only: bool = True
+) -> Interceptor:
+    """Create a 'whenever this minion is healed' trigger."""
+    source_id = source_obj.id
+
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.LIFE_CHANGE:
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return False
+        if self_only:
+            return event.payload.get('target') == source_id
+        return True
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_events = effect_fn(event, state)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )
+
+
+def make_whenever_takes_damage_trigger(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+) -> Interceptor:
+    """Create a 'whenever this minion takes damage' trigger."""
+    source_id = source_obj.id
+
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        return event.payload.get('target') == source_id
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_events = effect_fn(event, state)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )
+
+
 def make_modal_spell_trigger(
     source_obj: GameObject,
     modes: list[dict],

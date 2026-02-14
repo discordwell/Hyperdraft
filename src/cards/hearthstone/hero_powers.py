@@ -101,7 +101,7 @@ def reinforce_effect(obj: GameObject, state: GameState) -> list[Event]:
                 'name': 'Silver Hand Recruit',
                 'power': 1,
                 'toughness': 1,
-                'types': [CardType.MINION],
+                'types': {CardType.MINION},
                 'subtypes': set(),
             }
         },
@@ -296,7 +296,7 @@ def totemic_call_effect(obj: GameObject, state: GameState) -> list[Event]:
         'name': totem_name,
         'power': power,
         'toughness': toughness,
-        'types': [CardType.MINION],
+        'types': {CardType.MINION},
         'subtypes': {'Totem'},
         'abilities': abilities,
     }
