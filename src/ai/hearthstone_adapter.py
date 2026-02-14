@@ -228,8 +228,8 @@ class HearthstoneAIAdapter:
             if board_full and CardType.MINION in card.characteristics.types:
                 continue
 
-            # Check mana cost (accounting for hero power reservation)
-            cost = self._get_mana_cost(card)
+            # Check mana cost (accounting for hero power reservation and cost modifiers)
+            cost = self._get_mana_cost(card, state, player_id)
             if cost > available_for_cards:
                 continue
 
@@ -386,8 +386,8 @@ class HearthstoneAIAdapter:
 
         return score
 
-    def _get_mana_cost(self, card: 'GameObject') -> int:
-        """Extract mana cost from card."""
+    def _get_mana_cost(self, card: 'GameObject', state: 'GameState' = None, player_id: str = None) -> int:
+        """Extract mana cost from card, applying cost modifiers."""
         if not card.characteristics or not card.characteristics.mana_cost:
             return 0
 
@@ -399,6 +399,22 @@ class HearthstoneAIAdapter:
         numbers = re.findall(r'\{(\d+)\}', cost_str)
         for num in numbers:
             total += int(num)
+
+        # Apply cost modifiers from player
+        if state and player_id:
+            player = state.players.get(player_id)
+            if player:
+                from src.engine.types import CardType
+                card_types = card.characteristics.types
+                floor = 0
+                for mod in player.cost_modifiers:
+                    mod_type = mod.get('card_type')
+                    if mod_type and mod_type in card_types:
+                        total -= mod.get('amount', 0)
+                        mod_floor = mod.get('floor', 0)
+                        if mod_floor > floor:
+                            floor = mod_floor
+                total = max(floor, total)
 
         return max(0, total)
 
@@ -414,7 +430,7 @@ class HearthstoneAIAdapter:
 
         player_id = card.owner
         player = state.players.get(player_id)
-        cost = self._get_mana_cost(card) if player else 0
+        cost = self._get_mana_cost(card, state, player_id) if player else 0
 
         # Cast the card
         from src.engine.types import CardType
@@ -528,6 +544,21 @@ class HearthstoneAIAdapter:
             if game.pipeline:
                 game.pipeline.emit(zone_event)
             events.append(zone_event)
+
+        # Track cards played this turn (for Combo, etc.) and consume cost modifiers
+        if player:
+            player.cards_played_this_turn += 1
+            # Consume one-shot cost modifiers that apply to this card type
+            new_modifiers = []
+            for mod in player.cost_modifiers:
+                if mod.get('uses_remaining') is not None:
+                    mod_type = mod.get('card_type')
+                    if mod_type and mod_type in card.characteristics.types:
+                        mod['uses_remaining'] -= 1
+                        if mod['uses_remaining'] <= 0:
+                            continue  # Consumed, don't keep
+                new_modifiers.append(mod)
+            player.cost_modifiers = new_modifiers
 
         return events
 

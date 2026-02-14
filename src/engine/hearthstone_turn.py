@@ -278,8 +278,15 @@ class HearthstoneTurnManager(TurnManager):
             self.pipeline.emit(phase_event)
         events.append(phase_event)
 
-        # Clean up temporary hero attack (Druid Shapeshift "+1 Attack this turn")
+        # Clear 'this_turn' cost modifiers for the active player
         active_player = self.state.players.get(self.hs_turn_state.active_player_id)
+        if active_player:
+            active_player.cost_modifiers = [
+                m for m in active_player.cost_modifiers
+                if m.get('duration') != 'this_turn'
+            ]
+
+        # Clean up temporary hero attack (Druid Shapeshift "+1 Attack this turn")
         if active_player and getattr(active_player, '_shapeshift_attack', False):
             active_player._shapeshift_attack = False
             pre_attack = getattr(active_player, '_pre_shapeshift_weapon_attack', None)

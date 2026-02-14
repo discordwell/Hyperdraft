@@ -2389,3 +2389,177 @@ def make_modal_spell_trigger(
         controller_only=controller_only,
         spell_type_filter=spell_type_filter
     )
+
+
+# =============================================================================
+# Hearthstone Board Adjacency
+# =============================================================================
+
+def get_adjacent_minions(obj_id: str, state) -> tuple[str | None, str | None]:
+    """
+    Get the minion IDs adjacent (left and right) to obj_id on the battlefield.
+    Returns (left_id, right_id) — either may be None if at the edge or no neighbor.
+    Only considers minions controlled by the same player.
+    """
+    obj = state.objects.get(obj_id)
+    if not obj:
+        return (None, None)
+
+    battlefield = state.zones.get('battlefield')
+    if not battlefield:
+        return (None, None)
+
+    # Build ordered list of minions for this controller
+    controller_minions = []
+    for mid in battlefield.objects:
+        m = state.objects.get(mid)
+        if m and m.controller == obj.controller and CardType.MINION in m.characteristics.types:
+            controller_minions.append(mid)
+
+    if obj_id not in controller_minions:
+        return (None, None)
+
+    idx = controller_minions.index(obj_id)
+    left = controller_minions[idx - 1] if idx > 0 else None
+    right = controller_minions[idx + 1] if idx < len(controller_minions) - 1 else None
+    return (left, right)
+
+
+def get_adjacent_enemy_minions(target_id: str, state) -> list[str]:
+    """
+    Get the enemy minion IDs adjacent to target_id on the battlefield.
+    Used for Cone of Cold, Betrayal, etc. where we target an enemy minion
+    and need its neighbors (among the enemy's board).
+    Returns list of adjacent IDs (0-2 elements).
+    """
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+
+    battlefield = state.zones.get('battlefield')
+    if not battlefield:
+        return []
+
+    # Build ordered list of minions for the target's controller
+    controller_minions = []
+    for mid in battlefield.objects:
+        m = state.objects.get(mid)
+        if m and m.controller == target.controller and CardType.MINION in m.characteristics.types:
+            controller_minions.append(mid)
+
+    if target_id not in controller_minions:
+        return []
+
+    idx = controller_minions.index(target_id)
+    adjacent = []
+    if idx > 0:
+        adjacent.append(controller_minions[idx - 1])
+    if idx < len(controller_minions) - 1:
+        adjacent.append(controller_minions[idx + 1])
+    return adjacent
+
+
+# =============================================================================
+# Hearthstone Cost Reduction Helpers
+# =============================================================================
+
+def make_cost_reduction_aura(obj, card_type_filter, amount, floor=0):
+    """
+    Create interceptors that add/remove a cost modifier while obj is on the battlefield.
+
+    Args:
+        obj: The source minion (e.g. Sorcerer's Apprentice)
+        card_type_filter: CardType to reduce cost for (e.g. CardType.SPELL)
+        amount: How much to reduce (positive = reduce)
+        floor: Minimum cost (0 for most, 1 for Summoning Portal)
+
+    Returns list of Interceptors.
+    """
+    modifier_id = f"aura_{obj.id}"
+
+    def etb_filter(event, state) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        return (event.payload.get('object_id') == obj.id and
+                event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD)
+
+    def add_modifier(event, state):
+        player = state.players.get(obj.controller)
+        if player:
+            player.cost_modifiers.append({
+                'id': modifier_id,
+                'card_type': card_type_filter,
+                'amount': amount,
+                'duration': 'while_on_battlefield',
+                'source': obj.id,
+                'floor': floor,
+            })
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def leave_filter(event, state) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        return (event.payload.get('object_id') == obj.id and
+                event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD and
+                event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD)
+
+    def remove_modifier(event, state):
+        player = state.players.get(obj.controller)
+        if player:
+            player.cost_modifiers = [m for m in player.cost_modifiers if m.get('id') != modifier_id]
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def death_filter(event, state) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        return event.payload.get('object_id') == obj.id
+
+    return [
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=etb_filter,
+            handler=add_modifier,
+            duration='permanent'
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=leave_filter,
+            handler=remove_modifier,
+            duration='permanent'
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=death_filter,
+            handler=remove_modifier,
+            duration='permanent'
+        ),
+    ]
+
+
+def add_one_shot_cost_reduction(player, card_type_filter, amount, duration='this_turn'):
+    """
+    Add a one-shot cost reduction modifier to a player.
+    Used by Preparation ("next spell costs 3 less"), Kirin Tor Mage ("next Secret costs 0").
+
+    Args:
+        player: Player object to add modifier to
+        card_type_filter: CardType to reduce (e.g. CardType.SPELL, CardType.SECRET)
+        amount: How much to reduce
+        duration: 'this_turn' (cleared at end of turn) or 'next_only' (consumed after one use)
+    """
+    player.cost_modifiers.append({
+        'id': f"oneshot_{new_id()}",
+        'card_type': card_type_filter,
+        'amount': amount,
+        'duration': duration,
+        'uses_remaining': 1,
+    })

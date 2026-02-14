@@ -139,11 +139,41 @@ GUARDIAN_OF_KINGS = make_minion(
 )
 
 
+def blessing_of_wisdom_effect(obj, state, targets):
+    """Choose a minion. Whenever it attacks, draw a card."""
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    if not friendly:
+        return []
+    target_id = targets[0] if targets else random.choice(friendly)
+
+    caster_controller = obj.controller
+
+    def attack_filter(event, state):
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        return event.payload.get('attacker_id') == target_id
+
+    def draw_card(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.DRAW, payload={
+                'player': caster_controller, 'count': 1
+            }, source=target_id)]
+        )
+
+    interceptor = Interceptor(
+        id=new_id(), source=obj.id, controller=caster_controller,
+        priority=InterceptorPriority.REACT, filter=attack_filter,
+        handler=draw_card, duration='while_on_battlefield'
+    )
+    state.interceptors[interceptor.id] = interceptor
+    return []
+
 BLESSING_OF_WISDOM = make_spell(
     name="Blessing of Wisdom",
     mana_cost="{1}",
     text="Choose a minion. Whenever it attacks, draw a card.",
-    spell_effect=lambda obj, state, targets: []
+    spell_effect=blessing_of_wisdom_effect
 )
 
 
@@ -437,7 +467,7 @@ def _eye_for_an_eye_filter(event, state):
 def _eye_for_an_eye_effect(obj, state):
     """Deal same damage to enemy hero."""
     # Find the most recent damage event to our hero
-    for event in reversed(state.events[-10:]):
+    for event in reversed(state.event_log[-10:]):
         if event.type == EventType.DAMAGE:
             amount = event.payload.get('amount', 0)
             hero_id = get_enemy_hero_id(obj, state)

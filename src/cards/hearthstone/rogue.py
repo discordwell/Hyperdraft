@@ -201,9 +201,14 @@ COLD_BLOOD = make_spell(
     spell_effect=cold_blood_effect
 )
 
-# CONCEAL - 1 mana spell, Give all friendly minions Stealth (text only)
+# CONCEAL - 1 mana spell, Give all friendly minions Stealth until your next turn
 def conceal_effect(obj, state, targets):
-    """Give all friendly minions Stealth until your next turn (text only)"""
+    """Give all friendly minions Stealth until your next turn."""
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    for mid in friendly:
+        m = state.objects.get(mid)
+        if m:
+            m.state.stealth = True
     return []
 
 CONCEAL = make_spell(
@@ -213,10 +218,27 @@ CONCEAL = make_spell(
     spell_effect=conceal_effect
 )
 
-# BETRAYAL - 2 mana spell, Enemy minion damages neighbors (text only)
+# BETRAYAL - 2 mana spell, Enemy minion deals its damage to the minions next to it
 def betrayal_effect(obj, state, targets):
-    """An enemy minion deals its damage to minions next to it (text only)"""
-    return []
+    """An enemy minion deals its damage to the minions next to it."""
+    from src.cards.interceptor_helpers import get_adjacent_enemy_minions
+    enemy_minions = get_enemy_minions(obj, state)
+    if not enemy_minions:
+        return []
+    target_id = targets[0] if targets else random.choice(enemy_minions)
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    adjacent = get_adjacent_enemy_minions(target_id, state)
+    damage = target.characteristics.power or 0
+    events = []
+    for adj_id in adjacent:
+        events.append(Event(
+            type=EventType.DAMAGE,
+            payload={'target': adj_id, 'amount': damage, 'source': target_id},
+            source=obj.id
+        ))
+    return events
 
 BETRAYAL = make_spell(
     name="Betrayal",
@@ -300,13 +322,32 @@ DEFIAS_RINGLEADER = make_minion(
     battlecry=defias_ringleader_battlecry
 )
 
-# PATIENT_ASSASSIN - 1/1, cost 2, Stealth. Poisonous (text only)
+# PATIENT_ASSASSIN - 1/1, cost 2, Stealth. Destroy any minion damaged by this minion.
+def patient_assassin_setup(obj, state):
+    """Destroy any minion damaged by this minion."""
+    from src.cards.interceptor_helpers import make_damage_trigger
+
+    def destroy_damaged(event, s):
+        target_id = event.payload.get('target')
+        target = s.objects.get(target_id)
+        if target and CardType.MINION in target.characteristics.types:
+            return [Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': target_id, 'reason': 'patient_assassin'},
+                source=obj.id
+            )]
+        return []
+
+    return [make_damage_trigger(obj, destroy_damaged)]
+
 PATIENT_ASSASSIN = make_minion(
     name="Patient Assassin",
     mana_cost="{2}",
     attack=1,
     health=1,
-    text="Stealth. Destroy any minion damaged by this minion."
+    text="Stealth. Destroy any minion damaged by this minion.",
+    keywords={"stealth"},
+    setup_interceptors=patient_assassin_setup
 )
 
 # SI7_AGENT - 3/3, cost 3, Combo: Deal 2 damage
@@ -333,13 +374,50 @@ SI7_AGENT = make_minion(
     battlecry=si7_agent_battlecry
 )
 
-# PERDITIONS_BLADE - 2/2 weapon, cost 3, Battlecry: Deal 1. Combo: 2 (text only)
+# PERDITIONS_BLADE - 2/2 weapon, cost 3, Battlecry: Deal 1 damage. Combo: Deal 2 instead.
+def perditions_blade_setup(obj, state):
+    """Battlecry: Deal 1 damage. Combo: Deal 2 instead."""
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+
+    def etb_filter(event, s):
+        return (event.type == EventType.ZONE_CHANGE and
+                event.payload.get('object_id') == obj.id and
+                event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD)
+
+    def etb_handler(event, s):
+        player = s.players.get(obj.controller)
+        combo = player and player.cards_played_this_turn > 0
+        damage = 2 if combo else 1
+        enemies = get_enemy_targets(obj, s)
+        if enemies:
+            target = random.choice(enemies)
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': target, 'amount': damage, 'source': obj.id},
+                    source=obj.id
+                )]
+            )
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=etb_filter,
+        handler=etb_handler,
+        duration='while_on_battlefield'
+    )]
+
 PERDITIONS_BLADE = make_weapon(
     name="Perdition's Blade",
     mana_cost="{3}",
     attack=2,
     durability=2,
-    text="Battlecry: Deal 1 damage. Combo: Deal 2 instead."
+    text="Battlecry: Deal 1 damage. Combo: Deal 2 instead.",
+    setup_interceptors=perditions_blade_setup
 )
 
 # MASTER_OF_DISGUISE - 4/4, cost 4, Battlecry: Give Stealth (text only)
@@ -402,9 +480,13 @@ EDWIN_VANCLEEF = make_minion(
     battlecry=edwin_vancleef_battlecry,
 )
 
-# PREPARATION - 0 mana spell, Next spell costs (3) less (text only)
+# PREPARATION - 0 mana spell, The next spell you cast this turn costs (3) less
 def preparation_effect(obj, state, targets):
-    """The next spell you cast this turn costs (3) less (text only)"""
+    """The next spell you cast this turn costs (3) less."""
+    from src.cards.interceptor_helpers import add_one_shot_cost_reduction
+    player = state.players.get(obj.controller)
+    if player:
+        add_one_shot_cost_reduction(player, CardType.SPELL, 3, duration='this_turn')
     return []
 
 PREPARATION = make_spell(

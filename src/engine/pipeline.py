@@ -400,6 +400,86 @@ def _handle_draw(event: Event, state: GameState):
         return fatigue_events
 
 
+def _handle_add_to_hand(event: Event, state: GameState):
+    """
+    Handle ADD_TO_HAND event.
+
+    Creates a new GameObject from a card definition and places it in the player's hand.
+
+    Payload:
+        player: Player ID who receives the card
+        card_def: dict with card characteristics (name, mana_cost, types, power, toughness, etc.)
+                  OR a CardDefinition object
+    """
+    from .types import new_id, GameObject, Characteristics, ObjectState, CardType
+
+    player_id = event.payload.get('player')
+    card_def = event.payload.get('card_def')
+
+    if not player_id or not card_def or player_id not in state.players:
+        return
+
+    hand_key = f"hand_{player_id}"
+    if hand_key not in state.zones:
+        return
+
+    hand = state.zones[hand_key]
+
+    # Respect 10-card hand limit in Hearthstone
+    if state.game_mode == "hearthstone" and len(hand.objects) >= state.max_hand_size:
+        return
+
+    # If card_def is a CardDefinition object, create GameObject from it
+    if hasattr(card_def, 'characteristics'):
+        obj_id = new_id()
+        obj = GameObject(
+            id=obj_id,
+            name=card_def.name,
+            owner=player_id,
+            controller=player_id,
+            zone=ZoneType.HAND,
+            characteristics=Characteristics(
+                types=set(card_def.characteristics.types),
+                subtypes=set(card_def.characteristics.subtypes) if card_def.characteristics.subtypes else set(),
+                colors=set(card_def.characteristics.colors) if card_def.characteristics.colors else set(),
+                power=card_def.characteristics.power,
+                toughness=card_def.characteristics.toughness,
+                mana_cost=card_def.characteristics.mana_cost or card_def.mana_cost,
+                abilities=list(card_def.characteristics.abilities) if card_def.characteristics.abilities else [],
+            ),
+            state=ObjectState(),
+            card_def=card_def,
+            entered_zone_at=state.timestamp
+        )
+        if hasattr(card_def, 'text'):
+            obj.characteristics.text = card_def.text
+    else:
+        # card_def is a dict
+        obj_id = new_id()
+        types = card_def.get('types', {CardType.SPELL})
+        if isinstance(types, list):
+            types = set(types)
+
+        obj = GameObject(
+            id=obj_id,
+            name=card_def.get('name', 'Unknown'),
+            owner=player_id,
+            controller=player_id,
+            zone=ZoneType.HAND,
+            characteristics=Characteristics(
+                types=types,
+                mana_cost=card_def.get('mana_cost', '{0}'),
+                power=card_def.get('power'),
+                toughness=card_def.get('toughness'),
+            ),
+            state=ObjectState(),
+            entered_zone_at=state.timestamp
+        )
+
+    state.objects[obj_id] = obj
+    hand.objects.append(obj_id)
+
+
 def _handle_object_created(event: Event, state: GameState):
     """
     Handle OBJECT_CREATED event.
@@ -2844,4 +2924,5 @@ EVENT_HANDLERS = {
     EventType.TARGET_REQUIRED: _handle_target_required,
     EventType.FREEZE_TARGET: _handle_freeze_target,
     EventType.SILENCE_TARGET: _handle_silence_target,
+    EventType.ADD_TO_HAND: _handle_add_to_hand,
 }

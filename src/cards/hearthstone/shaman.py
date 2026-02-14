@@ -447,7 +447,7 @@ def unbound_elemental_setup(obj, state):
         source_obj = s.objects.get(source_id)
         if source_obj and source_obj.controller == obj.controller:
             card_def = getattr(source_obj, 'card_def', None)
-            if card_def and 'Overload' in (card_def.get('text', '') or ''):
+            if card_def and 'Overload' in (getattr(card_def, 'text', '') or ''):
                 return True
         return False
 
@@ -598,11 +598,56 @@ FAR_SIGHT = make_spell(
 )
 
 
+def ancestral_spirit_effect(obj, state, targets):
+    """Give a minion 'Deathrattle: Resummon this minion.'"""
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    if not friendly:
+        return []
+    target_id = targets[0] if targets else random.choice(friendly)
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+
+    # Store the minion's stats for resummon
+    stored_name = target.name
+    stored_power = target.characteristics.power
+    stored_toughness = target.characteristics.toughness
+    stored_subtypes = set(target.characteristics.subtypes) if target.characteristics.subtypes else set()
+    stored_controller = target.controller
+
+    def dr_filter(event, state):
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        return event.payload.get('object_id') == target_id
+
+    def resummon(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.CREATE_TOKEN, payload={
+                'controller': stored_controller,
+                'token': {
+                    'name': stored_name,
+                    'power': stored_power,
+                    'toughness': stored_toughness,
+                    'types': {CardType.MINION},
+                    'subtypes': stored_subtypes,
+                }
+            }, source=target_id)]
+        )
+
+    interceptor = Interceptor(
+        id=new_id(), source=obj.id, controller=stored_controller,
+        priority=InterceptorPriority.REACT, filter=dr_filter,
+        handler=resummon, duration='once'
+    )
+    state.interceptors[interceptor.id] = interceptor
+    return []
+
 ANCESTRAL_SPIRIT = make_spell(
     name="Ancestral Spirit",
     mana_cost="{2}",
     text="Give a minion \"Deathrattle: Resummon this minion.\"",
-    spell_effect=lambda obj, state, targets: []  # Text only for now
+    spell_effect=ancestral_spirit_effect
 )
 
 

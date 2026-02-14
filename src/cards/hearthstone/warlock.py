@@ -1,7 +1,7 @@
 """Hearthstone Warlock Cards - Basic + Classic"""
 import random
 from src.engine.game import make_minion, make_spell
-from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType, Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+from src.engine.types import Event, EventType, CardType, GameObject, GameState, ZoneType, Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, Characteristics, ObjectState, new_id
 from src.cards.interceptor_helpers import (
     get_enemy_targets, get_enemy_minions, get_all_minions, get_enemy_hero_id,
     make_end_of_turn_trigger, make_whenever_takes_damage_trigger
@@ -324,6 +324,43 @@ def sense_demons_effect(obj, state, targets):
     return events
 
 
+def corruption_effect(obj, state, targets):
+    """Choose an enemy minion. At the start of your next turn, destroy it."""
+    enemy_minions = get_enemy_minions(obj, state)
+    if not enemy_minions:
+        return []
+    target_id = targets[0] if targets else random.choice(enemy_minions)
+
+    # Set up a delayed destroy interceptor that fires at start of the caster's next turn
+    def turn_start_filter(event, s):
+        return event.type == EventType.TURN_START and event.payload.get('player') == obj.controller
+
+    def destroy_target(event, s):
+        target = s.objects.get(target_id)
+        if target and target.zone == ZoneType.BATTLEFIELD:
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': target_id, 'reason': 'corruption'},
+                    source=obj.id
+                )]
+            )
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    int_obj = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=turn_start_filter,
+        handler=destroy_target,
+        uses_remaining=1
+    )
+    state.interceptors[int_obj.id] = int_obj
+    return []
+
+
 # ============================================================================
 # BATTLECRY EFFECTS
 # ============================================================================
@@ -425,6 +462,91 @@ def doomguard_battlecry(obj, state):
     return events
 
 
+def void_terror_battlecry(obj, state):
+    """Destroy the minions on either side of this minion and gain their Attack and Health."""
+    from src.cards.interceptor_helpers import get_adjacent_minions
+    left_id, right_id = get_adjacent_minions(obj.id, state)
+    total_power = 0
+    total_toughness = 0
+    events = []
+
+    for adj_id in [left_id, right_id]:
+        if adj_id:
+            adj = state.objects.get(adj_id)
+            if adj:
+                total_power += adj.characteristics.power or 0
+                total_toughness += adj.characteristics.toughness or 0
+                events.append(Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': adj_id, 'reason': 'void_terror'},
+                    source=obj.id
+                ))
+
+    if total_power > 0 or total_toughness > 0:
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': total_power,
+                'toughness_mod': total_toughness,
+                'duration': 'permanent'
+            },
+            source=obj.id
+        ))
+
+    return events
+
+
+def lord_jaraxxus_battlecry(obj, state):
+    """Replace your hero with Lord Jaraxxus (15 HP, 3/8 weapon, INFERNO! hero power)."""
+    player = state.players.get(obj.controller)
+    if not player:
+        return []
+
+    # Replace hero HP to 15
+    player.life = 15
+    player.max_life = 15
+    player.armor = 0
+
+    # Equip Blood Fury (3/8 weapon)
+    player.weapon_attack = 3
+    player.weapon_durability = 8
+    hero = state.objects.get(player.hero_id)
+    if hero:
+        hero.state.weapon_attack = 3
+        hero.state.weapon_durability = 8
+
+    # Replace hero power with INFERNO! (summon a 6/6 Infernal)
+    from src.cards.hearthstone.hero_powers import INFERNO_HERO_POWER
+    new_hp_id = new_id()
+    new_hp = GameObject(
+        id=new_hp_id,
+        name=INFERNO_HERO_POWER.name,
+        owner=obj.controller,
+        controller=obj.controller,
+        zone=ZoneType.COMMAND,
+        characteristics=Characteristics(
+            types=INFERNO_HERO_POWER.characteristics.types,
+            mana_cost=INFERNO_HERO_POWER.mana_cost,
+        ),
+        state=ObjectState(),
+        card_def=INFERNO_HERO_POWER,
+    )
+    state.objects[new_hp_id] = new_hp
+    player.hero_power_id = new_hp_id
+    player.hero_power_used = False
+
+    # Register hero power interceptors so it actually activates
+    if hasattr(INFERNO_HERO_POWER, 'setup_interceptors') and INFERNO_HERO_POWER.setup_interceptors:
+        interceptors = INFERNO_HERO_POWER.setup_interceptors(new_hp, state)
+        for interceptor in (interceptors or []):
+            interceptor.timestamp = state.next_timestamp()
+            state.interceptors[interceptor.id] = interceptor
+            new_hp.interceptor_ids.append(interceptor.id)
+
+    return []
+
+
 # ============================================================================
 # END OF TURN TRIGGER
 # ============================================================================
@@ -462,6 +584,12 @@ def blood_imp_setup(obj: GameObject, state: GameState):
     return [make_end_of_turn_trigger(obj, end_of_turn_fn)]
 
 
+def summoning_portal_setup(obj, state):
+    """Your minions cost (2) less, but not less than (1)."""
+    from src.cards.interceptor_helpers import make_cost_reduction_aura
+    return make_cost_reduction_aura(obj, CardType.MINION, 2, floor=1)
+
+
 # ============================================================================
 # BASIC WARLOCK CARDS
 # ============================================================================
@@ -483,7 +611,7 @@ MORTAL_COIL = make_spell(
 CORRUPTION = make_spell(
     name="Corruption",
     mana_cost="{1}",
-    spell_effect=None,
+    spell_effect=corruption_effect,
     text="Choose an enemy minion. At the start of your turn, destroy it."
 )
 
@@ -612,6 +740,7 @@ SUMMONING_PORTAL = make_minion(
     health=4,
     mana_cost="{4}",
     subtypes=set(),
+    setup_interceptors=summoning_portal_setup,
     text="Your minions cost (2) less."
 )
 
@@ -654,6 +783,7 @@ LORD_JARAXXUS = make_minion(
     mana_cost="{9}",
     subtypes={"Demon"},
     rarity="Legendary",
+    battlecry=lord_jaraxxus_battlecry,
     text="Battlecry: Replace your hero with Lord Jaraxxus."
 )
 
@@ -704,6 +834,7 @@ VOID_TERROR = make_minion(
     health=3,
     mana_cost="{3}",
     subtypes={"Demon"},
+    battlecry=void_terror_battlecry,
     text="Battlecry: Destroy the minions on either side of this minion and gain their Attack and Health."
 )
 
