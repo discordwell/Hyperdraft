@@ -190,6 +190,7 @@ class EventType(Enum):
     WEAPON_DURABILITY_LOSS = auto()        # Weapon loses durability
     DIVINE_SHIELD_BREAK = auto()           # Divine shield is broken
     FREEZE_TARGET = auto()                 # Freeze a minion or hero
+    SILENCE_TARGET = auto()                # Silence a minion (remove all effects)
     SECRET_TRIGGER = auto()                # Secret card triggers
     FATIGUE_DAMAGE = auto()                # Damage from drawing empty deck
     ARMOR_GAIN = auto()                    # Hero gains armor
@@ -453,6 +454,8 @@ class Player:
     weapon_attack: int = 0                    # Current weapon attack
     weapon_durability: int = 0                # Current weapon durability
     max_life: int = 30                        # Max hero HP (healing cap)
+    overloaded_mana: int = 0                  # Mana locked next turn (Shaman Overload)
+    cards_played_this_turn: int = 0           # Cards played this turn (Rogue Combo)
 
 
 # =============================================================================

@@ -2751,6 +2751,49 @@ def _handle_freeze_target(event: Event, state: GameState):
     obj.state.frozen = True
 
 
+def _handle_silence_target(event: Event, state: GameState):
+    """Handle SILENCE_TARGET event - remove all card text/effects from a minion."""
+    target_id = event.payload.get('target')
+    if not target_id or target_id not in state.objects:
+        return
+    obj = state.objects[target_id]
+
+    from .types import CardType
+    if CardType.MINION not in obj.characteristics.types:
+        return
+
+    # Remove all interceptors registered by this minion
+    for int_id in list(obj.interceptor_ids):
+        if int_id in state.interceptors:
+            del state.interceptors[int_id]
+    obj.interceptor_ids.clear()
+
+    # Clear abilities (keywords like Taunt, Divine Shield, etc.)
+    obj.characteristics.abilities = []
+
+    # Reset HS-specific state flags
+    obj.state.divine_shield = False
+    obj.state.stealth = False
+    obj.state.windfury = False
+    obj.state.frozen = False
+
+    # Reset PT modifications (buffs/debuffs) - revert to base stats
+    obj.state.damage = obj.state.damage  # Keep current damage
+    if hasattr(obj.state, 'pt_modifiers'):
+        obj.state.pt_modifiers = []
+
+    # Clear card_def references so deathrattle/battlecry won't re-fire
+    if obj.card_def:
+        obj.card_def = type(obj.card_def)(
+            name=obj.card_def.name,
+            mana_cost=obj.card_def.mana_cost,
+            characteristics=obj.card_def.characteristics,
+            domain=obj.card_def.domain,
+            text="",
+            rarity=obj.card_def.rarity,
+        )
+
+
 # =============================================================================
 # Event Handler Registry
 # =============================================================================
@@ -2800,4 +2843,5 @@ EVENT_HANDLERS = {
     EventType.DISCARD: _handle_discard,
     EventType.TARGET_REQUIRED: _handle_target_required,
     EventType.FREEZE_TARGET: _handle_freeze_target,
+    EventType.SILENCE_TARGET: _handle_silence_target,
 }
