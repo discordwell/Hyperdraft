@@ -449,8 +449,8 @@ class TestFlametongueTotem:
         # Wisps adjacent to Flametongue should have boosted power
         p1_w1 = get_power(w1, game.state)
         p1_w2 = get_power(w2, game.state)
-        # At least one should be boosted (depends on adjacency detection)
-        assert p1_w1 >= 1 or p1_w2 >= 1  # Base 1, possibly +2
+        # Both wisps flank the totem, so both should get +2 (base 1 → 3)
+        assert p1_w1 == 3 or p1_w2 == 3  # At least one adjacent Wisp gets +2
 
     def test_does_not_buff_self(self):
         """Flametongue Totem does not buff itself."""
@@ -639,7 +639,6 @@ class TestFarSight:
         """Far Sight draws a card and reduces its cost by 3."""
         game, p1, p2 = new_hs_game()
         # Put a card in the library
-        lib_key = f"library_{p1.id}"
         card = game.create_object(
             name=CHILLWIND_YETI.name, owner_id=p1.id, zone=ZoneType.LIBRARY,
             characteristics=CHILLWIND_YETI.characteristics, card_def=CHILLWIND_YETI
@@ -647,11 +646,10 @@ class TestFarSight:
 
         cast_spell(game, FAR_SIGHT, p1)
 
-        # Card should be in hand with reduced cost
+        # Far Sight manually moves card to hand (no DRAW event) and modifies cost
         state_card = game.state.objects.get(card.id)
-        if state_card and state_card.zone == ZoneType.HAND:
-            # Cost should be {1} (4 - 3 = 1)
-            assert state_card.characteristics.mana_cost == "{1}"
+        assert state_card.zone == ZoneType.HAND
+        assert state_card.characteristics.mana_cost == "{1}"  # 4 - 3 = 1
 
     def test_cost_cannot_go_below_0(self):
         """Far Sight cost reduction floors at 0."""
@@ -664,6 +662,7 @@ class TestFarSight:
 
         cast_spell(game, FAR_SIGHT, p1)
 
+        # Far Sight manually moves card to hand and modifies cost
         state_card = game.state.objects.get(card.id)
-        if state_card and state_card.zone == ZoneType.HAND:
-            assert state_card.characteristics.mana_cost == "{0}"
+        assert state_card.zone == ZoneType.HAND
+        assert state_card.characteristics.mana_cost == "{0}"  # max(0, 0 - 3) = 0
