@@ -351,10 +351,10 @@ def _explosive_trap_effect(obj, state):
         for mid in list(battlefield.objects):
             m = state.objects.get(mid)
             if m and m.controller != obj.controller and CardType.MINION in m.characteristics.types:
-                events.append(Event(type=EventType.DAMAGE, payload={'target': mid, 'amount': 2, 'source': obj.id}, source=obj.id))
+                events.append(Event(type=EventType.DAMAGE, payload={'target': mid, 'amount': 2, 'source': obj.id, 'from_spell': True}, source=obj.id))
     for pid, p in state.players.items():
         if pid != obj.controller and p.hero_id:
-            events.append(Event(type=EventType.DAMAGE, payload={'target': p.hero_id, 'amount': 2, 'source': obj.id}, source=obj.id))
+            events.append(Event(type=EventType.DAMAGE, payload={'target': p.hero_id, 'amount': 2, 'source': obj.id, 'from_spell': True}, source=obj.id))
     return events
 
 EXPLOSIVE_TRAP = make_secret(
@@ -367,40 +367,52 @@ EXPLOSIVE_TRAP = make_secret(
 
 
 # 3. FREEZING_TRAP - 2 mana Secret, When an enemy minion attacks, return it to its owner's hand. It costs (2) more.
-def _freezing_trap_filter(event, state):
-    if event.type != EventType.ATTACK_DECLARED:
-        return False
-    attacker_id = event.payload.get('attacker_id')
-    attacker = state.objects.get(attacker_id)
-    return attacker and CardType.MINION in attacker.characteristics.types
-
-def _freezing_trap_effect(obj, state):
+def _freezing_trap_setup(obj, state):
+    """Secret: When an enemy minion attacks, return it to its owner's hand. It costs (2) more."""
     import re as _re
-    # Return the most recent attacker to hand and increase its cost by 2
-    battlefield = state.zones.get('battlefield')
-    if battlefield:
-        enemy_minions = [mid for mid in battlefield.objects
-                        if state.objects.get(mid) and state.objects[mid].controller != obj.controller
-                        and CardType.MINION in state.objects[mid].characteristics.types]
-        if enemy_minions:
-            target_id = enemy_minions[-1]
-            target = state.objects.get(target_id)
-            # Increase the returned card's mana cost by 2
-            if target:
-                cost_str = target.characteristics.mana_cost or "{0}"
-                numbers = _re.findall(r'\{(\d+)\}', cost_str)
-                current_cost = sum(int(n) for n in numbers) if numbers else 0
-                new_cost = current_cost + 2
-                target.characteristics.mana_cost = "{" + str(new_cost) + "}"
-            return [Event(type=EventType.RETURN_TO_HAND, payload={'object_id': target_id}, source=obj.id)]
-    return []
+    from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
+
+    def filter_fn(event, s):
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        # Only trigger during opponent's turn
+        if s.active_player == obj.controller:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = s.objects.get(attacker_id)
+        return attacker and CardType.MINION in attacker.characteristics.types
+
+    def handler_fn(event, s):
+        attacker_id = event.payload.get('attacker_id')
+        attacker = s.objects.get(attacker_id)
+        events = []
+        if attacker:
+            # Increase cost by 2 before returning
+            cost_str = attacker.characteristics.mana_cost or "{0}"
+            numbers = _re.findall(r'\{(\d+)\}', cost_str)
+            current_cost = sum(int(n) for n in numbers) if numbers else 0
+            new_cost = current_cost + 2
+            attacker.characteristics.mana_cost = "{" + str(new_cost) + "}"
+            events.append(Event(type=EventType.RETURN_TO_HAND, payload={'object_id': attacker_id}, source=obj.id))
+        # Destroy the secret after triggering
+        events.append(Event(
+            type=EventType.ZONE_CHANGE,
+            payload={'object_id': obj.id, 'from_zone_type': obj.zone, 'to_zone_type': ZoneType.GRAVEYARD},
+            source=obj.id
+        ))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+    return [Interceptor(
+        id=f"secret_{obj.id}", source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=filter_fn, handler=handler_fn,
+        duration='while_on_battlefield', uses_remaining=1
+    )]
 
 FREEZING_TRAP = make_secret(
     name="Freezing Trap",
     mana_cost="{2}",
     text="Secret: When an enemy minion attacks, return it to its owner's hand. It costs (2) more.",
-    trigger_filter=_freezing_trap_filter,
-    trigger_effect=_freezing_trap_effect
+    setup_interceptors=_freezing_trap_setup
 )
 
 
@@ -416,7 +428,7 @@ def _snipe_effect(obj, state):
                         if state.objects.get(mid) and state.objects[mid].controller != obj.controller
                         and CardType.MINION in state.objects[mid].characteristics.types]
         if enemy_minions:
-            return [Event(type=EventType.DAMAGE, payload={'target': enemy_minions[-1], 'amount': 4, 'source': obj.id}, source=obj.id)]
+            return [Event(type=EventType.DAMAGE, payload={'target': enemy_minions[-1], 'amount': 4, 'source': obj.id, 'from_spell': True}, source=obj.id)]
     return []
 
 SNIPE = make_secret(
@@ -772,10 +784,14 @@ MISDIRECTION = make_secret(
 def explosive_shot_effect(obj, state, targets):
     """Deal 5 damage to a minion and 2 damage to adjacent minions."""
     from src.cards.interceptor_helpers import get_adjacent_enemy_minions
-    enemy_minions = get_enemy_minions(obj, state)
-    if not enemy_minions:
-        return []
-    primary = random.choice(enemy_minions)
+    # Use provided target (targeted spell), fallback to random
+    if targets:
+        primary = targets[0]
+    else:
+        enemy_minions = get_enemy_minions(obj, state)
+        if not enemy_minions:
+            return []
+        primary = random.choice(enemy_minions)
     events = [Event(type=EventType.DAMAGE, payload={'target': primary, 'amount': 5, 'source': obj.id, 'from_spell': True}, source=obj.id)]
     # Deal 2 damage to positionally adjacent minions
     adjacent = get_adjacent_enemy_minions(primary, state)

@@ -604,11 +604,13 @@ PREPARATION = make_spell(
 # SHADOWSTEP - 0 mana spell, Return a friendly minion to your hand. It costs (2) less.
 def shadowstep_effect(obj, state, targets):
     """Return a friendly minion to your hand. It costs (2) less."""
-    friendly = get_friendly_minions(obj, state, exclude_self=False)
-    if not friendly:
-        return []
-
-    target_id = random.choice(friendly)
+    if targets:
+        target_id = targets[0]
+    else:
+        friendly = get_friendly_minions(obj, state, exclude_self=False)
+        if not friendly:
+            return []
+        target_id = random.choice(friendly)
     target = state.objects.get(target_id)
 
     events = [Event(
