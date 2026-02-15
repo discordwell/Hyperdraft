@@ -195,7 +195,7 @@ def test_gurubashi_berserker_stacks_on_each_damage():
     assert new_power >= 11, f"Gurubashi should be 2+9=11 after 3 hits, got {new_power}"
 
 
-def test_silence_removes_enrage():
+def test_silence_removes_enrage_from_friendly():
     """Silencing an enraged minion should remove the attack bonus."""
     game, p1, p2 = new_hs_game()
 

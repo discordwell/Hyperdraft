@@ -400,7 +400,7 @@ def test_auchenai_circle_of_healing_combo():
 # PRIEST: Shadow Words & Holy Nova
 # ============================================================================
 
-def test_shadow_word_pain_destroys_low_attack():
+def test_shadow_word_pain_destroys_wisp():
     """SW:Pain destroys a minion with 3 or less Attack."""
     game, p1, p2 = new_hs_game()
 
@@ -430,7 +430,7 @@ def test_shadow_word_pain_ignores_high_attack():
     assert len(destroy_events) == 0, "SW:Pain should NOT destroy Ogre (6 attack > 3)"
 
 
-def test_shadow_word_death_destroys_high_attack():
+def test_shadow_word_death_destroys_ogre():
     """SW:Death destroys a minion with 5 or more Attack."""
     game, p1, p2 = new_hs_game()
 
