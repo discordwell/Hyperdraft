@@ -127,7 +127,11 @@ def cast_spell(game, card_def, owner, targets=None):
 
 
 def cast_spell_full(game, card_def, owner, targets=None):
-    """Cast spell with SPELL_CAST event (triggers Pyro, Wyrm, Gadgetzan, etc)."""
+    """Cast spell with SPELL_CAST event (triggers Pyro, Wyrm, Gadgetzan, etc).
+
+    Order: spell effect resolves first, then SPELL_CAST fires (for 'after you cast' triggers
+    like Wild Pyro). Mana Wyrm and Gadgetzan use 'whenever' which should also fire after.
+    """
     obj = game.create_object(
         name=card_def.name,
         owner_id=owner.id,
@@ -135,16 +139,16 @@ def cast_spell_full(game, card_def, owner, targets=None):
         characteristics=card_def.characteristics,
         card_def=card_def
     )
-    # Emit SPELL_CAST event first (triggers "when you cast a spell" watchers)
+    # Resolve the spell effect first
+    events = card_def.spell_effect(obj, game.state, targets or [])
+    for e in events:
+        game.emit(e)
+    # Then emit SPELL_CAST (triggers "after/whenever you cast a spell" watchers)
     game.emit(Event(
         type=EventType.SPELL_CAST,
         payload={'spell_id': obj.id, 'controller': owner.id, 'caster': owner.id},
         source=obj.id
     ))
-    # Then resolve the spell effect
-    events = card_def.spell_effect(obj, game.state, targets or [])
-    for e in events:
-        game.emit(e)
     return obj
 
 
