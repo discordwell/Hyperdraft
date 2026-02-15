@@ -731,7 +731,7 @@ def ancestral_healing_effect(obj: GameObject, state: GameState, targets: list) -
     # Grant Taunt via event
     events.append(Event(
         type=EventType.KEYWORD_GRANT,
-        payload={'object_id': target_id, 'keyword': 'taunt'},
+        payload={'object_id': target_id, 'keyword': 'taunt', 'duration': 'permanent'},
         source=obj.id
     ))
 

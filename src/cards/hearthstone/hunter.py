@@ -151,7 +151,7 @@ def houndmaster_battlecry(obj, state):
         target = random.choice(beasts)
         return [
             Event(type=EventType.PT_MODIFICATION, payload={'object_id': target, 'power_mod': 2, 'toughness_mod': 2, 'duration': 'permanent'}, source=obj.id),
-            Event(type=EventType.KEYWORD_GRANT, payload={'object_id': target, 'keyword': 'taunt'}, source=obj.id)
+            Event(type=EventType.KEYWORD_GRANT, payload={'object_id': target, 'keyword': 'taunt', 'duration': 'permanent'}, source=obj.id)
         ]
     return []
 
