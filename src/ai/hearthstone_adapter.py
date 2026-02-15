@@ -1207,6 +1207,10 @@ class HearthstoneAIAdapter:
             if is_minion and get_power(obj, state) <= 0:
                 continue
 
+            # "Can't Attack" minions (Ancient Watcher, Ragnaros)
+            if is_minion and has_ability(obj, 'cant_attack', state):
+                continue
+
             # Heroes need a weapon with durability to attack
             if is_hero:
                 player = state.players.get(player_id)
