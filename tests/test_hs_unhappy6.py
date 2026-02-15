@@ -245,8 +245,8 @@ def test_savannah_highmane_summons_two_hyenas():
     assert len(hyenas) == 2, f"Highmane should summon 2 Hyenas, got {len(hyenas)}"
 
 
-def test_cult_master_draws_on_friendly_death():
-    """Cult Master should draw a card when a friendly minion dies."""
+def test_cult_master_draw_via_event_log():
+    """Cult Master should draw a card when a friendly minion dies (event log check)."""
     game, p1, p2 = new_hs_game()
 
     cult = make_obj(game, CULT_MASTER, p1)
@@ -269,8 +269,8 @@ def test_cult_master_draws_on_friendly_death():
     assert len(draw_events) >= 1, "Cult Master should draw when friendly minion dies"
 
 
-def test_loot_hoarder_draws_on_death():
-    """Loot Hoarder's deathrattle should draw a card."""
+def test_loot_hoarder_draw_via_event_log():
+    """Loot Hoarder's deathrattle should draw a card (event log check)."""
     game, p1, p2 = new_hs_game()
 
     hoarder = make_obj(game, LOOT_HOARDER, p1)
@@ -467,8 +467,8 @@ def test_wild_pyro_kills_itself():
 # COMPLEX GAMEPLAY SCENARIOS
 # ============================================================================
 
-def test_consecration_plus_equality_board_clear():
-    """Equality + Consecration is a classic Paladin board clear combo."""
+def test_consecration_damages_all_enemies():
+    """Consecration deals 2 damage to all enemy characters."""
     game, p1, p2 = new_hs_game()
 
     # P2 has big minions
