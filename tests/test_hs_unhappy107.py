@@ -617,8 +617,9 @@ class TestFullBoardEdgeCases:
             source='test'
         ))
 
-        # Token may or may not spawn depending on implementation
-        assert count_board_minions(game, p1.id) >= 6
+        # Golem died (6 remain), deathrattle may summon token (back to 7)
+        board_count = count_board_minions(game, p1.id)
+        assert board_count in (6, 7), f"Expected 6 or 7 minions, got {board_count}"
 
     def test_token_spell_on_board_of_6_only_1_fits(self):
         """Token spell (Mirror Image) on board of 6: only 1 token fits."""

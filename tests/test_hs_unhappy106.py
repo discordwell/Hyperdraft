@@ -146,7 +146,7 @@ class TestYseraDreamCards:
 
         # Should add one card to hand
         add_events = count_add_to_hand_events(game)
-        assert add_events >= 1, f"Ysera should generate Dream card, found {add_events} ADD_TO_HAND events"
+        assert add_events == 1, f"Ysera should generate 1 Dream card, found {add_events} ADD_TO_HAND events"
 
     def test_ysera_multiple_turns(self):
         """Ysera generates different cards over multiple turns."""
@@ -206,7 +206,7 @@ class TestMindVision:
 
         # Should add card to our hand
         add_events = count_add_to_hand_events(game)
-        assert add_events >= 1, f"Mind Vision should copy card, found {add_events} ADD_TO_HAND events"
+        assert add_events == 1, f"Mind Vision should copy exactly 1 card, found {add_events} ADD_TO_HAND events"
 
     def test_mind_vision_empty_hand(self):
         """Mind Vision with empty opponent hand: no card generated."""
@@ -324,7 +324,7 @@ class TestTracking:
 
         # Check for DRAW event
         draw_events = count_draw_events(game)
-        assert draw_events >= 1, f"Tracking should draw card, found {draw_events} DRAW events"
+        assert draw_events == 1, f"Tracking should draw exactly 1 card, found {draw_events} DRAW events"
 
     def test_tracking_with_empty_deck(self):
         """Tracking with empty deck: no draw event."""
@@ -439,7 +439,7 @@ class TestImpMaster:
         # Check for DAMAGE event targeting Imp Master
         damage_events = [e for e in game.state.event_log
                         if e.type == EventType.DAMAGE and e.payload.get('target') == imp_master.id]
-        assert len(damage_events) >= 1, "Imp Master should damage itself"
+        assert len(damage_events) == 1, "Imp Master should damage itself exactly once"
 
 
 # ============================================================
@@ -632,7 +632,7 @@ class TestNourish:
 
         # Check for DRAW event
         draw_events = [e for e in game.state.event_log if e.type == EventType.DRAW]
-        assert len(draw_events) >= 1, "Nourish draw mode should emit DRAW event"
+        assert len(draw_events) == 1, "Nourish draw mode should emit exactly 1 DRAW event"
 
     def test_nourish_mana_mode(self):
         """Nourish in mana mode gains 2 mana crystals."""
@@ -641,10 +641,9 @@ class TestNourish:
         # Cast with mana mode (choice=0 for mana)
         cast_spell(game, NOURISH, p1, targets=[0])
 
-        # Check for MANA_CRYSTAL_GAIN event or verify mana changed
-        # (implementation may vary)
-        # Just verify no crash
-        assert True, "Nourish mana mode should not crash"
+        # Verify spell cast event was emitted
+        spell_events = [e for e in game.state.event_log if e.type == EventType.SPELL_CAST]
+        assert len(spell_events) == 1, "Nourish should emit SPELL_CAST event"
 
 
 # ============================================================
@@ -676,7 +675,7 @@ class TestForceOfNature:
         # Verify at least one has charge (implementation may vary)
         has_charge = any('charge' in e.payload.get('token', {}).get('keywords', set())
                         for e in token_events)
-        assert has_charge or len(token_events) == 3, "Treants should have charge or be summoned correctly"
+        # Treant summoning verified by token_events == 3 above
 
 
 # ============================================================
@@ -817,7 +816,7 @@ class TestCardGenerationEdgeCases:
 
         # Ysera should still try to generate card
         add_events = count_add_to_hand_events(game)
-        assert add_events >= 1, "Ysera should attempt to add card even with full hand"
+        assert add_events == 1, "Ysera should attempt to add exactly 1 card even with full hand"
 
     def test_token_generation_at_7_minion_board(self):
         """Token generation at 7-minion board: no token."""
@@ -1000,7 +999,7 @@ class TestAdditionalEdgeCases:
 
         # Should still try to generate
         add_events = count_add_to_hand_events(game)
-        assert add_events >= 1, "Ysera should attempt to generate even with full hand"
+        assert add_events == 1, "Ysera should attempt to generate exactly 1 card even with full hand"
 
     def test_imp_master_multiple_turns(self):
         """Imp Master summons imp each turn."""
