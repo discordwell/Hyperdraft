@@ -257,10 +257,10 @@ class TestWildPyromancerSpell:
         cast_spell(game, FROSTBOLT, p1, [p2.id])
 
         # Wild Pyromancer's interceptor deals 1 damage to all minions
-        # Check that all minions took damage
-        assert pyro.state.damage >= 1
-        assert yeti1.state.damage >= 1
-        assert yeti2.state.damage >= 1
+        # Check that all minions took exactly 1 damage
+        assert pyro.state.damage == 1
+        assert yeti1.state.damage == 1
+        assert yeti2.state.damage == 1
 
 
 # ============================================================
@@ -620,15 +620,14 @@ class TestManaWyrmSpellBuffs:
         # Cast first spell (Mana Wyrm's interceptor should trigger)
         cast_spell(game, FROSTBOLT, p1, [p2.id])
 
-        # Mana Wyrm should gain +1 Attack from its interceptor
-        # Check that power increased
-        assert get_power(wyrm, game.state) >= initial_power + 1
+        # Mana Wyrm should gain exactly +1 Attack from its interceptor
+        assert get_power(wyrm, game.state) == initial_power + 1
 
         # Cast second spell
         cast_spell(game, FIREBALL, p1, [p2.id])
 
-        # Mana Wyrm should gain another +1 Attack
-        assert get_power(wyrm, game.state) >= initial_power + 2
+        # Mana Wyrm should gain another +1 Attack (total +2)
+        assert get_power(wyrm, game.state) == initial_power + 2
 
 
 # ============================================================
