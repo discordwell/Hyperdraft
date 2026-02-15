@@ -415,9 +415,11 @@ class TestRagnaros:
             source='test'
         ))
 
-        # Should hit the yeti
+        # Should hit the yeti (only target)
         damage_events = [e for e in game.state.event_log if e.type == EventType.DAMAGE and e.payload.get('target') == yeti.id]
-        assert len(damage_events) >= 1
+        assert len(damage_events) == 1, (
+            f"Ragnaros should hit single enemy exactly once, found {len(damage_events)} hits"
+        )
 
     def test_ragnaros_cant_attack(self):
         """Ragnaros has Can't Attack (verify interceptor exists)."""
@@ -564,8 +566,9 @@ class TestMindVision:
         random.seed(42)
         cast_spell(game, MIND_VISION, p1)
 
-        # Should not crash (implementation may vary based on opponent's hand)
-        # Just verify spell cast successfully
+        # Verify spell was cast (SPELL_CAST event emitted)
+        spell_events = [e for e in game.state.event_log if e.type == EventType.SPELL_CAST]
+        assert len(spell_events) >= 1, "Mind Vision should emit SPELL_CAST event"
 
 
 class TestThoughtsteal:
@@ -578,8 +581,9 @@ class TestThoughtsteal:
         random.seed(42)
         cast_spell(game, THOUGHTSTEAL, p1)
 
-        # Should not crash (implementation may vary)
-        # Just verify spell cast successfully
+        # Verify spell was cast (SPELL_CAST event emitted)
+        spell_events = [e for e in game.state.event_log if e.type == EventType.SPELL_CAST]
+        assert len(spell_events) >= 1, "Thoughtsteal should emit SPELL_CAST event"
 
 
 # ============================================================
@@ -933,7 +937,9 @@ class TestRandomEffectEdgeCases:
 
         # Should hit the yeti (only valid minion target)
         damage_events = [e for e in game.state.event_log if e.type == EventType.DAMAGE and e.payload.get('target') == yeti.id]
-        assert len(damage_events) >= 1
+        assert len(damage_events) == 1, (
+            f"Multi-Shot should hit single target exactly once, found {len(damage_events)} hits"
+        )
 
 
 # ============================================================
