@@ -410,17 +410,16 @@ class TestFacelessManipulatorVanilla:
         if FACELESS_MANIPULATOR.battlecry:
             FACELESS_MANIPULATOR.battlecry(faceless, game.state)
 
-        # Check if faceless copied the Yeti
-        if faceless.name == "Chillwind Yeti":
-            assert faceless.characteristics.power == 4, (
-                f"Faceless copying Yeti should have 4 power, got {faceless.characteristics.power}"
-            )
-            assert faceless.characteristics.toughness == 5, (
-                f"Faceless copying Yeti should have 5 toughness, got {faceless.characteristics.toughness}"
-            )
-        else:
-            # If random chose a different target (hero), just verify it copied something
-            assert faceless.characteristics.power is not None
+        # With only Yeti as a valid minion target, Faceless should copy it
+        assert faceless.name == "Chillwind Yeti", (
+            f"Faceless should copy the only available minion (Yeti), got '{faceless.name}'"
+        )
+        assert faceless.characteristics.power == 4, (
+            f"Faceless copying Yeti should have 4 power, got {faceless.characteristics.power}"
+        )
+        assert faceless.characteristics.toughness == 5, (
+            f"Faceless copying Yeti should have 5 toughness, got {faceless.characteristics.toughness}"
+        )
 
     def test_faceless_copies_name(self):
         """Faceless copying a minion takes on the target's name."""
