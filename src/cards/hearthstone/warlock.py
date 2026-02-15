@@ -631,7 +631,7 @@ def blood_imp_setup(obj: GameObject, state: GameState):
 def summoning_portal_setup(obj, state):
     """Your minions cost (2) less, but not less than (1)."""
     from src.cards.interceptor_helpers import make_cost_reduction_aura
-    return make_cost_reduction_aura(obj, CardType.MINION, 2, floor=1)
+    return make_cost_reduction_aura(obj, CardType.MINION, 2, floor=1, state=state)
 
 
 # ============================================================================

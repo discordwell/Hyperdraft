@@ -2463,27 +2463,28 @@ def get_adjacent_enemy_minions(target_id: str, state) -> list[str]:
 # Hearthstone Cost Reduction Helpers
 # =============================================================================
 
-def make_cost_reduction_aura(obj, card_type_filter, amount, floor=0):
+def make_cost_reduction_aura(obj, card_type_filter, amount, floor=0, state=None):
     """
     Create interceptors that add/remove a cost modifier while obj is on the battlefield.
+
+    Directly applies the modifier immediately (setup_interceptors is only called
+    when the object enters the battlefield), and registers cleanup interceptors
+    for when it leaves.
 
     Args:
         obj: The source minion (e.g. Sorcerer's Apprentice)
         card_type_filter: CardType to reduce cost for (e.g. CardType.SPELL)
-        amount: How much to reduce (positive = reduce)
+        amount: How much to reduce (positive = reduce, negative = increase)
         floor: Minimum cost (0 for most, 1 for Summoning Portal)
+        state: GameState — used to directly add the modifier
 
     Returns list of Interceptors.
     """
     modifier_id = f"aura_{obj.id}"
 
-    def etb_filter(event, state) -> bool:
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        return (event.payload.get('object_id') == obj.id and
-                event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD)
-
-    def add_modifier(event, state):
+    # Directly add the cost modifier now — setup_interceptors is only called
+    # when the object is on the battlefield, so no need for an ETB interceptor.
+    if state:
         player = state.players.get(obj.controller)
         if player:
             player.cost_modifiers.append({
@@ -2494,7 +2495,6 @@ def make_cost_reduction_aura(obj, card_type_filter, amount, floor=0):
                 'source': obj.id,
                 'floor': floor,
             })
-        return InterceptorResult(action=InterceptorAction.PASS)
 
     def leave_filter(event, state) -> bool:
         if event.type != EventType.ZONE_CHANGE:
@@ -2515,15 +2515,6 @@ def make_cost_reduction_aura(obj, card_type_filter, amount, floor=0):
         return event.payload.get('object_id') == obj.id
 
     return [
-        Interceptor(
-            id=new_id(),
-            source=obj.id,
-            controller=obj.controller,
-            priority=InterceptorPriority.REACT,
-            filter=etb_filter,
-            handler=add_modifier,
-            duration='permanent'
-        ),
         Interceptor(
             id=new_id(),
             source=obj.id,

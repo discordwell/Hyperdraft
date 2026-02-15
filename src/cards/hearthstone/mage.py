@@ -127,7 +127,7 @@ MANA_WYRM = make_minion(
 
 def sorcerers_apprentice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Your spells cost (1) less."""
-    return make_cost_reduction_aura(obj, CardType.SPELL, 1)
+    return make_cost_reduction_aura(obj, CardType.SPELL, 1, state=state)
 
 SORCERERS_APPRENTICE = make_minion(
     name="Sorcerer's Apprentice",
