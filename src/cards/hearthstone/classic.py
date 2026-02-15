@@ -1287,12 +1287,10 @@ def crazed_alchemist_battlecry(obj: GameObject, state: GameState) -> list[Event]
         return []
     cur_power = target.characteristics.power or 0
     cur_tough = target.characteristics.toughness or 0
-    # Swap: new power = old toughness, new toughness = old power
-    power_diff = cur_tough - cur_power
-    tough_diff = cur_power - cur_tough
-    return [Event(type=EventType.PT_MODIFICATION, payload={
-        'object_id': target_id, 'power_mod': power_diff, 'toughness_mod': tough_diff, 'duration': 'permanent'
-    }, source=obj.id)]
+    # Swap base stats directly (Hearthstone swap is a base-stat change)
+    target.characteristics.power = cur_tough
+    target.characteristics.toughness = cur_power
+    return []
 
 CRAZED_ALCHEMIST = make_minion(
     name="Crazed Alchemist",
@@ -1392,17 +1390,16 @@ MURLOC_TIDEHUNTER = make_minion(
 
 def mad_scientist_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
     """Deathrattle: Put a Secret from your deck into the battlefield."""
-    deck_zone = state.zones.get(f'deck_{obj.controller}')
-    if not deck_zone:
+    lib_zone = state.zones.get(f'library_{obj.controller}')
+    if not lib_zone:
         return []
-    for card_id in deck_zone.objects:
+    for card_id in lib_zone.objects:
         card = state.objects.get(card_id)
         if card and card.characteristics and CardType.SECRET in card.characteristics.types:
             return [Event(type=EventType.ZONE_CHANGE, payload={
                 'object_id': card_id,
-                'from_zone': f'deck_{obj.controller}',
-                'to_zone': 'battlefield',
-                'controller': obj.controller
+                'from_zone_type': ZoneType.LIBRARY,
+                'to_zone_type': ZoneType.BATTLEFIELD,
             }, source=obj.id)]
     return []
 
@@ -2005,15 +2002,18 @@ VIOLET_TEACHER = make_minion(
 
 def ancient_mage_battlecry(obj: GameObject, state: GameState) -> list[Event]:
     """Battlecry: Give adjacent minions Spell Damage +1."""
-    from src.cards.interceptor_helpers import get_adjacent_minions
+    from src.cards.interceptor_helpers import get_adjacent_minions, make_spell_damage_boost
+    from src.engine.types import new_id as _new_id
     left, right = get_adjacent_minions(obj.id, state)
-    events = []
     for adj_id in [left, right]:
         if adj_id:
-            events.append(Event(type=EventType.KEYWORD_GRANT, payload={
-                'object_id': adj_id, 'keyword': 'spell_damage', 'value': 1
-            }, source=obj.id))
-    return events
+            adj_obj = state.objects.get(adj_id)
+            if adj_obj:
+                interc = make_spell_damage_boost(adj_obj, 1)
+                interc.timestamp = state.next_timestamp()
+                state.interceptors[interc.id] = interc
+                adj_obj.interceptor_ids.append(interc.id)
+    return []
 
 ANCIENT_MAGE = make_minion(
     name="Ancient Mage",
@@ -2131,7 +2131,10 @@ def faceless_manipulator_battlecry(obj: GameObject, state: GameState) -> list[Ev
         if hasattr(target.card_def, 'setup_interceptors') and target.card_def.setup_interceptors:
             new_interceptors = target.card_def.setup_interceptors(obj, state)
             if new_interceptors:
-                state.interceptors.extend(new_interceptors)
+                for interc in new_interceptors:
+                    interc.timestamp = state.next_timestamp()
+                    state.interceptors[interc.id] = interc
+                    obj.interceptor_ids.append(interc.id)
     return [Event(type=EventType.TRANSFORM, payload={
         'object_id': obj.id, 'new_name': target.name, 'copy_from': target_id
     }, source=obj.id)]
@@ -3117,7 +3120,7 @@ def secretkeeper_setup(obj, state):
             source_obj = s.objects.get(source_id)
             if source_obj and CardType.SPELL in source_obj.characteristics.types:
                 card_def = getattr(source_obj, 'card_def', None)
-                if card_def and 'Secret' in (card_def.get('text', '') or ''):
+                if card_def and CardType.SECRET in source_obj.characteristics.types:
                     return True
         return False
     def gain_stats(event, s):

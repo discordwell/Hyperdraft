@@ -2874,6 +2874,34 @@ def _handle_silence_target(event: Event, state: GameState):
         )
 
 
+def _handle_return_to_hand(event: Event, state: GameState):
+    """
+    Handle RETURN_TO_HAND / BOUNCE event.
+
+    Moves an object from its current zone (usually battlefield) to its owner's hand.
+    Payload:
+        object_id: The ID of the object to return
+    """
+    obj_id = event.payload.get('object_id')
+    if not obj_id or obj_id not in state.objects:
+        return
+
+    obj = state.objects[obj_id]
+    from_zone_type = obj.zone or ZoneType.BATTLEFIELD
+
+    # Delegate to the zone change handler
+    zone_event = Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': obj_id,
+            'from_zone_type': from_zone_type,
+            'to_zone_type': ZoneType.HAND,
+        },
+        source=event.source
+    )
+    _handle_zone_change(zone_event, state)
+
+
 # =============================================================================
 # Event Handler Registry
 # =============================================================================
@@ -2925,4 +2953,6 @@ EVENT_HANDLERS = {
     EventType.FREEZE_TARGET: _handle_freeze_target,
     EventType.SILENCE_TARGET: _handle_silence_target,
     EventType.ADD_TO_HAND: _handle_add_to_hand,
+    EventType.RETURN_TO_HAND: _handle_return_to_hand,
+    EventType.BOUNCE: _handle_return_to_hand,
 }

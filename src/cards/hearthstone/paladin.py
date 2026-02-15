@@ -627,13 +627,12 @@ def holy_wrath_effect(obj, state, targets):
 
     # Deal damage equal to the drawn card's cost to a random enemy
     events = []
-    if drawn_cost > 0:
-        enemy_targets = get_enemy_targets(obj, state)
-        if enemy_targets:
-            target = random.choice(enemy_targets)
-            events.append(Event(type=EventType.DAMAGE,
-                payload={'target': target, 'amount': drawn_cost, 'source': obj.id, 'from_spell': True},
-                source=obj.id))
+    enemy_targets = get_enemy_targets(obj, state)
+    if enemy_targets:
+        target = random.choice(enemy_targets)
+        events.append(Event(type=EventType.DAMAGE,
+            payload={'target': target, 'amount': drawn_cost, 'source': obj.id, 'from_spell': True},
+            source=obj.id))
     return events
 
 HOLY_WRATH = make_spell(
