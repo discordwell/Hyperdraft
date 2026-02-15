@@ -716,7 +716,7 @@ def lightspawn_setup(obj, state):
 
     return [Interceptor(
         id=new_id(), source=obj.id, controller=obj.controller,
-        priority=InterceptorPriority.TRANSFORM, filter=query_power_filter, handler=set_attack_to_health,
+        priority=InterceptorPriority.QUERY, filter=query_power_filter, handler=set_attack_to_health,
         duration='while_on_battlefield'
     )]
 
