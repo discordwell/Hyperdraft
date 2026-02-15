@@ -159,8 +159,8 @@ class TestLesserHeal:
         activate_hero_power(game, p1, lesser_heal_effect)
 
         # The pipeline caps at max_life (30)
-        assert p1.life <= 30, (
-            f"Lesser Heal should not exceed max life of 30, got {p1.life}"
+        assert p1.life == 30, (
+            f"Lesser Heal at 29 HP should heal to exactly 30, got {p1.life}"
         )
 
 
@@ -645,7 +645,7 @@ class TestFireblastWithSpellDamage:
         events = fireblast_effect(hp_obj, game.state)
 
         assert len(events) == 1
-        assert events[0].payload.get('from_spell') is None or events[0].payload.get('from_spell') is False, (
+        assert events[0].payload.get('from_spell', False) is False, (
             "Fireblast DAMAGE event should not have from_spell=True"
         )
 

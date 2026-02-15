@@ -11,6 +11,7 @@ stealth prevents targeting, stealth broken by attacking, stealth + AOE
 divine shield + AOE, divine shield + spell damage.
 """
 
+import asyncio
 import random
 from src.engine.game import Game
 from src.engine.types import (
@@ -74,6 +75,18 @@ def cast_spell(game, card_def, owner, targets=None):
         source=obj.id
     ))
     return obj
+
+
+def declare_attack(game, attacker_id, target_id):
+    """Synchronously run an async declare_attack via a new event loop."""
+    loop = asyncio.new_event_loop()
+    try:
+        events = loop.run_until_complete(
+            game.combat_manager.declare_attack(attacker_id, target_id)
+        )
+    finally:
+        loop.close()
+    return events
 
 
 def get_battlefield_minions(game, player):
@@ -517,12 +530,12 @@ class TestHexRemovesAll:
 
         # Find the frog on the battlefield
         frogs = [m for m in get_battlefield_minions(game, p2) if m.name == "Frog"]
-        assert len(frogs) >= 1 or yeti.name == "Frog", (
+        # The yeti object should now be named "Frog" (transform modifies in place)
+        # or a new Frog object replaces it on the battlefield
+        target = yeti if yeti.name == "Frog" else (frogs[0] if frogs else None)
+        assert target is not None, (
             "Hex should transform an enemy minion into a Frog"
         )
-
-        # Check the transformed minion directly
-        target = yeti if yeti.name == "Frog" else frogs[0]
         power = get_power(target, game.state)
         toughness = get_toughness(target, game.state)
         assert power == 0, f"Frog should have 0 attack, got {power}"
@@ -645,10 +658,12 @@ class TestStealthPreventTargeting:
             game.state.active_player = p2.id
             # The combat manager's declare_attack should refuse targets with stealth
             # When target has stealth and attacker is enemy, attack returns empty events
-            target_has_stealth = stealthed.state.stealth
-            target_is_enemy = stealthed.controller != attacker.controller
-            assert target_has_stealth and target_is_enemy, (
-                "Stealth should prevent enemy targeting"
+            # Attempt an attack on the stealthed minion
+            attack_events = declare_attack(game, attacker.id, stealthed.id)
+            # Attack should be blocked (no damage dealt to stealthed minion)
+            damage_to_stealthed = stealthed.state.damage
+            assert damage_to_stealthed == 0, (
+                f"Stealthed minion should not take damage from enemy attack, got {damage_to_stealthed}"
             )
 
     def test_stealthed_minion_not_in_enemy_spell_targets(self):
