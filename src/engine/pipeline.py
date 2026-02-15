@@ -809,6 +809,16 @@ def _handle_zone_change(event: Event, state: GameState):
         if obj.card_def and obj.card_def.characteristics:
             import copy
             obj.characteristics = copy.deepcopy(obj.card_def.characteristics)
+            # Re-derive state flags from restored keywords
+            obj_keywords = {a.get('keyword', '').lower() for a in obj.characteristics.abilities if a.get('keyword')}
+            if 'divine_shield' in obj_keywords:
+                obj.state.divine_shield = True
+            if 'stealth' in obj_keywords:
+                obj.state.stealth = True
+            if 'windfury' in obj_keywords:
+                obj.state.windfury = True
+            if 'charge' in obj_keywords:
+                obj.state.summoning_sickness = False
 
     # Re-setup interceptors when entering the battlefield
     # This handles cards like Enduring Curiosity that return from graveyard
