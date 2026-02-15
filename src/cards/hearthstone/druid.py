@@ -726,7 +726,7 @@ def gift_of_the_wild_effect(obj, state, targets):
             payload={'object_id': mid, 'power_mod': 2, 'toughness_mod': 2, 'duration': 'permanent'},
             source=obj.id))
         events.append(Event(type=EventType.KEYWORD_GRANT,
-            payload={'object_id': mid, 'keyword': 'taunt'},
+            payload={'object_id': mid, 'keyword': 'taunt', 'duration': 'permanent'},
             source=obj.id))
     return events
 

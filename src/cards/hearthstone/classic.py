@@ -1128,7 +1128,7 @@ def sunfury_protector_battlecry(obj: GameObject, state: GameState) -> list[Event
         if adj_id:
             events.append(Event(
                 type=EventType.KEYWORD_GRANT,
-                payload={'object_id': adj_id, 'keyword': 'taunt'},
+                payload={'object_id': adj_id, 'keyword': 'taunt', 'duration': 'permanent'},
                 source=obj.id
             ))
     return events
@@ -1866,7 +1866,7 @@ def defender_of_argus_battlecry(obj: GameObject, state: GameState) -> list[Event
             ))
             events.append(Event(
                 type=EventType.KEYWORD_GRANT,
-                payload={'object_id': adj_id, 'keyword': 'taunt'},
+                payload={'object_id': adj_id, 'keyword': 'taunt', 'duration': 'permanent'},
                 source=obj.id
             ))
     return events
