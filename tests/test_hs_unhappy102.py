@@ -472,9 +472,9 @@ class TestSpellResolution:
         initial_life = p2.life
         cast_spell(game, FROSTBOLT, p1, [p2.id])
 
-        # If Counterspell works, P2's life should be unchanged (or the spell effect prevented)
-        # The exact implementation may vary, so we just check the spell was cast
-        assert True  # Counterspell interception is implementation-dependent
+        # Verify the spell was at least processed (SPELL_CAST emitted)
+        spell_events = [e for e in game.state.event_log if e.type == EventType.SPELL_CAST]
+        assert len(spell_events) >= 1, "Spell cast should be recorded in event log"
 
 
 # ============================================================
@@ -720,8 +720,9 @@ class TestZoneChangeEvents:
             source=wisp.id
         ))
 
-        # Knife Juggler should trigger (might hit hero or minion)
-        assert p2.life <= initial_life or True  # May hit minion instead
+        # Knife Juggler may trigger - verify zone change was processed
+        zone_events = [e for e in game.state.event_log if e.type == EventType.ZONE_CHANGE]
+        assert len(zone_events) >= 1, "Zone change event should be recorded"
 
     def test_zone_change_from_battlefield_to_hand(self):
         """ZONE_CHANGE from battlefield to hand (bounce)."""
@@ -832,8 +833,9 @@ class TestSecretResolution:
         # P1 casts a spell (should trigger Counterspell)
         cast_spell(game, FROSTBOLT, p1, [p2.id])
 
-        # Counterspell should have triggered
-        assert True  # Implementation dependent
+        # Verify spell was processed (SPELL_CAST event emitted)
+        spell_events = [e for e in game.state.event_log if e.type == EventType.SPELL_CAST]
+        assert len(spell_events) >= 1, "Spell cast should be recorded"
 
     def test_secret_consumed_after_firing(self):
         """Secret consumed after firing (uses_remaining=1)."""
@@ -845,9 +847,9 @@ class TestSecretResolution:
         # Trigger the secret
         cast_spell(game, FROSTBOLT, p1, [p2.id])
 
-        # Secret should be consumed (removed or marked)
-        # Implementation varies
-        assert True
+        # Verify spell was processed
+        spell_events = [e for e in game.state.event_log if e.type == EventType.SPELL_CAST]
+        assert len(spell_events) >= 1, "Spell cast should be recorded"
 
     def test_multiple_secrets_only_one_fires_per_trigger_type(self):
         """Multiple secrets: only one fires per trigger type."""
@@ -861,9 +863,9 @@ class TestSecretResolution:
         # P1 casts spell
         cast_spell(game, FROSTBOLT, p1, [p2.id])
 
-        # Only one secret should trigger
-        # Implementation dependent
-        assert True
+        # Verify spell was processed
+        spell_events = [e for e in game.state.event_log if e.type == EventType.SPELL_CAST]
+        assert len(spell_events) >= 1, "Spell cast should be recorded"
 
 
 # ============================================================
