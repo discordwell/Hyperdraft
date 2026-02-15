@@ -119,15 +119,17 @@ class TestSI7AgentCombo:
 
         assert events == []
 
-    def test_no_enemies_with_combo_no_crash(self):
-        """SI:7 combo with no enemies returns empty."""
+    def test_no_minions_with_combo_hits_hero(self):
+        """SI:7 combo with no enemy minions still hits enemy hero."""
         game, p1, p2 = new_hs_game()
         p1.cards_played_this_turn = 1
 
         obj = make_obj(game, SI7_AGENT, p1)
         events = SI7_AGENT.battlecry(obj, game.state)
-        # No enemies to target
-        assert isinstance(events, list)
+        # Enemy hero is a valid target — should deal 2 damage
+        assert len(events) == 1
+        assert events[0].type == EventType.DAMAGE
+        assert events[0].payload['amount'] == 2
 
 
 # ============================================================
@@ -575,9 +577,11 @@ class TestShadowstep:
         # Before emitting the RETURN_TO_HAND event, cost should be modified
         # (the effect modifies cost first, then returns the event list)
         state_yeti = game.state.objects.get(yeti.id)
-        # Cost was modified to {2} by shadowstep, but will be reset by pipeline
-        # when RETURN_TO_HAND fires. We verify the function attempted the reduction.
+        # Shadowstep modifies cost to {2} before returning RETURN_TO_HAND event.
+        # Pipeline resets characteristics on bounce (pipeline.py:795-811), so we
+        # verify the pre-bounce cost modification was applied correctly.
         assert state_yeti is not None
+        assert state_yeti.characteristics.mana_cost == "{2}"
 
 
 # ============================================================
