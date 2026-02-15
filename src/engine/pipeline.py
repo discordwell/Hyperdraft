@@ -792,6 +792,24 @@ def _handle_zone_change(event: Event, state: GameState):
             obj.state.counters[counter_type] = amount  # Set directly since we cleared above
         _sync_keyword_counter_abilities(obj)
 
+    # Hearthstone: reset minion state when leaving battlefield (bounce/return to hand)
+    if (state.game_mode == "hearthstone" and
+            from_zone_type == ZoneType.BATTLEFIELD and
+            to_zone_type in (ZoneType.HAND, ZoneType.LIBRARY) and
+            CardType.MINION in obj.characteristics.types):
+        obj.state.damage = 0
+        obj.state.divine_shield = False
+        obj.state.stealth = False
+        obj.state.windfury = False
+        obj.state.frozen = False
+        obj.state.summoning_sickness = True
+        if hasattr(obj.state, 'pt_modifiers'):
+            obj.state.pt_modifiers = []
+        # Restore original characteristics from card_def if available
+        if obj.card_def and obj.card_def.characteristics:
+            import copy
+            obj.characteristics = copy.deepcopy(obj.card_def.characteristics)
+
     # Re-setup interceptors when entering the battlefield
     # This handles cards like Enduring Curiosity that return from graveyard
     # Only register if object doesn't already have interceptors (avoids double-registration)
