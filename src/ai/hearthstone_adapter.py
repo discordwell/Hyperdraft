@@ -650,7 +650,7 @@ class HearthstoneAIAdapter:
                 elif obj.controller == opponent_id:
                     opp_board_value += mv
         total_board = my_board_value + opp_board_value
-        board_score = (my_board_value - opp_board_value) / (total_board + 1)
+        board_score = (my_board_value - opp_board_value) / max(total_board + 1, 1)
 
         # ── Cards (15%) ──
         my_hand = state.zones.get(f'hand_{player_id}')

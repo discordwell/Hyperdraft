@@ -492,7 +492,7 @@ STRANGLETHORN_TIGER = make_minion(
 def venture_co_mercenary_setup(obj: GameObject, state: GameState):
     """Your minions cost (3) more."""
     from src.cards.interceptor_helpers import make_cost_reduction_aura
-    return make_cost_reduction_aura(obj, CardType.MINION, -3)
+    return make_cost_reduction_aura(obj, CardType.MINION, -3, state=state)
 
 VENTURE_CO_MERCENARY = make_minion(
     name="Venture Co. Mercenary",
@@ -2845,11 +2845,9 @@ def molten_giant_cost(card, state):
     base = 20
     if state and card.controller:
         player = state.players.get(card.controller)
-        if player and player.hero_id:
-            hero = state.objects.get(player.hero_id)
-            if hero:
-                damage_taken = hero.state.damage if hero.state else 0
-                return max(0, base - damage_taken)
+        if player:
+            damage_taken = max(0, (player.max_life or 30) - player.life)
+            return max(0, base - damage_taken)
     return base
 
 MOLTEN_GIANT = make_minion(
@@ -3256,23 +3254,17 @@ def mana_wraith_setup(obj: GameObject, state: GameState):
     from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
     modifier_id = f"mana_wraith_{obj.id}"
 
-    def etb_filter(event, s) -> bool:
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        return (event.payload.get('object_id') == obj.id and
-                event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD)
-
-    def add_modifier(event, s):
-        for pid, player in s.players.items():
-            player.cost_modifiers.append({
-                'id': modifier_id,
-                'card_type': CardType.MINION,
-                'amount': -1,  # negative = cost increase
-                'duration': 'while_on_battlefield',
-                'source': obj.id,
-                'floor': 0,
-            })
-        return InterceptorResult(action=InterceptorAction.PASS)
+    # Directly add modifier for ALL players — setup_interceptors is only called
+    # when the object enters the battlefield.
+    for pid, player in state.players.items():
+        player.cost_modifiers.append({
+            'id': modifier_id,
+            'card_type': CardType.MINION,
+            'amount': -1,  # negative = cost increase
+            'duration': 'while_on_battlefield',
+            'source': obj.id,
+            'floor': 0,
+        })
 
     def leave_filter(event, s) -> bool:
         if event.type != EventType.ZONE_CHANGE:
@@ -3292,9 +3284,6 @@ def mana_wraith_setup(obj: GameObject, state: GameState):
         return event.payload.get('object_id') == obj.id
 
     return [
-        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
-                     priority=InterceptorPriority.REACT, filter=etb_filter,
-                     handler=add_modifier, duration='permanent'),
         Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
                      priority=InterceptorPriority.REACT, filter=leave_filter,
                      handler=remove_modifier, duration='permanent'),
@@ -3325,16 +3314,8 @@ def pint_sized_summoner_setup(obj: GameObject, state: GameState):
                 'uses_remaining': 1,
             })
 
-    # Add modifier on ETB
-    def etb_filter(event, s):
-        if event.type != EventType.ZONE_CHANGE:
-            return False
-        return (event.payload.get('object_id') == obj.id and
-                event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD)
-
-    def etb_handler(event, s):
-        add_modifier_to_player(s)
-        return InterceptorResult(action=InterceptorAction.PASS)
+    # Directly add modifier — setup_interceptors is only called on battlefield entry
+    add_modifier_to_player(state)
 
     # Refresh modifier each turn start
     def turn_start_filter(event, s):
@@ -3366,7 +3347,6 @@ def pint_sized_summoner_setup(obj: GameObject, state: GameState):
         return InterceptorResult(action=InterceptorAction.PASS)
 
     return [
-        Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=etb_filter, handler=etb_handler, duration='permanent'),
         Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=turn_start_filter, handler=turn_start_handler, duration='while_on_battlefield'),
         Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=leave_filter, handler=leave_handler, duration='permanent'),
     ]
