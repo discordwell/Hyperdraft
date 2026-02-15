@@ -333,6 +333,15 @@ def _handle_armor_gain(event: Event, state: GameState):
         state.players[player_id].armor += amount
 
 
+def _handle_weapon_equip(event: Event, state: GameState):
+    """Handle WEAPON_EQUIP event — set player's weapon stats."""
+    player_id = event.payload.get('player')
+    if player_id in state.players:
+        player = state.players[player_id]
+        player.weapon_attack = event.payload.get('weapon_attack', 0)
+        player.weapon_durability = event.payload.get('weapon_durability', 0)
+
+
 def _handle_draw(event: Event, state: GameState):
     """Handle DRAW event."""
     player_id = event.payload.get('player')
@@ -2992,4 +3001,5 @@ EVENT_HANDLERS = {
     EventType.RETURN_TO_HAND: _handle_return_to_hand,
     EventType.BOUNCE: _handle_return_to_hand,
     EventType.ARMOR_GAIN: _handle_armor_gain,
+    EventType.WEAPON_EQUIP: _handle_weapon_equip,
 }
