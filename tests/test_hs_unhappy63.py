@@ -769,15 +769,11 @@ class TestRagnarosEndOfTurn:
 
         # Ragnaros should have dealt 8 damage to something on the enemy side
         # Could hit hero or minions; with no enemy minions, hits hero
-        assert p2.life <= initial_life - 8 or p2.life == initial_life, (
-            "Ragnaros should deal 8 damage to a random enemy at end of turn"
+        # With no enemy minions, Ragnaros must hit enemy hero for 8
+        assert p2.life == initial_life - 8, (
+            f"Ragnaros should hit enemy hero for 8 with no minions, "
+            f"expected {initial_life - 8}, got {p2.life}"
         )
-        # More precise: with no enemy minions, must hit enemy hero
-        if not get_battlefield_minions(game, p2):
-            assert p2.life == initial_life - 8, (
-                f"Ragnaros should hit enemy hero for 8 with no minions, "
-                f"expected {initial_life - 8}, got {p2.life}"
-            )
 
     def test_ragnaros_cant_attack(self):
         """Ragnaros should have the can't attack ability."""

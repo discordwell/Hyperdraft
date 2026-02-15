@@ -249,7 +249,7 @@ class TestIceBlock:
 
         # P1 should NOT have died - Ice Block prevents fatal damage
         # The damage event should have been prevented
-        assert p1.life > 0 or p1.life == 5, \
+        assert p1.life > 0, \
             f"Ice Block should prevent lethal damage, but P1 life is {p1.life}"
 
     def test_ice_block_does_not_trigger_on_own_turn(self):
