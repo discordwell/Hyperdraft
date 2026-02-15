@@ -479,15 +479,12 @@ class TestMassDispelSilencesAll:
             characteristics=WISP.characteristics, card_def=WISP
         )
 
-        hand_before = len(game.state.zones.get(f"hand_{p1.id}", type('', (), {'objects': []})()).objects) \
-            if f"hand_{p1.id}" in game.state.zones else 0
-
         cast_spell(game, MASS_DISPEL, p1)
 
         draw_events = [e for e in game.state.event_log
                        if e.type == EventType.DRAW and
                        e.payload.get('player') == p1.id]
-        assert len(draw_events) >= 1
+        assert len(draw_events) == 1, "Mass Dispel should draw exactly 1 card"
 
 
 # ============================================================
@@ -589,8 +586,7 @@ class TestFatigueKillsHero:
             game.draw_cards(p1.id, 1)
 
         # 1 + 2 + 3 = 6 damage -> 5 - 6 = -1
-        assert p1.life <= 0
-        assert p1.life == -1
+        assert p1.life == -1, f"Expected life -1, got {p1.life}"
 
     def test_fatigue_kills_triggers_player_loses(self):
         """Check state-based actions after fatal fatigue detects player loss."""

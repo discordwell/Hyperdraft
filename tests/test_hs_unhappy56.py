@@ -311,7 +311,7 @@ class TestBloodmageThalnos:
         draw_events = [e for e in game.state.event_log
                        if e.type == EventType.DRAW and
                        e.payload.get('player') == p1.id]
-        assert len(draw_events) >= 1, "Thalnos deathrattle should trigger a draw"
+        assert len(draw_events) == 1, "Thalnos deathrattle should trigger exactly 1 draw"
 
     def test_spell_damage_gone_after_death(self):
         """After Thalnos dies, spell damage should no longer apply."""
@@ -492,8 +492,14 @@ class TestWildPyromancerPlusEquality:
                      if e.type == EventType.OBJECT_DESTROYED]
         destroyed_ids = {e.payload.get('object_id') for e in destroyed}
 
-        # All three minions should be destroyed
-        assert pyro.id in destroyed_ids or pyro.state.damage >= 1, (
+        game.check_state_based_actions()
+
+        destroyed = [e for e in game.state.event_log
+                     if e.type == EventType.OBJECT_DESTROYED]
+        destroyed_ids = {e.payload.get('object_id') for e in destroyed}
+
+        # After SBA, all three minions should be destroyed (health 1, took 1 damage)
+        assert pyro.id in destroyed_ids or pyro.state.damage >= pyro.characteristics.toughness, (
             "Pyromancer should die from its own proc after Equality"
         )
         assert friendly_yeti.id in destroyed_ids or friendly_yeti.state.damage >= 1, (
@@ -622,10 +628,12 @@ class TestSpellDamagePlusHolyNova:
         heal_events = [e for e in game.state.event_log
                        if e.type == EventType.LIFE_CHANGE and
                        e.payload.get('object_id') == friendly.id]
-        if heal_events:
-            assert heal_events[0].payload['amount'] == 2, (
-                f"Healing should be 2 (not boosted by spell damage), got {heal_events[0].payload['amount']}"
-            )
+        # If no heal events found, the engine may use a different payload key —
+        # but the assertion must still fire unconditionally
+        assert len(heal_events) >= 1, "Expected at least 1 heal event for friendly minion"
+        assert heal_events[0].payload['amount'] == 2, (
+            f"Healing should be 2 (not boosted by spell damage), got {heal_events[0].payload['amount']}"
+        )
 
 
 # ============================================================
