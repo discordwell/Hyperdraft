@@ -291,9 +291,18 @@ def eviscerate_effect(obj, state, targets):
     combo = player and player.cards_played_this_turn > 0
     damage = 4 if combo else 2
 
-    enemies = get_enemy_targets(obj, state)
-    if enemies:
-        target = random.choice(enemies)
+    # Use provided targets if any, otherwise select from enemy minions (prefer minions over hero)
+    if targets:
+        target = targets[0] if isinstance(targets, list) else targets
+    else:
+        enemy_minions = get_enemy_minions(obj, state)
+        if enemy_minions:
+            target = random.choice(enemy_minions)
+        else:
+            enemies = get_enemy_targets(obj, state)
+            target = random.choice(enemies) if enemies else None
+
+    if target:
         return [Event(
             type=EventType.DAMAGE,
             payload={'target': target, 'amount': damage, 'source': obj.id, 'from_spell': True},
@@ -392,9 +401,15 @@ def si7_agent_battlecry(obj, state):
     """Combo: Deal 2 damage"""
     player = state.players.get(obj.controller)
     if player and player.cards_played_this_turn > 0:
-        enemies = get_enemy_targets(obj, state)
-        if enemies:
-            target = random.choice(enemies)
+        # Prefer enemy minions over hero for targeting
+        enemy_minions = get_enemy_minions(obj, state)
+        if enemy_minions:
+            target = random.choice(enemy_minions)
+        else:
+            enemies = get_enemy_targets(obj, state)
+            target = random.choice(enemies) if enemies else None
+
+        if target:
             return [Event(
                 type=EventType.DAMAGE,
                 payload={'target': target, 'amount': 2, 'source': obj.id},
