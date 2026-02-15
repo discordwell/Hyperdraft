@@ -643,7 +643,9 @@ class TestAuraPersistence:
         begin_turn(game, p1)
 
         # Aura should persist (Wisp gets +1/+1 from Champion)
-        assert get_power(minion, game.state) >= initial_power
+        assert get_power(minion, game.state) == initial_power, (
+            f"Stormwind Champion aura should persist across turns, got {get_power(minion, game.state)} expected {initial_power}"
+        )
 
     def test_dire_wolf_alpha_adjacency_persists_across_turns(self):
         """Dire Wolf Alpha adjacency persists across turns."""
@@ -853,8 +855,9 @@ class TestEdgeCases:
         # Begin new turn with empty board
         begin_turn(game, p2)
 
-        # Should handle gracefully
-        assert True
+        # Should handle gracefully - verify game state is intact
+        assert p1.life == 30, "Player health should be unchanged after empty board turn"
+        assert p2.life == 30, "Player health should be unchanged after empty board turn"
 
     def test_multiple_end_and_start_of_turn_effects_in_sequence(self):
         """Multiple end-of-turn and start-of-turn effects in sequence."""
