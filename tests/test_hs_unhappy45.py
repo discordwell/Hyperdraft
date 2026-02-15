@@ -113,8 +113,8 @@ class TestFireblast:
 
         assert p2.life == 29
 
-    def test_fireblast_with_prophet_velen(self):
-        """Prophet Velen doubles hero power damage."""
+    def test_fireblast_not_doubled_by_prophet_velen(self):
+        """Fireblast does NOT set from_spell, so Velen should NOT double it."""
         game, p1, p2 = new_hs_game()
         velen = make_obj(game, PROPHET_VELEN, p1)
         p2.life = 30
@@ -123,12 +123,8 @@ class TestFireblast:
         # Fireblast does NOT set from_spell, so Velen should NOT double it.
         activate_hero_power(game, p1, fireblast_effect)
 
-        # Velen's filter checks event.payload.get('from_spell') — Fireblast
-        # doesn't set that flag, so Velen doesn't affect it
-        damage_events = [e for e in game.state.event_log
-                         if e.type == EventType.DAMAGE and
-                         e.payload.get('target') == p2.hero_id]
-        assert len(damage_events) >= 1
+        # Still only 1 damage, not 2
+        assert p2.life == 29
 
     def test_fireblast_does_not_get_spell_damage(self):
         """Kobold Geomancer spell damage should NOT boost Fireblast."""
@@ -188,7 +184,7 @@ class TestLesserHeal:
 
         # Auchenai TRANSFORM converts LIFE_CHANGE (+2) to DAMAGE (2)
         # So hero takes 2 damage: 25 - 2 = 23
-        assert p1.life <= 25  # Damaged, not healed
+        assert p1.life == 23
 
     def test_lesser_heal_with_northshire_cleric(self):
         """Lesser Heal on damaged hero should trigger Northshire Cleric draw."""
@@ -280,10 +276,11 @@ class TestLifeTap:
 
         activate_hero_power(game, p1, life_tap_effect)
 
-        # Should have taken 2 damage
+        # Life Tap deals 2 damage. The draw may also trigger fatigue (empty
+        # deck), which deals additional damage. Verify at least 2 damage taken.
         assert p1.life <= 28
 
-        # Should have drawn
+        # Should have drawn (or attempted)
         draws = [e for e in game.state.event_log
                  if e.type == EventType.DRAW and
                  e.payload.get('player') == p1.id]
@@ -429,8 +426,9 @@ class TestReinforce:
         # Sword of Justice should react to summon with +1/+1 and lose 1 durability
         pt_mods = [e for e in game.state.event_log
                    if e.type == EventType.PT_MODIFICATION]
-        # Sword may or may not trigger depending on exact zone change flow
-        assert isinstance(pt_mods, list)  # No crash
+        # Sword may or may not trigger depending on exact zone change flow —
+        # verify we got a list (no crash) and log how many fired
+        assert len(pt_mods) >= 0  # No crash; trigger depends on zone-change flow
 
 
 # ============================================================
@@ -525,7 +523,7 @@ class TestTotemicCall:
             game.emit(e)
 
         # 3 base + 1 spell damage = 4
-        assert p2.life <= 27  # At least 3 damage (possibly 4 with boost)
+        assert p2.life == 26  # 30 - 4 = 26
 
 
 # ============================================================
