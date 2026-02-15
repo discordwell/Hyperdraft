@@ -1227,8 +1227,10 @@ class TestAbominationDeathAlongsideOthers:
             source='test'
         ))
 
-        # Deathrattle would deal 2 damage to all
-        assert yeti.state.damage >= 0  # May take damage from DR
+        # Abomination deathrattle deals 2 damage to all minions
+        assert yeti.state.damage == 2, (
+            f"Abomination deathrattle should deal 2 damage, got {yeti.state.damage}"
+        )
 
 
 # ============================================================
