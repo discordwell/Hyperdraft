@@ -137,14 +137,12 @@ class TestMinionTradeEqualLethal:
         events = declare_attack(game, raptor1.id, raptor2.id)
         game.check_state_based_actions()
 
-        # Both should have taken lethal damage (3 >= 2)
-        assert raptor1.state.damage >= get_toughness(raptor1, game.state), (
-            f"Raptor1 should have lethal damage: {raptor1.state.damage} vs toughness "
-            f"{get_toughness(raptor1, game.state)}"
+        # Both Raptors are 3/2, so each deals 3 damage to a 2-toughness minion
+        assert raptor1.state.damage == 3, (
+            f"Raptor1 should have taken exactly 3 damage from Raptor2, got {raptor1.state.damage}"
         )
-        assert raptor2.state.damage >= get_toughness(raptor2, game.state), (
-            f"Raptor2 should have lethal damage: {raptor2.state.damage} vs toughness "
-            f"{get_toughness(raptor2, game.state)}"
+        assert raptor2.state.damage == 3, (
+            f"Raptor2 should have taken exactly 3 damage from Raptor1, got {raptor2.state.damage}"
         )
 
     def test_equal_trade_generates_damage_events(self):
@@ -186,9 +184,8 @@ class TestMinionTradeUnequalSizes:
         game.check_state_based_actions()
 
         # Wisp took 4 damage (lethal for a 1-health minion)
-        assert wisp.state.damage >= get_toughness(wisp, game.state), (
-            f"Wisp should have lethal damage: {wisp.state.damage} vs toughness "
-            f"{get_toughness(wisp, game.state)}"
+        assert wisp.state.damage == 4, (
+            f"Wisp should have taken exactly 4 damage from Yeti, got {wisp.state.damage}"
         )
 
         # Yeti took 1 damage (from Wisp's 1 attack)

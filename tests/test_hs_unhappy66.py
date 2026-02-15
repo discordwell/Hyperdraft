@@ -632,12 +632,11 @@ class TestMultipleEndOfTurnTriggers:
         )
 
         # Ragnaros should have dealt 8 (TURN_END trigger)
-        # With no enemy minions, hits hero
-        if not get_battlefield_minions(game, p2):
-            assert p2.life == initial_life - 8, (
-                f"Ragnaros should deal 8 to enemy hero, "
-                f"expected {initial_life - 8}, got {p2.life}"
-            )
+        # P2 has no minions, so Ragnaros must hit hero
+        assert p2.life == initial_life - 8, (
+            f"Ragnaros should deal 8 to enemy hero (no enemy minions), "
+            f"expected {initial_life - 8}, got {p2.life}"
+        )
 
     def test_ysera_and_mana_tide_both_fire(self):
         """Ysera + Mana Tide on same board should both fire at end of turn."""
