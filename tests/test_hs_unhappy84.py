@@ -1133,10 +1133,12 @@ class TestHammerOfWrath:
         assert hand_after == hand_before + 1, (
             f"Hammer of Wrath should draw 1, hand went from {hand_before} to {hand_after}"
         )
-        # Damage dealt to random enemy (could be hero or minion), check total damage increased
-        # Since we have 1 enemy minion, it's likely to hit it
-        assert damage_after >= damage_before, (
-            f"Hammer should deal damage"
+        # Hammer of Wrath deals 3 damage - check event log for the damage event
+        hammer_damage = [e for e in game.state.event_log
+                         if e.type == EventType.DAMAGE
+                         and e.payload.get('amount') == 3]
+        assert len(hammer_damage) >= 1, (
+            f"Hammer of Wrath should deal 3 damage, found {len(hammer_damage)} matching events"
         )
 
 

@@ -642,10 +642,11 @@ class TestMisdirectionRedirectsAttack:
             source=attacker.id
         ))
 
-        # Misdirection should emit damage events
+        # Misdirection should emit at least one damage event (redirected attack)
         damage_events = [e for e in game.state.event_log if e.type == EventType.DAMAGE]
-        # At least one damage event should occur
-        assert len(damage_events) >= 0  # May redirect to a valid target
+        assert len(damage_events) >= 1, (
+            f"Misdirection should cause at least 1 damage event, found {len(damage_events)}"
+        )
 
 
 # ============================================================
