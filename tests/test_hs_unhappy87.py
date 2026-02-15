@@ -473,7 +473,9 @@ class TestChainDeaths:
         # Loot Hoarder deathrattle should then draw a card
         final_hand = len(hand_zone.objects)
         # Should have drawn 1 card from Loot Hoarder
-        assert final_hand >= initial_hand + 1
+        assert final_hand == initial_hand + 1, (
+            f"Loot Hoarder should draw exactly 1, drew {final_hand - initial_hand}"
+        )
 
 
 # ============================================================
