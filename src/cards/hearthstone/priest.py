@@ -657,7 +657,7 @@ def auchenai_soulpriest_setup(obj: GameObject, state: GameState) -> list[Interce
             payload={'target': target, 'amount': amount, 'source': event.source},
             source=event.source
         )
-        return InterceptorResult(action=InterceptorAction.REPLACE, transformed_event=new_event)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
 
     return [Interceptor(
         id=new_id(), source=obj.id, controller=obj.controller,
