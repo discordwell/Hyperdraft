@@ -712,8 +712,8 @@ class TestDiscardEffects:
         # Check for damage event
         damage_events = [e for e in game.state.event_log if e.type == EventType.DAMAGE and e.payload.get('amount') == 4]
 
-        assert len(damage_events) >= 1, (
-            f"Soulfire should deal 4 damage even with empty hand, found {len(damage_events)} damage events"
+        assert len(damage_events) == 1, (
+            f"Soulfire should deal exactly 1x4 damage, found {len(damage_events)} damage events"
         )
 
 
@@ -911,8 +911,8 @@ class TestInteractionChains:
         # Note: hand size check is tricky because we replayed from hand
         # Better to check event log
         draw_events = [e for e in game.state.event_log if e.type == EventType.DRAW and e.source == hoarder2.id]
-        assert len(draw_events) >= 1, (
-            f"Replayed Loot Hoarder should have deathrattle, found {len(draw_events)} draw events"
+        assert len(draw_events) == 1, (
+            f"Replayed Loot Hoarder should trigger deathrattle exactly once, found {len(draw_events)} draw events"
         )
 
     def test_copy_damaged_minion_copy_has_same_damage(self):
