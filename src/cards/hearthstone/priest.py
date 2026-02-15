@@ -329,7 +329,7 @@ SILENCE_SPELL = make_spell(
 def lightwell_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """At the start of your turn, restore 3 Health to a damaged friendly character."""
     def upkeep_filter(event: Event, s: GameState) -> bool:
-        return (event.type == EventType.PHASE_START and
+        return (event.type in (EventType.TURN_START, EventType.PHASE_START) and
                 event.payload.get('player') == obj.controller)
 
     def heal_handler(event: Event, s: GameState) -> InterceptorResult:

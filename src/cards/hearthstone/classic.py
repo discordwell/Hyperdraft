@@ -3364,7 +3364,7 @@ def nat_pagle_setup(obj, state):
     """At the start of your turn, you have a 50% chance to draw an extra card."""
     from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
     def turn_start_filter(event, s):
-        return (event.type == EventType.PHASE_START and event.payload.get('player') == obj.controller)
+        return (event.type in (EventType.TURN_START, EventType.PHASE_START) and event.payload.get('player') == obj.controller)
     def maybe_draw(event, s):
         if random.random() < 0.5:
             return InterceptorResult(action=InterceptorAction.REACT, new_events=[
@@ -3492,7 +3492,7 @@ def doomsayer_setup(obj, state):
     """At the start of your turn, destroy ALL minions."""
     from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
     def turn_start_filter(event, s):
-        return (event.type == EventType.PHASE_START and event.payload.get('player') == obj.controller)
+        return (event.type in (EventType.TURN_START, EventType.PHASE_START) and event.payload.get('player') == obj.controller)
     def destroy_all(event, s):
         events = []
         battlefield = s.zones.get('battlefield')
