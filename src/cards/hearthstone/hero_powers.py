@@ -198,8 +198,7 @@ def healing_totem_setup(obj: GameObject, state: GameState):
     from src.engine.types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id
 
     def end_turn_filter(event, s):
-        return (event.type == EventType.PHASE_END and
-                event.payload.get('phase') == 'end' and
+        return (event.type in (EventType.TURN_END, EventType.PHASE_END) and
                 event.payload.get('player') == obj.controller)
 
     def end_turn_handler(event, s):
