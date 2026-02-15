@@ -20,6 +20,14 @@ def claw_effect(obj, state, targets):
 
     player.weapon_attack += 2
     player.armor += 2
+    # If no weapon equipped, give 1 temporary durability so hero can attack
+    if player.weapon_durability <= 0:
+        player.weapon_durability = 1
+    # Sync hero object state
+    hero = state.objects.get(player.hero_id) if player.hero_id else None
+    if hero:
+        hero.state.weapon_attack = player.weapon_attack
+        hero.state.weapon_durability = player.weapon_durability
 
     # Register end-of-turn cleanup interceptor to remove the +2 attack
     def end_turn_filter(event, s):
@@ -29,6 +37,13 @@ def claw_effect(obj, state, targets):
         p = s.players.get(obj.controller)
         if p:
             p.weapon_attack = max(0, p.weapon_attack - 2)
+            # Clean up temporary durability if no real weapon and no attack left
+            if p.weapon_attack <= 0 and p.weapon_durability > 0:
+                p.weapon_durability = 0
+            h = s.objects.get(p.hero_id) if p.hero_id else None
+            if h:
+                h.state.weapon_attack = p.weapon_attack
+                h.state.weapon_durability = p.weapon_durability
         # Self-remove this interceptor
         int_id = end_turn_handler._interceptor_id
         if int_id in s.interceptors:
@@ -112,6 +127,14 @@ def savage_roar_effect(obj, state, targets):
         return events
 
     player.weapon_attack += 2
+    # If no weapon equipped, give 1 temporary durability so hero can attack
+    if player.weapon_durability <= 0:
+        player.weapon_durability = 1
+    # Sync hero object state
+    hero = state.objects.get(player.hero_id) if player.hero_id else None
+    if hero:
+        hero.state.weapon_attack = player.weapon_attack
+        hero.state.weapon_durability = player.weapon_durability
 
     # Register end-of-turn cleanup interceptor to remove the hero +2 attack
     def end_turn_filter(event, s):
@@ -121,6 +144,12 @@ def savage_roar_effect(obj, state, targets):
         p = s.players.get(obj.controller)
         if p:
             p.weapon_attack = max(0, p.weapon_attack - 2)
+            if p.weapon_attack <= 0 and p.weapon_durability > 0:
+                p.weapon_durability = 0
+            h = s.objects.get(p.hero_id) if p.hero_id else None
+            if h:
+                h.state.weapon_attack = p.weapon_attack
+                h.state.weapon_durability = p.weapon_durability
         # Self-remove this interceptor
         int_id = end_turn_handler._interceptor_id
         if int_id in s.interceptors:
@@ -570,6 +599,14 @@ def bite_effect(obj, state, targets):
 
     player.weapon_attack += 4
     player.armor += 4
+    # If no weapon equipped, give 1 temporary durability so hero can attack
+    if player.weapon_durability <= 0:
+        player.weapon_durability = 1
+    # Sync hero object state
+    hero = state.objects.get(player.hero_id) if player.hero_id else None
+    if hero:
+        hero.state.weapon_attack = player.weapon_attack
+        hero.state.weapon_durability = player.weapon_durability
 
     # Register end-of-turn cleanup interceptor to remove the +4 attack
     def end_turn_filter(event, s):
@@ -579,6 +616,12 @@ def bite_effect(obj, state, targets):
         p = s.players.get(obj.controller)
         if p:
             p.weapon_attack = max(0, p.weapon_attack - 4)
+            if p.weapon_attack <= 0 and p.weapon_durability > 0:
+                p.weapon_durability = 0
+            h = s.objects.get(p.hero_id) if p.hero_id else None
+            if h:
+                h.state.weapon_attack = p.weapon_attack
+                h.state.weapon_durability = p.weapon_durability
         # Self-remove this interceptor
         int_id = end_turn_handler._interceptor_id
         if int_id in s.interceptors:

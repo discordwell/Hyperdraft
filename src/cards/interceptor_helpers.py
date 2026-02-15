@@ -2540,7 +2540,12 @@ def make_cant_attack(source_obj: GameObject) -> Interceptor:
     """
     Create a "Can't Attack" interceptor (HS: Ancient Watcher, Ragnaros).
     PREVENT interceptor on ATTACK_DECLARED when attacker is this object.
+    Also marks the object with a 'cant_attack' keyword so has_ability() can find it.
     """
+    # Mark with keyword so has_ability('cant_attack', ...) returns True
+    if not any(a.get('keyword') == 'cant_attack' for a in source_obj.characteristics.abilities):
+        source_obj.characteristics.abilities.append({'keyword': 'cant_attack'})
+
     source_id = source_obj.id
 
     def cant_attack_filter(event: Event, state: GameState) -> bool:
