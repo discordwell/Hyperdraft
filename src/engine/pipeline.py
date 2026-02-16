@@ -337,6 +337,7 @@ def _handle_damage(event: Event, state: GameState):
 def _handle_life_change(event: Event, state: GameState):
     """Handle LIFE_CHANGE event."""
     player_id = event.payload.get('player')
+    object_id = event.payload.get('object_id') or event.payload.get('target')
     amount = event.payload.get('amount', 0)
 
     if player_id in state.players:
@@ -350,6 +351,30 @@ def _handle_life_change(event: Event, state: GameState):
             if player.hero_id and player.hero_id in state.objects:
                 hero = state.objects[player.hero_id]
                 hero.state.damage = max(0, max_hp - player.life)
+        return
+
+    # Support object-based healing payloads used by Hearthstone card scripts.
+    if object_id in state.objects:
+        obj = state.objects[object_id]
+
+        # Hero object healing should also update owning player's life.
+        if CardType.HERO in obj.characteristics.types:
+            player = state.players.get(obj.owner)
+            if not player:
+                return
+            player.life += amount
+            if state.game_mode == "hearthstone":
+                max_hp = getattr(player, 'max_life', 30) or 30
+                if amount > 0:
+                    player.life = min(player.life, max_hp)
+                obj.state.damage = max(0, max_hp - player.life)
+            return
+
+        # Minion/object healing: reduce marked damage; negative amounts add damage.
+        if amount >= 0:
+            obj.state.damage = max(0, obj.state.damage - amount)
+        else:
+            obj.state.damage += abs(amount)
 
 
 def _handle_armor_gain(event: Event, state: GameState):
@@ -1129,6 +1154,15 @@ def _handle_grant_keyword(event: Event, state: GameState):
             "_temporary": True,
             "_duration": duration,
         })
+        # Mirror key Hearthstone keyword flags that are checked by direct state.
+        if kw == "divine_shield":
+            obj.state.divine_shield = True
+        elif kw == "stealth":
+            obj.state.stealth = True
+        elif kw == "windfury":
+            obj.state.windfury = True
+        elif kw == "frozen":
+            obj.state.frozen = True
 
 
 def _turn_permission_active(expires_turn: Optional[int], state: GameState) -> bool:
@@ -1675,6 +1709,8 @@ def _handle_create_token(event: Event, state: GameState):
     if not controller_id or controller_id not in state.players:
         return
 
+    created_ids: list[str] = []
+
     for _ in range(count):
         # Hearthstone: enforce 7-minion board limit
         if state.game_mode == "hearthstone":
@@ -1687,7 +1723,7 @@ def _handle_create_token(event: Event, state: GameState):
                     and CardType.MINION in state.objects[oid].characteristics.types
                 )
                 if minion_count >= 7:
-                    return  # Board full, can't create token
+                    break  # Board full, can't create more tokens
 
         # Build characteristics from token data
         types = token_data.get('types', {CardType.CREATURE})
@@ -1751,6 +1787,7 @@ def _handle_create_token(event: Event, state: GameState):
 
         # Add to state
         state.objects[obj_id] = token
+        created_ids.append(obj_id)
 
         # Add to battlefield zone
         battlefield_key = 'battlefield'
@@ -1765,6 +1802,12 @@ def _handle_create_token(event: Event, state: GameState):
                 interceptor.timestamp = state.next_timestamp()
                 state.interceptors[interceptor.id] = interceptor
                 token.interceptor_ids.append(interceptor.id)
+
+    # Make created token IDs available to REACT interceptors on this event.
+    if created_ids:
+        event.payload['object_ids'] = created_ids
+        if len(created_ids) == 1:
+            event.payload['object_id'] = created_ids[0]
 
 
 def _handle_exile(event: Event, state: GameState):
@@ -2984,6 +3027,93 @@ def _handle_silence_target(event: Event, state: GameState):
         )
 
 
+def _handle_transform(event: Event, state: GameState):
+    """
+    Handle TRANSFORM event.
+
+    This remains backward-compatible with marker-only TRANSFORM payloads:
+    if no transform fields are supplied, it is treated as a no-op marker.
+    """
+    object_id = event.payload.get('object_id')
+    if not object_id or object_id not in state.objects:
+        return
+
+    obj = state.objects[object_id]
+    payload = event.payload
+
+    new_characteristics = payload.get('new_characteristics') or {}
+    changed = False
+
+    # Convenience aliases for simpler card payloads.
+    if 'new_name' in payload:
+        obj.name = payload.get('new_name') or obj.name
+        changed = True
+    if 'power' in payload and 'power' not in new_characteristics:
+        new_characteristics['power'] = payload.get('power')
+    if 'toughness' in payload and 'toughness' not in new_characteristics:
+        new_characteristics['toughness'] = payload.get('toughness')
+    if 'subtypes' in payload and 'subtypes' not in new_characteristics:
+        new_characteristics['subtypes'] = payload.get('subtypes')
+    if 'types' in payload and 'types' not in new_characteristics:
+        new_characteristics['types'] = payload.get('types')
+    if 'abilities' in payload and 'abilities' not in new_characteristics:
+        new_characteristics['abilities'] = payload.get('abilities')
+    if 'mana_cost' in payload and 'mana_cost' not in new_characteristics:
+        new_characteristics['mana_cost'] = payload.get('mana_cost')
+
+    if new_characteristics:
+        if 'power' in new_characteristics:
+            obj.characteristics.power = new_characteristics.get('power')
+        if 'toughness' in new_characteristics:
+            obj.characteristics.toughness = new_characteristics.get('toughness')
+        if 'subtypes' in new_characteristics:
+            obj.characteristics.subtypes = set(new_characteristics.get('subtypes') or set())
+        if 'types' in new_characteristics:
+            obj.characteristics.types = set(new_characteristics.get('types') or set())
+        if 'abilities' in new_characteristics:
+            obj.characteristics.abilities = list(new_characteristics.get('abilities') or [])
+        if 'mana_cost' in new_characteristics:
+            obj.characteristics.mana_cost = new_characteristics.get('mana_cost')
+        changed = True
+
+    if payload.get('reset_damage'):
+        obj.state.damage = 0
+        changed = True
+    if 'set_damage' in payload:
+        obj.state.damage = int(payload.get('set_damage') or 0)
+        changed = True
+    if payload.get('reset_counters'):
+        obj.state.counters = {}
+        changed = True
+    if payload.get('reset_pt_modifiers') and hasattr(obj.state, 'pt_modifiers'):
+        obj.state.pt_modifiers = []
+        changed = True
+    if payload.get('reset_state_flags'):
+        obj.state.divine_shield = False
+        obj.state.stealth = False
+        obj.state.windfury = False
+        obj.state.frozen = False
+        changed = True
+    if 'summoning_sickness' in payload:
+        obj.state.summoning_sickness = bool(payload.get('summoning_sickness'))
+        changed = True
+
+    if payload.get('clear_interceptors'):
+        for int_id in list(obj.interceptor_ids):
+            if int_id in state.interceptors:
+                del state.interceptors[int_id]
+        obj.interceptor_ids.clear()
+        changed = True
+
+    if payload.get('clear_card_def'):
+        obj.card_def = None
+        changed = True
+
+    # Marker-only transforms intentionally do nothing else.
+    if not changed:
+        return
+
+
 def _handle_return_to_hand(event: Event, state: GameState):
     """
     Handle RETURN_TO_HAND / BOUNCE event.
@@ -3062,6 +3192,7 @@ EVENT_HANDLERS = {
     EventType.TARGET_REQUIRED: _handle_target_required,
     EventType.FREEZE_TARGET: _handle_freeze_target,
     EventType.SILENCE_TARGET: _handle_silence_target,
+    EventType.TRANSFORM: _handle_transform,
     EventType.ADD_TO_HAND: _handle_add_to_hand,
     EventType.RETURN_TO_HAND: _handle_return_to_hand,
     EventType.BOUNCE: _handle_return_to_hand,

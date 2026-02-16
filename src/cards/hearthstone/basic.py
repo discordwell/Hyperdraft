@@ -560,7 +560,6 @@ def darkscale_healer_battlecry(obj: GameObject, state: GameState) -> list[Event]
             if m and m.controller == obj.controller and CardType.MINION in m.characteristics.types:
                 if m.state.damage > 0:
                     heal_amount = min(m.state.damage, 2)
-                    m.state.damage -= heal_amount
                     events.append(Event(
                         type=EventType.LIFE_CHANGE,
                         payload={'object_id': mid, 'amount': heal_amount},

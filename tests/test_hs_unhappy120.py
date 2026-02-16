@@ -30,7 +30,8 @@ from src.cards.hearthstone.warrior import WHIRLWIND
 from src.cards.hearthstone.paladin import CONSECRATION
 
 try:
-    from src.cards.hearthstone.classic import JUNGLE_PANTHER, PATIENT_ASSASSIN, STRANGLETHORN_TIGER, WORGEN_INFILTRATOR
+    from src.cards.hearthstone.classic import JUNGLE_PANTHER, STRANGLETHORN_TIGER, WORGEN_INFILTRATOR
+    from src.cards.hearthstone.rogue import PATIENT_ASSASSIN
     HAS_STEALTH_MINIONS = True
 except ImportError:
     HAS_STEALTH_MINIONS = False

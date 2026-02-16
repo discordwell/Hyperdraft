@@ -216,31 +216,33 @@ def mirror_entity_filter(event: Event, state: GameState) -> bool:
         return False
     if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
         return False
+    from_zone_type = event.payload.get('from_zone_type')
+    if from_zone_type is not None and from_zone_type != ZoneType.HAND:
+        return False
     entering = state.objects.get(event.payload.get('object_id'))
     if not entering:
         return False
     return CardType.MINION in entering.characteristics.types
 
-def mirror_entity_effect(obj: GameObject, state: GameState) -> list[Event]:
+def mirror_entity_effect(obj: GameObject, state: GameState, triggering_event: Event | None = None) -> list[Event]:
     """Summon a copy of the minion."""
-    # Find the last minion that entered battlefield by opponent
-    battlefield = state.zones.get('battlefield')
-    if not battlefield:
-        return []
+    # Use the triggering minion directly when available.
+    source_minion_id = None
+    if triggering_event:
+        source_minion_id = triggering_event.payload.get('object_id')
 
-    for oid in reversed(battlefield.objects):
-        o = state.objects.get(oid)
-        if o and o.controller != obj.controller and CardType.MINION in o.characteristics.types:
-            return [Event(type=EventType.CREATE_TOKEN, payload={
-                'controller': obj.controller,
-                'token': {
-                    'name': o.name,
-                    'power': o.characteristics.power,
-                    'toughness': o.characteristics.toughness,
-                    'types': {CardType.MINION},
-                    'subtypes': set(o.characteristics.subtypes),
-                }
-            }, source=obj.id)]
+    source_minion = state.objects.get(source_minion_id) if source_minion_id else None
+    if source_minion and source_minion.controller != obj.controller and CardType.MINION in source_minion.characteristics.types:
+        return [Event(type=EventType.CREATE_TOKEN, payload={
+            'controller': obj.controller,
+            'token': {
+                'name': source_minion.name,
+                'power': source_minion.characteristics.power,
+                'toughness': source_minion.characteristics.toughness,
+                'types': {CardType.MINION},
+                'subtypes': set(source_minion.characteristics.subtypes),
+            }
+        }, source=obj.id)]
     return []
 
 MIRROR_ENTITY = make_secret(
@@ -255,6 +257,9 @@ def vaporize_filter(event: Event, state: GameState) -> bool:
     """Trigger when a minion attacks your hero."""
     if event.type != EventType.ATTACK_DECLARED:
         return False
+    attacker = state.objects.get(event.payload.get('attacker_id'))
+    if not attacker or CardType.MINION not in attacker.characteristics.types:
+        return False
     target = event.payload.get('target_id')
     if not target:
         return False
@@ -264,16 +269,15 @@ def vaporize_filter(event: Event, state: GameState) -> bool:
     # Check if target is the hero (not a minion)
     return CardType.MINION not in target_obj.characteristics.types
 
-def vaporize_effect(obj: GameObject, state: GameState) -> list[Event]:
+def vaporize_effect(obj: GameObject, state: GameState, triggering_event: Event | None = None) -> list[Event]:
     """Destroy the attacking minion."""
-    # Find the attacker from recent events
-    for event in reversed(state.event_log[-5:]):
-        if event.type == EventType.ATTACK_DECLARED:
-            attacker_id = event.payload.get('attacker_id')
-            if attacker_id:
-                return [Event(type=EventType.OBJECT_DESTROYED, payload={
-                    'object_id': attacker_id, 'reason': 'vaporize'
-                }, source=obj.id)]
+    attacker_id = None
+    if triggering_event:
+        attacker_id = triggering_event.payload.get('attacker_id')
+    if attacker_id:
+        return [Event(type=EventType.OBJECT_DESTROYED, payload={
+            'object_id': attacker_id, 'reason': 'vaporize'
+        }, source=obj.id)]
     return []
 
 VAPORIZE = make_secret(
@@ -418,15 +422,14 @@ SPELLBENDER = make_secret(
 
 def cone_of_cold_effect(obj: GameObject, state: GameState, targets=None) -> list[Event]:
     """Deal 1 damage to a minion and the minions next to it, and Freeze them."""
+    if not targets:
+        return []
     enemy_minions = get_enemy_minions(obj, state)
     if not enemy_minions:
         return []
-
-    # Pick a primary target from provided targets or random
-    if targets:
-        primary = targets[0] if isinstance(targets[0], str) else targets[0]
-    else:
-        primary = random.choice(enemy_minions)
+    primary = targets[0] if isinstance(targets[0], str) else targets[0]
+    if primary not in enemy_minions:
+        return []
 
     # Get actually adjacent minions using the adjacency helper
     adjacent = get_adjacent_enemy_minions(primary, state)
@@ -446,6 +449,7 @@ CONE_OF_COLD = make_spell(
     name="Cone of Cold",
     mana_cost="{3}",
     text="Freeze a minion and the minions next to it, and deal 1 damage to them.",
+    requires_target=True,
     spell_effect=cone_of_cold_effect
 )
 

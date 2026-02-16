@@ -14,7 +14,7 @@ from typing import Optional, Callable, TYPE_CHECKING
 from enum import Enum
 
 from .types import (
-    GameState, GameObject, Event, EventType, CardType, ZoneType
+    GameState, GameObject, Event, EventType, EventStatus, CardType, ZoneType
 )
 from .queries import get_power, has_ability
 
@@ -133,16 +133,52 @@ class HearthstoneCombatManager:
             },
             source=attacker_id
         )
+        processed_attack_events = [attack_event]
         if self.pipeline:
-            self.pipeline.emit(attack_event)
-        events.append(attack_event)
+            processed_attack_events = self.pipeline.emit(attack_event)
+        events.extend(processed_attack_events)
+
+        # If a PREVENT interceptor canceled the declaration, do not resolve combat.
+        resolved_attack_event = None
+        for ev in processed_attack_events:
+            if ev.type == EventType.ATTACK_DECLARED:
+                resolved_attack_event = ev
+                break
+        if resolved_attack_event and resolved_attack_event.status == EventStatus.PREVENTED:
+            attacker.state.attacking = False
+            return events
+
+        # Support secret-driven target redirection (e.g. Noble Sacrifice).
+        resolved_target_id = target_id
+        if resolved_attack_event:
+            resolved_target_id = resolved_attack_event.payload.get('target_id', target_id)
+
+        # If a Defender token was created by a secret during declaration, it
+        # becomes the attack target for this combat.
+        defender_token_ids = [
+            ev.payload.get('object_id')
+            for ev in processed_attack_events
+            if ev.type == EventType.CREATE_TOKEN
+            and ev.payload.get('token', {}).get('name') == 'Defender'
+        ]
+        if defender_token_ids:
+            defender_id = defender_token_ids[-1]
+            defender_obj = self.state.objects.get(defender_id)
+            if defender_obj and defender_obj.zone == ZoneType.BATTLEFIELD:
+                resolved_target_id = defender_id
+
+        # Re-resolve target if redirected.
+        target = self.state.objects.get(resolved_target_id)
+        if not target:
+            attacker.state.attacking = False
+            return events
 
         # Break stealth if attacking
         if attacker.state.stealth:
             attacker.state.stealth = False
 
         # Resolve attack (simultaneous damage)
-        damage_events = await self._resolve_attack(attacker_id, target_id)
+        damage_events = await self._resolve_attack(attacker_id, resolved_target_id)
         events.extend(damage_events)
 
         # Weapon durability loss if hero attacking with weapon

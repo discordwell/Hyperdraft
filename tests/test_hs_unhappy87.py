@@ -27,7 +27,7 @@ from src.cards.hearthstone.classic import (
     FACELESS_MANIPULATOR, HARVEST_GOLEM, LOOT_HOARDER, ABOMINATION,
     CULT_MASTER,
 )
-from src.cards.hearthstone.shaman import FLAMETONGUE_TOTEM, UNBOUND_ELEMENTAL
+from src.cards.hearthstone.shaman import FLAMETONGUE_TOTEM, UNBOUND_ELEMENTAL, LIGHTNING_BOLT
 from src.cards.hearthstone.mage import MIRROR_IMAGE, FLAMESTRIKE, FIREBALL
 from src.cards.hearthstone.rogue import SAP, VANISH
 from src.cards.hearthstone.paladin import REDEMPTION
@@ -863,16 +863,17 @@ class TestUnboundElemental:
         game, p1, p2 = new_hs_game()
         unbound = make_obj(game, UNBOUND_ELEMENTAL, p1)
 
-        # Note: make_obj emits ZONE_CHANGE which triggers Unbound itself
-        # In actual game, Unbound doesn't trigger on itself entering
-        # Base is 2/4 but it gets +1/+1 from its own ZONE_CHANGE trigger
         initial_power = get_power(unbound, game.state)
         initial_toughness = get_toughness(unbound, game.state)
 
-        # The implementation triggers on ZONE_CHANGE, so it self-buffs
-        # This is actually a bug in the implementation but we test current behavior
-        assert initial_power == 3
-        assert initial_toughness == 5
+        # Unbound should not trigger on itself entering.
+        assert initial_power == 2
+        assert initial_toughness == 4
+
+        # It should trigger when a friendly overload card is played.
+        cast_spell(game, LIGHTNING_BOLT, p1)
+        assert get_power(unbound, game.state) == 3
+        assert get_toughness(unbound, game.state) == 5
 
 
 # ============================================================

@@ -18,7 +18,7 @@ from .types import (
     new_id
 )
 from .pipeline import EventPipeline
-from .queries import get_power, get_toughness, is_creature
+from .queries import get_power, get_toughness, is_creature, has_ability
 from .mana import ManaSystem, ManaCost, ManaType
 from .stack import StackManager, StackItem, SpellBuilder
 from .turn import TurnManager, Phase, Step
@@ -702,7 +702,12 @@ class Game:
                 if not isinstance(target_id, str):
                     return False
                 target = state.objects.get(target_id)
-                return target is not None and target.state.divine_shield
+                if target is None:
+                    return False
+                # Immune should supersede Divine Shield.
+                if has_ability(target, "immune", state):
+                    return False
+                return target.state.divine_shield
 
             def _divine_shield_handler(event: Event, state: GameState) -> InterceptorResult:
                 target_ref = event.payload.get("target")
@@ -735,6 +740,32 @@ class Game:
                     priority=InterceptorPriority.PREVENT,
                     filter=_divine_shield_filter,
                     handler=_divine_shield_handler,
+                    duration="forever",
+                )
+            )
+
+            # Hearthstone Immune interceptor
+            def _immune_filter(event: Event, state: GameState) -> bool:
+                if event.type != EventType.DAMAGE:
+                    return False
+                target_ref = event.payload.get("target")
+                target_id = target_ref[0] if isinstance(target_ref, list) and target_ref else target_ref
+                if not isinstance(target_id, str):
+                    return False
+                target = state.objects.get(target_id)
+                return target is not None and has_ability(target, "immune", state)
+
+            def _immune_handler(event: Event, state: GameState) -> InterceptorResult:
+                return InterceptorResult(action=InterceptorAction.PREVENT)
+
+            self.register_interceptor(
+                Interceptor(
+                    id=new_id(),
+                    source="SYSTEM",
+                    controller="SYSTEM",
+                    priority=InterceptorPriority.PREVENT,
+                    filter=_immune_filter,
+                    handler=_immune_handler,
                     duration="forever",
                 )
             )

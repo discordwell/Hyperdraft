@@ -34,14 +34,18 @@ BLESSING_OF_MIGHT = make_spell(
 
 
 def hand_of_protection_effect(obj, state, targets):
-    """Give a random friendly minion Divine Shield"""
+    """Give a friendly minion Divine Shield."""
     friendly = get_friendly_minions(obj, state, exclude_self=False)
-    if friendly:
-        target = random.choice(friendly)
-        target_obj = state.objects.get(target)
-        if target_obj:
-            target_obj.state.divine_shield = True
-    return []
+    if not friendly:
+        return []
+    target = targets[0] if targets else random.choice(friendly)
+    if target not in friendly:
+        return []
+    return [Event(
+        type=EventType.KEYWORD_GRANT,
+        payload={'object_id': target, 'keyword': 'divine_shield', 'duration': 'permanent'},
+        source=obj.id
+    )]
 
 HAND_OF_PROTECTION = make_spell(
     name="Hand of Protection",
@@ -52,19 +56,24 @@ HAND_OF_PROTECTION = make_spell(
 
 
 def humility_effect(obj, state, targets):
-    """Change a minion's Attack to 1"""
+    """Change a minion's Attack to 1."""
     enemies = get_enemy_minions(obj, state)
-    if enemies:
-        target = random.choice(enemies)
-        target_obj = state.objects.get(target)
-        if target_obj:
-            target_obj.characteristics.power = 1
-    return []
+    if not enemies:
+        return []
+    target = targets[0] if targets else random.choice(enemies)
+    if target not in enemies:
+        return []
+    return [Event(
+        type=EventType.TRANSFORM,
+        payload={'object_id': target, 'power': 1},
+        source=obj.id
+    )]
 
 HUMILITY = make_spell(
     name="Humility",
     mana_cost="{1}",
     text="Change a minion's Attack to 1.",
+    requires_target=True,
     spell_effect=humility_effect
 )
 
@@ -182,8 +191,16 @@ BLESSING_OF_WISDOM = make_spell(
 # ============================================================================
 
 def noble_sacrifice_filter(event, state):
-    """Trigger when an enemy attacks"""
-    return event.type == EventType.ATTACK_DECLARED
+    """Trigger when an enemy attacks your hero."""
+    if event.type != EventType.ATTACK_DECLARED:
+        return False
+    attacker = state.objects.get(event.payload.get('attacker_id'))
+    target = state.objects.get(event.payload.get('target_id'))
+    if not attacker or not target:
+        return False
+    if CardType.HERO not in target.characteristics.types:
+        return False
+    return attacker.controller != target.controller
 
 def noble_sacrifice_effect(obj, state):
     """Summon a 2/1 Defender as the new target"""
@@ -330,14 +347,24 @@ AVENGE = make_secret(
 
 
 def equality_effect(obj, state, targets):
-    """Change the Health of ALL minions to 1"""
+    """Change the Health of ALL minions to 1."""
     from src.cards.interceptor_helpers import get_all_minions
+    events = []
     for mid in get_all_minions(state):
         m = state.objects.get(mid)
         if m:
-            m.characteristics.toughness = 1
-            m.state.damage = 0
-    return []
+            events.append(Event(
+                type=EventType.TRANSFORM,
+                payload={'object_id': mid, 'toughness': 1},
+                source=obj.id
+            ))
+            if m.state.damage > 0:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'object_id': mid, 'amount': m.state.damage},
+                    source=obj.id
+                ))
+    return events
 
 EQUALITY = make_spell(
     name="Equality",
@@ -348,13 +375,15 @@ EQUALITY = make_spell(
 
 
 def aldor_peacekeeper_battlecry(obj, state):
-    """Change an enemy minion's Attack to 1"""
+    """Change an enemy minion's Attack to 1."""
     enemies = get_enemy_minions(obj, state)
     if enemies:
         target = random.choice(enemies)
-        target_obj = state.objects.get(target)
-        if target_obj:
-            target_obj.characteristics.power = 1
+        return [Event(
+            type=EventType.TRANSFORM,
+            payload={'object_id': target, 'power': 1},
+            source=obj.id
+        )]
     return []
 
 ALDOR_PEACEKEEPER = make_minion(
@@ -401,33 +430,64 @@ DIVINE_FAVOR = make_spell(
 
 def sword_of_justice_setup(obj, state):
     """Whenever you summon a minion, give it +1/+1 and this loses 1 Durability."""
-    def summon_filter(event, s):
+    def _summoned_minion_ids(event, s):
         if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD:
-                entering_id = event.payload.get('object_id')
-                entering = s.objects.get(entering_id)
-                if entering and entering.controller == obj.controller and entering.id != obj.id:
-                    if CardType.MINION in entering.characteristics.types:
-                        return True
+            object_id = event.payload.get('object_id')
+            return [object_id] if object_id else []
         if event.type == EventType.CREATE_TOKEN:
-            if event.payload.get('controller') == obj.controller:
-                return True
+            object_ids = event.payload.get('object_ids')
+            if isinstance(object_ids, list):
+                return [oid for oid in object_ids if isinstance(oid, str)]
+            object_id = event.payload.get('object_id')
+            return [object_id] if isinstance(object_id, str) else []
+        return []
+
+    def summon_filter(event, s):
+        if obj.zone != ZoneType.BATTLEFIELD:
+            return False
+        if event.type == EventType.ZONE_CHANGE and event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        for mid in _summoned_minion_ids(event, s):
+            entering = s.objects.get(mid)
+            if entering and entering.controller == obj.controller and entering.id != obj.id:
+                if CardType.MINION in entering.characteristics.types:
+                    return True
         return False
 
     def buff_and_lose_durability(event, s):
-        # Find the minion that just entered
-        target_id = event.payload.get('object_id')
         events = []
-        if target_id:
+
+        player = s.players.get(obj.controller)
+        if not player:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        summoned_ids = []
+        for mid in _summoned_minion_ids(event, s):
+            entering = s.objects.get(mid)
+            if not entering:
+                continue
+            if entering.zone != ZoneType.BATTLEFIELD:
+                continue
+            if entering.controller != obj.controller or entering.id == obj.id:
+                continue
+            if CardType.MINION not in entering.characteristics.types:
+                continue
+            summoned_ids.append(mid)
+
+        if not summoned_ids:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        # One durability per buff, and no buffs once weapon is depleted.
+        buffs_to_apply = min(len(summoned_ids), max(0, player.weapon_durability))
+        for target_id in summoned_ids[:buffs_to_apply]:
             events.append(Event(
                 type=EventType.PT_MODIFICATION,
                 payload={'object_id': target_id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'permanent'},
                 source=obj.id
             ))
-        # Lose 1 durability
-        player = s.players.get(obj.controller)
-        if player:
-            player.weapon_durability -= 1
+
+        if buffs_to_apply > 0:
+            player.weapon_durability -= buffs_to_apply
             hero = s.objects.get(player.hero_id)
             if hero:
                 hero.state.weapon_durability = player.weapon_durability
