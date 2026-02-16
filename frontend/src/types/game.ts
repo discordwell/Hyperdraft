@@ -175,6 +175,7 @@ export interface GameState {
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
+  game_mode?: 'mtg' | 'hearthstone';
   player_deck?: string[];
   player_deck_id?: string;
   player_name: string;

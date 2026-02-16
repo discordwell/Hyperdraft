@@ -51,6 +51,7 @@ export const matchAPI = {
       method: 'POST',
       body: JSON.stringify({
         mode: 'human_vs_bot',
+        game_mode: 'mtg',
         player_name: 'Player',
         ai_difficulty: 'medium',
         ...request,
@@ -87,12 +88,17 @@ export const matchAPI = {
 
   submitChoice: (
     matchId: string,
+    choiceId: string,
     playerId: string,
-    choices: string[]
+    selected: string[]
   ): Promise<ActionResultResponse> =>
     fetchAPI(`/match/${matchId}/choice`, {
       method: 'POST',
-      body: JSON.stringify({ player_id: playerId, choices }),
+      body: JSON.stringify({
+        choice_id: choiceId,
+        player_id: playerId,
+        selected,
+      }),
     }),
 };
 

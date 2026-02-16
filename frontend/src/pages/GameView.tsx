@@ -276,7 +276,12 @@ export function GameView() {
 
     setIsSubmittingChoice(true);
     try {
-      const result = await matchAPI.submitChoice(matchId, playerId, selectedIds);
+      const result = await matchAPI.submitChoice(
+        matchId,
+        pendingChoice.id,
+        playerId,
+        selectedIds
+      );
       if (result.success && result.new_state) {
         setGameState(result.new_state);
       } else if (!result.success) {

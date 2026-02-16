@@ -53,13 +53,16 @@ export function Home() {
     setError(null);
 
     try {
+      const isHearthstone = gameMode === 'hearthstone';
+
       // Create match
       const response = await matchAPI.create({
         mode: 'human_vs_bot',
+        game_mode: gameMode,
         player_name: playerName,
         ai_difficulty: difficulty,
-        player_deck_id: playerDeck || undefined,
-        ai_deck_id: aiDeck || undefined,
+        player_deck_id: isHearthstone ? undefined : (playerDeck || undefined),
+        ai_deck_id: isHearthstone ? undefined : (aiDeck || undefined),
       });
 
       // Set connection info in store
