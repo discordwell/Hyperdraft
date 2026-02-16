@@ -500,8 +500,8 @@ class TestEaglehornBow:
 
         assert p1.weapon_durability == 3  # 2 + 1
 
-    def test_no_trigger_from_secret_type_only(self):
-        """Eaglehorn filter checks for CardType.SPELL — pure SECRET type doesn't trigger."""
+    def test_triggers_from_secret_type_only(self):
+        """Eaglehorn should trigger for normal SECRET-typed secrets."""
         game, p1, p2 = new_hs_game()
         bow = make_obj(game, EAGLEHORN_BOW, p1)
         p1.weapon_attack = 3
@@ -520,8 +520,8 @@ class TestEaglehornBow:
             source=secret.id
         ))
 
-        # Durability unchanged because SECRET != SPELL
-        assert p1.weapon_durability == 2
+        # Durability should increase when a friendly secret is revealed.
+        assert p1.weapon_durability == 3
 
 
 # ============================================================

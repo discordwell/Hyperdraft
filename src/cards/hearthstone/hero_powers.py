@@ -42,9 +42,6 @@ FIREBLAST = make_hero_power(
 # Warrior Hero Power
 def armor_up_effect(obj: GameObject, state: GameState) -> list[Event]:
     """Gain 2 Armor."""
-    player = state.players.get(obj.controller)
-    if player:
-        player.armor += 2
     return [Event(
         type=EventType.ARMOR_GAIN,
         payload={'player': obj.controller, 'amount': 2},
@@ -374,8 +371,7 @@ def shapeshift_effect(obj: GameObject, state: GameState) -> list[Event]:
     hero.state.weapon_attack = player.weapon_attack
     hero.state.weapon_durability = player.weapon_durability
 
-    # +1 Armor
-    player.armor += 1
+    # +1 Armor (applied via ARMOR_GAIN resolution)
     events.append(Event(
         type=EventType.ARMOR_GAIN,
         payload={'player': obj.controller, 'amount': 1},

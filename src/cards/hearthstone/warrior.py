@@ -49,7 +49,31 @@ def heroic_strike_effect(obj, state, targets):
     if not player:
         return []
 
+    def current_weapon_id(s):
+        battlefield = s.zones.get('battlefield')
+        if not battlefield:
+            return None
+        for oid in battlefield.objects:
+            weapon = s.objects.get(oid)
+            if (weapon and weapon.controller == obj.controller and
+                    CardType.WEAPON in weapon.characteristics.types):
+                return oid
+        return None
+
+    tracked_weapon_id = current_weapon_id(state)
+    granted_temp_durability = False
+
     player.weapon_attack += 4
+    # Hearthstone heroes can attack with temporary attack buffs even without
+    # a weapon; represent that by granting temporary durability for the turn.
+    if player.weapon_durability <= 0:
+        player.weapon_durability = 1
+        granted_temp_durability = True
+
+    hero = state.objects.get(player.hero_id)
+    if hero:
+        hero.state.weapon_attack = player.weapon_attack
+        hero.state.weapon_durability = player.weapon_durability
 
     # Register end-of-turn cleanup interceptor to remove the +4 attack
     def end_turn_filter(event, s):
@@ -58,7 +82,20 @@ def heroic_strike_effect(obj, state, targets):
     def end_turn_handler(event, s):
         p = s.players.get(obj.controller)
         if p:
-            p.weapon_attack = max(0, p.weapon_attack - 4)
+            current_id = current_weapon_id(s)
+            same_weapon_context = (
+                (tracked_weapon_id is None and current_id is None)
+                or (tracked_weapon_id is not None and current_id == tracked_weapon_id)
+            )
+            if same_weapon_context:
+                p.weapon_attack = max(0, p.weapon_attack - 4)
+                if granted_temp_durability and p.weapon_durability == 1:
+                    p.weapon_durability = 0
+
+            h = s.objects.get(p.hero_id)
+            if h:
+                h.state.weapon_attack = p.weapon_attack
+                h.state.weapon_durability = p.weapon_durability
         # Self-remove this interceptor
         int_id = end_turn_handler._interceptor_id
         if int_id in s.interceptors:

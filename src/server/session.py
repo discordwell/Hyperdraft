@@ -934,8 +934,21 @@ class GameSession:
         profile = self.ai_profiles_by_player.get(player_id) or {}
         return (profile.get("difficulty") or self.ai_difficulty or "medium").strip().lower()
 
-    def _get_or_create_ai_engine(self, player_id: str) -> 'AIEngine':
+    def _get_or_create_ai_engine(self, player_id: Optional[str] = None) -> 'AIEngine':
         """Get or create the AI engine for a specific player."""
+        if player_id is None:
+            # Backward compatibility: infer target AI player when older callers
+            # don't pass an explicit player_id.
+            ai_candidates = [pid for pid in self.player_ids if pid not in self.human_players]
+            if ai_candidates:
+                player_id = ai_candidates[0]
+            elif self.player_ids:
+                player_id = self.player_ids[0]
+            else:
+                # Keep backward compatibility for tests/utility callers that
+                # create a session only to access a configured AI engine.
+                player_id = "__default__"
+
         if player_id in self._ai_engines_by_player:
             return self._ai_engines_by_player[player_id]
 

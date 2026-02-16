@@ -44,6 +44,10 @@ class Game:
     def __init__(self, mode: str = "mtg"):
         self.state = GameState()
         self.state.game_mode = mode
+        # Track spell source IDs that have been countered so subsequent effect
+        # events from the same spell object can be suppressed in helper-driven
+        # tests that emit spell effects directly.
+        self.state.countered_spell_sources = set()
 
         # Set mode-specific defaults
         if mode == "hearthstone":
@@ -203,7 +207,8 @@ class Game:
             ),
             card_def=card_def,
             created_at=self.state.next_timestamp(),
-            entered_zone_at=self.state.timestamp
+            entered_zone_at=self.state.timestamp,
+            _state_ref=self.state,
         )
 
         self.state.objects[obj_id] = obj
@@ -213,10 +218,11 @@ class Game:
         if zone_key and zone_key in self.state.zones:
             self.state.zones[zone_key].objects.append(obj_id)
 
-        # If card_def has setup_interceptors, run it — but only for objects
-        # entering zones where interceptors should be active (battlefield, command).
-        # Cards in library/hand get their interceptors set up when they enter play.
-        if card_def and card_def.setup_interceptors and zone in (ZoneType.BATTLEFIELD, ZoneType.COMMAND):
+        # Run setup_interceptors on creation for all zones.
+        # Runtime interceptor gating in the pipeline keeps "while_on_battlefield"
+        # effects inactive until the object is actually on the battlefield, while
+        # allowing CDAs/query effects that apply in hidden zones.
+        if card_def and card_def.setup_interceptors:
             interceptors = card_def.setup_interceptors(obj, self.state)
             for interceptor in (interceptors or []):
                 self.register_interceptor(interceptor, obj)
@@ -406,6 +412,35 @@ class Game:
                 priority=InterceptorPriority.REACT,
                 filter=_flicker_filter,
                 handler=_flicker_handler,
+                duration="forever",
+            )
+        )
+
+        # When a spell has already been countered, suppress subsequent effect
+        # events from that same spell source.
+        def _countered_spell_source_filter(event: Event, state: GameState) -> bool:
+            blocked = getattr(state, "countered_spell_sources", None)
+            if not blocked:
+                return False
+            source_id = event.source
+            if not source_id or source_id not in blocked:
+                return False
+            # Keep cast marker events visible in the log for tests/debugging.
+            if event.type in {EventType.CAST, EventType.SPELL_CAST, EventType.SPELL_COUNTERED}:
+                return False
+            return True
+
+        def _countered_spell_source_handler(event: Event, state: GameState) -> InterceptorResult:
+            return InterceptorResult(action=InterceptorAction.PREVENT)
+
+        self.register_interceptor(
+            Interceptor(
+                id=new_id(),
+                source="SYSTEM",
+                controller="SYSTEM",
+                priority=InterceptorPriority.PREVENT,
+                filter=_countered_spell_source_filter,
+                handler=_countered_spell_source_handler,
                 duration="forever",
             )
         )
@@ -662,14 +697,18 @@ class Game:
             def _divine_shield_filter(event: Event, state: GameState) -> bool:
                 if event.type != EventType.DAMAGE:
                     return False
-                target_id = event.payload.get("target")
-                if not target_id:
+                target_ref = event.payload.get("target")
+                target_id = target_ref[0] if isinstance(target_ref, list) and target_ref else target_ref
+                if not isinstance(target_id, str):
                     return False
                 target = state.objects.get(target_id)
                 return target is not None and target.state.divine_shield
 
             def _divine_shield_handler(event: Event, state: GameState) -> InterceptorResult:
-                target_id = event.payload.get("target")
+                target_ref = event.payload.get("target")
+                target_id = target_ref[0] if isinstance(target_ref, list) and target_ref else target_ref
+                if not isinstance(target_id, str) or target_id not in state.objects:
+                    return InterceptorResult(action=InterceptorAction.PASS)
                 target = state.objects[target_id]
 
                 # Break the shield
@@ -1036,6 +1075,15 @@ class Game:
             library.objects.insert(0, obj.id)
 
         return obj
+
+    def add_to_deck(
+        self,
+        player_id: str,
+        card_def: 'CardDefinition',
+        position: str = 'top'
+    ) -> GameObject:
+        """Legacy alias used by older tests/helpers."""
+        return self.add_card_to_library(player_id, card_def, position=position)
 
     def shuffle_library(self, player_id: str) -> None:
         """Shuffle a player's library."""
@@ -2429,7 +2477,9 @@ def make_secret(
     text: str = "",
     trigger_filter = None,
     trigger_effect = None,
-    setup_interceptors = None
+    setup_interceptors = None,
+    prevent_trigger_event: bool = False,
+    allow_stale_turn_actor: bool = False,
 ) -> 'CardDefinition':
     """
     Create a Hearthstone secret card.
@@ -2441,10 +2491,14 @@ def make_secret(
         trigger_filter: Function determining when secret triggers: (event: Event, state: GameState) -> bool
         trigger_effect: Function called when triggered: (obj: GameObject, state: GameState) -> list[Event]
         setup_interceptors: Optional custom setup function
+        prevent_trigger_event: If True, the triggering event is prevented
+        allow_stale_turn_actor: Allow actor-based opponent detection even when
+            active_player points at the secret owner (legacy helper compatibility).
     """
     from .types import CardDefinition, Characteristics
 
     def secret_setup(obj: 'GameObject', state: 'GameState') -> list['Interceptor']:
+        import inspect
         from .types import Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, Event, EventType
 
         if not trigger_filter or not trigger_effect:
@@ -2452,16 +2506,44 @@ def make_secret(
                 return setup_interceptors(obj, state)
             return []
 
+        try:
+            _trigger_arity = len(inspect.signature(trigger_effect).parameters)
+        except (TypeError, ValueError):
+            _trigger_arity = 2
+
         # Secret interceptor - triggers on opponent's actions
         def filter_fn(event: Event, s: 'GameState') -> bool:
-            # Only trigger during opponent's turn
+            # Determine actor for compatibility with helper-driven tests.
+            actor_id = (
+                event.payload.get('controller')
+                or event.payload.get('caster')
+                or event.payload.get('player')
+            )
+            if actor_id is None and event.source:
+                source_obj = s.objects.get(event.source)
+                if source_obj:
+                    actor_id = source_obj.controller
+
             if s.active_player == obj.controller:
+                if not allow_stale_turn_actor:
+                    return False
+                # In stale-turn compatibility mode, only trigger when we can
+                # positively identify an opponent actor.
+                if actor_id is None or actor_id == obj.controller:
+                    return False
+            elif actor_id is not None and actor_id == obj.controller:
                 return False
+
             return trigger_filter(event, s)
 
         def handler_fn(event: Event, s: 'GameState') -> 'InterceptorResult':
             # Execute secret effect
-            new_events = trigger_effect(obj, s)
+            if _trigger_arity >= 3:
+                # Some secrets need access to the triggering event.
+                new_events = trigger_effect(obj, s, event)
+            else:
+                new_events = trigger_effect(obj, s)
+            new_events = list(new_events or [])
 
             # Destroy the secret after triggering
             from .types import ZoneType
@@ -2477,7 +2559,7 @@ def make_secret(
             new_events.append(destroy_event)
 
             return InterceptorResult(
-                action=InterceptorAction.REACT,
+                action=InterceptorAction.PREVENT if prevent_trigger_event else InterceptorAction.REACT,
                 new_events=new_events
             )
 
@@ -2485,7 +2567,7 @@ def make_secret(
             id=f"secret_{obj.id}",
             source=obj.id,
             controller=obj.controller,
-            priority=InterceptorPriority.REACT,
+            priority=InterceptorPriority.PREVENT if prevent_trigger_event else InterceptorPriority.REACT,
             filter=filter_fn,
             handler=handler_fn,
             duration='while_on_battlefield',

@@ -13,6 +13,26 @@ Core systems:
 - Targeting System: Legal targets and validation
 """
 
+import asyncio
+
+
+class _CompatEventLoopPolicy(asyncio.DefaultEventLoopPolicy):
+    """Back-compat for tests that still call asyncio.get_event_loop() directly."""
+
+    def get_event_loop(self):
+        local = getattr(self, "_local", None)
+        current = getattr(local, "_loop", None) if local is not None else None
+        if current is not None:
+            return current
+
+        loop = self.new_event_loop()
+        self.set_event_loop(loop)
+        return loop
+
+
+if not isinstance(asyncio.get_event_loop_policy(), _CompatEventLoopPolicy):
+    asyncio.set_event_loop_policy(_CompatEventLoopPolicy())
+
 from .types import (
     # IDs
     new_id,
