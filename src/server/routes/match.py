@@ -130,7 +130,8 @@ async def create_match(
     session = await session_manager.create_session(
         mode=request.mode,
         player_name=request.player_name,
-        ai_difficulty=request.ai_difficulty
+        ai_difficulty=request.ai_difficulty,
+        game_mode=request.game_mode,
     )
 
     # Add human player
@@ -145,29 +146,93 @@ async def create_match(
     else:
         ai_id = None
 
-    # Build decks - prefer deck_id, fallback to card names, else random
-    if request.player_deck_id:
-        player_deck = get_deck_cards(request.player_deck_id)
-    elif request.player_deck:
-        player_deck = get_cards_by_names(request.player_deck)
+    if request.game_mode == "hearthstone":
+        # Hearthstone matches need heroes + hero powers + 30-card class decks.
+        from src.cards.hearthstone.heroes import HEROES
+        from src.cards.hearthstone.hero_powers import HERO_POWERS
+        from src.cards.hearthstone.decks import get_deck_for_hero
+        import random
+
+        hero_classes = [
+            "Mage", "Warrior", "Hunter", "Paladin",
+            "Priest", "Rogue", "Shaman", "Warlock", "Druid",
+        ]
+        random.shuffle(hero_classes)
+
+        hero_class_by_player: dict[str, str] = {}
+        for idx, pid in enumerate(session.player_ids):
+            hero_class_by_player[pid] = hero_classes[idx % len(hero_classes)]
+
+        # Ensure human and primary AI differ in human-vs-bot for better variety.
+        if request.mode == "human_vs_bot" and ai_id:
+            hero_class_by_player[human_id] = hero_classes[0]
+            hero_class_by_player[ai_id] = hero_classes[1]
+
+        for pid in session.player_ids:
+            player = session.game.state.players.get(pid)
+            hero_class = hero_class_by_player[pid]
+            if not player:
+                continue
+            session.game.setup_hearthstone_player(
+                player,
+                HEROES[hero_class],
+                HERO_POWERS[hero_class],
+            )
+
+        # We intentionally ignore MTG deck IDs in Hearthstone mode.
+        player_deck = (
+            get_cards_by_names(request.player_deck)
+            if request.player_deck
+            else get_deck_for_hero(hero_class_by_player[human_id])
+        )
+        if not player_deck:
+            player_deck = get_deck_for_hero(hero_class_by_player[human_id])
+
+        ai_deck = (
+            get_cards_by_names(request.ai_deck)
+            if request.ai_deck
+            else get_deck_for_hero(hero_class_by_player.get(ai_id, hero_class_by_player[human_id]))
+        )
+        if not ai_deck:
+            ai_deck = get_deck_for_hero(hero_class_by_player.get(ai_id, hero_class_by_player[human_id]))
+
+        session.add_cards_to_deck(human_id, player_deck)
+
+        if request.mode == "human_vs_bot" and ai_id:
+            session.add_cards_to_deck(ai_id, ai_deck)
+        elif request.mode == "bot_vs_bot":
+            session.add_cards_to_deck(ai_id, ai_deck)
+            ai2_deck = (
+                get_deck_for_hero(hero_class_by_player.get(ai2_id, hero_class_by_player[human_id]))
+                if ai2_id
+                else ai_deck
+            )
+            if ai2_id:
+                session.add_cards_to_deck(ai2_id, ai2_deck)
     else:
-        player_deck = get_deck_cards()  # Random deck
+        # Build decks - prefer deck_id, fallback to card names, else random
+        if request.player_deck_id:
+            player_deck = get_deck_cards(request.player_deck_id)
+        elif request.player_deck:
+            player_deck = get_cards_by_names(request.player_deck)
+        else:
+            player_deck = get_deck_cards()  # Random deck
 
-    if request.ai_deck_id:
-        ai_deck = get_deck_cards(request.ai_deck_id)
-    elif request.ai_deck:
-        ai_deck = get_cards_by_names(request.ai_deck)
-    else:
-        ai_deck = get_deck_cards()  # Random deck
+        if request.ai_deck_id:
+            ai_deck = get_deck_cards(request.ai_deck_id)
+        elif request.ai_deck:
+            ai_deck = get_cards_by_names(request.ai_deck)
+        else:
+            ai_deck = get_deck_cards()  # Random deck
 
-    # Add cards to libraries
-    session.add_cards_to_deck(human_id, player_deck)
+        # Add cards to libraries
+        session.add_cards_to_deck(human_id, player_deck)
 
-    if request.mode == "human_vs_bot" and ai_id:
-        session.add_cards_to_deck(ai_id, ai_deck)
-    elif request.mode == "bot_vs_bot":
-        session.add_cards_to_deck(ai_id, ai_deck)
-        session.add_cards_to_deck(ai2_id, ai_deck)
+        if request.mode == "human_vs_bot" and ai_id:
+            session.add_cards_to_deck(ai_id, ai_deck)
+        elif request.mode == "bot_vs_bot":
+            session.add_cards_to_deck(ai_id, ai_deck)
+            session.add_cards_to_deck(ai2_id, ai_deck)
 
     return CreateMatchResponse(
         match_id=session.id,

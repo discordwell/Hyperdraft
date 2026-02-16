@@ -5,7 +5,7 @@ Data transfer objects for the REST API and WebSocket communication.
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, Any
+from typing import Optional, Any, Literal
 from enum import Enum
 
 
@@ -67,6 +67,10 @@ class ChoiceType(str, Enum):
 class CreateMatchRequest(BaseModel):
     """Request to create a new match."""
     mode: MatchMode = MatchMode.HUMAN_VS_BOT
+    game_mode: Literal["mtg", "hearthstone"] = Field(
+        default="mtg",
+        description="Rules mode for this match"
+    )
     player_deck: list[str] = Field(default_factory=list, description="List of card names (custom deck)")
     player_deck_id: Optional[str] = Field(default=None, description="Standard deck ID (e.g., 'mono_red_aggro')")
     player_name: str = Field(default="Player", description="Human player name")
