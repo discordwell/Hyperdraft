@@ -10,7 +10,9 @@ Tests for custom One Piece card set mechanics including:
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import engine directly to avoid loading all card sets
 from src.engine.game import Game
@@ -23,7 +25,7 @@ from src.engine.queries import get_power, get_toughness
 import importlib.util
 spec = importlib.util.spec_from_file_location(
     "one_piece",
-    "/Users/discordwell/Projects/Hyperdraft/src/cards/custom/one_piece.py"
+    str(PROJECT_ROOT / "src/cards/custom/one_piece.py")
 )
 one_piece_module = importlib.util.module_from_spec(spec)
 sys.modules["one_piece"] = one_piece_module

@@ -13,7 +13,9 @@ Tests cover:
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color,
@@ -24,7 +26,7 @@ from src.engine import (
 import importlib.util
 spec = importlib.util.spec_from_file_location(
     "naruto",
-    "/Users/discordwell/Projects/Hyperdraft/src/cards/custom/naruto.py"
+    str(PROJECT_ROOT / "src/cards/custom/naruto.py")
 )
 naruto_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(naruto_module)

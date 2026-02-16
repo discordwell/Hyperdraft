@@ -12,7 +12,9 @@ Tests cover:
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import engine directly to avoid triggering other custom card imports
 from src.engine.types import (
@@ -27,7 +29,7 @@ from src.engine.queries import get_power, get_toughness, has_ability
 import importlib.util
 spec = importlib.util.spec_from_file_location(
     "harry_potter",
-    "/Users/discordwell/Projects/Hyperdraft/src/cards/custom/harry_potter.py"
+    str(PROJECT_ROOT / "src/cards/custom/harry_potter.py")
 )
 hp_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hp_module)

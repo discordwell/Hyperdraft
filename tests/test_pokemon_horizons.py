@@ -5,7 +5,9 @@ QA Report for Pokemon Horizons Custom Set
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color,
@@ -16,7 +18,7 @@ from src.engine import (
 import importlib.util
 spec = importlib.util.spec_from_file_location(
     "pokemon_horizons",
-    "/Users/discordwell/Projects/Hyperdraft/src/cards/custom/pokemon_horizons.py"
+    str(PROJECT_ROOT / "src/cards/custom/pokemon_horizons.py")
 )
 pokemon_horizons = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pokemon_horizons)

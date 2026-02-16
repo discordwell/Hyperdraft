@@ -17,10 +17,12 @@ Tests cover:
 import sys
 import os
 import importlib.util
+from pathlib import Path
 
 # Ensure proper path setup
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
-os.chdir('/Users/discordwell/Projects/Hyperdraft')
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+os.chdir(PROJECT_ROOT)
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color,
@@ -30,7 +32,7 @@ from src.engine import (
 # Import directly from the module file to avoid __init__.py import issues
 spec = importlib.util.spec_from_file_location(
     "jujutsu_kaisen",
-    "/Users/discordwell/Projects/Hyperdraft/src/cards/custom/jujutsu_kaisen.py"
+    str(PROJECT_ROOT / "src/cards/custom/jujutsu_kaisen.py")
 )
 jujutsu_kaisen = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(jujutsu_kaisen)

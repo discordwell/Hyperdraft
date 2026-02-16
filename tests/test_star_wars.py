@@ -11,7 +11,9 @@ Tests cover:
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import engine components directly to avoid custom module import chain issues
 from src.engine.types import (
@@ -27,7 +29,7 @@ from src.engine.queries import get_power, get_toughness
 import importlib.util
 spec = importlib.util.spec_from_file_location(
     "star_wars",
-    "/Users/discordwell/Projects/Hyperdraft/src/cards/custom/star_wars.py"
+    str(PROJECT_ROOT / "src/cards/custom/star_wars.py")
 )
 star_wars_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(star_wars_module)
