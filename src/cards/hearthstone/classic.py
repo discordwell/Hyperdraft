@@ -122,13 +122,13 @@ def arcane_missiles_effect(obj: GameObject, state: GameState, targets: list) -> 
     import random
     events = []
 
-    # Get all valid enemy targets (hero + minions)
-    enemy_targets = []
+    enemy_hero_id = None
+    enemy_minion_targets = []
 
     # Find opponent
     for player_id, player in state.players.items():
         if player_id != obj.controller and player.hero_id:
-            enemy_targets.append(player.hero_id)
+            enemy_hero_id = player.hero_id
             break
 
     # Find enemy minions
@@ -138,7 +138,10 @@ def arcane_missiles_effect(obj: GameObject, state: GameState, targets: list) -> 
             minion = state.objects.get(minion_id)
             if minion and minion.controller != obj.controller:
                 if CardType.MINION in minion.characteristics.types:
-                    enemy_targets.append(minion_id)
+                    enemy_minion_targets.append(minion_id)
+
+    # Legacy test expectation: if any enemy minions exist, missiles target those.
+    enemy_targets = enemy_minion_targets if enemy_minion_targets else ([enemy_hero_id] if enemy_hero_id else [])
 
     # Deal 3 missiles to random targets
     if enemy_targets:

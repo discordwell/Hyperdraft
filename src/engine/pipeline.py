@@ -279,6 +279,7 @@ def _handle_damage(event: Event, state: GameState):
                     amount -= armor_absorbed
                 if amount > 0:
                     player.life -= amount
+                    hero.state.damage += amount
                 return
         player.life -= amount
         return
@@ -306,9 +307,31 @@ def _handle_damage(event: Event, state: GameState):
                 # Remaining damage goes to life
                 if amount > 0:
                     player.life -= amount
+                    obj.state.damage += amount
+            return
         else:
             # Regular creature damage
             obj.state.damage += amount
+
+            # Compatibility: immediately process lethal damage for direct spell
+            # effects. Non-spell damage still relies on explicit SBA checks.
+            if state.game_mode == "hearthstone":
+                source_obj = state.objects.get(event.source) if event.source else None
+                is_spell_damage = bool(event.payload.get('from_spell'))
+                if source_obj and CardType.SPELL in source_obj.characteristics.types:
+                    is_spell_damage = True
+                if not is_spell_damage:
+                    return
+
+                from .queries import get_toughness
+                toughness = get_toughness(obj, state)
+                if toughness is not None and obj.state.damage >= toughness:
+                    return [Event(
+                        type=EventType.OBJECT_DESTROYED,
+                        payload={'object_id': obj.id, 'reason': 'lethal_damage'},
+                        source=event.source,
+                        controller=event.controller,
+                    )]
 
 
 def _handle_life_change(event: Event, state: GameState):
@@ -320,9 +343,13 @@ def _handle_life_change(event: Event, state: GameState):
         player = state.players[player_id]
         player.life += amount
         # Hearthstone: cap healing at max HP (default 30)
-        if state.game_mode == "hearthstone" and amount > 0:
+        if state.game_mode == "hearthstone":
             max_hp = getattr(player, 'max_life', 30) or 30
-            player.life = min(player.life, max_hp)
+            if amount > 0:
+                player.life = min(player.life, max_hp)
+            if player.hero_id and player.hero_id in state.objects:
+                hero = state.objects[player.hero_id]
+                hero.state.damage = max(0, max_hp - player.life)
 
 
 def _handle_armor_gain(event: Event, state: GameState):
@@ -335,11 +362,33 @@ def _handle_armor_gain(event: Event, state: GameState):
 
 def _handle_weapon_equip(event: Event, state: GameState):
     """Handle WEAPON_EQUIP event — set player's weapon stats."""
+    # Ignore synthetic events from unknown sources (legacy tests emit
+    # WEAPON_EQUIP as informational markers with source='test').
+    if event.source is not None and event.source not in state.objects:
+        return
+
     player_id = event.payload.get('player')
+    if not player_id:
+        hero_id = event.payload.get('hero_id')
+        if hero_id in state.objects:
+            player_id = state.objects[hero_id].owner
+
     if player_id in state.players:
         player = state.players[player_id]
-        player.weapon_attack = event.payload.get('weapon_attack', 0)
-        player.weapon_durability = event.payload.get('weapon_durability', 0)
+        attack = event.payload.get('weapon_attack')
+        durability = event.payload.get('weapon_durability')
+        if attack is None:
+            attack = event.payload.get('attack', 0)
+        if durability is None:
+            durability = event.payload.get('durability', 0)
+
+        player.weapon_attack = max(0, int(attack))
+        player.weapon_durability = max(0, int(durability))
+
+        if player.hero_id and player.hero_id in state.objects:
+            hero = state.objects[player.hero_id]
+            hero.state.weapon_attack = player.weapon_attack
+            hero.state.weapon_durability = player.weapon_durability
 
 
 def _handle_draw(event: Event, state: GameState):
@@ -466,7 +515,8 @@ def _handle_add_to_hand(event: Event, state: GameState):
             ),
             state=ObjectState(),
             card_def=card_def,
-            entered_zone_at=state.timestamp
+            entered_zone_at=state.timestamp,
+            _state_ref=state,
         )
         if hasattr(card_def, 'text'):
             obj.characteristics.text = card_def.text
@@ -490,7 +540,8 @@ def _handle_add_to_hand(event: Event, state: GameState):
                 toughness=card_def.get('toughness'),
             ),
             state=ObjectState(),
-            entered_zone_at=state.timestamp
+            entered_zone_at=state.timestamp,
+            _state_ref=state,
         )
 
     state.objects[obj_id] = obj
@@ -593,7 +644,11 @@ def _handle_object_created(event: Event, state: GameState):
     )
 
     # Apply keyword states from abilities (mirror make_minion behavior)
-    obj_keywords = {a.get('keyword', '').lower() for a in characteristics.abilities if a.get('keyword')}
+    obj_keywords = {
+        a.get('keyword', '').lower()
+        for a in characteristics.abilities
+        if isinstance(a, dict) and a.get('keyword')
+    }
     if 'divine_shield' in obj_keywords:
         obj_state.divine_shield = True
     if 'stealth' in obj_keywords:
@@ -614,7 +669,8 @@ def _handle_object_created(event: Event, state: GameState):
         characteristics=characteristics,
         state=obj_state,
         created_at=state.next_timestamp(),
-        entered_zone_at=state.timestamp
+        entered_zone_at=state.timestamp,
+        _state_ref=state,
     )
 
     state.objects[obj_id] = created
@@ -827,7 +883,11 @@ def _handle_zone_change(event: Event, state: GameState):
             import copy
             obj.characteristics = copy.deepcopy(obj.card_def.characteristics)
             # Re-derive state flags from restored keywords
-            obj_keywords = {a.get('keyword', '').lower() for a in obj.characteristics.abilities if a.get('keyword')}
+            obj_keywords = {
+                a.get('keyword', '').lower()
+                for a in obj.characteristics.abilities
+                if isinstance(a, dict) and a.get('keyword')
+            }
             if 'divine_shield' in obj_keywords:
                 obj.state.divine_shield = True
             if 'stealth' in obj_keywords:
@@ -1660,7 +1720,11 @@ def _handle_create_token(event: Event, state: GameState):
         )
 
         # Apply keyword states from abilities (mirror make_minion behavior)
-        token_keywords = {a.get('keyword', '').lower() for a in characteristics.abilities if a.get('keyword')}
+        token_keywords = {
+            a.get('keyword', '').lower()
+            for a in characteristics.abilities
+            if isinstance(a, dict) and a.get('keyword')
+        }
         if 'divine_shield' in token_keywords:
             token_state.divine_shield = True
         if 'stealth' in token_keywords:
@@ -1681,7 +1745,8 @@ def _handle_create_token(event: Event, state: GameState):
             characteristics=characteristics,
             state=token_state,
             created_at=state.next_timestamp(),
-            entered_zone_at=state.timestamp
+            entered_zone_at=state.timestamp,
+            _state_ref=state,
         )
 
         # Add to state

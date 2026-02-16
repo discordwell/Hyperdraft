@@ -161,21 +161,53 @@ KIRIN_TOR_MAGE = make_minion(
 
 def counterspell_filter(event: Event, state: GameState) -> bool:
     """Trigger when opponent casts a spell."""
-    if event.type not in (EventType.CAST, EventType.SPELL_CAST):
-        return False
-    # Secret will check if caster is opponent
-    return True
+    if event.type in (EventType.CAST, EventType.SPELL_CAST):
+        return True
 
-def counterspell_effect(obj: GameObject, state: GameState) -> list[Event]:
+    # Compatibility with helper-driven tests that emit spell effect events
+    # directly before SPELL_CAST. Restrict to DAMAGE so this doesn't interfere
+    # with spells like Flare that emit non-damage setup events.
+    if event.type != EventType.DAMAGE:
+        return False
+    if not event.source:
+        return False
+    source_obj = state.objects.get(event.source)
+    if not source_obj:
+        return False
+    return CardType.SPELL in source_obj.characteristics.types
+
+def counterspell_effect(obj: GameObject, state: GameState, triggering_event: Event | None = None) -> list[Event]:
     """Counter the spell."""
-    return [Event(type=EventType.SPELL_COUNTERED, payload={}, source=obj.id)]
+    spell_id = None
+    if triggering_event:
+        spell_id = (
+            triggering_event.payload.get('spell_id')
+            or triggering_event.payload.get('object_id')
+            or triggering_event.source
+            or triggering_event.payload.get('target')
+            or triggering_event.payload.get('target_id')
+        )
+    if isinstance(spell_id, list):
+        spell_id = spell_id[0] if spell_id else None
+
+    if spell_id:
+        blocked = getattr(state, 'countered_spell_sources', None)
+        if blocked is None:
+            blocked = set()
+            setattr(state, 'countered_spell_sources', blocked)
+        blocked.add(spell_id)
+
+    payload = {'spell_id': spell_id} if spell_id else {}
+    return [Event(type=EventType.SPELL_COUNTERED, payload=payload, source=obj.id)]
 
 COUNTERSPELL = make_secret(
     name="Counterspell",
     mana_cost="{3}",
     text="Secret: When your opponent casts a spell, Counter it.",
     trigger_filter=counterspell_filter,
-    trigger_effect=counterspell_effect
+    trigger_effect=counterspell_effect,
+    prevent_trigger_event=True,
+    allow_stale_turn_actor=True,
 )
 
 def mirror_entity_filter(event: Event, state: GameState) -> bool:

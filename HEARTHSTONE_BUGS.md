@@ -23,7 +23,7 @@
 - [x] H7. warlock.py — Shadowflame hardcodes 3 damage — FIXED (sacrifices minion, uses its attack)
 - [x] H8. mage.py — Pyroblast shadows `targets` param — FIXED (respects passed targets)
 - [x] H9. shaman.py — Dust Devil missing windfury — FIXED
-- [ ] H10. shaman.py — Doomhammer missing Windfury (make_weapon has no keywords param — needs engine change)
+- [x] H10. shaman.py — Doomhammer missing Windfury — FIXED (equip-time Windfury + overload, cleanup on destroy)
 - [x] H11. hunter.py — Tundra Rhino "Beasts have Charge" aura — FIXED (implemented interceptor)
 - [x] H12. hunter.py — Leokk token missing +1 Attack aura — FIXED (uses leokk_setup from tokens.py)
 - [x] H13. druid.py — Cenarius Treants are 2/4, should be 2/2 — FIXED
@@ -43,7 +43,7 @@
 - [ ] M2. tokens.py — PANTHER token doesn't exist in Hearthstone — kept for now
 - [x] M3. tokens.py — Unused CardType import — FIXED
 - [x] M4. warrior.py — Commanding Shout missing "Draw a card" — FIXED
-- [ ] M5. warrior.py — Heroic Strike +4 attack never expires — known TODO
+- [x] M5. warrior.py — Heroic Strike +4 attack never expires — FIXED (EOT cleanup with weapon-replacement safety)
 - [ ] M6. paladin.py — Hand of Protection directly mutates divine_shield — deferred
 - [ ] M7. paladin.py — Humility/Aldor directly mutate characteristics.power — deferred
 - [ ] M8. paladin.py — Equality directly mutates toughness/damage — deferred
@@ -53,7 +53,7 @@
 - [ ] M12. classic.py — Acidic Swamp Ooze weapon destroy direct mutation — deferred
 - [ ] M13. classic.py — Sunfury/Defender of Argus Taunt grant direct mutation — deferred
 - [ ] M14. hunter.py — Hunter's Mark uses DAMAGE instead of health-setting — deferred
-- [ ] M15. hunter.py — Eaglehorn Bow durability trigger not implemented — deferred
+- [x] M15. hunter.py — Eaglehorn Bow durability trigger not implemented — FIXED (friendly secret reveal detection)
 - [ ] M16. hunter.py — Gladiator's Longbow Immune not implemented — deferred
 - [ ] M17. shaman.py — Windfury spell directly mutates state — deferred
 - [ ] M18. shaman.py — Hex all direct mutation before TRANSFORM event — deferred
@@ -63,7 +63,7 @@
 - [x] M22. priest.py — Lightwell always heals hero first — FIXED (random among all damaged)
 - [x] M23. basic.py — Darkscale Healer heals by direct mutation — FIXED (emits events)
 - [x] M24. warlock.py — Bane of Doom unconditionally summons — FIXED (conditional on kill)
-- [ ] M25. warlock.py — Power Overwhelming missing end-of-turn death — deferred
+- [x] M25. warlock.py — Power Overwhelming missing end-of-turn death — FIXED (targeted buff + EOT death interceptor)
 - [x] M26. warlock.py — Demonfire missing friendly Demon branch — FIXED
 - [ ] M27. mage.py — Vaporize fragile state.events access — deferred
 - [ ] M28. mage.py — Mirror Entity finds target by reverse-iterating — deferred

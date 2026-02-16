@@ -444,11 +444,42 @@ LIGHTNING_STORM = make_spell(
 
 
 def stormforged_axe_setup(obj, state):
-    # Apply overload immediately when weapon is equipped
-    player = state.players.get(obj.controller)
-    if player:
-        player.overloaded_mana += 1
-    return []
+    """Overload: (1) when this weapon is equipped."""
+    def equip_filter(event, s):
+        return (
+            not getattr(obj.state, '_stormforged_equip_applied', False)
+            and
+            event.type == EventType.ZONE_CHANGE
+            and event.payload.get('object_id') == obj.id
+            and event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD
+        )
+
+    def equip_handler(event, s):
+        obj.state._stormforged_equip_applied = True
+        player = s.players.get(obj.controller)
+        if player:
+            player.overloaded_mana += 1
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    interceptors = [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=equip_filter,
+        handler=equip_handler,
+        duration='while_on_battlefield',
+        uses_remaining=1
+    )]
+
+    # Compatibility for tests/helpers that create weapons directly on battlefield.
+    if obj.zone == ZoneType.BATTLEFIELD:
+        obj.state._stormforged_equip_applied = True
+        player = state.players.get(obj.controller)
+        if player:
+            player.overloaded_mana += 1
+
+    return interceptors
 
 
 STORMFORGED_AXE = make_weapon(
@@ -551,38 +582,74 @@ EARTH_ELEMENTAL = make_minion(
 
 
 def doomhammer_setup(obj, state):
-    """Windfury. Overload: (2). Grant Windfury to hero when equipped."""
-    player = state.players.get(obj.controller)
-    if player:
-        player.overloaded_mana += 2
-        # Grant Windfury to the hero
-        hero = state.objects.get(player.hero_id)
-        if hero:
-            hero.state.windfury = True
+    """Windfury. Overload: (2)."""
+    def equip_filter(event, s):
+        return (
+            not getattr(obj.state, '_doomhammer_equip_applied', False)
+            and
+            event.type == EventType.ZONE_CHANGE
+            and event.payload.get('object_id') == obj.id
+            and event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD
+        )
 
-    # Interceptor: remove Windfury from hero when weapon is destroyed
-    def weapon_break_filter(event, s):
-        if event.type != EventType.OBJECT_DESTROYED:
-            return False
-        return event.payload.get('object_id') == obj.id
-
-    def weapon_break_handler(event, s):
-        p = s.players.get(obj.controller)
-        if p:
-            h = s.objects.get(p.hero_id)
-            if h:
-                h.state.windfury = False
+    def equip_handler(event, s):
+        obj.state._doomhammer_equip_applied = True
+        player = s.players.get(obj.controller)
+        if player:
+            player.overloaded_mana += 2
+            hero = s.objects.get(player.hero_id)
+            if hero:
+                hero.state.windfury = True
         return InterceptorResult(action=InterceptorAction.REACT)
 
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=weapon_break_filter,
-        handler=weapon_break_handler,
-        duration='while_on_battlefield'
-    )]
+    # Remove Windfury from the hero when Doomhammer is destroyed/replaced.
+    def weapon_break_filter(event, s):
+        return (
+            event.type == EventType.OBJECT_DESTROYED
+            and event.payload.get('object_id') == obj.id
+        )
+
+    def weapon_break_handler(event, s):
+        player = s.players.get(obj.controller)
+        if player:
+            hero = s.objects.get(player.hero_id)
+            if hero:
+                hero.state.windfury = False
+        return InterceptorResult(action=InterceptorAction.REACT)
+
+    interceptors = [
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=equip_filter,
+            handler=equip_handler,
+            duration='while_on_battlefield',
+            uses_remaining=1
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=weapon_break_filter,
+            handler=weapon_break_handler,
+            duration='while_on_battlefield'
+        )
+    ]
+
+    # Compatibility for tests/helpers that create weapons directly on battlefield.
+    if obj.zone == ZoneType.BATTLEFIELD:
+        obj.state._doomhammer_equip_applied = True
+        player = state.players.get(obj.controller)
+        if player:
+            player.overloaded_mana += 2
+            hero = state.objects.get(player.hero_id)
+            if hero:
+                hero.state.windfury = True
+
+    return interceptors
 
 
 DOOMHAMMER = make_weapon(

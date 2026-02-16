@@ -131,7 +131,13 @@ def power_overwhelming_effect(obj, state, targets):
     if not friendly_minions:
         return []
 
-    target = random.choice(friendly_minions)
+    if targets:
+        chosen = targets[0]
+        if chosen not in friendly_minions:
+            return []
+        target = chosen
+    else:
+        target = random.choice(friendly_minions)
 
     # Register end-of-turn interceptor to destroy the minion
     def end_turn_filter(event, s):

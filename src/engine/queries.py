@@ -131,6 +131,12 @@ def get_colors(obj: GameObject, state: GameState) -> set[Color]:
 
 def has_ability(obj: GameObject, ability_name: str, state: GameState) -> bool:
     """Check if object has a specific ability (keyword or other)."""
+    # Legacy call shape: has_ability(obj, state, "taunt")
+    if isinstance(ability_name, GameState) and isinstance(state, str):
+        ability_name, state = state, ability_name
+    if not isinstance(ability_name, str):
+        return False
+
     # Check base abilities
     for ability in obj.characteristics.abilities:
         if ability.get('name') == ability_name or ability.get('keyword') == ability_name:
@@ -138,9 +144,9 @@ def has_ability(obj: GameObject, ability_name: str, state: GameState) -> bool:
 
     # Check Hearthstone state flags (keywords can be set directly on state)
     hs_state_keywords = {
-        'divine_shield': obj.state.divine_shield,
-        'stealth': obj.state.stealth,
-        'windfury': obj.state.windfury,
+        'divine_shield': bool(getattr(obj.state, 'divine_shield', False)),
+        'stealth': bool(getattr(obj.state, 'stealth', False)),
+        'windfury': bool(getattr(obj.state, 'windfury', False)),
     }
     if hs_state_keywords.get(ability_name, False):
         return True

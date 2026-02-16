@@ -469,16 +469,25 @@ SNAKE_TRAP = make_secret(
 def eaglehorn_bow_setup(obj, state):
     """Whenever a friendly Secret is revealed, gain +1 Durability."""
     def secret_filter(event, s):
-        # Secrets are removed from play when triggered — look for SECRET_REVEALED or
-        # ZONE_CHANGE of a secret leaving the battlefield
-        if event.type == EventType.ZONE_CHANGE:
-            leaving_id = event.payload.get('object_id')
-            leaving = s.objects.get(leaving_id)
-            if leaving and leaving.controller == obj.controller:
-                if CardType.SPELL in leaving.characteristics.types:
-                    if event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD:
-                        return True
-        return False
+        # In this engine, a revealed secret moves itself from battlefield
+        # to graveyard using a ZONE_CHANGE event with source=<secret id>.
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+
+        leaving_id = event.payload.get('object_id')
+        leaving = s.objects.get(leaving_id)
+        if not leaving or leaving.controller != obj.controller:
+            return False
+        if CardType.SECRET not in leaving.characteristics.types:
+            return False
+
+        # Distinguish "revealed" from externally destroyed secrets (e.g. Flare).
+        return event.source == leaving_id
 
     def gain_durability(event, s):
         player = s.players.get(obj.controller)

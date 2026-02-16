@@ -27,6 +27,7 @@ class EventType(Enum):
     OBJECT_CREATED = auto()
     OBJECT_DESTROYED = auto()
     ZONE_CHANGE = auto()
+    ENTER_BATTLEFIELD = auto()  # Legacy marker event used by some test helpers
 
     # State changes
     TAP = auto()
@@ -333,7 +334,11 @@ class Characteristics:
     @property
     def keywords(self) -> set[str]:
         """Get set of keyword abilities for easy checking."""
-        return {a.get('keyword', '').lower() for a in self.abilities if a.get('keyword')}
+        return {
+            a.get('keyword', '').lower()
+            for a in self.abilities
+            if isinstance(a, dict) and a.get('keyword')
+        }
 
 
 @dataclass
@@ -388,6 +393,7 @@ class GameObject:
     # Timestamps
     entered_zone_at: int = 0
     created_at: int = 0
+    _state_ref: Optional['GameState'] = field(default=None, repr=False, compare=False)
 
     # ---------------------------------------------------------------------
     # Compatibility accessors
@@ -410,6 +416,45 @@ class GameObject:
     @is_token.setter
     def is_token(self, value: bool) -> None:
         self.state.is_token = bool(value)
+
+    # Legacy tests sometimes read/write `obj.life` directly on heroes/minions.
+    @property
+    def life(self) -> int:
+        if CardType.HERO in self.characteristics.types and self._state_ref:
+            player = self._state_ref.players.get(self.owner)
+            if player:
+                return int(player.life)
+        base_toughness = self.characteristics.toughness
+        if base_toughness is None:
+            return 0
+        return int(base_toughness - self.state.damage)
+
+    @life.setter
+    def life(self, value: int) -> None:
+        value = int(value)
+        if CardType.HERO in self.characteristics.types and self._state_ref:
+            player = self._state_ref.players.get(self.owner)
+            if player:
+                player.life = value
+                max_life = getattr(player, 'max_life', None)
+                if max_life is not None:
+                    self.state.damage = max(0, int(max_life) - value)
+                return
+
+        if self.characteristics.toughness is None:
+            self.characteristics.toughness = max(0, value)
+            self.state.damage = 0
+            return
+        self.state.damage = max(0, self.characteristics.toughness - value)
+
+    # Legacy compatibility alias.
+    @property
+    def damage_taken(self) -> int:
+        return int(self.state.damage)
+
+    @damage_taken.setter
+    def damage_taken(self, value: int) -> None:
+        self.state.damage = max(0, int(value))
 
 
 # =============================================================================
@@ -458,6 +503,15 @@ class Player:
     overloaded_mana: int = 0                  # Mana locked next turn (Shaman Overload)
     cards_played_this_turn: int = 0           # Cards played this turn (Rogue Combo)
     cost_modifiers: list = field(default_factory=list)  # [{card_type, amount, duration, uses_remaining, floor}]
+
+    @property
+    def cost_reductions(self) -> list:
+        """Legacy alias for older tests/card code."""
+        return self.cost_modifiers
+
+    @cost_reductions.setter
+    def cost_reductions(self, value: list) -> None:
+        self.cost_modifiers = list(value or [])
 
 
 # =============================================================================
