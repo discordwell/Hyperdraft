@@ -35,44 +35,44 @@
 - [x] H19. paladin.py — Repentance filter too broad — FIXED (checks ZONE_CHANGE + minion type)
 - [x] H20. warrior.py — Armorsmith directly mutates armor — FIXED (emits ARMOR_GAIN event)
 - [x] H21. shaman.py — Rockbiter appends player ID — FIXED (appends hero_id)
-- [ ] H22. mage.py — Cone of Cold wrong effect (random vs targeted+adjacent) — DEFERRED (positional)
+- [x] H22. mage.py — Cone of Cold wrong effect (random vs targeted+adjacent) — FIXED (targeted + adjacent enemy minions)
 
 ## MEDIUM (incorrect but non-crashing)
 
 - [x] M1. tokens.py — HEALING_TOTEM missing setup_interceptors — FIXED
-- [ ] M2. tokens.py — PANTHER token doesn't exist in Hearthstone — kept for now
+- [x] M2. tokens.py — PANTHER token doesn't exist in Hearthstone — RESOLVED (valid Power of the Wild token; comment clarified)
 - [x] M3. tokens.py — Unused CardType import — FIXED
 - [x] M4. warrior.py — Commanding Shout missing "Draw a card" — FIXED
 - [x] M5. warrior.py — Heroic Strike +4 attack never expires — FIXED (EOT cleanup with weapon-replacement safety)
-- [ ] M6. paladin.py — Hand of Protection directly mutates divine_shield — deferred
-- [ ] M7. paladin.py — Humility/Aldor directly mutate characteristics.power — deferred
-- [ ] M8. paladin.py — Equality directly mutates toughness/damage — deferred
-- [ ] M9. paladin.py — Noble Sacrifice doesn't redirect attack — deferred
-- [ ] M10. paladin.py — Sword of Justice has no interceptor — deferred
-- [ ] M11. classic.py — Polymorph all direct mutation — deferred (works functionally)
-- [ ] M12. classic.py — Acidic Swamp Ooze weapon destroy direct mutation — deferred
-- [ ] M13. classic.py — Sunfury/Defender of Argus Taunt grant direct mutation — deferred
-- [ ] M14. hunter.py — Hunter's Mark uses DAMAGE instead of health-setting — deferred
+- [x] M6. paladin.py — Hand of Protection directly mutates divine_shield — FIXED (KEYWORD_GRANT)
+- [x] M7. paladin.py — Humility/Aldor directly mutate characteristics.power — FIXED (TRANSFORM events)
+- [x] M8. paladin.py — Equality directly mutates toughness/damage — FIXED (TRANSFORM + LIFE_CHANGE)
+- [x] M9. paladin.py — Noble Sacrifice doesn't redirect attack — FIXED (combat ATTACK_DECLARED redirection support)
+- [x] M10. paladin.py — Sword of Justice has no interceptor — FIXED (summon interceptor, token IDs wired, durability handling)
+- [x] M11. classic.py — Polymorph all direct mutation — FIXED (event-driven TRANSFORM)
+- [x] M12. classic.py — Acidic Swamp Ooze weapon destroy direct mutation — FIXED (OBJECT_DESTROYED / WEAPON_EQUIP fallback)
+- [x] M13. classic.py — Sunfury/Defender of Argus Taunt grant direct mutation — FIXED (KEYWORD_GRANT)
+- [x] M14. hunter.py — Hunter's Mark uses DAMAGE instead of health-setting — FIXED (TRANSFORM to set toughness)
 - [x] M15. hunter.py — Eaglehorn Bow durability trigger not implemented — FIXED (friendly secret reveal detection)
-- [ ] M16. hunter.py — Gladiator's Longbow Immune not implemented — deferred
-- [ ] M17. shaman.py — Windfury spell directly mutates state — deferred
-- [ ] M18. shaman.py — Hex all direct mutation before TRANSFORM event — deferred
-- [ ] M19. shaman.py — Unbound Elemental trigger not implemented — deferred
-- [ ] M20. shaman.py — Ancestral Healing direct mutation — deferred
+- [x] M16. hunter.py — Gladiator's Longbow Immune not implemented — FIXED (immune grant/removal lifecycle)
+- [x] M17. shaman.py — Windfury spell directly mutates state — FIXED (KEYWORD_GRANT)
+- [x] M18. shaman.py — Hex all direct mutation before TRANSFORM event — FIXED (event-driven TRANSFORM)
+- [x] M19. shaman.py — Unbound Elemental trigger not implemented — FIXED (Overload card detection on play/cast)
+- [x] M20. shaman.py — Ancestral Healing direct mutation — FIXED (LIFE_CHANGE + KEYWORD_GRANT taunt)
 - [x] M21. druid.py — Healing Touch wrong payload — FIXED (rewrote as hero-only heal)
 - [x] M22. priest.py — Lightwell always heals hero first — FIXED (random among all damaged)
 - [x] M23. basic.py — Darkscale Healer heals by direct mutation — FIXED (emits events)
 - [x] M24. warlock.py — Bane of Doom unconditionally summons — FIXED (conditional on kill)
 - [x] M25. warlock.py — Power Overwhelming missing end-of-turn death — FIXED (targeted buff + EOT death interceptor)
 - [x] M26. warlock.py — Demonfire missing friendly Demon branch — FIXED
-- [ ] M27. mage.py — Vaporize fragile state.events access — deferred
-- [ ] M28. mage.py — Mirror Entity finds target by reverse-iterating — deferred
+- [x] M27. mage.py — Vaporize fragile state.events access — FIXED (uses triggering ATTACK_DECLARED event)
+- [x] M28. mage.py — Mirror Entity finds target by reverse-iterating — FIXED (uses triggering minion event directly)
 - [x] M29. shaman.py — Lava Burst in SHAMAN_BASIC, should be SHAMAN_CLASSIC — FIXED
 - [x] M30. shaman.py — Windfury spell targets any minion, should target friendly only — FIXED
 
-## LOW (stubs, cosmetic, minor inaccuracies) — ALL DEFERRED
+## LOW (stubs, cosmetic, minor inaccuracies)
 
-- [ ] L1-L20: Text-only stubs and unimplemented complex effects (Ragnaros, Ysera, Alexstrasza, Velen, Auchenai, etc.)
+- [x] L1-L20: Text-only stubs and unimplemented complex effects (Ragnaros, Ysera, Alexstrasza, Velen, Auchenai, etc.) — RETIRED (implemented)
 
 ## Also fixed (bonus catches during review)
 
@@ -85,7 +85,4 @@
 
 ## Test Results After Fixes
 
-- HS tests: 9/9 pass
-- MTG tests: 33/33 pass
-- Stress test: 10/10 games, 0 crashes
-- Meta tournament: 30/30 games, 0 crashes, 0 anomalies
+- HS full suite: `4698 passed` (`tests/test_hearthstone.py tests/test_hs_unhappy*.py`)

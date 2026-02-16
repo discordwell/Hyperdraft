@@ -234,6 +234,8 @@ def test_polymorph_clears_deathrattle():
     if POLYMORPH.spell_effect:
         # Set target manually
         events = POLYMORPH.spell_effect(polymorph, game.state, [golem_id])
+        for e in events:
+            game.emit(e)
 
     # Golem should now be a Sheep
     sheep = game.state.objects.get(golem_id)
@@ -262,7 +264,9 @@ def test_polymorph_clears_buffs():
     # Polymorph it
     poly = make_obj(game, POLYMORPH, p1, zone=ZoneType.HAND)
     if POLYMORPH.spell_effect:
-        POLYMORPH.spell_effect(poly, game.state, [yeti.id])
+        events = POLYMORPH.spell_effect(poly, game.state, [yeti.id])
+        for e in events:
+            game.emit(e)
 
     assert yeti.name == "Sheep"
     assert yeti.characteristics.power == 1
@@ -279,7 +283,9 @@ def test_hex_produces_taunt_frog():
 
     hex_spell = make_obj(game, HEX, p1, zone=ZoneType.HAND)
     if HEX.spell_effect:
-        HEX.spell_effect(hex_spell, game.state, [yeti.id])
+        events = HEX.spell_effect(hex_spell, game.state, [yeti.id])
+        for e in events:
+            game.emit(e)
 
     # Should be a 0/1 Frog with Taunt
     assert yeti.name == "Frog", f"Expected 'Frog', got '{yeti.name}'"
@@ -297,7 +303,9 @@ def test_transform_then_silence():
     # Polymorph into Sheep
     poly = make_obj(game, POLYMORPH, p1, zone=ZoneType.HAND)
     if POLYMORPH.spell_effect:
-        POLYMORPH.spell_effect(poly, game.state, [yeti.id])
+        events = POLYMORPH.spell_effect(poly, game.state, [yeti.id])
+        for e in events:
+            game.emit(e)
 
     assert yeti.name == "Sheep"
 
@@ -326,7 +334,9 @@ def test_polymorph_sylvanas_no_steal():
     # Polymorph Sylvanas
     poly = make_obj(game, POLYMORPH, p1, zone=ZoneType.HAND)
     if POLYMORPH.spell_effect:
-        POLYMORPH.spell_effect(poly, game.state, [sylvanas.id])
+        events = POLYMORPH.spell_effect(poly, game.state, [sylvanas.id])
+        for e in events:
+            game.emit(e)
 
     # Sylvanas is now a Sheep - her deathrattle should be gone
     assert sylvanas.name == "Sheep"

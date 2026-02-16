@@ -60,9 +60,19 @@ def hunters_mark_effect(obj, state, targets):
     if targets:
         target_obj = state.objects.get(targets[0])
         if target_obj and CardType.MINION in target_obj.characteristics.types:
-            # Set health to 1: reduce toughness and clear excess damage
-            target_obj.characteristics.toughness = 1
-            target_obj.state.damage = 0
+            events = [Event(
+                type=EventType.TRANSFORM,
+                payload={'object_id': target_obj.id, 'toughness': 1},
+                source=obj.id
+            )]
+            heal_amount = target_obj.state.damage
+            if heal_amount > 0:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'object_id': target_obj.id, 'amount': heal_amount},
+                    source=obj.id
+                ))
+            return events
     return []
 
 
@@ -621,12 +631,16 @@ def gladiators_longbow_setup(obj, state):
         if hero:
             if not hero.characteristics.abilities:
                 hero.characteristics.abilities = []
-            hero.characteristics.abilities.append({'keyword': 'immune'})
+            if not any(a.get('keyword') == 'immune' for a in hero.characteristics.abilities):
+                hero.characteristics.abilities.append({'keyword': 'immune'})
 
-        # Register a one-shot interceptor to remove Immune after combat resolves (after DAMAGE)
+        # Remove Immune after the attack fully resolves.
         def post_combat_filter(evt, st):
-            # Remove immune after any damage event involving the hero as target or after attack completes
-            return evt.type == EventType.DAMAGE or evt.type == EventType.TURN_END
+            if evt.type == EventType.TURN_END:
+                return True
+            if evt.type != EventType.WEAPON_DURABILITY_LOSS:
+                return False
+            return evt.payload.get('hero_id') == player.hero_id
 
         def post_combat_handler(evt, st):
             p = st.players.get(controller_id)

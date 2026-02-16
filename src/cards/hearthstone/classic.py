@@ -172,22 +172,8 @@ def acidic_swamp_ooze_battlecry(obj: GameObject, state: GameState) -> list[Event
     if not opponent_id:
         return []
 
-    opponent = state.players[opponent_id]
-    if opponent.weapon_attack <= 0 and opponent.weapon_durability <= 0:
-        return []
-
-    # Clear weapon stats on player
-    opponent.weapon_attack = 0
-    opponent.weapon_durability = 0
-
-    # Clear weapon stats on hero object too
-    if opponent.hero_id:
-        hero = state.objects.get(opponent.hero_id)
-        if hero:
-            hero.state.weapon_attack = 0
-            hero.state.weapon_durability = 0
-
-    # Move weapon cards to graveyard
+    # Destroy equipped enemy weapon card(s). Weapon stat cleanup happens in
+    # OBJECT_DESTROYED pipeline handling.
     events = []
     battlefield = state.zones.get('battlefield')
     if battlefield:
@@ -200,6 +186,16 @@ def acidic_swamp_ooze_battlecry(obj: GameObject, state: GameState) -> list[Event
                     payload={'object_id': card_id, 'reason': 'weapon_destroyed'},
                     source=obj.id
                 ))
+
+    # Compatibility for test harnesses that model weapons only via player stats.
+    if not events:
+        opponent = state.players.get(opponent_id)
+        if opponent and (opponent.weapon_attack > 0 or opponent.weapon_durability > 0):
+            events.append(Event(
+                type=EventType.WEAPON_EQUIP,
+                payload={'player': opponent_id, 'weapon_attack': 0, 'weapon_durability': 0},
+                source=obj.id
+            ))
 
     return events
 
@@ -704,38 +700,25 @@ def polymorph_effect(obj: GameObject, state: GameState, targets: list) -> list[E
     if CardType.MINION not in target.characteristics.types:
         return []
 
-    # Transform into Sheep - clear everything
-    target.characteristics.power = 1
-    target.characteristics.toughness = 1
-    target.characteristics.abilities = []
-    target.characteristics.subtypes = {"Sheep"}
-    target.name = "Sheep"
-
-    # Clear damage and PT modifiers (Sheep is a fresh 1/1)
-    target.state.damage = 0
-    target.state.counters = {}
-    if hasattr(target.state, 'pt_modifiers'):
-        target.state.pt_modifiers = []
-
-    # Clear Hearthstone state flags
-    target.state.divine_shield = False
-    target.state.stealth = False
-    target.state.windfury = False
-    target.state.frozen = False
-    target.state.summoning_sickness = True  # Sheep can't attack this turn
-
-    # Remove all interceptors (deathrattles, triggers, etc.)
-    for int_id in list(target.interceptor_ids):
-        if int_id in state.interceptors:
-            del state.interceptors[int_id]
-    target.interceptor_ids.clear()
-
-    # Clear card_def so interceptors can't re-register if Sheep re-enters battlefield
-    target.card_def = None
-
     return [Event(
         type=EventType.TRANSFORM,
-        payload={'object_id': target_id, 'new_name': 'Sheep'},
+        payload={
+            'object_id': target_id,
+            'new_name': 'Sheep',
+            'new_characteristics': {
+                'power': 1,
+                'toughness': 1,
+                'subtypes': {'Sheep'},
+                'abilities': [],
+            },
+            'reset_damage': True,
+            'reset_counters': True,
+            'reset_pt_modifiers': True,
+            'reset_state_flags': True,
+            'summoning_sickness': True,
+            'clear_interceptors': True,
+            'clear_card_def': True,
+        },
         source=obj.id
     )]
 
@@ -2724,12 +2707,159 @@ MALYGOS = make_minion(
     setup_interceptors=malygos_setup
 )
 
+def dream_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Return a minion to its owner's hand."""
+    if not targets:
+        return []
+    target_id = targets[0]
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    if CardType.MINION not in target.characteristics.types:
+        return []
+    return [Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': target_id,
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone_type': ZoneType.HAND,
+            'to_zone': f"hand_{target.owner}",
+        },
+        source=obj.id
+    )]
+
+
+DREAM = make_spell(
+    name="Dream",
+    mana_cost="{0}",
+    text="Return a minion to its owner's hand.",
+    spell_effect=dream_effect,
+    requires_target=True
+)
+
+
+def nightmare_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Give a minion +5/+5. At the start of your next turn, destroy it."""
+    if not targets:
+        return []
+    target_id = targets[0]
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    if CardType.MINION not in target.characteristics.types:
+        return []
+
+    def turn_start_filter(event, s):
+        return event.type == EventType.TURN_START and event.payload.get('player') == obj.controller
+
+    def destroy_nightmared_minion(event, s):
+        doomed = s.objects.get(target_id)
+        if doomed and doomed.zone == ZoneType.BATTLEFIELD:
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': target_id, 'reason': 'nightmare'},
+                    source=obj.id
+                )]
+            )
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    delayed_destroy = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=turn_start_filter,
+        handler=destroy_nightmared_minion,
+        uses_remaining=1,
+        duration='forever',
+    )
+    state.interceptors[delayed_destroy.id] = delayed_destroy
+
+    return [Event(
+        type=EventType.PT_MODIFICATION,
+        payload={'object_id': target_id, 'power_mod': 5, 'toughness_mod': 5, 'duration': 'permanent'},
+        source=obj.id
+    )]
+
+
+NIGHTMARE = make_spell(
+    name="Nightmare",
+    mana_cost="{0}",
+    text="Give a minion +5/+5. At the start of your next turn, destroy it.",
+    spell_effect=nightmare_effect,
+    requires_target=True
+)
+
+
+def ysera_awakens_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Deal 5 damage to all characters except Ysera."""
+    events = []
+
+    # Damage all heroes.
+    for player in state.players.values():
+        if player.hero_id:
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': player.hero_id, 'amount': 5, 'source': obj.id, 'from_spell': True},
+                source=obj.id
+            ))
+
+    # Damage all minions except Ysera.
+    battlefield = state.zones.get('battlefield')
+    if battlefield:
+        for minion_id in list(battlefield.objects):
+            minion = state.objects.get(minion_id)
+            if not minion:
+                continue
+            if CardType.MINION not in minion.characteristics.types:
+                continue
+            if minion.name == "Ysera":
+                continue
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': minion_id, 'amount': 5, 'source': obj.id, 'from_spell': True},
+                source=obj.id
+            ))
+
+    return events
+
+
+YSERA_AWAKENS = make_spell(
+    name="Ysera Awakens",
+    mana_cost="{2}",
+    text="Deal 5 damage to all characters except Ysera.",
+    spell_effect=ysera_awakens_effect
+)
+
+
+LAUGHING_SISTER = make_minion(
+    name="Laughing Sister",
+    attack=3,
+    health=5,
+    mana_cost="{3}",
+    text="Can't be targeted by spells or Hero Powers.",
+    setup_interceptors=faerie_dragon_setup
+)
+
+
+EMERALD_DRAKE = make_minion(
+    name="Emerald Drake",
+    attack=7,
+    health=6,
+    mana_cost="{4}",
+    subtypes={"Dragon"},
+    text=""
+)
+
+
 DREAM_CARDS = [
-    {'name': 'Dream', 'mana_cost': '{0}', 'text': 'Return a minion to its owner\'s hand.'},
-    {'name': 'Nightmare', 'mana_cost': '{0}', 'text': 'Give a minion +5/+5. At the start of your next turn, destroy it.'},
-    {'name': 'Ysera Awakens', 'mana_cost': '{2}', 'text': 'Deal 5 damage to all characters except Ysera.'},
-    {'name': 'Laughing Sister', 'mana_cost': '{3}', 'text': 'Can\'t be targeted by spells or Hero Powers.', 'power': 3, 'toughness': 5, 'types': {CardType.MINION}},
-    {'name': 'Emerald Drake', 'mana_cost': '{4}', 'text': '', 'power': 7, 'toughness': 6, 'types': {CardType.MINION}, 'subtypes': {'Dragon'}},
+    DREAM,
+    NIGHTMARE,
+    YSERA_AWAKENS,
+    LAUGHING_SISTER,
+    EMERALD_DRAKE,
 ]
 
 def ysera_setup(obj: GameObject, state: GameState):

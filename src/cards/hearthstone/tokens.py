@@ -155,7 +155,8 @@ HYENA = make_minion(
     text=""
 )
 
-# Animal Companion tokens
+# Beast tokens
+# Panther is used by Druid's Power of the Wild ("Summon a 3/2 Panther").
 PANTHER = make_minion(
     name="Panther",
     attack=3,

@@ -209,7 +209,6 @@ def holy_nova_effect(obj: GameObject, state: GameState, targets: list) -> list[E
         m = state.objects.get(mid)
         if m and m.state.damage > 0:
             heal_amount = min(m.state.damage, 2)
-            m.state.damage -= heal_amount
             events.append(Event(
                 type=EventType.LIFE_CHANGE,
                 payload={'object_id': mid, 'amount': heal_amount},
@@ -360,7 +359,6 @@ def lightwell_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         else:
             m = s.objects[choice_id]
             heal_amount = min(m.state.damage, 3)
-            m.state.damage -= heal_amount
             return InterceptorResult(
                 action=InterceptorAction.REACT,
                 new_events=[Event(
@@ -682,7 +680,6 @@ def circle_of_healing_effect(obj: GameObject, state: GameState, targets: list) -
         m = state.objects.get(mid)
         if m and m.state.damage > 0:
             heal_amount = min(m.state.damage, 4)
-            m.state.damage -= heal_amount
             events.append(Event(
                 type=EventType.LIFE_CHANGE,
                 payload={'object_id': mid, 'amount': heal_amount},

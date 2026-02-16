@@ -90,12 +90,17 @@ ROCKBITER_WEAPON = make_spell(
 def windfury_spell_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
     """Give a friendly minion Windfury."""
     friendly = get_friendly_minions(obj, state, exclude_self=False)
-    if friendly:
-        target_id = random.choice(friendly)
-        target = state.objects.get(target_id)
-        if target and target.zone == ZoneType.BATTLEFIELD:
-            target.state.windfury = True
-    return []
+    if not friendly:
+        return []
+
+    target_id = targets[0] if targets else random.choice(friendly)
+    if target_id not in friendly:
+        return []
+    return [Event(
+        type=EventType.KEYWORD_GRANT,
+        payload={'object_id': target_id, 'keyword': 'windfury', 'duration': 'permanent'},
+        source=obj.id
+    )]
 
 
 WINDFURY_SPELL = make_spell(
@@ -158,37 +163,32 @@ def hex_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
     if not enemies:
         return []
 
-    target_id = random.choice(enemies)
+    target_id = targets[0] if targets else random.choice(enemies)
+    if target_id not in enemies:
+        return []
     target = state.objects.get(target_id)
     if not target or target.zone != ZoneType.BATTLEFIELD:
         return []
 
-    # Transform into Frog
-    target.characteristics.power = 0
-    target.characteristics.toughness = 1
-    target.characteristics.abilities = [{'keyword': 'taunt'}]
-    target.characteristics.subtypes = {"Beast"}
-    target.name = "Frog"
-    target.state.damage = 0
-    target.state.divine_shield = False
-    target.state.stealth = False
-    target.state.windfury = False
-    target.state.frozen = False
-    target.state.summoning_sickness = True
-
-    if hasattr(target.state, 'pt_modifiers'):
-        target.state.pt_modifiers = []
-
-    # Remove all interceptors
-    for int_id in list(target.interceptor_ids):
-        if int_id in state.interceptors:
-            del state.interceptors[int_id]
-    target.interceptor_ids.clear()
-    target.card_def = None
-
     return [Event(
         type=EventType.TRANSFORM,
-        payload={'object_id': target_id, 'new_name': 'Frog'},
+        payload={
+            'object_id': target_id,
+            'new_name': 'Frog',
+            'new_characteristics': {
+                'power': 0,
+                'toughness': 1,
+                'subtypes': {'Beast'},
+                'abilities': [{'keyword': 'taunt'}],
+            },
+            'reset_damage': True,
+            'reset_counters': True,
+            'reset_pt_modifiers': True,
+            'reset_state_flags': True,
+            'summoning_sickness': True,
+            'clear_interceptors': True,
+            'clear_card_def': True,
+        },
         source=obj.id
     )]
 
@@ -494,18 +494,37 @@ STORMFORGED_AXE = make_weapon(
 
 def unbound_elemental_setup(obj, state):
     """Whenever you play a card with Overload, gain +1/+1."""
-    def overload_filter(event, s):
-        # Trigger when any spell/minion with overload is played by same controller
-        if event.type not in (EventType.CAST, EventType.SPELL_CAST, EventType.ZONE_CHANGE):
+    def _is_overload_card(card_obj):
+        if not card_obj:
             return False
-        # Check if the source card has overload text (simplified check)
-        source_id = event.payload.get('spell_id') or event.payload.get('object_id') or event.source
-        source_obj = s.objects.get(source_id)
-        if source_obj and source_obj.controller == obj.controller:
-            card_def = getattr(source_obj, 'card_def', None)
-            if card_def and 'Overload' in (getattr(card_def, 'text', '') or ''):
-                return True
-        return False
+        card_def = getattr(card_obj, 'card_def', None)
+        text = getattr(card_def, 'text', '') if card_def else ''
+        return isinstance(text, str) and 'Overload' in text
+
+    def overload_filter(event, s):
+        source_obj = None
+
+        # Spells: SPELL_CAST carries spell_id/source.
+        if event.type in (EventType.CAST, EventType.SPELL_CAST):
+            source_id = event.payload.get('spell_id') or event.source
+            source_obj = s.objects.get(source_id)
+        # Minions/weapons: detect being played from hand to battlefield.
+        elif event.type == EventType.ZONE_CHANGE:
+            if event.payload.get('from_zone_type') != ZoneType.HAND:
+                return False
+            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+                return False
+            source_obj = s.objects.get(event.payload.get('object_id'))
+        else:
+            return False
+
+        if not source_obj:
+            return False
+        if source_obj.id == obj.id:
+            return False
+        if source_obj.controller != obj.controller:
+            return False
+        return _is_overload_card(source_obj)
 
     def gain_stats(event, s):
         return InterceptorResult(
@@ -779,19 +798,19 @@ def ancestral_healing_effect(obj: GameObject, state: GameState, targets: list) -
     if not all_minions:
         return []
 
-    target_id = random.choice(all_minions)
+    target_id = targets[0] if targets else random.choice(all_minions)
+    if target_id not in all_minions:
+        return []
     target = state.objects.get(target_id)
     if not target or target.zone != ZoneType.BATTLEFIELD:
         return []
 
     events = []
-    # Heal to full via clearing damage
+    # Heal to full.
     if target.state.damage > 0:
-        heal_amount = target.state.damage
-        target.state.damage = 0
         events.append(Event(
             type=EventType.LIFE_CHANGE,
-            payload={'target': target_id, 'amount': heal_amount},
+            payload={'object_id': target_id, 'amount': target.state.damage},
             source=obj.id
         ))
 
