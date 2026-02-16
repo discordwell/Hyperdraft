@@ -12,14 +12,16 @@ Tests for the MHA custom card set including:
 
 import sys
 import os
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Avoid importing from __init__.py which has broken imports
 # Import directly from the module file
 import importlib.util
 spec = importlib.util.spec_from_file_location(
     "my_hero_academia",
-    "/Users/discordwell/Projects/Hyperdraft/src/cards/custom/my_hero_academia.py"
+    str(PROJECT_ROOT / "src/cards/custom/my_hero_academia.py")
 )
 mha_module = importlib.util.module_from_spec(spec)
 sys.modules["my_hero_academia"] = mha_module

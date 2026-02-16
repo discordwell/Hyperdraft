@@ -14,7 +14,9 @@ Tests cover:
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color,
@@ -23,7 +25,10 @@ from src.engine import (
 
 # Import directly from the module to avoid __init__.py issues
 import importlib.util
-spec = importlib.util.spec_from_file_location("demon_slayer", "/Users/discordwell/Projects/Hyperdraft/src/cards/custom/demon_slayer.py")
+spec = importlib.util.spec_from_file_location(
+    "demon_slayer",
+    str(PROJECT_ROOT / "src/cards/custom/demon_slayer.py")
+)
 demon_slayer_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(demon_slayer_module)
 DEMON_SLAYER_CARDS = demon_slayer_module.DEMON_SLAYER_CARDS

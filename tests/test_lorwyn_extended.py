@@ -14,7 +14,9 @@ Focus on:
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.engine import Game, Event, EventType, ZoneType, CardType, Color, get_power, get_toughness
 
@@ -22,7 +24,7 @@ from src.engine import Game, Event, EventType, ZoneType, CardType, Color, get_po
 import importlib.util
 _spec = importlib.util.spec_from_file_location(
     'lorwyn_custom',
-    '/Users/discordwell/Projects/Hyperdraft/src/cards/custom/lorwyn_custom.py'
+    str(PROJECT_ROOT / "src/cards/custom/lorwyn_custom.py")
 )
 _lorwyn_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_lorwyn_mod)

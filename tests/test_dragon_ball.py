@@ -13,7 +13,9 @@ Tests for mechanics:
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import engine components
 from src.engine.types import (
@@ -27,7 +29,7 @@ from src.engine.queries import get_power, get_toughness, has_ability
 import importlib.util
 spec = importlib.util.spec_from_file_location(
     "dragon_ball",
-    "/Users/discordwell/Projects/Hyperdraft/src/cards/custom/dragon_ball.py"
+    str(PROJECT_ROOT / "src/cards/custom/dragon_ball.py")
 )
 dragon_ball = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dragon_ball)

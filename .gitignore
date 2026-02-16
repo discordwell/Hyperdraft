@@ -31,6 +31,7 @@ oldpad.md
 # Dependencies
 node_modules/
 package-lock.json
+!frontend/package-lock.json
 yarn.lock
 
 # Generated content

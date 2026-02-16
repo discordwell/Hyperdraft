@@ -11,10 +11,11 @@ Tests for ~250 cards featuring AOT characters and mechanics:
 
 import sys
 import os
+from pathlib import Path
 
 # Add project root to path
-project_root = '/Users/discordwell/Projects/Hyperdraft'
-sys.path.insert(0, project_root)
+project_root = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(project_root))
 os.chdir(project_root)
 
 from src.engine import (

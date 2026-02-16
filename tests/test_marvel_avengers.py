@@ -13,7 +13,9 @@ Tests cover:
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import engine components
 from src.engine.types import (
@@ -26,7 +28,7 @@ from src.engine.queries import get_power, get_toughness
 import importlib.util
 spec = importlib.util.spec_from_file_location(
     "marvel_avengers",
-    "/Users/discordwell/Projects/Hyperdraft/src/cards/custom/marvel_avengers.py"
+    str(PROJECT_ROOT / "src/cards/custom/marvel_avengers.py")
 )
 marvel_module = importlib.util.module_from_spec(spec)
 sys.modules["marvel_avengers"] = marvel_module

@@ -11,9 +11,11 @@ Tests cover:
 
 import sys
 import os
+from pathlib import Path
 
 # Add project root to path
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import directly without going through __init__.py to avoid missing module errors
 from src.engine import (
@@ -25,7 +27,7 @@ from src.engine import (
 import importlib.util
 spec = importlib.util.spec_from_file_location(
     "studio_ghibli",
-    "/Users/discordwell/Projects/Hyperdraft/src/cards/custom/studio_ghibli.py"
+    str(PROJECT_ROOT / "src/cards/custom/studio_ghibli.py")
 )
 studio_ghibli = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(studio_ghibli)
