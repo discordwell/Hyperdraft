@@ -26,6 +26,11 @@ async def test_fatigue_damage_progression():
     game.setup_hearthstone_player(p1, HEROES["Mage"], HERO_POWERS["Mage"])
     game.setup_hearthstone_player(p2, HEROES["Warrior"], HERO_POWERS["Warrior"])
 
+    # Seed decks so opening hand draws don't trigger fatigue before test setup.
+    for _ in range(10):
+        game.add_card_to_library(p1.id, CHILLWIND_YETI)
+        game.add_card_to_library(p2.id, CHILLWIND_YETI)
+
     await game.start_game()
 
     # Empty P1's deck completely
@@ -75,6 +80,11 @@ async def test_fatigue_lethal():
 
     game.setup_hearthstone_player(p1, HEROES["Mage"], HERO_POWERS["Mage"])
     game.setup_hearthstone_player(p2, HEROES["Warrior"], HERO_POWERS["Warrior"])
+
+    # Seed decks so opening hand draws don't trigger fatigue before test setup.
+    for _ in range(10):
+        game.add_card_to_library(p1.id, CHILLWIND_YETI)
+        game.add_card_to_library(p2.id, CHILLWIND_YETI)
 
     await game.start_game()
 
@@ -155,7 +165,12 @@ async def test_fatigue_in_full_turn():
     game.setup_hearthstone_player(p1, HEROES["Mage"], HERO_POWERS["Mage"])
     game.setup_hearthstone_player(p2, HEROES["Warrior"], HERO_POWERS["Warrior"])
 
-    # Add cards for P2 only
+    # Seed both decks so opening hand draws don't trigger fatigue before setup.
+    for _ in range(10):
+        game.add_card_to_library(p1.id, CHILLWIND_YETI)
+        game.add_card_to_library(p2.id, CHILLWIND_YETI)
+
+    # Add extra cards for P2 only
     for _ in range(30):
         game.add_card_to_library(p2.id, CHILLWIND_YETI)
 
