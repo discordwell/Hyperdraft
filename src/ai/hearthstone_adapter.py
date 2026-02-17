@@ -92,6 +92,10 @@ class HearthstoneAIAdapter:
         diff = self._get_difficulty(player_id)
         return self.HS_DIFFICULTY_SETTINGS.get(diff, self.HS_DIFFICULTY_SETTINGS['medium'])
 
+    def _is_ultra(self, player_id: str = None) -> bool:
+        """True when this player is running Ultra difficulty."""
+        return self._get_difficulty(player_id) == 'ultra'
+
     # ─── Turn Execution ─────────────────────────────────────────
 
     async def take_turn(self, player_id: str, game_state: 'GameState', game) -> list['Event']:
@@ -906,7 +910,7 @@ class HearthstoneAIAdapter:
     def _smart_spell_targeting(self, card: 'GameObject', state: 'GameState', player_id: str) -> list[list[str]]:
         """Category-based spell targeting for hard/ultra."""
         from src.engine.types import CardType
-        from src.engine.queries import get_toughness
+        from src.engine.queries import get_toughness, has_ability
 
         card_def = card.card_def
         text = (card_def.text or '').lower() if card_def else ''
@@ -937,6 +941,8 @@ class HearthstoneAIAdapter:
         # Category: Burn / damage spell with target
         dmg_match = re.search(r'deal\s+(\d+)\s+damage', text)
         if dmg_match:
+            spell_damage = int(dmg_match.group(1))
+
             # Check lethal: if burn to face wins the game, go face
             settings = self._get_hs_settings(player_id)
             if settings['use_lethal_calc']:
@@ -944,15 +950,39 @@ class HearthstoneAIAdapter:
                 if lethal_info['is_lethal'] and enemy_hero_id:
                     return [[enemy_hero_id]]
 
-            # Otherwise, target highest threat minion
             valid = [m for m in enemy_minions if m in state.objects]
-            if valid:
-                best = max(valid, key=lambda m: self._score_threat(state.objects[m], state))
-                return [[best]]
-            # No minions, go face
+            if not valid:
+                return [[enemy_hero_id]] if enemy_hero_id else []
+
+            # Prefer killable threats to avoid wasting burn on unkillable targets.
+            killable = []
+            for minion_id in valid:
+                minion = state.objects[minion_id]
+                minion_health = get_toughness(minion, state) - minion.state.damage
+                has_shield = has_ability(minion, 'divine_shield', state) or minion.state.divine_shield
+                if has_shield:
+                    continue  # Single damage spell usually just pops shield
+                if minion_health <= spell_damage:
+                    threat = self._score_threat(minion, state)
+                    # Slight preference for lower overkill while still valuing threat.
+                    overkill = spell_damage - minion_health
+                    score = (threat * 10.0) - overkill
+                    killable.append((minion_id, score))
+
+            if killable:
+                killable.sort(key=lambda x: x[1], reverse=True)
+                return [[killable[0][0]]]
+
+            # No killable minion: Ultra pushes face more aggressively when ahead.
             if enemy_hero_id:
-                return [[enemy_hero_id]]
-            return []
+                board_score = self._evaluate_board_state(player_id, state)
+                archetype = self._detect_deck_archetype(player_id, state)
+                if self._is_ultra(player_id) and (board_score > 0.20 or archetype == 'aggro'):
+                    return [[enemy_hero_id]]
+
+            # Otherwise, remove the highest threat even if unkillable.
+            best = max(valid, key=lambda m: self._score_threat(state.objects[m], state))
+            return [[best]]
 
         # Category: Buff spell → target own minions
         if '+' in text or 'give' in text or 'gains' in text:
@@ -1353,6 +1383,32 @@ class HearthstoneAIAdapter:
             ]
             if favorable:
                 favorable.sort(key=lambda x: x[1], reverse=True)
+                # Ultra: deterministic face-vs-trade using board state and archetype,
+                # no random coin-flips once favorable trades exist.
+                if self._is_ultra(player_id):
+                    board_score = self._evaluate_board_state(player_id, state)
+                    enemy_effective_hp = enemy_player.life + enemy_player.armor
+                    best_trade_id = favorable[0][0]
+                    best_trade_threat = favorable[0][1]
+
+                    if archetype == 'control':
+                        return best_trade_id
+
+                    # When behind/even, stabilize with trades.
+                    if board_score <= 0.15:
+                        return best_trade_id
+
+                    # Respect very high-threat enemy minions.
+                    if best_trade_threat >= 10 and board_score < 0.45:
+                        return best_trade_id
+
+                    # If face clock is slow, trade first.
+                    if enemy_effective_hp > attacker_power * 2:
+                        return best_trade_id
+
+                    # Otherwise push face pressure.
+                    return enemy_player.hero_id
+
                 # Trade or face based on archetype ratio
                 if random.random() >= face_ratio:
                     return favorable[0][0]
