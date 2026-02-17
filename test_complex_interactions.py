@@ -103,10 +103,11 @@ async def test_freeze_unfreezes_next_turn():
 
     print(f"  Frozen before turn: {frozen.state.frozen}")
 
-    # Run P1's turn (minion's controller's turn)
+    # Run and end P1's turn (freeze clears in end-phase cleanup).
     await game.turn_manager.run_turn(p1.id)
+    await game.turn_manager.end_turn()
 
-    print(f"  Frozen after turn: {frozen.state.frozen}")
+    print(f"  Frozen after turn end: {frozen.state.frozen}")
 
     if not frozen.state.frozen:
         print(f"  ✓ Minion unfroze at start of turn")

@@ -18,12 +18,26 @@ import random
 # Spell Effects
 # =============================================================================
 
+
+def _first_target_id(targets: list):
+    """Return the first target id, tolerating legacy nested target shapes."""
+    if not targets:
+        return None
+
+    target = targets[0]
+    while isinstance(target, (list, tuple)):
+        if not target:
+            return None
+        target = target[0]
+
+    return target
+
 def fireball_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
     """Fireball: Deal 6 damage."""
-    if not targets or not targets[0]:
+    target_id = _first_target_id(targets)
+    if not target_id:
         return []
 
-    target_id = targets[0]
     return [Event(
         type=EventType.DAMAGE,
         payload={'target': target_id, 'amount': 6, 'source': obj.id, 'from_spell': True},
@@ -33,10 +47,9 @@ def fireball_effect(obj: GameObject, state: GameState, targets: list) -> list[Ev
 
 def frostbolt_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
     """Frostbolt: Deal 3 damage and freeze."""
-    if not targets or not targets[0]:
+    target_id = _first_target_id(targets)
+    if not target_id:
         return []
-
-    target_id = targets[0]
 
     # Damage first, then freeze (both go through event pipeline)
     return [

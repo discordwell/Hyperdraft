@@ -2723,7 +2723,7 @@ def moment_of_valor_resolve(targets: list, state: GameState) -> list[Event]:
         else:
             valid = [obj.id for obj in state.objects.values()
                      if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
-                     and obj.power >= 4]
+                     and get_power(obj, state) >= 4]
         if not valid:
             return []
 
