@@ -334,8 +334,9 @@ def get_game_display(game, p1, p2, state_data) -> str:
         for oid in battlefield.objects:
             obj = game.state.objects.get(oid)
             if obj and obj.controller == p2.id and CardType.MINION in obj.characteristics.types:
-                hp = obj.characteristics.toughness - obj.state.damage
-                atk = obj.characteristics.power
+                from src.engine.queries import get_toughness, get_power
+                hp = get_toughness(obj, game.state) - obj.state.damage
+                atk = get_power(obj, game.state)
                 has_taunt = any(isinstance(a, dict) and a.get('keyword') == 'taunt'
                                 for a in (obj.characteristics.abilities or []))
                 t = " TAUNT" if has_taunt else ""
@@ -356,8 +357,9 @@ def get_game_display(game, p1, p2, state_data) -> str:
         for oid in battlefield.objects:
             obj = game.state.objects.get(oid)
             if obj and obj.controller == p1.id and CardType.MINION in obj.characteristics.types:
-                hp = obj.characteristics.toughness - obj.state.damage
-                atk = obj.characteristics.power
+                from src.engine.queries import get_toughness, get_power
+                hp = get_toughness(obj, game.state) - obj.state.damage
+                atk = get_power(obj, game.state)
                 has_taunt = any(isinstance(a, dict) and a.get('keyword') == 'taunt'
                                 for a in (obj.characteristics.abilities or []))
                 t = " TAUNT" if has_taunt else ""
