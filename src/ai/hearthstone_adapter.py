@@ -40,6 +40,8 @@ class HearthstoneAIAdapter:
             'use_synergy_scoring': False,
             'use_smart_hero_power': False,
             'use_archetype_detect': False,
+            'use_lethal_prevention': False,
+            'use_lethal_first_plays': False,
         },
         'medium': {
             'random_factor': 0.15,
@@ -50,6 +52,8 @@ class HearthstoneAIAdapter:
             'use_synergy_scoring': False,
             'use_smart_hero_power': False,
             'use_archetype_detect': False,
+            'use_lethal_prevention': False,
+            'use_lethal_first_plays': False,
         },
         'hard': {
             'random_factor': 0.05,
@@ -60,6 +64,8 @@ class HearthstoneAIAdapter:
             'use_synergy_scoring': True,
             'use_smart_hero_power': True,
             'use_archetype_detect': False,
+            'use_lethal_prevention': True,
+            'use_lethal_first_plays': False,
         },
         'ultra': {
             'random_factor': 0.0,
@@ -70,6 +76,8 @@ class HearthstoneAIAdapter:
             'use_synergy_scoring': True,
             'use_smart_hero_power': True,
             'use_archetype_detect': True,
+            'use_lethal_prevention': True,
+            'use_lethal_first_plays': True,
         },
     }
 
@@ -80,6 +88,8 @@ class HearthstoneAIAdapter:
         self.player_difficulties: dict[str, str] = {}
         # Cache for deck archetype detection (computed once per player per game)
         self._cached_archetype: dict[str, str] = {}
+        # Per-turn survival mode cache: {player_id: (turn_number, is_survival)}
+        self._survival_cache: dict[str, tuple[int, bool]] = {}
 
     def _get_difficulty(self, player_id: str = None) -> str:
         """Get difficulty for a specific player, falling back to default."""
@@ -387,6 +397,47 @@ class HearthstoneAIAdapter:
                     score += 10  # Need board presence
                 if 'taunt' in card.characteristics.keywords:
                     score += 15  # Need defense
+
+        # ── Survival mode scoring (hard+) ──
+        if settings.get('use_lethal_prevention') and self._is_in_survival_mode(player_id, state):
+            if CardType.MINION in card.characteristics.types:
+                if 'taunt' in card.characteristics.keywords:
+                    toughness = card.characteristics.toughness or 0
+                    score += 40 + toughness * 5
+            if 'armor' in card_text:
+                score += 30
+            if 'restore' in card_text or 'heal' in card_text:
+                score += 30
+            if CardType.SPELL in card.characteristics.types:
+                if 'deal' in card_text and 'damage' in card_text:
+                    score += 20  # Removal
+                elif 'destroy' in card_text:
+                    score += 20  # Removal
+                elif 'draw' in card_text and 'deal' not in card_text:
+                    score -= 15  # Slow value play when facing lethal
+
+        # ── Lethal-first scoring (ultra) ──
+        if settings.get('use_lethal_first_plays'):
+            lethal_info = self._calculate_lethal(player_id, state)
+            if lethal_info['is_lethal']:
+                # We already have lethal — prioritize finishing moves
+                if CardType.SPELL in card.characteristics.types:
+                    if 'deal' in card_text and 'damage' in card_text:
+                        score += 100  # Burn spells
+                if CardType.MINION in card.characteristics.types:
+                    if 'charge' in card.characteristics.keywords or 'haste' in card.characteristics.keywords:
+                        score += 80  # Charge minions for immediate damage
+            else:
+                # Check if playing this charge minion would enable lethal
+                if CardType.MINION in card.characteristics.types:
+                    if 'charge' in card.characteristics.keywords or 'haste' in card.characteristics.keywords:
+                        power = card.characteristics.power or 0
+                        opp_id = self._get_opponent_id(state, player_id)
+                        opp = state.players.get(opp_id) if opp_id else None
+                        if opp:
+                            opp_hp = opp.life + opp.armor
+                            if lethal_info['total_damage'] + power >= opp_hp:
+                                score += 90
 
         return score
 
@@ -841,6 +892,151 @@ class HearthstoneAIAdapter:
         result['burn_damage'] = burn_damage + hero_power_damage
         return result
 
+    # ─── Opponent Lethal Estimation ───────────────────────────────
+
+    def _get_friendly_taunt_minions(self, state: 'GameState', player_id: str) -> list[str]:
+        """Get all friendly minions with Taunt on the battlefield."""
+        from src.engine.types import CardType
+        from src.engine.queries import has_ability
+
+        battlefield = state.zones.get('battlefield')
+        if not battlefield:
+            return []
+
+        result = []
+        for obj_id in battlefield.objects:
+            obj = state.objects.get(obj_id)
+            if not obj or obj.controller != player_id:
+                continue
+            if CardType.MINION in obj.characteristics.types:
+                if has_ability(obj, 'taunt', state) and not obj.state.stealth:
+                    result.append(obj_id)
+        return result
+
+    def _estimate_opponent_lethal(self, player_id: str, state: 'GameState') -> dict:
+        """
+        Estimate if the opponent threatens lethal from their perspective.
+
+        Uses only public information (board state, hero power text).
+        Ultra adds a conservative hand burn estimate.
+
+        Returns:
+            dict with is_lethal, total_damage, board_damage, burn_estimate, hero_power_damage
+        """
+        from src.engine.queries import get_power, get_toughness, has_ability
+
+        result = {
+            'is_lethal': False,
+            'total_damage': 0,
+            'board_damage': 0,
+            'burn_estimate': 0,
+            'hero_power_damage': 0,
+        }
+
+        opponent_id = self._get_opponent_id(state, player_id)
+        if not opponent_id:
+            return result
+
+        opponent = state.players.get(opponent_id)
+        player = state.players.get(player_id)
+        if not opponent or not player:
+            return result
+
+        my_effective_hp = player.life + player.armor
+
+        # 1. Sum opponent minion attack power on board
+        board_damage = 0
+        opp_minions = self._get_enemy_minions(state, player_id)
+        for m_id in opp_minions:
+            m = state.objects.get(m_id)
+            if not m:
+                continue
+            power = get_power(m, state)
+            if has_ability(m, 'windfury', state):
+                power *= 2
+            # Skip minions that can't attack (Ancient Watcher, etc.)
+            if has_ability(m, 'cant_attack', state):
+                continue
+            board_damage += power
+
+        # 2. Subtract our taunt wall
+        taunt_wall = 0
+        friendly_taunts = self._get_friendly_taunt_minions(state, player_id)
+        for t_id in friendly_taunts:
+            t = state.objects.get(t_id)
+            if t:
+                t_health = get_toughness(t, state) - t.state.damage
+                if has_ability(t, 'divine_shield', state) or t.state.divine_shield:
+                    t_health += t_health  # Need extra hit to pop shield
+                taunt_wall += t_health
+
+        board_through = max(0, board_damage - taunt_wall)
+
+        # 3. Opponent hero power damage
+        hero_power_damage = 0
+        if not opponent.hero_power_used and opponent.hero_power_id:
+            hp_obj = state.objects.get(opponent.hero_power_id)
+            if hp_obj and hp_obj.card_def:
+                hp_text = (hp_obj.card_def.text or '').lower()
+                hp_dmg = re.search(r'deal\s+(\d+)\s+damage', hp_text)
+                if hp_dmg:
+                    hero_power_damage = int(hp_dmg.group(1))
+
+        # 4. Opponent weapon damage
+        weapon_damage = 0
+        if opponent.weapon_attack > 0 and opponent.weapon_durability > 0:
+            weapon_damage = opponent.weapon_attack
+
+        # 5. Ultra only: conservative burn estimate from hand
+        burn_estimate = 0
+        if self._is_ultra(player_id):
+            opp_hand = state.zones.get(f'hand_{opponent_id}')
+            if opp_hand:
+                burn_estimate = len(opp_hand.objects) * 1.0
+
+        total_damage = board_through + hero_power_damage + weapon_damage + burn_estimate
+        result['is_lethal'] = total_damage >= my_effective_hp
+        result['total_damage'] = total_damage
+        result['board_damage'] = board_through
+        result['burn_estimate'] = burn_estimate
+        result['hero_power_damage'] = hero_power_damage
+        return result
+
+    def _is_in_survival_mode(self, player_id: str, state: 'GameState') -> bool:
+        """
+        Check if the AI should enter survival mode (defensive priority).
+
+        Hard+: True when opponent threatens lethal.
+        Ultra: also True when opponent damage >= 75% of our effective HP.
+
+        Cached per turn to avoid recomputation.
+        """
+        settings = self._get_hs_settings(player_id)
+        if not settings.get('use_lethal_prevention'):
+            return False
+
+        player = state.players.get(player_id)
+        if not player:
+            return False
+
+        # Check cache (keyed by player_id and turn number)
+        turn_number = getattr(state, 'turn_number', 0)
+        cached = self._survival_cache.get(player_id)
+        if cached and cached[0] == turn_number:
+            return cached[1]
+
+        lethal_info = self._estimate_opponent_lethal(player_id, state)
+        in_survival = lethal_info['is_lethal']
+
+        # Ultra: also trigger when damage >= 75% of effective HP
+        if not in_survival and self._is_ultra(player_id):
+            my_effective_hp = player.life + player.armor
+            if my_effective_hp > 0 and lethal_info['total_damage'] >= my_effective_hp * 0.75:
+                in_survival = True
+
+        self._survival_cache[player_id] = (turn_number, in_survival)
+        return in_survival
+
     # ─── Spell Targeting ─────────────────────────────────────────
 
     def _choose_spell_targets(self, card: 'GameObject', state: 'GameState', player_id: str) -> list[list[str]]:
@@ -1018,6 +1214,13 @@ class HearthstoneAIAdapter:
 
         hp_text = (hp_obj.card_def.text or '').lower()
 
+        # In survival mode, early-use armor/heal hero powers too
+        if self._is_in_survival_mode(player_id, state):
+            if 'armor' in hp_text or 'restore' in hp_text or 'heal' in hp_text:
+                hp_cost = self._get_mana_cost(hp_obj) or 2
+                if player.mana_crystals_available >= hp_cost:
+                    return True
+
         # Only early-use for draw effects (Life Tap)
         if 'draw' not in hp_text:
             return False
@@ -1088,16 +1291,18 @@ class HearthstoneAIAdapter:
                         return False
 
                 # Lesser Heal: skip if at full HP and no damaged friendlies
+                # (unless in survival mode — always heal then)
                 elif 'restore' in hp_text or 'heal' in hp_text:
-                    if player.life >= player.max_life:
-                        friendly_minions = self._get_friendly_minions(state, player_id)
-                        has_damaged = any(
-                            state.objects[mid].state.damage > 0
-                            for mid in friendly_minions
-                            if mid in state.objects
-                        )
-                        if not has_damaged:
-                            return False
+                    if not self._is_in_survival_mode(player_id, state):
+                        if player.life >= player.max_life:
+                            friendly_minions = self._get_friendly_minions(state, player_id)
+                            has_damaged = any(
+                                state.objects[mid].state.damage > 0
+                                for mid in friendly_minions
+                                if mid in state.objects
+                            )
+                            if not has_damaged:
+                                return False
 
                 # Shapeshift (+1 Attack): use only if hero can attack
                 elif '+1 attack' in hp_text or 'shapeshift' in hp_text:
@@ -1357,6 +1562,30 @@ class HearthstoneAIAdapter:
         effective_hp = enemy_player.life + enemy_player.armor
         if effective_hp <= attacker_power:
             return enemy_player.hero_id  # Kill shot!
+
+        # Survival mode: prefer trades to reduce incoming damage
+        if settings.get('use_lethal_prevention') and self._is_in_survival_mode(player_id, state):
+            enemy_minions_for_trade = self._get_enemy_minions(state, player_id)
+            if enemy_minions_for_trade:
+                # Prefer favorable trades, sorted by threat (highest first)
+                favorable = [
+                    (m, self._score_threat(state.objects[m], state))
+                    for m in enemy_minions_for_trade
+                    if m in state.objects and self._is_favorable_trade(attacker_id, m, state, player_id)
+                ]
+                if favorable:
+                    favorable.sort(key=lambda x: x[1], reverse=True)
+                    return favorable[0][0]
+                # No favorable trade — still trade into highest-threat minion
+                # rather than going face when facing lethal
+                threats = [
+                    (m, self._score_threat(state.objects[m], state))
+                    for m in enemy_minions_for_trade
+                    if m in state.objects
+                ]
+                if threats:
+                    threats.sort(key=lambda x: x[1], reverse=True)
+                    return threats[0][0]
 
         # Determine face-vs-trade ratio based on archetype
         if settings['use_archetype_detect']:
