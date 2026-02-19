@@ -58,6 +58,7 @@ class GameSession:
     is_started: bool = False
     is_finished: bool = False
     winner_id: Optional[str] = None
+    display_variant: Optional[str] = None  # Game variant (e.g. "stormrift") sent to clients
 
     # Replay recording
     replay_frames: list[ReplayFrame] = field(default_factory=list)
@@ -250,6 +251,10 @@ class GameSession:
                 ai_adapter.player_difficulties[pid] = player_diff
 
             self.game.set_hearthstone_ai_handler(ai_adapter)
+
+            # Wire human action handler for HS mode with human players
+            if self.human_players:
+                self.game.turn_manager.human_action_handler = self._get_hs_human_action
         else:
             # MTG mode - prepare AI layers before the first priority decision
             await self._prepare_ai_layers()
@@ -262,24 +267,50 @@ class GameSession:
     async def run_until_human_input(self) -> None:
         """Run the game until human input is needed or game ends."""
         try:
-            while not self.is_finished:
-                # Check for pending choices that AI needs to handle
-                await self._process_ai_pending_choices()
-
-                # Run one priority cycle
-                await self.game.turn_manager.run_turn()
-
-                # Check for AI choices again after the turn
-                await self._process_ai_pending_choices()
-
-                # Check if game is over
-                if self.game.is_game_over():
-                    self.is_finished = True
-                    self.winner_id = self.game.get_winner()
-                    break
-
+            if self.game.state.game_mode == "hearthstone":
+                await self._run_hs_game_loop()
+            else:
+                await self._run_mtg_game_loop()
         except asyncio.CancelledError:
             pass
+
+    async def _run_mtg_game_loop(self) -> None:
+        """MTG game loop - runs until human input needed or game ends."""
+        while not self.is_finished:
+            await self._process_ai_pending_choices()
+            await self.game.turn_manager.run_turn()
+            await self._process_ai_pending_choices()
+
+            if self.game.is_game_over():
+                self.is_finished = True
+                self.winner_id = self.game.get_winner()
+                break
+
+    async def _run_hs_game_loop(self) -> None:
+        """
+        Hearthstone game loop.
+
+        run_turn() blocks during human turns (via future) and auto-executes
+        AI turns, so we just keep calling it in a loop.
+        """
+        while not self.is_finished:
+            await self.game.turn_manager.run_turn()
+
+            if self.game.is_game_over():
+                self.is_finished = True
+                self.winner_id = self.game.get_winner()
+                # Notify clients of game over
+                if self.on_state_change:
+                    for pid in self.human_players:
+                        state = self.get_client_state(pid)
+                        await self.on_state_change(pid, state.model_dump())
+                break
+
+            # After each turn completes, broadcast updated state
+            if self.on_state_change:
+                for pid in self.human_players:
+                    state = self.get_client_state(pid)
+                    await self.on_state_change(pid, state.model_dump())
 
     async def _process_ai_pending_choices(self) -> None:
         """Process any pending choices for AI players."""
@@ -439,6 +470,7 @@ class GameSession:
             pending_choice=pending_choice_data,
             waiting_for_choice=waiting_for_choice_data,
             game_mode=game_state.game_mode,
+            variant=self.display_variant,
             max_hand_size=game_state.max_hand_size
         )
 
@@ -448,6 +480,10 @@ class GameSession:
 
         Returns (success, message).
         """
+        # Route HS actions to dedicated handler
+        if request.action_type in ("HS_PLAY_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN"):
+            return await self.handle_hs_action(request)
+
         # Combat declarations are not wired through the priority action loop yet.
         if request.action_type in ("DECLARE_ATTACKERS", "DECLARE_BLOCKERS"):
             return False, "Manual combat declarations are not supported via /action yet"
@@ -489,6 +525,101 @@ class GameSession:
 
             # Give the game loop a chance to advance (AI actions, phase changes)
             # by yielding control briefly
+            await asyncio.sleep(0.05)
+
+            return True, "Action accepted"
+
+        return False, "No pending action expected"
+
+    # === Hearthstone Human Action Handling =====================================
+
+    async def _get_hs_human_action(self, player_id: str, game_state: GameState) -> dict:
+        """
+        Callback for HearthstoneTurnManager.human_action_handler.
+
+        Blocks (via asyncio.Future) until the client submits an HS action.
+        Returns an action dict with 'action_type' and relevant fields.
+        """
+        # Signal that the *previous* action has been fully processed
+        if self._action_processed_event:
+            self._action_processed_event.set()
+            self._action_processed_event = None
+
+        loop = asyncio.get_event_loop()
+        self._pending_action_future = loop.create_future()
+        self._pending_player_id = player_id
+        self._action_processed_event = asyncio.Event()
+
+        # Notify the client they need to act (send updated state)
+        if self.on_state_change:
+            for pid in self.human_players:
+                state = self.get_client_state(pid)
+                await self.on_state_change(pid, state.model_dump())
+
+        # Wait for the action
+        try:
+            action = await asyncio.wait_for(self._pending_action_future, timeout=300.0)
+            return action
+        except asyncio.TimeoutError:
+            return {'action_type': 'HS_END_TURN'}
+
+    async def handle_hs_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
+        """
+        Handle a Hearthstone-specific player action.
+
+        Validates the player is active and resolves the pending future.
+        """
+        # Validate it's this player's turn
+        active_player = self.game.get_active_player()
+        if request.player_id != active_player:
+            return False, "Not your turn"
+
+        # Build HS action dict from the request
+        target_id = request.targets[0][0] if request.targets and request.targets[0] else None
+
+        # Validate attack has required fields
+        if request.action_type == 'HS_ATTACK':
+            if not request.source_id:
+                return False, "Attack requires an attacker (source_id)"
+            if not target_id:
+                return False, "Attack requires a target"
+
+        action_dict = {
+            'action_type': request.action_type,
+            'card_id': request.card_id,
+            'attacker_id': request.source_id,  # source_id used for attacker
+            'target_id': target_id,
+        }
+
+        # If we're waiting for this player's input, resolve the future
+        if (self._pending_action_future and
+            not self._pending_action_future.done() and
+            self._pending_player_id == request.player_id):
+
+            is_end_turn = request.action_type == 'HS_END_TURN'
+            processed_event = self._action_processed_event
+
+            self._pending_action_future.set_result(action_dict)
+
+            # Record the action
+            self._record_frame(action=request.model_dump())
+
+            # For end turn, the human loop breaks and won't call _get_hs_human_action
+            # again, so we wait longer for the AI turn + next human draw to complete.
+            timeout = 30.0 if is_end_turn else 5.0
+
+            if processed_event:
+                try:
+                    await asyncio.wait_for(processed_event.wait(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    pass
+
+            # Clear state AFTER processing completes
+            self._pending_action_future = None
+            self._pending_player_id = None
+            self._action_processed_event = None
+
+            # Yield briefly so the turn manager loop can advance
             await asyncio.sleep(0.05)
 
             return True, "Action accepted"

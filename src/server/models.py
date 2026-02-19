@@ -45,6 +45,11 @@ class ActionType(str, Enum):
     SPECIAL_ACTION = "SPECIAL_ACTION"
     DECLARE_ATTACKERS = "DECLARE_ATTACKERS"
     DECLARE_BLOCKERS = "DECLARE_BLOCKERS"
+    # Hearthstone action types
+    HS_PLAY_CARD = "HS_PLAY_CARD"
+    HS_ATTACK = "HS_ATTACK"
+    HS_HERO_POWER = "HS_HERO_POWER"
+    HS_END_TURN = "HS_END_TURN"
 
 
 class ChoiceType(str, Enum):
@@ -69,8 +74,10 @@ class CreateMatchRequest(BaseModel):
     mode: MatchMode = MatchMode.HUMAN_VS_BOT
     game_mode: Literal["mtg", "hearthstone"] = Field(
         default="mtg",
-        description="Rules mode for this match"
+        description="Rules engine: 'mtg' (priority/stack/lands) or 'hearthstone' (mana crystals/turn-based)"
     )
+    variant: Optional[str] = Field(default=None, description="Game variant (e.g. 'stormrift') — installs heroes/decks/modifiers")
+    hero_class: Optional[str] = Field(default=None, description="Hero class for variant (e.g. 'Pyromancer', 'Cryomancer')")
     player_deck: list[str] = Field(default_factory=list, description="List of card names (custom deck)")
     player_deck_id: Optional[str] = Field(default=None, description="Standard deck ID (e.g., 'mono_red_aggro')")
     player_name: str = Field(default="Player", description="Human player name")
@@ -248,6 +255,7 @@ class GameStateResponse(BaseModel):
     pending_choice: Optional[PendingChoiceData] = None  # Choice for this player
     waiting_for_choice: Optional[PendingChoiceWaitingData] = None  # Another player's choice
     game_mode: str = "mtg"  # "mtg" or "hearthstone"
+    variant: Optional[str] = None  # Game variant (e.g. "stormrift")
     max_hand_size: int = 7  # 7 for MTG, 10 for Hearthstone
 
 

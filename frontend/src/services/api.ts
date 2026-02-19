@@ -46,7 +46,7 @@ export const matchAPI = {
   listDecks: (): Promise<{ decks: any[]; total: number }> =>
     fetchAPI('/match/decks'),
 
-  create: (request: Partial<CreateMatchRequest> = {}): Promise<CreateMatchResponse> =>
+  create: (request: Partial<CreateMatchRequest> & { variant?: string; hero_class?: string } = {}): Promise<CreateMatchResponse> =>
     fetchAPI('/match/create', {
       method: 'POST',
       body: JSON.stringify({

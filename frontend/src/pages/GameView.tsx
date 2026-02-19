@@ -11,6 +11,7 @@ import { useGameStore } from '../stores/gameStore';
 import { useDragDropStore } from '../hooks/useDragDrop';
 import { GameBoard, GraveyardModal } from '../components/game';
 import { ActionMenu, TargetPicker, ChoiceModal } from '../components/actions';
+import { HSGameView } from './HSGameView';
 import { matchAPI } from '../services/api';
 import type { CardData, LegalActionData } from '../types';
 
@@ -353,6 +354,11 @@ export function GameView() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [ui.autoPassMode, ui.selectedAction, ui.targetingMode, setAutoPassMode, enablePassUntilEndOfTurn, canAct, pass]);
+
+  // Route to HS view for hearthstone-engine games
+  if (gameState?.game_mode === 'hearthstone') {
+    return <HSGameView />;
+  }
 
   // Loading state
   if (!gameState || !playerId) {
