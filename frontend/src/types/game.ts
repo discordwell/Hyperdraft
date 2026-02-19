@@ -15,7 +15,11 @@ export type ActionType =
   | 'PLAY_LAND'
   | 'SPECIAL_ACTION'
   | 'DECLARE_ATTACKERS'
-  | 'DECLARE_BLOCKERS';
+  | 'DECLARE_BLOCKERS'
+  | 'HS_PLAY_CARD'
+  | 'HS_ATTACK'
+  | 'HS_HERO_POWER'
+  | 'HS_END_TURN';
 
 export type Phase =
   | 'BEGINNING'
@@ -169,6 +173,7 @@ export interface GameState {
   winner: string | null;
   pending_choice?: PendingChoice | null;
   game_mode?: 'mtg' | 'hearthstone';
+  variant?: string | null;
   max_hand_size?: number;
 }
 
@@ -176,12 +181,14 @@ export interface GameState {
 export interface CreateMatchRequest {
   mode: MatchMode;
   game_mode?: 'mtg' | 'hearthstone';
+  variant?: string;
   player_deck?: string[];
   player_deck_id?: string;
   player_name: string;
   ai_difficulty?: AIDifficulty;
   ai_deck?: string[];
   ai_deck_id?: string;
+  hero_class?: string;
 }
 
 export interface CreateMatchResponse {

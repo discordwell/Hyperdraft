@@ -134,6 +134,10 @@ async def create_match(
         game_mode=request.game_mode,
     )
 
+    # Store variant for client display
+    if request.variant:
+        session.display_variant = request.variant
+
     # Add human player
     human_id = session.add_player(request.player_name, is_ai=False)
 
@@ -146,7 +150,39 @@ async def create_match(
     else:
         ai_id = None
 
-    if request.game_mode == "hearthstone":
+    # === Variant setup (installs heroes, decks, global modifiers) ===
+    if request.variant == "stormrift":
+        from src.cards.hearthstone.stormrift import (
+            STORMRIFT_HEROES, STORMRIFT_HERO_POWERS, STORMRIFT_DECKS,
+            install_stormrift_modifiers,
+        )
+
+        human_class = request.hero_class or "Pyromancer"
+        ai_class = "Cryomancer" if human_class == "Pyromancer" else "Pyromancer"
+
+        for pid in session.player_ids:
+            player = session.game.state.players.get(pid)
+            if not player:
+                continue
+            hero_class = human_class if pid == human_id else ai_class
+            session.game.setup_hearthstone_player(
+                player,
+                STORMRIFT_HEROES[hero_class],
+                STORMRIFT_HERO_POWERS[hero_class],
+            )
+
+        # Add Stormrift decks
+        human_deck = list(STORMRIFT_DECKS[human_class])
+        ai_deck_cards = list(STORMRIFT_DECKS[ai_class])
+
+        session.add_cards_to_deck(human_id, human_deck)
+        if request.mode == "human_vs_bot" and ai_id:
+            session.add_cards_to_deck(ai_id, ai_deck_cards)
+
+        # Install global modifiers (Rift Storm, Soul Residue, Arcane Feedback)
+        install_stormrift_modifiers(session.game)
+
+    elif request.game_mode == "hearthstone":
         # Hearthstone matches need heroes + hero powers + 30-card class decks.
         from src.cards.hearthstone.heroes import HEROES
         from src.cards.hearthstone.hero_powers import HERO_POWERS

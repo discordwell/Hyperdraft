@@ -60,6 +60,7 @@ class HearthstoneTurnManager(TurnManager):
         self.hs_turn_state = HearthstoneTurnState()
         self.hearthstone_ai_handler = None
         self.ai_players = set()  # Set of AI player IDs
+        self.human_action_handler = None  # async fn(player_id, game_state) -> action_dict
 
     async def run_turn(self, player_id: str = None) -> list[Event]:
         """
@@ -110,7 +111,12 @@ class HearthstoneTurnManager(TurnManager):
                 # Check SBAs after AI actions (minions may have died in combat)
                 await self._check_state_based_actions()
 
-        # End Phase (auto-end for AI, manual for humans)
+        # For human players with a handler, run the human action loop
+        elif self.human_action_handler and not self._is_ai_player(self.hs_turn_state.active_player_id):
+            human_events = await self._run_human_turn()
+            events.extend(human_events)
+
+        # End Phase (auto-end for AI, manual for humans handled inside _run_human_turn)
         # Skip if game is already over (e.g. AI lethal during main phase)
         if (not self._is_game_over() and
                 hasattr(self, 'hearthstone_ai_handler') and
@@ -256,6 +262,195 @@ class HearthstoneTurnManager(TurnManager):
         if self.pipeline:
             self.pipeline.emit(phase_event)
         events.append(phase_event)
+
+        return events
+
+    async def _run_human_turn(self) -> list[Event]:
+        """
+        Run a human player's main phase via the action handler callback.
+
+        Loops, calling human_action_handler to get each action, until
+        the player sends HS_END_TURN or the game ends.
+        """
+        events = []
+        player_id = self.hs_turn_state.active_player_id
+
+        for _ in range(200):  # Safety cap
+            if self._is_game_over():
+                break
+
+            # Wait for human input
+            action = await self.human_action_handler(player_id, self.state)
+            if action is None:
+                break
+
+            action_type = action.get('action_type', '')
+
+            if action_type == 'HS_END_TURN':
+                # End the turn
+                events.extend(await self.end_turn())
+                break
+
+            elif action_type == 'HS_PLAY_CARD':
+                card_id = action.get('card_id')
+                if card_id:
+                    play_events = await self._execute_human_card_play(card_id, player_id)
+                    events.extend(play_events)
+
+            elif action_type == 'HS_ATTACK':
+                attacker_id = action.get('attacker_id')
+                target_id = action.get('target_id')
+                if attacker_id and target_id and self.combat_manager:
+                    await self.combat_manager.declare_attack(attacker_id, target_id)
+
+            elif action_type == 'HS_HERO_POWER':
+                target_id = action.get('target_id')
+                # use_hero_power is on the Game object, get it via pipeline
+                game = None
+                if hasattr(self, 'pipeline') and hasattr(self.pipeline, 'game'):
+                    game = self.pipeline.game
+                elif hasattr(self.state, '_game'):
+                    game = self.state._game
+                if game:
+                    await game.use_hero_power(player_id, target_id)
+
+            # Check SBAs after each action
+            await self._check_state_based_actions()
+
+        return events
+
+    async def _execute_human_card_play(self, card_id: str, player_id: str) -> list[Event]:
+        """
+        Execute a card play from hand for a human player.
+
+        Reuses the same event emission pattern as stormrift_play.py.
+        """
+        import re as _re
+        events = []
+
+        obj = self.state.objects.get(card_id)
+        if not obj:
+            return events
+
+        player = self.state.players.get(player_id)
+        if not player:
+            return events
+
+        # Calculate mana cost
+        cost = 0
+        if obj.characteristics and obj.characteristics.mana_cost:
+            numbers = _re.findall(r'\{(\d+)\}', obj.characteristics.mana_cost)
+            cost = sum(int(n) for n in numbers)
+
+        # Check dynamic cost
+        if obj.card_def and hasattr(obj.card_def, 'dynamic_cost') and obj.card_def.dynamic_cost:
+            cost = obj.card_def.dynamic_cost(obj, self.state)
+
+        # Apply cost modifiers
+        for mod in player.cost_modifiers:
+            if mod.get('amount'):
+                cost = max(0, cost + mod['amount'])
+
+        if player.mana_crystals_available < cost:
+            return events
+
+        from .types import CardType
+
+        if CardType.MINION in obj.characteristics.types:
+            # Check board limit (7 minions max)
+            battlefield = self.state.zones.get('battlefield')
+            if battlefield:
+                my_minions = sum(
+                    1 for oid in battlefield.objects
+                    if oid in self.state.objects
+                    and self.state.objects[oid].controller == player_id
+                    and CardType.MINION in self.state.objects[oid].characteristics.types
+                )
+                if my_minions >= 7:
+                    return events
+
+            player.mana_crystals_available -= cost
+            zone_event = Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': card_id,
+                    'from_zone': f'hand_{player_id}',
+                    'from_zone_type': ZoneType.HAND,
+                    'to_zone': 'battlefield',
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                },
+                source=card_id,
+            )
+            if self.pipeline:
+                self.pipeline.emit(zone_event)
+            events.append(zone_event)
+            player.cards_played_this_turn += 1
+
+        elif CardType.SPELL in obj.characteristics.types:
+            player.mana_crystals_available -= cost
+
+            spell_event = Event(
+                type=EventType.SPELL_CAST,
+                payload={'spell_id': card_id, 'caster': player_id},
+                source=card_id,
+            )
+            if self.pipeline:
+                self.pipeline.emit(spell_event)
+            events.append(spell_event)
+
+            # Execute spell effect
+            card_def = obj.card_def
+            if card_def and card_def.spell_effect:
+                try:
+                    if self.pipeline:
+                        self.pipeline.sba_deferred = True
+                    effect_events = card_def.spell_effect(obj, self.state, [])
+                    for ev in effect_events:
+                        if self.pipeline:
+                            self.pipeline.emit(ev)
+                        events.append(ev)
+                finally:
+                    if self.pipeline:
+                        self.pipeline.sba_deferred = False
+                await self._check_state_based_actions()
+
+            # Move to graveyard
+            zone_event = Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': card_id,
+                    'from_zone': f'hand_{player_id}',
+                    'from_zone_type': ZoneType.HAND,
+                    'to_zone': f'graveyard_{player_id}',
+                    'to_zone_type': ZoneType.GRAVEYARD,
+                },
+                source=card_id,
+            )
+            if self.pipeline:
+                self.pipeline.emit(zone_event)
+            events.append(zone_event)
+            player.cards_played_this_turn += 1
+
+        elif CardType.WEAPON in obj.characteristics.types:
+            player.mana_crystals_available -= cost
+            zone_event = Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': card_id,
+                    'from_zone': f'hand_{player_id}',
+                    'from_zone_type': ZoneType.HAND,
+                    'to_zone': 'battlefield',
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                },
+                source=card_id,
+            )
+            if self.pipeline:
+                self.pipeline.emit(zone_event)
+            events.append(zone_event)
+            player.cards_played_this_turn += 1
+
+        # SBA check after play
+        await self._check_state_based_actions()
 
         return events
 

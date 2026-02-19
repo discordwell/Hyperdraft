@@ -25,6 +25,8 @@ export function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone'>('mtg');
+  const [hsVariant, setHsVariant] = useState<string | null>('stormrift');
+  const [heroClass, setHeroClass] = useState<string>('Pyromancer');
   const [playerName, setPlayerName] = useState('Player');
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard' | 'ultra'>('medium');
   const [decks, setDecks] = useState<DeckInfo[]>([]);
@@ -59,6 +61,8 @@ export function Home() {
       const response = await matchAPI.create({
         mode: 'human_vs_bot',
         game_mode: gameMode,
+        variant: isHearthstone ? (hsVariant || undefined) : undefined,
+        hero_class: isHearthstone && hsVariant === 'stormrift' ? heroClass : undefined,
         player_name: playerName,
         ai_difficulty: difficulty,
         player_deck_id: isHearthstone ? undefined : (playerDeck || undefined),
@@ -236,6 +240,70 @@ export function Home() {
               </button>
             </div>
           </div>
+
+          {/* Hearthstone Variant & Class Picker */}
+          {gameMode === 'hearthstone' && (
+            <>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-400 mb-1">Variant</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setHsVariant('stormrift')}
+                    className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
+                      hsVariant === 'stormrift'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    Stormrift
+                  </button>
+                  <button
+                    onClick={() => setHsVariant(null)}
+                    className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
+                      hsVariant === null
+                        ? 'bg-game-accent text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    Vanilla HS
+                  </button>
+                </div>
+              </div>
+
+              {hsVariant === 'stormrift' && (
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-400 mb-1">Hero Class</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setHeroClass('Pyromancer')}
+                      className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
+                        heroClass === 'Pyromancer'
+                          ? 'bg-orange-600 text-white'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      Pyromancer
+                    </button>
+                    <button
+                      onClick={() => setHeroClass('Cryomancer')}
+                      className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
+                        heroClass === 'Cryomancer'
+                          ? 'bg-cyan-600 text-white'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      Cryomancer
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {heroClass === 'Pyromancer'
+                      ? 'Fire & Storm. Aggressive burn and spell synergy.'
+                      : 'Ice & Void. Control, card advantage, defensive value.'}
+                  </p>
+                </div>
+              )}
+            </>
+          )}
 
           {/* Player Name */}
           <div className="mb-4">
