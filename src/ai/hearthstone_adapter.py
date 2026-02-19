@@ -65,7 +65,7 @@ class HearthstoneAIAdapter:
             'use_smart_hero_power': True,
             'use_archetype_detect': False,
             'use_lethal_prevention': True,
-            'use_lethal_first_plays': False,
+            'use_lethal_first_plays': True,
         },
         'ultra': {
             'random_factor': 0.0,
