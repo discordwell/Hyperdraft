@@ -107,9 +107,12 @@ python tests/test_degenerate.py
 ```
 
 ## Running the Server
+
+Port **8030** (see `~/Projects/PORTS.md` for registry).
+
 ```bash
 pip install -r requirements-server.txt
-uvicorn src.server.main:app --reload
+uvicorn src.server.main:socket_app --host 0.0.0.0 --port 8030
 ```
 
 ## Running the Frontend
