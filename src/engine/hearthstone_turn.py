@@ -102,25 +102,22 @@ class HearthstoneTurnManager(TurnManager):
         self.hs_turn_state.phase = HearthstonePhase.MAIN
         events.extend(await self._run_main_phase_start())
 
-        # For AI players, execute their turn automatically
-        if hasattr(self, 'hearthstone_ai_handler') and self.hearthstone_ai_handler:
-            if self._is_ai_player(self.hs_turn_state.active_player_id):
-                ai_events = await self._run_ai_turn()
-                events.extend(ai_events)
+        # Main phase: dispatch to AI or human handler based on active player
+        active_pid = self.hs_turn_state.active_player_id
+        is_ai = self._is_ai_player(active_pid)
 
-                # Check SBAs after AI actions (minions may have died in combat)
-                await self._check_state_based_actions()
-
-        # For human players with a handler, run the human action loop
-        elif self.human_action_handler and not self._is_ai_player(self.hs_turn_state.active_player_id):
+        if is_ai and hasattr(self, 'hearthstone_ai_handler') and self.hearthstone_ai_handler:
+            # AI turn — execute automatically
+            ai_events = await self._run_ai_turn()
+            events.extend(ai_events)
+            await self._check_state_based_actions()
+        elif not is_ai and self.human_action_handler:
+            # Human turn — block until client sends actions
             human_events = await self._run_human_turn()
             events.extend(human_events)
 
-        # End Phase (auto-end for AI, manual for humans handled inside _run_human_turn)
-        # Skip if game is already over (e.g. AI lethal during main phase)
-        if (not self._is_game_over() and
-                hasattr(self, 'hearthstone_ai_handler') and
-                self._is_ai_player(self.hs_turn_state.active_player_id)):
+        # End Phase (auto-end for AI, manual end handled inside _run_human_turn)
+        if not self._is_game_over() and is_ai:
             events.extend(await self.end_turn())
 
         return events

@@ -24,11 +24,11 @@ export function Home() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone'>('mtg');
-  const [hsVariant, setHsVariant] = useState<string | null>('stormrift');
+  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone'>('hearthstone');
+  const [hsVariant, setHsVariant] = useState<string | null>('riftclash');
   const [heroClass, setHeroClass] = useState<string>('Pyromancer');
   const [playerName, setPlayerName] = useState('Player');
-  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard' | 'ultra'>('medium');
+  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard' | 'ultra'>('ultra');
   const [decks, setDecks] = useState<DeckInfo[]>([]);
   const [playerDeck, setPlayerDeck] = useState<string>('');
   const [aiDeck, setAiDeck] = useState<string>('');
@@ -62,7 +62,7 @@ export function Home() {
         mode: 'human_vs_bot',
         game_mode: gameMode,
         variant: isHearthstone ? (hsVariant || undefined) : undefined,
-        hero_class: isHearthstone && hsVariant === 'stormrift' ? heroClass : undefined,
+        hero_class: isHearthstone && hsVariant !== null ? heroClass : undefined,
         player_name: playerName,
         ai_difficulty: difficulty,
         player_deck_id: isHearthstone ? undefined : (playerDeck || undefined),
@@ -200,7 +200,7 @@ export function Home() {
           <h1 className="text-5xl font-bold text-white mb-2 font-['Cinzel']">
             Hyperdraft
           </h1>
-          <p className="text-gray-400">MTG Arena-Style Card Game</p>
+          <p className="text-gray-400">AI-Powered Card Game Engine</p>
         </div>
 
         {/* Error Display */}
@@ -248,6 +248,16 @@ export function Home() {
                 <label className="block text-sm text-gray-400 mb-1">Variant</label>
                 <div className="flex gap-2">
                   <button
+                    onClick={() => setHsVariant('riftclash')}
+                    className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
+                      hsVariant === 'riftclash'
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    Riftclash
+                  </button>
+                  <button
                     onClick={() => setHsVariant('stormrift')}
                     className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
                       hsVariant === 'stormrift'
@@ -270,7 +280,7 @@ export function Home() {
                 </div>
               </div>
 
-              {hsVariant === 'stormrift' && (
+              {hsVariant !== null && (
                 <div className="mb-4">
                   <label className="block text-sm text-gray-400 mb-1">Hero Class</label>
                   <div className="flex gap-2">
@@ -297,8 +307,12 @@ export function Home() {
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
                     {heroClass === 'Pyromancer'
-                      ? 'Fire & Storm. Aggressive burn and spell synergy.'
-                      : 'Ice & Void. Control, card advantage, defensive value.'}
+                      ? (hsVariant === 'riftclash'
+                        ? 'Burn tempo with deterministic spell pressure.'
+                        : 'Fire & Storm. Aggressive burn and spell synergy.')
+                      : (hsVariant === 'riftclash'
+                        ? 'Freeze-control and armor value with board denial.'
+                        : 'Ice & Void. Control, card advantage, defensive value.')}
                   </p>
                 </div>
               )}
@@ -340,50 +354,54 @@ export function Home() {
               ))}
             </div>
             {difficulty === 'ultra' && (
-              <p className="text-xs text-purple-400 mt-1">LLM-powered AI (requires Ollama)</p>
+              <p className="text-xs text-purple-400 mt-1">Full Ultra heuristics enabled.</p>
             )}
           </div>
 
-          {/* Deck Selection */}
-          <div className="mb-4">
-            <label className="block text-sm text-gray-400 mb-1">Your Deck</label>
-            <select
-              value={playerDeck}
-              onChange={(e) => setPlayerDeck(e.target.value)}
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-game-accent"
-            >
-              <optgroup label="Tournament Netdecks">
-                {decks.filter(d => d.is_netdeck).map(d => (
-                  <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
-                ))}
-              </optgroup>
-              <optgroup label="Standard Decks">
-                {decks.filter(d => !d.is_netdeck).map(d => (
-                  <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
-                ))}
-              </optgroup>
-            </select>
-          </div>
+          {/* Deck Selection (MTG only — HS variants use built-in decks) */}
+          {gameMode === 'mtg' && (
+            <>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-400 mb-1">Your Deck</label>
+                <select
+                  value={playerDeck}
+                  onChange={(e) => setPlayerDeck(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-game-accent"
+                >
+                  <optgroup label="Tournament Netdecks">
+                    {decks.filter(d => d.is_netdeck).map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Standard Decks">
+                    {decks.filter(d => !d.is_netdeck).map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
 
-          <div className="mb-6">
-            <label className="block text-sm text-gray-400 mb-1">AI Deck</label>
-            <select
-              value={aiDeck}
-              onChange={(e) => setAiDeck(e.target.value)}
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-game-accent"
-            >
-              <optgroup label="Tournament Netdecks">
-                {decks.filter(d => d.is_netdeck).map(d => (
-                  <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
-                ))}
-              </optgroup>
-              <optgroup label="Standard Decks">
-                {decks.filter(d => !d.is_netdeck).map(d => (
-                  <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
-                ))}
-              </optgroup>
-            </select>
-          </div>
+              <div className="mb-6">
+                <label className="block text-sm text-gray-400 mb-1">AI Deck</label>
+                <select
+                  value={aiDeck}
+                  onChange={(e) => setAiDeck(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-game-accent"
+                >
+                  <optgroup label="Tournament Netdecks">
+                    {decks.filter(d => d.is_netdeck).map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Standard Decks">
+                    {decks.filter(d => !d.is_netdeck).map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+            </>
+          )}
 
           {/* Play vs Bot Button */}
           <button
@@ -391,85 +409,94 @@ export function Home() {
             disabled={isLoading}
             className="w-full px-4 py-3 bg-game-accent text-white rounded-lg font-bold text-lg hover:bg-red-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-3"
           >
-            {isLoading ? 'Creating Game...' : 'Play vs AI'}
+            {isLoading
+              ? 'Creating Game...'
+              : (gameMode === 'hearthstone' && hsVariant === 'riftclash' && difficulty === 'ultra'
+                ? 'Play Riftclash vs Codex Ultra'
+                : 'Play vs AI')}
           </button>
 
-          {/* Spectate Bot Game Button */}
-          <button
-            onClick={handleStartBotGame}
-            disabled={isLoading}
-            className="w-full px-4 py-3 bg-gray-700 text-white rounded-lg font-semibold hover:bg-gray-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Watch Bot vs Bot
-          </button>
-
-          <div className="mt-3">
-            <div className="text-xs text-gray-400 mb-2">Battle Presets</div>
-            <div className="grid grid-cols-2 gap-2">
+          {/* MTG-only bot game options */}
+          {gameMode === 'mtg' && (
+            <>
+              {/* Spectate Bot Game Button */}
               <button
-                onClick={handleStartUltraMirror}
+                onClick={handleStartBotGame}
                 disabled={isLoading}
-                className="px-3 py-2 bg-indigo-700 text-white rounded-lg text-sm font-semibold hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-4 py-3 bg-gray-700 text-white rounded-lg font-semibold hover:bg-gray-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Ultra vs Ultra
+                Watch Bot vs Bot
               </button>
-              <button
-                onClick={handleStartClaudexVsUltra}
-                disabled={isLoading}
-                className="px-3 py-2 bg-teal-700 text-white rounded-lg text-sm font-semibold hover:bg-teal-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Claudex vs Ultra
-              </button>
-            </div>
-          </div>
 
-          {/* LLM Duel */}
-          <div className="mt-3 p-4 bg-gray-800/60 border border-gray-700 rounded-lg">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <div className="text-sm font-bold text-white">Custom LLM Duel</div>
-                <div className="text-xs text-gray-400">Anthropic vs OpenAI (requires API keys)</div>
+              <div className="mt-3">
+                <div className="text-xs text-gray-400 mb-2">Battle Presets</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={handleStartUltraMirror}
+                    disabled={isLoading}
+                    className="px-3 py-2 bg-indigo-700 text-white rounded-lg text-sm font-semibold hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Ultra vs Ultra
+                  </button>
+                  <button
+                    onClick={handleStartClaudexVsUltra}
+                    disabled={isLoading}
+                    className="px-3 py-2 bg-teal-700 text-white rounded-lg text-sm font-semibold hover:bg-teal-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Claudex vs Ultra
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Claudex model</label>
-                <input
-                  type="text"
-                  value={claudexModel}
-                  onChange={(e) => setClaudexModel(e.target.value)}
-                  className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
-                />
+              {/* LLM Duel */}
+              <div className="mt-3 p-4 bg-gray-800/60 border border-gray-700 rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <div className="text-sm font-bold text-white">Custom LLM Duel</div>
+                    <div className="text-xs text-gray-400">Anthropic vs OpenAI (requires API keys)</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Claudex model</label>
+                    <input
+                      type="text"
+                      value={claudexModel}
+                      onChange={(e) => setClaudexModel(e.target.value)}
+                      className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">GPT model</label>
+                    <input
+                      type="text"
+                      value={gptModel}
+                      onChange={(e) => setGptModel(e.target.value)}
+                      className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
+                    />
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 text-xs text-gray-400 mb-3 select-none">
+                  <input
+                    type="checkbox"
+                    checked={recordPrompts}
+                    onChange={(e) => setRecordPrompts(e.target.checked)}
+                  />
+                  Record prompts in replay
+                </label>
+
+                <button
+                  onClick={handleStartLlmDuel}
+                  disabled={isLoading}
+                  className="w-full px-4 py-3 bg-purple-700 text-white rounded-lg font-semibold hover:bg-purple-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Watch Claudex vs GPT
+                </button>
               </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">GPT model</label>
-                <input
-                  type="text"
-                  value={gptModel}
-                  onChange={(e) => setGptModel(e.target.value)}
-                  className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
-                />
-              </div>
-            </div>
-
-            <label className="flex items-center gap-2 text-xs text-gray-400 mb-3 select-none">
-              <input
-                type="checkbox"
-                checked={recordPrompts}
-                onChange={(e) => setRecordPrompts(e.target.checked)}
-              />
-              Record prompts in replay
-            </label>
-
-            <button
-              onClick={handleStartLlmDuel}
-              disabled={isLoading}
-              className="w-full px-4 py-3 bg-purple-700 text-white rounded-lg font-semibold hover:bg-purple-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Watch Claudex vs GPT
-            </button>
-          </div>
+            </>
+          )}
 
           {/* Deckbuilder Link */}
           <button

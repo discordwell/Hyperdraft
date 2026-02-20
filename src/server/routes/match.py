@@ -143,7 +143,8 @@ async def create_match(
 
     # Add AI player for human vs bot mode
     if request.mode == "human_vs_bot":
-        ai_id = session.add_player("AI Opponent", is_ai=True)
+        ai_name = "Codex Ultra" if request.ai_difficulty.value == "ultra" else "AI Opponent"
+        ai_id = session.add_player(ai_name, is_ai=True)
     elif request.mode == "bot_vs_bot":
         ai_id = session.add_player("AI 1", is_ai=True)
         ai2_id = session.add_player("AI 2", is_ai=True)
@@ -151,14 +152,25 @@ async def create_match(
         ai_id = None
 
     # === Variant setup (installs heroes, decks, global modifiers) ===
-    if request.variant == "stormrift":
-        from src.cards.hearthstone.stormrift import (
-            STORMRIFT_HEROES, STORMRIFT_HERO_POWERS, STORMRIFT_DECKS,
-            install_stormrift_modifiers,
-        )
+    if request.variant in {"stormrift", "riftclash"}:
+        if request.variant == "riftclash":
+            from src.cards.hearthstone.riftclash import (
+                RIFTCLASH_HEROES as variant_heroes,
+                RIFTCLASH_HERO_POWERS as variant_hero_powers,
+                RIFTCLASH_DECKS as variant_decks,
+                install_riftclash_modifiers as install_variant_modifiers,
+            )
+        else:
+            from src.cards.hearthstone.stormrift import (
+                STORMRIFT_HEROES as variant_heroes,
+                STORMRIFT_HERO_POWERS as variant_hero_powers,
+                STORMRIFT_DECKS as variant_decks,
+                install_stormrift_modifiers as install_variant_modifiers,
+            )
 
-        human_class = request.hero_class or "Pyromancer"
-        ai_class = "Cryomancer" if human_class == "Pyromancer" else "Pyromancer"
+        default_class = "Pyromancer" if "Pyromancer" in variant_heroes else next(iter(variant_heroes.keys()))
+        human_class = request.hero_class if request.hero_class in variant_heroes else default_class
+        ai_class = next((klass for klass in variant_heroes.keys() if klass != human_class), human_class)
 
         for pid in session.player_ids:
             player = session.game.state.players.get(pid)
@@ -167,20 +179,20 @@ async def create_match(
             hero_class = human_class if pid == human_id else ai_class
             session.game.setup_hearthstone_player(
                 player,
-                STORMRIFT_HEROES[hero_class],
-                STORMRIFT_HERO_POWERS[hero_class],
+                variant_heroes[hero_class],
+                variant_hero_powers[hero_class],
             )
 
-        # Add Stormrift decks
-        human_deck = list(STORMRIFT_DECKS[human_class])
-        ai_deck_cards = list(STORMRIFT_DECKS[ai_class])
+        # Add variant decks
+        human_deck = list(variant_decks[human_class])
+        ai_deck_cards = list(variant_decks[ai_class])
 
         session.add_cards_to_deck(human_id, human_deck)
         if request.mode == "human_vs_bot" and ai_id:
             session.add_cards_to_deck(ai_id, ai_deck_cards)
 
-        # Install global modifiers (Rift Storm, Soul Residue, Arcane Feedback)
-        install_stormrift_modifiers(session.game)
+        # Install variant global modifiers
+        install_variant_modifiers(session.game)
 
     elif request.game_mode == "hearthstone":
         # Hearthstone matches need heroes + hero powers + 30-card class decks.

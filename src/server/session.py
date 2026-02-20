@@ -236,12 +236,16 @@ class GameSession:
             # Setup Hearthstone AI adapter
             from src.ai.hearthstone_adapter import HearthstoneAIAdapter
 
-            # Default difficulty from first AI profile (or 'medium')
+            # Default difficulty from first AI profile, else session-level
+            # difficulty passed at match creation.
             if self.ai_profiles_by_player:
                 first_profile = next(iter(self.ai_profiles_by_player.values()))
-                difficulty = first_profile.get('difficulty', 'medium')
+                difficulty = first_profile.get('difficulty', self.ai_difficulty or 'medium')
             else:
-                difficulty = 'medium'
+                difficulty = self.ai_difficulty or 'medium'
+            if hasattr(difficulty, "value"):
+                difficulty = difficulty.value
+            difficulty = str(difficulty).strip().lower()
 
             ai_adapter = HearthstoneAIAdapter(difficulty=difficulty)
 
