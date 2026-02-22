@@ -71,6 +71,11 @@ export function useHSGame() {
     });
   }, [sendHSAction]);
 
+  // Attune a card as a mana source (Frierenrift variant)
+  const attuneCard = useCallback((cardId: string) => {
+    sendHSAction('HS_ATTUNE_CARD', { cardId });
+  }, [sendHSAction]);
+
   // Attack with a minion or hero
   const attack = useCallback((attackerId: string, targetId: string) => {
     sendHSAction('HS_ATTACK', {
@@ -119,8 +124,26 @@ export function useHSGame() {
   const canPlayCard = useCallback((card: CardData): boolean => {
     if (!isMyTurn() || !myPlayer) return false;
     const cost = parseMana(card.mana_cost);
-    return cost <= (myPlayer.mana_crystals_available || 0);
-  }, [isMyTurn, myPlayer]);
+    if (cost > (myPlayer.mana_crystals_available || 0)) return false;
+
+    // Variant affinity gate: [AF:azure/ember/verdant] => [AF:a/e/v]
+    if (gameState?.variant === 'frierenrift') {
+      const req = parseAffinity(card.text);
+      const resources = myPlayer.variant_resources || {};
+      if ((resources.azure || 0) < req.azure) return false;
+      if ((resources.ember || 0) < req.ember) return false;
+      if ((resources.verdant || 0) < req.verdant) return false;
+    }
+    return true;
+  }, [isMyTurn, myPlayer, gameState?.variant]);
+
+  const canAttuneCard = useCallback((_card: CardData): boolean => {
+    if (!isMyTurn() || !myPlayer) return false;
+    if (gameState?.variant !== 'frierenrift') return false;
+    const resources = myPlayer.variant_resources || {};
+    const attunesLeft = Number(resources.attunes_left ?? 0);
+    return attunesLeft > 0;
+  }, [isMyTurn, myPlayer, gameState?.variant]);
 
   // Check if hero power can be used
   const canUseHeroPower = useMemo((): boolean => {
@@ -189,6 +212,7 @@ export function useHSGame() {
 
     // Actions
     playCard,
+    attuneCard,
     attack,
     useHeroPower,
     endTurn,
@@ -196,6 +220,7 @@ export function useHSGame() {
     // Queries
     isMyTurn,
     canPlayCard,
+    canAttuneCard,
     canUseHeroPower,
     canAttack,
     getAttackableTargets,
@@ -212,4 +237,16 @@ function parseMana(costStr: string | null): number {
   const matches = costStr.match(/\{(\d+)\}/g);
   if (!matches) return 0;
   return matches.reduce((sum, m) => sum + parseInt(m.replace(/[{}]/g, ''), 10), 0);
+}
+
+function parseAffinity(text: string | null | undefined): { azure: number; ember: number; verdant: number } {
+  const out = { azure: 0, ember: 0, verdant: 0 };
+  if (!text) return out;
+  const m = text.match(/\[AF:(\d+)\/(\d+)\/(\d+)\]/i);
+  if (!m) return out;
+  return {
+    azure: Number.parseInt(m[1] || '0', 10) || 0,
+    ember: Number.parseInt(m[2] || '0', 10) || 0,
+    verdant: Number.parseInt(m[3] || '0', 10) || 0,
+  };
 }

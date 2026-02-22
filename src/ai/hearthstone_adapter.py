@@ -132,6 +132,16 @@ class HearthstoneAIAdapter:
             if game.is_game_over():
                 return events
 
+        # Hybrid variants (e.g. Frierenrift) can require manual mana growth via attune.
+        if self._should_attune(game_state, player_id):
+            attune_card_id = self._choose_card_to_attune(game_state, player_id, game)
+            if attune_card_id:
+                await game.attune_card(player_id, attune_card_id)
+                if hasattr(game, 'turn_manager') and hasattr(game.turn_manager, '_check_state_based_actions'):
+                    await game.turn_manager._check_state_based_actions()
+                if game.is_game_over():
+                    return events
+
         # Play cards phase (safety limit prevents infinite loops)
         max_plays = 15
         for _ in range(max_plays):
@@ -181,6 +191,59 @@ class HearthstoneAIAdapter:
         events.extend(attack_events)
 
         return events
+
+    def _should_attune(self, state: 'GameState', player_id: str) -> bool:
+        """Whether this player can/should use the variant attune action this turn."""
+        player = state.players.get(player_id)
+        if not player:
+            return False
+        if not bool(getattr(player, 'manual_mana_growth', False)):
+            return False
+
+        per_turn = int(getattr(player, 'attunements_per_turn', 1) or 1)
+        used = int(getattr(player, 'attunements_this_turn', 0) or 0)
+        if used >= per_turn:
+            return False
+
+        hand_zone = state.zones.get(f'hand_{player_id}')
+        return bool(hand_zone and hand_zone.objects)
+
+    def _choose_card_to_attune(self, state: 'GameState', player_id: str, game) -> Optional[str]:
+        """
+        Pick the least-valuable card in hand to convert into a mana source.
+
+        Heuristic:
+        - Prefer expensive cards currently unplayable.
+        - Keep high-impact playable cards when possible.
+        """
+        player = state.players.get(player_id)
+        hand_zone = state.zones.get(f'hand_{player_id}')
+        if not player or not hand_zone:
+            return None
+
+        available = int(player.mana_crystals_available)
+        candidates: list[tuple[float, str]] = []
+
+        for card_id in hand_zone.objects:
+            card = state.objects.get(card_id)
+            if not card:
+                continue
+
+            cost = self._get_mana_cost(card, state, player_id)
+            play_score = self._score_card_play(card, state, player_id)
+            playable_now = cost <= available
+
+            # Higher attune_score => better attune target.
+            attune_score = (cost * 3.0) - play_score
+            if playable_now:
+                attune_score -= 22.0
+            candidates.append((attune_score, card_id))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
 
     def _should_continue_playing(self, state: 'GameState', player_id: str) -> bool:
         """Check if AI should try to play more cards."""

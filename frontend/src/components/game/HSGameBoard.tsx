@@ -22,10 +22,12 @@ interface HSGameBoardProps {
   playerId: string;
   isMyTurn: boolean;
   canPlayCard: (card: CardData) => boolean;
+  canAttuneCard: (card: CardData) => boolean;
   canAttack: (card: CardData) => boolean;
   canUseHeroPower: boolean;
   getAttackableTargets: (attackerId: string) => string[];
   onPlayCard: (cardId: string) => void;
+  onAttuneCard: (cardId: string) => void;
   onAttack: (attackerId: string, targetId: string) => void;
   onHeroPower: () => void;
   onEndTurn: () => void;
@@ -38,10 +40,12 @@ export function HSGameBoard({
   playerId,
   isMyTurn,
   canPlayCard,
+  canAttuneCard,
   canAttack,
   canUseHeroPower,
   getAttackableTargets,
   onPlayCard,
+  onAttuneCard,
   onAttack,
   onHeroPower,
   onEndTurn,
@@ -57,6 +61,8 @@ export function HSGameBoard({
 
   const myPlayer = gameState.players[playerId];
   const opponentPlayer = opponentId ? gameState.players[opponentId] : null;
+  const isFrierenrift = gameState.variant === 'frierenrift';
+  const variantResources = myPlayer?.variant_resources || {};
 
   const myMinions = useMemo(() =>
     gameState.battlefield.filter(c => c.controller === playerId),
@@ -110,6 +116,12 @@ export function HSGameBoard({
     onPlayCard(card.id);
   }, [isMyTurn, canPlayCard, handleCancel, onPlayCard]);
 
+  const handleAttuneClick = useCallback((card: CardData) => {
+    if (!isMyTurn || !canAttuneCard(card)) return;
+    handleCancel();
+    onAttuneCard(card.id);
+  }, [isMyTurn, canAttuneCard, handleCancel, onAttuneCard]);
+
   if (!myPlayer || !opponentPlayer) return null;
 
   return (
@@ -145,6 +157,7 @@ export function HSGameBoard({
               canAttack={false}
               isSelected={false}
               isValidTarget={mode === 'select_target' && validTargets.includes(card.id)}
+              variant={gameState.variant}
               onClick={() => handleTargetClick(card.id)}
             />
           ))
@@ -174,6 +187,23 @@ export function HSGameBoard({
             {myPlayer.mana_crystals_available}/{myPlayer.mana_crystals}
           </span>
         </div>
+
+        {isFrierenrift && (
+          <div className="flex items-center gap-2">
+            <div className="text-[11px] font-semibold text-cyan-300">
+              Azure {variantResources.azure || 0}
+            </div>
+            <div className="text-[11px] font-semibold text-orange-300">
+              Ember {variantResources.ember || 0}
+            </div>
+            <div className="text-[11px] font-semibold text-emerald-300">
+              Verdant {variantResources.verdant || 0}
+            </div>
+            <div className="text-[11px] font-semibold text-yellow-300">
+              Attune {variantResources.attunes_left || 0}
+            </div>
+          </div>
+        )}
 
         {/* Turn number */}
         <div className="text-gray-500 text-xs">
@@ -208,6 +238,7 @@ export function HSGameBoard({
               canAttack={isMyTurn && canAttack(card)}
               isSelected={selectedAttackerId === card.id}
               isValidTarget={false}
+              variant={gameState.variant}
               onClick={(e?: any) => { e?.stopPropagation?.(); handleMyMinionClick(card); }}
             />
           ))
@@ -221,6 +252,10 @@ export function HSGameBoard({
             key={card.id}
             card={card}
             isPlayable={isMyTurn && canPlayCard(card)}
+            variant={gameState.variant}
+            showAttune={isFrierenrift}
+            canAttune={isMyTurn && canAttuneCard(card)}
+            onAttune={() => handleAttuneClick(card)}
             onClick={() => handleHandCardClick(card)}
           />
         ))}

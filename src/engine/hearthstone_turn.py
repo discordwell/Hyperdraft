@@ -159,8 +159,12 @@ class HearthstoneTurnManager(TurnManager):
         if not active_player:
             return events
 
-        # Gain mana crystal and refill
-        if hasattr(self, 'mana_system') and self.mana_system:
+        manual_mana_growth = bool(getattr(active_player, 'manual_mana_growth', False))
+
+        # Gain mana crystal and refill (or just refill for manual-growth variants).
+        if manual_mana_growth:
+            active_player.mana_crystals_available = active_player.mana_crystals
+        elif hasattr(self, 'mana_system') and self.mana_system:
             self.mana_system.on_turn_start(active_player_id)
         else:
             # Direct manipulation if mana system not available
@@ -177,6 +181,9 @@ class HearthstoneTurnManager(TurnManager):
 
         # Reset combo counter
         active_player.cards_played_this_turn = 0
+        # Variant counters reset each turn.
+        if hasattr(active_player, 'attunements_this_turn'):
+            active_player.attunements_this_turn = 0
 
         # Reset hero power
         active_player.hero_power_used = False
@@ -271,6 +278,11 @@ class HearthstoneTurnManager(TurnManager):
         """
         events = []
         player_id = self.hs_turn_state.active_player_id
+        game = None
+        if hasattr(self, 'pipeline') and hasattr(self.pipeline, 'game'):
+            game = self.pipeline.game
+        elif hasattr(self.state, '_game'):
+            game = self.state._game
 
         for _ in range(200):  # Safety cap
             if self._is_game_over():
@@ -294,6 +306,11 @@ class HearthstoneTurnManager(TurnManager):
                     play_events = await self._execute_human_card_play(card_id, player_id)
                     events.extend(play_events)
 
+            elif action_type == 'HS_ATTUNE_CARD':
+                card_id = action.get('card_id')
+                if card_id and game:
+                    await game.attune_card(player_id, card_id)
+
             elif action_type == 'HS_ATTACK':
                 attacker_id = action.get('attacker_id')
                 target_id = action.get('target_id')
@@ -302,12 +319,6 @@ class HearthstoneTurnManager(TurnManager):
 
             elif action_type == 'HS_HERO_POWER':
                 target_id = action.get('target_id')
-                # use_hero_power is on the Game object, get it via pipeline
-                game = None
-                if hasattr(self, 'pipeline') and hasattr(self.pipeline, 'game'):
-                    game = self.pipeline.game
-                elif hasattr(self.state, '_game'):
-                    game = self.state._game
                 if game:
                     await game.use_hero_power(player_id, target_id)
 

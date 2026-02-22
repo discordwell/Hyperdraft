@@ -23,10 +23,12 @@ export function HSGameView() {
     myPlayer,
     isMyTurn,
     canPlayCard,
+    canAttuneCard,
     canAttack,
     canUseHeroPower,
     getAttackableTargets,
     playCard,
+    attuneCard,
     attack,
     useHeroPower,
     endTurn,
@@ -95,10 +97,12 @@ export function HSGameView() {
           playerId={playerId}
           isMyTurn={isMyTurn()}
           canPlayCard={canPlayCard}
+          canAttuneCard={canAttuneCard}
           canAttack={canAttack}
           canUseHeroPower={canUseHeroPower}
           getAttackableTargets={getAttackableTargets}
           onPlayCard={playCard}
+          onAttuneCard={attuneCard}
           onAttack={attack}
           onHeroPower={useHeroPower}
           onEndTurn={endTurn}
@@ -146,6 +150,24 @@ export function HSGameView() {
               <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Mana</div>
               <div className="text-blue-300 font-bold">
                 {myPlayer.mana_crystals_available} / {myPlayer.mana_crystals}
+              </div>
+            </div>
+          )}
+
+          {myPlayer?.variant_resources && gameState.variant === 'frierenrift' && (
+            <div className="mb-3">
+              <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Aether Shards</div>
+              <div className="text-sm text-cyan-300 font-semibold">
+                Azure: {myPlayer.variant_resources.azure || 0}
+              </div>
+              <div className="text-sm text-orange-300 font-semibold">
+                Ember: {myPlayer.variant_resources.ember || 0}
+              </div>
+              <div className="text-sm text-emerald-300 font-semibold">
+                Verdant: {myPlayer.variant_resources.verdant || 0}
+              </div>
+              <div className="text-xs text-yellow-300 mt-1">
+                Attunes left this turn: {myPlayer.variant_resources.attunes_left || 0}
               </div>
             </div>
           )}
