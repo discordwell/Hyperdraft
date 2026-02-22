@@ -47,6 +47,7 @@ class ActionType(str, Enum):
     DECLARE_BLOCKERS = "DECLARE_BLOCKERS"
     # Hearthstone action types
     HS_PLAY_CARD = "HS_PLAY_CARD"
+    HS_ATTUNE_CARD = "HS_ATTUNE_CARD"
     HS_ATTACK = "HS_ATTACK"
     HS_HERO_POWER = "HS_HERO_POWER"
     HS_END_TURN = "HS_END_TURN"
@@ -226,6 +227,8 @@ class PlayerData(BaseModel):
     hero_power_cost: int = 2
     hero_power_text: Optional[str] = None
     max_life: int = 30
+    # Variant-specific resource counters (e.g. tri-color shards in Frierenrift)
+    variant_resources: dict[str, int] = Field(default_factory=dict)
 
 
 class CombatData(BaseModel):

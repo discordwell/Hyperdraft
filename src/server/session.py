@@ -375,7 +375,8 @@ class GameSession:
                 hero_power_name=self._get_hero_power_name(player),
                 hero_power_cost=self._get_hero_power_cost(player),
                 hero_power_text=self._get_hero_power_text(player),
-                max_life=player.max_life
+                max_life=player.max_life,
+                variant_resources=self._get_variant_resources(player),
             )
 
         # Get battlefield (exclude heroes/hero powers in HS mode — those are in player data)
@@ -485,7 +486,7 @@ class GameSession:
         Returns (success, message).
         """
         # Route HS actions to dedicated handler
-        if request.action_type in ("HS_PLAY_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN"):
+        if request.action_type in ("HS_PLAY_CARD", "HS_ATTUNE_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN"):
             return await self.handle_hs_action(request)
 
         # Combat declarations are not wired through the priority action loop yet.
@@ -587,6 +588,9 @@ class GameSession:
                 return False, "Attack requires an attacker (source_id)"
             if not target_id:
                 return False, "Attack requires a target"
+        elif request.action_type == 'HS_ATTUNE_CARD':
+            if not request.card_id:
+                return False, "Attune requires a card_id from hand"
 
         action_dict = {
             'action_type': request.action_type,
@@ -1676,6 +1680,35 @@ class GameSession:
             return None
         hp = self.game.state.objects.get(player.hero_power_id)
         return hp.card_def.text if hp and hp.card_def else None
+
+    def _get_variant_resources(self, player) -> dict[str, int]:
+        """
+        Serialize variant resource counters exposed on Player objects.
+
+        Variants can attach `player.variant_resources` as a dict[str, int] and optional
+        attunement counters (`attunements_per_turn`, `attunements_this_turn`).
+        """
+        raw = getattr(player, "variant_resources", None)
+        out: dict[str, int] = {}
+        if isinstance(raw, dict):
+            for key, value in raw.items():
+                try:
+                    out[str(key)] = int(value)
+                except Exception:
+                    continue
+
+        try:
+            per_turn = int(getattr(player, "attunements_per_turn", 0) or 0)
+            used = int(getattr(player, "attunements_this_turn", 0) or 0)
+        except Exception:
+            per_turn = 0
+            used = 0
+
+        if per_turn > 0:
+            out.setdefault("attunes_per_turn", per_turn)
+            out.setdefault("attunes_left", max(0, per_turn - used))
+
+        return out
 
     def _serialize_permanent(self, obj) -> CardData:
         """Serialize a permanent for the client."""

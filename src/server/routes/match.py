@@ -152,13 +152,20 @@ async def create_match(
         ai_id = None
 
     # === Variant setup (installs heroes, decks, global modifiers) ===
-    if request.variant in {"stormrift", "riftclash"}:
+    if request.variant in {"stormrift", "riftclash", "frierenrift"}:
         if request.variant == "riftclash":
             from src.cards.hearthstone.riftclash import (
                 RIFTCLASH_HEROES as variant_heroes,
                 RIFTCLASH_HERO_POWERS as variant_hero_powers,
                 RIFTCLASH_DECKS as variant_decks,
                 install_riftclash_modifiers as install_variant_modifiers,
+            )
+        elif request.variant == "frierenrift":
+            from src.cards.hearthstone.frierenrift import (
+                FRIERENRIFT_HEROES as variant_heroes,
+                FRIERENRIFT_HERO_POWERS as variant_hero_powers,
+                FRIERENRIFT_DECKS as variant_decks,
+                install_frierenrift_modifiers as install_variant_modifiers,
             )
         else:
             from src.cards.hearthstone.stormrift import (
@@ -168,7 +175,10 @@ async def create_match(
                 install_stormrift_modifiers as install_variant_modifiers,
             )
 
-        default_class = "Pyromancer" if "Pyromancer" in variant_heroes else next(iter(variant_heroes.keys()))
+        default_class = (
+            "Pyromancer" if "Pyromancer" in variant_heroes
+            else ("Frieren" if "Frieren" in variant_heroes else next(iter(variant_heroes.keys())))
+        )
         human_class = request.hero_class if request.hero_class in variant_heroes else default_class
         ai_class = next((klass for klass in variant_heroes.keys() if klass != human_class), human_class)
 

@@ -13,7 +13,7 @@ from .types import (
     GameState, GameObject, Player, Zone, ZoneType,
     Event, EventType, EventStatus,
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
-    Characteristics, ObjectState, CardType,
+    Characteristics, ObjectState, CardType, Color,
     PendingChoice,
     new_id
 )
@@ -1016,6 +1016,114 @@ class Game:
         player.hero_power_used = True
 
         return True
+
+    async def attune_card(self, player_id: str, card_id: str) -> bool:
+        """
+        Convert a card in hand into a persistent mana source (variant mechanic).
+
+        Expected player fields (attached by variants):
+        - manual_mana_growth: bool
+        - attunements_per_turn: int
+        - attunements_this_turn: int
+        - variant_resources: dict[str, int]
+        """
+        player = self.state.players.get(player_id)
+        if not player:
+            return False
+
+        # Only the active player can attune on their turn.
+        active_player = self.get_active_player()
+        if active_player is None and hasattr(self.turn_manager, "turn_order") and self.turn_manager.turn_order:
+            idx = getattr(self.turn_manager, "current_player_index", 0) % len(self.turn_manager.turn_order)
+            active_player = self.turn_manager.turn_order[idx]
+        if active_player != player_id:
+            return False
+
+        hand = self.state.zones.get(f"hand_{player_id}")
+        if not hand or card_id not in hand.objects:
+            return False
+
+        per_turn = int(getattr(player, "attunements_per_turn", 1) or 1)
+        used = int(getattr(player, "attunements_this_turn", 0) or 0)
+        if used >= per_turn:
+            return False
+
+        card = self.state.objects.get(card_id)
+        if not card:
+            return False
+
+        zone_event = Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                "object_id": card_id,
+                "from_zone": f"hand_{player_id}",
+                "from_zone_type": ZoneType.HAND,
+                "to_zone": "exile",
+                "to_zone_type": ZoneType.EXILE,
+            },
+            source=card_id,
+        )
+        self.pipeline.emit(zone_event)
+        if zone_event.status == EventStatus.PREVENTED:
+            return False
+
+        # Variant manual ramp: attuning grows and refills one crystal immediately.
+        if player.mana_crystals < 10:
+            player.mana_crystals += 1
+        player.mana_crystals_available = min(player.mana_crystals, player.mana_crystals_available + 1)
+        player.attunements_this_turn = used + 1
+
+        resources = getattr(player, "variant_resources", None)
+        if not isinstance(resources, dict):
+            resources = {}
+
+        attune_color = self._choose_attune_color(player, card)
+        if attune_color:
+            resources[attune_color] = int(resources.get(attune_color, 0)) + 1
+        player.variant_resources = resources
+
+        return True
+
+    def _choose_attune_color(self, player: Player, card: GameObject) -> Optional[str]:
+        """
+        Resolve which color shard this card should grant when attuned.
+
+        Priority:
+        1. Card-defined `aether_attune_colors` (list[str])
+        2. Card `characteristics.colors` mapped to tri-color shard names
+        """
+        options: list[str] = []
+
+        if card.card_def is not None:
+            raw = getattr(card.card_def, "aether_attune_colors", None)
+            if isinstance(raw, (list, tuple, set)):
+                for value in raw:
+                    if isinstance(value, str):
+                        key = value.strip().lower()
+                        if key:
+                            options.append(key)
+
+        if not options:
+            mapping = {
+                Color.BLUE: "azure",
+                Color.RED: "ember",
+                Color.GREEN: "verdant",
+            }
+            for color in card.characteristics.colors:
+                mapped = mapping.get(color)
+                if mapped:
+                    options.append(mapped)
+
+        if not options:
+            return None
+
+        resources = getattr(player, "variant_resources", None)
+        if not isinstance(resources, dict):
+            resources = {}
+
+        # If multiple choices are available, auto-balance toward the lowest count.
+        options = sorted(set(options))
+        return min(options, key=lambda name: (int(resources.get(name, 0)), name))
 
     # =========================================================================
     # Player Setup

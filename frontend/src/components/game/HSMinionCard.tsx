@@ -6,6 +6,8 @@
  */
 
 import type { CardData } from '../../types';
+import { getHearthstoneArtPaths } from '../../utils/cardArt';
+import { useMemo, useState } from 'react';
 
 interface HSMinionCardProps {
   card: CardData;
@@ -13,6 +15,7 @@ interface HSMinionCardProps {
   isSelected: boolean;
   isValidTarget: boolean;
   onClick: () => void;
+  variant?: string | null;
 }
 
 export function HSMinionCard({
@@ -21,6 +24,7 @@ export function HSMinionCard({
   isSelected,
   isValidTarget,
   onClick,
+  variant,
 }: HSMinionCardProps) {
   const hasTaunt = card.keywords?.includes('taunt');
   const hasDivineShield = card.divine_shield;
@@ -31,6 +35,18 @@ export function HSMinionCard({
   const maxHealth = card.toughness ?? 0;
   const currentHealth = maxHealth - (card.damage || 0);
   const isDamaged = currentHealth < maxHealth;
+  const artPaths = useMemo(() => getHearthstoneArtPaths(card.name, variant), [card.name, variant]);
+  const [artIndex, setArtIndex] = useState(0);
+  const [artLoaded, setArtLoaded] = useState(false);
+  const [artFailed, setArtFailed] = useState(false);
+
+  const handleArtError = () => {
+    if (artIndex < artPaths.length - 1) {
+      setArtIndex((prev) => prev + 1);
+      return;
+    }
+    setArtFailed(true);
+  };
 
   return (
     <div
@@ -49,14 +65,31 @@ export function HSMinionCard({
         ${card.summoning_sickness && !canAttack ? 'border-dashed' : ''}
       `}
     >
+      {/* Card art */}
+      <div className="absolute inset-0 rounded-md overflow-hidden">
+        {!artFailed && (
+          <img
+            src={artPaths[artIndex]}
+            alt={card.name}
+            className={`w-full h-full object-cover ${artLoaded ? 'block' : 'hidden'}`}
+            onLoad={() => setArtLoaded(true)}
+            onError={handleArtError}
+          />
+        )}
+        {(!artLoaded || artFailed) && (
+          <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/55" />
+      </div>
+
       {/* Card name */}
-      <div className="text-[10px] text-white font-semibold text-center leading-tight px-1 line-clamp-2 mt-1">
+      <div className="relative z-[1] text-[10px] text-white font-semibold text-center leading-tight px-1 line-clamp-2 mt-1">
         {card.name}
       </div>
 
       {/* Keywords badges */}
       {card.keywords && card.keywords.length > 0 && (
-        <div className="flex gap-0.5 mt-0.5">
+        <div className="relative z-[1] flex gap-0.5 mt-0.5">
           {card.keywords.slice(0, 2).map((kw, i) => (
             <span key={i} className="text-[7px] bg-gray-900/80 text-gray-300 px-1 rounded uppercase font-bold">
               {kw}
@@ -67,7 +100,7 @@ export function HSMinionCard({
 
       {/* Frozen indicator */}
       {isFrozen && (
-        <div className="text-[8px] text-blue-300 font-bold mt-0.5">FROZEN</div>
+        <div className="relative z-[1] text-[8px] text-blue-300 font-bold mt-0.5">FROZEN</div>
       )}
 
       {/* Attack stat */}

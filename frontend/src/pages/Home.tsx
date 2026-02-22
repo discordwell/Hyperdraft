@@ -248,7 +248,12 @@ export function Home() {
                 <label className="block text-sm text-gray-400 mb-1">Variant</label>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setHsVariant('riftclash')}
+                    onClick={() => {
+                      setHsVariant('riftclash');
+                      if (heroClass !== 'Pyromancer' && heroClass !== 'Cryomancer') {
+                        setHeroClass('Pyromancer');
+                      }
+                    }}
                     className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
                       hsVariant === 'riftclash'
                         ? 'bg-amber-600 text-white'
@@ -258,7 +263,12 @@ export function Home() {
                     Riftclash
                   </button>
                   <button
-                    onClick={() => setHsVariant('stormrift')}
+                    onClick={() => {
+                      setHsVariant('stormrift');
+                      if (heroClass !== 'Pyromancer' && heroClass !== 'Cryomancer') {
+                        setHeroClass('Pyromancer');
+                      }
+                    }}
                     className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
                       hsVariant === 'stormrift'
                         ? 'bg-purple-600 text-white'
@@ -266,6 +276,21 @@ export function Home() {
                     }`}
                   >
                     Stormrift
+                  </button>
+                  <button
+                    onClick={() => {
+                      setHsVariant('frierenrift');
+                      if (heroClass !== 'Frieren' && heroClass !== 'Macht') {
+                        setHeroClass('Frieren');
+                      }
+                    }}
+                    className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
+                      hsVariant === 'frierenrift'
+                        ? 'bg-cyan-700 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    Frierenrift
                   </button>
                   <button
                     onClick={() => setHsVariant(null)}
@@ -283,37 +308,71 @@ export function Home() {
               {hsVariant !== null && (
                 <div className="mb-4">
                   <label className="block text-sm text-gray-400 mb-1">Hero Class</label>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setHeroClass('Pyromancer')}
-                      className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
-                        heroClass === 'Pyromancer'
-                          ? 'bg-orange-600 text-white'
-                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                      }`}
-                    >
-                      Pyromancer
-                    </button>
-                    <button
-                      onClick={() => setHeroClass('Cryomancer')}
-                      className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
-                        heroClass === 'Cryomancer'
-                          ? 'bg-cyan-600 text-white'
-                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                      }`}
-                    >
-                      Cryomancer
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {heroClass === 'Pyromancer'
-                      ? (hsVariant === 'riftclash'
-                        ? 'Burn tempo with deterministic spell pressure.'
-                        : 'Fire & Storm. Aggressive burn and spell synergy.')
-                      : (hsVariant === 'riftclash'
-                        ? 'Freeze-control and armor value with board denial.'
-                        : 'Ice & Void. Control, card advantage, defensive value.')}
-                  </p>
+                  {hsVariant === 'frierenrift' ? (
+                    <>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setHeroClass('Frieren')}
+                          className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
+                            heroClass === 'Frieren'
+                              ? 'bg-cyan-700 text-white'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          Frieren
+                        </button>
+                        <button
+                          onClick={() => setHeroClass('Macht')}
+                          className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
+                            heroClass === 'Macht'
+                              ? 'bg-amber-700 text-white'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          Macht
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {heroClass === 'Frieren'
+                          ? 'Control mage shells with tri-color shard planning and high spell precision.'
+                          : 'Demon pressure with shard-fueled removal and gold-curse tempo.'}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setHeroClass('Pyromancer')}
+                          className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
+                            heroClass === 'Pyromancer'
+                              ? 'bg-orange-600 text-white'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          Pyromancer
+                        </button>
+                        <button
+                          onClick={() => setHeroClass('Cryomancer')}
+                          className={`flex-1 px-3 py-2 rounded text-sm font-semibold transition-colors ${
+                            heroClass === 'Cryomancer'
+                              ? 'bg-cyan-600 text-white'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          Cryomancer
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {heroClass === 'Pyromancer'
+                          ? (hsVariant === 'riftclash'
+                            ? 'Burn tempo with deterministic spell pressure.'
+                            : 'Fire & Storm. Aggressive burn and spell synergy.')
+                          : (hsVariant === 'riftclash'
+                            ? 'Freeze-control and armor value with board denial.'
+                            : 'Ice & Void. Control, card advantage, defensive value.')}
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
             </>
@@ -413,7 +472,9 @@ export function Home() {
               ? 'Creating Game...'
               : (gameMode === 'hearthstone' && hsVariant === 'riftclash' && difficulty === 'ultra'
                 ? 'Play Riftclash vs Codex Ultra'
-                : 'Play vs AI')}
+                : (gameMode === 'hearthstone' && hsVariant === 'frierenrift' && difficulty === 'ultra'
+                  ? 'Play Frierenrift vs Codex Ultra'
+                  : 'Play vs AI'))}
           </button>
 
           {/* MTG-only bot game options */}

@@ -17,6 +17,7 @@ export type ActionType =
   | 'DECLARE_ATTACKERS'
   | 'DECLARE_BLOCKERS'
   | 'HS_PLAY_CARD'
+  | 'HS_ATTUNE_CARD'
   | 'HS_ATTACK'
   | 'HS_HERO_POWER'
   | 'HS_END_TURN';
@@ -110,6 +111,7 @@ export interface PlayerData {
   hero_power_cost?: number;
   hero_power_text?: string | null;
   max_life?: number;
+  variant_resources?: Record<string, number>;
 }
 
 // Combat Data

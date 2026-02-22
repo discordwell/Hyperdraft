@@ -136,6 +136,36 @@ export function getPossibleArtPaths(name: string, setCode?: string): string[] {
 }
 
 /**
+ * Get Hearthstone/variant-oriented art paths.
+ *
+ * Priority:
+ * 1. Variant-local generated art (e.g., /api/card-art/custom/riftclash/*.png)
+ * 2. Known HS variant folders
+ * 3. Scryfall fallbacks
+ */
+export function getHearthstoneArtPaths(name: string, variant?: string | null): string[] {
+  const filename = cardNameToFilename(name);
+  const paths: string[] = [];
+
+  if (variant) {
+    paths.push(`/api/card-art/custom/${variant}/${filename}.png`);
+  }
+
+  // Known HS variant folders (works even if variant is null/missing).
+  paths.push(
+    `/api/card-art/custom/riftclash/${filename}.png`,
+    `/api/card-art/custom/frierenrift/${filename}.png`,
+    `/api/card-art/custom/stormrift/${filename}.png`,
+    `/api/card-art/custom/hearthstone/${filename}.png`
+  );
+
+  paths.push(...getPossibleArtPaths(name));
+
+  // De-duplicate while preserving order.
+  return [...new Set(paths)];
+}
+
+/**
  * Get the card art URL for a given card name.
  *
  * @param name - The card name

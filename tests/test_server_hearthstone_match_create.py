@@ -84,6 +84,101 @@ def test_create_match_riftclash_sets_up_variant_decks_and_modifiers():
     asyncio.run(_run())
 
 
+def test_create_match_frierenrift_sets_up_variant_decks_and_resources():
+    """Creating a Frierenrift match should install variant heroes/decks/resource rules."""
+
+    async def _run():
+        response = await create_match(
+            request=CreateMatchRequest(
+                mode="human_vs_bot",
+                game_mode="hearthstone",
+                variant="frierenrift",
+                hero_class="Frieren",
+                player_name="Tester",
+            ),
+            background_tasks=BackgroundTasks(),
+        )
+
+        session = session_manager.get_session(response.match_id)
+        assert session is not None
+        assert session.display_variant == "frierenrift"
+        assert any(iid.startswith("mod_frierenrift_") for iid in session.game.state.interceptors.keys())
+
+        hero_names = []
+        for pid in session.player_ids:
+            player = session.game.state.players[pid]
+            assert player.hero_id is not None
+            assert getattr(player, "manual_mana_growth", False) is True
+            assert int(getattr(player, "attunements_per_turn", 0)) == 1
+            resources = getattr(player, "variant_resources", {})
+            assert isinstance(resources, dict)
+            assert {"azure", "ember", "verdant"}.issubset(set(resources.keys()))
+            library = session.game.state.zones[f"library_{pid}"]
+            assert len(library.objects) == 30
+            hero_names.append(session.game.state.objects[player.hero_id].name)
+
+        assert "Frieren, Last Great Mage" in hero_names
+        assert "Macht of El Dorado" in hero_names
+
+        await session_manager.remove_session(response.match_id)
+
+    asyncio.run(_run())
+
+
+def test_frierenrift_attune_card_moves_hand_card_and_grants_resources():
+    """Attuning in Frierenrift should exile a hand card, add mana, and add a shard."""
+
+    async def _run():
+        response = await create_match(
+            request=CreateMatchRequest(
+                mode="human_vs_bot",
+                game_mode="hearthstone",
+                variant="frierenrift",
+                hero_class="Frieren",
+                player_name="Tester",
+            ),
+            background_tasks=BackgroundTasks(),
+        )
+
+        session = session_manager.get_session(response.match_id)
+        assert session is not None
+
+        await session.start_game()
+
+        active_pid = session.game.get_active_player()
+        if active_pid is None:
+            tm = session.game.turn_manager
+            assert tm.turn_order
+            active_pid = tm.turn_order[tm.current_player_index]
+        player = session.game.state.players[active_pid]
+        hand = session.game.state.zones[f"hand_{active_pid}"]
+        assert hand.objects, "expected at least one card in opening hand"
+
+        card_id = hand.objects[0]
+        before_mana = player.mana_crystals
+        before_attunes = int(getattr(player, "attunements_this_turn", 0))
+        before_resources = dict(getattr(player, "variant_resources", {}))
+
+        ok = await session.game.attune_card(active_pid, card_id)
+        assert ok is True
+
+        card = session.game.state.objects[card_id]
+        assert card.zone == session.game.state.zones["exile"].type
+        assert card_id in session.game.state.zones["exile"].objects
+        assert card_id not in session.game.state.zones[f"hand_{active_pid}"].objects
+        assert player.mana_crystals == min(10, before_mana + 1)
+        assert int(getattr(player, "attunements_this_turn", 0)) == before_attunes + 1
+        resources = getattr(player, "variant_resources", {})
+        assert isinstance(resources, dict)
+        assert sum(int(resources.get(k, 0)) for k in ("azure", "ember", "verdant")) >= (
+            sum(int(before_resources.get(k, 0)) for k in ("azure", "ember", "verdant")) + 1
+        )
+
+        await session_manager.remove_session(response.match_id)
+
+    asyncio.run(_run())
+
+
 def test_hearthstone_match_uses_requested_ai_difficulty_for_adapter():
     """HS human-vs-bot should pass requested difficulty into HearthstoneAIAdapter."""
 
