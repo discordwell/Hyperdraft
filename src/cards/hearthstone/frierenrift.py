@@ -47,6 +47,8 @@ def _ensure_variant_resources(player) -> dict[str, int]:
 
 
 def _resources_for_player_id(state: GameState, player_id: str) -> dict[str, int]:
+    if state is None:
+        return {k: 0 for k in TRI_COLORS}
     player = state.players.get(player_id)
     if not player:
         return {k: 0 for k in TRI_COLORS}
@@ -1161,4 +1163,3 @@ __all__ = [
     "FRIERENRIFT_CARD_POOL",
     "install_frierenrift_modifiers",
 ]
-

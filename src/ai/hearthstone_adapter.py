@@ -361,7 +361,7 @@ class HearthstoneAIAdapter:
         from src.engine.types import CardType
 
         # Base score: mana efficiency (play higher cost cards)
-        cost = self._get_mana_cost(card)
+        cost = self._get_mana_cost(card, state, player_id)
         score += cost * 10
 
         card_text = ''
@@ -430,7 +430,7 @@ class HearthstoneAIAdapter:
                         if hand_zone:
                             for cid in hand_zone.objects:
                                 c = state.objects.get(cid)
-                                if c and c != card and self._get_mana_cost(c) == boosted_mana:
+                                if c and c != card and self._get_mana_cost(c, state, player_id) == boosted_mana:
                                     has_on_curve = True
                                     break
                         if not has_on_curve:
@@ -520,7 +520,13 @@ class HearthstoneAIAdapter:
 
         # Dynamic self-cost replaces parsed base (Sea Giant, Mountain Giant, Molten Giant, etc.)
         if card.card_def and hasattr(card.card_def, 'dynamic_cost') and card.card_def.dynamic_cost:
-            total = max(0, card.card_def.dynamic_cost(card, state))
+            # Some dynamic-cost implementations require state/context. For
+            # state-less heuristic calls, keep parsed cost as a safe fallback.
+            if state is not None:
+                try:
+                    total = max(0, card.card_def.dynamic_cost(card, state))
+                except Exception:
+                    pass
 
         # Apply cost modifiers from player (after dynamic cost so modifiers stack on top)
         if state and player_id:
@@ -923,7 +929,7 @@ class HearthstoneAIAdapter:
                 dmg_match = re.search(r'deal\s+(\d+)\s+damage', text)
                 if dmg_match:
                     dmg = int(dmg_match.group(1))
-                    spell_cost = self._get_mana_cost(card)
+                    spell_cost = self._get_mana_cost(card, state, player_id)
                     # Skip AOE-only spells (can't target face)
                     can_go_face = 'all enemy' not in text and 'all minions' not in text
                     if can_go_face:
@@ -941,7 +947,7 @@ class HearthstoneAIAdapter:
         if not player.hero_power_used and player.hero_power_id:
             hp_obj = state.objects.get(player.hero_power_id)
             if hp_obj:
-                hp_cost = self._get_mana_cost(hp_obj) or 2
+                hp_cost = self._get_mana_cost(hp_obj, state, player_id) or 2
                 if available_mana - burn_mana_spent >= hp_cost:
                     hp_text = (hp_obj.card_def.text or '').lower() if hp_obj.card_def else ''
                     hp_dmg = re.search(r'deal\s+(\d+)\s+damage', hp_text)
@@ -1280,7 +1286,7 @@ class HearthstoneAIAdapter:
         # In survival mode, early-use armor/heal hero powers too
         if self._is_in_survival_mode(player_id, state):
             if 'armor' in hp_text or 'restore' in hp_text or 'heal' in hp_text:
-                hp_cost = self._get_mana_cost(hp_obj) or 2
+                hp_cost = self._get_mana_cost(hp_obj, state, player_id) or 2
                 if player.mana_crystals_available >= hp_cost:
                     return True
 
@@ -1288,7 +1294,7 @@ class HearthstoneAIAdapter:
         if 'draw' not in hp_text:
             return False
 
-        hp_cost = self._get_mana_cost(hp_obj) or 2
+        hp_cost = self._get_mana_cost(hp_obj, state, player_id) or 2
         if player.mana_crystals_available < hp_cost:
             return False
 
@@ -1316,7 +1322,7 @@ class HearthstoneAIAdapter:
         if player.hero_power_id:
             hp_obj = state.objects.get(player.hero_power_id)
             if hp_obj:
-                hp_cost = self._get_mana_cost(hp_obj) or 2
+                hp_cost = self._get_mana_cost(hp_obj, state, player_id) or 2
         if player.mana_crystals_available < hp_cost:
             return False
 
@@ -1424,7 +1430,7 @@ class HearthstoneAIAdapter:
         hp_cost = 2
         hp_obj = state.objects.get(player.hero_power_id)
         if hp_obj:
-            hp_cost = self._get_mana_cost(hp_obj) or 2
+            hp_cost = self._get_mana_cost(hp_obj, state, player_id) or 2
         player.mana_crystals_available -= hp_cost
         player.hero_power_used = True
 
@@ -1836,7 +1842,7 @@ class HearthstoneAIAdapter:
                 if not card:
                     continue
                 total_cards += 1
-                cost = self._get_mana_cost(card)
+                cost = self._get_mana_cost(card, state, player_id)
                 if cost <= 3:
                     cheap_cards += 1
                 if CardType.SPELL in card.characteristics.types:
