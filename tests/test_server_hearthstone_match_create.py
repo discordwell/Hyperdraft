@@ -5,6 +5,7 @@ from fastapi import BackgroundTasks
 from src.server.models import CreateMatchRequest
 from src.server.routes.match import create_match
 from src.server.session import session_manager
+from src.server.models import PlayerActionRequest
 from src.engine.types import CardType
 
 
@@ -202,6 +203,132 @@ def test_hearthstone_match_uses_requested_ai_difficulty_for_adapter():
         adapter = getattr(session.game.turn_manager, "hearthstone_ai_handler", None)
         assert adapter is not None
         assert getattr(adapter, "difficulty", None) == "ultra"
+
+        await session_manager.remove_session(response.match_id)
+
+    asyncio.run(_run())
+
+
+def test_frierenrift_ai_dynamic_cost_eval_is_safe_without_state():
+    """AI helper should not crash when evaluating dynamic-cost Frierenrift cards without state."""
+
+    async def _run():
+        response = await create_match(
+            request=CreateMatchRequest(
+                mode="human_vs_bot",
+                game_mode="hearthstone",
+                variant="frierenrift",
+                hero_class="Frieren",
+                ai_difficulty="ultra",
+                player_name="Tester",
+            ),
+            background_tasks=BackgroundTasks(),
+        )
+
+        session = session_manager.get_session(response.match_id)
+        assert session is not None
+
+        await session.start_game()
+
+        adapter = getattr(session.game.turn_manager, "hearthstone_ai_handler", None)
+        assert adapter is not None
+
+        # Find any card with a dynamic cost function from Frierenrift card setup.
+        dynamic_obj = None
+        for pid in session.player_ids:
+            for zone_name in (f"hand_{pid}", f"library_{pid}"):
+                zone = session.game.state.zones.get(zone_name)
+                if not zone:
+                    continue
+                for oid in zone.objects:
+                    obj = session.game.state.objects.get(oid)
+                    if obj and obj.card_def and getattr(obj.card_def, "dynamic_cost", None):
+                        dynamic_obj = obj
+                        break
+                if dynamic_obj:
+                    break
+            if dynamic_obj:
+                break
+
+        assert dynamic_obj is not None, "expected at least one dynamic-cost Frierenrift card"
+
+        # Regression: this call used to raise when dynamic_cost expected a non-None state.
+        cost = adapter._get_mana_cost(dynamic_obj)
+        assert isinstance(cost, int)
+        assert cost >= 0
+
+        await session_manager.remove_session(response.match_id)
+
+    asyncio.run(_run())
+
+
+def test_hs_end_turn_does_not_clear_next_pending_action_future():
+    """Resolving one HS action must not clobber a newly-created next-turn pending future."""
+
+    async def _run():
+        response = await create_match(
+            request=CreateMatchRequest(
+                mode="human_vs_bot",
+                game_mode="hearthstone",
+                variant="riftclash",
+                hero_class="Pyromancer",
+                player_name="Tester",
+            ),
+            background_tasks=BackgroundTasks(),
+        )
+
+        session = session_manager.get_session(response.match_id)
+        assert session is not None
+
+        await session.start_game()
+
+        active_player = session.game.get_active_player()
+        if active_player is None:
+            tm = session.game.turn_manager
+            assert tm.turn_order
+            active_player = tm.turn_order[tm.current_player_index]
+            if hasattr(tm, "hs_turn_state"):
+                tm.hs_turn_state.active_player_id = active_player
+            session.game.state.active_player = active_player
+
+        loop = asyncio.get_running_loop()
+        first_future = loop.create_future()
+        second_future = loop.create_future()
+        first_event = asyncio.Event()
+        second_event = asyncio.Event()
+
+        # Simulate "current action in progress" context.
+        session._pending_action_future = first_future
+        session._pending_player_id = active_player
+        session._action_processed_event = first_event
+
+        request = PlayerActionRequest(
+            action_type="HS_END_TURN",
+            player_id=active_player,
+            card_id=None,
+            targets=[],
+            x_value=0,
+            ability_id=None,
+            source_id=None,
+            attackers=[],
+            blockers=[],
+        )
+
+        task = asyncio.create_task(session.handle_hs_action(request))
+
+        # Let handle_hs_action resolve first_future and start waiting on first_event.
+        await asyncio.sleep(0)
+
+        # Simulate race: next turn's human input future is created before cleanup.
+        session._pending_action_future = second_future
+        session._pending_player_id = active_player
+        session._action_processed_event = second_event
+        first_event.set()
+
+        success, _ = await asyncio.wait_for(task, timeout=2.0)
+        assert success is True
+        assert session._pending_action_future is second_future
+        assert session._action_processed_event is second_event
 
         await session_manager.remove_session(response.match_id)
 

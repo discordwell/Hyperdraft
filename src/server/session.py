@@ -605,6 +605,7 @@ class GameSession:
             self._pending_player_id == request.player_id):
 
             is_end_turn = request.action_type == 'HS_END_TURN'
+            pending_future = self._pending_action_future
             processed_event = self._action_processed_event
 
             self._pending_action_future.set_result(action_dict)
@@ -622,10 +623,13 @@ class GameSession:
                 except asyncio.TimeoutError:
                     pass
 
-            # Clear state AFTER processing completes
-            self._pending_action_future = None
-            self._pending_player_id = None
-            self._action_processed_event = None
+            # Clear only the action context we resolved. The game loop may have
+            # already created the next turn's pending future by now.
+            if self._pending_action_future is pending_future:
+                self._pending_action_future = None
+                self._pending_player_id = None
+            if self._action_processed_event is processed_event:
+                self._action_processed_event = None
 
             # Yield briefly so the turn manager loop can advance
             await asyncio.sleep(0.05)
