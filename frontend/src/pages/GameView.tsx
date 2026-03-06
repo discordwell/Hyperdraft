@@ -12,6 +12,7 @@ import { useDragDropStore } from '../hooks/useDragDrop';
 import { GameBoard, GraveyardModal } from '../components/game';
 import { ActionMenu, TargetPicker, ChoiceModal } from '../components/actions';
 import { HSGameView } from './HSGameView';
+import { PKMGameView } from './PKMGameView';
 import { matchAPI } from '../services/api';
 import type { CardData, LegalActionData } from '../types';
 
@@ -358,6 +359,11 @@ export function GameView() {
   // Route to HS view for hearthstone-engine games
   if (gameState?.game_mode === 'hearthstone') {
     return <HSGameView />;
+  }
+
+  // Route to PKM view for pokemon-engine games
+  if (gameState?.game_mode === 'pokemon') {
+    return <PKMGameView />;
   }
 
   // Loading state

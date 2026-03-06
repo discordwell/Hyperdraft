@@ -744,7 +744,8 @@ def _handle_zone_change(event: Event, state: GameState):
     obj = state.objects[object_id]
 
     def _zone_key(zone_type: ZoneType, owner_id: Optional[str]) -> Optional[str]:
-        if zone_type in {ZoneType.LIBRARY, ZoneType.HAND, ZoneType.GRAVEYARD}:
+        if zone_type in {ZoneType.LIBRARY, ZoneType.HAND, ZoneType.GRAVEYARD,
+                         ZoneType.ACTIVE_SPOT, ZoneType.BENCH, ZoneType.PRIZE_CARDS}:
             return f"{zone_type.name.lower()}_{owner_id}" if owner_id else None
         return zone_type.name.lower()
 

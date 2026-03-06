@@ -51,6 +51,14 @@ class ActionType(str, Enum):
     HS_ATTACK = "HS_ATTACK"
     HS_HERO_POWER = "HS_HERO_POWER"
     HS_END_TURN = "HS_END_TURN"
+    # Pokemon action types
+    PKM_PLAY_CARD = "PKM_PLAY_CARD"
+    PKM_ATTACH_ENERGY = "PKM_ATTACH_ENERGY"
+    PKM_ATTACK = "PKM_ATTACK"
+    PKM_RETREAT = "PKM_RETREAT"
+    PKM_EVOLVE = "PKM_EVOLVE"
+    PKM_USE_ABILITY = "PKM_USE_ABILITY"
+    PKM_END_TURN = "PKM_END_TURN"
 
 
 class ChoiceType(str, Enum):
@@ -73,9 +81,9 @@ class ChoiceType(str, Enum):
 class CreateMatchRequest(BaseModel):
     """Request to create a new match."""
     mode: MatchMode = MatchMode.HUMAN_VS_BOT
-    game_mode: Literal["mtg", "hearthstone"] = Field(
+    game_mode: Literal["mtg", "hearthstone", "pokemon"] = Field(
         default="mtg",
-        description="Rules engine: 'mtg' (priority/stack/lands) or 'hearthstone' (mana crystals/turn-based)"
+        description="Rules engine: 'mtg', 'hearthstone', or 'pokemon'"
     )
     variant: Optional[str] = Field(default=None, description="Game variant (e.g. 'stormrift') — installs heroes/decks/modifiers")
     hero_class: Optional[str] = Field(default=None, description="Hero class for variant (e.g. 'Pyromancer', 'Cryomancer')")
@@ -165,6 +173,22 @@ class CardData(BaseModel):
     frozen: bool = False
     summoning_sickness: bool = False
     attacks_this_turn: int = 0
+    # Pokemon-specific state
+    hp: Optional[int] = None
+    damage_counters: int = 0
+    pokemon_type: Optional[str] = None
+    evolution_stage: Optional[str] = None
+    attacks: list[dict] = Field(default_factory=list)
+    ability_name: Optional[str] = None
+    ability_text: Optional[str] = None
+    weakness_type: Optional[str] = None
+    resistance_type: Optional[str] = None
+    retreat_cost: int = 0
+    attached_energy: list[str] = Field(default_factory=list)
+    attached_tool_name: Optional[str] = None
+    status_conditions: list[str] = Field(default_factory=list)
+    is_ex: bool = False
+    prize_count: int = 1
 
 
 class StackItemData(BaseModel):
@@ -229,6 +253,10 @@ class PlayerData(BaseModel):
     max_life: int = 30
     # Variant-specific resource counters (e.g. tri-color shards in Frierenrift)
     variant_resources: dict[str, int] = Field(default_factory=dict)
+    # Pokemon fields
+    prizes_remaining: int = 0
+    energy_attached_this_turn: bool = False
+    supporter_played_this_turn: bool = False
 
 
 class CombatData(BaseModel):
@@ -257,9 +285,13 @@ class GameStateResponse(BaseModel):
     winner: Optional[str] = None
     pending_choice: Optional[PendingChoiceData] = None  # Choice for this player
     waiting_for_choice: Optional[PendingChoiceWaitingData] = None  # Another player's choice
-    game_mode: str = "mtg"  # "mtg" or "hearthstone"
+    game_mode: str = "mtg"  # "mtg", "hearthstone", or "pokemon"
     variant: Optional[str] = None  # Game variant (e.g. "stormrift")
     max_hand_size: int = 7  # 7 for MTG, 10 for Hearthstone
+    # Pokemon zones
+    active_pokemon: dict[str, Optional[CardData]] = Field(default_factory=dict)
+    bench: dict[str, list[CardData]] = Field(default_factory=dict)
+    stadium_card: Optional[CardData] = None
 
 
 class ChoiceResultResponse(BaseModel):

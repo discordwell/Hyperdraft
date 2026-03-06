@@ -52,6 +52,8 @@ class Game:
         # Set mode-specific defaults
         if mode == "hearthstone":
             self.state.max_hand_size = 10
+        elif mode == "pokemon":
+            self.state.max_hand_size = 999  # No hand size limit in Pokemon
 
         self.pipeline = EventPipeline(self.state)
 
@@ -80,6 +82,9 @@ class Game:
         if self.state.game_mode == "hearthstone":
             from .hearthstone_mana import HearthstoneManaSystem
             return HearthstoneManaSystem(self.state)
+        elif self.state.game_mode == "pokemon":
+            from .pokemon_energy import PokemonEnergySystem
+            return PokemonEnergySystem(self.state)
         return ManaSystem(self.state)
 
     def _create_combat_manager(self):
@@ -87,6 +92,9 @@ class Game:
         if self.state.game_mode == "hearthstone":
             from .hearthstone_combat import HearthstoneCombatManager
             return HearthstoneCombatManager(self.state)
+        elif self.state.game_mode == "pokemon":
+            from .pokemon_combat import PokemonCombatManager
+            return PokemonCombatManager(self.state)
         return CombatManager(self.state)
 
     def _create_turn_manager(self):
@@ -94,6 +102,9 @@ class Game:
         if self.state.game_mode == "hearthstone":
             from .hearthstone_turn import HearthstoneTurnManager
             return HearthstoneTurnManager(self.state)
+        elif self.state.game_mode == "pokemon":
+            from .pokemon_turn import PokemonTurnManager
+            return PokemonTurnManager(self.state)
         return TurnManager(self.state)
 
     def _connect_subsystems(self):
@@ -139,6 +150,15 @@ class Game:
                 owner=player_id
             )
 
+        # Pokemon-specific zones
+        if self.state.game_mode == "pokemon":
+            for zone_type in [ZoneType.ACTIVE_SPOT, ZoneType.BENCH, ZoneType.PRIZE_CARDS]:
+                key = f"{zone_type.name.lower()}_{player_id}"
+                self.state.zones[key] = Zone(
+                    type=zone_type,
+                    owner=player_id
+                )
+
     def setup_hearthstone_player(self, player: Player, hero_def, hero_power_def):
         """
         Set up a Hearthstone player with hero and hero power.
@@ -175,12 +195,40 @@ class Game:
 
         # Note: create_object already runs card_def.setup_interceptors
 
+    def setup_pokemon_player(self, player: Player, deck: list):
+        """
+        Set up a Pokemon TCG player with a deck.
+
+        Args:
+            player: Player object
+            deck: List of CardDefinition objects for the deck (60 cards)
+        """
+        player.life = 0  # Not used in Pokemon
+        player.prizes_remaining = 6
+
+        # Add cards to library
+        for card_def in deck:
+            self.create_object(
+                name=card_def.name,
+                owner_id=player.id,
+                zone=ZoneType.LIBRARY,
+                characteristics=copy.deepcopy(card_def.characteristics),
+                card_def=card_def
+            )
+
     def _setup_shared_zones(self):
         """Create battlefield, stack, exile, command zones."""
         for zone_type in [ZoneType.BATTLEFIELD, ZoneType.STACK, ZoneType.EXILE, ZoneType.COMMAND]:
             key = zone_type.name.lower()
             if key not in self.state.zones:
                 self.state.zones[key] = Zone(type=zone_type, owner=None)
+
+        # Pokemon shared zones
+        if self.state.game_mode == "pokemon":
+            for zone_type in [ZoneType.LOST_ZONE, ZoneType.STADIUM_ZONE]:
+                key = zone_type.name.lower()
+                if key not in self.state.zones:
+                    self.state.zones[key] = Zone(type=zone_type, owner=None)
 
     def create_object(
         self,
@@ -234,6 +282,12 @@ class Game:
         if zone_type in {ZoneType.LIBRARY, ZoneType.HAND, ZoneType.GRAVEYARD}:
             return f"{zone_type.name.lower()}_{owner_id}"
         elif zone_type in {ZoneType.BATTLEFIELD, ZoneType.STACK, ZoneType.EXILE, ZoneType.COMMAND}:
+            return zone_type.name.lower()
+        # Pokemon per-player zones
+        elif zone_type in {ZoneType.ACTIVE_SPOT, ZoneType.BENCH, ZoneType.PRIZE_CARDS}:
+            return f"{zone_type.name.lower()}_{owner_id}"
+        # Pokemon shared zones
+        elif zone_type in {ZoneType.LOST_ZONE, ZoneType.STADIUM_ZONE}:
             return zone_type.name.lower()
         return None
 
@@ -782,7 +836,12 @@ class Game:
         """
         # Set up turn order
         player_ids = list(self.state.players.keys())
-        if self.state.game_mode == "hearthstone":
+        if self.state.game_mode == "pokemon":
+            # Pokemon: setup_game() handles everything (shuffle, draw, mulligans,
+            # active placement, prizes, coin flip). Already called by session.
+            self.turn_manager.set_turn_order(player_ids)
+            return
+        elif self.state.game_mode == "hearthstone":
             # Hearthstone: randomize who goes first
             import random
             random.shuffle(player_ids)
@@ -1133,8 +1192,8 @@ class Game:
         """Mark a player as AI-controlled."""
         self.priority_system.set_ai_player(player_id)
 
-        # Also register with Hearthstone turn manager if in Hearthstone mode
-        if self.state.game_mode == "hearthstone":
+        # Also register with Hearthstone/Pokemon turn manager
+        if self.state.game_mode in ("hearthstone", "pokemon"):
             if hasattr(self.turn_manager, 'set_ai_player'):
                 self.turn_manager.set_ai_player(player_id)
 
@@ -2724,4 +2783,172 @@ def make_secret(
         abilities=[],
         setup_interceptors=secret_setup,
         domain="HEARTHSTONE"
+    )
+
+
+# =============================================================================
+# Pokemon TCG Card Builder Helpers
+# =============================================================================
+
+def make_pokemon(
+    name: str,
+    hp: int,
+    pokemon_type: str,
+    evolution_stage: str = "Basic",
+    evolves_from: str = None,
+    attacks: list = None,
+    ability: dict = None,
+    weakness_type: str = None,
+    weakness_modifier: str = "x2",
+    resistance_type: str = None,
+    resistance_modifier: int = -30,
+    retreat_cost: int = 0,
+    is_ex: bool = False,
+    prize_count: int = None,
+    rule_box: str = None,
+    text: str = "",
+    rarity: str = None,
+    setup_interceptors=None,
+) -> 'CardDefinition':
+    """Helper to create Pokemon card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    if prize_count is None:
+        prize_count = 2 if is_ex else 1
+
+    return CardDefinition(
+        name=name,
+        mana_cost=None,
+        characteristics=Characteristics(
+            types={CardType.POKEMON},
+        ),
+        text=text,
+        rarity=rarity,
+        setup_interceptors=setup_interceptors,
+        domain="PKM",
+        evolution_stage=evolution_stage,
+        evolves_from=evolves_from,
+        hp=hp,
+        pokemon_type=pokemon_type,
+        weakness_type=weakness_type,
+        weakness_modifier=weakness_modifier,
+        resistance_type=resistance_type,
+        resistance_modifier=resistance_modifier,
+        retreat_cost=retreat_cost,
+        attacks=attacks or [],
+        ability=ability,
+        prize_count=prize_count,
+        is_ex=is_ex,
+        rule_box=rule_box,
+    )
+
+
+def make_trainer_item(
+    name: str,
+    text: str = "",
+    rarity: str = None,
+    resolve=None,
+    setup_interceptors=None,
+) -> 'CardDefinition':
+    """Helper to create Pokemon Item Trainer card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=None,
+        characteristics=Characteristics(
+            types={CardType.TRAINER, CardType.ITEM},
+        ),
+        text=text,
+        rarity=rarity,
+        resolve=resolve,
+        setup_interceptors=setup_interceptors,
+        domain="PKM",
+    )
+
+
+def make_trainer_supporter(
+    name: str,
+    text: str = "",
+    rarity: str = None,
+    resolve=None,
+) -> 'CardDefinition':
+    """Helper to create Pokemon Supporter Trainer card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=None,
+        characteristics=Characteristics(
+            types={CardType.TRAINER, CardType.SUPPORTER},
+        ),
+        text=text,
+        rarity=rarity,
+        resolve=resolve,
+        domain="PKM",
+    )
+
+
+def make_trainer_stadium(
+    name: str,
+    text: str = "",
+    rarity: str = None,
+    resolve=None,
+    setup_interceptors=None,
+) -> 'CardDefinition':
+    """Helper to create Pokemon Stadium Trainer card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=None,
+        characteristics=Characteristics(
+            types={CardType.TRAINER, CardType.STADIUM},
+        ),
+        text=text,
+        rarity=rarity,
+        resolve=resolve,
+        setup_interceptors=setup_interceptors,
+        domain="PKM",
+    )
+
+
+def make_pokemon_tool(
+    name: str,
+    text: str = "",
+    rarity: str = None,
+    setup_interceptors=None,
+) -> 'CardDefinition':
+    """Helper to create Pokemon Tool card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=None,
+        characteristics=Characteristics(
+            types={CardType.TRAINER, CardType.POKEMON_TOOL},
+        ),
+        text=text,
+        rarity=rarity,
+        setup_interceptors=setup_interceptors,
+        domain="PKM",
+    )
+
+
+def make_basic_energy(
+    name: str,
+    pokemon_type: str,
+) -> 'CardDefinition':
+    """Helper to create Basic Energy card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=None,
+        characteristics=Characteristics(
+            types={CardType.ENERGY},
+        ),
+        text=f"Basic {name}",
+        domain="PKM",
+        pokemon_type=pokemon_type,
     )
