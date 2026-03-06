@@ -246,7 +246,7 @@ class GameSession:
             difficulty = str(difficulty).strip().lower()
 
             ai_adapter = PokemonAIAdapter(difficulty=difficulty)
-            self.game.turn_manager.ai_handler = ai_adapter
+            self.game.turn_manager.set_ai_handler(ai_adapter)
 
             # Wire human action handler for Pokemon mode with human players
             if self.human_players:
