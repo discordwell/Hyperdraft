@@ -80,11 +80,11 @@ def make_test_game():
     p2_active = game.create_object("Squirtle", p2.id, ZoneType.ACTIVE_SPOT,
                                     copy.deepcopy(water_pokemon.characteristics), water_pokemon)
 
-    # Add to active zones
+    # Verify objects are in active zones (create_object already added them)
     active1_key = f"active_spot_{p1.id}"
     active2_key = f"active_spot_{p2.id}"
-    game.state.zones[active1_key].objects.append(p1_active.id)
-    game.state.zones[active2_key].objects.append(p2_active.id)
+    assert p1_active.id in game.state.zones[active1_key].objects
+    assert p2_active.id in game.state.zones[active2_key].objects
 
     return game, p1, p2, p1_active, p2_active
 

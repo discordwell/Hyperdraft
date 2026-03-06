@@ -766,7 +766,7 @@ class PokemonTurnManager(TurnManager):
             player.stadium_played_this_turn = False
             player.retreated_this_turn = False
 
-        # Increment turns_in_play for this player's Pokemon
+        # Increment turns_in_play for this player's Pokemon and reset per-turn flags
         for zone_key, zone in self.state.zones.items():
             if zone.type in (ZoneType.ACTIVE_SPOT, ZoneType.BENCH) and zone.owner == player_id:
                 for obj_id in zone.objects:
@@ -774,6 +774,7 @@ class PokemonTurnManager(TurnManager):
                     if obj and CardType.POKEMON in obj.characteristics.types:
                         obj.state.turns_in_play += 1
                         obj.state.evolved_this_turn = False
+                        obj.state.ability_used_this_turn = False
 
     # ---- Setup helpers ----
 

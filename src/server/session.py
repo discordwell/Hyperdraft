@@ -797,7 +797,7 @@ class GameSession:
             from src.engine.types import CardType
             types = card_obj.characteristics.types
             if CardType.POKEMON in types:
-                stage = card_obj.characteristics.card_def.evolution_stage if card_obj.characteristics.card_def else 'Basic'
+                stage = card_obj.card_def.evolution_stage if card_obj.card_def else 'Basic'
                 if stage == 'Basic':
                     action_dict = {'action_type': 'PKM_PLAY_BASIC', 'card_id': card_id}
                 else:
@@ -936,7 +936,7 @@ class GameSession:
             if tool_id:
                 tool_obj = self.game.state.objects.get(tool_id)
                 if tool_obj:
-                    card_data.attached_tool_name = tool_obj.characteristics.name
+                    card_data.attached_tool_name = tool_obj.name
 
         return card_data
 
