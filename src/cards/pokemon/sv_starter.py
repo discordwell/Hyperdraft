@@ -412,7 +412,7 @@ CHARIZARD_EX = make_pokemon(
     retreat_cost=2,
     is_ex=True,
     rarity="rare",
-    image_url="https://images.pokemontcg.io/sv3/6.png",
+    image_url="https://images.pokemontcg.io/sv3pt5/6.png",
 )
 
 ARCANINE = make_pokemon(
@@ -428,7 +428,7 @@ ARCANINE = make_pokemon(
     weakness_type=PokemonType.WATER.value,
     retreat_cost=2,
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv2/31.png",
+    image_url="https://images.pokemontcg.io/sv3pt5/59.png",
 )
 
 GROWLITHE = make_pokemon(
@@ -443,7 +443,7 @@ GROWLITHE = make_pokemon(
     weakness_type=PokemonType.WATER.value,
     retreat_cost=2,
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv2/30.png",
+    image_url="https://images.pokemontcg.io/sv3pt5/58.png",
 )
 
 # =============================================================================
@@ -511,6 +511,7 @@ LAPRAS = make_pokemon(
     weakness_type=PokemonType.LIGHTNING.value,
     retreat_cost=2,
     rarity="uncommon",
+    image_url="https://images.pokemontcg.io/sv3pt5/131.png",
 )
 
 # =============================================================================
