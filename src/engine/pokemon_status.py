@@ -54,6 +54,11 @@ def apply_status(pokemon_id: str, condition: str, state: GameState) -> list[Even
 
     pokemon.state.status_conditions.add(condition)
 
+    # Track when paralysis was applied for correct cure timing
+    if condition == 'paralyzed':
+        turn_number = getattr(state, 'turn_number', 0) if hasattr(state, 'turn_number') else 0
+        pokemon.state.paralyzed_on_turn = turn_number
+
     return [Event(
         type=EventType.PKM_APPLY_STATUS,
         payload={
@@ -158,7 +163,6 @@ def run_checkup(state: GameState, pipeline=None) -> list[Event]:
                 )
                 events.append(flip_event)
                 if flip == 'heads':
-                    obj.state.status_conditions.discard('burned')
                     events.extend(remove_status(obj_id, 'burned', state))
 
             # Sleep: flip to wake
@@ -179,8 +183,8 @@ def run_checkup(state: GameState, pipeline=None) -> list[Event]:
                 if flip == 'heads':
                     obj.state.status_conditions.discard('asleep')
 
-            # Paralysis: cured at end of owner's next turn
-            # (tracked by turn manager, not checkup - just mark event)
+            # Paralysis: cured at the end of the affected player's next turn.
+            # We track paralyzed_on_turn; cure only after the owner has had a turn.
             if 'paralyzed' in obj.state.status_conditions:
                 para_event = Event(
                     type=EventType.PKM_CHECKUP_PARALYSIS,
@@ -190,8 +194,11 @@ def run_checkup(state: GameState, pipeline=None) -> list[Event]:
                 if pipeline:
                     pipeline.emit(para_event)
                 events.append(para_event)
-                # Remove paralysis after the owner's turn
-                obj.state.status_conditions.discard('paralyzed')
+                paralyzed_on = getattr(obj.state, 'paralyzed_on_turn', 0)
+                current_turn = getattr(state, 'turn_number', 0) if hasattr(state, 'turn_number') else 0
+                if current_turn > paralyzed_on:
+                    obj.state.status_conditions.discard('paralyzed')
+                    events.extend(remove_status(obj_id, 'paralyzed', state))
 
     return events
 
