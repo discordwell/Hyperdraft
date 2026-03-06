@@ -20,7 +20,14 @@ export type ActionType =
   | 'HS_ATTUNE_CARD'
   | 'HS_ATTACK'
   | 'HS_HERO_POWER'
-  | 'HS_END_TURN';
+  | 'HS_END_TURN'
+  | 'PKM_PLAY_CARD'
+  | 'PKM_ATTACH_ENERGY'
+  | 'PKM_ATTACK'
+  | 'PKM_RETREAT'
+  | 'PKM_EVOLVE'
+  | 'PKM_USE_ABILITY'
+  | 'PKM_END_TURN';
 
 export type Phase =
   | 'BEGINNING'
@@ -67,6 +74,22 @@ export interface CardData {
   frozen?: boolean;
   summoning_sickness?: boolean;
   attacks_this_turn?: number;
+  // Pokemon state
+  hp?: number;
+  damage_counters?: number;
+  pokemon_type?: string;
+  evolution_stage?: string;
+  attacks?: { name: string; cost: { type: string; count: number }[]; damage: number; text: string }[];
+  ability_name?: string;
+  ability_text?: string;
+  weakness_type?: string;
+  resistance_type?: string;
+  retreat_cost?: number;
+  attached_energy?: string[];
+  attached_tool_name?: string;
+  status_conditions?: string[];
+  is_ex?: boolean;
+  prize_count?: number;
 }
 
 // Stack Item
@@ -112,6 +135,10 @@ export interface PlayerData {
   hero_power_text?: string | null;
   max_life?: number;
   variant_resources?: Record<string, number>;
+  // Pokemon fields
+  prizes_remaining?: number;
+  energy_attached_this_turn?: boolean;
+  supporter_played_this_turn?: boolean;
 }
 
 // Combat Data
@@ -174,15 +201,19 @@ export interface GameState {
   is_game_over: boolean;
   winner: string | null;
   pending_choice?: PendingChoice | null;
-  game_mode?: 'mtg' | 'hearthstone';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon';
   variant?: string | null;
   max_hand_size?: number;
+  // Pokemon zones
+  active_pokemon?: Record<string, CardData | null>;
+  bench?: Record<string, CardData[]>;
+  stadium_card?: CardData | null;
 }
 
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
-  game_mode?: 'mtg' | 'hearthstone';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon';
   variant?: string;
   player_deck?: string[];
   player_deck_id?: string;
@@ -221,7 +252,7 @@ export interface ActionResultResponse {
 
 // Bot Game Types
 export interface StartBotGameRequest {
-  mode?: 'mtg' | 'hearthstone';
+  mode?: 'mtg' | 'hearthstone' | 'pokemon';
   bot1_deck: string[];
   bot2_deck: string[];
   bot1_deck_id?: string;

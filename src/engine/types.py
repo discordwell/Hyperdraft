@@ -197,6 +197,38 @@ class EventType(Enum):
     ARMOR_GAIN = auto()                    # Hero gains armor
     ADD_TO_HAND = auto()                   # Add a card definition to hand as new object
 
+    # Pokemon TCG mechanics
+    PKM_ATTACH_ENERGY = auto()        # Attach energy card to Pokemon
+    PKM_EVOLVE = auto()               # Evolve a Pokemon
+    PKM_RETREAT = auto()              # Retreat active Pokemon
+    PKM_ATTACK_DECLARE = auto()       # Declare an attack
+    PKM_ATTACK_DAMAGE = auto()        # Calculate and apply attack damage
+    PKM_APPLY_WEAKNESS = auto()       # Weakness modifier step
+    PKM_APPLY_RESISTANCE = auto()     # Resistance modifier step
+    PKM_PLACE_DAMAGE_COUNTERS = auto() # Place counters (bypasses W/R)
+    PKM_HEAL = auto()                 # Remove damage counters
+    PKM_KNOCKOUT = auto()             # Pokemon knocked out
+    PKM_TAKE_PRIZE = auto()           # Take prize card(s)
+    PKM_PROMOTE_ACTIVE = auto()       # Promote benched Pokemon to active
+    PKM_PLAY_BASIC = auto()           # Play basic Pokemon to bench
+    PKM_PLAY_ITEM = auto()            # Play Item trainer
+    PKM_PLAY_SUPPORTER = auto()       # Play Supporter trainer
+    PKM_PLAY_STADIUM = auto()         # Play Stadium trainer
+    PKM_ATTACH_TOOL = auto()          # Attach Pokemon Tool
+    PKM_USE_ABILITY = auto()          # Use a Pokemon Ability
+    PKM_APPLY_STATUS = auto()         # Apply status condition
+    PKM_REMOVE_STATUS = auto()        # Remove status condition
+    PKM_CHECKUP = auto()              # Between-turns checkup
+    PKM_CHECKUP_POISON = auto()       # Poison tick
+    PKM_CHECKUP_BURN = auto()         # Burn tick + coin flip
+    PKM_CHECKUP_SLEEP = auto()        # Sleep coin flip
+    PKM_CHECKUP_PARALYSIS = auto()    # Paralysis recovery
+    PKM_COIN_FLIP = auto()            # Coin flip result
+    PKM_DISCARD_ENERGY = auto()       # Discard energy from Pokemon
+    PKM_SWITCH = auto()               # Switch effect (not retreat)
+    PKM_MULLIGAN = auto()             # Opening hand mulligan
+    PKM_SETUP = auto()                # Game setup phase
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
@@ -295,6 +327,15 @@ class CardType(Enum):
     HERO_POWER = auto()  # Repeatable ability
     SECRET = auto()      # Opponent-turn trigger
 
+    # Pokemon TCG card types
+    POKEMON = auto()        # Pokemon card (Basic, Stage 1, Stage 2)
+    TRAINER = auto()        # Trainer card (parent type)
+    ITEM = auto()           # Trainer - Item
+    SUPPORTER = auto()      # Trainer - Supporter
+    STADIUM = auto()        # Trainer - Stadium
+    POKEMON_TOOL = auto()   # Trainer - Pokemon Tool
+    ENERGY = auto()         # Energy card
+
 
 class Color(Enum):
     WHITE = 'W'
@@ -305,6 +346,19 @@ class Color(Enum):
     COLORLESS = 'C'
 
 
+class PokemonType(Enum):
+    GRASS = "G"
+    FIRE = "R"
+    WATER = "W"
+    LIGHTNING = "L"
+    PSYCHIC = "P"
+    FIGHTING = "F"
+    DARKNESS = "D"
+    METAL = "M"
+    DRAGON = "N"       # No basic energy exists
+    COLORLESS = "C"    # Any energy satisfies
+
+
 class ZoneType(Enum):
     LIBRARY = auto()
     HAND = auto()
@@ -313,6 +367,13 @@ class ZoneType(Enum):
     STACK = auto()
     EXILE = auto()
     COMMAND = auto()
+
+    # Pokemon TCG zones
+    ACTIVE_SPOT = auto()    # 1 Pokemon per player
+    BENCH = auto()          # Up to 5 Pokemon per player
+    PRIZE_CARDS = auto()    # 6 face-down cards per player
+    LOST_ZONE = auto()      # Permanent removal (public, no recovery)
+    STADIUM_ZONE = auto()   # Shared, 0-1 Stadium card
 
 
 # =============================================================================
@@ -371,6 +432,16 @@ class ObjectState:
     summoning_sickness: bool = False  # Set True on battlefield entry (pipeline.py:628)
     weapon_durability: int = 0        # For weapon cards
     weapon_attack: int = 0            # For weapon cards
+
+    # Pokemon-specific (optional, unused in MTG/HS)
+    damage_counters: int = 0             # Each = 10 HP damage
+    status_conditions: set = field(default_factory=set)  # {"poisoned","burned","asleep","confused","paralyzed"}
+    attached_energy: list = field(default_factory=list)   # List of energy object IDs
+    attached_tool: Optional[str] = None   # Tool object ID
+    evolution_stage_num: int = 0          # 0=Basic, 1=Stage1, 2=Stage2
+    evolved_from_id: Optional[str] = None # Previous stage object ID
+    turns_in_play: int = 0               # For evolution timing
+    evolved_this_turn: bool = False       # Cannot evolve again
 
 
 @dataclass
@@ -504,6 +575,13 @@ class Player:
     cards_played_this_turn: int = 0           # Cards played this turn (Rogue Combo)
     cost_modifiers: list = field(default_factory=list)  # [{card_type, amount, duration, uses_remaining, floor}]
 
+    # Pokemon-specific (optional, unused in MTG/HS)
+    prizes_remaining: int = 0                 # Prizes left to take
+    energy_attached_this_turn: bool = False   # Once per turn limit
+    supporter_played_this_turn: bool = False  # Once per turn limit
+    stadium_played_this_turn: bool = False    # Once per turn limit
+    retreated_this_turn: bool = False         # Once per turn limit
+
     @property
     def cost_reductions(self) -> list:
         """Legacy alias for older tests/card code."""
@@ -566,6 +644,22 @@ class CardDefinition:
     deathrattle: Optional[Callable[['GameObject', 'GameState'], list[Event]]] = None
     spell_effect: Optional[Callable[['GameObject', 'GameState', list[list[str]]], list[Event]]] = None
     requires_target: bool = False
+
+    # Pokemon-specific fields
+    evolution_stage: Optional[str] = None    # "Basic", "Stage 1", "Stage 2"
+    evolves_from: Optional[str] = None       # Name of pre-evolution
+    hp: Optional[int] = None                 # Pokemon HP
+    pokemon_type: Optional[str] = None       # PokemonType value
+    weakness_type: Optional[str] = None      # Type weak to
+    weakness_modifier: str = "x2"            # "x2" for modern
+    resistance_type: Optional[str] = None    # Type resistant to
+    resistance_modifier: int = -30           # -30 for modern
+    retreat_cost: int = 0                    # Energy to discard to retreat
+    attacks: list = field(default_factory=list)  # [{name, cost, damage, text, effect_fn}]
+    ability: Optional[dict] = None           # {name, text, ability_type, effect_fn}
+    prize_count: int = 1                     # Prizes given on KO (2 for ex)
+    is_ex: bool = False                      # Pokemon ex flag
+    rule_box: Optional[str] = None           # Rule box text for ex etc.
 
     # Multi-face card support
     adventure: Optional[CardFace] = None      # Adventure spell portion
@@ -749,8 +843,8 @@ class GameState:
     lands_allowed_this_turn: int = 1  # Can be increased by effects like Exploration
 
     # Game mode configuration
-    game_mode: str = "mtg"           # "mtg" or "hearthstone"
-    max_hand_size: int = 7           # 7 for MTG, 10 for Hearthstone
+    game_mode: str = "mtg"           # "mtg", "hearthstone", or "pokemon"
+    max_hand_size: int = 7           # 7 for MTG, 10 for Hearthstone (no limit for Pokemon)
 
     # Pending events (the "stack")
     pending_events: list[Event] = field(default_factory=list)

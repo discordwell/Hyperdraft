@@ -48,6 +48,9 @@ from .types import (
     GameObject, Characteristics, ObjectState,
     CardType, Color, ZoneType,
 
+    # Pokemon
+    PokemonType,
+
     # Other
     Player, Zone, GameState, CardDefinition, CardFace,
 
@@ -65,7 +68,9 @@ from .queries import (
 from .game import (
     Game,
     make_creature, make_instant, make_enchantment,
-    make_sorcery, make_artifact, make_land, make_planeswalker
+    make_sorcery, make_artifact, make_land, make_planeswalker,
+    make_pokemon, make_trainer_item, make_trainer_supporter,
+    make_trainer_stadium, make_pokemon_tool, make_basic_energy,
 )
 
 from .mana import (

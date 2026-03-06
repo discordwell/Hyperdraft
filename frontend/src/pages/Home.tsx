@@ -24,7 +24,7 @@ export function Home() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone'>('hearthstone');
+  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone' | 'pokemon'>('hearthstone');
   const [hsVariant, setHsVariant] = useState<string | null>('riftclash');
   const [heroClass, setHeroClass] = useState<string>('Pyromancer');
   const [playerName, setPlayerName] = useState('Player');
@@ -56,6 +56,7 @@ export function Home() {
 
     try {
       const isHearthstone = gameMode === 'hearthstone';
+      const isPokemon = gameMode === 'pokemon';
 
       // Create match
       const response = await matchAPI.create({
@@ -65,8 +66,8 @@ export function Home() {
         hero_class: isHearthstone && hsVariant !== null ? heroClass : undefined,
         player_name: playerName,
         ai_difficulty: difficulty,
-        player_deck_id: isHearthstone ? undefined : (playerDeck || undefined),
-        ai_deck_id: isHearthstone ? undefined : (aiDeck || undefined),
+        player_deck_id: (isHearthstone || isPokemon) ? undefined : (playerDeck || undefined),
+        ai_deck_id: (isHearthstone || isPokemon) ? undefined : (aiDeck || undefined),
       });
 
       // Set connection info in store
@@ -237,6 +238,16 @@ export function Home() {
                 }`}
               >
                 Hearthstone
+              </button>
+              <button
+                onClick={() => setGameMode('pokemon')}
+                className={`flex-1 px-4 py-2 rounded transition-colors ${
+                  gameMode === 'pokemon'
+                    ? 'bg-yellow-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                Pokemon TCG
               </button>
             </div>
           </div>

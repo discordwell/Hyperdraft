@@ -232,7 +232,31 @@ class GameSession:
         self.is_started = True
 
         # Setup AI handlers based on game mode
-        if self.game.state.game_mode == "hearthstone":
+        if self.game.state.game_mode == "pokemon":
+            # Setup Pokemon AI adapter
+            from src.ai.pokemon_adapter import PokemonAIAdapter
+
+            if self.ai_profiles_by_player:
+                first_profile = next(iter(self.ai_profiles_by_player.values()))
+                difficulty = first_profile.get('difficulty', self.ai_difficulty or 'medium')
+            else:
+                difficulty = self.ai_difficulty or 'medium'
+            if hasattr(difficulty, "value"):
+                difficulty = difficulty.value
+            difficulty = str(difficulty).strip().lower()
+
+            ai_adapter = PokemonAIAdapter(difficulty=difficulty)
+            self.game.turn_manager.ai_handler = ai_adapter
+
+            # Wire human action handler for Pokemon mode with human players
+            if self.human_players:
+                self.game.turn_manager.human_action_handler = self._get_pkm_human_action
+
+            # Setup game (shuffle, draw 7, mulligans, prizes, coin flip)
+            import asyncio
+            await self.game.turn_manager.setup_game()
+
+        elif self.game.state.game_mode == "hearthstone":
             # Setup Hearthstone AI adapter
             from src.ai.hearthstone_adapter import HearthstoneAIAdapter
 
@@ -271,7 +295,9 @@ class GameSession:
     async def run_until_human_input(self) -> None:
         """Run the game until human input is needed or game ends."""
         try:
-            if self.game.state.game_mode == "hearthstone":
+            if self.game.state.game_mode == "pokemon":
+                await self._run_pkm_game_loop()
+            elif self.game.state.game_mode == "hearthstone":
                 await self._run_hs_game_loop()
             else:
                 await self._run_mtg_game_loop()
@@ -377,6 +403,9 @@ class GameSession:
                 hero_power_text=self._get_hero_power_text(player),
                 max_life=player.max_life,
                 variant_resources=self._get_variant_resources(player),
+                prizes_remaining=getattr(player, 'prizes_remaining', 0),
+                energy_attached_this_turn=getattr(player, 'energy_attached_this_turn', False),
+                supporter_played_this_turn=getattr(player, 'supporter_played_this_turn', False),
             )
 
         # Get battlefield (exclude heroes/hero powers in HS mode — those are in player data)
@@ -456,6 +485,49 @@ class GameSession:
                     choice_type=pending_choice.choice_type
                 )
 
+        # Pokemon zone serialization
+        active_pokemon = {}
+        bench = {}
+        stadium_card_data = None
+        if game_state.game_mode == "pokemon":
+            def _resolve_obj(obj_or_id):
+                """Resolve a zone entry to a GameObject (zones may store IDs or objects)."""
+                if isinstance(obj_or_id, str):
+                    return game_state.objects.get(obj_or_id)
+                return obj_or_id
+
+            for pid in game_state.players:
+                # Active spot
+                active_zone = game_state.zones.get(f"active_spot_{pid}")
+                if active_zone and active_zone.objects:
+                    obj = _resolve_obj(active_zone.objects[0])
+                    active_pokemon[pid] = self._serialize_pokemon_card(obj) if obj else None
+                else:
+                    active_pokemon[pid] = None
+
+                # Bench
+                bench_zone = game_state.zones.get(f"bench_{pid}")
+                if bench_zone:
+                    bench[pid] = []
+                    for entry in bench_zone.objects:
+                        obj = _resolve_obj(entry)
+                        if obj:
+                            bench[pid].append(self._serialize_pokemon_card(obj))
+                else:
+                    bench[pid] = []
+
+            # Stadium
+            stadium_zone = game_state.zones.get("stadium_zone")
+            if stadium_zone and stadium_zone.objects:
+                obj = _resolve_obj(stadium_zone.objects[0])
+                stadium_card_data = self._serialize_pokemon_card(obj) if obj else None
+
+            # For Pokemon, serialize hand cards with Pokemon-specific fields
+            hand = []
+            if player_id:
+                for obj in self.game.get_hand(player_id):
+                    hand.append(self._serialize_pokemon_card(obj))
+
         return GameStateResponse(
             match_id=self.id,
             turn_number=self.game.turn_manager.turn_number,
@@ -476,7 +548,10 @@ class GameSession:
             waiting_for_choice=waiting_for_choice_data,
             game_mode=game_state.game_mode,
             variant=self.display_variant,
-            max_hand_size=game_state.max_hand_size
+            max_hand_size=game_state.max_hand_size,
+            active_pokemon=active_pokemon,
+            bench=bench,
+            stadium_card=stadium_card_data,
         )
 
     async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
@@ -485,6 +560,10 @@ class GameSession:
 
         Returns (success, message).
         """
+        # Route Pokemon actions to dedicated handler
+        if request.action_type in ("PKM_PLAY_CARD", "PKM_ATTACH_ENERGY", "PKM_ATTACK", "PKM_RETREAT", "PKM_EVOLVE", "PKM_USE_ABILITY", "PKM_END_TURN"):
+            return await self.handle_pkm_action(request)
+
         # Route HS actions to dedicated handler
         if request.action_type in ("HS_PLAY_CARD", "HS_ATTUNE_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN"):
             return await self.handle_hs_action(request)
@@ -637,6 +716,229 @@ class GameSession:
             return True, "Action accepted"
 
         return False, "No pending action expected"
+
+    # === Pokemon Game Loop + Action Handling ====================================
+
+    async def _run_pkm_game_loop(self) -> None:
+        """
+        Pokemon game loop.
+
+        run_turn() blocks during human turns (via future) and auto-executes
+        AI turns, so we just keep calling it in a loop.
+        """
+        while not self.is_finished:
+            await self.game.turn_manager.run_turn()
+
+            if self.game.is_game_over():
+                self.is_finished = True
+                self.winner_id = self.game.get_winner()
+                if self.on_state_change:
+                    for pid in self.human_players:
+                        state = self.get_client_state(pid)
+                        await self.on_state_change(pid, state.model_dump())
+                break
+
+            # Broadcast updated state after each turn
+            if self.on_state_change:
+                for pid in self.human_players:
+                    state = self.get_client_state(pid)
+                    await self.on_state_change(pid, state.model_dump())
+
+    async def _get_pkm_human_action(self, player_id: str, game_state) -> dict:
+        """
+        Callback for PokemonTurnManager.human_action_handler.
+
+        Blocks (via asyncio.Future) until the client submits a Pokemon action.
+        Returns an action dict with 'action_type' and relevant fields.
+        """
+        if self._action_processed_event:
+            self._action_processed_event.set()
+            self._action_processed_event = None
+
+        loop = asyncio.get_event_loop()
+        self._pending_action_future = loop.create_future()
+        self._pending_player_id = player_id
+        self._action_processed_event = asyncio.Event()
+
+        # Notify the client they need to act
+        if self.on_state_change:
+            for pid in self.human_players:
+                state = self.get_client_state(pid)
+                await self.on_state_change(pid, state.model_dump())
+
+        try:
+            action = await asyncio.wait_for(self._pending_action_future, timeout=300.0)
+            return action
+        except asyncio.TimeoutError:
+            return {'action_type': 'PKM_END_TURN'}
+
+    async def handle_pkm_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
+        """Handle a Pokemon-specific player action."""
+        active_player = self.game.get_active_player()
+        if request.player_id != active_player:
+            return False, "Not your turn"
+
+        target_id = request.targets[0][0] if request.targets and request.targets[0] else None
+
+        # Build Pokemon action dict matching pokemon_turn.py expectations
+        action_dict: dict = {'action_type': request.action_type}
+
+        if request.action_type == 'PKM_PLAY_CARD':
+            # Determine card type to route to correct sub-action
+            card_id = request.card_id
+            if not card_id:
+                return False, "PKM_PLAY_CARD requires card_id"
+
+            # Look up the card to determine its type
+            card_obj = self.game.state.objects.get(card_id)
+            if not card_obj:
+                return False, "Card not found"
+
+            from src.engine.types import CardType
+            types = card_obj.characteristics.types
+            if CardType.POKEMON in types:
+                stage = card_obj.characteristics.card_def.evolution_stage if card_obj.characteristics.card_def else 'Basic'
+                if stage == 'Basic':
+                    action_dict = {'action_type': 'PKM_PLAY_BASIC', 'card_id': card_id}
+                else:
+                    action_dict = {'action_type': 'PKM_EVOLVE', 'card_id': card_id, 'target_id': target_id}
+            elif CardType.ITEM in types:
+                action_dict = {'action_type': 'PKM_PLAY_ITEM', 'card_id': card_id}
+            elif CardType.SUPPORTER in types:
+                action_dict = {'action_type': 'PKM_PLAY_SUPPORTER', 'card_id': card_id}
+            elif CardType.STADIUM in types:
+                action_dict = {'action_type': 'PKM_PLAY_STADIUM', 'card_id': card_id}
+            elif CardType.ENERGY in types:
+                action_dict = {'action_type': 'PKM_ATTACH_ENERGY', 'energy_id': card_id, 'target_id': target_id}
+            else:
+                return False, f"Unknown card type for PKM_PLAY_CARD"
+
+        elif request.action_type == 'PKM_ATTACH_ENERGY':
+            action_dict = {
+                'action_type': 'PKM_ATTACH_ENERGY',
+                'energy_id': request.card_id,
+                'target_id': target_id,
+            }
+
+        elif request.action_type == 'PKM_ATTACK':
+            attack_index = int(target_id) if target_id else 0
+            action_dict = {
+                'action_type': 'PKM_ATTACK',
+                'attack_index': attack_index,
+            }
+
+        elif request.action_type == 'PKM_RETREAT':
+            action_dict = {
+                'action_type': 'PKM_RETREAT',
+                'bench_pokemon_id': target_id,
+            }
+
+        elif request.action_type == 'PKM_EVOLVE':
+            action_dict = {
+                'action_type': 'PKM_EVOLVE',
+                'card_id': request.card_id,
+                'target_id': request.source_id or target_id,
+            }
+
+        elif request.action_type == 'PKM_USE_ABILITY':
+            action_dict = {
+                'action_type': 'PKM_USE_ABILITY',
+                'pokemon_id': request.source_id,
+            }
+
+        elif request.action_type == 'PKM_END_TURN':
+            action_dict = {'action_type': 'PKM_END_TURN'}
+
+        # Resolve the pending future
+        if (self._pending_action_future and
+            not self._pending_action_future.done() and
+            self._pending_player_id == request.player_id):
+
+            is_end_turn = request.action_type == 'PKM_END_TURN'
+            pending_future = self._pending_action_future
+            processed_event = self._action_processed_event
+
+            self._pending_action_future.set_result(action_dict)
+            self._record_frame(action=request.model_dump())
+
+            timeout = 30.0 if is_end_turn else 5.0
+
+            if processed_event:
+                try:
+                    await asyncio.wait_for(processed_event.wait(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    pass
+
+            if self._pending_action_future is pending_future:
+                self._pending_action_future = None
+                self._pending_player_id = None
+            if self._action_processed_event is processed_event:
+                self._action_processed_event = None
+
+            await asyncio.sleep(0.05)
+            return True, "Action accepted"
+
+        return False, "No pending action expected"
+
+    def _serialize_pokemon_card(self, obj) -> CardData:
+        """Serialize a Pokemon game object to CardData with Pokemon-specific fields."""
+        card_data = self._serialize_card(obj)
+
+        # Add Pokemon-specific fields from card definition
+        card_def = obj.card_def
+        if card_def:
+            card_data.hp = getattr(card_def, 'hp', None)
+            card_data.pokemon_type = getattr(card_def, 'pokemon_type', None)
+            card_data.evolution_stage = getattr(card_def, 'evolution_stage', None)
+            card_data.weakness_type = getattr(card_def, 'weakness_type', None)
+            card_data.resistance_type = getattr(card_def, 'resistance_type', None)
+            card_data.retreat_cost = getattr(card_def, 'retreat_cost', 0)
+            card_data.is_ex = getattr(card_def, 'is_ex', False)
+            card_data.prize_count = getattr(card_def, 'prize_count', 1)
+
+            # Serialize attacks
+            raw_attacks = getattr(card_def, 'attacks', []) or []
+            card_data.attacks = []
+            for atk in raw_attacks:
+                attack_data = {
+                    'name': atk.get('name', '?'),
+                    'damage': atk.get('damage', 0),
+                    'text': atk.get('text', ''),
+                    'cost': atk.get('cost', []),
+                }
+                card_data.attacks.append(attack_data)
+
+            # Serialize ability
+            ability = getattr(card_def, 'ability', None)
+            if ability:
+                card_data.ability_name = ability.get('name')
+                card_data.ability_text = ability.get('text')
+
+        # Add runtime state from ObjectState
+        state = obj.state if obj.state else None
+        if state:
+            card_data.damage_counters = getattr(state, 'damage_counters', 0)
+            card_data.status_conditions = list(getattr(state, 'status_conditions', set()))
+
+            # Attached energy: resolve energy type codes
+            attached_ids = getattr(state, 'attached_energy', []) or []
+            energy_types = []
+            for eid in attached_ids:
+                energy_obj = self.game.state.objects.get(eid)
+                if energy_obj and energy_obj.card_def:
+                    energy_types.append(getattr(energy_obj.card_def, 'pokemon_type', 'C') or 'C')
+                else:
+                    energy_types.append('C')
+            card_data.attached_energy = energy_types
+
+            # Attached tool
+            tool_id = getattr(state, 'attached_tool', None)
+            if tool_id:
+                tool_obj = self.game.state.objects.get(tool_id)
+                if tool_obj:
+                    card_data.attached_tool_name = tool_obj.characteristics.name
+
+        return card_data
 
     def _build_action(self, request: PlayerActionRequest) -> PlayerAction:
         """Convert API request to engine PlayerAction."""

@@ -204,6 +204,31 @@ async def create_match(
         # Install variant global modifiers
         install_variant_modifiers(session.game)
 
+    elif request.game_mode == "pokemon":
+        # Pokemon TCG mode - use built-in starter decks
+        from src.cards.pokemon.sv_starter import make_fire_deck, make_water_deck
+        import random
+
+        deck_options = [make_fire_deck, make_water_deck]
+        random.shuffle(deck_options)
+
+        human_deck = deck_options[0]()
+        ai_deck_cards = deck_options[1]()
+
+        # Setup Pokemon players (sets life=0, prizes_remaining=6)
+        for pid in session.player_ids:
+            player = session.game.state.players.get(pid)
+            if player:
+                session.game.setup_pokemon_player(player, [])
+
+        session.add_cards_to_deck(human_id, human_deck)
+        if request.mode == "human_vs_bot" and ai_id:
+            session.add_cards_to_deck(ai_id, ai_deck_cards)
+        elif request.mode == "bot_vs_bot":
+            session.add_cards_to_deck(ai_id, ai_deck_cards)
+            if ai2_id:
+                session.add_cards_to_deck(ai2_id, deck_options[0]())
+
     elif request.game_mode == "hearthstone":
         # Hearthstone matches need heroes + hero powers + 30-card class decks.
         from src.cards.hearthstone.heroes import HEROES
