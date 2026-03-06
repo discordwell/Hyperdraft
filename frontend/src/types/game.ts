@@ -90,6 +90,7 @@ export interface CardData {
   status_conditions?: string[];
   is_ex?: boolean;
   prize_count?: number;
+  image_url?: string;
 }
 
 // Stack Item

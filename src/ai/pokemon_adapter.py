@@ -247,7 +247,7 @@ class PokemonAIAdapter:
 
         # 8. Attack (ends the turn)
         if not _game_over():
-            attack_events = self._do_attack(player_id, state, game)
+            attack_events = await self._do_attack(player_id, state, game)
             events.extend(attack_events)
 
         return events
@@ -1009,8 +1009,8 @@ class PokemonAIAdapter:
 
     # ── 8. Attack ────────────────────────────────────────────────
 
-    def _do_attack(self, player_id: str, state: GameState,
-                   game) -> list[Event]:
+    async def _do_attack(self, player_id: str, state: GameState,
+                         game) -> list[Event]:
         """Choose and execute the best attack with the active Pokemon."""
         active_id = self._get_active(state, player_id)
         if not active_id:
@@ -1058,23 +1058,11 @@ class PokemonAIAdapter:
 
         attack_index = chosen.get('_index', 0)
 
-        # Execute attack via turn manager
+        # Execute attack via turn manager (async) or combat manager (sync fallback)
         turn_mgr = getattr(game, 'turn_manager', None)
         if turn_mgr and hasattr(turn_mgr, '_execute_attack'):
-            import asyncio
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're already in an async context, create a task
-                # But since _execute_attack is a coroutine, we need to await it
-                # The caller (take_turn) is already async, so this shouldn't happen
-                # Fallback: use combat manager directly
-                return combat_mgr.declare_attack(active_id, attack_index)
-            else:
-                return loop.run_until_complete(
-                    turn_mgr._execute_attack(player_id, attack_index)
-                )
+            return await turn_mgr._execute_attack(player_id, attack_index)
 
-        # Fallback: use combat manager directly
         return combat_mgr.declare_attack(active_id, attack_index)
 
     def _score_attack(self, attacker: 'GameObject', attack: dict,

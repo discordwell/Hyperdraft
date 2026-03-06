@@ -2809,6 +2809,7 @@ def make_pokemon(
     text: str = "",
     rarity: str = None,
     setup_interceptors=None,
+    image_url: str = None,
 ) -> 'CardDefinition':
     """Helper to create Pokemon card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2840,6 +2841,7 @@ def make_pokemon(
         prize_count=prize_count,
         is_ex=is_ex,
         rule_box=rule_box,
+        image_url=image_url,
     )
 
 
@@ -2849,6 +2851,7 @@ def make_trainer_item(
     rarity: str = None,
     resolve=None,
     setup_interceptors=None,
+    image_url: str = None,
 ) -> 'CardDefinition':
     """Helper to create Pokemon Item Trainer card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2864,6 +2867,7 @@ def make_trainer_item(
         resolve=resolve,
         setup_interceptors=setup_interceptors,
         domain="PKM",
+        image_url=image_url,
     )
 
 
@@ -2872,6 +2876,7 @@ def make_trainer_supporter(
     text: str = "",
     rarity: str = None,
     resolve=None,
+    image_url: str = None,
 ) -> 'CardDefinition':
     """Helper to create Pokemon Supporter Trainer card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2886,6 +2891,7 @@ def make_trainer_supporter(
         rarity=rarity,
         resolve=resolve,
         domain="PKM",
+        image_url=image_url,
     )
 
 
@@ -2895,6 +2901,7 @@ def make_trainer_stadium(
     rarity: str = None,
     resolve=None,
     setup_interceptors=None,
+    image_url: str = None,
 ) -> 'CardDefinition':
     """Helper to create Pokemon Stadium Trainer card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2910,6 +2917,7 @@ def make_trainer_stadium(
         resolve=resolve,
         setup_interceptors=setup_interceptors,
         domain="PKM",
+        image_url=image_url,
     )
 
 
@@ -2918,6 +2926,7 @@ def make_pokemon_tool(
     text: str = "",
     rarity: str = None,
     setup_interceptors=None,
+    image_url: str = None,
 ) -> 'CardDefinition':
     """Helper to create Pokemon Tool card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2932,12 +2941,14 @@ def make_pokemon_tool(
         rarity=rarity,
         setup_interceptors=setup_interceptors,
         domain="PKM",
+        image_url=image_url,
     )
 
 
 def make_basic_energy(
     name: str,
     pokemon_type: str,
+    image_url: str = None,
 ) -> 'CardDefinition':
     """Helper to create Basic Energy card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2951,4 +2962,5 @@ def make_basic_energy(
         text=f"Basic {name}",
         domain="PKM",
         pokemon_type=pokemon_type,
+        image_url=image_url,
     )

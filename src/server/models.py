@@ -189,6 +189,7 @@ class CardData(BaseModel):
     status_conditions: list[str] = Field(default_factory=list)
     is_ex: bool = False
     prize_count: int = 1
+    image_url: Optional[str] = None
 
 
 class StackItemData(BaseModel):

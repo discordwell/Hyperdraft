@@ -895,6 +895,7 @@ class GameSession:
             card_data.retreat_cost = getattr(card_def, 'retreat_cost', 0)
             card_data.is_ex = getattr(card_def, 'is_ex', False)
             card_data.prize_count = getattr(card_def, 'prize_count', 1)
+            card_data.image_url = getattr(card_def, 'image_url', None)
 
             # Serialize attacks
             raw_attacks = getattr(card_def, 'attacks', []) or []

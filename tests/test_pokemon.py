@@ -396,8 +396,8 @@ game.setup_pokemon_player(p2, water_deck)
 
 library1 = game.state.zones.get(f"library_{p1.id}")
 library2 = game.state.zones.get(f"library_{p2.id}")
-check("Player 1 has cards in library", len(library1.objects) == 30)
-check("Player 2 has cards in library", len(library2.objects) == 30)
+check("Player 1 has cards in library", len(library1.objects) == 60)
+check("Player 2 has cards in library", len(library2.objects) == 60)
 
 # Run game setup
 turn_mgr = game.turn_manager

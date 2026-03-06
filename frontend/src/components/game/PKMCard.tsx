@@ -1,14 +1,15 @@
 /**
  * PKMCard - Pokemon TCG card component.
  *
- * Renders a Pokemon card with:
- * - Name, HP, type icon
- * - Attacks with energy costs
- * - Weakness/Resistance/Retreat cost
- * - Damage counter overlay
+ * Renders a Pokemon card with official card art from pokemontcg.io when available.
+ * Falls back to text-based rendering when no image_url is present.
+ *
+ * Overlays runtime game state on top of card images:
+ * - Damage counter badge
+ * - HP bar showing current HP
  * - Status condition indicators
- * - Attached energy display
- * - Ex card styling
+ * - Attached energy dots
+ * - Selection/targeting rings
  */
 
 import type { CardData } from '../../types';
@@ -69,12 +70,37 @@ export function PKMCard({
   const hpPercent = hp > 0 ? (remainingHp / hp) * 100 : 100;
   const statusConditions = card.status_conditions || [];
   const attachedEnergy = card.attached_energy || [];
+  const imageUrl = card.image_url;
 
   // Determine if this is an energy card
   const isEnergy = card.types?.includes('ENERGY');
-  const isTrainer = card.types?.includes('ITEM') || card.types?.includes('SUPPORTER') || card.types?.includes('STADIUM');
+  const isTrainer = card.types?.includes('ITEM') || card.types?.includes('SUPPORTER') || card.types?.includes('STADIUM') || card.types?.includes('POKEMON_TOOL');
+  const isPokemon = card.types?.includes('POKEMON');
 
+  // =========================================================================
+  // ENERGY CARD
+  // =========================================================================
   if (isEnergy) {
+    if (imageUrl) {
+      return (
+        <div
+          onClick={onClick}
+          className={`
+            w-16 h-22 rounded-lg border-2 cursor-pointer overflow-hidden
+            transition-all duration-150 border-gray-500
+            ${isSelected ? 'ring-2 ring-yellow-400 scale-105' : ''}
+            hover:scale-105
+          `}
+        >
+          <img
+            src={imageUrl}
+            alt={card.name}
+            className="w-full h-full object-cover"
+            draggable={false}
+          />
+        </div>
+      );
+    }
     return (
       <div
         onClick={onClick}
@@ -94,7 +120,30 @@ export function PKMCard({
     );
   }
 
-  if (isTrainer) {
+  // =========================================================================
+  // TRAINER CARD
+  // =========================================================================
+  if (isTrainer && !isPokemon) {
+    if (imageUrl) {
+      return (
+        <div
+          onClick={onClick}
+          className={`
+            relative w-20 h-28 rounded-lg border-2 cursor-pointer overflow-hidden
+            transition-all duration-150 border-gray-500
+            ${isSelected ? 'ring-2 ring-yellow-400 scale-105 z-10' : ''}
+            hover:scale-105
+          `}
+        >
+          <img
+            src={imageUrl}
+            alt={card.name}
+            className="w-full h-full object-cover"
+            draggable={false}
+          />
+        </div>
+      );
+    }
     return (
       <div
         onClick={onClick}
@@ -107,7 +156,7 @@ export function PKMCard({
         `}
       >
         <div className="text-[9px] text-gray-300 uppercase text-center mt-1">
-          {card.types?.find(t => ['ITEM', 'SUPPORTER', 'STADIUM'].includes(t)) || 'Trainer'}
+          {card.types?.find(t => ['ITEM', 'SUPPORTER', 'STADIUM', 'POKEMON_TOOL'].includes(t)) || 'Trainer'}
         </div>
         <div className="text-white text-[10px] font-bold text-center px-1 mt-1 leading-tight">
           {card.name}
@@ -119,8 +168,80 @@ export function PKMCard({
     );
   }
 
-  // Pokemon card
+  // =========================================================================
+  // POKEMON CARD - COMPACT (bench view)
+  // =========================================================================
   if (compact) {
+    if (imageUrl) {
+      return (
+        <div
+          onClick={onClick}
+          className={`
+            relative w-20 h-28 rounded-lg border-2 cursor-pointer overflow-hidden
+            transition-all duration-150
+            ${isEx ? 'border-indigo-400' : 'border-gray-600'}
+            ${isSelected ? 'ring-2 ring-yellow-400' : ''}
+            ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
+          `}
+        >
+          <img
+            src={imageUrl}
+            alt={card.name}
+            className="w-full h-full object-cover"
+            draggable={false}
+          />
+          {/* Overlay: Name + HP badge at bottom */}
+          <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1 py-0.5">
+            <div className="text-white text-[7px] font-bold truncate">{card.name}</div>
+            <div className="flex items-center justify-between">
+              <span className={`text-[7px] font-bold ${hpPercent < 30 ? 'text-red-400' : 'text-green-400'}`}>
+                {remainingHp}/{hp}
+              </span>
+              {/* Attached energy dots */}
+              {attachedEnergy.length > 0 && (
+                <div className="flex gap-0.5">
+                  {attachedEnergy.map((e, i) => (
+                    <div key={i} className={`w-2 h-2 rounded-full ${TYPE_COLORS[e] || TYPE_COLORS.C} border border-white/40`} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          {/* HP bar */}
+          {hp > 0 && (
+            <div className="absolute top-0 left-0 right-0 h-1 bg-black/40">
+              <div
+                className={`h-full transition-all ${
+                  hpPercent > 50 ? 'bg-green-500' : hpPercent > 25 ? 'bg-yellow-500' : 'bg-red-500'
+                }`}
+                style={{ width: `${hpPercent}%` }}
+              />
+            </div>
+          )}
+          {/* Damage counter badge */}
+          {damageCounters > 0 && (
+            <div className="absolute top-1 right-1 bg-red-600 text-white text-[7px] font-bold rounded-full w-4 h-4 flex items-center justify-center border border-red-400">
+              {damageCounters}
+            </div>
+          )}
+          {/* Status conditions */}
+          {statusConditions.length > 0 && (
+            <div className="absolute top-1 left-1 flex flex-col gap-0.5">
+              {statusConditions.map((s) => {
+                const info = STATUS_ICONS[s];
+                if (!info) return null;
+                return (
+                  <div key={s} className={`${info.color} text-white text-[5px] font-bold px-0.5 rounded`}>
+                    {info.label}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+    // Fallback compact (no image)
     return (
       <div
         onClick={onClick}
@@ -146,6 +267,97 @@ export function PKMCard({
     );
   }
 
+  // =========================================================================
+  // POKEMON CARD - FULL SIZE (active or hand)
+  // =========================================================================
+  if (imageUrl) {
+    return (
+      <div
+        onClick={onClick}
+        className={`
+          relative rounded-lg border-2 cursor-pointer overflow-hidden
+          transition-all duration-150
+          ${isActive ? 'w-40 h-56' : 'w-24 h-36'}
+          ${isEx ? 'border-indigo-400' : 'border-gray-600'}
+          ${isSelected ? 'ring-2 ring-yellow-400 scale-105 z-10' : ''}
+          ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
+          ${!isOpponent ? 'hover:scale-105 hover:z-10' : ''}
+        `}
+      >
+        <img
+          src={imageUrl}
+          alt={card.name}
+          className="w-full h-full object-cover"
+          draggable={false}
+        />
+
+        {/* HP bar overlay at top */}
+        {hp > 0 && (
+          <div className="absolute top-0 left-0 right-0 h-1.5 bg-black/40">
+            <div
+              className={`h-full transition-all ${
+                hpPercent > 50 ? 'bg-green-500' : hpPercent > 25 ? 'bg-yellow-500' : 'bg-red-500'
+              }`}
+              style={{ width: `${hpPercent}%` }}
+            />
+          </div>
+        )}
+
+        {/* Damage counter badge */}
+        {damageCounters > 0 && (
+          <div className={`absolute top-1 right-1 bg-red-600 text-white font-bold rounded-full flex items-center justify-center border border-red-400 shadow-lg ${
+            isActive ? 'text-[10px] w-6 h-6' : 'text-[8px] w-5 h-5'
+          }`}>
+            {damageCounters}
+          </div>
+        )}
+
+        {/* Attached energy overlay (bottom-right) */}
+        {attachedEnergy.length > 0 && (
+          <div className={`absolute ${isActive ? 'bottom-8 right-1' : 'bottom-1 right-1'} flex flex-wrap gap-0.5 max-w-[50%] justify-end`}>
+            {attachedEnergy.map((e, i) => (
+              <div key={i} className={`${isActive ? 'w-3.5 h-3.5' : 'w-2.5 h-2.5'} rounded-full ${TYPE_COLORS[e] || TYPE_COLORS.C} border border-white/50 shadow`} />
+            ))}
+          </div>
+        )}
+
+        {/* Status conditions (bottom-left) */}
+        {statusConditions.length > 0 && (
+          <div className={`absolute ${isActive ? 'bottom-8 left-1' : 'bottom-1 left-1'} flex flex-col gap-0.5`}>
+            {statusConditions.map((s) => {
+              const info = STATUS_ICONS[s];
+              if (!info) return null;
+              return (
+                <div key={s} className={`${info.color} text-white text-[7px] font-bold px-1 rounded shadow`}>
+                  {info.label}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Bottom bar with current HP for active Pokemon */}
+        {isActive && (
+          <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1">
+            <div className="flex items-center justify-between">
+              <span className={`text-[10px] font-bold ${hpPercent < 30 ? 'text-red-400' : 'text-green-400'}`}>
+                HP {remainingHp}/{hp}
+              </span>
+              {card.ability_name && (
+                <div className="bg-red-700 text-white text-[7px] font-bold px-1 rounded" title={card.ability_text || ''}>
+                  {card.ability_name}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // POKEMON CARD - FALLBACK (no image, text-based)
+  // =========================================================================
   return (
     <div
       onClick={onClick}
