@@ -353,14 +353,45 @@ class PokemonCombatManager:
 
         # Owner must promote a new active if the KO'd Pokemon was active
         if was_active:
-            promote_event = Event(
-                type=EventType.PKM_PROMOTE_ACTIVE,
-                payload={
-                    'player': owner,
-                    'reason': 'knockout',
-                },
-            )
-            events.append(promote_event)
+            bench_key = f"bench_{owner}"
+            bench = self.state.zones.get(bench_key)
+            active_key = f"active_spot_{owner}"
+            active_zone = self.state.zones.get(active_key)
+            if bench and bench.objects and active_zone:
+                # Auto-promote: pick the bench Pokemon with the most energy/HP
+                best_id = bench.objects[0]
+                best_score = -1
+                for bid in bench.objects:
+                    b_obj = self.state.objects.get(bid)
+                    if b_obj:
+                        score = len(b_obj.state.attached_energy) * 10
+                        if b_obj.card_def:
+                            score += (b_obj.card_def.hp or 0)
+                        if score > best_score:
+                            best_score = score
+                            best_id = bid
+                bench.objects.remove(best_id)
+                active_zone.objects.append(best_id)
+                promoted = self.state.objects.get(best_id)
+                if promoted:
+                    promoted.zone = ZoneType.ACTIVE_SPOT
+                    promoted.entered_zone_at = self.state.timestamp
+                events.append(Event(
+                    type=EventType.PKM_PROMOTE_ACTIVE,
+                    payload={
+                        'player': owner,
+                        'pokemon_id': best_id,
+                        'reason': 'knockout',
+                    },
+                ))
+            else:
+                events.append(Event(
+                    type=EventType.PKM_PROMOTE_ACTIVE,
+                    payload={
+                        'player': owner,
+                        'reason': 'knockout',
+                    },
+                ))
 
         return events
 

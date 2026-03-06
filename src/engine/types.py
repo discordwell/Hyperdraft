@@ -661,6 +661,9 @@ class CardDefinition:
     is_ex: bool = False                      # Pokemon ex flag
     rule_box: Optional[str] = None           # Rule box text for ex etc.
 
+    # Card art URL (e.g. pokemontcg.io images)
+    image_url: Optional[str] = None
+
     # Multi-face card support
     adventure: Optional[CardFace] = None      # Adventure spell portion
     split_left: Optional[CardFace] = None     # Left half of split card

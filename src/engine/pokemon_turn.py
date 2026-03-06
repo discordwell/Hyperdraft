@@ -523,7 +523,7 @@ class PokemonTurnManager(TurnManager):
         # Execute card effect
         if obj.card_def and obj.card_def.resolve:
             effect_events = obj.card_def.resolve(
-                Event(type=event_type, payload={'card_id': card_id}, source=card_id),
+                Event(type=event_type, payload={'card_id': card_id, 'player': player_id}, source=card_id),
                 self.state
             )
             for ev in (effect_events or []):
