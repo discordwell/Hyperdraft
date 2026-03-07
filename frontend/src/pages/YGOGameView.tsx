@@ -2,7 +2,7 @@
  * YGOGameView Page
  *
  * Dedicated game view for Yu-Gi-Oh! engine games.
- * Uses the useYGOGame hook for YGO-specific action types.
+ * Dark + Gold themed with tabbed sidebar (Info / Log).
  */
 
 import { useEffect, useCallback, useState } from 'react';
@@ -10,13 +10,28 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useYGOGame } from '../hooks/useYGOGame';
 import { useGameStore } from '../stores/gameStore';
 import { YGOGameBoard } from '../components/game/YGOGameBoard';
+import { YGOGameLog } from '../components/game/YGOGameLog';
 import { matchAPI } from '../services/api';
 import { AnimatePresence, motion } from 'framer-motion';
+
+const PHASE_LABELS: Record<string, string> = {
+  DRAW: 'Draw Phase',
+  STANDBY: 'Standby Phase',
+  MAIN1: 'Main Phase 1',
+  BATTLE_START: 'Battle Phase',
+  BATTLE_STEP: 'Battle Step',
+  DAMAGE_STEP: 'Damage Step',
+  DAMAGE_CALC: 'Damage Calc',
+  BATTLE_END: 'Battle End',
+  MAIN2: 'Main Phase 2',
+  END: 'End Phase',
+};
 
 export function YGOGameView() {
   const { matchId } = useParams<{ matchId: string }>();
   const navigate = useNavigate();
   const [errorVisible, setErrorVisible] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<'info' | 'log'>('info');
 
   const {
     gameState,
@@ -33,6 +48,10 @@ export function YGOGameView() {
     oppFieldSpell,
     myGraveyard,
     oppGraveyard,
+    myBanished,
+    oppBanished,
+    myExtraDeckSize,
+    oppExtraDeckSize,
     ygoPhase,
     gameLog,
     normalSummon,
@@ -104,17 +123,21 @@ export function YGOGameView() {
   // Loading state
   if (!gameState || !playerId) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center"
+        style={{ background: 'linear-gradient(to bottom, #0a0e1a, #0f1425, #0a0e1a)' }}
+      >
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-400">Loading duel...</p>
+          <div className="w-16 h-16 border-4 border-ygo-gold border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-ygo-gold-dim text-sm tracking-wide">Loading duel...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex">
+    <div className="min-h-screen flex"
+      style={{ background: 'linear-gradient(to bottom, #0a0e1a, #0f1425, #0a0e1a)' }}
+    >
       {/* Main Game Area */}
       <div className="flex-1 relative">
         <YGOGameBoard
@@ -132,8 +155,11 @@ export function YGOGameView() {
           hand={gameState.hand || []}
           myGraveyard={myGraveyard}
           oppGraveyard={oppGraveyard}
+          myBanished={myBanished}
+          oppBanished={oppBanished}
+          myExtraDeckSize={myExtraDeckSize}
+          oppExtraDeckSize={oppExtraDeckSize}
           ygoPhase={ygoPhase}
-          gameLog={gameLog}
           onNormalSummon={normalSummon}
           onSetMonster={setMonster}
           onFlipSummon={flipSummon}
@@ -153,7 +179,7 @@ export function YGOGameView() {
               initial={{ opacity: 0, y: 40 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 40 }}
-              className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-red-900/90 border border-red-500 rounded-lg px-4 py-2 text-red-200 text-sm shadow-lg z-50 max-w-md"
+              className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-red-900/90 border border-red-500/50 rounded-lg px-4 py-2 text-red-200 text-sm shadow-lg z-50 max-w-md cursor-pointer"
               onClick={() => setErrorVisible(false)}
             >
               {error}
@@ -163,72 +189,102 @@ export function YGOGameView() {
       </div>
 
       {/* Sidebar */}
-      <div className="w-56 bg-gray-900 border-l border-indigo-900/50 flex flex-col">
+      <div className="w-64 bg-ygo-dark/90 backdrop-blur-sm border-l border-ygo-gold-dim/20 flex flex-col">
         {/* Connection Status */}
-        <div className="p-3 border-b border-indigo-900/50 flex items-center justify-between">
+        <div className="p-3 border-b border-ygo-gold-dim/15 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-ygo-gold' : 'bg-red-500'}`} />
             <span className="text-xs text-gray-400">
               {isConnected ? 'Connected' : 'Disconnected'}
             </span>
           </div>
           <button
             onClick={handleConcede}
-            className="text-xs text-red-400 hover:text-red-300"
+            className="text-xs text-red-400 hover:text-red-300 transition-colors"
           >
             Concede
           </button>
         </div>
 
-        {/* Turn info */}
-        <div className="p-3 border-b border-indigo-900/50">
-          <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Status</div>
-          <div className={`text-sm font-bold ${isMyTurn() ? 'text-yellow-400' : 'text-gray-500'}`}>
-            {isMyTurn() ? 'Your Turn' : "Waiting..."}
-          </div>
-          <div className="text-xs text-gray-500 mt-1">
-            Turn {gameState.turn_number} | {PHASE_LABELS[ygoPhase] || ygoPhase}
-          </div>
+        {/* Tabs */}
+        <div className="flex border-b border-ygo-gold-dim/15">
+          {(['info', 'log'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setSidebarTab(tab)}
+              className={`flex-1 px-3 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${
+                sidebarTab === tab
+                  ? 'text-ygo-gold border-b-2 border-ygo-gold'
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
 
-        {/* Turn actions info */}
-        {myPlayer && isMyTurn() && (
-          <div className="p-3 border-b border-indigo-900/50 space-y-1">
-            <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Actions</div>
-            <div className={`text-xs ${myPlayer.normal_summon_used ? 'text-gray-500 line-through' : 'text-green-400'}`}>
-              Normal Summon {myPlayer.normal_summon_used ? '(used)' : '(available)'}
-            </div>
-          </div>
-        )}
-
-        {/* Game log */}
-        <div className="flex-1 p-3 overflow-y-auto">
-          <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Game Log</div>
-          <div className="space-y-1">
-            {gameLog.slice(-20).reverse().map((entry, i) => (
-              <div key={i} className="text-[10px] text-gray-400 leading-tight">
-                <span className="text-gray-600">[T{entry.turn}]</span> {entry.text}
+        {/* Tab content */}
+        <div className="flex-1 overflow-y-auto">
+          {sidebarTab === 'info' ? (
+            <div className="p-3 space-y-3">
+              {/* Turn status */}
+              <div>
+                <div className="text-[10px] text-ygo-gold-dim uppercase tracking-widest mb-1">Status</div>
+                <div className={`text-sm font-bold ${isMyTurn() ? 'text-ygo-gold-bright' : 'text-gray-500'}`}>
+                  {isMyTurn() ? 'Your Turn' : "Waiting..."}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Turn {gameState.turn_number} | {PHASE_LABELS[ygoPhase] || ygoPhase}
+                </div>
               </div>
-            ))}
-            {gameLog.length === 0 && (
-              <div className="text-xs text-gray-600">No log entries yet</div>
-            )}
-          </div>
+
+              {/* Normal summon status */}
+              {myPlayer && isMyTurn() && (
+                <div>
+                  <div className="text-[10px] text-ygo-gold-dim uppercase tracking-widest mb-1">Actions</div>
+                  <div className={`text-xs ${myPlayer.normal_summon_used ? 'text-gray-600 line-through' : 'text-ygo-gold'}`}>
+                    Normal Summon {myPlayer.normal_summon_used ? '(used)' : '(available)'}
+                  </div>
+                </div>
+              )}
+
+              {/* LP Summary */}
+              <div>
+                <div className="text-[10px] text-ygo-gold-dim uppercase tracking-widest mb-1">Life Points</div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400">You</span>
+                    <span className="text-ygo-gold-bright font-bold">{myPlayer?.lp ?? 8000}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400">Opp</span>
+                    <span className="text-ygo-gold font-bold">{opponentPlayer?.lp ?? 8000}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Zone counts */}
+              <div>
+                <div className="text-[10px] text-ygo-gold-dim uppercase tracking-widest mb-1">Zones</div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
+                  <span className="text-gray-400">Deck</span>
+                  <span className="text-gray-300 text-right">{myPlayer?.library_size ?? 0}</span>
+                  <span className="text-gray-400">Graveyard</span>
+                  <span className="text-gray-300 text-right">{myGraveyard.length}</span>
+                  <span className="text-gray-400">Banished</span>
+                  <span className="text-gray-300 text-right">{myBanished.length}</span>
+                  <span className="text-gray-400">Extra Deck</span>
+                  <span className="text-purple-400 text-right">{myExtraDeckSize}</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3">
+              <YGOGameLog entries={gameLog} />
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
-
-const PHASE_LABELS: Record<string, string> = {
-  DRAW: 'Draw Phase',
-  STANDBY: 'Standby Phase',
-  MAIN1: 'Main Phase 1',
-  BATTLE_START: 'Battle Phase',
-  BATTLE_STEP: 'Battle Step',
-  DAMAGE_STEP: 'Damage Step',
-  DAMAGE_CALC: 'Damage Calc',
-  BATTLE_END: 'Battle End',
-  MAIN2: 'Main Phase 2',
-  END: 'End Phase',
-};

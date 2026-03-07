@@ -47,6 +47,21 @@ export default {
         'pkm-metal': '#9E9E9E',
         'pkm-dragon': '#FF8F00',
         'pkm-colorless': '#BDBDBD',
+        // Yu-Gi-Oh! theme colors
+        'ygo-dark': '#0a0e1a',
+        'ygo-surface': '#111827',
+        'ygo-gold': '#d4a843',
+        'ygo-gold-bright': '#f5d478',
+        'ygo-gold-dim': '#8b7230',
+        'ygo-purple': '#7c3aed',
+        'ygo-monster': '#c87533',
+        'ygo-effect': '#b45309',
+        'ygo-spell': '#0d9488',
+        'ygo-trap': '#be185d',
+        'ygo-ritual': '#1e40af',
+        'ygo-synchro': '#e5e7eb',
+        'ygo-xyz': '#1f2937',
+        'ygo-link': '#1d4ed8',
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
@@ -54,6 +69,10 @@ export default {
         'shake': 'shake 0.5s ease-in-out',
         'float-in': 'float-in 0.4s ease-out',
         'pkm-glow': 'pkm-glow 2s ease-in-out infinite alternate',
+        'ygo-glow': 'ygo-glow 2s ease-in-out infinite alternate',
+        'ygo-summon': 'ygo-summon 0.5s ease-out',
+        'ygo-lp-flash': 'ygo-lp-flash 0.6s ease-in-out',
+        'ygo-chain-pulse': 'ygo-chain-pulse 1.5s ease-in-out infinite',
       },
       keyframes: {
         glow: {
@@ -74,6 +93,23 @@ export default {
         'pkm-glow': {
           '0%': { boxShadow: '0 0 8px var(--pkm-glow-color, #4CAF50)' },
           '100%': { boxShadow: '0 0 16px var(--pkm-glow-color, #4CAF50), 0 0 32px var(--pkm-glow-color, #4CAF50)' },
+        },
+        'ygo-glow': {
+          '0%': { boxShadow: '0 0 6px var(--ygo-glow-color, #d4a843)' },
+          '100%': { boxShadow: '0 0 14px var(--ygo-glow-color, #d4a843), 0 0 28px var(--ygo-glow-color, #d4a843)' },
+        },
+        'ygo-summon': {
+          '0%': { transform: 'scale(0.3) rotateY(180deg)', opacity: '0' },
+          '60%': { transform: 'scale(1.1) rotateY(0deg)', opacity: '1' },
+          '100%': { transform: 'scale(1) rotateY(0deg)', opacity: '1' },
+        },
+        'ygo-lp-flash': {
+          '0%, 100%': { backgroundColor: 'transparent' },
+          '50%': { backgroundColor: 'rgba(239, 68, 68, 0.3)' },
+        },
+        'ygo-chain-pulse': {
+          '0%, 100%': { boxShadow: '0 0 4px #7c3aed' },
+          '50%': { boxShadow: '0 0 12px #7c3aed, 0 0 24px #7c3aed' },
         },
       },
     },

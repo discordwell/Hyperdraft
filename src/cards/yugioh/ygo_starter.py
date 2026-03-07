@@ -28,60 +28,70 @@ BATTLE_OX = make_ygo_monster(
     "Battle Ox", atk=1700, def_val=1000, level=4,
     attribute="EARTH", ygo_monster_type="Normal",
     subtypes={"Beast-Warrior"}, text="A monster with tremendous power.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/5053103.jpg",
 )
 
 GIANT_SOLDIER = make_ygo_monster(
     "Giant Soldier of Stone", atk=1300, def_val=2000, level=3,
     attribute="EARTH", ygo_monster_type="Normal",
     subtypes={"Rock"}, text="A huge soldier made of stone.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/13039848.jpg",
 )
 
 MYSTICAL_ELF = make_ygo_monster(
     "Mystical Elf", atk=800, def_val=2000, level=4,
     attribute="LIGHT", ygo_monster_type="Normal",
     subtypes={"Spellcaster"}, text="A protector who chants spells of defense.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/15025844.jpg",
 )
 
 DARK_BLADE = make_ygo_monster(
     "Dark Blade", atk=1800, def_val=1500, level=4,
     attribute="DARK", ygo_monster_type="Normal",
     subtypes={"Warrior"}, text="A warrior cloaked in darkness.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/11321183.jpg",
 )
 
 ALEXANDRITE_DRAGON = make_ygo_monster(
     "Alexandrite Dragon", atk=2000, def_val=100, level=4,
     attribute="LIGHT", ygo_monster_type="Normal",
     subtypes={"Dragon"}, text="A radiant dragon.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/43096270.jpg",
 )
 
 GENE_WARPED_WARWOLF = make_ygo_monster(
     "Gene-Warped Warwolf", atk=2000, def_val=100, level=4,
     attribute="EARTH", ygo_monster_type="Normal",
     subtypes={"Beast-Warrior"}, text="A powerful warped beast.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/69247929.jpg",
 )
 
 LUSTER_DRAGON = make_ygo_monster(
     "Luster Dragon", atk=1900, def_val=1600, level=4,
     attribute="WIND", ygo_monster_type="Normal",
     subtypes={"Dragon"}, text="A beautiful dragon with sparkling scales.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/11091375.jpg",
 )
 
 VORSE_RAIDER = make_ygo_monster(
     "Vorse Raider", atk=1900, def_val=1200, level=4,
     attribute="DARK", ygo_monster_type="Normal",
     subtypes={"Beast-Warrior"}, text="A vicious raider.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/14898066.jpg",
 )
 
 SUMMONED_SKULL = make_ygo_monster(
     "Summoned Skull", atk=2500, def_val=1200, level=6,
     attribute="DARK", ygo_monster_type="Normal",
     subtypes={"Fiend"}, text="A powerful fiend requiring one tribute.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/70781052.jpg",
 )
 
 COSMO_QUEEN = make_ygo_monster(
     "Cosmo Queen", atk=2900, def_val=2450, level=8,
     attribute="DARK", ygo_monster_type="Normal",
     subtypes={"Spellcaster"}, text="Queen of the cosmos, requiring two tributes.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/38999506.jpg",
 )
 
 KURIBOH_TOKEN = make_ygo_monster(
@@ -129,6 +139,7 @@ MAN_EATER_BUG = make_ygo_monster(
     attribute="EARTH", ygo_monster_type="Effect",
     subtypes={"Insect"}, text="FLIP: Destroy 1 monster on the field.",
     flip_effect=_man_eater_bug_flip,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/54652250.jpg",
 )
 
 def _magician_of_faith_flip(obj, state):
@@ -151,12 +162,14 @@ MAGICIAN_OF_FAITH = make_ygo_monster(
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Spellcaster"}, text="FLIP: Add 1 Spell from your GY to your hand.",
     flip_effect=_magician_of_faith_flip,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/31560081.jpg",
 )
 
 SPEAR_DRAGON = make_ygo_monster(
     "Spear Dragon", atk=1900, def_val=0, level=4,
     attribute="WIND", ygo_monster_type="Effect",
     subtypes={"Dragon"}, text="Piercing damage. After attacking, switch to DEF.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/31553716.jpg",
 )
 
 BREAKER_THE_MAGICAL_WARRIOR = make_ygo_monster(
@@ -164,6 +177,7 @@ BREAKER_THE_MAGICAL_WARRIOR = make_ygo_monster(
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Spellcaster", "Warrior"},
     text="Gains 300 ATK on summon. Remove counter to destroy 1 S/T.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/71413901.jpg",
 )
 
 EFFECT_VEILER = make_ygo_monster(
@@ -171,6 +185,7 @@ EFFECT_VEILER = make_ygo_monster(
     attribute="LIGHT", ygo_monster_type="Effect", is_tuner=True,
     subtypes={"Spellcaster"}, text="Tuner. Negate 1 opponent's monster effect (hand trap).",
     spell_speed=2,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/97268402.jpg",
 )
 
 WITCH_OF_THE_BLACK_FOREST = make_ygo_monster(
@@ -178,6 +193,7 @@ WITCH_OF_THE_BLACK_FOREST = make_ygo_monster(
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Spellcaster"},
     text="If sent from field to GY: Add 1 monster with 1500 or less DEF from Deck to hand.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/78010363.jpg",
 )
 
 MARAUDING_CAPTAIN = make_ygo_monster(
@@ -185,6 +201,7 @@ MARAUDING_CAPTAIN = make_ygo_monster(
     attribute="EARTH", ygo_monster_type="Effect",
     subtypes={"Warrior"},
     text="When Normal Summoned: Special Summon 1 Level 4 or lower Warrior from hand.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/2460565.jpg",
 )
 
 TUNE_WARRIOR = make_ygo_monster(
@@ -204,6 +221,7 @@ DARK_HOLE = make_ygo_spell(
     "Dark Hole", ygo_spell_type="Normal",
     text="Destroy all monsters on the field.",
     resolve=_dark_hole_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/53129443.jpg",
 )
 
 def _mst_resolve(event, state):
@@ -216,21 +234,25 @@ MYSTICAL_SPACE_TYPHOON = make_ygo_spell(
     "Mystical Space Typhoon", ygo_spell_type="Quick-Play",
     text="Destroy 1 Spell/Trap on the field.",
     resolve=_mst_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/5318639.jpg",
 )
 
 SWORDS_OF_REVEALING_LIGHT = make_ygo_spell(
     "Swords of Revealing Light", ygo_spell_type="Continuous",
     text="Opponent's monsters cannot attack for 3 turns.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/72302403.jpg",
 )
 
 SWORD_OF_DARK_DESTRUCTION = make_ygo_spell(
     "Sword of Dark Destruction", ygo_spell_type="Equip",
     text="DARK monster gains +400 ATK and -200 DEF.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/37120512.jpg",
 )
 
 MOUNTAIN_FIELD = make_ygo_spell(
     "Mountain", ygo_spell_type="Field",
     text="Dragon, Winged Beast, and Thunder gain 200 ATK/DEF.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/50913601.jpg",
 )
 
 def _monster_reborn_resolve(event, state):
@@ -244,6 +266,7 @@ MONSTER_REBORN = make_ygo_spell(
     "Monster Reborn", ygo_spell_type="Normal",
     text="Special Summon 1 monster from either GY.",
     resolve=_monster_reborn_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/83764719.jpg",
 )
 
 # Ritual Spell
@@ -255,6 +278,7 @@ BLACK_ILLUSION_RITUAL = make_ygo_spell(
     "Black Illusion Ritual", ygo_spell_type="Ritual",
     text="This card is used to Ritual Summon 'Relinquished'.",
     resolve=_ritual_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/41426869.jpg",
 )
 
 # =============================================================================
@@ -269,6 +293,7 @@ MIRROR_FORCE = make_ygo_trap(
     "Mirror Force", ygo_trap_type="Normal",
     text="When an opponent's monster attacks: Destroy all ATK-position monsters your opponent controls.",
     resolve=_mirror_force_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/44095762.jpg",
 )
 
 def _sakuretsu_resolve(event, state):
@@ -297,11 +322,13 @@ SAKURETSU_ARMOR = make_ygo_trap(
     "Sakuretsu Armor", ygo_trap_type="Normal",
     text="When an opponent's monster attacks: Destroy that monster.",
     resolve=_sakuretsu_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/56120475.jpg",
 )
 
 CALL_OF_THE_HAUNTED = make_ygo_trap(
     "Call of the Haunted", ygo_trap_type="Continuous",
     text="Special Summon 1 monster from your GY. If this card leaves, destroy that monster.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/97077563.jpg",
 )
 
 def _solemn_judgment_resolve(event, state):
@@ -317,6 +344,7 @@ SOLEMN_JUDGMENT = make_ygo_trap(
     "Solemn Judgment", ygo_trap_type="Counter",
     text="Pay half LP: Negate a Summon or Spell/Trap activation and destroy it.",
     resolve=_solemn_judgment_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/41420027.jpg",
 )
 
 # =============================================================================
@@ -328,6 +356,7 @@ FLAME_SWORDSMAN_FUSION = make_ygo_monster(
     attribute="FIRE", ygo_monster_type="Fusion",
     subtypes={"Warrior"}, text="Fusion of 'Flame Manipulator' + 'Masaki the Legendary Swordsman'.",
     materials="Flame Manipulator + Masaki the Legendary Swordsman",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/45231177.jpg",
 )
 
 STARDUST_WARRIOR = make_ygo_monster(
@@ -349,6 +378,7 @@ RELINQUISHED = make_ygo_monster(
     attribute="DARK", ygo_monster_type="Ritual",
     subtypes={"Spellcaster"},
     text="Equipped with 1 opponent's monster. Gains that monster's ATK/DEF.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/64631466.jpg",
 )
 
 

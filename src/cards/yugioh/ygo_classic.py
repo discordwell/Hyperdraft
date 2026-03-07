@@ -23,6 +23,7 @@ DARK_MAGICIAN = make_ygo_monster(
     "Dark Magician", atk=2500, def_val=2100, level=7,
     attribute="DARK", ygo_monster_type="Normal",
     subtypes={"Spellcaster"}, text="The ultimate wizard in terms of attack and defense.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/46986414.jpg",
 )
 
 DARK_MAGICIAN_GIRL = make_ygo_monster(
@@ -30,6 +31,7 @@ DARK_MAGICIAN_GIRL = make_ygo_monster(
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Spellcaster"},
     text="Gains 300 ATK for each 'Dark Magician' in either GY.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/38033121.jpg",
 )
 
 def _kuriboh_resolve(event, state):
@@ -41,30 +43,35 @@ KURIBOH = make_ygo_monster(
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Fiend"}, text="Discard: Reduce battle damage to 0 this turn.",
     spell_speed=2,  # Hand trap (Quick Effect)
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/40640057.jpg",
 )
 
 CELTIC_GUARDIAN = make_ygo_monster(
     "Celtic Guardian", atk=1400, def_val=1200, level=4,
     attribute="EARTH", ygo_monster_type="Normal",
     subtypes={"Warrior"}, text="An elf who learned to wield a sword.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/91152256.jpg",
 )
 
 FERAL_IMP = make_ygo_monster(
     "Feral Imp", atk=1300, def_val=1400, level=4,
     attribute="DARK", ygo_monster_type="Normal",
     subtypes={"Fiend"}, text="A playful little fiend.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/41392891.jpg",
 )
 
 GIANT_SOLDIER_OF_STONE = make_ygo_monster(
     "Giant Soldier of Stone", atk=1300, def_val=2000, level=3,
     attribute="EARTH", ygo_monster_type="Normal",
     subtypes={"Rock"}, text="A stone warrior with incredible defense.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/13039848.jpg",
 )
 
 SUMMONED_SKULL_CLASSIC = make_ygo_monster(
     "Summoned Skull", atk=2500, def_val=1200, level=6,
     attribute="DARK", ygo_monster_type="Normal",
     subtypes={"Fiend"}, text="A fiend summoned from the depths.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/70781052.jpg",
 )
 
 BUSTER_BLADER = make_ygo_monster(
@@ -72,6 +79,7 @@ BUSTER_BLADER = make_ygo_monster(
     attribute="EARTH", ygo_monster_type="Effect",
     subtypes={"Warrior"},
     text="Gains 500 ATK for each Dragon in your opponent's GY and on their field.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/78193831.jpg",
 )
 
 MARSHMALLON = make_ygo_monster(
@@ -79,18 +87,21 @@ MARSHMALLON = make_ygo_monster(
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Fairy"},
     text="Cannot be destroyed by battle. 1000 damage to opponent when flipped.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/31305911.jpg",
 )
 
 GAMMA_THE_MAGNET_WARRIOR = make_ygo_monster(
     "Gamma The Magnet Warrior", atk=1500, def_val=1800, level=4,
     attribute="EARTH", ygo_monster_type="Normal",
     subtypes={"Rock"}, text="One of the three Magnet Warriors.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/11549357.jpg",
 )
 
 BETA_THE_MAGNET_WARRIOR = make_ygo_monster(
     "Beta The Magnet Warrior", atk=1700, def_val=1600, level=4,
     attribute="EARTH", ygo_monster_type="Normal",
     subtypes={"Rock"}, text="The second of the Magnet Warriors.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/39256679.jpg",
 )
 
 # =============================================================================
@@ -102,6 +113,7 @@ BLUE_EYES_WHITE_DRAGON = make_ygo_monster(
     attribute="LIGHT", ygo_monster_type="Normal",
     subtypes={"Dragon"},
     text="This legendary dragon is a powerful engine of destruction.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/89631139.jpg",
 )
 
 BLUE_EYES_ULTIMATE_DRAGON = make_ygo_monster(
@@ -110,6 +122,7 @@ BLUE_EYES_ULTIMATE_DRAGON = make_ygo_monster(
     subtypes={"Dragon"},
     text="Fusion of 3 'Blue-Eyes White Dragon'.",
     materials="Blue-Eyes White Dragon + Blue-Eyes White Dragon + Blue-Eyes White Dragon",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/23995346.jpg",
 )
 
 LORD_OF_D = make_ygo_monster(
@@ -117,24 +130,28 @@ LORD_OF_D = make_ygo_monster(
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Spellcaster"},
     text="Dragon-type monsters cannot be targeted by card effects.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/17985575.jpg",
 )
 
 SAGGI_THE_DARK_CLOWN = make_ygo_monster(
     "Saggi the Dark Clown", atk=600, def_val=1500, level=3,
     attribute="DARK", ygo_monster_type="Normal",
     subtypes={"Spellcaster"}, text="A clown loyal to the dark side.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/66602787.jpg",
 )
 
 LA_JINN = make_ygo_monster(
     "La Jinn the Mystical Genie", atk=1800, def_val=1000, level=4,
     attribute="DARK", ygo_monster_type="Normal",
     subtypes={"Fiend"}, text="A genie summoned from a lamp.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/97590747.jpg",
 )
 
 JUDGE_MAN = make_ygo_monster(
     "Judge Man", atk=2200, def_val=1500, level=6,
     attribute="EARTH", ygo_monster_type="Normal",
     subtypes={"Warrior"}, text="A powerful judge who delivers swift punishment.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/30113682.jpg",
 )
 
 KAISER_SEA_HORSE = make_ygo_monster(
@@ -142,6 +159,7 @@ KAISER_SEA_HORSE = make_ygo_monster(
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Sea Serpent"},
     text="Can count as 2 tributes for a LIGHT monster Tribute Summon.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/17444133.jpg",
 )
 
 BLADE_KNIGHT = make_ygo_monster(
@@ -149,24 +167,28 @@ BLADE_KNIGHT = make_ygo_monster(
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Warrior"},
     text="If you have 1 or fewer cards in hand, gains 400 ATK.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/39507162.jpg",
 )
 
 X_HEAD_CANNON = make_ygo_monster(
     "X-Head Cannon", atk=1800, def_val=1500, level=4,
     attribute="LIGHT", ygo_monster_type="Normal",
     subtypes={"Machine"}, text="A head-shaped cannon.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/62651957.jpg",
 )
 
 Y_DRAGON_HEAD = make_ygo_monster(
     "Y-Dragon Head", atk=1500, def_val=1600, level=4,
     attribute="LIGHT", ygo_monster_type="Normal",  # Union in original, Normal here
     subtypes={"Machine", "Dragon"}, text="A mechanical dragon head.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/65622692.jpg",
 )
 
 Z_METAL_TANK = make_ygo_monster(
     "Z-Metal Tank", atk=1500, def_val=1300, level=4,
     attribute="LIGHT", ygo_monster_type="Normal",
     subtypes={"Machine"}, text="A mechanical tank.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/64500000.jpg",
 )
 
 # =============================================================================
@@ -199,6 +221,7 @@ SWORDS_OF_REVEALING_LIGHT = make_ygo_spell(
     "Swords of Revealing Light", ygo_spell_type="Continuous",
     text="Opponent cannot attack for 3 turns. Flip all face-down opponent monsters face-up.",
     resolve=_swords_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/72302403.jpg",
 )
 
 def _dark_hole_resolve(event, state):
@@ -208,6 +231,7 @@ DARK_HOLE = make_ygo_spell(
     "Dark Hole", ygo_spell_type="Normal",
     text="Destroy all monsters on the field.",
     resolve=_dark_hole_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/53129443.jpg",
 )
 
 def _monster_reborn_resolve(event, state):
@@ -221,6 +245,7 @@ MONSTER_REBORN = make_ygo_spell(
     "Monster Reborn", ygo_spell_type="Normal",
     text="Special Summon 1 monster from either player's GY.",
     resolve=_monster_reborn_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/83764719.jpg",
 )
 
 def _mst_resolve(event, state):
@@ -233,11 +258,13 @@ MYSTICAL_SPACE_TYPHOON = make_ygo_spell(
     "Mystical Space Typhoon", ygo_spell_type="Quick-Play",
     text="Destroy 1 Spell/Trap on the field.",
     resolve=_mst_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/5318639.jpg",
 )
 
 BOOK_OF_MOON = make_ygo_spell(
     "Book of Moon", ygo_spell_type="Quick-Play",
     text="Target 1 face-up monster; change it to face-down Defense Position.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/14087893.jpg",
 )
 
 # =============================================================================
@@ -252,6 +279,7 @@ MIRROR_FORCE = make_ygo_trap(
     "Mirror Force", ygo_trap_type="Normal",
     text="When opponent's monster attacks: Destroy all ATK-position opponent monsters.",
     resolve=_mirror_force_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/44095762.jpg",
 )
 
 def _magic_cylinder_resolve(event, state):
@@ -278,6 +306,7 @@ MAGIC_CYLINDER = make_ygo_trap(
     "Magic Cylinder", ygo_trap_type="Normal",
     text="Negate an attack, inflict ATK as damage to opponent.",
     resolve=_magic_cylinder_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/62279055.jpg",
 )
 
 # =============================================================================
@@ -287,6 +316,7 @@ MAGIC_CYLINDER = make_ygo_trap(
 POLYMERIZATION = make_ygo_spell(
     "Polymerization", ygo_spell_type="Normal",
     text="Fusion Summon 1 Fusion Monster using monsters from hand or field.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/24094653.jpg",
 )
 
 def _flute_resolve(event, state):
@@ -297,16 +327,19 @@ FLUTE_OF_SUMMONING_DRAGON = make_ygo_spell(
     "Flute of Summoning Dragon", ygo_spell_type="Normal",
     text="While you control 'Lord of D.': Special Summon up to 2 Dragons from hand.",
     resolve=_flute_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/43973174.jpg",
 )
 
 ENEMY_CONTROLLER = make_ygo_spell(
     "Enemy Controller", ygo_spell_type="Quick-Play",
     text="Change 1 monster's position, or tribute 1 monster to take control of opponent's monster.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/98045062.jpg",
 )
 
 COST_DOWN = make_ygo_spell(
     "Cost Down", ygo_spell_type="Normal",
     text="Discard 1 card; reduce Levels of all monsters in hand by 2 until End Phase.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/23265313.jpg",
 )
 
 # =============================================================================
@@ -321,6 +354,7 @@ NEGATE_ATTACK = make_ygo_trap(
     "Negate Attack", ygo_trap_type="Counter",
     text="Negate an attack and end the Battle Phase.",
     resolve=_negate_attack_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/14315573.jpg",
 )
 
 def _ring_of_destruction_resolve(event, state):
@@ -359,16 +393,19 @@ RING_OF_DESTRUCTION = make_ygo_trap(
     "Ring of Destruction", ygo_trap_type="Normal",
     text="Destroy 1 face-up monster; both players take damage equal to its ATK.",
     resolve=_ring_of_destruction_resolve,
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/83555666.jpg",
 )
 
 CRUSH_CARD_VIRUS = make_ygo_trap(
     "Crush Card Virus", ygo_trap_type="Normal",
     text="Tribute 1 DARK monster with 1000 or less ATK: Opponent destroys all 1500+ ATK monsters.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/57728570.jpg",
 )
 
 INTERDIMENSIONAL_MATTER_TRANSPORTER = make_ygo_trap(
     "Interdimensional Matter Transporter", ygo_trap_type="Normal",
     text="Banish 1 face-up monster you control until the End Phase.",
+    image_url="https://images.ygoprodeck.com/images/cards_cropped/36261276.jpg",
 )
 
 
