@@ -854,16 +854,18 @@ class YugiohTurnManager(TurnManager):
 
     def _remove_from_current_zone(self, card_id: str):
         """Remove a card from whatever zone it's currently in."""
-        for zone in self.state.zones.values():
+        for zone_key, zone in self.state.zones.items():
             if card_id in zone.objects:
-                # Handle slotted zones (monster/spell-trap)
-                for i, oid in enumerate(zone.objects):
-                    if oid == card_id:
-                        zone.objects[i] = None
-                        break
-                # Also remove from list-style zones
-                while card_id in zone.objects:
-                    zone.objects.remove(card_id)
+                # Slotted zones (monster/spell-trap): replace with None to preserve slots
+                if 'monster_zone_' in zone_key or 'spell_trap_zone_' in zone_key:
+                    for i, oid in enumerate(zone.objects):
+                        if oid == card_id:
+                            zone.objects[i] = None
+                            break
+                else:
+                    # List-style zones (hand, graveyard, library, etc.): remove entirely
+                    while card_id in zone.objects:
+                        zone.objects.remove(card_id)
                 break
 
     def _send_to_graveyard(self, card_id: str, player_id: str):
