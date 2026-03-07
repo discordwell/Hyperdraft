@@ -902,6 +902,10 @@ class Game:
             # active placement, prizes, coin flip). Already called by session.
             self.turn_manager.set_turn_order(player_ids)
             return
+        elif self.state.game_mode == "yugioh":
+            # Yu-Gi-Oh: setup_game() handles shuffle, draw 5, coin flip.
+            # Already called by session. No mulligans in YGO.
+            return
         elif self.state.game_mode == "hearthstone":
             # Hearthstone: randomize who goes first
             import random
