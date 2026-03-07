@@ -32,6 +32,7 @@ class YugiohAIAdapter:
 
     def __init__(self, difficulty: str = "medium"):
         self.difficulty = difficulty.lower()
+        self.strategy: Optional[dict] = None  # AI strategy hints from deck
         # Track what we've done this main phase call to avoid loops
         self._actions_taken: int = 0
         self._max_actions: int = 20  # safety valve
@@ -109,8 +110,19 @@ class YugiohAIAdapter:
         if not summonable:
             return None
 
-        # Sort by ATK value (higher difficulty prefers better choices)
-        if self.difficulty in ("hard", "ultra"):
+        # Sort by strategy priority, then ATK value
+        if self.difficulty in ("hard", "ultra") and self.strategy and self.strategy.get('summon_priority'):
+            priority_list = self.strategy['summon_priority']
+            def _summon_sort_key(entry):
+                obj, score, _ = entry
+                name = obj.name
+                try:
+                    idx = priority_list.index(name)
+                    return (0, idx)  # In priority list: sort by position
+                except ValueError:
+                    return (1, -score)  # Not in list: sort by ATK score
+            summonable.sort(key=_summon_sort_key)
+        elif self.difficulty in ("hard", "ultra"):
             summonable.sort(key=lambda x: x[1], reverse=True)
         else:
             random.shuffle(summonable)
@@ -170,10 +182,17 @@ class YugiohAIAdapter:
         if not has_slot:
             return None
 
+        # Boost score for monsters in strategy's set_priority
+        if self.strategy and self.strategy.get('set_priority'):
+            set_prio = self.strategy['set_priority']
+            for i, (obj, score) in enumerate(settable):
+                if obj.name in set_prio:
+                    settable[i] = (obj, score + 3000)  # Strongly prefer strategy targets
+
         settable.sort(key=lambda x: x[1], reverse=True)
         best = settable[0]
 
-        # Only set if we have a reason (flip effect or defensive)
+        # Only set if we have a reason (flip effect or defensive) — unless strategy says to
         if best[1] < 1000 and self.difficulty != "easy":
             return None
 
@@ -217,56 +236,82 @@ class YugiohAIAdapter:
             spell_type = getattr(obj.card_def, 'ygo_spell_type', 'Normal')
             name = obj.name
 
-            # Board wipes: activate if opponent has more/stronger monsters
+            # === Draw / advantage spells — always activate ===
+            if name == "Pot of Greed":
+                return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+            if name == "Graceful Charity":
+                return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+            # === Board wipes ===
+            if name == "Raigeki":
+                if opp_monsters:
+                    return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+            if name == "Heavy Storm":
+                opp_st = self._get_spell_traps(opp_id, state)
+                if len(opp_st) >= 2 or (len(opp_st) >= 1 and self.difficulty in ("easy", "medium")):
+                    return {'action_type': 'activate_spell', 'card_id': obj.id}
+
             if name == "Dark Hole":
                 if len(opp_monsters) > len(my_monsters) or (
                     len(opp_monsters) > 0 and len(my_monsters) == 0
                 ):
-                    return {
-                        'action_type': 'activate_spell',
-                        'card_id': obj.id,
-                    }
-                # Hard+ AI only uses Dark Hole when it's advantageous
+                    return {'action_type': 'activate_spell', 'card_id': obj.id}
                 if self.difficulty in ("easy", "medium") and opp_monsters:
-                    return {
-                        'action_type': 'activate_spell',
-                        'card_id': obj.id,
-                    }
+                    return {'action_type': 'activate_spell', 'card_id': obj.id}
 
-            # Monster Reborn: revive strongest from any GY
-            elif name == "Monster Reborn":
+            # === Targeted removal / utility ===
+            if name == "Monster Reborn":
                 target = self._find_reborn_target(player_id, opp_id, state)
                 if target:
-                    return {
-                        'action_type': 'activate_spell',
-                        'card_id': obj.id,
-                        'targets': [target],
-                    }
+                    return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target]}
 
-            # MST: destroy opponent's set spell/trap
-            elif name in ("Mystical Space Typhoon",):
+            if name == "Premature Burial":
+                target = self._find_reborn_target(player_id, player_id, state)
+                if target:
+                    return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target]}
+
+            if name in ("Mystical Space Typhoon", "Stamping Destruction"):
                 target = self._find_mst_target(opp_id, state)
                 if target:
-                    return {
-                        'action_type': 'activate_spell',
-                        'card_id': obj.id,
-                        'targets': [target],
-                    }
+                    return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target]}
 
-            # Swords of Revealing Light: use if opponent has monsters
-            elif name == "Swords of Revealing Light":
+            if name == "Nobleman of Crossout":
+                # Target opponent's face-down monsters
+                for m in opp_monsters:
+                    if m.state.face_down:
+                        return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [m.id]}
+
+            if name == "Book of Moon":
+                # Defensively flip down opponent's strongest attacker
+                atk_monsters = [m for m in opp_monsters if not m.state.face_down
+                                and m.state.ygo_position == 'face_up_atk']
+                if atk_monsters:
+                    atk_monsters.sort(key=lambda m: getattr(m.card_def, 'atk', 0) or 0, reverse=True)
+                    return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [atk_monsters[0].id]}
+
+            # === Burn spells ===
+            if name == "Ookazi":
+                return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+            # === Stall / continuous ===
+            if name == "Swords of Revealing Light":
                 if opp_monsters:
-                    return {
-                        'action_type': 'activate_spell',
-                        'card_id': obj.id,
-                    }
+                    return {'action_type': 'activate_spell', 'card_id': obj.id}
 
-            # Generic spells: activate on easy/medium
-            elif spell_type == "Normal" and self.difficulty in ("easy", "medium"):
-                return {
-                    'action_type': 'activate_spell',
-                    'card_id': obj.id,
-                }
+            if name in ("Messenger of Peace", "Level Limit - Area B"):
+                if opp_monsters:
+                    return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+            # === Field spells ===
+            if name == "Mountain":
+                if my_monsters:
+                    return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+            # === Generic fallback ===
+            if spell_type == "Normal" and self.difficulty in ("easy", "medium"):
+                return {'action_type': 'activate_spell', 'card_id': obj.id}
 
         return None
 

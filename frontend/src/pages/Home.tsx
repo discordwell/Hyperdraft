@@ -32,6 +32,9 @@ export function Home() {
   const [decks, setDecks] = useState<DeckInfo[]>([]);
   const [playerDeck, setPlayerDeck] = useState<string>('');
   const [aiDeck, setAiDeck] = useState<string>('');
+  const [ygoDecks, setYgoDecks] = useState<{id: string; name: string; archetype: string; description: string; is_optimized: boolean}[]>([]);
+  const [playerYgoDeck, setPlayerYgoDeck] = useState<string>('');
+  const [aiYgoDeck, setAiYgoDeck] = useState<string>('');
   const [claudexModel, setClaudexModel] = useState('claude-opus-4.6');
   const [gptModel, setGptModel] = useState('gpt-5.3');
   const [recordPrompts, setRecordPrompts] = useState(false);
@@ -48,6 +51,16 @@ export function Home() {
       if (monoRed) setAiDeck(monoRed.id);
       else if (res.decks.length > 0) setAiDeck(res.decks[0].id);
     }).catch(console.error);
+
+    matchAPI.listYgoDecks().then((res) => {
+      setYgoDecks(res.decks);
+      const goat = res.decks.find((d: any) => d.id === 'goat_control');
+      if (goat) setPlayerYgoDeck(goat.id);
+      else if (res.decks.length > 0) setPlayerYgoDeck(res.decks[0].id);
+      const dragon = res.decks.find((d: any) => d.id === 'dragon_beatdown');
+      if (dragon) setAiYgoDeck(dragon.id);
+      else if (res.decks.length > 0) setAiYgoDeck(res.decks[0].id);
+    }).catch(console.error);
   }, []);
 
   const handleStartGame = async () => {
@@ -58,7 +71,7 @@ export function Home() {
       const isHearthstone = gameMode === 'hearthstone';
       const isPokemon = gameMode === 'pokemon';
       const isYugioh = gameMode === 'yugioh';
-      const skipDeckSelection = isHearthstone || isPokemon || isYugioh;
+      const skipDeckSelection = isHearthstone || isPokemon;
 
       // Create match
       const response = await matchAPI.create({
@@ -68,8 +81,8 @@ export function Home() {
         hero_class: isHearthstone && hsVariant !== null ? heroClass : undefined,
         player_name: playerName,
         ai_difficulty: difficulty,
-        player_deck_id: skipDeckSelection ? undefined : (playerDeck || undefined),
-        ai_deck_id: skipDeckSelection ? undefined : (aiDeck || undefined),
+        player_deck_id: skipDeckSelection ? undefined : (isYugioh ? (playerYgoDeck || undefined) : (playerDeck || undefined)),
+        ai_deck_id: skipDeckSelection ? undefined : (isYugioh ? (aiYgoDeck || undefined) : (aiDeck || undefined)),
       });
 
       // Set connection info in store
@@ -439,6 +452,51 @@ export function Home() {
               <p className="text-xs text-purple-400 mt-1">Full Ultra heuristics enabled.</p>
             )}
           </div>
+
+          {/* Deck Selection (YGO) */}
+          {gameMode === 'yugioh' && ygoDecks.length > 0 && (
+            <>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-400 mb-1">Your Deck</label>
+                <select
+                  value={playerYgoDeck}
+                  onChange={(e) => setPlayerYgoDeck(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-purple-500"
+                >
+                  <optgroup label="Optimized Decks">
+                    {ygoDecks.filter(d => d.is_optimized).map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Starter Decks">
+                    {ygoDecks.filter(d => !d.is_optimized).map(d => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-sm text-gray-400 mb-1">AI Deck</label>
+                <select
+                  value={aiYgoDeck}
+                  onChange={(e) => setAiYgoDeck(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-purple-500"
+                >
+                  <optgroup label="Optimized Decks">
+                    {ygoDecks.filter(d => d.is_optimized).map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Starter Decks">
+                    {ygoDecks.filter(d => !d.is_optimized).map(d => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+            </>
+          )}
 
           {/* Deck Selection (MTG only — HS variants use built-in decks) */}
           {gameMode === 'mtg' && (

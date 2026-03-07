@@ -301,6 +301,8 @@ class GameSession:
             difficulty = str(difficulty).strip().lower()
 
             ai_adapter = YugiohAIAdapter(difficulty=difficulty)
+            if hasattr(self, 'ygo_ai_strategy') and self.ygo_ai_strategy:
+                ai_adapter.strategy = self.ygo_ai_strategy
             self.game.turn_manager.set_ai_handler(ai_adapter)
 
             # Wire human action handler and log callback for YGO mode
