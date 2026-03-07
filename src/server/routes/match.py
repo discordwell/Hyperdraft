@@ -116,6 +116,33 @@ def get_cards_by_names(card_names: list[str]) -> list:
     return cards
 
 
+@router.get("/ygo-decks")
+async def list_ygo_decks() -> dict:
+    """List available Yu-Gi-Oh! decks."""
+    from src.cards.yugioh.ygo_optimized import YGO_OPTIMIZED_DECKS
+    decks = []
+    for deck_id, info in YGO_OPTIMIZED_DECKS.items():
+        strat = info.get('strategy', {})
+        decks.append({
+            "id": deck_id,
+            "name": strat.get('name', deck_id),
+            "archetype": strat.get('archetype', ''),
+            "description": strat.get('description', ''),
+            "is_optimized": True,
+        })
+    # Add legacy decks
+    for deck_id, name in [('yugi', 'Yugi Starter'), ('kaiba', 'Kaiba Starter'),
+                          ('warrior', 'Warrior Starter'), ('spellcaster', 'Spellcaster Starter')]:
+        decks.append({
+            "id": deck_id,
+            "name": name,
+            "archetype": "Starter",
+            "description": f"Classic {name} deck",
+            "is_optimized": False,
+        })
+    return {"decks": decks}
+
+
 @router.post("/create", response_model=CreateMatchResponse)
 async def create_match(
     request: CreateMatchRequest,
@@ -205,25 +232,50 @@ async def create_match(
         install_variant_modifiers(session.game)
 
     elif request.game_mode == "yugioh":
-        # Yu-Gi-Oh! mode - use built-in decks
+        # Yu-Gi-Oh! mode - support deck selection via deck IDs
         from src.cards.yugioh.ygo_classic import (
             YUGI_DECK, YUGI_EXTRA_DECK, KAIBA_DECK, KAIBA_EXTRA_DECK,
         )
         from src.cards.yugioh.ygo_starter import (
             WARRIOR_DECK, WARRIOR_EXTRA_DECK, SPELLCASTER_DECK, SPELLCASTER_EXTRA_DECK,
         )
+        from src.cards.yugioh.ygo_optimized import YGO_OPTIMIZED_DECKS
         import random
 
-        deck_options = [
-            (YUGI_DECK, YUGI_EXTRA_DECK),
-            (KAIBA_DECK, KAIBA_EXTRA_DECK),
-            (WARRIOR_DECK, WARRIOR_EXTRA_DECK),
-            (SPELLCASTER_DECK, SPELLCASTER_EXTRA_DECK),
-        ]
-        random.shuffle(deck_options)
+        # All available decks: optimized + classic + starter
+        all_decks = {
+            'goat_control': (YGO_OPTIMIZED_DECKS['goat_control']['deck'],
+                             YGO_OPTIMIZED_DECKS['goat_control']['extra'],
+                             YGO_OPTIMIZED_DECKS['goat_control']['strategy']),
+            'monarch_control': (YGO_OPTIMIZED_DECKS['monarch_control']['deck'],
+                                YGO_OPTIMIZED_DECKS['monarch_control']['extra'],
+                                YGO_OPTIMIZED_DECKS['monarch_control']['strategy']),
+            'chain_burn': (YGO_OPTIMIZED_DECKS['chain_burn']['deck'],
+                           YGO_OPTIMIZED_DECKS['chain_burn']['extra'],
+                           YGO_OPTIMIZED_DECKS['chain_burn']['strategy']),
+            'dragon_beatdown': (YGO_OPTIMIZED_DECKS['dragon_beatdown']['deck'],
+                                YGO_OPTIMIZED_DECKS['dragon_beatdown']['extra'],
+                                YGO_OPTIMIZED_DECKS['dragon_beatdown']['strategy']),
+            'yugi': (YUGI_DECK, YUGI_EXTRA_DECK, None),
+            'kaiba': (KAIBA_DECK, KAIBA_EXTRA_DECK, None),
+            'warrior': (WARRIOR_DECK, WARRIOR_EXTRA_DECK, None),
+            'spellcaster': (SPELLCASTER_DECK, SPELLCASTER_EXTRA_DECK, None),
+        }
 
-        human_main, human_extra = deck_options[0]
-        ai_main, ai_extra = deck_options[1]
+        deck_keys = list(all_decks.keys())
+
+        def resolve_ygo_deck(deck_id):
+            if deck_id and deck_id in all_decks:
+                return all_decks[deck_id]
+            # Random from all
+            return all_decks[random.choice(deck_keys)]
+
+        human_main, human_extra, _ = resolve_ygo_deck(request.player_deck_id)
+        ai_main, ai_extra, ai_strategy = resolve_ygo_deck(request.ai_deck_id)
+
+        # Store strategy on session for application when AI adapter is created
+        if ai_strategy:
+            session.ygo_ai_strategy = ai_strategy
 
         # Setup YGO players
         for pid in session.player_ids:
@@ -234,8 +286,8 @@ async def create_match(
                 elif request.mode == "human_vs_bot" and ai_id and pid == ai_id:
                     session.game.setup_yugioh_player(player, ai_main, ai_extra)
                 elif request.mode == "bot_vs_bot":
-                    deck_idx = session.player_ids.index(pid) % len(deck_options)
-                    dm, de = deck_options[deck_idx]
+                    deck_idx = session.player_ids.index(pid) % len(deck_keys)
+                    dm, de, strat = all_decks[deck_keys[deck_idx]]
                     session.game.setup_yugioh_player(player, dm, de)
 
     elif request.game_mode == "pokemon":
