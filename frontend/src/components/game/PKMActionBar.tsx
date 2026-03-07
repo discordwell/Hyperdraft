@@ -40,7 +40,7 @@ export function PKMActionBar({
   const showActions = isMyTurn && mode === 'none';
 
   return (
-    <div className="flex items-center justify-center gap-3 px-4 py-2 bg-black/40 border-t border-green-800">
+    <div className="relative flex items-center justify-center gap-3 px-4 py-2 bg-black/40 border-t border-green-800">
       {/* Attack buttons */}
       {showActions && activePokemon?.attacks && activePokemon.attacks.map((atk: any, i: number) => (
         <button

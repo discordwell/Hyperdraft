@@ -1026,6 +1026,10 @@ class GameSession:
             if self._action_processed_event is processed_event:
                 self._action_processed_event = None
 
+            # Check for KOs after attack resolves
+            if request.action_type == 'PKM_ATTACK':
+                self._check_and_log_kos()
+
             await asyncio.sleep(0.05)
             return True, "Action accepted"
 
@@ -1096,6 +1100,19 @@ class GameSession:
                 if ability:
                     ability_name = ability.get('name', '?')
             self._add_pkm_log(f"{player_name} used {ability_name}.", "ability", request.player_id)
+
+    def _check_and_log_kos(self) -> None:
+        """Check for Pokemon with lethal damage and log KO entries."""
+        for pid in self.game.state.players:
+            active_zone = self.game.state.zones.get(f"active_spot_{pid}")
+            if active_zone:
+                for obj_id in active_zone.objects:
+                    obj = self.game.state.objects.get(obj_id)
+                    if obj and obj.state:
+                        hp = getattr(obj.card_def, 'hp', 0) if obj.card_def else 0
+                        dmg = getattr(obj.state, 'damage_counters', 0) * 10
+                        if hp > 0 and dmg >= hp:
+                            self._add_pkm_log(f"{obj.name} was knocked out!", "ko", pid)
 
     def _add_pkm_log(self, text: str, event_type: str, player: Optional[str] = None) -> None:
         """Add an entry to the Pokemon game log."""

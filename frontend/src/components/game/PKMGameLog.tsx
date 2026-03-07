@@ -55,8 +55,6 @@ export function PKMGameLog({ entries }: PKMGameLogProps) {
     }
   }, [entries.length]);
 
-  let lastTurn: number | null = null;
-
   return (
     <div className="flex flex-col">
       <div className="text-xs text-gray-400 uppercase tracking-wide mb-2 px-1">
@@ -71,8 +69,7 @@ export function PKMGameLog({ entries }: PKMGameLogProps) {
           <div className="text-gray-600 text-xs italic px-1">No events yet.</div>
         ) : (
           entries.map((entry, idx) => {
-            const showDivider = entry.turn !== lastTurn;
-            lastTurn = entry.turn;
+            const showDivider = idx === 0 || entry.turn !== entries[idx - 1].turn;
 
             return (
               <div key={idx}>

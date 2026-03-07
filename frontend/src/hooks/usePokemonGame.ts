@@ -110,7 +110,7 @@ export function usePokemonGame() {
   }, [sendPKMAction]);
 
   // Check if it's my turn
-  const isMyTurn = useCallback((): boolean => {
+  const isMyTurn = useMemo((): boolean => {
     if (!gameState || !playerId) return false;
     return gameState.active_player === playerId;
   }, [gameState, playerId]);
@@ -178,14 +178,14 @@ export function usePokemonGame() {
 
   // Check if energy can be attached
   const canAttachEnergy = useCallback((card: CardData): boolean => {
-    if (!isMyTurn() || !myPlayer) return false;
+    if (!isMyTurn || !myPlayer) return false;
     if (myPlayer.energy_attached_this_turn) return false;
     return card.types?.includes('ENERGY') || false;
   }, [isMyTurn, myPlayer]);
 
   // Check if a card can be played from hand
   const canPlayCard = useCallback((card: CardData): boolean => {
-    if (!isMyTurn()) return false;
+    if (!isMyTurn) return false;
     const types = card.types || [];
 
     // Basic Pokemon - can play if bench has room
