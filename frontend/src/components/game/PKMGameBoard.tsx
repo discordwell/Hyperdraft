@@ -94,6 +94,7 @@ export function PKMGameBoard({
   const [selectedHandCardId, setSelectedHandCardId] = useState<string | null>(null);
   const [hoveredCard, setHoveredCard] = useState<CardData | null>(null);
   const [isBeingAttacked, setIsBeingAttacked] = useState(false);
+  const [actionPending, setActionPending] = useState(false);
 
   // Turn banner state
   const [showTurnBanner, setShowTurnBanner] = useState(false);
@@ -121,9 +122,12 @@ export function PKMGameBoard({
     return () => window.removeEventListener('keydown', handler);
   }, [mode, handleCancel]);
 
+  // Reset actionPending when game state changes (action resolved)
+  useEffect(() => { setActionPending(false); }, [gameState]);
+
   // Handle clicking a card in hand
   const handleHandCardClick = useCallback((card: CardData) => {
-    if (!isMyTurn) return;
+    if (!isMyTurn || actionPending) return;
 
     const types = card.types || [];
 
@@ -143,10 +147,11 @@ export function PKMGameBoard({
 
     // Basic Pokemon or Trainer - play directly
     if (canPlayCard(card)) {
+      setActionPending(true);
       onPlayCard(card.id);
       handleCancel();
     }
-  }, [isMyTurn, canPlayCard, canAttachEnergy, onPlayCard, handleCancel]);
+  }, [isMyTurn, actionPending, canPlayCard, canAttachEnergy, onPlayCard, handleCancel]);
 
   // Handle clicking a Pokemon on field (for energy attachment, evolution, ability)
   const handleFieldPokemonClick = useCallback((pokemonId: string, isOwn: boolean) => {
@@ -483,12 +488,12 @@ export function PKMGameBoard({
             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
           >
             <h2 className="text-3xl font-bold mb-4 text-white">
-              {gameState.winner === playerId ? 'Victory!' : 'Defeat'}
+              {gameState.winner === playerId ? 'Victory!' : gameState.winner ? 'Defeat' : 'Game Over'}
             </h2>
             <p className="text-gray-400 mb-4">
               {gameState.winner === playerId
                 ? 'You collected all your prize cards!'
-                : 'Your opponent wins!'}
+                : gameState.winner ? 'Your opponent wins!' : 'The game has ended.'}
             </p>
           </motion.div>
         </motion.div>

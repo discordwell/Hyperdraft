@@ -59,11 +59,9 @@ export function PKMGameView() {
   useEffect(() => {
     if (error) {
       setErrorVisible(true);
-      const timer = setTimeout(() => {
-        setErrorVisible(false);
-        setTimeout(() => setError(''), 300);
-      }, 4000);
-      return () => clearTimeout(timer);
+      const hideTimer = setTimeout(() => setErrorVisible(false), 4000);
+      const clearTimer = setTimeout(() => setError(''), 4300);
+      return () => { clearTimeout(hideTimer); clearTimeout(clearTimer); };
     }
   }, [error, setError]);
 
@@ -132,7 +130,7 @@ export function PKMGameView() {
         <PKMGameBoard
           gameState={gameState}
           playerId={playerId}
-          isMyTurn={isMyTurn()}
+          isMyTurn={isMyTurn}
           myPlayer={myPlayer}
           opponentPlayer={opponentPlayer}
           myActivePokemon={myActivePokemon}
@@ -227,8 +225,8 @@ export function PKMGameView() {
               {/* Turn info */}
               <div className="mb-3">
                 <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Status</div>
-                <div className={`text-sm font-bold ${isMyTurn() ? 'text-yellow-400' : 'text-gray-500'}`}>
-                  {isMyTurn() ? 'Your Turn' : "Waiting for opponent..."}
+                <div className={`text-sm font-bold ${isMyTurn ? 'text-yellow-400' : 'text-gray-500'}`}>
+                  {isMyTurn ? 'Your Turn' : "Waiting for opponent..."}
                 </div>
               </div>
 
