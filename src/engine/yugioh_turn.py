@@ -104,6 +104,7 @@ class YugiohTurnManager(TurnManager):
         self.ygo_turn_state.first_player_id = first_player
         self.ygo_turn_state.active_player_id = first_player
         self.state.active_player = first_player
+        self.turn_state.active_player_id = first_player
 
         # Set turn order
         self._turn_order = [first_player, second_player]
@@ -148,6 +149,8 @@ class YugiohTurnManager(TurnManager):
         self.ygo_turn_state.game_turn_count += 1
         self.state.turn_number = self.ygo_turn_state.turn_number
         self.state.active_player = pid
+        self.turn_state.active_player_id = pid
+        self._end_turn_requested = False
 
         # Reset per-turn state
         self.ygo_turn_state.normal_summon_used = False
@@ -195,27 +198,25 @@ class YugiohTurnManager(TurnManager):
         self.ygo_turn_state.phase = YGOPhase.MAIN1
         events.extend(await self._run_main_phase(pid))
 
-        # Check game over
         if self._check_game_over():
             return events
 
-        # === Battle Phase (skipped on very first turn) ===
-        if not is_very_first_turn:
+        # === Battle Phase (skipped on very first turn and if end_turn requested) ===
+        if not is_very_first_turn and not self._end_turn_requested:
             if self._should_enter_battle_phase(pid):
                 self.ygo_turn_state.battle_phase_entered = True
                 events.extend(await self._run_battle_phase(pid))
 
-        # Check game over
-        if self._check_game_over():
-            return events
+            if self._check_game_over():
+                return events
 
-        # === Main Phase 2 ===
-        self.ygo_turn_state.phase = YGOPhase.MAIN2
-        events.extend(await self._run_main_phase(pid))
+        # === Main Phase 2 (skipped if end_turn requested) ===
+        if not self._end_turn_requested:
+            self.ygo_turn_state.phase = YGOPhase.MAIN2
+            events.extend(await self._run_main_phase(pid))
 
-        # Check game over
-        if self._check_game_over():
-            return events
+            if self._check_game_over():
+                return events
 
         # === End Phase ===
         self.ygo_turn_state.phase = YGOPhase.END
@@ -249,7 +250,9 @@ class YugiohTurnManager(TurnManager):
             else:
                 action = {'action_type': 'end_phase'}
 
-            if not action or action.get('action_type') == 'end_phase':
+            if not action or action.get('action_type') in ('end_phase', 'end_turn'):
+                if action and action.get('action_type') == 'end_turn':
+                    self._end_turn_requested = True
                 break
 
             result = self._execute_action(player_id, action)
@@ -286,7 +289,9 @@ class YugiohTurnManager(TurnManager):
             else:
                 action = {'action_type': 'end_phase'}
 
-            if not action or action.get('action_type') == 'end_phase':
+            if not action or action.get('action_type') in ('end_phase', 'end_turn'):
+                if action and action.get('action_type') == 'end_turn':
+                    self._end_turn_requested = True
                 break
 
             if action.get('action_type') == 'declare_attack':
@@ -928,6 +933,7 @@ class YugiohTurnManager(TurnManager):
         next_idx = (current_idx + 1) % len(player_ids)
         self.ygo_turn_state.active_player_id = player_ids[next_idx]
         self.state.active_player = player_ids[next_idx]
+        self.turn_state.active_player_id = player_ids[next_idx]
 
     def _check_game_over(self) -> bool:
         """Check if any player has lost."""

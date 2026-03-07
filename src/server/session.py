@@ -1309,7 +1309,7 @@ class GameSession:
             }
 
         elif request.action_type == 'YGO_END_TURN':
-            action_dict = {'action_type': 'end_phase'}
+            action_dict = {'action_type': 'end_turn'}
 
         elif request.action_type == 'YGO_END_PHASE':
             action_dict = {'action_type': 'end_phase'}
