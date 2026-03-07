@@ -270,25 +270,41 @@ async def create_match(
             # Random from all
             return all_decks[random.choice(deck_keys)]
 
-        human_main, human_extra, _ = resolve_ygo_deck(request.player_deck_id)
-        ai_main, ai_extra, ai_strategy = resolve_ygo_deck(request.ai_deck_id)
+        p1_main, p1_extra, p1_strategy = resolve_ygo_deck(request.player_deck_id)
+        p2_main, p2_extra, p2_strategy = resolve_ygo_deck(request.ai_deck_id)
 
-        # Store strategy on session for application when AI adapter is created
-        if ai_strategy:
-            session.ygo_ai_strategy = ai_strategy
-
-        # Setup YGO players
-        for pid in session.player_ids:
-            player = session.game.state.players.get(pid)
-            if player:
+        if request.mode == "human_vs_bot":
+            # Human gets p1 deck, AI gets p2 deck + strategy
+            for pid in session.player_ids:
+                player = session.game.state.players.get(pid)
+                if not player:
+                    continue
                 if pid == human_id:
-                    session.game.setup_yugioh_player(player, human_main, human_extra)
-                elif request.mode == "human_vs_bot" and ai_id and pid == ai_id:
-                    session.game.setup_yugioh_player(player, ai_main, ai_extra)
-                elif request.mode == "bot_vs_bot":
-                    deck_idx = session.player_ids.index(pid) % len(deck_keys)
-                    dm, de, strat = all_decks[deck_keys[deck_idx]]
+                    session.game.setup_yugioh_player(player, p1_main, p1_extra)
+                elif ai_id and pid == ai_id:
+                    session.game.setup_yugioh_player(player, p2_main, p2_extra)
+            if p2_strategy:
+                session.ygo_ai_strategy = p2_strategy
+
+        elif request.mode == "bot_vs_bot":
+            # Bot 1 gets p1 deck, Bot 2 gets p2 deck
+            bot_decks = [(p1_main, p1_extra, p1_strategy), (p2_main, p2_extra, p2_strategy)]
+            for idx, pid in enumerate(session.player_ids):
+                player = session.game.state.players.get(pid)
+                if player and idx < len(bot_decks):
+                    dm, de, _ = bot_decks[idx]
                     session.game.setup_yugioh_player(player, dm, de)
+            # Use p1 strategy for the shared AI adapter (bot_vs_bot shares one adapter)
+            strategy = p1_strategy or p2_strategy
+            if strategy:
+                session.ygo_ai_strategy = strategy
+
+        else:
+            # Fallback: set up all players with p1 deck
+            for pid in session.player_ids:
+                player = session.game.state.players.get(pid)
+                if player:
+                    session.game.setup_yugioh_player(player, p1_main, p1_extra)
 
     elif request.game_mode == "pokemon":
         # Pokemon TCG mode - use built-in starter decks
