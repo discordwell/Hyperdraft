@@ -92,6 +92,8 @@ class GameSession:
     _last_non_pass_action: Optional[dict[str, Any]] = None
     # Decklists as provided to add_cards_to_deck (used for AI layer preparation).
     deck_card_defs_by_player: dict[str, list[CardDefinition]] = field(default_factory=dict)
+    # YGO AI strategy hints (set in match.py, applied when adapter is created)
+    ygo_ai_strategy: Optional[dict] = None
 
     # Replay/spectator controls (primarily for /bot-game).
     record_actions_for_replay: bool = False
@@ -301,7 +303,7 @@ class GameSession:
             difficulty = str(difficulty).strip().lower()
 
             ai_adapter = YugiohAIAdapter(difficulty=difficulty)
-            if hasattr(self, 'ygo_ai_strategy') and self.ygo_ai_strategy:
+            if self.ygo_ai_strategy:
                 ai_adapter.strategy = self.ygo_ai_strategy
             self.game.turn_manager.set_ai_handler(ai_adapter)
 
@@ -695,6 +697,18 @@ class GameSession:
 
         Returns (success, message).
         """
+        # Check if game is already finished
+        if self.is_finished:
+            return False, "Game is already over."
+
+        # Validate action matches the current game mode
+        mode = self.game.state.game_mode
+        action_prefix = request.action_type.split("_")[0] if "_" in request.action_type else ""
+        mode_prefixes = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO"}
+        expected_prefix = mode_prefixes.get(mode)
+        if expected_prefix and action_prefix in mode_prefixes.values() and action_prefix != expected_prefix:
+            return False, f"Action {request.action_type} is not valid for {mode} mode."
+
         # Route Pokemon actions to dedicated handler
         if request.action_type in ("PKM_PLAY_CARD", "PKM_ATTACH_ENERGY", "PKM_ATTACK", "PKM_RETREAT", "PKM_EVOLVE", "PKM_USE_ABILITY", "PKM_END_TURN"):
             return await self.handle_pkm_action(request)
@@ -1459,6 +1473,21 @@ class GameSession:
                 obj = self.game.state.objects.get(request.card_id)
                 if obj and yts.position_changes.get(request.card_id):
                     return "That monster already changed position this turn."
+
+        elif request.action_type in ('YGO_DECLARE_ATTACK', 'YGO_DIRECT_ATTACK'):
+            attacker_id = request.source_id or request.card_id
+            if attacker_id:
+                obj = self.game.state.objects.get(attacker_id)
+                if not obj:
+                    return "Attacker not found."
+                if obj.controller != request.player_id:
+                    return "That monster is not yours."
+                if obj.zone != ZoneType.MONSTER_ZONE:
+                    return "That card is not on the field."
+                if getattr(obj.state, 'ygo_position', None) != 'face_up_atk':
+                    return "Only face-up ATK position monsters can attack."
+                if yts.attacks_declared.get(attacker_id, 0) >= 1:
+                    return "That monster already attacked this turn."
 
         return None
 

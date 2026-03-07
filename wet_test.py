@@ -112,7 +112,7 @@ def get_state(match_id, player_id):
 
 
 def concede(match_id, player_id):
-    api_post(f"/match/{match_id}/concede", {"player_id": player_id})
+    api_post(f"/match/{match_id}/concede?player_id={player_id}")
 
 
 def cleanup(match_id):

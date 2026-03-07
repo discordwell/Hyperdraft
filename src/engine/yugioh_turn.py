@@ -750,7 +750,7 @@ class YugiohTurnManager(TurnManager):
                         target_id: Optional[str], opponent_id: str) -> list[Event]:
         """Resolve a single attack declaration and damage."""
         events = []
-        combat = getattr(self, '_combat_manager', None)
+        combat = getattr(self, 'combat_manager', None)
         if not combat:
             # Fallback to inline combat if no combat manager wired
             return self._inline_resolve_attack(attacker_pid, attacker_id, target_id, opponent_id)
@@ -763,6 +763,10 @@ class YugiohTurnManager(TurnManager):
         events = []
         attacker = self.state.objects.get(attacker_id)
         if not attacker:
+            return events
+
+        # Must be face-up ATK to attack
+        if getattr(attacker.state, 'ygo_position', None) != 'face_up_atk':
             return events
 
         # Track attack
