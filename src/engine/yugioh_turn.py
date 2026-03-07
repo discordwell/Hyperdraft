@@ -175,8 +175,9 @@ class YugiohTurnManager(TurnManager):
 
         # Log turn start for AI turns
         if pid in self.ai_players and self.action_log_callback:
+            player_name = player.name if player else "AI"
             self.action_log_callback(
-                f"Turn {self.ygo_turn_state.turn_number} - AI's turn.",
+                f"Turn {self.ygo_turn_state.turn_number} - {player_name}'s turn.",
                 "turn_start", pid
             )
 
@@ -405,20 +406,23 @@ class YugiohTurnManager(TurnManager):
             if obj:
                 card_name = obj.name
 
+        player = self.state.players.get(player_id)
+        name = player.name if player else "AI"
+
         if action_type == 'normal_summon':
-            cb(f"AI Normal Summoned {card_name or 'a monster'}!", "summon", player_id)
+            cb(f"{name} Normal Summoned {card_name or 'a monster'}!", "summon", player_id)
         elif action_type == 'set_monster':
-            cb("AI set a monster.", "set", player_id)
+            cb(f"{name} set a monster.", "set", player_id)
         elif action_type == 'flip_summon':
-            cb(f"AI Flip Summoned {card_name or 'a monster'}!", "summon", player_id)
+            cb(f"{name} Flip Summoned {card_name or 'a monster'}!", "summon", player_id)
         elif action_type == 'activate_spell':
-            cb(f"AI activated {card_name or 'a card'}!", "activate", player_id)
+            cb(f"{name} activated {card_name or 'a card'}!", "activate", player_id)
         elif action_type == 'set_spell_trap':
-            cb("AI set a card.", "set", player_id)
+            cb(f"{name} set a card.", "set", player_id)
         elif action_type == 'change_position':
-            cb(f"AI changed {card_name or 'a monster'}'s position.", "position", player_id)
+            cb(f"{name} changed {card_name or 'a monster'}'s position.", "position", player_id)
         elif action_type == 'special_summon':
-            cb(f"AI Special Summoned {card_name or 'a monster'}!", "summon", player_id)
+            cb(f"{name} Special Summoned {card_name or 'a monster'}!", "summon", player_id)
 
     # === Normal Summon / Tribute Summon ===
 
