@@ -229,6 +229,28 @@ class EventType(Enum):
     PKM_MULLIGAN = auto()             # Opening hand mulligan
     PKM_SETUP = auto()                # Game setup phase
 
+    # Yu-Gi-Oh! mechanics
+    YGO_NORMAL_SUMMON = auto()        # Normal Summon a monster
+    YGO_TRIBUTE_SUMMON = auto()       # Tribute Summon (level 5+)
+    YGO_SET_MONSTER = auto()          # Set a monster face-down
+    YGO_FLIP_SUMMON = auto()          # Flip Summon a set monster
+    YGO_SPECIAL_SUMMON = auto()       # Special Summon (any method)
+    YGO_ACTIVATE_SPELL = auto()       # Activate a Spell card
+    YGO_SET_SPELL_TRAP = auto()       # Set a Spell/Trap face-down
+    YGO_ACTIVATE_TRAP = auto()        # Activate a Trap card
+    YGO_CHAIN_LINK = auto()           # Add a link to the Chain
+    YGO_CHAIN_RESOLVE = auto()        # Resolve the Chain (LIFO)
+    YGO_BATTLE_DECLARE = auto()       # Declare an attack
+    YGO_BATTLE_DAMAGE = auto()        # Battle damage dealt
+    YGO_FLIP = auto()                 # Monster flipped face-up
+    YGO_POSITION_CHANGE = auto()      # Monster position changed
+    YGO_DESTROY = auto()              # Card destroyed
+    YGO_SEND_TO_GY = auto()           # Card sent to Graveyard
+    YGO_BANISH = auto()               # Card banished
+    YGO_EQUIP = auto()                # Equip card to monster
+    YGO_LP_CHANGE = auto()            # Life Points changed
+    YGO_DRAW = auto()                 # Draw Phase draw
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
@@ -336,6 +358,11 @@ class CardType(Enum):
     POKEMON_TOOL = auto()   # Trainer - Pokemon Tool
     ENERGY = auto()         # Energy card
 
+    # Yu-Gi-Oh! card types
+    YGO_MONSTER = auto()    # Monster card
+    YGO_SPELL = auto()      # Spell card
+    YGO_TRAP = auto()       # Trap card
+
 
 class Color(Enum):
     WHITE = 'W'
@@ -374,6 +401,14 @@ class ZoneType(Enum):
     PRIZE_CARDS = auto()    # 6 face-down cards per player
     LOST_ZONE = auto()      # Permanent removal (public, no recovery)
     STADIUM_ZONE = auto()   # Shared, 0-1 Stadium card
+
+    # Yu-Gi-Oh! zones
+    MONSTER_ZONE = auto()       # 5 Monster Zones per player
+    SPELL_TRAP_ZONE = auto()    # 5 Spell/Trap Zones per player
+    FIELD_SPELL_ZONE = auto()   # 1 Field Spell Zone per player
+    PENDULUM_ZONE = auto()      # 2 Pendulum Zones per player (leftmost/rightmost S/T)
+    EXTRA_DECK = auto()         # Extra Deck (Fusion/Synchro/Xyz/Link/Pendulum)
+    BANISHED = auto()           # Banished (removed from play)
 
 
 # =============================================================================
@@ -432,6 +467,15 @@ class ObjectState:
     summoning_sickness: bool = False  # Set True on battlefield entry (pipeline.py:628)
     weapon_durability: int = 0        # For weapon cards
     weapon_attack: int = 0            # For weapon cards
+
+    # Yu-Gi-Oh!-specific (optional, unused in MTG/HS/PKM)
+    ygo_position: Optional[str] = None       # 'face_up_atk', 'face_up_def', 'face_down_def'
+    overlay_units: list = field(default_factory=list)  # Xyz material object IDs
+    equipped_to: Optional[str] = None        # Monster ID this equip is attached to
+    turns_set: int = 0                       # Turns this card has been set face-down
+    flip_summoned: bool = False              # Was Flip Summoned this turn
+    position_changed: bool = False           # Position changed this turn
+    attacks_declared_this_turn: int = 0      # Attacks declared this turn
 
     # Pokemon-specific (optional, unused in MTG/HS)
     damage_counters: int = 0             # Each = 10 HP damage
@@ -575,6 +619,10 @@ class Player:
     cards_played_this_turn: int = 0           # Cards played this turn (Rogue Combo)
     cost_modifiers: list = field(default_factory=list)  # [{card_type, amount, duration, uses_remaining, floor}]
 
+    # Yu-Gi-Oh!-specific (optional, unused in MTG/HS/PKM)
+    lp: int = 8000                            # Life Points
+    normal_summon_used: bool = False           # Normal Summon used this turn
+
     # Pokemon-specific (optional, unused in MTG/HS)
     prizes_remaining: int = 0                 # Prizes left to take
     energy_attached_this_turn: bool = False   # Once per turn limit
@@ -660,6 +708,24 @@ class CardDefinition:
     prize_count: int = 1                     # Prizes given on KO (2 for ex)
     is_ex: bool = False                      # Pokemon ex flag
     rule_box: Optional[str] = None           # Rule box text for ex etc.
+
+    # Yu-Gi-Oh!-specific fields
+    level: Optional[int] = None              # Monster level (1-12)
+    rank: Optional[int] = None               # Xyz rank
+    link_rating: Optional[int] = None        # Link rating
+    link_arrows: list = field(default_factory=list)  # Link arrow directions
+    atk: Optional[int] = None                # ATK stat
+    def_val: Optional[int] = None            # DEF stat (def is reserved keyword)
+    attribute: Optional[str] = None          # YGOAttribute value
+    ygo_monster_type: Optional[str] = None   # YGOMonsterType value
+    ygo_spell_type: Optional[str] = None     # YGOSpellType value
+    ygo_trap_type: Optional[str] = None      # YGOTrapType value
+    spell_speed: Optional[int] = None        # SpellSpeed value (1, 2, or 3)
+    pendulum_scale: Optional[int] = None     # Pendulum Scale value
+    pendulum_effect_fn: Optional[Callable] = None  # Pendulum Zone effect
+    materials: Optional[str] = None          # Fusion/Synchro/Xyz materials text
+    is_tuner: bool = False                   # Synchro tuner flag
+    flip_effect: Optional[Callable] = None   # FLIP: effect function
 
     # Card art URL (e.g. pokemontcg.io images)
     image_url: Optional[str] = None

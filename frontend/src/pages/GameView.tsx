@@ -13,6 +13,7 @@ import { GameBoard, GraveyardModal } from '../components/game';
 import { ActionMenu, TargetPicker, ChoiceModal } from '../components/actions';
 import { HSGameView } from './HSGameView';
 import { PKMGameView } from './PKMGameView';
+import { YGOGameView } from './YGOGameView';
 import { matchAPI } from '../services/api';
 import type { CardData, LegalActionData } from '../types';
 
@@ -364,6 +365,11 @@ export function GameView() {
   // Route to PKM view for pokemon-engine games
   if (gameState?.game_mode === 'pokemon') {
     return <PKMGameView />;
+  }
+
+  // Route to YGO view for yugioh-engine games
+  if (gameState?.game_mode === 'yugioh') {
+    return <YGOGameView />;
   }
 
   // Loading state

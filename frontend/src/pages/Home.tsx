@@ -24,7 +24,7 @@ export function Home() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone' | 'pokemon'>('hearthstone');
+  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone' | 'pokemon' | 'yugioh'>('hearthstone');
   const [hsVariant, setHsVariant] = useState<string | null>('riftclash');
   const [heroClass, setHeroClass] = useState<string>('Pyromancer');
   const [playerName, setPlayerName] = useState('Player');
@@ -57,6 +57,8 @@ export function Home() {
     try {
       const isHearthstone = gameMode === 'hearthstone';
       const isPokemon = gameMode === 'pokemon';
+      const isYugioh = gameMode === 'yugioh';
+      const skipDeckSelection = isHearthstone || isPokemon || isYugioh;
 
       // Create match
       const response = await matchAPI.create({
@@ -66,8 +68,8 @@ export function Home() {
         hero_class: isHearthstone && hsVariant !== null ? heroClass : undefined,
         player_name: playerName,
         ai_difficulty: difficulty,
-        player_deck_id: (isHearthstone || isPokemon) ? undefined : (playerDeck || undefined),
-        ai_deck_id: (isHearthstone || isPokemon) ? undefined : (aiDeck || undefined),
+        player_deck_id: skipDeckSelection ? undefined : (playerDeck || undefined),
+        ai_deck_id: skipDeckSelection ? undefined : (aiDeck || undefined),
       });
 
       // Set connection info in store
@@ -248,6 +250,16 @@ export function Home() {
                 }`}
               >
                 Pokemon TCG
+              </button>
+              <button
+                onClick={() => setGameMode('yugioh')}
+                className={`flex-1 px-4 py-2 rounded transition-colors ${
+                  gameMode === 'yugioh'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                Yu-Gi-Oh!
               </button>
             </div>
           </div>
