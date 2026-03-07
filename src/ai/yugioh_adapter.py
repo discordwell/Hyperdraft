@@ -225,6 +225,15 @@ class YugiohAIAdapter:
                 }
         return None
 
+    # Spells the AI knows how to evaluate — skip the generic fallback for these
+    _KNOWN_SPELLS = frozenset({
+        "Pot of Greed", "Graceful Charity", "Raigeki", "Heavy Storm", "Dark Hole",
+        "Monster Reborn", "Premature Burial", "Mystical Space Typhoon",
+        "Stamping Destruction", "Nobleman of Crossout", "Book of Moon", "Ookazi",
+        "Swords of Revealing Light", "Messenger of Peace", "Level Limit - Area B",
+        "Mountain",
+    })
+
     def _pick_spell_activation(self, hand: list, player_id: str, state: GameState,
                                opp_id: str, opp_monsters: list,
                                my_monsters: list) -> Optional[dict]:
@@ -247,11 +256,13 @@ class YugiohAIAdapter:
             if name == "Raigeki":
                 if opp_monsters:
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
+                continue
 
             if name == "Heavy Storm":
                 opp_st = self._get_spell_traps(opp_id, state)
                 if len(opp_st) >= 2 or (len(opp_st) >= 1 and self.difficulty in ("easy", "medium")):
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
+                continue
 
             if name == "Dark Hole":
                 if len(opp_monsters) > len(my_monsters) or (
@@ -260,36 +271,40 @@ class YugiohAIAdapter:
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
                 if self.difficulty in ("easy", "medium") and opp_monsters:
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
+                continue
 
             # === Targeted removal / utility ===
             if name == "Monster Reborn":
                 target = self._find_reborn_target(player_id, opp_id, state)
                 if target:
                     return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target]}
+                continue
 
             if name == "Premature Burial":
-                target = self._find_reborn_target(player_id, player_id, state)
+                target = self._find_own_gy_target(player_id, state)
                 if target:
                     return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target]}
+                continue
 
             if name in ("Mystical Space Typhoon", "Stamping Destruction"):
                 target = self._find_mst_target(opp_id, state)
                 if target:
                     return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target]}
+                continue
 
             if name == "Nobleman of Crossout":
-                # Target opponent's face-down monsters
                 for m in opp_monsters:
                     if m.state.face_down:
                         return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [m.id]}
+                continue
 
             if name == "Book of Moon":
-                # Defensively flip down opponent's strongest attacker
                 atk_monsters = [m for m in opp_monsters if not m.state.face_down
                                 and m.state.ygo_position == 'face_up_atk']
                 if atk_monsters:
                     atk_monsters.sort(key=lambda m: getattr(m.card_def, 'atk', 0) or 0, reverse=True)
                     return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [atk_monsters[0].id]}
+                continue
 
             # === Burn spells ===
             if name == "Ookazi":
@@ -299,18 +314,21 @@ class YugiohAIAdapter:
             if name == "Swords of Revealing Light":
                 if opp_monsters:
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
+                continue
 
             if name in ("Messenger of Peace", "Level Limit - Area B"):
                 if opp_monsters:
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
+                continue
 
             # === Field spells ===
             if name == "Mountain":
                 if my_monsters:
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
+                continue
 
-            # === Generic fallback ===
-            if spell_type == "Normal" and self.difficulty in ("easy", "medium"):
+            # === Generic fallback for unknown spells ===
+            if name not in self._KNOWN_SPELLS and spell_type == "Normal" and self.difficulty in ("easy", "medium"):
                 return {'action_type': 'activate_spell', 'card_id': obj.id}
 
         return None
@@ -506,6 +524,25 @@ class YugiohAIAdapter:
             if pid != player_id:
                 return pid
         return ""
+
+    def _find_own_gy_target(self, player_id: str, state: GameState) -> Optional[str]:
+        """Find the best monster in own graveyard to revive."""
+        best = None
+        best_atk = 0
+        gy = state.zones.get(f"graveyard_{player_id}")
+        if not gy:
+            return None
+        for oid in gy.objects:
+            obj = state.objects.get(oid)
+            if not obj:
+                continue
+            if CardType.YGO_MONSTER not in obj.characteristics.types:
+                continue
+            atk = getattr(obj.card_def, 'atk', 0) or 0
+            if atk > best_atk:
+                best_atk = atk
+                best = oid
+        return best
 
     def _find_reborn_target(self, player_id: str, opp_id: str,
                             state: GameState) -> Optional[str]:

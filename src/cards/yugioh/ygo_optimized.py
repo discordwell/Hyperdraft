@@ -181,6 +181,8 @@ def _premature_burial_resolve(event, state):
     player = state.players.get(pid)
     if player:
         player.lp = max(0, player.lp - 800)
+        if player.lp <= 0:
+            player.has_lost = True
         events.append(Event(type=EventType.YGO_LP_CHANGE,
                             payload={'player': pid, 'amount': -800, 'source': 'Premature Burial'}))
     events.extend(revive_from_graveyard(state, pid, targets[0]))
@@ -199,30 +201,52 @@ def _nobleman_resolve(event, state):
     pid = event.payload.get('player')
     if not pid:
         return events
-    for opp_id in state.players:
-        if opp_id == pid:
-            continue
-        zone = state.zones.get(f"monster_zone_{opp_id}")
-        if not zone:
-            continue
-        for i, obj_id in enumerate(zone.objects):
-            if obj_id is None:
+    target_id = (event.payload.get('targets') or [None])[0]
+
+    # If a specific target was chosen, use it; otherwise find any face-down
+    candidates = []
+    if target_id:
+        candidates = [target_id]
+    else:
+        for opp_id in state.players:
+            if opp_id == pid:
                 continue
-            obj = state.objects.get(obj_id)
-            if obj and obj.state.face_down:
-                zone.objects[i] = None
-                banished = state.zones.get(f"banished_{obj.owner}")
-                if banished:
-                    banished.objects.append(obj_id)
-                else:
-                    gy = state.zones.get(f"graveyard_{obj.owner}")
-                    if gy:
-                        gy.objects.append(obj_id)
-                obj.zone = ZoneType.EXILE
-                obj.state.face_down = False
-                events.append(Event(type=EventType.YGO_DESTROY,
-                                    payload={'card_id': obj_id, 'card_name': obj.name}))
-                return events
+            zone = state.zones.get(f"monster_zone_{opp_id}")
+            if not zone:
+                continue
+            for obj_id in zone.objects:
+                if obj_id is None:
+                    continue
+                obj = state.objects.get(obj_id)
+                if obj and obj.state.face_down:
+                    candidates.append(obj_id)
+                    break
+            if candidates:
+                break
+
+    for obj_id in candidates[:1]:
+        obj = state.objects.get(obj_id)
+        if not obj or not obj.state.face_down:
+            continue
+        # Remove from current zone (slotted)
+        for zone in state.zones.values():
+            if obj_id in zone.objects:
+                for i, oid in enumerate(zone.objects):
+                    if oid == obj_id:
+                        zone.objects[i] = None
+                        break
+                break
+        banished = state.zones.get(f"banished_{obj.owner}")
+        if banished:
+            banished.objects.append(obj_id)
+        else:
+            gy = state.zones.get(f"graveyard_{obj.owner}")
+            if gy:
+                gy.objects.append(obj_id)
+        obj.zone = ZoneType.EXILE
+        obj.state.face_down = False
+        events.append(Event(type=EventType.YGO_DESTROY,
+                            payload={'card_id': obj_id, 'card_name': obj.name}))
     return events
 
 NOBLEMAN_OF_CROSSOUT = make_ygo_spell(
@@ -280,14 +304,13 @@ def _bottomless_resolve(event, state):
     if target_id:
         obj = state.objects.get(target_id)
         if obj:
+            # Remove from slotted zone (monster_zone) — set slot to None
             for zone in state.zones.values():
                 if target_id in zone.objects:
                     for i, oid in enumerate(zone.objects):
                         if oid == target_id:
                             zone.objects[i] = None
                             break
-                    while target_id in zone.objects:
-                        zone.objects.remove(target_id)
                     break
             banished = state.zones.get(f"banished_{obj.owner}")
             if banished:
