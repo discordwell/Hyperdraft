@@ -161,7 +161,7 @@ export function YGOCard({
 
           {/* Card art / name area */}
           <div className="px-1 pt-0.5 flex-1 min-h-0 flex flex-col">
-            {imageUrl && size !== 'sm' ? (
+            {imageUrl ? (
               <div className="flex-1 min-h-0 relative overflow-hidden rounded-sm">
                 <img
                   src={imageUrl}
@@ -170,11 +170,13 @@ export function YGOCard({
                   loading="lazy"
                 />
                 {/* Name overlay at bottom of image */}
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-1 py-0.5">
-                  <div className={`font-bold leading-tight truncate ${size === 'lg' ? 'text-[9px]' : 'text-[7px]'} text-white`}>
-                    {card.name}
+                {size !== 'sm' && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-1 py-0.5">
+                    <div className={`font-bold leading-tight truncate ${size === 'lg' ? 'text-[9px]' : 'text-[7px]'} text-white`}>
+                      {card.name}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             ) : (
               <>

@@ -227,7 +227,7 @@ export function YGOGameBoard({
           <div
             key={i}
             className={`
-              w-[98px] h-[138px] border border-dashed rounded-lg flex items-center justify-center
+              w-[76px] h-[106px] border border-dashed rounded-lg flex items-center justify-center
               ${isMonsterZone ? 'border-ygo-gold-dim/30' : 'border-teal-800/30'}
               ${!card ? 'bg-ygo-dark/40' : ''}
               ${attackMode && !isMine && card ? 'border-red-500/50 bg-red-950/20' : ''}
@@ -246,7 +246,7 @@ export function YGOGameBoard({
                 >
                   <YGOCard
                     card={card}
-                    size="md"
+                    size="sm"
                     onClick={() => handleFieldCardClick(card, isMine)}
                     selected={isMine && selectedFieldCard === card.id}
                     isTarget={attackMode !== null && !isMine}
@@ -327,7 +327,7 @@ export function YGOGameBoard({
       </div>
 
       {/* Main Field */}
-      <div className="flex-1 flex flex-col justify-center items-center gap-2 py-2 relative">
+      <div className="flex-1 flex flex-col justify-center items-center gap-1 py-1 relative min-h-0">
         {/* Subtle center radial glow */}
         <div className="absolute inset-0 pointer-events-none"
           style={{ background: 'radial-gradient(ellipse at 50% 50%, rgba(212,168,67,0.03) 0%, transparent 60%)' }}
@@ -341,7 +341,7 @@ export function YGOGameBoard({
               onHoverEnd={() => setHoveredCard(null)}
             />
           ) : (
-            <div className="w-16 h-[88px] border border-dashed border-green-800/20 rounded-lg" />
+            <div className="w-16 h-[88px] border border-dashed border-green-800/20 rounded-lg opacity-30" />
           )}
           {renderZoneRow(oppSpellTrapZones, false, false)}
         </div>
@@ -397,7 +397,7 @@ export function YGOGameBoard({
               onHoverEnd={() => setHoveredCard(null)}
             />
           ) : (
-            <div className="w-16 h-[88px] border border-dashed border-green-800/20 rounded-lg" />
+            <div className="w-16 h-[88px] border border-dashed border-green-800/20 rounded-lg opacity-30" />
           )}
           {renderZoneRow(mySpellTrapZones, true, false)}
         </div>
@@ -439,7 +439,7 @@ export function YGOGameBoard({
           initial={false}
           animate="animate"
           className="flex justify-center items-end"
-          style={{ minHeight: '140px' }}
+          style={{ minHeight: '100px' }}
         >
           <AnimatePresence mode="popLayout">
             {hand.map((card, index) => {
@@ -459,7 +459,7 @@ export function YGOGameBoard({
                 >
                   <YGOCard
                     card={card}
-                    size="md"
+                    size="sm"
                     onClick={() => handleHandCardClick(card)}
                     selected={selectedHandCard === card.id}
                     animate={false}
