@@ -669,7 +669,7 @@ def test_ai_action_logging_callback():
     turn_mgr._execute_action(p1.id, {'action_type': 'normal_summon', 'card_id': card.id})
 
     assert len(logged) == 1, f"Expected 1 log entry, got {len(logged)}"
-    assert "AI Normal Summoned AI Monster" in logged[0][0]
+    assert "Normal Summoned AI Monster" in logged[0][0]
     assert logged[0][1] == "summon"
     assert logged[0][2] == p1.id
     print("  PASS: test_ai_action_logging_callback")
@@ -737,6 +737,95 @@ def test_tribute_summon_rejected_without_tributes():
     print("  PASS: test_tribute_summon_rejected_without_tributes")
 
 
+def test_ai_battle_phase_logging():
+    """Test that AI attacks and battle damage are logged via callback."""
+    game, p1, p2 = make_test_game()
+    turn_mgr = game.turn_manager
+
+    logged = []
+    turn_mgr.action_log_callback = lambda text, event_type, player: logged.append((text, event_type, player))
+    turn_mgr.ai_players.add(p1.id)
+
+    turn_mgr.ygo_turn_state.active_player_id = p1.id
+
+    # Summon an attacker for p1
+    card = add_card_to_hand(game, p1, make_ygo_monster("Attacker", 1800, 1200, 4))
+    turn_mgr._execute_action(p1.id, {'action_type': 'normal_summon', 'card_id': card.id})
+    logged.clear()  # Clear the summon log
+
+    # Mock AI battle handler: attack directly once, then end
+    call_count = [0]
+    class MockAI:
+        def get_battle_action(self, player_id, state, yts):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return {'action_type': 'declare_attack', 'attacker_id': card.id, 'target_id': None}
+            return {'action_type': 'end_phase'}
+    turn_mgr.ygo_ai_handler = MockAI()
+
+    # Run battle phase with direct attack (no opponent monsters)
+    import asyncio
+    events = asyncio.get_event_loop().run_until_complete(
+        turn_mgr._run_battle_phase(p1.id)
+    )
+
+    attack_logs = [l for l in logged if l[1] == 'attack']
+    damage_logs = [l for l in logged if l[1] == 'damage']
+    assert len(attack_logs) >= 1, f"Expected attack log, got {attack_logs}"
+    assert "Attacker attacks directly" in attack_logs[0][0]
+    assert len(damage_logs) >= 1, f"Expected damage log, got {damage_logs}"
+    assert "1800" in damage_logs[0][0]
+    print("  PASS: test_ai_battle_phase_logging")
+
+
+def test_failed_action_no_log():
+    """Test that a failed action does not trigger the AI log callback."""
+    game, p1, p2 = make_test_game()
+    turn_mgr = game.turn_manager
+
+    logged = []
+    turn_mgr.action_log_callback = lambda text, event_type, player: logged.append((text, event_type, player))
+    turn_mgr.ai_players.add(p1.id)
+
+    turn_mgr.ygo_turn_state.active_player_id = p1.id
+
+    # Use normal summon first
+    card1 = add_card_to_hand(game, p1, make_ygo_monster("First Mon", 1500, 1200, 4))
+    turn_mgr._execute_action(p1.id, {'action_type': 'normal_summon', 'card_id': card1.id})
+    assert len(logged) == 1  # First summon logged
+
+    logged.clear()
+
+    # Try a second normal summon — should fail (already used)
+    card2 = add_card_to_hand(game, p1, make_ygo_monster("Second Mon", 1500, 1200, 4))
+    turn_mgr._execute_action(p1.id, {'action_type': 'normal_summon', 'card_id': card2.id})
+    assert len(logged) == 0, f"Failed action should not log, got {logged}"
+    assert card2.zone == ZoneType.HAND, "Card should remain in hand"
+    print("  PASS: test_failed_action_no_log")
+
+
+def test_ai_log_uses_player_name():
+    """Test that AI logs use the player name, not generic 'AI'."""
+    game = Game(mode="yugioh")
+    p1 = game.add_player("Yugi Muto")
+    p2 = game.add_player("Seto Kaiba")
+    turn_mgr = game.turn_manager
+
+    logged = []
+    turn_mgr.action_log_callback = lambda text, event_type, player: logged.append((text, event_type, player))
+    turn_mgr.ai_players.add(p1.id)
+
+    turn_mgr.ygo_turn_state.active_player_id = p1.id
+
+    card = add_card_to_hand(game, p1, make_ygo_monster("Mystical Elf", 800, 2000, 4))
+    turn_mgr._execute_action(p1.id, {'action_type': 'set_monster', 'card_id': card.id})
+
+    assert len(logged) == 1, f"Expected 1 log entry, got {len(logged)}"
+    assert "Yugi Muto" in logged[0][0], f"Expected player name in log, got: {logged[0][0]}"
+    assert "AI" not in logged[0][0], f"Should not contain generic 'AI', got: {logged[0][0]}"
+    print("  PASS: test_ai_log_uses_player_name")
+
+
 def test_end_phase_discard():
     """Test that End Phase forces discard to 6 cards."""
     game, p1, p2 = make_test_game()
@@ -799,6 +888,9 @@ if __name__ == "__main__":
         test_ai_logging_skipped_for_humans,
         test_turn_number_increments,
         test_tribute_summon_rejected_without_tributes,
+        test_ai_battle_phase_logging,
+        test_failed_action_no_log,
+        test_ai_log_uses_player_name,
         test_end_phase_discard,
     ]
 
