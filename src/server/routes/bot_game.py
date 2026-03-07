@@ -138,58 +138,121 @@ async def start_bot_game(
         if not os.environ.get("ANTHROPIC_API_KEY"):
             raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not set")
 
-    # Build decks
-    if request.bot1_deck_id:
-        bot1_deck = get_deck_cards(request.bot1_deck_id)
-    elif request.bot1_deck:
-        bot1_deck = get_cards_by_names(request.bot1_deck)
-    else:
-        bot1_deck = get_default_deck()
+    # === Game-mode-specific setup ===
 
-    if request.bot2_deck_id:
-        bot2_deck = get_deck_cards(request.bot2_deck_id)
-    elif request.bot2_deck:
-        bot2_deck = get_cards_by_names(request.bot2_deck)
-    else:
-        bot2_deck = get_default_deck()
-
-    if not bot1_deck:
-        raise HTTPException(status_code=400, detail="bot1 deck is empty (invalid deck_id or card list)")
-    if not bot2_deck:
-        raise HTTPException(status_code=400, detail="bot2 deck is empty (invalid deck_id or card list)")
-
-    # Setup Hearthstone heroes if in Hearthstone mode
-    if request.mode == "hearthstone":
-        from src.cards.hearthstone.heroes import HEROES
-        from src.cards.hearthstone.hero_powers import HERO_POWERS
-        from src.cards.hearthstone.decks import get_deck_for_hero
+    if request.mode == "yugioh":
+        # Yu-Gi-Oh! bot-vs-bot: resolve decks by ID, setup players
+        from src.cards.yugioh.ygo_classic import (
+            YUGI_DECK, YUGI_EXTRA_DECK, KAIBA_DECK, KAIBA_EXTRA_DECK,
+        )
+        from src.cards.yugioh.ygo_starter import (
+            WARRIOR_DECK, WARRIOR_EXTRA_DECK, SPELLCASTER_DECK, SPELLCASTER_EXTRA_DECK,
+        )
+        from src.cards.yugioh.ygo_optimized import YGO_OPTIMIZED_DECKS
         import random
 
-        # Get players from game
+        ygo_all_decks = {
+            'goat_control': (YGO_OPTIMIZED_DECKS['goat_control']['deck'],
+                             YGO_OPTIMIZED_DECKS['goat_control']['extra'],
+                             YGO_OPTIMIZED_DECKS['goat_control']['strategy']),
+            'monarch_control': (YGO_OPTIMIZED_DECKS['monarch_control']['deck'],
+                                YGO_OPTIMIZED_DECKS['monarch_control']['extra'],
+                                YGO_OPTIMIZED_DECKS['monarch_control']['strategy']),
+            'chain_burn': (YGO_OPTIMIZED_DECKS['chain_burn']['deck'],
+                           YGO_OPTIMIZED_DECKS['chain_burn']['extra'],
+                           YGO_OPTIMIZED_DECKS['chain_burn']['strategy']),
+            'dragon_beatdown': (YGO_OPTIMIZED_DECKS['dragon_beatdown']['deck'],
+                                YGO_OPTIMIZED_DECKS['dragon_beatdown']['extra'],
+                                YGO_OPTIMIZED_DECKS['dragon_beatdown']['strategy']),
+            'yugi': (YUGI_DECK, YUGI_EXTRA_DECK, None),
+            'kaiba': (KAIBA_DECK, KAIBA_EXTRA_DECK, None),
+            'warrior': (WARRIOR_DECK, WARRIOR_EXTRA_DECK, None),
+            'spellcaster': (SPELLCASTER_DECK, SPELLCASTER_EXTRA_DECK, None),
+        }
+        ygo_keys = list(ygo_all_decks.keys())
+
+        def resolve_ygo(deck_id):
+            if deck_id and deck_id in ygo_all_decks:
+                return ygo_all_decks[deck_id]
+            return ygo_all_decks[random.choice(ygo_keys)]
+
+        b1_main, b1_extra, b1_strat = resolve_ygo(request.bot1_deck_id)
+        b2_main, b2_extra, b2_strat = resolve_ygo(request.bot2_deck_id)
+
         player_ids = list(session.game.state.players.keys())
-        if len(player_ids) >= 2:
-            # Randomly select two different hero classes
-            available_heroes = ["Mage", "Warrior", "Hunter", "Paladin", "Priest", "Rogue", "Shaman", "Warlock", "Druid"]
-            hero1_class = random.choice(available_heroes)
-            available_heroes.remove(hero1_class)
-            hero2_class = random.choice(available_heroes)
+        for idx, pid in enumerate(player_ids[:2]):
+            player = session.game.state.players[pid]
+            main, extra = (b1_main, b1_extra) if idx == 0 else (b2_main, b2_extra)
+            session.game.setup_yugioh_player(player, main, extra)
 
-            # Setup heroes for both players
-            p1 = session.game.state.players[player_ids[0]]
-            p2 = session.game.state.players[player_ids[1]]
+        # Apply strategy to AI adapter (shared — use bot1's strategy)
+        strategy = b1_strat or b2_strat
+        if strategy:
+            session.ygo_ai_strategy = strategy
 
-            session.game.setup_hearthstone_player(p1, HEROES[hero1_class], HERO_POWERS[hero1_class])
-            session.game.setup_hearthstone_player(p2, HEROES[hero2_class], HERO_POWERS[hero2_class])
+    elif request.mode == "pokemon":
+        # Pokemon bot-vs-bot: random starter decks
+        from src.cards.pokemon.sv_starter import make_fire_deck, make_water_deck
+        import random
 
-            # Use class-appropriate decks only if user didn't provide custom decks
-            if not request.bot1_deck and not request.bot1_deck_id:
-                bot1_deck = get_deck_for_hero(hero1_class)
-            if not request.bot2_deck and not request.bot2_deck_id:
-                bot2_deck = get_deck_for_hero(hero2_class)
+        deck_fns = [make_fire_deck, make_water_deck]
+        random.shuffle(deck_fns)
 
-    # Add cards to libraries
-    session.add_cards_to_deck(bot1_id, bot1_deck)
-    session.add_cards_to_deck(bot2_id, bot2_deck)
+        player_ids = list(session.game.state.players.keys())
+        for idx, pid in enumerate(player_ids[:2]):
+            player = session.game.state.players[pid]
+            session.game.setup_pokemon_player(player, [])
+            session.add_cards_to_deck(pid, deck_fns[idx % len(deck_fns)]())
+
+    else:
+        # MTG / Hearthstone: build decks from IDs or card names
+        if request.bot1_deck_id:
+            bot1_deck = get_deck_cards(request.bot1_deck_id)
+        elif request.bot1_deck:
+            bot1_deck = get_cards_by_names(request.bot1_deck)
+        else:
+            bot1_deck = get_default_deck()
+
+        if request.bot2_deck_id:
+            bot2_deck = get_deck_cards(request.bot2_deck_id)
+        elif request.bot2_deck:
+            bot2_deck = get_cards_by_names(request.bot2_deck)
+        else:
+            bot2_deck = get_default_deck()
+
+        if not bot1_deck:
+            raise HTTPException(status_code=400, detail="bot1 deck is empty (invalid deck_id or card list)")
+        if not bot2_deck:
+            raise HTTPException(status_code=400, detail="bot2 deck is empty (invalid deck_id or card list)")
+
+        # Setup Hearthstone heroes if in Hearthstone mode
+        if request.mode == "hearthstone":
+            from src.cards.hearthstone.heroes import HEROES
+            from src.cards.hearthstone.hero_powers import HERO_POWERS
+            from src.cards.hearthstone.decks import get_deck_for_hero
+            import random
+
+            player_ids = list(session.game.state.players.keys())
+            if len(player_ids) >= 2:
+                available_heroes = ["Mage", "Warrior", "Hunter", "Paladin", "Priest", "Rogue", "Shaman", "Warlock", "Druid"]
+                hero1_class = random.choice(available_heroes)
+                available_heroes.remove(hero1_class)
+                hero2_class = random.choice(available_heroes)
+
+                p1 = session.game.state.players[player_ids[0]]
+                p2 = session.game.state.players[player_ids[1]]
+
+                session.game.setup_hearthstone_player(p1, HEROES[hero1_class], HERO_POWERS[hero1_class])
+                session.game.setup_hearthstone_player(p2, HEROES[hero2_class], HERO_POWERS[hero2_class])
+
+                if not request.bot1_deck and not request.bot1_deck_id:
+                    bot1_deck = get_deck_for_hero(hero1_class)
+                if not request.bot2_deck and not request.bot2_deck_id:
+                    bot2_deck = get_deck_for_hero(hero2_class)
+
+        # Add cards to libraries
+        session.add_cards_to_deck(bot1_id, bot1_deck)
+        session.add_cards_to_deck(bot2_id, bot2_deck)
 
     # Store in active games
     active_bot_games[session.id] = session
@@ -215,10 +278,10 @@ async def run_bot_game(session: GameSession):
             # Run one turn (priority actions inside are paced via session.spectator_delay_ms)
             await session.game.turn_manager.run_turn()
 
-            # In Hearthstone mode, the priority system loop is bypassed so
+            # For non-MTG modes, the priority system loop is bypassed so
             # _on_action_processed never fires.  Record a frame per turn
             # so that replays capture the game progression.
-            if session.game.state.game_mode == "hearthstone" and session.record_actions_for_replay:
+            if session.game.state.game_mode in ("hearthstone", "yugioh", "pokemon") and session.record_actions_for_replay:
                 active = session.game.get_active_player()
                 session._record_frame(action={
                     "kind": "action_processed",

@@ -124,7 +124,7 @@ class PlayerActionRequest(BaseModel):
 
 class StartBotGameRequest(BaseModel):
     """Request to start a bot vs bot game."""
-    mode: str = Field(default="mtg", description="Game mode: 'mtg' or 'hearthstone'")
+    mode: str = Field(default="mtg", description="Game mode: 'mtg', 'hearthstone', 'pokemon', or 'yugioh'")
     bot1_deck: list[str] = Field(default_factory=list)
     bot2_deck: list[str] = Field(default_factory=list)
     bot1_deck_id: Optional[str] = Field(default=None, description="Deck ID from /match/decks (e.g., mono_red_netdeck)")

@@ -105,10 +105,11 @@ export function Home() {
     setError(null);
 
     try {
+      const isYgo = gameMode === 'yugioh';
       const response = await botGameAPI.start({
         mode: gameMode,
-        bot1_deck_id: playerDeck || undefined,
-        bot2_deck_id: aiDeck || undefined,
+        bot1_deck_id: isYgo ? (playerYgoDeck || undefined) : (playerDeck || undefined),
+        bot2_deck_id: isYgo ? (aiYgoDeck || undefined) : (aiDeck || undefined),
         bot1_difficulty: difficulty,
         bot2_difficulty: difficulty,
         delay_ms: 1500,
@@ -558,8 +559,8 @@ export function Home() {
                   : 'Play vs AI'))}
           </button>
 
-          {/* MTG-only bot game options */}
-          {gameMode === 'mtg' && (
+          {/* Bot game options (MTG + YGO) */}
+          {(gameMode === 'mtg' || gameMode === 'yugioh') && (
             <>
               {/* Spectate Bot Game Button */}
               <button
