@@ -654,6 +654,89 @@ def test_setup_yugioh_player():
     print("  PASS: test_setup_yugioh_player")
 
 
+def test_ai_action_logging_callback():
+    """Test that AI actions trigger the log callback."""
+    game, p1, p2 = make_test_game()
+    turn_mgr = game.turn_manager
+
+    logged = []
+    turn_mgr.action_log_callback = lambda text, event_type, player: logged.append((text, event_type, player))
+    turn_mgr.ai_players.add(p1.id)
+
+    turn_mgr.ygo_turn_state.active_player_id = p1.id
+
+    card = add_card_to_hand(game, p1, make_ygo_monster("AI Monster", 1800, 1200, 4))
+    turn_mgr._execute_action(p1.id, {'action_type': 'normal_summon', 'card_id': card.id})
+
+    assert len(logged) == 1, f"Expected 1 log entry, got {len(logged)}"
+    assert "AI Normal Summoned AI Monster" in logged[0][0]
+    assert logged[0][1] == "summon"
+    assert logged[0][2] == p1.id
+    print("  PASS: test_ai_action_logging_callback")
+
+
+def test_ai_logging_skipped_for_humans():
+    """Test that human actions don't trigger the AI log callback."""
+    game, p1, p2 = make_test_game()
+    turn_mgr = game.turn_manager
+
+    logged = []
+    turn_mgr.action_log_callback = lambda text, event_type, player: logged.append((text, event_type, player))
+    # p1 is NOT in ai_players
+
+    turn_mgr.ygo_turn_state.active_player_id = p1.id
+
+    card = add_card_to_hand(game, p1, make_ygo_monster("Human Monster", 1800, 1200, 4))
+    turn_mgr._execute_action(p1.id, {'action_type': 'normal_summon', 'card_id': card.id})
+
+    assert len(logged) == 0, "Human actions should not trigger AI log callback"
+    print("  PASS: test_ai_logging_skipped_for_humans")
+
+
+def test_turn_number_increments():
+    """Test that turn_number increments on run_turn and is accessible via property."""
+    game, p1, p2 = make_test_game()
+    turn_mgr = game.turn_manager
+
+    # Add enough cards for the game to not deck-out
+    add_monsters_to_deck(game, p1, 40)
+    add_monsters_to_deck(game, p2, 40)
+
+    asyncio.get_event_loop().run_until_complete(turn_mgr.setup_game())
+
+    assert turn_mgr.turn_number == 0, f"Should start at 0, got {turn_mgr.turn_number}"
+    assert turn_mgr.turn_state.turn_number == 0
+
+    # Make both players AI so run_turn completes without blocking
+    turn_mgr.ai_players.add(p1.id)
+    turn_mgr.ai_players.add(p2.id)
+
+    # First turn
+    asyncio.get_event_loop().run_until_complete(turn_mgr.run_turn())
+    assert turn_mgr.turn_number == 1, f"Expected 1, got {turn_mgr.turn_number}"
+    assert turn_mgr.turn_state.turn_number == 1
+
+    # Second turn
+    asyncio.get_event_loop().run_until_complete(turn_mgr.run_turn())
+    assert turn_mgr.turn_number == 2, f"Expected 2, got {turn_mgr.turn_number}"
+    assert turn_mgr.turn_state.turn_number == 2
+    print("  PASS: test_turn_number_increments")
+
+
+def test_tribute_summon_rejected_without_tributes():
+    """Test that Level 5+ Normal Summon fails without tribute IDs."""
+    game, p1, p2 = make_test_game()
+    turn_mgr = game.turn_manager
+    turn_mgr.ygo_turn_state.active_player_id = p1.id
+
+    card = add_card_to_hand(game, p1, make_ygo_monster("Big Mon", 2400, 2100, 6))
+    events = turn_mgr._do_normal_summon(p1.id, {'card_id': card.id})
+    assert len(events) == 0, "Level 6 should fail without tributes"
+    assert card.zone == ZoneType.HAND, "Card should remain in hand"
+    assert not turn_mgr.ygo_turn_state.normal_summon_used, "Normal summon should not be consumed"
+    print("  PASS: test_tribute_summon_rejected_without_tributes")
+
+
 def test_end_phase_discard():
     """Test that End Phase forces discard to 6 cards."""
     game, p1, p2 = make_test_game()
@@ -712,6 +795,10 @@ if __name__ == "__main__":
         test_position_blocks_attack,
         test_special_summon,
         test_setup_yugioh_player,
+        test_ai_action_logging_callback,
+        test_ai_logging_skipped_for_humans,
+        test_turn_number_increments,
+        test_tribute_summon_rejected_without_tributes,
         test_end_phase_discard,
     ]
 

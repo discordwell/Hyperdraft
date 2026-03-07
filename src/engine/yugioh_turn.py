@@ -68,6 +68,7 @@ class YugiohTurnManager(TurnManager):
         self.ai_players: set[str] = set()
         self.human_action_handler = None  # async fn(player_id, game_state) -> action_dict
         self._chain_manager = None  # Set by Game._connect_subsystems
+        self.action_log_callback = None  # fn(text, event_type, player_id) — set by session for AI logging
 
     def set_ai_handler(self, handler):
         """Set the AI handler for YGO turns."""
@@ -148,6 +149,7 @@ class YugiohTurnManager(TurnManager):
         self.ygo_turn_state.turn_number += 1
         self.ygo_turn_state.game_turn_count += 1
         self.state.turn_number = self.ygo_turn_state.turn_number
+        self.turn_state.turn_number = self.ygo_turn_state.turn_number
         self.state.active_player = pid
         self.turn_state.active_player_id = pid
         self._end_turn_requested = False
@@ -170,6 +172,13 @@ class YugiohTurnManager(TurnManager):
             type=EventType.TURN_START,
             payload={'player': pid, 'turn': self.ygo_turn_state.turn_number}
         ))
+
+        # Log turn start for AI turns
+        if pid in self.ai_players and self.action_log_callback:
+            self.action_log_callback(
+                f"Turn {self.ygo_turn_state.turn_number} - AI's turn.",
+                "turn_start", pid
+            )
 
         # === Draw Phase ===
         # First player skips draw on their first turn
@@ -303,6 +312,25 @@ class YugiohTurnManager(TurnManager):
                 )
                 events.extend(attack_events)
 
+                # Log AI attacks
+                if attack_events and self.action_log_callback and player_id in self.ai_players:
+                    attacker_obj = self.state.objects.get(action.get('attacker_id'))
+                    attacker_name = attacker_obj.name if attacker_obj else "a monster"
+                    target_id = action.get('target_id')
+                    if target_id is None:
+                        self.action_log_callback(f"{attacker_name} attacks directly!", "attack", player_id)
+                    else:
+                        target_obj = self.state.objects.get(target_id)
+                        target_name = target_obj.name if target_obj else "a monster"
+                        self.action_log_callback(f"{attacker_name} attacks {target_name}!", "attack", player_id)
+                    # Log battle damage
+                    for evt in attack_events:
+                        if evt.type == EventType.YGO_BATTLE_DAMAGE:
+                            amount = evt.payload.get('amount', 0)
+                            dmg_player = evt.payload.get('player')
+                            if amount > 0:
+                                self.action_log_callback(f"{amount} battle damage!", "damage", dmg_player)
+
         # Battle End Step
         self.ygo_turn_state.phase = YGOPhase.BATTLE_END
         events.append(Event(
@@ -358,7 +386,39 @@ class YugiohTurnManager(TurnManager):
         elif action_type == 'special_summon':
             events.extend(self._do_special_summon(player_id, action))
 
+        # Log AI actions via callback
+        if events and self.action_log_callback and player_id in self.ai_players:
+            self._log_ai_action(player_id, action, events)
+
         return events
+
+    def _log_ai_action(self, player_id: str, action: dict, events: list[Event]):
+        """Log an AI action via the session callback."""
+        cb = self.action_log_callback
+        if not cb:
+            return
+        action_type = action.get('action_type')
+        card_id = action.get('card_id')
+        card_name = None
+        if card_id:
+            obj = self.state.objects.get(card_id)
+            if obj:
+                card_name = obj.name
+
+        if action_type == 'normal_summon':
+            cb(f"AI Normal Summoned {card_name or 'a monster'}!", "summon", player_id)
+        elif action_type == 'set_monster':
+            cb("AI set a monster.", "set", player_id)
+        elif action_type == 'flip_summon':
+            cb(f"AI Flip Summoned {card_name or 'a monster'}!", "summon", player_id)
+        elif action_type == 'activate_spell':
+            cb(f"AI activated {card_name or 'a card'}!", "activate", player_id)
+        elif action_type == 'set_spell_trap':
+            cb("AI set a card.", "set", player_id)
+        elif action_type == 'change_position':
+            cb(f"AI changed {card_name or 'a monster'}'s position.", "position", player_id)
+        elif action_type == 'special_summon':
+            cb(f"AI Special Summoned {card_name or 'a monster'}!", "summon", player_id)
 
     # === Normal Summon / Tribute Summon ===
 
