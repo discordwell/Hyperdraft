@@ -826,6 +826,49 @@ def test_ai_log_uses_player_name():
     print("  PASS: test_ai_log_uses_player_name")
 
 
+def test_face_down_monster_cannot_attack():
+    """Test that a face-down (set) monster cannot declare an attack."""
+    game, p1, p2 = make_test_game()
+    turn_mgr = game.turn_manager
+    turn_mgr.ygo_turn_state.active_player_id = p1.id
+
+    card = add_card_to_hand(game, p1, make_ygo_monster("Set Mon", 1500, 1200, 4))
+    events = turn_mgr._do_set_monster(p1.id, {'card_id': card.id})
+    assert len(events) > 0, "Set should succeed"
+    assert card.state.ygo_position == 'face_down_def'
+
+    # Try to attack with this face-down monster
+    attack_events = turn_mgr._resolve_attack(p1.id, card.id, None, p2.id)
+    assert len(attack_events) == 0, f"Face-down monster attack should return no events, got {len(attack_events)}"
+
+    # Also check combat manager's can_attack
+    if hasattr(turn_mgr, '_combat_manager') and turn_mgr._combat_manager:
+        can, reason = turn_mgr._combat_manager.can_attack(card.id)
+        assert not can, f"can_attack should be False for face-down, got True"
+
+    print("  PASS: test_face_down_monster_cannot_attack")
+
+
+def test_defense_position_cannot_attack():
+    """Test that a face-up DEF position monster cannot attack."""
+    game, p1, p2 = make_test_game()
+    turn_mgr = game.turn_manager
+    turn_mgr.ygo_turn_state.active_player_id = p1.id
+
+    card = add_card_to_hand(game, p1, make_ygo_monster("Def Mon", 1000, 2000, 4))
+    # Normal summon then change to DEF position
+    turn_mgr._do_normal_summon(p1.id, {'card_id': card.id})
+    assert card.state.ygo_position == 'face_up_atk'
+
+    turn_mgr._do_change_position(p1.id, {'card_id': card.id})
+    assert card.state.ygo_position == 'face_up_def'
+
+    # Try to attack — should fail
+    attack_events = turn_mgr._resolve_attack(p1.id, card.id, None, p2.id)
+    assert len(attack_events) == 0, f"DEF position attack should return no events, got {len(attack_events)}"
+    print("  PASS: test_defense_position_cannot_attack")
+
+
 def test_end_phase_discard():
     """Test that End Phase forces discard to 6 cards."""
     game, p1, p2 = make_test_game()
@@ -891,6 +934,8 @@ if __name__ == "__main__":
         test_ai_battle_phase_logging,
         test_failed_action_no_log,
         test_ai_log_uses_player_name,
+        test_face_down_monster_cannot_attack,
+        test_defense_position_cannot_attack,
         test_end_phase_discard,
     ]
 
