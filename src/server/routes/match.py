@@ -204,6 +204,40 @@ async def create_match(
         # Install variant global modifiers
         install_variant_modifiers(session.game)
 
+    elif request.game_mode == "yugioh":
+        # Yu-Gi-Oh! mode - use built-in decks
+        from src.cards.yugioh.ygo_classic import (
+            YUGI_DECK, YUGI_EXTRA_DECK, KAIBA_DECK, KAIBA_EXTRA_DECK,
+        )
+        from src.cards.yugioh.ygo_starter import (
+            WARRIOR_DECK, WARRIOR_EXTRA_DECK, SPELLCASTER_DECK, SPELLCASTER_EXTRA_DECK,
+        )
+        import random
+
+        deck_options = [
+            (YUGI_DECK, YUGI_EXTRA_DECK),
+            (KAIBA_DECK, KAIBA_EXTRA_DECK),
+            (WARRIOR_DECK, WARRIOR_EXTRA_DECK),
+            (SPELLCASTER_DECK, SPELLCASTER_EXTRA_DECK),
+        ]
+        random.shuffle(deck_options)
+
+        human_main, human_extra = deck_options[0]
+        ai_main, ai_extra = deck_options[1]
+
+        # Setup YGO players
+        for pid in session.player_ids:
+            player = session.game.state.players.get(pid)
+            if player:
+                if pid == human_id:
+                    session.game.setup_yugioh_player(player, human_main, human_extra)
+                elif request.mode == "human_vs_bot" and ai_id and pid == ai_id:
+                    session.game.setup_yugioh_player(player, ai_main, ai_extra)
+                elif request.mode == "bot_vs_bot":
+                    deck_idx = session.player_ids.index(pid) % len(deck_options)
+                    dm, de = deck_options[deck_idx]
+                    session.game.setup_yugioh_player(player, dm, de)
+
     elif request.game_mode == "pokemon":
         # Pokemon TCG mode - use built-in starter decks
         from src.cards.pokemon.sv_starter import make_fire_deck, make_water_deck

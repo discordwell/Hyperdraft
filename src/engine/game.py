@@ -54,6 +54,8 @@ class Game:
             self.state.max_hand_size = 10
         elif mode == "pokemon":
             self.state.max_hand_size = 999  # No hand size limit in Pokemon
+        elif mode == "yugioh":
+            self.state.max_hand_size = 6  # Discard to 6 during End Phase
 
         self.pipeline = EventPipeline(self.state)
 
@@ -85,6 +87,8 @@ class Game:
         elif self.state.game_mode == "pokemon":
             from .pokemon_energy import PokemonEnergySystem
             return PokemonEnergySystem(self.state)
+        elif self.state.game_mode == "yugioh":
+            return None  # Yu-Gi-Oh! has no mana system
         return ManaSystem(self.state)
 
     def _create_combat_manager(self):
@@ -95,6 +99,9 @@ class Game:
         elif self.state.game_mode == "pokemon":
             from .pokemon_combat import PokemonCombatManager
             return PokemonCombatManager(self.state)
+        elif self.state.game_mode == "yugioh":
+            from .yugioh_combat import YugiohCombatManager
+            return YugiohCombatManager(self.state)
         return CombatManager(self.state)
 
     def _create_turn_manager(self):
@@ -105,6 +112,9 @@ class Game:
         elif self.state.game_mode == "pokemon":
             from .pokemon_turn import PokemonTurnManager
             return PokemonTurnManager(self.state)
+        elif self.state.game_mode == "yugioh":
+            from .yugioh_turn import YugiohTurnManager
+            return YugiohTurnManager(self.state)
         return TurnManager(self.state)
 
     def _connect_subsystems(self):
@@ -153,6 +163,17 @@ class Game:
         # Pokemon-specific zones
         if self.state.game_mode == "pokemon":
             for zone_type in [ZoneType.ACTIVE_SPOT, ZoneType.BENCH, ZoneType.PRIZE_CARDS]:
+                key = f"{zone_type.name.lower()}_{player_id}"
+                self.state.zones[key] = Zone(
+                    type=zone_type,
+                    owner=player_id
+                )
+
+        # Yu-Gi-Oh!-specific zones
+        if self.state.game_mode == "yugioh":
+            for zone_type in [ZoneType.MONSTER_ZONE, ZoneType.SPELL_TRAP_ZONE,
+                              ZoneType.FIELD_SPELL_ZONE, ZoneType.PENDULUM_ZONE,
+                              ZoneType.EXTRA_DECK, ZoneType.BANISHED]:
                 key = f"{zone_type.name.lower()}_{player_id}"
                 self.state.zones[key] = Zone(
                     type=zone_type,
@@ -215,6 +236,41 @@ class Game:
                 characteristics=copy.deepcopy(card_def.characteristics),
                 card_def=card_def
             )
+
+    def setup_yugioh_player(self, player: Player, main_deck: list, extra_deck: list = None):
+        """
+        Set up a Yu-Gi-Oh! player with main deck and optional extra deck.
+
+        Args:
+            player: Player object
+            main_deck: List of CardDefinition objects for the main deck (40-60 cards)
+            extra_deck: List of CardDefinition objects for the extra deck (0-15 cards)
+        """
+        from .yugioh_types import STARTING_LP
+        player.lp = STARTING_LP
+        player.life = STARTING_LP  # Keep life synced for game-over checks
+        player.normal_summon_used = False
+
+        # Add main deck cards to library
+        for card_def in main_deck:
+            self.create_object(
+                name=card_def.name,
+                owner_id=player.id,
+                zone=ZoneType.LIBRARY,
+                characteristics=copy.deepcopy(card_def.characteristics),
+                card_def=card_def
+            )
+
+        # Add extra deck cards
+        if extra_deck:
+            for card_def in extra_deck:
+                obj = self.create_object(
+                    name=card_def.name,
+                    owner_id=player.id,
+                    zone=ZoneType.EXTRA_DECK,
+                    characteristics=copy.deepcopy(card_def.characteristics),
+                    card_def=card_def
+                )
 
     def _setup_shared_zones(self):
         """Create battlefield, stack, exile, command zones."""
@@ -289,6 +345,11 @@ class Game:
         # Pokemon shared zones
         elif zone_type in {ZoneType.LOST_ZONE, ZoneType.STADIUM_ZONE}:
             return zone_type.name.lower()
+        # Yu-Gi-Oh! per-player zones
+        elif zone_type in {ZoneType.MONSTER_ZONE, ZoneType.SPELL_TRAP_ZONE,
+                           ZoneType.FIELD_SPELL_ZONE, ZoneType.PENDULUM_ZONE,
+                           ZoneType.EXTRA_DECK, ZoneType.BANISHED}:
+            return f"{zone_type.name.lower()}_{owner_id}"
         return None
 
     def register_interceptor(self, interceptor: Interceptor, source_obj: Optional[GameObject] = None):
@@ -2962,5 +3023,123 @@ def make_basic_energy(
         text=f"Basic {name}",
         domain="PKM",
         pokemon_type=pokemon_type,
+        image_url=image_url,
+    )
+
+
+# =============================================================================
+# Yu-Gi-Oh! Card Builder Helpers
+# =============================================================================
+
+def make_ygo_monster(
+    name: str,
+    atk: int,
+    def_val: int,
+    level: int = 4,
+    attribute: str = "DARK",
+    ygo_monster_type: str = "Normal",
+    subtypes: set = None,
+    text: str = "",
+    is_tuner: bool = False,
+    flip_effect=None,
+    setup_interceptors=None,
+    resolve=None,
+    spell_speed: int = None,
+    materials: str = None,
+    rank: int = None,
+    link_rating: int = None,
+    link_arrows: list = None,
+    pendulum_scale: int = None,
+    image_url: str = None,
+) -> 'CardDefinition':
+    """Helper to create Yu-Gi-Oh! Monster card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    return CardDefinition(
+        name=name,
+        mana_cost=None,
+        characteristics=Characteristics(
+            types={CardType.YGO_MONSTER},
+            subtypes=subtypes or set(),
+        ),
+        text=text,
+        setup_interceptors=setup_interceptors,
+        resolve=resolve,
+        domain="YGO",
+        level=level,
+        atk=atk,
+        def_val=def_val,
+        attribute=attribute,
+        ygo_monster_type=ygo_monster_type,
+        is_tuner=is_tuner,
+        flip_effect=flip_effect,
+        spell_speed=spell_speed,
+        materials=materials,
+        rank=rank,
+        link_rating=link_rating,
+        link_arrows=link_arrows or [],
+        pendulum_scale=pendulum_scale,
+        image_url=image_url,
+    )
+
+
+def make_ygo_spell(
+    name: str,
+    ygo_spell_type: str = "Normal",
+    text: str = "",
+    spell_speed: int = 1,
+    setup_interceptors=None,
+    resolve=None,
+    image_url: str = None,
+) -> 'CardDefinition':
+    """Helper to create Yu-Gi-Oh! Spell card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    if ygo_spell_type == "Quick-Play":
+        spell_speed = 2
+
+    return CardDefinition(
+        name=name,
+        mana_cost=None,
+        characteristics=Characteristics(
+            types={CardType.YGO_SPELL},
+        ),
+        text=text,
+        setup_interceptors=setup_interceptors,
+        resolve=resolve,
+        domain="YGO",
+        ygo_spell_type=ygo_spell_type,
+        spell_speed=spell_speed,
+        image_url=image_url,
+    )
+
+
+def make_ygo_trap(
+    name: str,
+    ygo_trap_type: str = "Normal",
+    text: str = "",
+    spell_speed: int = 2,
+    setup_interceptors=None,
+    resolve=None,
+    image_url: str = None,
+) -> 'CardDefinition':
+    """Helper to create Yu-Gi-Oh! Trap card definitions."""
+    from .types import CardDefinition, Characteristics
+
+    if ygo_trap_type == "Counter":
+        spell_speed = 3
+
+    return CardDefinition(
+        name=name,
+        mana_cost=None,
+        characteristics=Characteristics(
+            types={CardType.YGO_TRAP},
+        ),
+        text=text,
+        setup_interceptors=setup_interceptors,
+        resolve=resolve,
+        domain="YGO",
+        ygo_trap_type=ygo_trap_type,
+        spell_speed=spell_speed,
         image_url=image_url,
     )
