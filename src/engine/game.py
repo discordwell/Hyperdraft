@@ -1253,10 +1253,12 @@ class Game:
         """Mark a player as AI-controlled."""
         self.priority_system.set_ai_player(player_id)
 
-        # Also register with Hearthstone/Pokemon turn manager
+        # Also register with mode-specific turn managers
         if self.state.game_mode in ("hearthstone", "pokemon"):
             if hasattr(self.turn_manager, 'set_ai_player'):
                 self.turn_manager.set_ai_player(player_id)
+        elif self.state.game_mode == "yugioh":
+            self.turn_manager.ai_players.add(player_id)
 
     def set_human_action_handler(
         self,

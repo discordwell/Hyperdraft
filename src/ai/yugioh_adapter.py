@@ -333,6 +333,7 @@ class YugiohAIAdapter:
 
     def should_enter_battle(self, player_id: str, state: GameState) -> bool:
         """Decide whether to enter the Battle Phase."""
+        self._actions_taken = 0  # Reset for battle phase
         monsters = self._get_monsters(player_id, state)
         if not monsters:
             return False
@@ -369,6 +370,8 @@ class YugiohAIAdapter:
                 continue
 
             target = self._pick_attack_target(obj, opp_monsters, opp_id, state)
+            if target == "__SKIP__":
+                continue  # Can't safely attack with this monster
             return {
                 'action_type': 'declare_attack',
                 'attacker_id': obj.id,
@@ -406,10 +409,11 @@ class YugiohAIAdapter:
                     beatable.append((m, 0, m_def))
 
         if not beatable:
-            # No safe target. Easy AI attacks anyway, others don't.
+            # No safe target and opponent has monsters — can't direct attack
             if self.difficulty == "easy" and opp_monsters:
                 return opp_monsters[0].id
-            return None  # Skip attack (target=None means direct, so return empty dict handled above)
+            # Return sentinel to indicate "skip this attacker" (not None, which means direct)
+            return "__SKIP__"
 
         if self.difficulty in ("hard", "ultra"):
             # Prioritize: kill ATK monsters that deal the most damage

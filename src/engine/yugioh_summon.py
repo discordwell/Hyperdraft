@@ -502,14 +502,16 @@ class YugiohSummonManager:
 
     def _remove_from_zone(self, card_id: str):
         """Remove a card from its current zone."""
-        for zone in self.state.zones.values():
+        for zone_key, zone in self.state.zones.items():
             if card_id in zone.objects:
-                for i, oid in enumerate(zone.objects):
-                    if oid == card_id:
-                        zone.objects[i] = None
-                        break
-                while card_id in zone.objects:
-                    zone.objects.remove(card_id)
+                if 'monster_zone_' in zone_key or 'spell_trap_zone_' in zone_key:
+                    for i, oid in enumerate(zone.objects):
+                        if oid == card_id:
+                            zone.objects[i] = None
+                            break
+                else:
+                    while card_id in zone.objects:
+                        zone.objects.remove(card_id)
                 break
 
     def _summon_from_extra_deck(self, card_id: str, player_id: str,
