@@ -1381,6 +1381,16 @@ class GameSession:
             card_obj = self.game.state.objects.get(request.card_id) if request.card_id else None
             card_name = card_obj.name if card_obj else "a card"
             self._add_ygo_log(f"{player_name} activated {card_name}!", "activate", request.player_id)
+        elif action == 'YGO_SET_SPELL_TRAP':
+            self._add_ygo_log(f"{player_name} set a card.", "set", request.player_id)
+        elif action == 'YGO_CHANGE_POSITION':
+            card_obj = self.game.state.objects.get(request.card_id) if request.card_id else None
+            card_name = card_obj.name if card_obj else "a monster"
+            self._add_ygo_log(f"{player_name} changed {card_name}'s position.", "position", request.player_id)
+        elif action == 'YGO_SPECIAL_SUMMON':
+            card_obj = self.game.state.objects.get(request.card_id) if request.card_id else None
+            card_name = card_obj.name if card_obj else "a monster"
+            self._add_ygo_log(f"{player_name} Special Summoned {card_name}!", "summon", request.player_id)
         elif action in ('YGO_DECLARE_ATTACK', 'YGO_DIRECT_ATTACK'):
             attacker_id = request.source_id or request.card_id
             attacker_obj = self.game.state.objects.get(attacker_id) if attacker_id else None
@@ -1401,16 +1411,22 @@ class GameSession:
 
         yts = turn_mgr.ygo_turn_state
 
+        # Common card ownership/zone check for card-based actions
+        if request.card_id and request.action_type not in ('YGO_END_TURN', 'YGO_END_PHASE'):
+            obj = self.game.state.objects.get(request.card_id)
+            if not obj:
+                return "Card not found."
+            if request.action_type in ('YGO_NORMAL_SUMMON', 'YGO_SET_MONSTER', 'YGO_ACTIVATE', 'YGO_SET_SPELL_TRAP'):
+                if obj.zone != ZoneType.HAND or obj.controller != request.player_id:
+                    return "That card is not in your hand."
+
         if request.action_type in ('YGO_NORMAL_SUMMON', 'YGO_SET_MONSTER'):
             if yts.normal_summon_used:
                 return "You already used your Normal Summon this turn."
             if request.card_id:
                 obj = self.game.state.objects.get(request.card_id)
-                if not obj:
-                    return "Card not found."
-                card_def = obj.card_def
-                if card_def:
-                    level = getattr(card_def, 'level', 0) or 0
+                if obj and obj.card_def:
+                    level = getattr(obj.card_def, 'level', 0) or 0
                     tributes_needed = 0
                     if level >= 5:
                         tributes_needed = 1
@@ -1418,7 +1434,6 @@ class GameSession:
                         tributes_needed = 2
                     if tributes_needed > 0:
                         return f"Level {level} monsters require {tributes_needed} tribute(s). Tribute Summon not yet supported in UI."
-            # Check monster zone full
             slot = turn_mgr._find_empty_monster_slot(request.player_id)
             if slot is None:
                 return "Monster Zone is full."
@@ -1431,8 +1446,17 @@ class GameSession:
         elif request.action_type == 'YGO_FLIP_SUMMON':
             if request.card_id:
                 obj = self.game.state.objects.get(request.card_id)
-                if obj and getattr(obj.state, 'turns_set', 0) < 1:
-                    return "Cannot Flip Summon a monster the same turn it was Set."
+                if obj:
+                    if getattr(obj.state, 'ygo_position', None) != 'face_down_def':
+                        return "That monster is not face-down in Defense Position."
+                    if getattr(obj.state, 'turns_set', 0) < 1:
+                        return "Cannot Flip Summon a monster the same turn it was Set."
+
+        elif request.action_type == 'YGO_CHANGE_POSITION':
+            if request.card_id:
+                obj = self.game.state.objects.get(request.card_id)
+                if obj and yts.position_changes.get(request.card_id):
+                    return "That monster already changed position this turn."
 
         return None
 
