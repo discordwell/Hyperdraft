@@ -27,7 +27,20 @@ export type ActionType =
   | 'PKM_RETREAT'
   | 'PKM_EVOLVE'
   | 'PKM_USE_ABILITY'
-  | 'PKM_END_TURN';
+  | 'PKM_END_TURN'
+  | 'YGO_NORMAL_SUMMON'
+  | 'YGO_SET_MONSTER'
+  | 'YGO_FLIP_SUMMON'
+  | 'YGO_CHANGE_POSITION'
+  | 'YGO_ACTIVATE'
+  | 'YGO_SET_SPELL_TRAP'
+  | 'YGO_DECLARE_ATTACK'
+  | 'YGO_DIRECT_ATTACK'
+  | 'YGO_CHAIN_RESPONSE'
+  | 'YGO_CHAIN_PASS'
+  | 'YGO_END_TURN'
+  | 'YGO_SPECIAL_SUMMON'
+  | 'YGO_END_PHASE';
 
 export type Phase =
   | 'BEGINNING'
@@ -91,6 +104,20 @@ export interface CardData {
   is_ex?: boolean;
   prize_count?: number;
   image_url?: string;
+  // Yu-Gi-Oh! state
+  level?: number;
+  rank?: number;
+  link_rating?: number;
+  atk?: number;
+  def_val?: number;
+  attribute?: string;
+  ygo_monster_type?: string;
+  ygo_spell_type?: string;
+  ygo_trap_type?: string;
+  ygo_position?: string;
+  face_down?: boolean;
+  overlay_units?: number;
+  is_tuner?: boolean;
 }
 
 // Stack Item
@@ -140,6 +167,9 @@ export interface PlayerData {
   prizes_remaining?: number;
   energy_attached_this_turn?: boolean;
   supporter_played_this_turn?: boolean;
+  // Yu-Gi-Oh! fields
+  lp?: number;
+  normal_summon_used?: boolean;
 }
 
 // Combat Data
@@ -184,6 +214,15 @@ export interface PendingChoice {
   max_choices: number;
 }
 
+// Game Log Entry
+export interface GameLogEntry {
+  turn: number;
+  text: string;
+  event_type: string;
+  player?: string;
+  timestamp?: number;
+}
+
 // Full Game State
 export interface GameState {
   match_id: string;
@@ -202,19 +241,29 @@ export interface GameState {
   is_game_over: boolean;
   winner: string | null;
   pending_choice?: PendingChoice | null;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh';
   variant?: string | null;
   max_hand_size?: number;
   // Pokemon zones
   active_pokemon?: Record<string, CardData | null>;
   bench?: Record<string, CardData[]>;
   stadium_card?: CardData | null;
+  // Yu-Gi-Oh! zones
+  monster_zones?: Record<string, (CardData | null)[]>;
+  spell_trap_zones?: Record<string, (CardData | null)[]>;
+  field_spells?: Record<string, CardData | null>;
+  banished?: Record<string, CardData[]>;
+  extra_deck_sizes?: Record<string, number>;
+  ygo_phase?: string;
+  chain_links?: unknown[];
+  // Game log
+  game_log?: GameLogEntry[];
 }
 
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh';
   variant?: string;
   player_deck?: string[];
   player_deck_id?: string;
@@ -253,7 +302,7 @@ export interface ActionResultResponse {
 
 // Bot Game Types
 export interface StartBotGameRequest {
-  mode?: 'mtg' | 'hearthstone' | 'pokemon';
+  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh';
   bot1_deck: string[];
   bot2_deck: string[];
   bot1_deck_id?: string;

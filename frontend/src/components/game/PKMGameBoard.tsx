@@ -13,9 +13,19 @@
  * - Action bar
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { PKMCard } from './PKMCard';
-import type { CardData, PlayerData } from '../../types';
+import PKMCardDetailPanel from './PKMCardDetailPanel';
+import PKMTurnBanner from './PKMTurnBanner';
+import { PKMPrizeCards } from './PKMPrizeCards';
+import { PKMActionBar } from './PKMActionBar';
+import { PKMSetupOverlay } from './PKMSetupOverlay';
+import { PKMChoiceModal } from './PKMChoiceModal';
+import { PKMDiscardModal } from './PKMDiscardModal';
+import { typeToGlowColor } from '../../utils/pkmAnimations';
+import { handCard, benchSlide, cardEnter } from '../../utils/pkmAnimations';
+import type { CardData, PlayerData, PendingChoice } from '../../types';
 
 interface PKMGameBoardProps {
   gameState: any;
@@ -29,6 +39,8 @@ interface PKMGameBoardProps {
   opponentBench: CardData[];
   stadiumCard: CardData | null;
   hand: CardData[];
+  myGraveyard: CardData[];
+  opponentGraveyard: CardData[];
   canPlayCard: (card: CardData) => boolean;
   canAttachEnergy: (card: CardData) => boolean;
   onPlayCard: (cardId: string) => void;
@@ -38,6 +50,9 @@ interface PKMGameBoardProps {
   onEvolve: (evolutionCardId: string, targetPokemonId: string) => void;
   onUseAbility: (pokemonId: string) => void;
   onEndTurn: () => void;
+  onSubmitChoice?: (choiceId: string, selected: string[]) => void;
+  showDiscardModal?: boolean;
+  onToggleDiscardModal?: (show: boolean) => void;
 }
 
 type InteractionMode =
@@ -60,6 +75,8 @@ export function PKMGameBoard({
   opponentBench,
   stadiumCard,
   hand,
+  myGraveyard,
+  opponentGraveyard,
   canPlayCard,
   canAttachEnergy,
   onPlayCard,
@@ -69,15 +86,40 @@ export function PKMGameBoard({
   onEvolve,
   onUseAbility,
   onEndTurn,
+  onSubmitChoice,
+  showDiscardModal = false,
+  onToggleDiscardModal,
 }: PKMGameBoardProps) {
   const [mode, setMode] = useState<InteractionMode>('none');
   const [selectedHandCardId, setSelectedHandCardId] = useState<string | null>(null);
+  const [hoveredCard, setHoveredCard] = useState<CardData | null>(null);
+  const [isBeingAttacked, setIsBeingAttacked] = useState(false);
+
+  // Turn banner state
+  const [showTurnBanner, setShowTurnBanner] = useState(false);
+  const prevTurnRef = useRef(isMyTurn);
+
+  useEffect(() => {
+    if (prevTurnRef.current !== isMyTurn) {
+      setShowTurnBanner(true);
+      prevTurnRef.current = isMyTurn;
+    }
+  }, [isMyTurn]);
 
   // Cancel current interaction
   const handleCancel = useCallback(() => {
     setMode('none');
     setSelectedHandCardId(null);
   }, []);
+
+  // Escape key cancels current mode
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && mode !== 'none') handleCancel();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [mode, handleCancel]);
 
   // Handle clicking a card in hand
   const handleHandCardClick = useCallback((card: CardData) => {
@@ -89,7 +131,6 @@ export function PKMGameBoard({
     if (types.includes('ENERGY') && canAttachEnergy(card)) {
       setMode('select_energy_target');
       setSelectedHandCardId(card.id);
-      // card selected via setSelectedHandCardId above
       return;
     }
 
@@ -97,7 +138,6 @@ export function PKMGameBoard({
     if (types.includes('POKEMON') && (card.evolution_stage === 'Stage 1' || card.evolution_stage === 'Stage 2')) {
       setMode('select_evolution_target');
       setSelectedHandCardId(card.id);
-      // card selected via setSelectedHandCardId above
       return;
     }
 
@@ -131,8 +171,10 @@ export function PKMGameBoard({
     }
   }, [isMyTurn, mode, selectedHandCardId, onAttachEnergy, onEvolve, onRetreat, handleCancel]);
 
-  // Handle attack selection
+  // Handle attack - trigger shake animation on opponent
   const handleAttackClick = useCallback((attackIndex: number) => {
+    setIsBeingAttacked(true);
+    setTimeout(() => setIsBeingAttacked(false), 600);
     onAttack(attackIndex);
     handleCancel();
   }, [onAttack, handleCancel]);
@@ -152,16 +194,48 @@ export function PKMGameBoard({
     onUseAbility(pokemonId);
   }, [onUseAbility]);
 
+  // Handle card hover
+  const handleCardHover = useCallback((card: CardData | null) => {
+    setHoveredCard(card);
+  }, []);
+
   if (!myPlayer || !opponentPlayer) return null;
 
   const myPrizes = myPlayer.prizes_remaining ?? 0;
   const oppPrizes = opponentPlayer.prizes_remaining ?? 0;
 
+  // Check for pending choices (setup phase or trainer targeting)
+  const pendingChoice = gameState.pending_choice as PendingChoice | null;
+  const isSetupChoice = pendingChoice && (
+    pendingChoice.choice_type === 'pkm_select_active' ||
+    pendingChoice.choice_type === 'pkm_select_bench'
+  );
+  const isTargetChoice = pendingChoice && !isSetupChoice && pendingChoice.player === playerId;
+
+  // Active Pokemon glow style
+  const activeGlowStyle = myActivePokemon?.pokemon_type ? {
+    '--pkm-glow-color': typeToGlowColor(myActivePokemon.pokemon_type),
+  } as React.CSSProperties : {};
+
+  // Hand fan calculations
+  const handCount = hand.length;
+  const maxRotation = Math.min(handCount * 2, 15);
+
   return (
     <div
-      className="h-full flex flex-col bg-gradient-to-b from-emerald-950 via-green-900 to-emerald-950 select-none"
+      className="h-full flex flex-col bg-gradient-to-b from-emerald-950 via-green-900 to-emerald-950 select-none relative"
       onClick={mode !== 'none' ? handleCancel : undefined}
     >
+      {/* Turn Banner */}
+      <PKMTurnBanner
+        isMyTurn={isMyTurn}
+        visible={showTurnBanner}
+        onDismiss={() => setShowTurnBanner(false)}
+      />
+
+      {/* Card Detail Panel */}
+      <PKMCardDetailPanel card={hoveredCard} />
+
       {/* Opponent info bar */}
       <div className="flex items-center justify-between px-4 py-1.5 bg-black/30">
         <div className="flex items-center gap-3">
@@ -169,17 +243,7 @@ export function PKMGameBoard({
           <span className="text-gray-500 text-xs">Deck: {opponentPlayer.library_size}</span>
           <span className="text-gray-500 text-xs">Hand: {opponentPlayer.hand_size}</span>
         </div>
-        <div className="flex items-center gap-1">
-          <span className="text-yellow-400 text-xs font-bold">Prizes: </span>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              className={`w-3 h-4 rounded-sm ${
-                i < oppPrizes ? 'bg-yellow-500 border border-yellow-300' : 'bg-gray-700 border border-gray-600'
-              }`}
-            />
-          ))}
-        </div>
+        <PKMPrizeCards total={6} remaining={oppPrizes} isOpponent compact />
       </div>
 
       {/* Opponent hand (face-down) */}
@@ -191,34 +255,48 @@ export function PKMGameBoard({
 
       {/* Opponent bench */}
       <div className="flex items-center justify-center gap-2 px-4 py-1 min-h-[48px]">
-        {opponentBench.length === 0 ? (
-          <div className="text-green-800 text-xs">Empty bench</div>
-        ) : (
-          opponentBench.map(card => (
-            <PKMCard key={card.id} card={card} compact isOpponent />
-          ))
-        )}
+        <AnimatePresence mode="popLayout">
+          {opponentBench.length === 0 ? (
+            <div className="text-green-800 text-xs">Empty bench</div>
+          ) : (
+            opponentBench.map(card => (
+              <motion.div key={card.id} variants={benchSlide} initial="initial" animate="animate" exit="exit">
+                <PKMCard card={card} compact isOpponent onHover={handleCardHover} />
+              </motion.div>
+            ))
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Opponent active spot */}
       <div className="flex items-center justify-center py-2 min-h-[160px]">
-        {opponentActivePokemon ? (
-          <PKMCard
-            card={opponentActivePokemon}
-            isActive
-            isOpponent
-          />
-        ) : (
-          <div className="w-32 h-44 rounded-lg border-2 border-dashed border-green-700 flex items-center justify-center">
-            <span className="text-green-700 text-xs">No Active</span>
-          </div>
-        )}
+        <AnimatePresence mode="wait">
+          {opponentActivePokemon ? (
+            <motion.div key={opponentActivePokemon.id} variants={cardEnter} initial="initial" animate="animate" exit="exit">
+              <PKMCard
+                card={opponentActivePokemon}
+                isActive
+                isOpponent
+                isBeingAttacked={isBeingAttacked}
+                onHover={handleCardHover}
+              />
+            </motion.div>
+          ) : (
+            <div className="w-32 h-44 rounded-lg border-2 border-dashed border-green-700 flex items-center justify-center">
+              <span className="text-green-700 text-xs">No Active</span>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Stadium + center divider */}
       <div className="flex items-center justify-center gap-4 px-4 py-2 border-y border-green-800 bg-green-900/50">
         {stadiumCard ? (
-          <div className="flex items-center gap-2">
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onMouseEnter={() => handleCardHover(stadiumCard)}
+            onMouseLeave={() => handleCardHover(null)}
+          >
             <span className="text-[10px] text-gray-400 uppercase">Stadium</span>
             <div className="bg-gray-700 rounded px-2 py-1 text-white text-[10px] font-bold">
               {stadiumCard.name}
@@ -237,142 +315,173 @@ export function PKMGameBoard({
 
       {/* Player active spot */}
       <div className="flex items-center justify-center py-2 min-h-[160px]">
-        {myActivePokemon ? (
-          <div className="flex items-center gap-4" onClick={(e) => e.stopPropagation()}>
-            <PKMCard
-              card={myActivePokemon}
-              isActive
-              isSelected={mode === 'select_energy_target' || mode === 'select_evolution_target'}
-              isValidTarget={mode === 'select_energy_target' || mode === 'select_evolution_target'}
-              onClick={() => handleFieldPokemonClick(myActivePokemon.id, true)}
-            />
-
-            {/* Attack buttons */}
-            {isMyTurn && myActivePokemon.attacks && mode === 'none' && (
-              <div className="flex flex-col gap-1">
-                {myActivePokemon.attacks.map((atk: any, i: number) => (
-                  <button
-                    key={i}
-                    onClick={() => handleAttackClick(i)}
-                    className="px-3 py-1.5 bg-red-700 text-white text-xs font-bold rounded hover:bg-red-600 transition-all whitespace-nowrap"
-                  >
-                    {atk.name} {atk.damage > 0 ? `(${atk.damage})` : ''}
-                  </button>
-                ))}
-                {myActivePokemon.ability_name && (
-                  <button
-                    onClick={() => handleAbilityClick(myActivePokemon.id)}
-                    className="px-3 py-1.5 bg-purple-700 text-white text-xs font-bold rounded hover:bg-purple-600 transition-all whitespace-nowrap"
-                  >
-                    {myActivePokemon.ability_name}
-                  </button>
-                )}
+        <AnimatePresence mode="wait">
+          {myActivePokemon ? (
+            <motion.div
+              key={myActivePokemon.id}
+              variants={cardEnter}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex items-center gap-4"
+              onClick={(e) => e.stopPropagation()}
+              style={activeGlowStyle}
+            >
+              <div className={isMyTurn ? 'animate-pkm-glow rounded-lg' : ''}>
+                <PKMCard
+                  card={myActivePokemon}
+                  isActive
+                  isSelected={mode === 'select_energy_target' || mode === 'select_evolution_target'}
+                  isValidTarget={mode === 'select_energy_target' || mode === 'select_evolution_target'}
+                  onClick={() => handleFieldPokemonClick(myActivePokemon.id, true)}
+                  onHover={handleCardHover}
+                />
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="w-32 h-44 rounded-lg border-2 border-dashed border-green-700 flex items-center justify-center">
-            <span className="text-green-700 text-xs">No Active</span>
-          </div>
-        )}
+            </motion.div>
+          ) : (
+            <div className="w-32 h-44 rounded-lg border-2 border-dashed border-green-700 flex items-center justify-center">
+              <span className="text-green-700 text-xs">No Active</span>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Player bench */}
       <div className="flex items-center justify-center gap-2 px-4 py-1 min-h-[48px]" onClick={(e) => e.stopPropagation()}>
-        {myBench.length === 0 ? (
-          <div className="text-green-800 text-xs">Empty bench</div>
-        ) : (
-          myBench.map(card => (
-            <PKMCard
-              key={card.id}
-              card={card}
-              compact
-              isValidTarget={mode === 'select_energy_target' || mode === 'select_evolution_target' || mode === 'select_retreat_target'}
-              onClick={() => handleFieldPokemonClick(card.id, true)}
-            />
-          ))
-        )}
+        <AnimatePresence mode="popLayout">
+          {myBench.length === 0 ? (
+            <div className="text-green-800 text-xs">Empty bench</div>
+          ) : (
+            myBench.map(card => (
+              <motion.div key={card.id} variants={benchSlide} initial="initial" animate="animate" exit="exit">
+                <PKMCard
+                  card={card}
+                  compact
+                  isValidTarget={mode === 'select_energy_target' || mode === 'select_evolution_target' || mode === 'select_retreat_target'}
+                  onClick={() => handleFieldPokemonClick(card.id, true)}
+                  onHover={handleCardHover}
+                />
+              </motion.div>
+            ))
+          )}
+        </AnimatePresence>
         {/* Bench slots */}
         {myBench.length < 5 && Array.from({ length: 5 - myBench.length }).map((_, i) => (
-          <div key={`empty-${i}`} className="w-20 h-12 rounded border border-dashed border-green-800 opacity-30" />
+          <div key={`empty-${i}`} className="w-20 h-28 rounded border border-dashed border-green-800 opacity-30" />
         ))}
       </div>
 
       {/* Player info bar */}
-      <div className="flex items-center justify-between px-4 py-1.5 bg-black/30">
+      <div className={`flex items-center justify-between px-4 py-1.5 bg-black/30 ${isMyTurn ? 'border-l-2 border-yellow-500' : ''}`}>
         <div className="flex items-center gap-3">
           <span className="text-white text-sm font-bold">{myPlayer.name}</span>
           <span className="text-gray-400 text-xs">Deck: {myPlayer.library_size}</span>
         </div>
-        <div className="flex items-center gap-1">
-          <span className="text-yellow-400 text-xs font-bold">Prizes: </span>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              className={`w-3 h-4 rounded-sm ${
-                i < myPrizes ? 'bg-yellow-500 border border-yellow-300' : 'bg-gray-700 border border-gray-600'
-              }`}
-            />
-          ))}
-        </div>
+        <PKMPrizeCards total={6} remaining={myPrizes} />
       </div>
 
-      {/* Player hand */}
-      <div className="flex justify-center gap-2 px-4 py-2 overflow-x-auto" onClick={(e) => e.stopPropagation()}>
-        {hand.map(card => (
-          <PKMCard
-            key={card.id}
-            card={card}
-            isSelected={selectedHandCardId === card.id}
-            onClick={() => handleHandCardClick(card)}
-          />
-        ))}
+      {/* Player hand with fan layout */}
+      <div className="flex justify-center px-4 py-2 overflow-x-auto" onClick={(e) => e.stopPropagation()}>
+        <AnimatePresence mode="popLayout">
+          {hand.map((card, i) => {
+            // Fan rotation and offset
+            const centerIndex = (handCount - 1) / 2;
+            const offset = i - centerIndex;
+            const rotation = handCount > 1 ? (offset / centerIndex) * maxRotation : 0;
+            const yOffset = Math.abs(offset) * 4;
+
+            return (
+              <motion.div
+                key={card.id}
+                variants={handCard}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                whileHover={{ y: -16, scale: 1.08, zIndex: 20, rotate: 0 }}
+                style={{
+                  transform: `rotate(${rotation}deg) translateY(${yOffset}px)`,
+                  marginLeft: i > 0 ? '-6px' : '0',
+                  zIndex: i,
+                }}
+                className="transition-transform"
+              >
+                <PKMCard
+                  card={card}
+                  isSelected={selectedHandCardId === card.id}
+                  onClick={() => handleHandCardClick(card)}
+                  onHover={handleCardHover}
+                />
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
         {hand.length === 0 && (
           <div className="text-green-800 text-sm py-4">No cards in hand</div>
         )}
       </div>
 
       {/* Action bar */}
-      <div className="flex items-center justify-center gap-3 px-4 py-2 bg-black/40 border-t border-green-800">
-        <button
-          onClick={handleRetreatClick}
-          disabled={!isMyTurn || myBench.length === 0}
-          className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
-            isMyTurn && myBench.length > 0
-              ? 'bg-blue-700 text-white hover:bg-blue-600'
-              : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-          }`}
-        >
-          Retreat
-        </button>
+      <PKMActionBar
+        isMyTurn={isMyTurn}
+        activePokemon={myActivePokemon}
+        benchCount={myBench.length}
+        mode={mode}
+        onAttack={handleAttackClick}
+        onRetreat={handleRetreatClick}
+        onAbility={handleAbilityClick}
+        onEndTurn={onEndTurn}
+        onCancel={handleCancel}
+      />
 
-        <button
-          onClick={(e) => { e.stopPropagation(); onEndTurn(); }}
-          disabled={!isMyTurn}
-          className={`px-6 py-2 rounded-lg font-bold text-sm transition-all ${
-            isMyTurn
-              ? 'bg-yellow-600 text-white hover:bg-yellow-500 shadow-lg'
-              : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-          }`}
-        >
-          End Turn
-        </button>
-      </div>
-
-      {/* Interaction mode indicator */}
-      {mode !== 'none' && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-blue-900/90 text-blue-200 px-4 py-2 rounded-lg text-sm font-bold shadow-lg z-50">
-          {mode === 'select_energy_target' && 'Select a Pokemon to attach energy (click empty to cancel)'}
-          {mode === 'select_attack' && 'Select an attack'}
-          {mode === 'select_retreat_target' && 'Select a bench Pokemon to swap in (click empty to cancel)'}
-          {mode === 'select_evolution_target' && 'Select a Pokemon to evolve (click empty to cancel)'}
-        </div>
+      {/* Setup phase overlay */}
+      {isSetupChoice && pendingChoice && onSubmitChoice && (
+        <PKMSetupOverlay
+          choice={pendingChoice}
+          hand={hand}
+          onSubmit={onSubmitChoice}
+        />
       )}
+
+      {/* Trainer targeting / choice modal */}
+      {isTargetChoice && pendingChoice && onSubmitChoice && (
+        <PKMChoiceModal
+          choice={pendingChoice}
+          cards={[
+            ...(myActivePokemon ? [myActivePokemon] : []),
+            ...myBench,
+            ...(opponentActivePokemon ? [opponentActivePokemon] : []),
+            ...opponentBench,
+            ...hand,
+          ]}
+          onSubmit={onSubmitChoice}
+          onCardHover={handleCardHover}
+        />
+      )}
+
+      {/* Discard pile modal */}
+      <PKMDiscardModal
+        isOpen={showDiscardModal}
+        onClose={() => onToggleDiscardModal?.(false)}
+        myGraveyard={myGraveyard}
+        opponentGraveyard={opponentGraveyard}
+        myName={myPlayer.name}
+        opponentName={opponentPlayer.name}
+        onCardHover={handleCardHover}
+      />
 
       {/* Game Over overlay */}
       {gameState.is_game_over && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-gray-800 border border-gray-600 rounded-xl p-8 text-center">
+        <motion.div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+        >
+          <motion.div
+            className="bg-gray-800 border border-gray-600 rounded-xl p-8 text-center"
+            initial={{ scale: 0.7, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+          >
             <h2 className="text-3xl font-bold mb-4 text-white">
               {gameState.winner === playerId ? 'Victory!' : 'Defeat'}
             </h2>
@@ -381,8 +490,8 @@ export function PKMGameBoard({
                 ? 'You collected all your prize cards!'
                 : 'Your opponent wins!'}
             </p>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
     </div>
   );
