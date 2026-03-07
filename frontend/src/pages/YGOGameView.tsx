@@ -179,7 +179,7 @@ export function YGOGameView() {
               initial={{ opacity: 0, y: 40 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 40 }}
-              className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-red-900/90 border border-red-500/50 rounded-lg px-4 py-2 text-red-200 text-sm shadow-lg z-50 max-w-md cursor-pointer"
+              className="fixed bottom-52 left-1/2 -translate-x-1/2 bg-red-900/90 border border-red-500/50 rounded-lg px-4 py-2 text-red-200 text-sm shadow-lg z-50 max-w-md cursor-pointer"
               onClick={() => setErrorVisible(false)}
             >
               {error}
