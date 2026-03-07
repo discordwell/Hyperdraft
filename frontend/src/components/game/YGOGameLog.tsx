@@ -18,7 +18,8 @@ function entryClasses(entry: GameLogEntry): string {
 
   if (t.includes('summon') || text.includes('summon')) return 'text-ygo-gold-bright font-semibold';
   if (t.includes('attack') || t.includes('damage') || t.includes('destroy')) return 'text-red-400';
-  if (t.includes('spell') || text.includes('activate')) return 'text-teal-400';
+  if (t.includes('activate') || t.includes('spell') || text.includes('activate')) return 'text-teal-400';
+  if (t.includes('position')) return 'text-gray-400';
   if (t.includes('trap')) return 'text-pink-400';
   if (t.includes('lp') || t.includes('life')) return 'text-yellow-400';
   if (t.includes('chain')) return 'text-purple-400';

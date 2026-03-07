@@ -303,9 +303,10 @@ class GameSession:
             ai_adapter = YugiohAIAdapter(difficulty=difficulty)
             self.game.turn_manager.set_ai_handler(ai_adapter)
 
-            # Wire human action handler for YGO mode with human players
+            # Wire human action handler and log callback for YGO mode
             if self.human_players:
                 self.game.turn_manager.human_action_handler = self._get_ygo_human_action
+            self.game.turn_manager.action_log_callback = self._add_ygo_log
 
             # Setup game (shuffle, draw 5, coin flip)
             import asyncio
@@ -1252,6 +1253,11 @@ class GameSession:
         if request.player_id != active_player:
             return False, "Not your turn"
 
+        # Pre-validate common failure cases so we can return clear errors
+        error = self._validate_ygo_action(request)
+        if error:
+            return False, error
+
         target_id = request.targets[0][0] if request.targets and request.targets[0] else None
 
         # Build YGO action dict matching yugioh_turn.py expectations
@@ -1386,6 +1392,49 @@ class GameSession:
                 target_obj = self.game.state.objects.get(target_id) if target_id else None
                 target_name = target_obj.name if target_obj else "a monster"
                 self._add_ygo_log(f"{attacker_name} attacks {target_name}!", "attack", request.player_id)
+
+    def _validate_ygo_action(self, request: PlayerActionRequest) -> Optional[str]:
+        """Pre-validate a YGO action. Returns error string or None if valid."""
+        turn_mgr = self.game.turn_manager
+        if not hasattr(turn_mgr, 'ygo_turn_state'):
+            return None
+
+        yts = turn_mgr.ygo_turn_state
+
+        if request.action_type in ('YGO_NORMAL_SUMMON', 'YGO_SET_MONSTER'):
+            if yts.normal_summon_used:
+                return "You already used your Normal Summon this turn."
+            if request.card_id:
+                obj = self.game.state.objects.get(request.card_id)
+                if not obj:
+                    return "Card not found."
+                card_def = obj.card_def
+                if card_def:
+                    level = getattr(card_def, 'level', 0) or 0
+                    tributes_needed = 0
+                    if level >= 5:
+                        tributes_needed = 1
+                    if level >= 7:
+                        tributes_needed = 2
+                    if tributes_needed > 0:
+                        return f"Level {level} monsters require {tributes_needed} tribute(s). Tribute Summon not yet supported in UI."
+            # Check monster zone full
+            slot = turn_mgr._find_empty_monster_slot(request.player_id)
+            if slot is None:
+                return "Monster Zone is full."
+
+        elif request.action_type == 'YGO_SET_SPELL_TRAP':
+            slot = turn_mgr._find_empty_spell_trap_slot(request.player_id)
+            if slot is None:
+                return "Spell/Trap Zone is full."
+
+        elif request.action_type == 'YGO_FLIP_SUMMON':
+            if request.card_id:
+                obj = self.game.state.objects.get(request.card_id)
+                if obj and getattr(obj.state, 'turns_set', 0) < 1:
+                    return "Cannot Flip Summon a monster the same turn it was Set."
+
+        return None
 
     def _add_ygo_log(self, text: str, event_type: str, player: Optional[str] = None) -> None:
         """Add an entry to the Yu-Gi-Oh! game log."""
