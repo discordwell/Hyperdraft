@@ -12,6 +12,8 @@
  * - Selection/targeting rings
  */
 
+import { motion } from 'framer-motion';
+import { cardEnter, typeToBorderClass } from '../../utils/pkmAnimations';
 import type { CardData } from '../../types';
 
 // Pokemon type colors
@@ -48,8 +50,10 @@ interface PKMCardProps {
   isSelected?: boolean;
   isValidTarget?: boolean;
   isOpponent?: boolean;
+  isBeingAttacked?: boolean;
   compact?: boolean;
   onClick?: () => void;
+  onHover?: (card: CardData | null) => void;
 }
 
 export function PKMCard({
@@ -58,8 +62,10 @@ export function PKMCard({
   isSelected = false,
   isValidTarget = false,
   isOpponent = false,
+  isBeingAttacked = false,
   compact = false,
   onClick,
+  onHover,
 }: PKMCardProps) {
   const isEx = card.is_ex;
   const typeCode = card.pokemon_type || 'C';
@@ -85,8 +91,10 @@ export function PKMCard({
       return (
         <div
           onClick={onClick}
+          onMouseEnter={() => onHover?.(card)}
+          onMouseLeave={() => onHover?.(null)}
           className={`
-            w-16 h-22 rounded-lg border-2 cursor-pointer overflow-hidden
+            w-16 h-[5.5rem] rounded-lg border-2 cursor-pointer overflow-hidden
             transition-all duration-150 border-gray-500
             ${isSelected ? 'ring-2 ring-yellow-400 scale-105' : ''}
             hover:scale-105
@@ -104,8 +112,10 @@ export function PKMCard({
     return (
       <div
         onClick={onClick}
+        onMouseEnter={() => onHover?.(card)}
+        onMouseLeave={() => onHover?.(null)}
         className={`
-          w-16 h-22 rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer
+          w-16 h-[5.5rem] rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer
           transition-all duration-150
           ${typeColor} bg-opacity-80 border-gray-500
           ${isSelected ? 'ring-2 ring-yellow-400 scale-105' : ''}
@@ -128,6 +138,8 @@ export function PKMCard({
       return (
         <div
           onClick={onClick}
+          onMouseEnter={() => onHover?.(card)}
+          onMouseLeave={() => onHover?.(null)}
           className={`
             relative w-20 h-28 rounded-lg border-2 cursor-pointer overflow-hidden
             transition-all duration-150 border-gray-500
@@ -147,6 +159,8 @@ export function PKMCard({
     return (
       <div
         onClick={onClick}
+        onMouseEnter={() => onHover?.(card)}
+        onMouseLeave={() => onHover?.(null)}
         className={`
           w-20 h-28 rounded-lg border-2 flex flex-col cursor-pointer
           transition-all duration-150
@@ -176,6 +190,8 @@ export function PKMCard({
       return (
         <div
           onClick={onClick}
+          onMouseEnter={() => onHover?.(card)}
+          onMouseLeave={() => onHover?.(null)}
           className={`
             relative w-20 h-28 rounded-lg border-2 cursor-pointer overflow-hidden
             transition-all duration-150
@@ -245,6 +261,8 @@ export function PKMCard({
     return (
       <div
         onClick={onClick}
+        onMouseEnter={() => onHover?.(card)}
+        onMouseLeave={() => onHover?.(null)}
         className={`
           w-20 h-12 rounded border-2 flex items-center gap-1 px-1 cursor-pointer
           transition-all duration-150
@@ -270,15 +288,22 @@ export function PKMCard({
   // =========================================================================
   // POKEMON CARD - FULL SIZE (active or hand)
   // =========================================================================
+  const typeBorder = typeToBorderClass(typeCode);
+
   if (imageUrl) {
     return (
-      <div
+      <motion.div
         onClick={onClick}
+        onMouseEnter={() => onHover?.(card)}
+        onMouseLeave={() => onHover?.(null)}
+        variants={cardEnter}
+        initial="initial"
+        animate={isBeingAttacked ? { x: [0, -6, 6, -4, 4, 0], transition: { duration: 0.5 } } : "animate"}
         className={`
           relative rounded-lg border-2 cursor-pointer overflow-hidden
           transition-all duration-150
           ${isActive ? 'w-40 h-56' : 'w-24 h-36'}
-          ${isEx ? 'border-indigo-400' : 'border-gray-600'}
+          ${isEx ? 'border-indigo-400' : typeBorder}
           ${isSelected ? 'ring-2 ring-yellow-400 scale-105 z-10' : ''}
           ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
           ${!isOpponent ? 'hover:scale-105 hover:z-10' : ''}
@@ -351,7 +376,7 @@ export function PKMCard({
             </div>
           </div>
         )}
-      </div>
+      </motion.div>
     );
   }
 
@@ -361,6 +386,8 @@ export function PKMCard({
   return (
     <div
       onClick={onClick}
+      onMouseEnter={() => onHover?.(card)}
+      onMouseLeave={() => onHover?.(null)}
       className={`
         relative rounded-lg border-2 cursor-pointer
         transition-all duration-150
@@ -417,9 +444,11 @@ export function PKMCard({
             <div key={i} className="flex items-center justify-between text-[7px]">
               <div className="flex items-center gap-0.5">
                 {/* Energy cost dots */}
-                {atk.cost && atk.cost.map((c: any, j: number) => (
-                  <div key={j} className={`w-2 h-2 rounded-full ${TYPE_COLORS[c.type] || TYPE_COLORS.C}`} />
-                ))}
+                {atk.cost && atk.cost.flatMap((c: any, j: number) =>
+                  Array.from({ length: c.count || 1 }, (_, k) => (
+                    <div key={`${j}-${k}`} className={`w-2 h-2 rounded-full ${TYPE_COLORS[c.type] || TYPE_COLORS.C}`} />
+                  ))
+                )}
                 <span className="text-gray-300 ml-0.5">{atk.name}</span>
               </div>
               {atk.damage > 0 && (

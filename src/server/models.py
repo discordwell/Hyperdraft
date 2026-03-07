@@ -59,6 +59,20 @@ class ActionType(str, Enum):
     PKM_EVOLVE = "PKM_EVOLVE"
     PKM_USE_ABILITY = "PKM_USE_ABILITY"
     PKM_END_TURN = "PKM_END_TURN"
+    # Yu-Gi-Oh! action types
+    YGO_NORMAL_SUMMON = "YGO_NORMAL_SUMMON"
+    YGO_SET_MONSTER = "YGO_SET_MONSTER"
+    YGO_FLIP_SUMMON = "YGO_FLIP_SUMMON"
+    YGO_CHANGE_POSITION = "YGO_CHANGE_POSITION"
+    YGO_ACTIVATE = "YGO_ACTIVATE"
+    YGO_SET_SPELL_TRAP = "YGO_SET_SPELL_TRAP"
+    YGO_DECLARE_ATTACK = "YGO_DECLARE_ATTACK"
+    YGO_DIRECT_ATTACK = "YGO_DIRECT_ATTACK"
+    YGO_CHAIN_RESPONSE = "YGO_CHAIN_RESPONSE"
+    YGO_CHAIN_PASS = "YGO_CHAIN_PASS"
+    YGO_END_TURN = "YGO_END_TURN"
+    YGO_SPECIAL_SUMMON = "YGO_SPECIAL_SUMMON"
+    YGO_END_PHASE = "YGO_END_PHASE"
 
 
 class ChoiceType(str, Enum):
@@ -81,9 +95,9 @@ class ChoiceType(str, Enum):
 class CreateMatchRequest(BaseModel):
     """Request to create a new match."""
     mode: MatchMode = MatchMode.HUMAN_VS_BOT
-    game_mode: Literal["mtg", "hearthstone", "pokemon"] = Field(
+    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh"] = Field(
         default="mtg",
-        description="Rules engine: 'mtg', 'hearthstone', or 'pokemon'"
+        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', or 'yugioh'"
     )
     variant: Optional[str] = Field(default=None, description="Game variant (e.g. 'stormrift') — installs heroes/decks/modifiers")
     hero_class: Optional[str] = Field(default=None, description="Hero class for variant (e.g. 'Pyromancer', 'Cryomancer')")
@@ -190,6 +204,20 @@ class CardData(BaseModel):
     is_ex: bool = False
     prize_count: int = 1
     image_url: Optional[str] = None
+    # Yu-Gi-Oh! state
+    level: Optional[int] = None
+    rank: Optional[int] = None
+    link_rating: Optional[int] = None
+    atk: Optional[int] = None
+    def_val: Optional[int] = None
+    attribute: Optional[str] = None
+    ygo_monster_type: Optional[str] = None
+    ygo_spell_type: Optional[str] = None
+    ygo_trap_type: Optional[str] = None
+    ygo_position: Optional[str] = None
+    face_down: bool = False
+    overlay_units: int = 0
+    is_tuner: bool = False
 
 
 class StackItemData(BaseModel):
@@ -258,6 +286,9 @@ class PlayerData(BaseModel):
     prizes_remaining: int = 0
     energy_attached_this_turn: bool = False
     supporter_played_this_turn: bool = False
+    # Yu-Gi-Oh! fields
+    lp: int = 0
+    normal_summon_used: bool = False
 
 
 class CombatData(BaseModel):
@@ -265,6 +296,15 @@ class CombatData(BaseModel):
     attackers: list[dict] = Field(default_factory=list)
     blockers: list[dict] = Field(default_factory=list)
     blocked_attackers: list[str] = Field(default_factory=list)
+
+
+class GameLogEntry(BaseModel):
+    """Single game log entry for the event log."""
+    turn: int = 0
+    text: str = ""
+    event_type: str = ""
+    player: Optional[str] = None
+    timestamp: float = 0.0
 
 
 class GameStateResponse(BaseModel):
@@ -286,13 +326,23 @@ class GameStateResponse(BaseModel):
     winner: Optional[str] = None
     pending_choice: Optional[PendingChoiceData] = None  # Choice for this player
     waiting_for_choice: Optional[PendingChoiceWaitingData] = None  # Another player's choice
-    game_mode: str = "mtg"  # "mtg", "hearthstone", or "pokemon"
+    game_mode: str = "mtg"  # "mtg", "hearthstone", "pokemon", or "yugioh"
     variant: Optional[str] = None  # Game variant (e.g. "stormrift")
     max_hand_size: int = 7  # 7 for MTG, 10 for Hearthstone
     # Pokemon zones
     active_pokemon: dict[str, Optional[CardData]] = Field(default_factory=dict)
     bench: dict[str, list[CardData]] = Field(default_factory=dict)
     stadium_card: Optional[CardData] = None
+    # Yu-Gi-Oh! zones
+    monster_zones: dict[str, list[Optional[CardData]]] = Field(default_factory=dict)
+    spell_trap_zones: dict[str, list[Optional[CardData]]] = Field(default_factory=dict)
+    field_spells: dict[str, Optional[CardData]] = Field(default_factory=dict)
+    banished: dict[str, list[CardData]] = Field(default_factory=dict)
+    extra_deck_sizes: dict[str, int] = Field(default_factory=dict)
+    ygo_phase: Optional[str] = None
+    chain_links: list[dict] = Field(default_factory=list)
+    # Game log
+    game_log: list[GameLogEntry] = Field(default_factory=list)
 
 
 class ChoiceResultResponse(BaseModel):

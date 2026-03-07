@@ -8,7 +8,7 @@ import { useCallback, useMemo } from 'react';
 import { useGameStore } from '../stores/gameStore';
 import { useSocket } from './useSocket';
 import { matchAPI } from '../services/api';
-import type { CardData, PlayerData, ActionType } from '../types';
+import type { CardData, PlayerData, ActionType, GameLogEntry } from '../types';
 
 export function usePokemonGame() {
   const store = useGameStore();
@@ -160,6 +160,22 @@ export function usePokemonGame() {
     return gameState?.stadium_card || null;
   }, [gameState]);
 
+  // Graveyard (discard pile) data
+  const myGraveyard = useMemo((): CardData[] => {
+    if (!gameState?.graveyard || !playerId) return [];
+    return gameState.graveyard[playerId] || [];
+  }, [gameState, playerId]);
+
+  const opponentGraveyard = useMemo((): CardData[] => {
+    if (!gameState?.graveyard || !opponentId) return [];
+    return gameState.graveyard[opponentId] || [];
+  }, [gameState, opponentId]);
+
+  // Game log
+  const gameLog = useMemo((): GameLogEntry[] => {
+    return gameState?.game_log || [];
+  }, [gameState]);
+
   // Check if energy can be attached
   const canAttachEnergy = useCallback((card: CardData): boolean => {
     if (!isMyTurn() || !myPlayer) return false;
@@ -215,6 +231,9 @@ export function usePokemonGame() {
     myBench,
     opponentBench,
     stadiumCard,
+    myGraveyard,
+    opponentGraveyard,
+    gameLog,
 
     // Actions
     playCard,
