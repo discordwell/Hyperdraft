@@ -337,19 +337,10 @@ export function PKMCard({
   // =========================================================================
   const typeBorder = typeToBorderClass(typeCode);
 
-  // For the motion.div path, we need to cast drag handlers because framer-motion
-  // overrides onDragStart/onDragEnd with its own gesture types
-  const motionDragHandlers = dragProps ? {
-    draggable: dragProps.draggable,
-    onDragStart: dragProps.onDragStart as unknown as (event: MouseEvent | TouchEvent | PointerEvent, info: never) => void,
-    onDragEnd: dragProps.onDragEnd as unknown as (event: MouseEvent | TouchEvent | PointerEvent, info: never) => void,
-  } : {};
-
   if (imageUrl) {
-    return (
+    const motionEl = (
       <motion.div
         {...dropProps}
-        {...motionDragHandlers}
         onClick={onClick}
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
@@ -436,6 +427,22 @@ export function PKMCard({
         )}
       </motion.div>
     );
+
+    // Wrap in a plain div for HTML5 drag handlers (framer-motion overrides onDragStart/onDragEnd types)
+    if (dragProps) {
+      return (
+        <div
+          draggable={dragProps.draggable}
+          onDragStart={dragProps.onDragStart}
+          onDragEnd={dragProps.onDragEnd}
+          className="relative"
+        >
+          {motionEl}
+        </div>
+      );
+    }
+
+    return motionEl;
   }
 
   // =========================================================================

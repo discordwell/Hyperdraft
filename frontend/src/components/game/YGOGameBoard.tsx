@@ -212,6 +212,7 @@ function YGOMonsterZoneSlot({
       if (c) zones.push(c.id);
     });
     zones.push('ygo-direct-attack');
+    zones.push('ygo-direct-attack-bar');
     return zones;
   }, [canAttackDrag, oppMonsterZones]);
 
@@ -480,7 +481,7 @@ function YGOOpponentInfoBar({
   onShowBanished,
 }: YGOOpponentInfoBarProps) {
   const { dropProps, isValidTarget, isHovered } = useDropTarget({
-    zoneId: 'ygo-direct-attack',
+    zoneId: 'ygo-direct-attack-bar',
     onDrop: (item: DragItem) => {
       if (item.card?.id) {
         onDirectAttackDrop(item.card.id);

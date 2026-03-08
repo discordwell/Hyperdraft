@@ -7,7 +7,7 @@
 
 import type { CardData } from '../../types';
 import { getHearthstoneArtPaths } from '../../utils/cardArt';
-import { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useDraggable } from '../../hooks/useDraggable';
 
 interface HSMinionCardProps {
@@ -30,6 +30,7 @@ export function HSMinionCard({
   attackableTargets,
 }: HSMinionCardProps) {
   const dragEnabled = canAttack && !!attackableTargets && attackableTargets.length > 0;
+  const didDragRef = useRef(false);
 
   const { dragProps, isBeingDragged } = useDraggable({
     item: {
@@ -65,10 +66,27 @@ export function HSMinionCard({
     setArtFailed(true);
   };
 
+  // Guard against click firing after a cancelled drag
+  const guardedDragProps = {
+    ...dragProps,
+    onDragStart: (e: React.DragEvent) => {
+      didDragRef.current = true;
+      dragProps.onDragStart(e);
+    },
+  };
+
+  const handleClick = () => {
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
+    onClick();
+  };
+
   return (
     <div
-      onClick={onClick}
-      {...dragProps}
+      onClick={handleClick}
+      {...guardedDragProps}
       className={`
         relative w-20 h-24 rounded-lg cursor-pointer
         flex flex-col items-center justify-center
