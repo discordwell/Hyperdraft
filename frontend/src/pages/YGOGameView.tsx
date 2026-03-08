@@ -11,6 +11,7 @@ import { useYGOGame } from '../hooks/useYGOGame';
 import { useGameStore } from '../stores/gameStore';
 import { YGOGameBoard } from '../components/game/YGOGameBoard';
 import { YGOGameLog } from '../components/game/YGOGameLog';
+import { DragHintOverlay } from '../components/game/DragHintOverlay';
 import { matchAPI } from '../services/api';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -140,6 +141,7 @@ export function YGOGameView() {
     >
       {/* Main Game Area */}
       <div className="flex-1 relative">
+        <DragHintOverlay />
         <YGOGameBoard
           gameState={gameState}
           playerId={playerId}

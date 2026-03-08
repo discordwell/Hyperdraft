@@ -10,6 +10,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useHSGame } from '../hooks/useHSGame';
 import { useGameStore } from '../stores/gameStore';
 import { HSGameBoard } from '../components/game/HSGameBoard';
+import { DragHintOverlay } from '../components/game/DragHintOverlay';
 import { matchAPI } from '../services/api';
 
 export function HSGameView() {
@@ -92,6 +93,7 @@ export function HSGameView() {
     <div className="min-h-screen bg-game-bg flex">
       {/* Main Game Area */}
       <div className="flex-1 relative">
+        <DragHintOverlay />
         <HSGameBoard
           gameState={gameState}
           playerId={playerId}

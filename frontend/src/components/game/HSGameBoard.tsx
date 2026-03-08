@@ -11,11 +11,13 @@
  * - Player hero portrait + hero power + end turn
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { HSHeroPortrait } from './HSHeroPortrait';
 import { HSMinionCard } from './HSMinionCard';
 import { HSHandCard } from './HSHandCard';
 import type { GameState, CardData } from '../../types';
+import { useDropTarget } from '../../hooks/useDropTarget';
+import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
 
 interface HSGameBoardProps {
   gameState: GameState;
@@ -35,6 +37,54 @@ interface HSGameBoardProps {
 
 type InteractionMode = 'none' | 'select_attacker' | 'select_target';
 
+/** Wrapper that makes an opponent minion a drop target for attacks */
+function OpponentMinionDropWrapper({
+  card,
+  onDrop,
+  isClickTarget,
+  storeDragging,
+  storeValidZones,
+  variant,
+  onClick,
+}: {
+  card: CardData;
+  onDrop: (targetId: string, item: DragItem) => void;
+  isClickTarget: boolean;
+  storeDragging: boolean;
+  storeValidZones: string[];
+  variant?: string | null;
+  onClick: () => void;
+}) {
+  const handleDrop = useCallback(
+    (item: DragItem) => onDrop(card.id, item),
+    [card.id, onDrop],
+  );
+
+  const { dropProps, isValidTarget: isDropTarget, isHovered } = useDropTarget({
+    zoneId: card.id,
+    onDrop: handleDrop,
+  });
+
+  // Dim cards that are not valid drop targets while dragging
+  const isDimmed = storeDragging && !storeValidZones.includes(card.id);
+
+  return (
+    <div
+      {...dropProps}
+      className={`relative transition-opacity duration-150 ${isDimmed ? 'opacity-60' : ''} ${isHovered ? 'scale-110 z-10' : ''}`}
+    >
+      <HSMinionCard
+        card={card}
+        canAttack={false}
+        isSelected={false}
+        isValidTarget={isClickTarget || isDropTarget}
+        variant={variant}
+        onClick={onClick}
+      />
+    </div>
+  );
+}
+
 export function HSGameBoard({
   gameState,
   playerId,
@@ -53,6 +103,18 @@ export function HSGameBoard({
   const [mode, setMode] = useState<InteractionMode>('none');
   const [selectedAttackerId, setSelectedAttackerId] = useState<string | null>(null);
   const [validTargets, setValidTargets] = useState<string[]>([]);
+
+  // Drag-drop state
+  const { isDragging: storeDragging, validDropZones: storeValidZones } = useDragDropStore();
+
+  // Cancel click-based attack mode when a drag starts
+  useEffect(() => {
+    if (storeDragging && mode === 'select_target') {
+      setMode('none');
+      setSelectedAttackerId(null);
+      setValidTargets([]);
+    }
+  }, [storeDragging, mode]);
 
   const opponentId = useMemo(() =>
     Object.keys(gameState.players).find(id => id !== playerId) || null,
@@ -122,6 +184,39 @@ export function HSGameBoard({
     onAttuneCard(card.id);
   }, [isMyTurn, canAttuneCard, handleCancel, onAttuneCard]);
 
+  // Drop target: player battlefield (for playing hand cards)
+  const handleBattlefieldDrop = useCallback((item: DragItem) => {
+    if (item.type === 'hand-card' && item.intent === 'play') {
+      onPlayCard(item.card.id);
+    }
+  }, [onPlayCard]);
+
+  const { dropProps: battlefieldDropProps, isValidTarget: isBattlefieldDropTarget } = useDropTarget({
+    zoneId: 'hs-battlefield-self',
+    onDrop: handleBattlefieldDrop,
+    disabled: !isMyTurn,
+  });
+
+  // Drop handler for opponent minions (attack targets)
+  const handleOpponentMinionDrop = useCallback((targetId: string, item: DragItem) => {
+    if (item.type === 'field-card' && item.intent === 'attack') {
+      onAttack(item.card.id, targetId);
+    } else if (item.type === 'hand-card' && item.intent === 'play') {
+      // Targeted spell on minion
+      onPlayCard(item.card.id);
+    }
+  }, [onAttack, onPlayCard]);
+
+  // Drop handler for opponent hero
+  const handleOpponentHeroDrop = useCallback((item: DragItem) => {
+    if (item.type === 'field-card' && item.intent === 'attack' && opponentId) {
+      const oppPlayer = gameState.players[opponentId];
+      if (oppPlayer?.hero_id) {
+        onAttack(item.card.id, oppPlayer.hero_id);
+      }
+    }
+  }, [opponentId, gameState.players, onAttack]);
+
   if (!myPlayer || !opponentPlayer) return null;
 
   return (
@@ -135,6 +230,8 @@ export function HSGameBoard({
           canUseHeroPower={false}
           isValidTarget={mode === 'select_target' && opponentPlayer.hero_id != null && validTargets.includes(opponentPlayer.hero_id!)}
           onHeroClick={() => opponentPlayer.hero_id && handleTargetClick(opponentPlayer.hero_id)}
+          heroDropZoneId={opponentPlayer.hero_id || undefined}
+          onHeroDrop={handleOpponentHeroDrop}
         />
       </div>
 
@@ -151,12 +248,13 @@ export function HSGameBoard({
           <div className="text-gray-600 text-sm">No minions</div>
         ) : (
           opponentMinions.map(card => (
-            <HSMinionCard
+            <OpponentMinionDropWrapper
               key={card.id}
               card={card}
-              canAttack={false}
-              isSelected={false}
-              isValidTarget={mode === 'select_target' && validTargets.includes(card.id)}
+              onDrop={handleOpponentMinionDrop}
+              isClickTarget={mode === 'select_target' && validTargets.includes(card.id)}
+              storeDragging={storeDragging}
+              storeValidZones={storeValidZones}
               variant={gameState.variant}
               onClick={() => handleTargetClick(card.id)}
             />
@@ -227,21 +325,29 @@ export function HSGameBoard({
       </div>
 
       {/* Player battlefield */}
-      <div className="flex-1 flex items-center justify-center gap-2 px-4 py-2 min-h-[120px]">
+      <div
+        className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 min-h-[120px] transition-all duration-200 ${isBattlefieldDropTarget ? 'bg-green-900/20 ring-2 ring-green-500/40 ring-inset rounded-lg' : ''}`}
+        {...battlefieldDropProps}
+      >
         {myMinions.length === 0 ? (
-          <div className="text-gray-600 text-sm">No minions</div>
+          <div className="text-gray-600 text-sm">{isBattlefieldDropTarget ? 'Drop to play' : 'No minions'}</div>
         ) : (
-          myMinions.map(card => (
-            <HSMinionCard
-              key={card.id}
-              card={card}
-              canAttack={isMyTurn && canAttack(card)}
-              isSelected={selectedAttackerId === card.id}
-              isValidTarget={false}
-              variant={gameState.variant}
-              onClick={(e?: any) => { e?.stopPropagation?.(); handleMyMinionClick(card); }}
-            />
-          ))
+          myMinions.map(card => {
+            const cardCanAttack = isMyTurn && canAttack(card);
+            const targets = cardCanAttack ? getAttackableTargets(card.id) : [];
+            return (
+              <HSMinionCard
+                key={card.id}
+                card={card}
+                canAttack={cardCanAttack}
+                isSelected={selectedAttackerId === card.id}
+                isValidTarget={false}
+                variant={gameState.variant}
+                attackableTargets={targets}
+                onClick={(e?: any) => { e?.stopPropagation?.(); handleMyMinionClick(card); }}
+              />
+            );
+          })
         )}
       </div>
 

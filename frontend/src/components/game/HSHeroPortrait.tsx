@@ -3,6 +3,8 @@
  */
 
 import type { PlayerData } from '../../types';
+import { useDropTarget } from '../../hooks/useDropTarget';
+import type { DragItem } from '../../hooks/useDragDrop';
 
 interface HSHeroPortraitProps {
   player: PlayerData;
@@ -12,6 +14,8 @@ interface HSHeroPortraitProps {
   isValidTarget: boolean;
   onHeroPowerClick?: () => void;
   onHeroClick?: () => void;
+  heroDropZoneId?: string;
+  onHeroDrop?: (item: DragItem) => void;
 }
 
 export function HSHeroPortrait({
@@ -22,7 +26,21 @@ export function HSHeroPortrait({
   isValidTarget,
   onHeroPowerClick,
   onHeroClick,
+  heroDropZoneId,
+  onHeroDrop,
 }: HSHeroPortraitProps) {
+  const { dropProps, isHovered: isDropHovered } = useDropTarget({
+    zoneId: heroDropZoneId || '__disabled__',
+    onDrop: (item: DragItem) => {
+      if (onHeroDrop) {
+        onHeroDrop(item);
+      } else if (onHeroClick) {
+        onHeroClick();
+      }
+    },
+    disabled: !heroDropZoneId,
+  });
+
   const hpPercent = Math.max(0, (player.life / (player.max_life || 30)) * 100);
 
   return (
@@ -39,11 +57,13 @@ export function HSHeroPortrait({
       {/* Hero portrait */}
       <div
         onClick={onHeroClick}
+        {...(heroDropZoneId ? dropProps : {})}
         className={`
           relative w-16 h-16 rounded-full
           bg-gradient-to-b from-gray-600 to-gray-800
           border-2 flex items-center justify-center
-          ${isValidTarget ? 'border-red-400 ring-2 ring-red-400 animate-pulse cursor-pointer' : 'border-gray-500'}
+          ${isValidTarget || isDropHovered ? 'border-red-400 ring-2 ring-red-400 animate-pulse cursor-pointer' : 'border-gray-500'}
+          ${isDropHovered ? 'shadow-lg shadow-red-500/50' : ''}
           ${isOpponent ? '' : 'cursor-default'}
         `}
       >

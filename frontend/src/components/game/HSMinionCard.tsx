@@ -8,6 +8,7 @@
 import type { CardData } from '../../types';
 import { getHearthstoneArtPaths } from '../../utils/cardArt';
 import { useMemo, useState } from 'react';
+import { useDraggable } from '../../hooks/useDraggable';
 
 interface HSMinionCardProps {
   card: CardData;
@@ -16,6 +17,7 @@ interface HSMinionCardProps {
   isValidTarget: boolean;
   onClick: () => void;
   variant?: string | null;
+  attackableTargets?: string[];
 }
 
 export function HSMinionCard({
@@ -25,7 +27,22 @@ export function HSMinionCard({
   isValidTarget,
   onClick,
   variant,
+  attackableTargets,
 }: HSMinionCardProps) {
+  const dragEnabled = canAttack && !!attackableTargets && attackableTargets.length > 0;
+
+  const { dragProps, isBeingDragged } = useDraggable({
+    item: {
+      type: 'field-card',
+      card,
+      gameMode: 'hs',
+      intent: 'attack',
+      sourceZone: 'battlefield',
+    },
+    validDropZones: attackableTargets || [],
+    disabled: !dragEnabled,
+  });
+
   const hasTaunt = card.keywords?.includes('taunt');
   const hasDivineShield = card.divine_shield;
   const isFrozen = card.frozen;
@@ -51,6 +68,7 @@ export function HSMinionCard({
   return (
     <div
       onClick={onClick}
+      {...dragProps}
       className={`
         relative w-20 h-24 rounded-lg cursor-pointer
         flex flex-col items-center justify-center
@@ -63,6 +81,7 @@ export function HSMinionCard({
         ${isFrozen ? 'opacity-60 bg-gradient-to-b from-blue-900/60 to-gray-800' : ''}
         ${isStealth ? 'opacity-50' : ''}
         ${card.summoning_sickness && !canAttack ? 'border-dashed' : ''}
+        ${isBeingDragged ? 'opacity-50 scale-95' : ''}
       `}
     >
       {/* Card art */}

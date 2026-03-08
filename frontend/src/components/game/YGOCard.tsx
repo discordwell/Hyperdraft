@@ -62,6 +62,19 @@ function isSynchro(card: CardData): boolean {
 
 // ---------- Component ----------
 
+interface DragPropsType {
+  draggable: boolean;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: (e: React.DragEvent) => void;
+}
+
+interface DropPropsType {
+  onDragOver: (e: React.DragEvent) => void;
+  onDragEnter: (e: React.DragEvent) => void;
+  onDragLeave: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+}
+
 interface YGOCardProps {
   card: CardData;
   size?: 'sm' | 'md' | 'lg';
@@ -73,6 +86,11 @@ interface YGOCardProps {
   animate?: boolean;
   onHoverStart?: () => void;
   onHoverEnd?: () => void;
+  dragProps?: DragPropsType;
+  isBeingDragged?: boolean;
+  dropProps?: DropPropsType;
+  isDropTarget?: boolean;
+  isDropHovered?: boolean;
 }
 
 export function YGOCard({
@@ -86,6 +104,11 @@ export function YGOCard({
   animate = true,
   onHoverStart,
   onHoverEnd,
+  dragProps,
+  isBeingDragged = false,
+  dropProps,
+  isDropTarget = false,
+  isDropHovered = false,
 }: YGOCardProps) {
   const sizeStyles: Record<string, { width: number; height: number }> = {
     sm: { width: 64, height: 88 },
@@ -245,6 +268,12 @@ export function YGOCard({
   const targetRing = isTarget
     ? 'ring-2 ring-red-500 ring-offset-1 ring-offset-ygo-dark animate-pulse'
     : '';
+  const draggedClass = isBeingDragged ? 'opacity-50 scale-95' : '';
+  const dropTargetRing = isDropHovered
+    ? 'ring-2 ring-ygo-gold shadow-[0_0_12px_rgba(212,168,67,0.5)]'
+    : isDropTarget
+      ? 'ring-2 ring-ygo-gold/60'
+      : '';
 
   if (!animate) {
     return (
@@ -252,6 +281,8 @@ export function YGOCard({
         onClick={onClick}
         onMouseEnter={onHoverStart}
         onMouseLeave={onHoverEnd}
+        {...dragProps}
+        {...dropProps}
         style={sizeStyles[size]}
         className={`
           ${isDef ? 'rotate-90' : ''}
@@ -260,6 +291,8 @@ export function YGOCard({
           border-2 rounded-md cursor-pointer transition-all duration-150
           ${selectedRing}
           ${targetRing}
+          ${draggedClass}
+          ${dropTargetRing}
           ${onClick ? 'hover:-translate-y-1 hover:scale-105' : ''}
           flex flex-col overflow-hidden relative
           ${className}
@@ -270,7 +303,9 @@ export function YGOCard({
     );
   }
 
-  return (
+  // Framer-motion's onDragStart/onDragEnd conflict with React's native DragEvent types.
+  // Wrap the motion.div in a plain div that handles HTML5 drag when dragProps are provided.
+  const motionEl = (
     <motion.div
       onClick={onClick}
       onHoverStart={onHoverStart}
@@ -288,11 +323,30 @@ export function YGOCard({
         border-2 rounded-md cursor-pointer transition-shadow duration-150
         ${selectedRing}
         ${targetRing}
+        ${draggedClass}
+        ${dropTargetRing}
         flex flex-col overflow-hidden relative
         ${className}
       `}
+      {...dropProps}
     >
       {cardContent}
     </motion.div>
   );
+
+  // If dragProps provided, wrap in a thin div to carry HTML5 drag handlers
+  if (dragProps) {
+    return (
+      <div
+        draggable={dragProps.draggable}
+        onDragStart={dragProps.onDragStart}
+        onDragEnd={dragProps.onDragEnd}
+        style={{ display: 'contents' }}
+      >
+        {motionEl}
+      </div>
+    );
+  }
+
+  return motionEl;
 }
