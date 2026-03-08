@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { CardData } from '../../types';
 import { getHearthstoneArtPaths } from '../../utils/cardArt';
 import { useDraggable } from '../../hooks/useDraggable';
@@ -55,6 +55,7 @@ export const HSHandCard: React.FC<HSHandCardProps> = ({
     : null;
 
   const { isDragging: storeDragging } = useDragDropStore();
+  const didDragRef = useRef(false);
 
   const { dragProps, isBeingDragged } = useDraggable({
     item: {
@@ -81,10 +82,27 @@ export const HSHandCard: React.FC<HSHandCardProps> = ({
     setArtFailed(true);
   };
 
+  // Guard against click firing after a cancelled drag
+  const guardedDragProps = {
+    ...dragProps,
+    onDragStart: (e: React.DragEvent) => {
+      didDragRef.current = true;
+      dragProps.onDragStart(e);
+    },
+  };
+
+  const handleClick = () => {
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
+    onClick();
+  };
+
   return (
     <div
-      onClick={onClick}
-      {...dragProps}
+      onClick={handleClick}
+      {...guardedDragProps}
       className={`
         relative w-[120px] h-[170px] rounded-lg cursor-pointer
         bg-gradient-to-b from-gray-700 to-gray-800

@@ -344,7 +344,7 @@ export function HSGameBoard({
                 isValidTarget={false}
                 variant={gameState.variant}
                 attackableTargets={targets}
-                onClick={(e?: any) => { e?.stopPropagation?.(); handleMyMinionClick(card); }}
+                onClick={() => handleMyMinionClick(card)}
               />
             );
           })

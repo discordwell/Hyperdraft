@@ -5,7 +5,7 @@
  * Works across all game modes (MTG, HS, PKM, YGO).
  */
 
-import { useCallback, useState, useMemo } from 'react';
+import { useCallback, useState, useMemo, useEffect } from 'react';
 import { useDragDropStore, type DragItem } from './useDragDrop';
 
 interface UseDropTargetOptions {
@@ -35,6 +35,11 @@ export function useDropTarget({
   const { isDragging, validDropZones, setHoveredZone, hoveredDropZone } =
     useDragDropStore();
   const [isOver, setIsOver] = useState(false);
+
+  // Clear local isOver when drag ends (handles drag-outside-window edge case)
+  useEffect(() => {
+    if (!isDragging && isOver) setIsOver(false);
+  }, [isDragging, isOver]);
 
   const isValidTarget = isDragging && validDropZones.includes(zoneId);
   const isHovered = isValidTarget && (hoveredDropZone === zoneId || isOver);

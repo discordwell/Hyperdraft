@@ -334,14 +334,15 @@ export function YGOCard({
     </motion.div>
   );
 
-  // If dragProps provided, wrap in a thin div to carry HTML5 drag handlers
+  // If dragProps provided, wrap in a positioned div to carry HTML5 drag handlers
+  // (display:contents breaks drag ghost rendering in some browsers)
   if (dragProps) {
     return (
       <div
         draggable={dragProps.draggable}
         onDragStart={dragProps.onDragStart}
         onDragEnd={dragProps.onDragEnd}
-        style={{ display: 'contents' }}
+        className="relative"
       >
         {motionEl}
       </div>
