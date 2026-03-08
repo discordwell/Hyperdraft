@@ -362,7 +362,9 @@ class YugiohAIAdapter:
             return None
 
         opp_max_atk = max(
-            (getattr(m.card_def, 'atk', 0) or 0 for m in opp_monsters),
+            (getattr(m.card_def, 'atk', 0) or 0
+             for m in opp_monsters
+             if not m.state.face_down and m.state.ygo_position == 'face_up_atk'),
             default=0
         )
 
@@ -376,19 +378,22 @@ class YugiohAIAdapter:
             def_val = getattr(obj.card_def, 'def_val', 0) or 0
             pos = obj.state.ygo_position
 
-            # Switch to DEF if our ATK is lower than opponent's strongest
-            if pos == 'face_up_atk' and atk < opp_max_atk and def_val > atk:
+            # Switch to DEF only if: ATK can't survive AND DEF actually blocks their attack
+            if (pos == 'face_up_atk' and atk < opp_max_atk
+                    and def_val >= opp_max_atk and def_val > atk):
                 return {
                     'action_type': 'change_position',
                     'card_id': obj.id,
                 }
 
-            # Switch to ATK if we can overpower and we're in DEF
-            if pos == 'face_up_def' and atk > opp_max_atk and atk >= 1500:
-                return {
-                    'action_type': 'change_position',
-                    'card_id': obj.id,
-                }
+            # Switch to ATK if we can overpower or opponent has nothing threatening
+            if pos == 'face_up_def' and atk >= 1200:
+                # Switch if we outclass opponent's ATK, or if no ATK monsters threaten us
+                if atk > opp_max_atk or opp_max_atk == 0:
+                    return {
+                        'action_type': 'change_position',
+                        'card_id': obj.id,
+                    }
 
         return None
 
@@ -451,7 +456,7 @@ class YugiohAIAdapter:
         if not opp_monsters:
             return None  # Direct attack
 
-        # Filter to face-up ATK monsters we can beat
+        # Filter to monsters we can beat
         beatable = []
         for m in opp_monsters:
             m_atk = getattr(m.card_def, 'atk', 0) or 0
@@ -459,28 +464,33 @@ class YugiohAIAdapter:
 
             if m.state.ygo_position == 'face_up_atk':
                 if atk > m_atk:
-                    # We win and deal damage
-                    beatable.append((m, m_atk - atk, m_atk))  # damage is positive
-                elif self.difficulty == "easy" and atk >= m_atk:
+                    # We win and deal LP damage = atk - m_atk
+                    beatable.append((m, atk - m_atk, m_atk))
+                elif atk == m_atk and self.difficulty in ("easy", "medium"):
+                    # Trade — both destroyed, no LP damage
                     beatable.append((m, 0, m_atk))
             elif m.state.ygo_position in ('face_up_def', 'face_down_def'):
                 if m.state.face_down:
-                    # Unknown DEF — risk it on easy, avoid on hard
+                    # Unknown DEF — risk it on easy/medium, hard risks if ATK >= 1500
                     if self.difficulty in ("easy", "medium"):
                         beatable.append((m, 0, 0))
+                    elif atk >= 1500:
+                        # Hard/ultra: attack face-downs with strong monsters
+                        beatable.append((m, 0, 0))
                 elif atk > m_def:
+                    # Known DEF we can destroy — no LP damage but clears board
                     beatable.append((m, 0, m_def))
 
         if not beatable:
-            # No safe target and opponent has monsters — can't direct attack
+            # No safe target — medium+ skip, easy attacks anyway
             if self.difficulty == "easy" and opp_monsters:
                 return opp_monsters[0].id
-            # Return sentinel to indicate "skip this attacker" (not None, which means direct)
+            # Return sentinel to indicate "skip this attacker"
             return "__SKIP__"
 
         if self.difficulty in ("hard", "ultra"):
-            # Prioritize: kill ATK monsters that deal the most damage
-            beatable.sort(key=lambda x: x[2], reverse=True)
+            # Prioritize: ATK monsters that deal LP damage first, then clear DEF
+            beatable.sort(key=lambda x: (x[1], x[2]), reverse=True)
         else:
             random.shuffle(beatable)
 
