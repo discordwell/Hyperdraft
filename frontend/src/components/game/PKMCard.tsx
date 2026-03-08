@@ -44,6 +44,19 @@ const STATUS_ICONS: Record<string, { label: string; color: string }> = {
   paralyzed: { label: 'PAR', color: 'bg-yellow-400' },
 };
 
+interface DragPropsType {
+  draggable: boolean;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: (e: React.DragEvent) => void;
+}
+
+interface DropPropsType {
+  onDragOver: (e: React.DragEvent) => void;
+  onDragEnter: (e: React.DragEvent) => void;
+  onDragLeave: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+}
+
 interface PKMCardProps {
   card: CardData;
   isActive?: boolean;
@@ -54,6 +67,11 @@ interface PKMCardProps {
   compact?: boolean;
   onClick?: () => void;
   onHover?: (card: CardData | null) => void;
+  dragProps?: DragPropsType;
+  isBeingDragged?: boolean;
+  dropProps?: DropPropsType;
+  isDropTarget?: boolean;
+  isDropHovered?: boolean;
 }
 
 export function PKMCard({
@@ -66,7 +84,18 @@ export function PKMCard({
   compact = false,
   onClick,
   onHover,
+  dragProps,
+  isBeingDragged = false,
+  dropProps,
+  isDropTarget = false,
+  isDropHovered = false,
 }: PKMCardProps) {
+  // Build drag/drop visual classes
+  const dragDropClasses = [
+    isBeingDragged ? 'opacity-50 scale-95' : '',
+    isDropTarget && !isDropHovered ? 'ring-2 ring-amber-400 ring-opacity-60' : '',
+    isDropHovered ? 'ring-2 ring-amber-300 bg-amber-900/20' : '',
+  ].filter(Boolean).join(' ');
   const isEx = card.is_ex;
   const typeCode = card.pokemon_type || 'C';
   const typeColor = TYPE_COLORS[typeCode] || TYPE_COLORS.C;
@@ -90,6 +119,8 @@ export function PKMCard({
     if (imageUrl) {
       return (
         <div
+          {...dragProps}
+          {...dropProps}
           onClick={onClick}
           onMouseEnter={() => onHover?.(card)}
           onMouseLeave={() => onHover?.(null)}
@@ -97,6 +128,7 @@ export function PKMCard({
             w-16 h-[5.5rem] rounded-lg border-2 cursor-pointer overflow-hidden
             transition-all duration-150 border-gray-500
             ${isSelected ? 'ring-2 ring-yellow-400 scale-105' : ''}
+            ${dragDropClasses}
             hover:scale-105
           `}
         >
@@ -111,6 +143,8 @@ export function PKMCard({
     }
     return (
       <div
+        {...dragProps}
+        {...dropProps}
         onClick={onClick}
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
@@ -119,6 +153,7 @@ export function PKMCard({
           transition-all duration-150
           ${typeColor} bg-opacity-80 border-gray-500
           ${isSelected ? 'ring-2 ring-yellow-400 scale-105' : ''}
+          ${dragDropClasses}
           hover:scale-105
         `}
       >
@@ -137,6 +172,8 @@ export function PKMCard({
     if (imageUrl) {
       return (
         <div
+          {...dragProps}
+          {...dropProps}
           onClick={onClick}
           onMouseEnter={() => onHover?.(card)}
           onMouseLeave={() => onHover?.(null)}
@@ -144,6 +181,7 @@ export function PKMCard({
             relative w-20 h-28 rounded-lg border-2 cursor-pointer overflow-hidden
             transition-all duration-150 border-gray-500
             ${isSelected ? 'ring-2 ring-yellow-400 scale-105 z-10' : ''}
+            ${dragDropClasses}
             hover:scale-105
           `}
         >
@@ -158,6 +196,8 @@ export function PKMCard({
     }
     return (
       <div
+        {...dragProps}
+        {...dropProps}
         onClick={onClick}
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
@@ -166,6 +206,7 @@ export function PKMCard({
           transition-all duration-150
           bg-gradient-to-b from-gray-600 to-gray-700 border-gray-500
           ${isSelected ? 'ring-2 ring-yellow-400 scale-105' : ''}
+          ${dragDropClasses}
           hover:scale-105
         `}
       >
@@ -189,6 +230,8 @@ export function PKMCard({
     if (imageUrl) {
       return (
         <div
+          {...dragProps}
+          {...dropProps}
           onClick={onClick}
           onMouseEnter={() => onHover?.(card)}
           onMouseLeave={() => onHover?.(null)}
@@ -198,6 +241,7 @@ export function PKMCard({
             ${isEx ? 'border-indigo-400' : 'border-gray-600'}
             ${isSelected ? 'ring-2 ring-yellow-400' : ''}
             ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
+            ${dragDropClasses}
           `}
         >
           <img
@@ -260,6 +304,8 @@ export function PKMCard({
     // Fallback compact (no image)
     return (
       <div
+        {...dragProps}
+        {...dropProps}
         onClick={onClick}
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
@@ -269,6 +315,7 @@ export function PKMCard({
           ${isEx ? 'bg-gradient-to-r from-gray-800 to-indigo-900 border-indigo-400' : 'bg-gray-800 border-gray-600'}
           ${isSelected ? 'ring-2 ring-yellow-400' : ''}
           ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
+          ${dragDropClasses}
         `}
       >
         <div className={`w-3 h-3 rounded-full ${typeColor} flex-shrink-0`} />
@@ -290,9 +337,19 @@ export function PKMCard({
   // =========================================================================
   const typeBorder = typeToBorderClass(typeCode);
 
+  // For the motion.div path, we need to cast drag handlers because framer-motion
+  // overrides onDragStart/onDragEnd with its own gesture types
+  const motionDragHandlers = dragProps ? {
+    draggable: dragProps.draggable,
+    onDragStart: dragProps.onDragStart as unknown as (event: MouseEvent | TouchEvent | PointerEvent, info: never) => void,
+    onDragEnd: dragProps.onDragEnd as unknown as (event: MouseEvent | TouchEvent | PointerEvent, info: never) => void,
+  } : {};
+
   if (imageUrl) {
     return (
       <motion.div
+        {...dropProps}
+        {...motionDragHandlers}
         onClick={onClick}
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
@@ -307,6 +364,7 @@ export function PKMCard({
           ${isSelected ? 'ring-2 ring-yellow-400 scale-105 z-10' : ''}
           ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
           ${!isOpponent ? 'hover:scale-105 hover:z-10' : ''}
+          ${dragDropClasses}
         `}
       >
         <img
@@ -385,6 +443,8 @@ export function PKMCard({
   // =========================================================================
   return (
     <div
+      {...dragProps}
+      {...dropProps}
       onClick={onClick}
       onMouseEnter={() => onHover?.(card)}
       onMouseLeave={() => onHover?.(null)}
@@ -399,6 +459,7 @@ export function PKMCard({
         ${isSelected ? 'ring-2 ring-yellow-400 scale-105 z-10' : ''}
         ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
         ${!isOpponent ? 'hover:scale-105 hover:z-10' : ''}
+        ${dragDropClasses}
       `}
     >
       {/* Header: Type + Name + HP */}

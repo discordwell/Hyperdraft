@@ -8,12 +8,26 @@
 import { create } from 'zustand';
 import type { CardData, LegalActionData } from '../types';
 
-export type DragItemType = 'hand-card';
+export type DragItemType = 'hand-card' | 'field-card';
+
+export type DragIntent =
+  | 'play'
+  | 'attack'
+  | 'attach'
+  | 'evolve'
+  | 'summon'
+  | 'set'
+  | 'activate';
+
+export type GameMode = 'mtg' | 'hs' | 'pkm' | 'ygo';
 
 export interface DragItem {
   type: DragItemType;
   card: CardData;
   action?: LegalActionData;
+  gameMode?: GameMode;
+  intent?: DragIntent;
+  sourceZone?: string;
 }
 
 export interface DropZone {

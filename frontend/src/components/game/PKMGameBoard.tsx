@@ -25,7 +25,148 @@ import { PKMChoiceModal } from './PKMChoiceModal';
 import { PKMDiscardModal } from './PKMDiscardModal';
 import { typeToGlowColor } from '../../utils/pkmAnimations';
 import { handCard, benchSlide, cardEnter } from '../../utils/pkmAnimations';
+import { useDraggable } from '../../hooks/useDraggable';
+import { useDropTarget } from '../../hooks/useDropTarget';
+import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
 import type { CardData, PlayerData, PendingChoice } from '../../types';
+
+// ---------------------------------------------------------------------------
+// Wrapper: draggable hand card
+// ---------------------------------------------------------------------------
+interface PKMDraggableHandCardProps {
+  card: CardData;
+  isSelected: boolean;
+  isMyTurn: boolean;
+  actionPending: boolean;
+  canPlayCard: (card: CardData) => boolean;
+  canAttachEnergy: (card: CardData) => boolean;
+  /** IDs of own Pokemon on the field (active + bench) */
+  fieldPokemonIds: string[];
+  onClick: () => void;
+  onHover: (card: CardData | null) => void;
+}
+
+function PKMDraggableHandCard({
+  card,
+  isSelected,
+  isMyTurn,
+  actionPending,
+  canPlayCard,
+  canAttachEnergy,
+  fieldPokemonIds,
+  onClick,
+  onHover,
+}: PKMDraggableHandCardProps) {
+  const types = card.types || [];
+  const isEnergy = types.includes('ENERGY');
+  const isPokemon = types.includes('POKEMON');
+  const isEvolution = isPokemon && (card.evolution_stage === 'Stage 1' || card.evolution_stage === 'Stage 2');
+  const isBasic = isPokemon && !isEvolution;
+  const isTrainer = types.includes('ITEM') || types.includes('SUPPORTER') || types.includes('STADIUM') || types.includes('POKEMON_TOOL');
+
+  let intent: 'attach' | 'evolve' | 'play' = 'play';
+  let zones: string[] = [];
+  let enabled = false;
+
+  if (!isMyTurn || actionPending) {
+    // disabled
+  } else if (isEnergy && canAttachEnergy(card)) {
+    intent = 'attach';
+    zones = fieldPokemonIds;
+    enabled = true;
+  } else if (isEvolution) {
+    intent = 'evolve';
+    zones = fieldPokemonIds;
+    enabled = true;
+  } else if (isBasic && canPlayCard(card)) {
+    intent = 'play';
+    zones = ['pkm-bench-self'];
+    enabled = true;
+  } else if (isTrainer && !isPokemon && canPlayCard(card)) {
+    intent = 'play';
+    zones = ['pkm-play-area'];
+    enabled = true;
+  }
+
+  const { dragProps, isBeingDragged } = useDraggable({
+    item: { type: 'hand-card', card, gameMode: 'pkm', intent, sourceZone: 'hand' },
+    validDropZones: zones,
+    disabled: !enabled,
+  });
+
+  return (
+    <PKMCard
+      card={card}
+      isSelected={isSelected}
+      onClick={onClick}
+      onHover={onHover}
+      dragProps={dragProps}
+      isBeingDragged={isBeingDragged}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Wrapper: drop-target field Pokemon (active + bench)
+// ---------------------------------------------------------------------------
+interface PKMDropTargetCardProps {
+  card: CardData;
+  compact?: boolean;
+  isActive?: boolean;
+  isSelected?: boolean;
+  isValidTarget?: boolean;
+  isOpponent?: boolean;
+  isBeingAttacked?: boolean;
+  onClick?: () => void;
+  onHover?: (card: CardData | null) => void;
+  onDropAttach: (energyCardId: string, pokemonId: string) => void;
+  onDropEvolve: (evolutionCardId: string, pokemonId: string) => void;
+}
+
+function PKMDropTargetCard({
+  card,
+  compact,
+  isActive,
+  isSelected,
+  isValidTarget: isValidTargetProp,
+  isOpponent,
+  isBeingAttacked,
+  onClick,
+  onHover,
+  onDropAttach,
+  onDropEvolve,
+}: PKMDropTargetCardProps) {
+  const handleDrop = useCallback((item: DragItem) => {
+    if (item.intent === 'attach') {
+      onDropAttach(item.card.id, card.id);
+    } else if (item.intent === 'evolve') {
+      onDropEvolve(item.card.id, card.id);
+    }
+  }, [card.id, onDropAttach, onDropEvolve]);
+
+  const { dropProps, isValidTarget: isDropValid, isHovered } = useDropTarget({
+    zoneId: card.id,
+    onDrop: handleDrop,
+    disabled: isOpponent,
+  });
+
+  return (
+    <PKMCard
+      card={card}
+      compact={compact}
+      isActive={isActive}
+      isSelected={isSelected}
+      isValidTarget={isValidTargetProp}
+      isOpponent={isOpponent}
+      isBeingAttacked={isBeingAttacked}
+      onClick={onClick}
+      onHover={onHover}
+      dropProps={dropProps}
+      isDropTarget={isDropValid}
+      isDropHovered={isHovered}
+    />
+  );
+}
 
 interface PKMGameBoardProps {
   gameState: any;
@@ -95,6 +236,21 @@ export function PKMGameBoard({
   const [hoveredCard, setHoveredCard] = useState<CardData | null>(null);
   const [isBeingAttacked, setIsBeingAttacked] = useState(false);
   const [actionPending, setActionPending] = useState(false);
+
+  // Drag-and-drop: cancel click mode when a drag begins
+  const isDragging = useDragDropStore((s) => s.isDragging);
+  useEffect(() => {
+    if (isDragging && mode !== 'none') {
+      setMode('none');
+      setSelectedHandCardId(null);
+    }
+  }, [isDragging]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Compute field Pokemon IDs for drag valid zones
+  const fieldPokemonIds = [
+    ...(myActivePokemon ? [myActivePokemon.id] : []),
+    ...myBench.map((b) => b.id),
+  ];
 
   // Turn banner state
   const [showTurnBanner, setShowTurnBanner] = useState(false);
@@ -204,6 +360,32 @@ export function PKMGameBoard({
     setHoveredCard(card);
   }, []);
 
+  // Drop handler: bench area (basic Pokemon)
+  const handleBenchDrop = useCallback((item: DragItem) => {
+    if (item.intent === 'play' && item.card?.id) {
+      onPlayCard(item.card.id);
+    }
+  }, [onPlayCard]);
+
+  // Drop handler: play area (trainer cards)
+  const handlePlayAreaDrop = useCallback((item: DragItem) => {
+    if (item.intent === 'play' && item.card?.id) {
+      onPlayCard(item.card.id);
+    }
+  }, [onPlayCard]);
+
+  // Bench zone drop target
+  const { dropProps: benchDropProps, isValidTarget: benchIsValidTarget, isHovered: benchIsHovered } = useDropTarget({
+    zoneId: 'pkm-bench-self',
+    onDrop: handleBenchDrop,
+  });
+
+  // Play area drop target (for trainers)
+  const { dropProps: playAreaDropProps, isValidTarget: playAreaIsValidTarget, isHovered: playAreaIsHovered } = useDropTarget({
+    zoneId: 'pkm-play-area',
+    onDrop: handlePlayAreaDrop,
+  });
+
   if (!myPlayer || !opponentPlayer) return null;
 
   const myPrizes = myPlayer.prizes_remaining ?? 0;
@@ -294,8 +476,13 @@ export function PKMGameBoard({
         </AnimatePresence>
       </div>
 
-      {/* Stadium + center divider */}
-      <div className="flex items-center justify-center gap-4 px-4 py-2 border-y border-green-800 bg-green-900/50">
+      {/* Stadium + center divider (also trainer drop target) */}
+      <div
+        {...playAreaDropProps}
+        className={`flex items-center justify-center gap-4 px-4 py-2 border-y border-green-800 bg-green-900/50 transition-all duration-150 ${
+          playAreaIsValidTarget && !playAreaIsHovered ? 'ring-2 ring-amber-400/60' : ''
+        }${playAreaIsHovered ? ' ring-2 ring-amber-300 bg-amber-900/10' : ''}`}
+      >
         {stadiumCard ? (
           <div
             className="flex items-center gap-2 cursor-pointer"
@@ -333,13 +520,15 @@ export function PKMGameBoard({
               style={activeGlowStyle}
             >
               <div className={isMyTurn ? 'animate-pkm-glow rounded-lg' : ''}>
-                <PKMCard
+                <PKMDropTargetCard
                   card={myActivePokemon}
                   isActive
                   isSelected={mode === 'select_energy_target' || mode === 'select_evolution_target'}
                   isValidTarget={mode === 'select_energy_target' || mode === 'select_evolution_target'}
                   onClick={() => handleFieldPokemonClick(myActivePokemon.id, true)}
                   onHover={handleCardHover}
+                  onDropAttach={onAttachEnergy}
+                  onDropEvolve={onEvolve}
                 />
               </div>
             </motion.div>
@@ -352,19 +541,29 @@ export function PKMGameBoard({
       </div>
 
       {/* Player bench */}
-      <div className="flex items-center justify-center gap-2 px-4 py-1 min-h-[48px]" onClick={(e) => e.stopPropagation()}>
+      <div
+        {...benchDropProps}
+        className={`flex items-center justify-center gap-2 px-4 py-1 min-h-[48px] transition-all duration-150 ${
+          benchIsValidTarget && !benchIsHovered ? 'outline outline-2 outline-amber-400/60 outline-offset-2 rounded-lg' : ''
+        }${benchIsHovered ? ' outline outline-2 outline-amber-300 outline-offset-2 rounded-lg bg-amber-900/10' : ''}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <AnimatePresence mode="popLayout">
           {myBench.length === 0 ? (
-            <div className="text-green-800 text-xs">Empty bench</div>
+            <div className="text-green-800 text-xs">
+              {benchIsValidTarget ? 'Drop here to play' : 'Empty bench'}
+            </div>
           ) : (
             myBench.map(card => (
               <motion.div key={card.id} variants={benchSlide} initial="initial" animate="animate" exit="exit">
-                <PKMCard
+                <PKMDropTargetCard
                   card={card}
                   compact
                   isValidTarget={mode === 'select_energy_target' || mode === 'select_evolution_target' || mode === 'select_retreat_target'}
                   onClick={() => handleFieldPokemonClick(card.id, true)}
                   onHover={handleCardHover}
+                  onDropAttach={onAttachEnergy}
+                  onDropEvolve={onEvolve}
                 />
               </motion.div>
             ))
@@ -372,7 +571,7 @@ export function PKMGameBoard({
         </AnimatePresence>
         {/* Bench slots */}
         {myBench.length < 5 && Array.from({ length: 5 - myBench.length }).map((_, i) => (
-          <div key={`empty-${i}`} className="w-20 h-28 rounded border border-dashed border-green-800 opacity-30" />
+          <div key={`empty-${i}`} className={`w-20 h-28 rounded border border-dashed border-green-800 ${benchIsValidTarget ? 'opacity-60 border-amber-500' : 'opacity-30'}`} />
         ))}
       </div>
 
@@ -410,9 +609,14 @@ export function PKMGameBoard({
                 }}
                 className="transition-transform"
               >
-                <PKMCard
+                <PKMDraggableHandCard
                   card={card}
                   isSelected={selectedHandCardId === card.id}
+                  isMyTurn={isMyTurn}
+                  actionPending={actionPending}
+                  canPlayCard={canPlayCard}
+                  canAttachEnergy={canAttachEnergy}
+                  fieldPokemonIds={fieldPokemonIds}
                   onClick={() => handleHandCardClick(card)}
                   onHover={handleCardHover}
                 />

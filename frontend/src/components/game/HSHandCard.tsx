@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { CardData } from '../../types';
 import { getHearthstoneArtPaths } from '../../utils/cardArt';
+import { useDraggable } from '../../hooks/useDraggable';
+import { useDragDropStore } from '../../hooks/useDragDrop';
 
 interface HSHandCardProps {
   card: CardData;
@@ -52,6 +54,20 @@ export const HSHandCard: React.FC<HSHandCardProps> = ({
       }
     : null;
 
+  const { isDragging: storeDragging } = useDragDropStore();
+
+  const { dragProps, isBeingDragged } = useDraggable({
+    item: {
+      type: 'hand-card',
+      card,
+      gameMode: 'hs',
+      intent: 'play',
+      sourceZone: 'hand',
+    },
+    validDropZones: ['hs-battlefield-self'],
+    disabled: !isPlayable,
+  });
+
   const artPaths = useMemo(() => getHearthstoneArtPaths(card.name, variant), [card.name, variant]);
   const [artIndex, setArtIndex] = useState(0);
   const [artLoaded, setArtLoaded] = useState(false);
@@ -68,15 +84,17 @@ export const HSHandCard: React.FC<HSHandCardProps> = ({
   return (
     <div
       onClick={onClick}
+      {...dragProps}
       className={`
         relative w-[120px] h-[170px] rounded-lg cursor-pointer
         bg-gradient-to-b from-gray-700 to-gray-800
         border-2 transition-all duration-200
-        hover:scale-110 hover:z-10
+        ${storeDragging ? '' : 'hover:scale-110 hover:z-10'}
         ${isPlayable
           ? 'border-game-accent shadow-lg shadow-game-accent/50'
           : 'border-gray-600 opacity-75'
         }
+        ${isBeingDragged ? 'opacity-50 scale-95' : ''}
       `}
     >
       {/* Mana Cost Gem */}

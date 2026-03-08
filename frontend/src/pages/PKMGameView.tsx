@@ -11,6 +11,7 @@ import { usePokemonGame } from '../hooks/usePokemonGame';
 import { useGameStore } from '../stores/gameStore';
 import { PKMGameBoard } from '../components/game/PKMGameBoard';
 import { PKMGameLog } from '../components/game/PKMGameLog';
+import { DragHintOverlay } from '../components/game/DragHintOverlay';
 import { matchAPI } from '../services/api';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -127,6 +128,7 @@ export function PKMGameView() {
     <div className="min-h-screen bg-emerald-950 flex">
       {/* Main Game Area */}
       <div className="flex-1 relative">
+        <DragHintOverlay />
         <PKMGameBoard
           gameState={gameState}
           playerId={playerId}
