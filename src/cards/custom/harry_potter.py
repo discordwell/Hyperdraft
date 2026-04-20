@@ -12,10 +12,6 @@ from src.engine import (
     Characteristics, ObjectState, CardDefinition,
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness,
-    # Ability system (kept for legacy setup fns that still use them)
-    TriggeredAbility,
-    ETBTrigger, UpkeepTrigger, SpellCastTrigger,
-    GainLife, AddCounters, CreateToken,
 )
 from src.cards.ability_bundles import (
     etb_gain_life, etb_draw, death_draw,
@@ -489,11 +485,23 @@ MINISTRY_AUROR = make_creature(
 
 def patronus_caster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB - create Patronus token."""
-    ability = TriggeredAbility(
-        trigger=ETBTrigger(),
-        effect=CreateToken(name="Patronus Spirit", power=2, toughness=2, colors={'W'}, subtypes={'Spirit', 'Patronus'}, keywords=['flying', 'protection_from_black'])
-    )
-    return ability.generate_interceptors(obj, state)
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Patronus Spirit',
+                'power': 2,
+                'toughness': 2,
+                'colors': {Color.WHITE},
+                'subtypes': {'Spirit', 'Patronus'},
+                'keywords': ['flying', 'protection_from_black'],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [_ih.make_etb_trigger(obj, effect_fn)]
 
 PATRONUS_CASTER = make_creature(
     name="Patronus Caster",
@@ -674,11 +682,18 @@ OBLIVIATE = make_sorcery(
 
 def light_magic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever you cast an instant, gain 1 life."""
-    ability = TriggeredAbility(
-        trigger=SpellCastTrigger(controller_only=True, spell_types={CardType.INSTANT}),
-        effect=GainLife(1)
-    )
-    return ability.generate_interceptors(obj, state)
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [_ih.make_spell_cast_trigger(
+        obj, effect_fn,
+        controller_only=True,
+        spell_type_filter={CardType.INSTANT},
+    )]
 
 LIGHT_MAGIC = make_enchantment(
     name="Light Magic",
@@ -1838,12 +1853,20 @@ RUBEUS_HAGRID = make_creature(
 
 
 def pomona_sprout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep - put +1/+1 counter on target creature."""
-    ability = TriggeredAbility(
-        trigger=UpkeepTrigger(),
-        effect=AddCounters("+1/+1", 1)  # Self - would need targeting for "target creature"
-    )
-    return ability.generate_interceptors(obj, state)
+    """Upkeep - put a +1/+1 counter on Pomona Sprout.
+
+    (Original printed text says "target creature"; the DSL migration kept
+    self-targeting parity. Retained as self-counter because no targeting
+    layer is wired here.)
+    """
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [_ih.make_upkeep_trigger(obj, effect_fn)]
 
 POMONA_SPROUT = make_creature(
     name="Pomona Sprout, Herbology Master",
