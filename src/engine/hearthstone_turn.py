@@ -331,7 +331,7 @@ class HearthstoneTurnManager(TurnManager):
         """
         Execute a card play from hand for a human player.
 
-        Reuses the same event emission pattern as stormrift_play.py.
+        Reuses the same event emission pattern as scripts/play/stormrift_play.py.
         """
         import re as _re
         events = []
