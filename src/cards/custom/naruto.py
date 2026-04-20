@@ -14,14 +14,13 @@ from src.engine import (
     new_id, get_power, get_toughness
 )
 from typing import Optional, Callable
-from src.engine.abilities import (
-    TriggeredAbility, StaticAbility,
-    ETBTrigger, DeathTrigger, AttackTrigger, DealsDamageTrigger,
-    UpkeepTrigger, SpellCastTrigger, LifeGainTrigger,
-    GainLife, DrawCards, CreateToken, Scry,
-    PTBoost, KeywordGrant,
-    OtherCreaturesYouControlFilter, CreaturesYouControlFilter,
-    CreaturesWithSubtypeFilter,
+from src.cards import interceptor_helpers as ih
+from src.cards.ability_bundles import (
+    etb_gain_life,
+    etb_create_token,
+    static_pt_boost_by_subtype,
+    static_pt_boost_other_you_control,
+    upkeep_gain_life,
 )
 
 
@@ -354,8 +353,28 @@ def make_keyword_grant_interceptors(source_obj: GameObject, keywords: list[str],
 # --- Team 7 ---
 
 def naruto_uzumaki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Jinchuriki transform (set-specific mechanic that needs custom interceptor)"""
-    return [make_jinchuriki_transform(obj, 7, 7)]
+    """Jinchuriki transform + attack trigger that creates a Shadow Clone token."""
+    def shadow_clone_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Shadow Clone',
+                'power': 2,
+                'toughness': 2,
+                'colors': {'R'},
+                'subtypes': {'Ninja', 'Clone'},
+                'keywords': [],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [
+        ih.make_attack_trigger(obj, shadow_clone_effect),
+        make_jinchuriki_transform(obj, 7, 7),
+    ]
 
 NARUTO_UZUMAKI = make_creature(
     name="Naruto Uzumaki, Child of Prophecy",
@@ -364,25 +383,21 @@ NARUTO_UZUMAKI = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Ninja", "Uzumaki"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=CreateToken(name="Shadow Clone", power=2, toughness=2, colors={"R"}, subtypes={"Ninja", "Clone"})
-        )
-    ],
+    text="Whenever Naruto Uzumaki, Child of Prophecy attacks, create a 2/2 red Shadow Clone creature token.",
     setup_interceptors=naruto_uzumaki_setup
 )
 
 
 def sakura_haruno_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Chakra 2 - target creature gets +3/+3 (set-specific mechanic)"""
+    """ETB gain 4 life + Chakra 2 ability."""
     def chakra_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(type=EventType.COUNTER_ADDED, payload={
             'target_type': 'creature',
             'boost': '+3/+3',
             'duration': 'end_of_turn'
         }, source=obj.id)]
-    return [make_chakra_ability(obj, 2, chakra_effect)]
+    etb_itc, _ = etb_gain_life(obj, 4)
+    return [etb_itc, make_chakra_ability(obj, 2, chakra_effect)]
 
 SAKURA_HARUNO = make_creature(
     name="Sakura Haruno, Medical Ninja",
@@ -391,12 +406,7 @@ SAKURA_HARUNO = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "Medic"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(4)
-        )
-    ],
+    text="When Sakura Haruno, Medical Ninja enters the battlefield, you gain 4 life.",
     setup_interceptors=sakura_haruno_setup
 )
 
@@ -418,6 +428,10 @@ KAKASHI_HATAKE = make_creature(
 
 # --- Hokages ---
 
+def _hashirama_senju_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _ = static_pt_boost_by_subtype(obj, 2, 2, "Ninja", include_self=False)
+    return list(interceptors)
+
 HASHIRAMA_SENJU = make_creature(
     name="Hashirama Senju, First Hokage",
     power=5, toughness=5,
@@ -425,14 +439,22 @@ HASHIRAMA_SENJU = make_creature(
     colors={Color.WHITE, Color.GREEN},
     subtypes={"Human", "Ninja", "Hokage", "Senju"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(2, 2),
-            filter=CreaturesWithSubtypeFilter("Ninja", include_self=False)
-        )
-    ]
+    text="Other Ninja creatures you control get +2/+2.",
+    setup_interceptors=_hashirama_senju_setup
 )
 
+
+def _tobirama_senju_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def draw_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_spell_cast_trigger(
+        obj, draw_effect, spell_type_filter={CardType.INSTANT}
+    )]
 
 TOBIRAMA_SENJU = make_creature(
     name="Tobirama Senju, Second Hokage",
@@ -441,12 +463,8 @@ TOBIRAMA_SENJU = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Ninja", "Hokage", "Senju"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=SpellCastTrigger(spell_types={CardType.INSTANT}),
-            effect=DrawCards(1)
-        )
-    ]
+    text="Whenever you cast a instant, draw a card.",
+    setup_interceptors=_tobirama_senju_setup
 )
 
 
@@ -489,12 +507,8 @@ TSUNADE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "Hokage", "Senju", "Medic"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=LifeGainTrigger(),
-            effect=CreateToken(name="+1/+1 Counter", power=0, toughness=0)  # Placeholder - counters need different handling
-        )
-    ],
+    # TODO phase-4: life-gain trigger placeholder dropped during abilities/ migration;
+    # proper +1/+1 counter on target creature needs targeting UX support.
     text="Lifelink. Whenever you gain life, put a +1/+1 counter on target creature you control."
 )
 
@@ -540,15 +554,15 @@ NEJI_HYUGA = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "Hyuga"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DealsDamageTrigger(combat_only=True, to_player=True),
-            effect=CreateToken(name="Tap Effect", power=0, toughness=0)  # Placeholder - tap effects need different handling
-        )
-    ],
+    # TODO phase-4: damage-trigger placeholder create-token dropped during abilities/
+    # migration; proper tap-target-creature effect needs targeting UX.
     text="First strike. Whenever Neji deals combat damage to a player, tap target creature that player controls. It doesn't untap during its controller's next untap step."
 )
 
+
+def _hinata_hyuga_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _ = static_pt_boost_by_subtype(obj, 1, 1, "Hyuga", include_self=False)
+    return list(interceptors)
 
 HINATA_HYUGA = make_creature(
     name="Hinata Hyuga, Gentle Fist",
@@ -557,12 +571,8 @@ HINATA_HYUGA = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "Hyuga"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Hyuga", include_self=False)
-        )
-    ]
+    text="Other Hyuga creatures you control get +1/+1.",
+    setup_interceptors=_hinata_hyuga_setup
 )
 
 
@@ -612,20 +622,24 @@ TENTEN = make_creature(
 
 # --- Regular Konoha Ninjas ---
 
+def _konoha_genin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _ = etb_gain_life(obj, 2)
+    return [itc]
+
 KONOHA_GENIN = make_creature(
     name="Konoha Genin",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Ninja"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(2)
-        )
-    ]
+    text="When Konoha Genin enters the battlefield, you gain 2 life.",
+    setup_interceptors=_konoha_genin_setup
 )
 
+
+def _konoha_chunin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _ = static_pt_boost_by_subtype(obj, 0, 1, "Ninja", include_self=False)
+    return list(interceptors)
 
 KONOHA_CHUNIN = make_creature(
     name="Konoha Chunin",
@@ -633,12 +647,8 @@ KONOHA_CHUNIN = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Ninja"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(0, 1),
-            filter=CreaturesWithSubtypeFilter("Ninja", include_self=False)
-        )
-    ]
+    text="Other Ninja creatures you control get +0/+1.",
+    setup_interceptors=_konoha_chunin_setup
 )
 
 
@@ -692,21 +702,46 @@ NARA_SHADOW_USER = make_creature(
 )
 
 
+def _will_of_fire_bearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def gain_life(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_death_trigger(obj, gain_life)]
+
 WILL_OF_FIRE_BEARER = make_creature(
     name="Will of Fire Bearer",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Ninja"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=GainLife(3)
-        )
-    ],
-    text="When Will of Fire Bearer dies, you gain 3 life and scry 1."
+    # Scry 1 portion unimplemented (stub in prior abilities/ DSL).
+    text="When Will of Fire Bearer dies, you gain 3 life and scry 1.",
+    setup_interceptors=_will_of_fire_bearer_setup
 )
 
+
+def _konoha_academy_student_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def create_ninja(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Ninja',
+                'power': 1,
+                'toughness': 1,
+                'colors': {'W'},
+                'subtypes': {'Ninja'},
+                'keywords': [],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_death_trigger(obj, create_ninja)]
 
 KONOHA_ACADEMY_STUDENT = make_creature(
     name="Konoha Academy Student",
@@ -714,12 +749,8 @@ KONOHA_ACADEMY_STUDENT = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Ninja"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=CreateToken(name="Ninja", power=1, toughness=1, colors={"W"}, subtypes={"Ninja"})
-        )
-    ]
+    text="When Konoha Academy Student dies, create a 1/1 white Ninja creature token.",
+    setup_interceptors=_konoha_academy_student_setup
 )
 
 
@@ -827,17 +858,17 @@ HOKAGE_MONUMENT = make_sorcery(
 
 # --- White Enchantments ---
 
+def _will_of_fire_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _ = static_pt_boost_by_subtype(obj, 1, 1, "Ninja", include_self=True)
+    return list(interceptors)
+
 WILL_OF_FIRE_ENCHANTMENT = make_enchantment(
     name="The Will of Fire",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Ninja")
-        )
-    ],
-    text="Ninja creatures you control get +1/+1. At the beginning of your upkeep, if you control four or more Ninjas, create a 2/2 white Ninja creature token."
+    # Conditional upkeep create-token clause unimplemented (stub in prior abilities/ DSL).
+    text="Ninja creatures you control get +1/+1. At the beginning of your upkeep, if you control four or more Ninjas, create a 2/2 white Ninja creature token.",
+    setup_interceptors=_will_of_fire_enchantment_setup
 )
 
 
@@ -899,12 +930,8 @@ KABUTO_YAKUSHI = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Ninja", "Medic"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=SpellCastTrigger(spell_types={CardType.INSTANT, CardType.SORCERY}),
-            effect=Scry(1)
-        )
-    ]
+    # Scry was a stub in the abilities/ DSL; no behavior wired.
+    text="Whenever you cast a instant or sorcery, scry 1."
 )
 
 
@@ -938,12 +965,8 @@ MIST_VILLAGE_NINJA = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Ninja"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=Scry(2)
-        )
-    ]
+    # Scry was a stub in the abilities/ DSL; no behavior wired.
+    text="When Mist Village Ninja enters the battlefield, scry 2."
 )
 
 
@@ -967,20 +990,49 @@ WATER_CLONE = make_creature(
 )
 
 
+def _aburame_tracker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def create_insect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Insect',
+                'power': 1,
+                'toughness': 1,
+                'colors': {'G'},
+                'subtypes': {'Insect'},
+                'keywords': ['flying'],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_etb_trigger(obj, create_insect)]
+
 ABURAME_TRACKER = make_creature(
     name="Aburame Tracker",
     power=1, toughness=2,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Ninja", "Aburame"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name="Insect", power=1, toughness=1, colors={"G"}, subtypes={"Insect"}, keywords=["flying"])
-        )
-    ]
+    text="When Aburame Tracker enters the battlefield, create a 1/1 green Insect creature token with flying.",
+    setup_interceptors=_aburame_tracker_setup
 )
 
+
+def _intelligence_gatherer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def draw_card(event: Event, state: GameState) -> list[Event]:
+        # Constrain to damage dealt to a player.
+        target_id = event.payload.get('target')
+        if target_id not in state.players:
+            return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_damage_trigger(obj, draw_card, combat_only=True)]
 
 INTELLIGENCE_GATHERER = make_creature(
     name="Intelligence Gatherer",
@@ -988,12 +1040,8 @@ INTELLIGENCE_GATHERER = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Ninja"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DealsDamageTrigger(combat_only=True, to_player=True),
-            effect=DrawCards(1)
-        )
-    ]
+    text="Whenever Intelligence Gatherer deals combat damage to a player, draw a card.",
+    setup_interceptors=_intelligence_gatherer_setup
 )
 
 
@@ -1023,12 +1071,8 @@ SENSOR_NINJA = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Ninja"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=Scry(1)
-        )
-    ]
+    # Scry was a stub in the abilities/ DSL; no behavior wired.
+    text="At the beginning of your upkeep, scry 1."
 )
 
 
@@ -1257,6 +1301,25 @@ KAKUZU = make_creature(
 )
 
 
+def _konan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def create_paper(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Paper',
+                'power': 1,
+                'toughness': 1,
+                'colors': {'U'},
+                'subtypes': {'Paper'},
+                'keywords': ['flying'],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_upkeep_trigger(obj, create_paper)]
+
 KONAN = make_creature(
     name="Konan, Angel of Ame",
     power=3, toughness=4,
@@ -1264,13 +1327,9 @@ KONAN = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Ninja", "Akatsuki"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=CreateToken(name="Paper", power=1, toughness=1, colors={"U"}, subtypes={"Paper"}, keywords=["flying"])
-        )
-    ],
-    text="Flying. At the beginning of your upkeep, create a 1/1 blue Paper creature token with flying. Sacrifice five Papers: Destroy target permanent."
+    # "Flying" and the sacrifice-five activated ability are unimplemented (text-only in prior DSL).
+    text="Flying. At the beginning of your upkeep, create a 1/1 blue Paper creature token with flying. Sacrifice five Papers: Destroy target permanent.",
+    setup_interceptors=_konan_setup
 )
 
 
@@ -1503,17 +1562,17 @@ CURSE_OF_HATRED = make_enchantment(
 )
 
 
+def _akatsuki_hideout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _ = static_pt_boost_by_subtype(obj, 1, 1, "Akatsuki", include_self=True)
+    return list(interceptors)
+
 AKATSUKI_HIDEOUT = make_enchantment(
     name="Akatsuki Hideout",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Akatsuki")
-        )
-    ],
-    text="Akatsuki creatures you control get +1/+1 and have menace. {2}{B}: Return target Akatsuki creature card from your graveyard to your hand."
+    # "have menace" and the graveyard activated ability remain unimplemented (stubs in prior DSL).
+    text="Akatsuki creatures you control get +1/+1 and have menace. {2}{B}: Return target Akatsuki creature card from your graveyard to your hand.",
+    setup_interceptors=_akatsuki_hideout_setup
 )
 
 
@@ -1539,8 +1598,27 @@ NARUTO_SAGE_MODE = make_creature(
 
 
 def jiraiya_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sage Mode bonus (set-specific mechanic)"""
-    return make_sage_mode_bonus_interceptors(obj, 2, 2)
+    """ETB creates a 3/3 green Toad token + Sage Mode bonus."""
+    def create_toad(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Toad',
+                'power': 3,
+                'toughness': 3,
+                'colors': {'G'},
+                'subtypes': {'Toad'},
+                'keywords': [],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [
+        ih.make_etb_trigger(obj, create_toad),
+        *make_sage_mode_bonus_interceptors(obj, 2, 2),
+    ]
 
 JIRAIYA = make_creature(
     name="Jiraiya, Toad Sage",
@@ -1549,12 +1627,7 @@ JIRAIYA = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Ninja", "Sannin", "Sage"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name="Toad", power=3, toughness=3, colors={"G"}, subtypes={"Toad"})
-        )
-    ],
+    text="When Jiraiya, Toad Sage enters the battlefield, create a 3/3 green Toad creature token.",
     setup_interceptors=jiraiya_setup
 )
 
@@ -1853,6 +1926,10 @@ BATTLE_FRENZY = make_enchantment(
 
 # --- Legendary Green Characters ---
 
+def _naruto_kyubi_mode_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _ = static_pt_boost_by_subtype(obj, 1, 1, "Ninja", include_self=False)
+    return list(interceptors)
+
 NARUTO_KYUBI_MODE = make_creature(
     name="Naruto, Kyubi Chakra Mode",
     power=6, toughness=6,
@@ -1860,15 +1937,30 @@ NARUTO_KYUBI_MODE = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Ninja", "Uzumaki", "Jinchuriki"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Ninja", include_self=False)
-        )
-    ],
-    text="Haste, trample. Whenever Naruto attacks, he deals 3 damage to each opponent. Other Ninja creatures you control get +1/+1."
+    # "Haste, trample" and the attack-damage clause remain unimplemented (text-only in prior DSL).
+    text="Haste, trample. Whenever Naruto attacks, he deals 3 damage to each opponent. Other Ninja creatures you control get +1/+1.",
+    setup_interceptors=_naruto_kyubi_mode_setup
 )
 
+
+def _hashirama_wood_style_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def create_treant(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Treant',
+                'power': 3,
+                'toughness': 3,
+                'colors': {'G'},
+                'subtypes': {'Treant'},
+                'keywords': [],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_attack_trigger(obj, create_treant)]
 
 HASHIRAMA_WOOD_STYLE = make_creature(
     name="Hashirama, Wood Style Master",
@@ -1877,14 +1969,14 @@ HASHIRAMA_WOOD_STYLE = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Ninja", "Hokage", "Senju"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=CreateToken(name="Treant", power=3, toughness=3, colors={"G"}, subtypes={"Treant"})
-        )
-    ]
+    text="Whenever Hashirama, Wood Style Master attacks, create a 3/3 green Treant creature token.",
+    setup_interceptors=_hashirama_wood_style_setup
 )
 
+
+def _yamato_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _ = static_pt_boost_other_you_control(obj, 0, 2)
+    return list(interceptors)
 
 YAMATO = make_creature(
     name="Yamato, Wood Style User",
@@ -1893,12 +1985,8 @@ YAMATO = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Ninja", "ANBU"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(0, 2),
-            filter=OtherCreaturesYouControlFilter()
-        )
-    ]
+    text="Other creatures you control get +0/+2.",
+    setup_interceptors=_yamato_setup
 )
 
 
@@ -1924,6 +2012,10 @@ MANDA = make_creature(
 )
 
 
+def _katsuyu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _ = etb_gain_life(obj, 6)
+    return [itc]
+
 KATSUYU = make_creature(
     name="Katsuyu, Slug Princess",
     power=4, toughness=8,
@@ -1931,12 +2023,8 @@ KATSUYU = make_creature(
     colors={Color.WHITE, Color.GREEN},
     subtypes={"Slug", "Summon"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(6)
-        )
-    ]
+    text="When Katsuyu, Slug Princess enters the battlefield, you gain 6 life.",
+    setup_interceptors=_katsuyu_setup
 )
 
 
@@ -1997,6 +2085,19 @@ SON_GOKU = make_creature(
 )
 
 
+def _kokuo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def gain_life(event: Event, state: GameState) -> list[Event]:
+        target_id = event.payload.get('target')
+        if target_id not in state.players:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 5},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_damage_trigger(obj, gain_life, combat_only=True)]
+
 KOKUO = make_creature(
     name="Kokuo, Five-Tails",
     power=5, toughness=5,
@@ -2004,14 +2105,26 @@ KOKUO = make_creature(
     colors={Color.WHITE, Color.GREEN},
     subtypes={"Horse", "Spirit", "Tailed Beast"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DealsDamageTrigger(combat_only=True, to_player=True),
-            effect=GainLife(5)
-        )
-    ]
+    text="Whenever Kokuo, Five-Tails deals combat damage to a player, you gain 5 life.",
+    setup_interceptors=_kokuo_setup
 )
 
+
+def _saiken_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def draw_two(event: Event, state: GameState) -> list[Event]:
+        target_id = event.payload.get('target')
+        if target_id not in state.players:
+            return []
+        return [
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller},
+                source=obj.id,
+                controller=obj.controller,
+            )
+            for _ in range(2)
+        ]
+    return [ih.make_damage_trigger(obj, draw_two, combat_only=True)]
 
 SAIKEN = make_creature(
     name="Saiken, Six-Tails",
@@ -2020,14 +2133,14 @@ SAIKEN = make_creature(
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Slug", "Spirit", "Tailed Beast"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DealsDamageTrigger(combat_only=True, to_player=True),
-            effect=DrawCards(2)
-        )
-    ]
+    text="Whenever Saiken, Six-Tails deals combat damage to a player, draw two cards.",
+    setup_interceptors=_saiken_setup
 )
 
+
+def _chomei_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _ = static_pt_boost_by_subtype(obj, 2, 2, "Insect", include_self=False)
+    return list(interceptors)
 
 CHOMEI = make_creature(
     name="Chomei, Seven-Tails",
@@ -2036,12 +2149,8 @@ CHOMEI = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect", "Spirit", "Tailed Beast"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(2, 2),
-            filter=CreaturesWithSubtypeFilter("Insect", include_self=False)
-        )
-    ]
+    text="Other Insect creatures you control get +2/+2.",
+    setup_interceptors=_chomei_setup
 )
 
 
@@ -2078,18 +2187,18 @@ SNAKE_SUMMON = make_creature(
 )
 
 
+def _slug_summon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _ = etb_gain_life(obj, 3)
+    return [itc]
+
 SLUG_SUMMON = make_creature(
     name="Slug Summon",
     power=1, toughness=4,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Slug", "Summon"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(3)
-        )
-    ]
+    text="When Slug Summon enters the battlefield, you gain 3 life.",
+    setup_interceptors=_slug_summon_setup
 )
 
 
@@ -2113,18 +2222,33 @@ NATURE_CHAKRA_USER = make_creature(
 )
 
 
+def _wood_style_clone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def create_sapling(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Sapling',
+                'power': 1,
+                'toughness': 1,
+                'colors': {'G'},
+                'subtypes': {'Sapling'},
+                'keywords': [],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_death_trigger(obj, create_sapling)]
+
 WOOD_STYLE_CLONE = make_creature(
     name="Wood Style Clone",
     power=2, toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Treant", "Ninja", "Clone"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=CreateToken(name="Sapling", power=1, toughness=1, colors={"G"}, subtypes={"Sapling"})
-        )
-    ]
+    text="When Wood Style Clone dies, create a 1/1 green Sapling creature token.",
+    setup_interceptors=_wood_style_clone_setup
 )
 
 
@@ -2148,18 +2272,33 @@ GIANT_CENTIPEDE = make_creature(
 )
 
 
+def _aburame_insect_swarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def create_flying_insect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Insect',
+                'power': 1,
+                'toughness': 1,
+                'colors': {'G'},
+                'subtypes': {'Insect'},
+                'keywords': ['flying'],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_death_trigger(obj, create_flying_insect)]
+
 ABURAME_INSECT_SWARM = make_creature(
     name="Aburame Insect Swarm",
     power=1, toughness=1,
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Insect"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=CreateToken(name="Insect", power=1, toughness=1, colors={"G"}, subtypes={"Insect"}, keywords=["flying"])
-        )
-    ]
+    text="When Aburame Insect Swarm dies, create a 1/1 green Insect creature token with flying.",
+    setup_interceptors=_aburame_insect_swarm_setup
 )
 
 
@@ -2644,20 +2783,34 @@ SHINOBI_WAR = make_sorcery(
 )
 
 
+def _allied_shinobi_forces_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    pt_boost, _ = static_pt_boost_by_subtype(obj, 2, 1, "Ninja", include_self=True)
+
+    def create_ninja(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Ninja',
+                'power': 1,
+                'toughness': 1,
+                'colors': {'W'},
+                'subtypes': {'Ninja'},
+                'keywords': [],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return list(pt_boost) + [ih.make_upkeep_trigger(obj, create_ninja)]
+
 ALLIED_SHINOBI_FORCES = make_enchantment(
     name="Allied Shinobi Forces",
     mana_cost="{2}{W}{U}{R}",
     colors={Color.WHITE, Color.BLUE, Color.RED},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(2, 1),
-            filter=CreaturesWithSubtypeFilter("Ninja")
-        ),
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=CreateToken(name="Ninja", power=1, toughness=1, colors={"W"}, subtypes={"Ninja"})
-        )
-    ]
+    text="Ninja creatures you control get +2/+1. At the beginning of your upkeep, create a 1/1 white Ninja creature token.",
+    setup_interceptors=_allied_shinobi_forces_setup
 )
 
 

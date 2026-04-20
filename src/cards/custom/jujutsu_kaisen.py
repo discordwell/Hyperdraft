@@ -13,15 +13,101 @@ from src.engine import (
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness
 )
-from src.engine.abilities import (
-    TriggeredAbility, StaticAbility, KeywordAbility,
-    ETBTrigger, DeathTrigger, AttackTrigger, UpkeepTrigger, SpellCastTrigger, DealsDamageTrigger,
-    GainLife, LoseLife, DrawCards, AddCounters, CreateToken, DealDamage, Scry, CompositeEffect,
-    PTBoost, KeywordGrant,
-    OtherCreaturesYouControlFilter, CreaturesWithSubtypeFilter, CreaturesYouControlFilter, OpponentCreaturesFilter,
-    SelfTarget, AnotherCreature, ControllerTarget, EachOpponentTarget, CreatureWithSubtype, DamageTarget
-)
+from src.cards import interceptor_helpers as _ih
 from typing import Optional, Callable
+
+
+# =============================================================================
+# KEYWORD STORAGE HELPERS
+# =============================================================================
+# The old abilities DSL represented keyword abilities as ``KeywordAbility("Foo")``
+# instances. After the Phase 3 migration we lower those to plain dicts of the
+# shape ``{'keyword': 'Foo'}`` which mirrors Hearthstone's convention and is
+# what ``has_ability`` / ``Characteristics.keywords`` already understand.
+#
+# ``_kw_dicts`` returns a fresh list that can be installed on BOTH
+# ``Characteristics.abilities`` (so ``has_ability(obj, 'flying', ...)`` works
+# at runtime) and on ``CardDefinition.abilities`` (which several tests
+# introspect via ``str(a)`` to spot keywords like ``"Hexproof"``).
+
+def _kw_dicts(*keywords: str) -> list[dict]:
+    """Return a list of ``{'keyword': name}`` dicts (preserves case)."""
+    return [{'keyword': k} for k in keywords]
+
+
+def _make_creature_with_keywords(
+    *,
+    name: str,
+    power: int,
+    toughness: int,
+    mana_cost: str,
+    colors: set,
+    subtypes: set = None,
+    supertypes: set = None,
+    keywords: list[str] = None,
+    text: str = "",
+    setup_interceptors=None,
+) -> CardDefinition:
+    """Build a creature CardDefinition with keyword dicts pre-installed.
+
+    Keyword dicts live on BOTH ``characteristics.abilities`` (for runtime
+    queries) and ``CardDefinition.abilities`` (for the string-based keyword
+    assertions in ``tests/test_jujutsu_kaisen.py``). No DSL interceptors are
+    generated because these are plain dicts, so ``setup_interceptors`` stays
+    purely custom.
+    """
+    kw_list = list(keywords or [])
+    char_abilities = _kw_dicts(*kw_list)
+    # The CardDefinition abilities list is only for the keyword-substring
+    # fallback in tests; use a separate instance so mutations don't leak.
+    cd_abilities = _kw_dicts(*kw_list)
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes=subtypes or set(),
+            supertypes=supertypes or set(),
+            colors=colors,
+            mana_cost=mana_cost,
+            power=power,
+            toughness=toughness,
+            abilities=char_abilities,
+        ),
+        text=text,
+        abilities=cd_abilities,
+        setup_interceptors=setup_interceptors,
+    )
+
+
+def _make_enchantment_with_keywords(
+    *,
+    name: str,
+    mana_cost: str,
+    colors: set,
+    subtypes: set = None,
+    keywords: list[str] = None,
+    text: str = "",
+    setup_interceptors=None,
+) -> CardDefinition:
+    """Same as ``_make_creature_with_keywords`` but for enchantments."""
+    kw_list = list(keywords or [])
+    char_abilities = _kw_dicts(*kw_list)
+    cd_abilities = _kw_dicts(*kw_list)
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.ENCHANTMENT},
+            subtypes=subtypes or set(),
+            colors=colors,
+            mana_cost=mana_cost,
+            abilities=char_abilities,
+        ),
+        text=text,
+        abilities=cd_abilities,
+        setup_interceptors=setup_interceptors,
+    )
 
 
 # =============================================================================
@@ -186,6 +272,504 @@ def make_reverse_cursed_technique(source_obj: GameObject, heal_amount: int) -> I
     return make_damage_trigger(source_obj, damage_effect, combat_only=True)
 
 
+
+# =============================================================================
+# MIGRATED SETUP_INTERCEPTORS FUNCTIONS
+# These functions replace the old abilities-DSL-generated interceptors for each
+# card. They are ordered so that forward references (e.g. MEGUMI_FUSHIGURO's
+# setup referencing yuji_itadori_setup) resolve correctly.
+# =============================================================================
+
+def _jujutsu_instructor_setup_migrated(obj, state):
+    return _ih.make_static_pt_boost(
+        obj, 1, 1, _ih.creatures_with_subtype(obj, "Student")
+    )
+
+def _masamichi_yaga_setup_migrated(obj, state):
+    return _ih.make_static_pt_boost(
+        obj, 1, 1, _ih.creatures_with_subtype(obj, "Cursed Corpse")
+    )
+
+def _shikigami_summoner_setup_migrated(obj, state):
+    return _ih.make_static_pt_boost(
+        obj, 1, 1, _ih.creatures_with_subtype(obj, "Shikigami")
+    )
+
+def _zenin_clan_elder_setup_migrated(obj, state):
+    return _ih.make_static_pt_boost(
+        obj, 1, 1, _ih.other_creatures_with_subtype(obj, "Sorcerer")
+    )
+
+def _self_embodiment_of_perfection_setup_migrated(obj, state):
+    return _ih.make_static_pt_boost(
+        obj, -1, -1, _ih.opponent_creatures_filter(obj)
+    )
+
+def _chimera_shadow_garden_setup_migrated(obj, state):
+    filt = _ih.creatures_with_subtype(obj, "Shikigami")
+    out = list(_ih.make_static_pt_boost(obj, 2, 2, filt))
+    out.append(_ih.make_keyword_grant(obj, ["deathtouch"], filt))
+    return out
+
+def _window_guardian_setup_migrated(obj, state):
+    return _ih.make_static_pt_boost(
+        obj, 0, 1, _ih.other_creatures_with_subtype(obj, "Sorcerer")
+    )
+
+def _disease_curse_setup_migrated(obj, state):
+    return [_ih.make_keyword_grant(
+        obj, ["deathtouch"],
+        _ih.other_creatures_with_subtype(obj, "Curse"),
+    )]
+
+def _special_grade_curse_setup_migrated(obj, state):
+    return _ih.make_static_pt_boost(
+        obj, 1, 1, _ih.other_creatures_with_subtype(obj, "Curse"),
+    )
+
+def _special_grade_sorcerer_setup_migrated(obj, state):
+    return [_ih.make_keyword_grant(
+        obj, ["hexproof"],
+        _ih.other_creatures_with_subtype(obj, "Sorcerer"),
+    )]
+
+def _jujutsu_first_year_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': obj.controller, 'amount': 2},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _holy_ward_monk_setup_migrated(obj, state):
+    def effect(event, st):
+        return []
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _technique_analyst_setup_migrated(obj, state):
+    def effect(event, st):
+        # Scry is non-functional in the old DSL; preserve placeholder.
+        return []
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _auxiliary_manager_setup_migrated(obj, state):
+    def effect(event, st):
+        return []
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _yuta_okkotsu_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_spell_cast_trigger(
+        obj, effect,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )]
+
+def _cursed_energy_sensor_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_spell_cast_trigger(obj, effect, controller_only=False)]
+
+def _domain_master_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_spell_cast_trigger(
+        obj, effect, spell_type_filter={CardType.ENCHANTMENT},
+    )]
+
+def _geto_suguru_setup_migrated(obj, state):
+    def trigger_filter(event, st, src):
+        if event.type != EventType.ZONE_CHANGE: return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD: return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD: return False
+        dying_id = event.payload.get('object_id')
+        dying = st.objects.get(dying_id)
+        if not dying: return False
+        if dying.id == src.id: return False  # exclude self
+        if dying.controller == src.controller: return False  # opponent only
+        if CardType.CREATURE not in dying.characteristics.types: return False
+        return "Curse" in dying.characteristics.subtypes
+    def effect(event, st):
+        return [Event(type=EventType.OBJECT_CREATED,
+                      payload={'token': True, 'name': 'Absorbed Curse',
+                               'power': 2, 'toughness': 2,
+                               'colors': {Color.BLACK}, 'subtypes': {'Curse'},
+                               'keywords': [], 'controller': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_death_trigger(obj, effect, filter_fn=trigger_filter)]
+
+def _megumi_fushiguro_setup_migrated(obj, state):
+    def etb(event, st):
+        return [Event(type=EventType.OBJECT_CREATED,
+                      payload={'token': True, 'name': 'Divine Dog',
+                               'power': 2, 'toughness': 2,
+                               'colors': {Color.GREEN},
+                               'subtypes': {'Shikigami', 'Dog'},
+                               'keywords': [], 'controller': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    out = [_ih.make_etb_trigger(obj, etb)]
+    out.extend(_ih.make_static_pt_boost(
+        obj, 1, 0, _ih.creatures_with_subtype(obj, "Shikigami")
+    ))
+    return out
+
+def _nobara_kugisaki_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 2, 'source': obj.id},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+def _aoi_todo_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+def _yuji_itadori_setup_migrated(obj, state):
+    def attack_effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 1, 'source': obj.id},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    out = [_ih.make_attack_trigger(obj, attack_effect)]
+    # Preserve the Binding Vow interceptor from the original setup.
+    out.extend(yuji_itadori_setup(obj, state))
+    return out
+
+def _ryomen_sukuna_setup_migrated(obj, state):
+    def etb(event, st):
+        return []
+    out = [_ih.make_etb_trigger(obj, etb)]
+    out.extend(ryomen_sukuna_setup(obj, state))
+    return out
+
+def _mahito_setup_migrated(obj, state):
+    def to_creature_filter(event, st, src):
+        if event.type != EventType.DAMAGE: return False
+        if event.payload.get('source') != src.id: return False
+        target_id = event.payload.get('target')
+        target_obj = st.objects.get(target_id)
+        if not target_obj or CardType.CREATURE not in target_obj.characteristics.types:
+            return False
+        return True
+    def effect(event, st):
+        target_id = event.payload.get('target')
+        if not target_id:
+            return []
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': target_id, 'counter_type': '-1/-1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_damage_trigger(obj, effect, filter_fn=to_creature_filter)]
+
+def _jogo_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 2, 'source': obj.id},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+def _hanami_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+def _finger_bearer_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': opp, 'amount': -2},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _cursed_womb_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.OBJECT_CREATED,
+                      payload={'token': True, 'name': 'Curse',
+                               'power': 1, 'toughness': 1,
+                               'colors': {Color.BLACK}, 'subtypes': {'Curse'},
+                               'keywords': [], 'controller': obj.controller},
+                      source=obj.id, controller=obj.controller)
+                for _ in range(2)]
+    return [_ih.make_death_trigger(obj, effect)]
+
+def _vengeful_spirit_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': opp, 'amount': -2},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_death_trigger(obj, effect)]
+
+def _grasshopper_curse_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': opp, 'amount': -1},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_death_trigger(obj, effect)]
+
+def _choso_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 2, 'source': obj.id},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+def _toji_fushiguro_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': 'boost'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+def _berserker_sorcerer_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': 'boost'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+def _disaster_flame_caster_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 3, 'source': obj.id},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _cursed_energy_bomb_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 4, 'source': obj.id},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_death_trigger(obj, effect)]
+
+def _meteor_curse_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 2, 'source': obj.id},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _panda_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_damage_trigger(obj, effect, combat_only=True)]
+
+def _divine_dog_totality_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 2, 'source': obj.id},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+def _rabbit_escape_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.OBJECT_CREATED,
+                      payload={'token': True, 'name': 'Shikigami Rabbit',
+                               'power': 1, 'toughness': 1,
+                               'colors': {Color.GREEN},
+                               'subtypes': {'Shikigami', 'Rabbit'},
+                               'keywords': [], 'controller': obj.controller},
+                      source=obj.id, controller=obj.controller)
+                for _ in range(3)]
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _divine_dog_white_setup_migrated(obj, state):
+    def effect(event, st):
+        return []
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _divine_dog_black_setup_migrated(obj, state):
+    def effect(event, st):
+        return []
+    return [_ih.make_death_trigger(obj, effect)]
+
+def _max_elephant_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 3, 'source': obj.id},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _cursed_bud_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+def _nature_curse_spawn_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.OBJECT_CREATED,
+                      payload={'token': True, 'name': 'Curse',
+                               'power': 1, 'toughness': 1,
+                               'colors': {Color.GREEN}, 'subtypes': {'Curse'},
+                               'keywords': [], 'controller': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_death_trigger(obj, effect)]
+
+def _round_deer_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': obj.controller, 'amount': 4},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _tiger_funeral_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_death_trigger(obj, effect)]
+
+def _reverse_technique_master_setup_migrated(obj, state):
+    # Preserve original Reverse Cursed Technique healing
+    return reverse_technique_master_setup(obj, state)
+
+def _curse_collector_setup_migrated(obj, state):
+    def trigger_filter(event, st, src):
+        if event.type != EventType.ZONE_CHANGE: return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD: return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD: return False
+        dying = st.objects.get(event.payload.get('object_id'))
+        if not dying: return False
+        if dying.controller != src.controller: return False  # you control
+        if CardType.CREATURE not in dying.characteristics.types: return False
+        return "Curse" in dying.characteristics.subtypes
+    def effect(event, st):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_death_trigger(obj, effect, filter_fn=trigger_filter)]
+
+def _vengeful_ancestor_setup_migrated(obj, state):
+    def effect(event, st):
+        events = [Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': opp, 'amount': -2},
+                        source=obj.id, controller=obj.controller)
+                  for opp in _ih.all_opponents(obj, st)]
+        events.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': obj.controller, 'amount': 2},
+                            source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _domain_observer_setup_migrated(obj, state):
+    def trigger_filter(event, st, src):
+        if event.type != EventType.ZONE_CHANGE: return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD: return False
+        entering = st.objects.get(event.payload.get('object_id'))
+        if not entering: return False
+        if entering.id == src.id: return False
+        return CardType.CREATURE in entering.characteristics.types
+    def effect(event, st):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_etb_trigger(obj, effect, filter_fn=trigger_filter)]
+
+def _curse_cycle_spirit_setup_migrated(obj, state):
+    def effect(event, st):
+        return []
+    return [_ih.make_death_trigger(obj, effect)]
+
+def _technique_inheritance_setup_migrated(obj, state):
+    def trigger_filter(event, st, src):
+        if event.type != EventType.ZONE_CHANGE: return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD: return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD: return False
+        dying = st.objects.get(event.payload.get('object_id'))
+        if not dying: return False
+        if dying.controller != src.controller: return False
+        if CardType.CREATURE not in dying.characteristics.types: return False
+        return "Shikigami" in dying.characteristics.subtypes
+    def effect(event, st):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_death_trigger(obj, effect, filter_fn=trigger_filter)]
+
+def _finger_guardian_setup_migrated(obj, state):
+    def effect(event, st):
+        return []
+    return [_ih.make_etb_trigger(obj, effect)]
+
+def _malevolent_shrine_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 2, 'source': obj.id},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+def _horizon_of_captivating_skandha_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.OBJECT_CREATED,
+                      payload={'token': True, 'name': 'Shikigami Fish',
+                               'power': 1, 'toughness': 1,
+                               'colors': {Color.BLUE},
+                               'subtypes': {'Shikigami', 'Fish'},
+                               'keywords': [], 'controller': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+def _shining_sea_of_flowers_setup_migrated(obj, state):
+    def effect(event, st):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': obj.controller, 'amount': 2},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+def _cursed_womb_death_painting_setup_migrated(obj, state):
+    def effect(event, st):
+        events = [Event(type=EventType.OBJECT_CREATED,
+                        payload={'token': True, 'name': 'Curse',
+                                 'power': 1, 'toughness': 1,
+                                 'colors': {Color.BLACK}, 'subtypes': {'Curse'},
+                                 'keywords': [], 'controller': obj.controller},
+                        source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': obj.controller, 'amount': -1},
+                            source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+def _curse_purge_setup_migrated(obj, state):
+    def trigger_filter(event, st, src):
+        if event.type != EventType.ZONE_CHANGE: return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD: return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD: return False
+        dying = st.objects.get(event.payload.get('object_id'))
+        if not dying: return False
+        if CardType.CREATURE not in dying.characteristics.types: return False
+        # Old DSL: you_control=False -> opponents' Curses
+        if dying.controller == src.controller: return False
+        return "Curse" in dying.characteristics.subtypes
+    def effect(event, st):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_death_trigger(obj, effect, filter_fn=trigger_filter)]
+
 # =============================================================================
 # WHITE CARDS - JUJUTSU SORCERERS, PROTECTION, EXORCISM
 # =============================================================================
@@ -198,146 +782,113 @@ def yuji_itadori_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     interceptors.extend(make_binding_vow(obj, 2, 2, 0))
     return interceptors
 
-YUJI_ITADORI = make_creature(
+YUJI_ITADORI = _make_creature_with_keywords(
     name="Yuji Itadori, Sukuna's Vessel",
     power=3, toughness=3,
     mana_cost="{1}{W}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Haste"),
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=DealDamage(1, target=EachOpponentTarget())
-        )
-    ],
-    setup_interceptors=yuji_itadori_setup
+    keywords=['Haste'],
+    text="Haste Whenever Yuji Itadori, Sukuna's Vessel attacks, Yuji Itadori, Sukuna's Vessel deals 1 damage to each opponent.",
+    setup_interceptors=_yuji_itadori_setup_migrated,
 )
 
 
-MEGUMI_FUSHIGURO = make_creature(
+MEGUMI_FUSHIGURO = _make_creature_with_keywords(
     name="Megumi Fushiguro, Ten Shadows",
     power=2, toughness=3,
     mana_cost="{1}{W}{G}",
     colors={Color.WHITE, Color.GREEN},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name="Divine Dog", power=2, toughness=2, colors={Color.GREEN}, subtypes={"Shikigami", "Dog"})
-        ),
-        StaticAbility(
-            effect=PTBoost(1, 0),
-            filter=CreaturesWithSubtypeFilter("Shikigami")
-        )
-    ]
+    text='When Megumi Fushiguro, Ten Shadows enters the battlefield, create a 2/2 green Divine Dog creature token. Shikigami creatures you control get +1/+0.',
+    setup_interceptors=_megumi_fushiguro_setup_migrated,
 )
 
 
-NOBARA_KUGISAKI = make_creature(
+NOBARA_KUGISAKI = _make_creature_with_keywords(
     name="Nobara Kugisaki, Straw Doll",
     power=3, toughness=2,
     mana_cost="{1}{W}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("First strike"),
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=DealDamage(2, target=EachOpponentTarget())
-        )
-    ]
+    keywords=['First strike'],
+    text='First strike Whenever Nobara Kugisaki, Straw Doll attacks, Nobara Kugisaki, Straw Doll deals 2 damage to each opponent.',
+    setup_interceptors=_nobara_kugisaki_setup_migrated,
 )
 
 
-SATORU_GOJO = make_creature(
+SATORU_GOJO = _make_creature_with_keywords(
     name="Satoru Gojo, The Strongest",
     power=6, toughness=6,
     mana_cost="{3}{W}{U}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Hexproof"),
-        KeywordAbility("Flying")
-    ]
+    keywords=['Hexproof', 'Flying'],
+    text='Hexproof Flying',
 )
 
 
-AOI_TODO = make_creature(
+AOI_TODO = _make_creature_with_keywords(
     name="Aoi Todo, Best Friend",
     power=5, toughness=4,
     mana_cost="{3}{W}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Trample"),
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=AddCounters("+1/+1", 1)
-        )
-    ]
+    keywords=['Trample'],
+    text='Trample Whenever Aoi Todo, Best Friend attacks, put a +1/+1 counter on Aoi Todo, Best Friend.',
+    setup_interceptors=_aoi_todo_setup_migrated,
 )
 
 
 # --- Regular White Creatures ---
 
-JUJUTSU_FIRST_YEAR = make_creature(
+JUJUTSU_FIRST_YEAR = _make_creature_with_keywords(
     name="Jujutsu High First Year",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer", "Student"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(2)
-        )
-    ]
+    text='When Jujutsu High First Year enters the battlefield, you gain 2 life.',
+    setup_interceptors=_jujutsu_first_year_setup_migrated,
 )
 
 
-KYOTO_STUDENT = make_creature(
+KYOTO_STUDENT = _make_creature_with_keywords(
     name="Kyoto Jujutsu Student",
     power=2, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer", "Student"},
-    abilities=[
-        KeywordAbility("Vigilance")
-    ]
+    keywords=['Vigilance'],
+    text='Vigilance',
 )
 
 
-EXORCIST_SORCERER = make_creature(
+EXORCIST_SORCERER = _make_creature_with_keywords(
     name="Exorcist Sorcerer",
     power=2, toughness=2,
     mana_cost="{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        KeywordAbility("Protection from Curses")
-    ]
+    keywords=['Protection from Curses'],
+    text='Protection from Curses',
 )
 
 
-WINDOW_GUARDIAN = make_creature(
+WINDOW_GUARDIAN = _make_creature_with_keywords(
     name="Window Guardian",
     power=1, toughness=4,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        KeywordAbility("Defender"),
-        StaticAbility(
-            effect=PTBoost(0, 1),
-            filter=CreaturesWithSubtypeFilter("Sorcerer", include_self=False)
-        )
-    ]
+    keywords=['Defender'],
+    text='Defender Other Sorcerer creatures you control get +0/+1.',
+    setup_interceptors=_window_guardian_setup_migrated,
 )
 
 
@@ -350,15 +901,14 @@ BARRIER_TECHNICIAN = make_creature(
 )
 
 
-TEMPLE_PRIEST = make_creature(
+TEMPLE_PRIEST = _make_creature_with_keywords(
     name="Temple Priest",
     power=2, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Cleric"},
-    abilities=[
-        KeywordAbility("Lifelink")
-    ]
+    keywords=['Lifelink'],
+    text='Lifelink',
 )
 
 
@@ -371,46 +921,36 @@ CURSED_SPEECH_STUDENT = make_creature(
 )
 
 
-HOLY_WARD_MONK = make_creature(
+HOLY_WARD_MONK = _make_creature_with_keywords(
     name="Holy Ward Monk",
     power=2, toughness=2,
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Monk"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CompositeEffect([])  # Exile target Curse - needs targeting system
-        )
-    ]
+    text='When Holy Ward Monk enters the battlefield, .',
+    setup_interceptors=_holy_ward_monk_setup_migrated,
 )
 
 
-JUJUTSU_INSTRUCTOR = make_creature(
+JUJUTSU_INSTRUCTOR = _make_creature_with_keywords(
     name="Jujutsu High Instructor",
     power=3, toughness=3,
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Student")
-        )
-    ]
+    text='Student creatures you control get +1/+1.',
+    setup_interceptors=_jujutsu_instructor_setup_migrated,
 )
 
 
-GUARDIAN_SHIKIGAMI = make_creature(
+GUARDIAN_SHIKIGAMI = _make_creature_with_keywords(
     name="Guardian Shikigami",
     power=0, toughness=4,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit", "Shikigami"},
-    abilities=[
-        KeywordAbility("Defender"),
-        KeywordAbility("Vigilance")
-    ]
+    keywords=['Defender', 'Vigilance'],
+    text='Defender Vigilance',
 )
 
 
@@ -418,16 +958,15 @@ def reverse_technique_master_setup(obj: GameObject, state: GameState) -> list[In
     """Reverse Cursed Technique healing"""
     return [make_reverse_cursed_technique(obj, 0)]
 
-REVERSE_TECHNIQUE_MASTER = make_creature(
+REVERSE_TECHNIQUE_MASTER = _make_creature_with_keywords(
     name="Reverse Technique Master",
     power=2, toughness=4,
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        KeywordAbility("Lifelink")
-    ],
-    setup_interceptors=reverse_technique_master_setup
+    keywords=['Lifelink'],
+    text='Lifelink',
+    setup_interceptors=_reverse_technique_master_setup_migrated,
 )
 
 
@@ -440,15 +979,14 @@ BINDING_OATH_ENFORCER = make_creature(
 )
 
 
-HEAVENLY_RESTRICTION_WARRIOR = make_creature(
+HEAVENLY_RESTRICTION_WARRIOR = _make_creature_with_keywords(
     name="Heavenly Restriction Warrior",
     power=4, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Warrior"},
-    abilities=[
-        KeywordAbility("First strike")
-    ]
+    keywords=['First strike'],
+    text='First strike',
 )
 
 
@@ -458,19 +996,15 @@ HEAVENLY_RESTRICTION_WARRIOR = make_creature(
 
 # --- Legendary Creatures ---
 
-YUTA_OKKOTSU = make_creature(
+YUTA_OKKOTSU = _make_creature_with_keywords(
     name="Yuta Okkotsu, Rika's Beloved",
     power=4, toughness=4,
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=SpellCastTrigger(spell_types={CardType.INSTANT, CardType.SORCERY}),
-            effect=AddCounters("+1/+1", 1)
-        )
-    ]
+    text="Whenever you cast a instant or sorcery, put a +1/+1 counter on Yuta Okkotsu, Rika's Beloved.",
+    setup_interceptors=_yuta_okkotsu_setup_migrated,
 )
 
 
@@ -495,65 +1029,52 @@ TOGE_INUMAKI = make_creature(
 )
 
 
-GETO_SUGURU = make_creature(
+GETO_SUGURU = _make_creature_with_keywords(
     name="Geto Suguru, Curse Manipulator",
     power=4, toughness=3,
     mana_cost="{2}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(target=CreatureWithSubtype("Curse", you_control=False, exclude_self=True)),
-            effect=CreateToken(name="Absorbed Curse", power=2, toughness=2, colors={Color.BLACK}, subtypes={"Curse"})
-        )
-    ]
+    text='Whenever another Curse dies, create a 2/2 black Absorbed Curse creature token.',
+    setup_interceptors=_geto_suguru_setup_migrated,
 )
 
 
-MASAMICHI_YAGA = make_creature(
+MASAMICHI_YAGA = _make_creature_with_keywords(
     name="Masamichi Yaga, Principal",
     power=3, toughness=4,
     mana_cost="{2}{U}{G}",
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Cursed Corpse")
-        )
-    ]
+    text='Cursed Corpse creatures you control get +1/+1.',
+    setup_interceptors=_masamichi_yaga_setup_migrated,
 )
 
 
-KENTO_NANAMI = make_creature(
+KENTO_NANAMI = _make_creature_with_keywords(
     name="Kento Nanami, Ratio Technique",
     power=4, toughness=3,
     mana_cost="{2}{U}{W}",
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("First strike")
-    ]
+    keywords=['First strike'],
+    text='First strike',
 )
 
 
 # --- Regular Blue Creatures ---
 
-TECHNIQUE_ANALYST = make_creature(
+TECHNIQUE_ANALYST = _make_creature_with_keywords(
     name="Technique Analyst",
     power=1, toughness=3,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=Scry(2)
-        )
-    ]
+    text='When Technique Analyst enters the battlefield, scry 2.',
+    setup_interceptors=_technique_analyst_setup_migrated,
 )
 
 
@@ -566,19 +1087,14 @@ INFINITY_APPRENTICE = make_creature(
 )
 
 
-CURSED_ENERGY_SENSOR = make_creature(
+CURSED_ENERGY_SENSOR = _make_creature_with_keywords(
     name="Cursed Energy Sensor",
     power=1, toughness=2,
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        TriggeredAbility(
-            trigger=SpellCastTrigger(controller_only=False),
-            effect=DrawCards(1),
-            optional=True
-        )
-    ]
+    text='Whenever an opponent casts a spell, you may draw a card.',
+    setup_interceptors=_cursed_energy_sensor_setup_migrated,
 )
 
 
@@ -618,15 +1134,14 @@ DOMAIN_RESEARCHER = make_creature(
 )
 
 
-LIMITLESS_STUDENT = make_creature(
+LIMITLESS_STUDENT = _make_creature_with_keywords(
     name="Limitless Student",
     power=2, toughness=2,
     mana_cost="{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer", "Student"},
-    abilities=[
-        KeywordAbility("Unblockable")
-    ]
+    keywords=['Unblockable'],
+    text='Unblockable',
 )
 
 
@@ -639,15 +1154,14 @@ SPATIAL_MANIPULATOR = make_creature(
 )
 
 
-TECHNIQUE_REVERSAL_MAGE = make_creature(
+TECHNIQUE_REVERSAL_MAGE = _make_creature_with_keywords(
     name="Technique Reversal Mage",
     power=2, toughness=2,
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        KeywordAbility("Flash")
-    ]
+    keywords=['Flash'],
+    text='Flash',
 )
 
 
@@ -679,177 +1193,137 @@ def ryomen_sukuna_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """King of Curses - Binding Vow for power boost"""
     return make_binding_vow(obj, 3, 4, 0)
 
-RYOMEN_SUKUNA = make_creature(
+RYOMEN_SUKUNA = _make_creature_with_keywords(
     name="Ryomen Sukuna, King of Curses",
     power=7, toughness=6,
     mana_cost="{4}{B}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Curse", "Avatar"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Double strike"),
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CompositeEffect([])  # Destroy up to two creatures - needs targeting
-        )
-    ],
-    setup_interceptors=ryomen_sukuna_setup
+    keywords=['Double strike'],
+    text='Double strike When Ryomen Sukuna, King of Curses enters the battlefield, .',
+    setup_interceptors=_ryomen_sukuna_setup_migrated,
 )
 
 
-MAHITO = make_creature(
+MAHITO = _make_creature_with_keywords(
     name="Mahito, Soul Sculptor",
     power=4, toughness=4,
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DealsDamageTrigger(to_creature=True),
-            effect=AddCounters("-1/-1", 1, target=DamageTarget())
-        )
-    ]
+    text='Whenever Mahito, Soul Sculptor deals damage to a creature, put a -1/-1 counter on that creature.',
+    setup_interceptors=_mahito_setup_migrated,
 )
 
 
-JOGO = make_creature(
+JOGO = _make_creature_with_keywords(
     name="Jogo, Volcano Curse",
     power=5, toughness=4,
     mana_cost="{3}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Curse", "Elemental"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Haste"),
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=DealDamage(2, target=EachOpponentTarget())
-        )
-    ]
+    keywords=['Haste'],
+    text='Haste Whenever Jogo, Volcano Curse attacks, Jogo, Volcano Curse deals 2 damage to each opponent.',
+    setup_interceptors=_jogo_setup_migrated,
 )
 
 
-HANAMI = make_creature(
+HANAMI = _make_creature_with_keywords(
     name="Hanami, Forest Curse",
     power=4, toughness=5,
     mana_cost="{2}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Curse", "Elemental"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Reach"),
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=AddCounters("+1/+1", 1)
-        )
-    ]
+    keywords=['Reach'],
+    text='Reach At the beginning of your upkeep, put a +1/+1 counter on Hanami, Forest Curse.',
+    setup_interceptors=_hanami_setup_migrated,
 )
 
 
-DAGON = make_creature(
+DAGON = _make_creature_with_keywords(
     name="Dagon, Ocean Curse",
     power=5, toughness=5,
     mana_cost="{3}{B}{U}",
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Curse", "Elemental"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Unblockable")
-    ]
+    keywords=['Unblockable'],
+    text='Unblockable',
 )
 
 
 # --- Regular Black Creatures ---
 
-FINGER_BEARER = make_creature(
+FINGER_BEARER = _make_creature_with_keywords(
     name="Finger Bearer",
     power=4, toughness=3,
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=LoseLife(2, target=EachOpponentTarget())
-        )
-    ]
+    text='When Finger Bearer enters the battlefield, each opponent loses 2 life.',
+    setup_interceptors=_finger_bearer_setup_migrated,
 )
 
 
-CURSED_WOMB = make_creature(
+CURSED_WOMB = _make_creature_with_keywords(
     name="Cursed Womb",
     power=3, toughness=4,
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=CreateToken(name="Curse", power=1, toughness=1, colors={Color.BLACK}, subtypes={"Curse"}, count=2)
-        )
-    ]
+    text='When Cursed Womb dies, create two 1/1 black Curse creature token.',
+    setup_interceptors=_cursed_womb_setup_migrated,
 )
 
 
-VENGEFUL_SPIRIT = make_creature(
+VENGEFUL_SPIRIT = _make_creature_with_keywords(
     name="Vengeful Cursed Spirit",
     power=3, toughness=2,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit", "Curse"},
-    abilities=[
-        KeywordAbility("Menace"),
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=LoseLife(2, target=EachOpponentTarget())
-        )
-    ]
+    keywords=['Menace'],
+    text='Menace When Vengeful Cursed Spirit dies, each opponent loses 2 life.',
+    setup_interceptors=_vengeful_spirit_setup_migrated,
 )
 
 
-DISEASE_CURSE = make_creature(
+DISEASE_CURSE = _make_creature_with_keywords(
     name="Disease Curse",
     power=2, toughness=3,
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    abilities=[
-        KeywordAbility("Deathtouch"),
-        StaticAbility(
-            effect=KeywordGrant(["deathtouch"]),
-            filter=CreaturesWithSubtypeFilter("Curse", include_self=False)
-        )
-    ]
+    keywords=['Deathtouch'],
+    text='Deathtouch Other Curse creatures you control have deathtouch.',
+    setup_interceptors=_disease_curse_setup_migrated,
 )
 
 
-GRASSHOPPER_CURSE = make_creature(
+GRASSHOPPER_CURSE = _make_creature_with_keywords(
     name="Grasshopper Curse",
     power=2, toughness=1,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Curse", "Insect"},
-    abilities=[
-        KeywordAbility("Flying"),
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=LoseLife(1, target=EachOpponentTarget())
-        )
-    ]
+    keywords=['Flying'],
+    text='Flying When Grasshopper Curse dies, each opponent loses 1 life.',
+    setup_interceptors=_grasshopper_curse_setup_migrated,
 )
 
 
-FLY_HEAD_CURSE = make_creature(
+FLY_HEAD_CURSE = _make_creature_with_keywords(
     name="Fly Head Curse",
     power=3, toughness=1,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    abilities=[
-        KeywordAbility("Flying"),
-        KeywordAbility("Haste")
-    ]
+    keywords=['Flying', 'Haste'],
+    text='Flying Haste',
 )
 
 
@@ -862,19 +1336,15 @@ RESENTFUL_CURSE = make_creature(
 )
 
 
-SPECIAL_GRADE_CURSE = make_creature(
+SPECIAL_GRADE_CURSE = _make_creature_with_keywords(
     name="Special Grade Curse",
     power=6, toughness=5,
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    abilities=[
-        KeywordAbility("Menace"),
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Curse", include_self=False)
-        )
-    ]
+    keywords=['Menace'],
+    text='Menace Other Curse creatures you control get +1/+1.',
+    setup_interceptors=_special_grade_curse_setup_migrated,
 )
 
 
@@ -938,63 +1408,52 @@ CURSE_USER = make_creature(
 
 # --- Legendary Creatures ---
 
-MAKI_ZENIN = make_creature(
+MAKI_ZENIN = _make_creature_with_keywords(
     name="Maki Zenin, Heavenly Pact",
     power=4, toughness=3,
     mana_cost="{2}{R}{W}",
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("First strike"),
-        KeywordAbility("Vigilance")
-    ]
+    keywords=['First strike', 'Vigilance'],
+    text='First strike Vigilance',
 )
 
 
-CHOSO = make_creature(
+CHOSO = _make_creature_with_keywords(
     name="Choso, Death Painting",
     power=4, toughness=4,
     mana_cost="{2}{R}{B}",
     colors={Color.RED, Color.BLACK},
     subtypes={"Curse", "Human"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=DealDamage(2, target=EachOpponentTarget())
-        )
-    ]
+    text='Whenever Choso, Death Painting attacks, Choso, Death Painting deals 2 damage to each opponent.',
+    setup_interceptors=_choso_setup_migrated,
 )
 
 
-TOJI_FUSHIGURO = make_creature(
+TOJI_FUSHIGURO = _make_creature_with_keywords(
     name="Toji Fushiguro, Sorcerer Killer",
     power=5, toughness=4,
     mana_cost="{3}{R}{B}",
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Assassin"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("First strike"),
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=AddCounters("boost", 1)  # +3/+0 when attacking Sorcerer controller
-        )
-    ]
+    keywords=['First strike'],
+    text='First strike Whenever Toji Fushiguro, Sorcerer Killer attacks, put a boost counter on Toji Fushiguro, Sorcerer Killer.',
+    setup_interceptors=_toji_fushiguro_setup_migrated,
 )
 
 
-NAOBITO_ZENIN = make_creature(
+NAOBITO_ZENIN = _make_creature_with_keywords(
     name="Naobito Zenin, Projection",
     power=4, toughness=3,
     mana_cost="{2}{R}{U}",
     colors={Color.RED, Color.BLUE},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Haste")
-    ]
+    keywords=['Haste'],
+    text='Haste',
 )
 
 
@@ -1010,30 +1469,25 @@ KAMO_NORITOSHI = make_creature(
 
 # --- Regular Red Creatures ---
 
-BERSERKER_SORCERER = make_creature(
+BERSERKER_SORCERER = _make_creature_with_keywords(
     name="Berserker Sorcerer",
     power=3, toughness=2,
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=AddCounters("boost", 1)  # +2/+0 until end of turn
-        )
-    ]
+    text='Whenever Berserker Sorcerer attacks, put a boost counter on Berserker Sorcerer.',
+    setup_interceptors=_berserker_sorcerer_setup_migrated,
 )
 
 
-CURSED_TECHNIQUE_STRIKER = make_creature(
+CURSED_TECHNIQUE_STRIKER = _make_creature_with_keywords(
     name="Cursed Technique Striker",
     power=2, toughness=1,
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        KeywordAbility("Haste")
-    ]
+    keywords=['Haste'],
+    text='Haste',
 )
 
 
@@ -1046,18 +1500,14 @@ BLACK_FLASH_USER = make_creature(
 )
 
 
-DISASTER_FLAME_CASTER = make_creature(
+DISASTER_FLAME_CASTER = _make_creature_with_keywords(
     name="Disaster Flame Caster",
     power=3, toughness=3,
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Curse", "Shaman"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DealDamage(3, target=EachOpponentTarget())
-        )
-    ]
+    text='When Disaster Flame Caster enters the battlefield, Disaster Flame Caster deals 3 damage to each opponent.',
+    setup_interceptors=_disaster_flame_caster_setup_migrated,
 )
 
 
@@ -1070,42 +1520,36 @@ BLOOD_ARROW_ARCHER = make_creature(
 )
 
 
-ZENIN_CLAN_WARRIOR = make_creature(
+ZENIN_CLAN_WARRIOR = _make_creature_with_keywords(
     name="Zenin Clan Warrior",
     power=3, toughness=1,
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    abilities=[
-        KeywordAbility("First strike")
-    ]
+    keywords=['First strike'],
+    text='First strike',
 )
 
 
-PLAYFUL_CLOUD_WIELDER = make_creature(
+PLAYFUL_CLOUD_WIELDER = _make_creature_with_keywords(
     name="Playful Cloud Wielder",
     power=4, toughness=3,
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    abilities=[
-        KeywordAbility("Trample")
-    ]
+    keywords=['Trample'],
+    text='Trample',
 )
 
 
-CURSED_ENERGY_BOMB = make_creature(
+CURSED_ENERGY_BOMB = _make_creature_with_keywords(
     name="Cursed Energy Bomb",
     power=4, toughness=1,
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Curse", "Elemental"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=DealDamage(4, target=EachOpponentTarget())
-        )
-    ]
+    text='When Cursed Energy Bomb dies, Cursed Energy Bomb deals 4 damage to each opponent.',
+    setup_interceptors=_cursed_energy_bomb_setup_migrated,
 )
 
 
@@ -1127,19 +1571,15 @@ CLEAVE_PRACTITIONER = make_creature(
 )
 
 
-METEOR_CURSE = make_creature(
+METEOR_CURSE = _make_creature_with_keywords(
     name="Meteor Curse",
     power=5, toughness=3,
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Curse", "Elemental"},
-    abilities=[
-        KeywordAbility("Trample"),
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DealDamage(2, target=EachOpponentTarget())
-        )
-    ]
+    keywords=['Trample'],
+    text='Trample When Meteor Curse enters the battlefield, Meteor Curse deals 2 damage to each opponent.',
+    setup_interceptors=_meteor_curse_setup_migrated,
 )
 
 
@@ -1158,224 +1598,179 @@ DOMAIN_AMPLIFIER = make_creature(
 
 # --- Legendary Creatures ---
 
-PANDA = make_creature(
+PANDA = _make_creature_with_keywords(
     name="Panda, Cursed Corpse",
     power=4, toughness=4,
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Construct", "Panda"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Trample"),
-        TriggeredAbility(
-            trigger=DealsDamageTrigger(combat_only=True),
-            effect=AddCounters("+1/+1", 1)
-        )
-    ]
+    keywords=['Trample'],
+    text='Trample Whenever Panda, Cursed Corpse deals combat damage, put a +1/+1 counter on Panda, Cursed Corpse.',
+    setup_interceptors=_panda_setup_migrated,
 )
 
 
-MAHORAGA = make_creature(
+MAHORAGA = _make_creature_with_keywords(
     name="Mahoraga, Eight-Handled Sword",
     power=8, toughness=8,
     mana_cost="{6}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Divine"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Trample"),
-        KeywordAbility("Indestructible")
-    ]
+    keywords=['Trample', 'Indestructible'],
+    text='Trample Indestructible',
 )
 
 
-DIVINE_DOG_TOTALITY = make_creature(
+DIVINE_DOG_TOTALITY = _make_creature_with_keywords(
     name="Divine Dog: Totality",
     power=5, toughness=4,
     mana_cost="{3}{G}{B}",
     colors={Color.GREEN, Color.BLACK},
     subtypes={"Shikigami", "Dog"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Menace"),
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=DealDamage(2, target=EachOpponentTarget())
-        )
-    ]
+    keywords=['Menace'],
+    text='Menace Whenever Divine Dog: Totality attacks, Divine Dog: Totality deals 2 damage to each opponent.',
+    setup_interceptors=_divine_dog_totality_setup_migrated,
 )
 
 
-NUE_SHIKIGAMI = make_creature(
+NUE_SHIKIGAMI = _make_creature_with_keywords(
     name="Nue, Thunder Shikigami",
     power=3, toughness=2,
     mana_cost="{2}{G}{U}",
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Shikigami", "Bird"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Flying")
-    ]
+    keywords=['Flying'],
+    text='Flying',
 )
 
 
-RABBIT_ESCAPE = make_creature(
+RABBIT_ESCAPE = _make_creature_with_keywords(
     name="Rabbit Escape Swarm",
     power=1, toughness=1,
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Rabbit"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name="Shikigami Rabbit", power=1, toughness=1, colors={Color.GREEN}, subtypes={"Shikigami", "Rabbit"}, count=3)
-        )
-    ]
+    text='When Rabbit Escape Swarm enters the battlefield, create three 1/1 green Shikigami Rabbit creature token.',
+    setup_interceptors=_rabbit_escape_setup_migrated,
 )
 
 
 # --- Regular Green Creatures ---
 
-DIVINE_DOG_WHITE = make_creature(
+DIVINE_DOG_WHITE = _make_creature_with_keywords(
     name="Divine Dog: White",
     power=2, toughness=2,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Dog"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CompositeEffect([])  # Search for Dog - needs targeting
-        )
-    ]
+    text='When Divine Dog: White enters the battlefield, .',
+    setup_interceptors=_divine_dog_white_setup_migrated,
 )
 
 
-DIVINE_DOG_BLACK = make_creature(
+DIVINE_DOG_BLACK = _make_creature_with_keywords(
     name="Divine Dog: Black",
     power=3, toughness=2,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Dog"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=CompositeEffect([])  # Return Shikigami from graveyard - needs targeting
-        )
-    ]
+    text='When Divine Dog: Black dies, .',
+    setup_interceptors=_divine_dog_black_setup_migrated,
 )
 
 
-TOAD_SHIKIGAMI = make_creature(
+TOAD_SHIKIGAMI = _make_creature_with_keywords(
     name="Toad Shikigami",
     power=1, toughness=3,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Frog"},
-    abilities=[
-        KeywordAbility("Reach")
-    ]
+    keywords=['Reach'],
+    text='Reach',
 )
 
 
-MAX_ELEPHANT = make_creature(
+MAX_ELEPHANT = _make_creature_with_keywords(
     name="Max Elephant",
     power=5, toughness=5,
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Elephant"},
-    abilities=[
-        KeywordAbility("Trample"),
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DealDamage(3, target=EachOpponentTarget()),
-            optional=True
-        )
-    ]
+    keywords=['Trample'],
+    text='Trample When Max Elephant enters the battlefield, you may Max Elephant deals 3 damage to each opponent.',
+    setup_interceptors=_max_elephant_setup_migrated,
 )
 
 
-GREAT_SERPENT = make_creature(
+GREAT_SERPENT = _make_creature_with_keywords(
     name="Great Serpent Shikigami",
     power=4, toughness=3,
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Snake"},
-    abilities=[
-        KeywordAbility("Deathtouch"),
-        KeywordAbility("Reach")
-    ]
+    keywords=['Deathtouch', 'Reach'],
+    text='Deathtouch Reach',
 )
 
 
-SHIKIGAMI_SUMMONER = make_creature(
+SHIKIGAMI_SUMMONER = _make_creature_with_keywords(
     name="Shikigami Summoner",
     power=2, toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Shikigami")
-        )
-    ]
+    text='Shikigami creatures you control get +1/+1.',
+    setup_interceptors=_shikigami_summoner_setup_migrated,
 )
 
 
-FOREST_SPIRIT_CURSE = make_creature(
+FOREST_SPIRIT_CURSE = _make_creature_with_keywords(
     name="Forest Spirit Curse",
     power=3, toughness=4,
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Curse", "Spirit"},
-    abilities=[
-        KeywordAbility("Hexproof")
-    ]
+    keywords=['Hexproof'],
+    text='Hexproof',
 )
 
 
-CURSED_BUD = make_creature(
+CURSED_BUD = _make_creature_with_keywords(
     name="Cursed Bud",
     power=0, toughness=3,
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Curse", "Plant"},
-    abilities=[
-        KeywordAbility("Defender"),
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=AddCounters("+1/+1", 1)
-        )
-    ]
+    keywords=['Defender'],
+    text='Defender At the beginning of your upkeep, put a +1/+1 counter on Cursed Bud.',
+    setup_interceptors=_cursed_bud_setup_migrated,
 )
 
 
-NATURE_CURSE_SPAWN = make_creature(
+NATURE_CURSE_SPAWN = _make_creature_with_keywords(
     name="Nature Curse Spawn",
     power=2, toughness=2,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Curse", "Elemental"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=CreateToken(name="Curse", power=1, toughness=1, colors={Color.GREEN}, subtypes={"Curse"})
-        )
-    ]
+    text='When Nature Curse Spawn dies, create a 1/1 green Curse creature token.',
+    setup_interceptors=_nature_curse_spawn_setup_migrated,
 )
 
 
-CHIMERA_DEATH_PAINTING = make_creature(
+CHIMERA_DEATH_PAINTING = _make_creature_with_keywords(
     name="Chimera Death Painting",
     power=4, toughness=3,
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Curse", "Chimera"},
-    abilities=[
-        KeywordAbility("Trample")
-    ]
+    keywords=['Trample'],
+    text='Trample',
 )
 
 
@@ -1388,34 +1783,26 @@ WHEEL_SHIKIGAMI = make_creature(
 )
 
 
-ROUND_DEER = make_creature(
+ROUND_DEER = _make_creature_with_keywords(
     name="Round Deer Shikigami",
     power=2, toughness=4,
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Elk"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(4)
-        )
-    ]
+    text='When Round Deer Shikigami enters the battlefield, you gain 4 life.',
+    setup_interceptors=_round_deer_setup_migrated,
 )
 
 
-TIGER_FUNERAL = make_creature(
+TIGER_FUNERAL = _make_creature_with_keywords(
     name="Tiger Funeral Shikigami",
     power=4, toughness=2,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Cat"},
-    abilities=[
-        KeywordAbility("Haste"),
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=DrawCards(1)
-        )
-    ]
+    keywords=['Haste'],
+    text='Haste When Tiger Funeral Shikigami dies, draw a card.',
+    setup_interceptors=_tiger_funeral_setup_migrated,
 )
 
 
@@ -1423,28 +1810,26 @@ TIGER_FUNERAL = make_creature(
 # MULTICOLOR CARDS
 # =============================================================================
 
-SUKUNA_FINGER = make_creature(
+SUKUNA_FINGER = _make_creature_with_keywords(
     name="Sukuna's Finger",
     power=0, toughness=1,
     mana_cost="{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Curse", "Horror"},
-    abilities=[
-        KeywordAbility("Indestructible")
-    ]
+    keywords=['Indestructible'],
+    text='Indestructible',
 )
 
 
-RIKA_ORIMOTO = make_creature(
+RIKA_ORIMOTO = _make_creature_with_keywords(
     name="Rika Orimoto, Cursed Queen",
     power=6, toughness=6,
     mana_cost="{4}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Spirit", "Curse"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Flying")
-    ]
+    keywords=['Flying'],
+    text='Flying',
 )
 
 
@@ -1457,16 +1842,15 @@ DOMAIN_CLASHING_SORCERERS = make_creature(
 )
 
 
-MEI_MEI = make_creature(
+MEI_MEI = _make_creature_with_keywords(
     name="Mei Mei, Crow Controller",
     power=3, toughness=3,
     mana_cost="{2}{W}{B}",
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility("Flying")
-    ]
+    keywords=['Flying'],
+    text='Flying',
 )
 
 
@@ -1830,17 +2214,13 @@ SOUL_MULTIPLICITY = make_sorcery(
 # ENCHANTMENTS - DOMAIN EXPANSIONS
 # =============================================================================
 
-MALEVOLENT_SHRINE = make_enchantment(
+MALEVOLENT_SHRINE = _make_enchantment_with_keywords(
     name="Malevolent Shrine",
     mana_cost="{4}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Domain"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=DealDamage(2, target=EachOpponentTarget())
-        )
-    ]
+    text='At the beginning of your upkeep, Malevolent Shrine deals 2 damage to each opponent.',
+    setup_interceptors=_malevolent_shrine_setup_migrated,
 )
 
 
@@ -1852,35 +2232,23 @@ UNLIMITED_VOID = make_enchantment(
 )
 
 
-CHIMERA_SHADOW_GARDEN = make_enchantment(
+CHIMERA_SHADOW_GARDEN = _make_enchantment_with_keywords(
     name="Chimera Shadow Garden",
     mana_cost="{3}{G}{B}",
     colors={Color.GREEN, Color.BLACK},
     subtypes={"Domain"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(2, 2),
-            filter=CreaturesWithSubtypeFilter("Shikigami")
-        ),
-        StaticAbility(
-            effect=KeywordGrant(["deathtouch"]),
-            filter=CreaturesWithSubtypeFilter("Shikigami")
-        )
-    ]
+    text='Shikigami creatures you control get +2/+2. Shikigami creatures you control have deathtouch.',
+    setup_interceptors=_chimera_shadow_garden_setup_migrated,
 )
 
 
-SELF_EMBODIMENT_OF_PERFECTION = make_enchantment(
+SELF_EMBODIMENT_OF_PERFECTION = _make_enchantment_with_keywords(
     name="Self-Embodiment of Perfection",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Domain"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(-1, -1),
-            filter=OpponentCreaturesFilter()
-        )
-    ]
+    text='Creatures your opponents control get -1/-1.',
+    setup_interceptors=_self_embodiment_of_perfection_setup_migrated,
 )
 
 
@@ -1917,31 +2285,23 @@ COFFIN_OF_THE_IRON_MOUNTAIN = make_enchantment(
 )
 
 
-HORIZON_OF_CAPTIVATING_SKANDHA = make_enchantment(
+HORIZON_OF_CAPTIVATING_SKANDHA = _make_enchantment_with_keywords(
     name="Horizon of the Captivating Skandha",
     mana_cost="{3}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Domain"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=CreateToken(name="Shikigami Fish", power=1, toughness=1, colors={Color.BLUE}, subtypes={"Shikigami", "Fish"})
-        )
-    ]
+    text='At the beginning of your upkeep, create a 1/1 blue Shikigami Fish creature token.',
+    setup_interceptors=_horizon_of_captivating_skandha_setup_migrated,
 )
 
 
-SHINING_SEA_OF_FLOWERS = make_enchantment(
+SHINING_SEA_OF_FLOWERS = _make_enchantment_with_keywords(
     name="Shining Sea of Flowers",
     mana_cost="{3}{G}{B}",
     colors={Color.GREEN, Color.BLACK},
     subtypes={"Domain"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=GainLife(2)
-        )
-    ]
+    text='At the beginning of your upkeep, you gain 2 life.',
+    setup_interceptors=_shining_sea_of_flowers_setup_migrated,
 )
 
 
@@ -2006,19 +2366,12 @@ BARRIER_TECHNIQUE = make_enchantment(
 )
 
 
-CURSED_WOMB_DEATH_PAINTING = make_enchantment(
+CURSED_WOMB_DEATH_PAINTING = _make_enchantment_with_keywords(
     name="Cursed Womb: Death Painting",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=CompositeEffect([
-                CreateToken(name="Curse", power=1, toughness=1, colors={Color.BLACK}, subtypes={"Curse"}),
-                LoseLife(1, target=ControllerTarget())
-            ])
-        )
-    ]
+    text='At the beginning of your upkeep, create a 1/1 black Curse creature token and you lose 1 life.',
+    setup_interceptors=_cursed_womb_death_painting_setup_migrated,
 )
 
 
@@ -2036,16 +2389,12 @@ VEIL_TECHNIQUE = make_enchantment(
 )
 
 
-CURSE_PURGE = make_enchantment(
+CURSE_PURGE = _make_enchantment_with_keywords(
     name="Curse Purge",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(target=CreatureWithSubtype("Curse", you_control=False)),
-            effect=CompositeEffect([GainLife(1)])
-        )
-    ]
+    text='Whenever Curse dies, you gain 1 life.',
+    setup_interceptors=_curse_purge_setup_migrated,
 )
 
 
@@ -2261,60 +2610,47 @@ CURSE_BREAKER = make_creature(
 )
 
 
-ZENIN_CLAN_ELDER = make_creature(
+ZENIN_CLAN_ELDER = _make_creature_with_keywords(
     name="Zenin Clan Elder",
     power=2, toughness=4,
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Sorcerer", include_self=False)
-        )
-    ]
+    text='Other Sorcerer creatures you control get +1/+1.',
+    setup_interceptors=_zenin_clan_elder_setup_migrated,
 )
 
 
-AUXILIARY_MANAGER = make_creature(
+AUXILIARY_MANAGER = _make_creature_with_keywords(
     name="Auxiliary Manager",
     power=1, toughness=2,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Advisor"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=Scry(2)
-        )
-    ]
+    text='When Auxiliary Manager enters the battlefield, scry 2.',
+    setup_interceptors=_auxiliary_manager_setup_migrated,
 )
 
 
-CURSE_COLLECTOR = make_creature(
+CURSE_COLLECTOR = _make_creature_with_keywords(
     name="Curse Collector",
     power=3, toughness=3,
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Warlock"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(target=CreatureWithSubtype("Curse")),
-            effect=DrawCards(1)
-        )
-    ]
+    text='Whenever Curse you control dies, draw a card.',
+    setup_interceptors=_curse_collector_setup_migrated,
 )
 
 
-DEATH_PAINTING_WOMB = make_creature(
+DEATH_PAINTING_WOMB = _make_creature_with_keywords(
     name="Death Painting Womb",
     power=0, toughness=4,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    abilities=[
-        KeywordAbility("Defender")
-    ]
+    keywords=['Defender'],
+    text='Defender',
 )
 
 
@@ -2327,15 +2663,14 @@ BLOOD_MANIPULATION_EXPERT = make_creature(
 )
 
 
-TECHNIQUE_PRODIGY = make_creature(
+TECHNIQUE_PRODIGY = _make_creature_with_keywords(
     name="Technique Prodigy",
     power=2, toughness=2,
     mana_cost="{1}{U}{R}",
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Sorcerer", "Student"},
-    abilities=[
-        KeywordAbility("Prowess")
-    ]
+    keywords=['Prowess'],
+    text='Prowess',
 )
 
 
@@ -2348,60 +2683,47 @@ SHIKIGAMI_CRAFTER = make_creature(
 )
 
 
-VENGEFUL_ANCESTOR = make_creature(
+VENGEFUL_ANCESTOR = _make_creature_with_keywords(
     name="Vengeful Ancestor Spirit",
     power=4, toughness=3,
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit", "Curse"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CompositeEffect([
-                LoseLife(2, target=EachOpponentTarget()),
-                GainLife(2)
-            ])
-        )
-    ]
+    text='When Vengeful Ancestor Spirit enters the battlefield, each opponent loses 2 life and you gain 2 life.',
+    setup_interceptors=_vengeful_ancestor_setup_migrated,
 )
 
 
-DOMAIN_OBSERVER = make_creature(
+DOMAIN_OBSERVER = _make_creature_with_keywords(
     name="Domain Observer",
     power=1, toughness=3,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(target=AnotherCreature()),  # Simplified - should be enchantment ETB
-            effect=DrawCards(1)
-        )
-    ]
+    text='Whenever another creature enters the battlefield, draw a card.',
+    setup_interceptors=_domain_observer_setup_migrated,
 )
 
 
-CURSED_ENERGY_WELL = make_creature(
+CURSED_ENERGY_WELL = _make_creature_with_keywords(
     name="Cursed Energy Well",
     power=0, toughness=5,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Curse"},
-    abilities=[
-        KeywordAbility("Defender")
-    ]
+    keywords=['Defender'],
+    text='Defender',
 )
 
 
-SORCERER_HUNTER = make_creature(
+SORCERER_HUNTER = _make_creature_with_keywords(
     name="Sorcerer Hunter",
     power=4, toughness=2,
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    abilities=[
-        KeywordAbility("Haste")
-    ]
+    keywords=['Haste'],
+    text='Haste',
 )
 
 
@@ -2423,18 +2745,14 @@ DOMAIN_AMPLIFICATION_MAGE = make_creature(
 )
 
 
-CURSE_CYCLE_SPIRIT = make_creature(
+CURSE_CYCLE_SPIRIT = _make_creature_with_keywords(
     name="Curse Cycle Spirit",
     power=3, toughness=3,
     mana_cost="{2}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Spirit", "Curse"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=CompositeEffect([])  # Return Curse from graveyard - needs targeting
-        )
-    ]
+    text='When Curse Cycle Spirit dies, .',
+    setup_interceptors=_curse_cycle_spirit_setup_migrated,
 )
 
 
@@ -2447,75 +2765,55 @@ BINDING_VOW_WITNESS = make_creature(
 )
 
 
-TECHNIQUE_INHERITANCE = make_creature(
+TECHNIQUE_INHERITANCE = _make_creature_with_keywords(
     name="Technique Inheritance Master",
     power=3, toughness=3,
     mana_cost="{2}{U}{G}",
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(target=CreatureWithSubtype("Shikigami")),
-            effect=DrawCards(1),
-            optional=True
-        )
-    ]
+    text='Whenever Shikigami you control dies, you may draw a card.',
+    setup_interceptors=_technique_inheritance_setup_migrated,
 )
 
 
-SPECIAL_GRADE_SORCERER = make_creature(
+SPECIAL_GRADE_SORCERER = _make_creature_with_keywords(
     name="Special Grade Sorcerer",
     power=5, toughness=5,
     mana_cost="{3}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        KeywordAbility("Hexproof"),
-        StaticAbility(
-            effect=KeywordGrant(["hexproof"]),
-            filter=CreaturesWithSubtypeFilter("Sorcerer", include_self=False)
-        )
-    ]
+    keywords=['Hexproof'],
+    text='Hexproof Other Sorcerer creatures you control have hexproof.',
+    setup_interceptors=_special_grade_sorcerer_setup_migrated,
 )
 
 
-FINGER_GUARDIAN = make_creature(
+FINGER_GUARDIAN = _make_creature_with_keywords(
     name="Sukuna's Finger Guardian",
     power=4, toughness=4,
     mana_cost="{3}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Curse", "Warrior"},
-    abilities=[
-        KeywordAbility("Menace"),
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CompositeEffect([])  # Each opponent sacrifices a creature - needs targeting
-        )
-    ]
+    keywords=['Menace'],
+    text="Menace When Sukuna's Finger Guardian enters the battlefield, .",
+    setup_interceptors=_finger_guardian_setup_migrated,
 )
 
 
-DOMAIN_MASTER = make_creature(
+DOMAIN_MASTER = _make_creature_with_keywords(
     name="Domain Master",
     power=3, toughness=4,
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"},
-    abilities=[
-        TriggeredAbility(
-            trigger=SpellCastTrigger(spell_types={CardType.ENCHANTMENT}),
-            effect=DrawCards(1)
-        )
-    ]
+    text='Whenever you cast a enchantment, draw a card.',
+    setup_interceptors=_domain_master_setup_migrated,
 )
 
 
 # =============================================================================
 # EXPORT
 # =============================================================================
-
-# Import OpponentCreaturesFilter for Self-Embodiment of Perfection
-from src.engine.abilities.targets import OpponentCreaturesFilter
 
 JUJUTSU_KAISEN_CARDS = {
     # White Legendaries
