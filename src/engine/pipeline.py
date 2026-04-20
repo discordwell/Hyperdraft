@@ -259,29 +259,19 @@ class EventPipeline:
 
 def _handle_damage(event: Event, state: GameState):
     """Handle DAMAGE event."""
+    from .mode_adapter import get_mode_adapter
+    adapter = get_mode_adapter(state.game_mode)
+
     target_id = event.payload.get('target')
     amount = event.payload.get('amount', 0)
 
     if amount <= 0:
         return
 
-    # Damage to player (MTG path - direct player damage)
+    # Damage to player
     if target_id in state.players:
         player = state.players[target_id]
-        if state.game_mode == "hearthstone":
-            # In Hearthstone, damage should target hero objects, not player IDs.
-            # Redirect to hero so armor is applied correctly.
-            if player.hero_id and player.hero_id in state.objects:
-                hero = state.objects[player.hero_id]
-                if player.armor > 0:
-                    armor_absorbed = min(player.armor, amount)
-                    player.armor -= armor_absorbed
-                    amount -= armor_absorbed
-                if amount > 0:
-                    player.life -= amount
-                    hero.state.damage += amount
-                return
-        player.life -= amount
+        adapter.apply_player_damage(player, amount, state)
         return
 
     # Damage to creature/hero
@@ -292,50 +282,30 @@ def _handle_damage(event: Event, state: GameState):
         # Game.__init__. DAMAGE events targeting shielded minions are prevented
         # before reaching this handler.
 
-        # Hearthstone: Damage to HERO reduces player life (and may apply armor)
+        # Damage to HERO — delegated to the adapter. HS is the only mode that
+        # treats HERO specially; other modes never had this branch and fall
+        # through to the regular creature damage path.
         from .types import CardType
-        if CardType.HERO in obj.characteristics.types and state.game_mode == "hearthstone":
-            # Find the player who owns this hero
+        if CardType.HERO in obj.characteristics.types and adapter.handles_hero_damage():
             player = state.players.get(obj.owner)
-            if player:
-                # Apply armor first
-                if player.armor > 0:
-                    armor_absorbed = min(player.armor, amount)
-                    player.armor -= armor_absorbed
-                    amount -= armor_absorbed
-
-                # Remaining damage goes to life
-                if amount > 0:
-                    player.life -= amount
-                    obj.state.damage += amount
+            if player is not None:
+                adapter.apply_hero_damage(obj, player, amount, state)
             return
-        else:
-            # Regular creature damage
-            obj.state.damage += amount
 
-            # Compatibility: immediately process lethal damage for direct spell
-            # effects. Non-spell damage still relies on explicit SBA checks.
-            if state.game_mode == "hearthstone":
-                source_obj = state.objects.get(event.source) if event.source else None
-                is_spell_damage = bool(event.payload.get('from_spell'))
-                if source_obj and CardType.SPELL in source_obj.characteristics.types:
-                    is_spell_damage = True
-                if not is_spell_damage:
-                    return
+        # Regular creature damage
+        obj.state.damage += amount
 
-                from .queries import get_toughness
-                toughness = get_toughness(obj, state)
-                if toughness is not None and obj.state.damage >= toughness:
-                    return [Event(
-                        type=EventType.OBJECT_DESTROYED,
-                        payload={'object_id': obj.id, 'reason': 'lethal_damage'},
-                        source=event.source,
-                        controller=event.controller,
-                    )]
+        # Mode-specific: HS synchronously destroys on lethal spell damage.
+        follow_ups = adapter.post_creature_damage_destroy_check(obj, event, state)
+        if follow_ups:
+            return follow_ups
 
 
 def _handle_life_change(event: Event, state: GameState):
     """Handle LIFE_CHANGE event."""
+    from .mode_adapter import get_mode_adapter
+    adapter = get_mode_adapter(state.game_mode)
+
     player_id = event.payload.get('player')
     object_id = event.payload.get('object_id') or event.payload.get('target')
     amount = event.payload.get('amount', 0)
@@ -343,14 +313,14 @@ def _handle_life_change(event: Event, state: GameState):
     if player_id in state.players:
         player = state.players[player_id]
         player.life += amount
-        # Hearthstone: cap healing at max HP (default 30)
-        if state.game_mode == "hearthstone":
-            max_hp = getattr(player, 'max_life', 30) or 30
-            if amount > 0:
-                player.life = min(player.life, max_hp)
-            if player.hero_id and player.hero_id in state.objects:
-                hero = state.objects[player.hero_id]
-                hero.state.damage = max(0, max_hp - player.life)
+        # Cap healing at the life cap (HS: max_hp, default 30). MTG: no cap.
+        cap = adapter.life_cap(player, state)
+        if cap is not None and amount > 0:
+            player.life = min(player.life, cap)
+        # Sync hero.state.damage (HS). MTG: no-op.
+        if player.hero_id and player.hero_id in state.objects:
+            hero = state.objects[player.hero_id]
+            adapter.sync_hero_damage_with_life(player, hero, state)
         return
 
     # Support object-based healing payloads used by Hearthstone card scripts.
@@ -363,11 +333,10 @@ def _handle_life_change(event: Event, state: GameState):
             if not player:
                 return
             player.life += amount
-            if state.game_mode == "hearthstone":
-                max_hp = getattr(player, 'max_life', 30) or 30
-                if amount > 0:
-                    player.life = min(player.life, max_hp)
-                obj.state.damage = max(0, max_hp - player.life)
+            cap = adapter.life_cap(player, state)
+            if cap is not None and amount > 0:
+                player.life = min(player.life, cap)
+            adapter.sync_hero_damage_with_life(player, obj, state)
             return
 
         # Minion/object healing: reduce marked damage; negative amounts add damage.
@@ -418,6 +387,9 @@ def _handle_weapon_equip(event: Event, state: GameState):
 
 def _handle_draw(event: Event, state: GameState):
     """Handle DRAW event."""
+    from .mode_adapter import get_mode_adapter
+    adapter = get_mode_adapter(state.game_mode)
+
     player_id = event.payload.get('player')
     # Support both 'amount' (used by most cards) and 'count' (legacy)
     # Use 'is not None' to avoid treating 0 as falsy
@@ -440,31 +412,22 @@ def _handle_draw(event: Event, state: GameState):
 
     for _ in range(count):
         if not library.objects:
-            if state.game_mode == "hearthstone":
-                # Hearthstone: each draw from empty deck deals increasing fatigue damage.
-                # This applies to ALL draws (turn draw, card effects, deathrattles).
-                player = state.players.get(player_id)
-                if player:
-                    player.fatigue_damage += 1
-                    if player.hero_id:
-                        fatigue_events.append(Event(
-                            type=EventType.DAMAGE,
-                            payload={
-                                'target': player.hero_id,
-                                'amount': player.fatigue_damage,
-                                'source': 'fatigue'
-                            }
-                        ))
+            player = state.players.get(player_id)
+            if player is None:
+                break
+            # Adapter handles empty-library draw (fatigue for HS, lose-game for MTG/YGO).
+            follow_ups = adapter.handle_empty_library_draw(player, state)
+            if follow_ups:
+                fatigue_events.extend(follow_ups)
                 continue  # Each remaining draw triggers separate fatigue
-            else:
-                # MTG rule: a player loses the game if they attempt to draw from an empty library.
-                player = state.players.get(player_id)
-                if player:
-                    player.has_lost = True
             break
 
-        # Check hand size limit (Hearthstone mode)
-        if state.game_mode == "hearthstone" and len(hand.objects) >= state.max_hand_size:
+        # Check hand size limit (modes that enforce mid-turn burn, e.g. HS).
+        player = state.players.get(player_id)
+        hand_limit = adapter.hand_size_limit(player, state) if player else None
+        if (hand_limit is not None
+                and adapter.overdraw_burns(state)
+                and len(hand.objects) >= hand_limit):
             # Overdraw - burn the card
             card_id = library.objects.pop(0)
             graveyard_key = f"graveyard_{player_id}"
@@ -516,8 +479,12 @@ def _handle_add_to_hand(event: Event, state: GameState):
 
     hand = state.zones[hand_key]
 
-    # Respect 10-card hand limit in Hearthstone
-    if state.game_mode == "hearthstone" and len(hand.objects) >= state.max_hand_size:
+    # Respect mid-turn hand limit (HS: 10 cards; MTG: none).
+    from .mode_adapter import get_mode_adapter
+    adapter = get_mode_adapter(state.game_mode)
+    player = state.players.get(player_id)
+    hand_limit = adapter.hand_size_limit(player, state) if player else None
+    if hand_limit is not None and len(hand.objects) >= hand_limit:
         return
 
     # If card_def is a CardDefinition object, create GameObject from it
@@ -823,26 +790,29 @@ def _handle_zone_change(event: Event, state: GameState):
     # and remove the object from *any* zone that currently references it.
     _remove_object_from_all_zones(object_id, state)
 
-    # Hearthstone: enforce 7-minion board limit at the pipeline level
-    if (state.game_mode == "hearthstone" and
-            to_zone_type == ZoneType.BATTLEFIELD and
+    # Enforce mode's minion board cap (HS: 7). Adapter returns None = uncapped.
+    from .mode_adapter import get_mode_adapter
+    _mode_adapter = get_mode_adapter(state.game_mode)
+    if (to_zone_type == ZoneType.BATTLEFIELD and
             CardType.MINION in obj.characteristics.types):
-        battlefield = state.zones.get('battlefield')
-        if battlefield:
-            minion_count = sum(
-                1 for oid in battlefield.objects
-                if oid in state.objects
-                and state.objects[oid].controller == obj.controller
-                and CardType.MINION in state.objects[oid].characteristics.types
-            )
-            if minion_count >= 7:
-                # Board full - send to graveyard instead
-                dest_key = f"graveyard_{obj.owner}"
-                if dest_key in state.zones:
-                    state.zones[dest_key].objects.append(object_id)
-                obj.zone = ZoneType.GRAVEYARD
-                obj.entered_zone_at = state.timestamp
-                return
+        minion_cap = _mode_adapter.max_minions_on_board(obj.controller, state)
+        if minion_cap is not None:
+            battlefield = state.zones.get('battlefield')
+            if battlefield:
+                minion_count = sum(
+                    1 for oid in battlefield.objects
+                    if oid in state.objects
+                    and state.objects[oid].controller == obj.controller
+                    and CardType.MINION in state.objects[oid].characteristics.types
+                )
+                if minion_count >= minion_cap:
+                    # Board full - send to graveyard instead
+                    dest_key = f"graveyard_{obj.owner}"
+                    if dest_key in state.zones:
+                        state.zones[dest_key].objects.append(object_id)
+                    obj.zone = ZoneType.GRAVEYARD
+                    obj.entered_zone_at = state.timestamp
+                    return
 
     # Add to new zone
     if to_zone and to_zone in state.zones:
@@ -891,37 +861,9 @@ def _handle_zone_change(event: Event, state: GameState):
             obj.state.counters[counter_type] = amount  # Set directly since we cleared above
         _sync_keyword_counter_abilities(obj)
 
-    # Hearthstone: reset minion state when leaving battlefield (bounce/return to hand)
-    if (state.game_mode == "hearthstone" and
-            from_zone_type == ZoneType.BATTLEFIELD and
-            to_zone_type in (ZoneType.HAND, ZoneType.LIBRARY) and
-            CardType.MINION in obj.characteristics.types):
-        obj.state.damage = 0
-        obj.state.divine_shield = False
-        obj.state.stealth = False
-        obj.state.windfury = False
-        obj.state.frozen = False
-        obj.state.summoning_sickness = True
-        if hasattr(obj.state, 'pt_modifiers'):
-            obj.state.pt_modifiers = []
-        # Restore original characteristics from card_def if available
-        if obj.card_def and obj.card_def.characteristics:
-            import copy
-            obj.characteristics = copy.deepcopy(obj.card_def.characteristics)
-            # Re-derive state flags from restored keywords
-            obj_keywords = {
-                a.get('keyword', '').lower()
-                for a in obj.characteristics.abilities
-                if isinstance(a, dict) and a.get('keyword')
-            }
-            if 'divine_shield' in obj_keywords:
-                obj.state.divine_shield = True
-            if 'stealth' in obj_keywords:
-                obj.state.stealth = True
-            if 'windfury' in obj_keywords:
-                obj.state.windfury = True
-            if 'charge' in obj_keywords:
-                obj.state.summoning_sickness = False
+    # Reset minion state when leaving battlefield (HS bounce/return to hand).
+    # MTG: no-op — returning cards become new instances anyway.
+    _mode_adapter.on_leave_battlefield_to_hidden(obj, from_zone_type, to_zone_type, state)
 
     # Re-setup interceptors when entering the battlefield
     # This handles cards like Enduring Curiosity that return from graveyard
@@ -1585,20 +1527,9 @@ def _handle_object_destroyed(event: Event, state: GameState):
     obj.zone = dest_type
     obj.entered_zone_at = state.timestamp
 
-    # Hearthstone: clear weapon stats when a weapon is destroyed
-    # Skip clearing if weapon was replaced — the new weapon already set correct stats
-    from .types import CardType
-    if (state.game_mode == "hearthstone" and CardType.WEAPON in obj.characteristics.types
-            and event.payload.get('reason') != 'weapon_replaced'):
-        player = state.players.get(obj.controller)
-        if player:
-            player.weapon_attack = 0
-            player.weapon_durability = 0
-        hero_id = player.hero_id if player else None
-        if hero_id and hero_id in state.objects:
-            hero = state.objects[hero_id]
-            hero.state.weapon_attack = 0
-            hero.state.weapon_durability = 0
+    # Mode-specific weapon cleanup (HS clears player.weapon_*). Default no-op.
+    from .mode_adapter import get_mode_adapter
+    get_mode_adapter(state.game_mode).on_weapon_destroyed(obj, event, state)
 
     # NOTE: Interceptor cleanup moved to _cleanup_departed_interceptors()
     # which runs AFTER the REACT phase, allowing death triggers to fire
@@ -1701,9 +1632,13 @@ def _handle_create_token(event: Event, state: GameState):
 
     created_ids: list[str] = []
 
+    from .mode_adapter import get_mode_adapter
+    _mode_adapter = get_mode_adapter(state.game_mode)
+
     for _ in range(count):
-        # Hearthstone: enforce 7-minion board limit
-        if state.game_mode == "hearthstone":
+        # Enforce mode's minion board cap (HS: 7; MTG: uncapped).
+        minion_cap = _mode_adapter.max_minions_on_board(controller_id, state)
+        if minion_cap is not None:
             battlefield = state.zones.get('battlefield')
             if battlefield:
                 minion_count = sum(
@@ -1712,7 +1647,7 @@ def _handle_create_token(event: Event, state: GameState):
                     and state.objects[oid].controller == controller_id
                     and CardType.MINION in state.objects[oid].characteristics.types
                 )
-                if minion_count >= 7:
+                if minion_count >= minion_cap:
                     break  # Board full, can't create more tokens
 
         # Build characteristics from token data
