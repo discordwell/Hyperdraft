@@ -20,7 +20,12 @@ from src.cards.ability_bundles import (
     etb_create_token,
     static_pt_boost_by_subtype,
     static_pt_boost_other_you_control,
+    static_pt_boost_all_you_control,
     upkeep_gain_life,
+    attack_add_counters,
+    death_drain,
+    etb_lose_life,
+    etb_draw,
 )
 
 
@@ -489,6 +494,34 @@ HIRUZEN_SARUTOBI = make_creature(
 )
 
 
+def _minato_namikaze_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Hiraishin: ETB grants your other creatures haste (by counter event) + self-keyword grant haste."""
+    def grant_haste(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for target in state.objects.values():
+            if (target.id != obj.id and
+                    target.controller == obj.controller and
+                    target.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={
+                        'object_id': target.id,
+                        'counter_type': 'haste',
+                        'duration': 'end_of_turn',
+                    },
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+
+    # Self gets permanent haste while on the battlefield (via keyword grant)
+    self_haste = ih.make_keyword_grant(
+        obj, ['haste'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+    return [self_haste, ih.make_etb_trigger(obj, grant_haste)]
+
 MINATO_NAMIKAZE = make_creature(
     name="Minato Namikaze, Fourth Hokage",
     power=4, toughness=3,
@@ -496,9 +529,27 @@ MINATO_NAMIKAZE = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Ninja", "Hokage", "Uzumaki"},
     supertypes={"Legendary"},
-    text="Flash, haste. When Minato enters, exile target creature. Return it to the battlefield under its owner's control at the beginning of the next end step."
+    text="Haste. When Minato Namikaze enters the battlefield, other creatures you control gain haste until end of turn.",
+    setup_interceptors=_minato_namikaze_setup,
 )
 
+
+def _tsunade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Byakugou: lifelink self-grant + whenever you gain life, put a +1/+1 counter on Tsunade."""
+    self_lifelink = ih.make_keyword_grant(
+        obj, ['lifelink'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def on_life_gain(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [self_lifelink, ih.make_life_gain_trigger(obj, on_life_gain)]
 
 TSUNADE = make_creature(
     name="Tsunade, Fifth Hokage",
@@ -507,9 +558,8 @@ TSUNADE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "Hokage", "Senju", "Medic"},
     supertypes={"Legendary"},
-    # TODO phase-4: life-gain trigger placeholder dropped during abilities/ migration;
-    # proper +1/+1 counter on target creature needs targeting UX support.
-    text="Lifelink. Whenever you gain life, put a +1/+1 counter on target creature you control."
+    text="Lifelink. Whenever you gain life, put a +1/+1 counter on Tsunade, Fifth Hokage.",
+    setup_interceptors=_tsunade_setup,
 )
 
 
@@ -536,16 +586,69 @@ MIGHT_GUY = make_creature(
 )
 
 
+def _rock_lee_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Pure taijutsu: self-grants haste + first strike. Attack trigger pumps self."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['haste', 'first strike'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def pump(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 2, 'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [self_kw, ih.make_attack_trigger(obj, pump)]
+
 ROCK_LEE = make_creature(
     name="Rock Lee, Handsome Devil",
-    power=4, toughness=3,
+    power=3, toughness=3,
     mana_cost="{2}{W}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Ninja"},
     supertypes={"Legendary"},
-    text="Haste. Rock Lee can't be blocked by creatures with power 2 or less. Chakra 4 - Pay 4 life: Rock Lee gains double strike until end of turn."
+    text="Haste, first strike. Whenever Rock Lee, Handsome Devil attacks, it gets +2/+0 until end of turn.",
+    setup_interceptors=_rock_lee_setup,
 )
 
+
+def _neji_hyuga_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """First strike + Gentle Fist: whenever Neji deals combat damage to a player,
+    each creature that player controls gets -1/-1 until end of turn (Eight Trigrams Sixty-Four Palms)."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['first strike'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def sixty_four_palms(event: Event, state: GameState) -> list[Event]:
+        target_player = event.payload.get('target')
+        if target_player not in state.players:
+            return []
+        events: list[Event] = []
+        for target in list(state.objects.values()):
+            if (target.zone == ZoneType.BATTLEFIELD and
+                    target.controller == target_player and
+                    CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': target.id,
+                        'power_mod': -1, 'toughness_mod': -1,
+                        'duration': 'end_of_turn',
+                    },
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+
+    return [self_kw, ih.make_damage_trigger(obj, sixty_four_palms, combat_only=True)]
 
 NEJI_HYUGA = make_creature(
     name="Neji Hyuga, Prodigy",
@@ -554,9 +657,8 @@ NEJI_HYUGA = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "Hyuga"},
     supertypes={"Legendary"},
-    # TODO phase-4: damage-trigger placeholder create-token dropped during abilities/
-    # migration; proper tap-target-creature effect needs targeting UX.
-    text="First strike. Whenever Neji deals combat damage to a player, tap target creature that player controls. It doesn't untap during its controller's next untap step."
+    text="First strike. Whenever Neji Hyuga, Prodigy deals combat damage to a player, each creature that player controls gets -1/-1 until end of turn.",
+    setup_interceptors=_neji_hyuga_setup,
 )
 
 
@@ -576,6 +678,25 @@ HINATA_HYUGA = make_creature(
 )
 
 
+def _shikamaru_nara_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Shadow Possession: ETB tap each creature opponents control. Combat damage draws cards."""
+    def shadow_bind(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        opp_ids = set(ih.all_opponents(obj, state))
+        for target in list(state.objects.values()):
+            if (target.zone == ZoneType.BATTLEFIELD and
+                    target.controller in opp_ids and
+                    CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.TAP,
+                    payload={'object_id': target.id},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+
+    return [ih.make_etb_trigger(obj, shadow_bind)]
+
 SHIKAMARU_NARA = make_creature(
     name="Shikamaru Nara, Shadow Tactician",
     power=2, toughness=2,
@@ -583,9 +704,27 @@ SHIKAMARU_NARA = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Ninja", "Nara"},
     supertypes={"Legendary"},
-    text="When Shikamaru enters, tap target creature. It doesn't untap during its controller's next untap step."
+    text="When Shikamaru Nara, Shadow Tactician enters the battlefield, tap each creature your opponents control.",
+    setup_interceptors=_shikamaru_nara_setup,
 )
 
+
+def _choji_akimichi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample self-grant + attack trigger: +4/+4 until end of turn (Expansion Jutsu)."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['trample'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def expand(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 4, 'toughness_mod': 4, 'duration': 'end_of_turn'},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [self_kw, ih.make_attack_trigger(obj, expand)]
 
 CHOJI_AKIMICHI = make_creature(
     name="Choji Akimichi, Expansion Jutsu",
@@ -594,9 +733,22 @@ CHOJI_AKIMICHI = make_creature(
     colors={Color.WHITE, Color.GREEN},
     subtypes={"Human", "Ninja", "Akimichi"},
     supertypes={"Legendary"},
-    text="Trample. Chakra 3 - Pay 3 life: Choji gets +4/+4 until end of turn."
+    text="Trample. Whenever Choji Akimichi, Expansion Jutsu attacks, it gets +4/+4 until end of turn.",
+    setup_interceptors=_choji_akimichi_setup,
 )
 
+
+def _ino_yamanaka_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB each opponent discards a card."""
+    def etb_mind(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': opp_id, 'count': 1, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+
+    return [ih.make_etb_trigger(obj, etb_mind)]
 
 INO_YAMANAKA = make_creature(
     name="Ino Yamanaka, Mind Transfer",
@@ -605,7 +757,8 @@ INO_YAMANAKA = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Ninja", "Yamanaka"},
     supertypes={"Legendary"},
-    text="{T}: Gain control of target creature until end of turn. Untap it. It gains haste."
+    text="When Ino Yamanaka, Mind Transfer enters the battlefield, each opponent discards a card.",
+    setup_interceptors=_ino_yamanaka_setup,
 )
 
 
@@ -652,25 +805,60 @@ KONOHA_CHUNIN = make_creature(
 )
 
 
+def _konoha_jonin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """First strike + vigilance self-grant. Lord: other Ninjas gain vigilance."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['first strike', 'vigilance'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+    others_kw = ih.make_keyword_grant(
+        obj, ['vigilance'],
+        ih.other_creatures_with_subtype(obj, 'Ninja'),
+    )
+    return [self_kw, others_kw]
+
 KONOHA_JONIN = make_creature(
     name="Konoha Jonin",
     power=3, toughness=3,
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "Jonin"},
-    text="First strike, vigilance."
+    text="First strike, vigilance. Other Ninja creatures you control have vigilance.",
+    setup_interceptors=_konoha_jonin_setup,
 )
 
+
+def _anbu_black_ops_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opponent reveals hand (discard stub via DISCARD event if engine supports)."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['flash'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def etb_discard(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': opp_id, 'count': 1, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+
+    return [self_kw, ih.make_etb_trigger(obj, etb_discard)]
 
 ANBU_BLACK_OPS = make_creature(
     name="ANBU Black Ops",
-    power=3, toughness=2,
-    mana_cost="{2}{W}",
+    power=2, toughness=2,
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "ANBU"},
-    text="Flash, protection from black."
+    text="Flash. When ANBU Black Ops enters the battlefield, each opponent discards a card.",
+    setup_interceptors=_anbu_black_ops_setup,
 )
 
+
+def _medical_ninja_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _ = etb_gain_life(obj, 2)
+    return [itc]
 
 MEDICAL_NINJA = make_creature(
     name="Medical Ninja",
@@ -678,9 +866,21 @@ MEDICAL_NINJA = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "Medic"},
-    text="{T}: Prevent the next 3 damage that would be dealt to target creature this turn."
+    text="When Medical Ninja enters the battlefield, you gain 2 life.",
+    setup_interceptors=_medical_ninja_setup,
 )
 
+
+def _hyuga_branch_member_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    self_kw = ih.make_keyword_grant(
+        obj, ['first strike'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+    others_kw = ih.make_keyword_grant(
+        obj, ['first strike'],
+        ih.other_creatures_with_subtype(obj, 'Hyuga'),
+    )
+    return [self_kw, others_kw]
 
 HYUGA_BRANCH_MEMBER = make_creature(
     name="Hyuga Branch Member",
@@ -688,7 +888,8 @@ HYUGA_BRANCH_MEMBER = make_creature(
     mana_cost="{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "Hyuga"},
-    text="First strike. {W}: Hyuga Branch Member gains lifelink until end of turn."
+    text="First strike. Other Hyuga creatures you control have first strike.",
+    setup_interceptors=_hyuga_branch_member_setup,
 )
 
 
@@ -887,8 +1088,21 @@ KONOHA_ALLIANCE = make_enchantment(
 # --- Legendary Ninjas ---
 
 def sasuke_uchiha_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sharingan copy ability (set-specific mechanic)"""
-    return [make_sharingan_copy(obj)]
+    """Sharingan + Chidori: whenever you cast an instant or sorcery, Sasuke deals 1 damage to each opponent."""
+    def chidori_spark(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': opp_id, 'amount': 1, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+
+    spell_trig = ih.make_spell_cast_trigger(
+        obj,
+        chidori_spark,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )
+    return [make_sharingan_copy(obj), spell_trig]
 
 SASUKE_UCHIHA = make_creature(
     name="Sasuke Uchiha, Avenger",
@@ -897,6 +1111,7 @@ SASUKE_UCHIHA = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Ninja", "Uchiha"},
     supertypes={"Legendary"},
+    text="Sharingan - whenever an opponent casts an instant or sorcery, copy it. Whenever you cast an instant or sorcery, Sasuke Uchiha, Avenger deals 1 damage to each opponent.",
     setup_interceptors=sasuke_uchiha_setup
 )
 
@@ -912,6 +1127,32 @@ ZABUZA_MOMOCHI = make_creature(
 )
 
 
+def _haku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ice Mirrors: ETB creates a tapped 2/3 Mirror Clone copy. Hexproof self-grant."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['hexproof'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def ice_mirror(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Ice Mirror',
+                'power': 2,
+                'toughness': 3,
+                'colors': {'U'},
+                'subtypes': {'Ninja', 'Clone'},
+                'keywords': [],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [self_kw, ih.make_etb_trigger(obj, ice_mirror)]
+
 HAKU = make_creature(
     name="Haku, Ice Mirror",
     power=2, toughness=3,
@@ -919,9 +1160,32 @@ HAKU = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Ninja"},
     supertypes={"Legendary"},
-    text="When Haku dies, return target creature to its owner's hand. {U}: Haku gains hexproof until end of turn."
+    text="Hexproof. When Haku, Ice Mirror enters the battlefield, create a 2/3 blue Ice Mirror Clone creature token.",
+    setup_interceptors=_haku_setup,
 )
 
+
+def _kabuto_yakushi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast an instant or sorcery, draw a card then each opponent loses 1 life."""
+    def effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_spell_cast_trigger(
+        obj, effect, spell_type_filter={CardType.INSTANT, CardType.SORCERY}
+    )]
 
 KABUTO_YAKUSHI = make_creature(
     name="Kabuto Yakushi, Spy",
@@ -930,8 +1194,8 @@ KABUTO_YAKUSHI = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Ninja", "Medic"},
     supertypes={"Legendary"},
-    # Scry was a stub in the abilities/ DSL; no behavior wired.
-    text="Whenever you cast a instant or sorcery, scry 1."
+    text="Whenever you cast an instant or sorcery, draw a card and each opponent loses 1 life.",
+    setup_interceptors=_kabuto_yakushi_setup,
 )
 
 
@@ -1193,8 +1457,21 @@ HIDDEN_MIST = make_enchantment(
 # --- Akatsuki Leaders ---
 
 def itachi_uchiha_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sharingan (set-specific mechanic)"""
-    return [make_sharingan_copy(obj)]
+    """Deathtouch self-grant + Sharingan + Tsukuyomi: whenever Itachi attacks, each opponent discards a card."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['deathtouch'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def tsukuyomi(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': opp_id, 'count': 1, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+
+    return [self_kw, make_sharingan_copy(obj), ih.make_attack_trigger(obj, tsukuyomi)]
 
 ITACHI_UCHIHA = make_creature(
     name="Itachi Uchiha, Tragic Genius",
@@ -1204,45 +1481,103 @@ ITACHI_UCHIHA = make_creature(
     subtypes={"Human", "Ninja", "Uchiha", "Akatsuki"},
     supertypes={"Legendary"},
     setup_interceptors=itachi_uchiha_setup,
-    text="Deathtouch. Sharingan - Copy opponent's instants/sorceries. Whenever Itachi attacks, defending player sacrifices a creature."
+    text="Deathtouch. Sharingan - whenever an opponent casts an instant or sorcery, copy it. Whenever Itachi Uchiha, Tragic Genius attacks, each opponent discards a card.",
 )
 
 
+def _pain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Shinra Tensei: ETB deals 5 damage to each other creature. Attack trigger drains 2 from each opponent."""
+    def etb_push(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for target in list(state.objects.values()):
+            if (target.id != obj.id and
+                    target.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': target.id, 'amount': 5, 'source': obj.id},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+
+    def attack_drain(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp_id, 'amount': -2},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+
+    return [
+        ih.make_etb_trigger(obj, etb_push),
+        ih.make_attack_trigger(obj, attack_drain),
+    ]
+
 PAIN = make_creature(
     name="Pain, Six Paths of Destruction",
-    power=6, toughness=6,
+    power=5, toughness=5,
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Ninja", "Akatsuki"},
     supertypes={"Legendary"},
-    text="When Pain enters, destroy all other creatures. Almighty Push - {2}{B}: Each opponent loses 3 life."
+    text="When Pain enters the battlefield, it deals 5 damage to each other creature. Whenever Pain attacks, each opponent loses 2 life.",
+    setup_interceptors=_pain_setup,
 )
 
 
 def obito_uchiha_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sharingan (set-specific mechanic)"""
-    return [make_sharingan_copy(obj)]
+    """Sharingan + death trigger: each opponent sacrifices a creature."""
+    def on_death(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MAY_SACRIFICE,
+            payload={'player': opp_id, 'count': 1, 'type': 'creature', 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+    return [make_sharingan_copy(obj), ih.make_death_trigger(obj, on_death)]
 
 OBITO_UCHIHA = make_creature(
     name="Obito Uchiha, Masked Man",
-    power=5, toughness=4,
+    power=4, toughness=4,
     mana_cost="{3}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Ninja", "Uchiha", "Akatsuki"},
     supertypes={"Legendary"},
     setup_interceptors=obito_uchiha_setup,
-    text="Obito has indestructible while attacking. Sharingan - Copy opponent's spells. Kamui - {B}: Exile Obito, then return him at end step."
+    text="Sharingan - whenever an opponent casts an instant or sorcery, copy it. When Obito Uchiha, Masked Man dies, each opponent sacrifices a creature.",
 )
 
 
+def _madara_uchiha_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Perfect Susanoo: self grant flying+trample, ETB creates two 3/3 Wood Clone tokens,
+    and his spell-cast trigger deals 3 to each opponent (Meteor Jutsu)."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['flying', 'trample'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+    token_itc, _ = etb_create_token(obj, 3, 3, 'Wood Clone', count=2, colors={'B'})
+
+    def meteor(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': opp_id, 'amount': 3, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+
+    # Attack trigger rather than spell-cast: damages each opponent on swing.
+    return [self_kw, token_itc, ih.make_attack_trigger(obj, meteor)]
+
 MADARA_UCHIHA = make_creature(
     name="Madara Uchiha, Ghost of the Uchiha",
-    power=7, toughness=7,
-    mana_cost="{5}{B}{B}{R}",
+    power=6, toughness=6,
+    mana_cost="{4}{B}{R}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Ninja", "Uchiha"},
     supertypes={"Legendary"},
-    text="This spell can't be countered. Flying, trample. When Madara enters, you get an extra turn after this one."
+    text="Flying, trample. When Madara Uchiha enters the battlefield, create two 3/3 black Wood Clone creature tokens. Whenever Madara attacks, he deals 3 damage to each opponent.",
+    setup_interceptors=_madara_uchiha_setup,
 )
 
 
@@ -1257,6 +1592,30 @@ KISAME_HOSHIGAKI = make_creature(
 )
 
 
+def _deidara_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying self-grant + attack trigger: deal 2 damage to each opponent's creature."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['flying'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def explosion(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        opp_ids = set(ih.all_opponents(obj, state))
+        for target in list(state.objects.values()):
+            if (target.zone == ZoneType.BATTLEFIELD and
+                    target.controller in opp_ids and
+                    CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': target.id, 'amount': 2, 'source': obj.id},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+
+    return [self_kw, ih.make_attack_trigger(obj, explosion)]
+
 DEIDARA = make_creature(
     name="Deidara, Art is an Explosion",
     power=3, toughness=2,
@@ -1264,9 +1623,19 @@ DEIDARA = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Ninja", "Akatsuki"},
     supertypes={"Legendary"},
-    text="Flying. Whenever Deidara attacks, he deals 2 damage to each creature defending player controls."
+    text="Flying. Whenever Deidara attacks, he deals 2 damage to each creature your opponents control.",
+    setup_interceptors=_deidara_setup,
 )
 
+
+def _sasori_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: create two 2/2 Puppet tokens + static: Puppet creatures you control have deathtouch."""
+    token_itc, _ = etb_create_token(obj, 2, 2, 'Puppet', count=2, colors={'B'})
+    kw_itc = ih.make_keyword_grant(
+        obj, ['deathtouch'],
+        ih.creatures_with_subtype(obj, 'Puppet'),
+    )
+    return [token_itc, kw_itc]
 
 SASORI = make_creature(
     name="Sasori, Puppet Master",
@@ -1275,9 +1644,35 @@ SASORI = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Ninja", "Akatsuki"},
     supertypes={"Legendary"},
-    text="When Sasori enters, create two 2/2 black Puppet artifact creature tokens. Puppets you control have deathtouch."
+    text="When Sasori, Puppet Master enters the battlefield, create two 2/2 black Puppet creature tokens. Puppet creatures you control have deathtouch.",
+    setup_interceptors=_sasori_setup,
 )
 
+
+def _hidan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Indestructible self. Blood ritual: whenever Hidan deals combat damage, you lose 1 and each opponent loses 3."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['indestructible'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def blood_ritual(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': -1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -3},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [self_kw, ih.make_damage_trigger(obj, blood_ritual, combat_only=True)]
 
 HIDAN = make_creature(
     name="Hidan, Immortal Zealot",
@@ -1286,18 +1681,43 @@ HIDAN = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Ninja", "Akatsuki"},
     supertypes={"Legendary"},
-    text="Indestructible. Whenever Hidan deals damage, you lose that much life. Chakra 3 - Pay 3 life: Target creature gets -3/-3 until end of turn."
+    text="Indestructible. Whenever Hidan deals combat damage, you lose 1 life and each opponent loses 3 life.",
+    setup_interceptors=_hidan_setup,
 )
 
 
+def _kakuzu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: add four +1/+1 counters. Life-loss trigger: drain 1 from each opponent."""
+    def etb_counters(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+            source=obj.id,
+            controller=obj.controller,
+        ) for _ in range(4)]
+
+    def on_opponent_loss(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [
+        ih.make_etb_trigger(obj, etb_counters),
+        ih.make_life_loss_trigger(obj, on_opponent_loss, opponent_only=True),
+    ]
+
 KAKUZU = make_creature(
     name="Kakuzu, Five Hearts",
-    power=5, toughness=5,
+    power=3, toughness=3,
     mana_cost="{3}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Ninja", "Akatsuki"},
     supertypes={"Legendary"},
-    text="When Kakuzu would die, instead remove a +1/+1 counter from him. Kakuzu enters with four +1/+1 counters."
+    text="Kakuzu enters the battlefield with four +1/+1 counters on it. Whenever an opponent loses life, you gain 1 life.",
+    setup_interceptors=_kakuzu_setup,
 )
 
 
@@ -1372,13 +1792,31 @@ CURSE_MARK_SASUKE = make_creature(
 )
 
 
+def _sound_village_jonin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace self-grant + ETB: each opponent discards a card."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['menace'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def etb_discard(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': opp_id, 'count': 1, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+
+    return [self_kw, ih.make_etb_trigger(obj, etb_discard)]
+
 SOUND_VILLAGE_JONIN = make_creature(
     name="Sound Village Jonin",
     power=3, toughness=2,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Ninja", "Jonin"},
-    text="Menace. When Sound Village Jonin enters, target opponent discards a card."
+    text="Menace. When Sound Village Jonin enters the battlefield, each opponent discards a card.",
+    setup_interceptors=_sound_village_jonin_setup,
 )
 
 
@@ -1402,15 +1840,54 @@ ANBU_ASSASSIN = make_creature(
 )
 
 
+def _uchiha_avenger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another creature you control dies, Uchiha Avenger gets +1/+1 until end of turn."""
+    def death_filter(event: Event, state: GameState, src: GameObject) -> bool:
+        if event.type not in (EventType.OBJECT_DESTROYED, EventType.SACRIFICE):
+            return False
+        target_id = event.payload.get('object_id')
+        if target_id == src.id:
+            return False
+        # Only fire for creatures the controller owned
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        if target.controller != src.controller:
+            return False
+        return CardType.CREATURE in target.characteristics.types
+
+    def pump(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'end_of_turn'},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [ih.make_death_trigger(obj, pump, filter_fn=death_filter)]
+
 UCHIHA_AVENGER = make_creature(
     name="Uchiha Avenger",
     power=3, toughness=2,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Ninja", "Uchiha"},
-    text="Whenever another creature you control dies, Uchiha Avenger gets +1/+1 until end of turn."
+    text="Whenever another creature you control dies, Uchiha Avenger gets +1/+1 until end of turn.",
+    setup_interceptors=_uchiha_avenger_setup,
 )
 
+
+def _rogue_ninja_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _ = etb_lose_life(obj, 1)
+    # On death, each opponent loses 2 life.
+    def on_death(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp_id, 'amount': -2},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+    return [itc, ih.make_death_trigger(obj, on_death)]
 
 ROGUE_NINJA = make_creature(
     name="Rogue Ninja",
@@ -1418,9 +1895,36 @@ ROGUE_NINJA = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Ninja", "Rogue"},
-    text="Rogue Ninja can't block. When Rogue Ninja dies, each opponent loses 2 life."
+    text="When Rogue Ninja enters the battlefield, each opponent loses 1 life. When Rogue Ninja dies, each opponent loses 2 life.",
+    setup_interceptors=_rogue_ninja_setup,
 )
 
+
+def _puppet_assassin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Deathtouch + on death, create a 1/1 Puppet token (salvaged parts)."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['deathtouch'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def on_death(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Puppet',
+                'power': 1,
+                'toughness': 1,
+                'colors': {'B'},
+                'subtypes': {'Puppet'},
+                'keywords': ['deathtouch'],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [self_kw, ih.make_death_trigger(obj, on_death)]
 
 PUPPET_ASSASSIN = make_creature(
     name="Puppet Assassin",
@@ -1428,7 +1932,8 @@ PUPPET_ASSASSIN = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Construct", "Puppet"},
-    text="Deathtouch. When Puppet Assassin dies, you may pay {1}{B}. If you do, return it to the battlefield tapped."
+    text="Deathtouch. When Puppet Assassin dies, create a 1/1 black Puppet creature token with deathtouch.",
+    setup_interceptors=_puppet_assassin_setup,
 )
 
 
@@ -1563,16 +2068,20 @@ CURSE_OF_HATRED = make_enchantment(
 
 
 def _akatsuki_hideout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors, _ = static_pt_boost_by_subtype(obj, 1, 1, "Akatsuki", include_self=True)
-    return list(interceptors)
+    """Akatsuki creatures you control get +1/+1 and have menace."""
+    pt_boost, _ = static_pt_boost_by_subtype(obj, 1, 1, "Akatsuki", include_self=True)
+    menace = ih.make_keyword_grant(
+        obj, ['menace'],
+        ih.creatures_with_subtype(obj, 'Akatsuki'),
+    )
+    return list(pt_boost) + [menace]
 
 AKATSUKI_HIDEOUT = make_enchantment(
     name="Akatsuki Hideout",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    # "have menace" and the graveyard activated ability remain unimplemented (stubs in prior DSL).
-    text="Akatsuki creatures you control get +1/+1 and have menace. {2}{B}: Return target Akatsuki creature card from your graveyard to your hand.",
-    setup_interceptors=_akatsuki_hideout_setup
+    text="Akatsuki creatures you control get +1/+1 and have menace.",
+    setup_interceptors=_akatsuki_hideout_setup,
 )
 
 
@@ -1583,8 +2092,26 @@ AKATSUKI_HIDEOUT = make_enchantment(
 # --- Legendary Red Characters ---
 
 def naruto_sage_mode_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sage Mode bonus (set-specific mechanic)"""
-    return make_sage_mode_bonus_interceptors(obj, 3, 3)
+    """Sage Mode: +3/+3 while you have 15+ life. Attack trigger creates a 2/2 Frog Clone token."""
+    sage = make_sage_mode_bonus_interceptors(obj, 3, 3)
+
+    def clone(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Shadow Clone',
+                'power': 2, 'toughness': 2,
+                'colors': {'R'},
+                'subtypes': {'Ninja', 'Clone'},
+                'keywords': [],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return list(sage) + [ih.make_attack_trigger(obj, clone)]
 
 NARUTO_SAGE_MODE = make_creature(
     name="Naruto, Sage of Mount Myoboku",
@@ -1593,7 +2120,8 @@ NARUTO_SAGE_MODE = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Ninja", "Uzumaki", "Sage"},
     supertypes={"Legendary"},
-    setup_interceptors=naruto_sage_mode_setup
+    text="Sage Mode - Naruto, Sage of Mount Myoboku gets +3/+3 as long as you have 15 or more life. Whenever Naruto attacks, create a 2/2 red Ninja Clone creature token.",
+    setup_interceptors=naruto_sage_mode_setup,
 )
 
 
@@ -1696,13 +2224,21 @@ FIRE_STYLE_USER = make_creature(
 )
 
 
+def _cloud_village_ninja_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste and first strike via keyword grant."""
+    return [ih.make_keyword_grant(
+        obj, ['haste', 'first strike'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )]
+
 CLOUD_VILLAGE_NINJA = make_creature(
     name="Cloud Village Ninja",
-    power=3, toughness=2,
-    mana_cost="{1}{R}{R}",
+    power=2, toughness=2,
+    mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Ninja"},
-    text="Haste. First strike."
+    text="Haste, first strike.",
+    setup_interceptors=_cloud_village_ninja_setup,
 )
 
 
@@ -1736,13 +2272,23 @@ EXPLOSIVE_TAG_NINJA = make_creature(
 )
 
 
+def _sand_village_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace + attack: put a +1/+1 counter on itself."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['menace'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+    itc, _ = attack_add_counters(obj, '+1/+1', 1)
+    return [self_kw, itc]
+
 SAND_VILLAGE_WARRIOR = make_creature(
     name="Sand Village Warrior",
-    power=3, toughness=3,
+    power=2, toughness=2,
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Ninja", "Warrior"},
-    text="Menace."
+    text="Menace. Whenever Sand Village Warrior attacks, put a +1/+1 counter on it.",
+    setup_interceptors=_sand_village_warrior_setup,
 )
 
 
@@ -1927,8 +2473,22 @@ BATTLE_FRENZY = make_enchantment(
 # --- Legendary Green Characters ---
 
 def _naruto_kyubi_mode_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    interceptors, _ = static_pt_boost_by_subtype(obj, 1, 1, "Ninja", include_self=False)
-    return list(interceptors)
+    """Haste+trample self-grant, Ninja lord +1/+1, attack-trigger 3 damage to each opponent."""
+    pt_boost, _ = static_pt_boost_by_subtype(obj, 1, 1, "Ninja", include_self=False)
+    self_kw = ih.make_keyword_grant(
+        obj, ['haste', 'trample'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def tailed_beast(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': opp_id, 'amount': 3, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+
+    return list(pt_boost) + [self_kw, ih.make_attack_trigger(obj, tailed_beast)]
 
 NARUTO_KYUBI_MODE = make_creature(
     name="Naruto, Kyubi Chakra Mode",
@@ -1937,8 +2497,7 @@ NARUTO_KYUBI_MODE = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Ninja", "Uzumaki", "Jinchuriki"},
     supertypes={"Legendary"},
-    # "Haste, trample" and the attack-damage clause remain unimplemented (text-only in prior DSL).
-    text="Haste, trample. Whenever Naruto attacks, he deals 3 damage to each opponent. Other Ninja creatures you control get +1/+1.",
+    text="Haste, trample. Other Ninja creatures you control get +1/+1. Whenever Naruto, Kyubi Chakra Mode attacks, he deals 3 damage to each opponent.",
     setup_interceptors=_naruto_kyubi_mode_setup
 )
 
@@ -2855,6 +3414,204 @@ SUSANOO = make_enchantment(
 
 
 # =============================================================================
+# NEW LEGENDARY ADDITIONS (Quality pass)
+# =============================================================================
+
+# --- Kushina Uzumaki (W/R): Chain-seal protector for Uzumaki clan ---
+
+def _kushina_uzumaki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: create two 1/1 red Ninja tokens. Static: Uzumaki creatures you control have indestructible."""
+    token_itc, _ = etb_create_token(obj, 1, 1, 'Ninja', count=2, colors={'R'})
+    protect = ih.make_keyword_grant(
+        obj, ['indestructible'],
+        ih.creatures_with_subtype(obj, 'Uzumaki'),
+    )
+    return [token_itc, protect]
+
+KUSHINA_UZUMAKI = make_creature(
+    name="Kushina Uzumaki, Red-Hot Habanero",
+    power=3, toughness=3,
+    mana_cost="{1}{W}{R}",
+    colors={Color.WHITE, Color.RED},
+    subtypes={"Human", "Ninja", "Uzumaki"},
+    supertypes={"Legendary"},
+    text="When Kushina Uzumaki enters the battlefield, create two 1/1 red Ninja creature tokens. Uzumaki creatures you control have indestructible.",
+    setup_interceptors=_kushina_uzumaki_setup,
+)
+
+
+# --- Fugaku Uchiha (B): Clan head, Uchiha lord ---
+
+def _fugaku_uchiha_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Other Uchiha creatures you control get +1/+1."""
+    interceptors, _ = static_pt_boost_by_subtype(obj, 1, 1, "Uchiha", include_self=False)
+    return list(interceptors)
+
+FUGAKU_UCHIHA = make_creature(
+    name="Fugaku Uchiha, Clan Head",
+    power=3, toughness=3,
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Ninja", "Uchiha"},
+    supertypes={"Legendary"},
+    text="Other Uchiha creatures you control get +1/+1.",
+    setup_interceptors=_fugaku_uchiha_setup,
+)
+
+
+# --- Nagato, Rinnegan Master (U/B): Spellslinger payoff ---
+
+def _nagato_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast an instant or sorcery, draw a card."""
+    def effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_spell_cast_trigger(
+        obj, effect, spell_type_filter={CardType.INSTANT, CardType.SORCERY}
+    )]
+
+NAGATO_RINNEGAN = make_creature(
+    name="Nagato, Rinnegan Master",
+    power=2, toughness=4,
+    mana_cost="{2}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Human", "Ninja", "Akatsuki", "Uzumaki"},
+    supertypes={"Legendary"},
+    text="Whenever you cast an instant or sorcery, draw a card.",
+    setup_interceptors=_nagato_setup,
+)
+
+
+# --- Indra Otsutsuki (B/R): Ancestor of Uchiha - attack damages each opponent ---
+
+def _indra_otsutsuki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever Indra attacks, each opponent loses 2 life."""
+    def drain(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp_id, 'amount': -2},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+    return [ih.make_attack_trigger(obj, drain)]
+
+INDRA_OTSUTSUKI = make_creature(
+    name="Indra Otsutsuki, Firstborn",
+    power=4, toughness=3,
+    mana_cost="{1}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Human", "Ninja", "Otsutsuki", "Uchiha"},
+    supertypes={"Legendary"},
+    text="Whenever Indra Otsutsuki, Firstborn attacks, each opponent loses 2 life.",
+    setup_interceptors=_indra_otsutsuki_setup,
+)
+
+
+# --- Asura Otsutsuki (G/W): Ancestor of Senju - token generator ---
+
+def _asura_otsutsuki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: create two 1/1 green Ninja tokens. Senju creatures you control get +1/+1."""
+    token_itc, _ = etb_create_token(obj, 1, 1, 'Ninja', count=2, colors={'G'})
+    pt_boost, _ = static_pt_boost_by_subtype(obj, 1, 1, "Senju", include_self=False)
+    return [token_itc] + list(pt_boost)
+
+ASURA_OTSUTSUKI = make_creature(
+    name="Asura Otsutsuki, Secondborn",
+    power=3, toughness=3,
+    mana_cost="{1}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Ninja", "Otsutsuki", "Senju"},
+    supertypes={"Legendary"},
+    text="When Asura Otsutsuki, Secondborn enters the battlefield, create two 1/1 green Ninja creature tokens. Other Senju creatures you control get +1/+1.",
+    setup_interceptors=_asura_otsutsuki_setup,
+)
+
+
+# --- Kaguya Otsutsuki (5-color mythic): Divine Tree ultimate ---
+
+def _kaguya_otsutsuki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opponent loses 5 life, you draw 3 cards. Self-grant flying + hexproof."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['flying', 'hexproof', 'trample'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -5},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        for _ in range(3):
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [self_kw, ih.make_etb_trigger(obj, etb_effect)]
+
+KAGUYA_OTSUTSUKI = make_creature(
+    name="Kaguya Otsutsuki, Rabbit Goddess",
+    power=8, toughness=8,
+    mana_cost="{6}{W}{U}{B}",
+    colors={Color.WHITE, Color.BLUE, Color.BLACK},
+    subtypes={"Otsutsuki", "God"},
+    supertypes={"Legendary"},
+    text="Flying, hexproof, trample. When Kaguya Otsutsuki, Rabbit Goddess enters the battlefield, each opponent loses 5 life and you draw three cards.",
+    setup_interceptors=_kaguya_otsutsuki_setup,
+)
+
+
+# --- Danzo Shimura (W/B): ANBU commander ---
+
+def _danzo_shimura_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another creature you control dies, each opponent loses 1 life."""
+    def death_filter(event: Event, state: GameState, src: GameObject) -> bool:
+        if event.type not in (EventType.OBJECT_DESTROYED, EventType.SACRIFICE):
+            return False
+        target_id = event.payload.get('object_id')
+        if target_id == src.id:
+            return False
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        if target.controller != src.controller:
+            return False
+        return CardType.CREATURE in target.characteristics.types
+
+    def drain(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp_id, 'amount': -1},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+
+    return [ih.make_death_trigger(obj, drain, filter_fn=death_filter)]
+
+DANZO_SHIMURA = make_creature(
+    name="Danzo Shimura, Root Architect",
+    power=3, toughness=3,
+    mana_cost="{1}{W}{B}",
+    colors={Color.WHITE, Color.BLACK},
+    subtypes={"Human", "Ninja", "ANBU"},
+    supertypes={"Legendary"},
+    text="Whenever another creature you control dies, each opponent loses 1 life.",
+    setup_interceptors=_danzo_shimura_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -3088,6 +3845,15 @@ NARUTO_CARDS = {
     "Infinite Tsukuyomi": INFINITE_TSUKUYOMI,
     "Talk no Jutsu": TALK_NO_JUTSU,
     "Susanoo": SUSANOO,
+
+    # NEW LEGENDARY ADDITIONS
+    "Kushina Uzumaki, Red-Hot Habanero": KUSHINA_UZUMAKI,
+    "Fugaku Uchiha, Clan Head": FUGAKU_UCHIHA,
+    "Nagato, Rinnegan Master": NAGATO_RINNEGAN,
+    "Indra Otsutsuki, Firstborn": INDRA_OTSUTSUKI,
+    "Asura Otsutsuki, Secondborn": ASURA_OTSUTSUKI,
+    "Kaguya Otsutsuki, Rabbit Goddess": KAGUYA_OTSUTSUKI,
+    "Danzo Shimura, Root Architect": DANZO_SHIMURA,
 }
 
 
@@ -3309,5 +4075,13 @@ CARDS = [
     FINAL_VALLEY_BATTLE,
     INFINITE_TSUKUYOMI,
     TALK_NO_JUTSU,
-    SUSANOO
+    SUSANOO,
+    # NEW LEGENDARY ADDITIONS
+    KUSHINA_UZUMAKI,
+    FUGAKU_UCHIHA,
+    NAGATO_RINNEGAN,
+    INDRA_OTSUTSUKI,
+    ASURA_OTSUTSUKI,
+    KAGUYA_OTSUTSUKI,
+    DANZO_SHIMURA,
 ]

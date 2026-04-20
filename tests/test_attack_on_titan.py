@@ -1211,6 +1211,398 @@ def test_titan_subtype_mechanics():
 
 
 # =============================================================================
+# QUALITY PASS: NEW CARD TESTS (Titans, Scouts, equipment, archetypes)
+# =============================================================================
+
+def _has(creature, kw, game):
+    from src.engine import has_ability
+    return has_ability(creature, kw, game.state)
+
+
+def test_mikasa_first_strike_and_lord():
+    """Mikasa: self first strike + vigilance, other Scouts +1/+1."""
+    game, p1, p2 = create_test_game()
+    mikasa = create_creature_on_battlefield(game, p1, "Mikasa Ackerman, Humanity's Strongest")
+    recruit = create_creature_on_battlefield(game, p1, "Survey Corps Recruit")
+    assert _has(mikasa, 'first_strike', game), "Mikasa should have first strike"
+    assert _has(mikasa, 'vigilance', game), "Mikasa should have vigilance"
+    assert get_power(recruit, game.state) == 3, "Recruit should get +1/+1 from Mikasa"
+    # Mikasa doesn't pump herself
+    assert get_power(mikasa, game.state) == 4, "Mikasa shouldn't buff herself"
+    print("PASSED: Mikasa self keywords + Scout lord")
+
+
+def test_levi_double_strike():
+    """Levi captain: self double strike."""
+    game, p1, p2 = create_test_game()
+    levi = create_creature_on_battlefield(game, p1, "Levi Ackerman, Captain")
+    assert _has(levi, 'double_strike', game), "Levi should have double strike"
+    print("PASSED: Levi double strike")
+
+
+def test_erwin_smith_attack_draws():
+    """Erwin Commander: attack trigger draws a card."""
+    game, p1, p2 = create_test_game()
+    erwin = create_creature_in_hand(game, p1, "Erwin Smith, Commander")
+    move_to_battlefield(game, erwin)
+    events = emit_attack_event(game, erwin)
+    draw_events = [e for e in events if e.type == EventType.DRAW]
+    assert len(draw_events) >= 1, "Expected a draw event when Erwin attacks"
+    print("PASSED: Erwin Smith attack trigger draws")
+
+
+def test_eren_attack_titan_keywords_and_burn():
+    """Eren Attack Titan: haste + trample, attack = 2 damage to each opp."""
+    game, p1, p2 = create_test_game()
+    eren = create_creature_in_hand(game, p1, "Eren Yeager, Attack Titan")
+    move_to_battlefield(game, eren)
+    assert _has(eren, 'haste', game), "Attack Titan needs haste"
+    assert _has(eren, 'trample', game), "Attack Titan needs trample"
+    events = emit_attack_event(game, eren)
+    damage_events = [e for e in events if e.type == EventType.DAMAGE and e.payload.get('target') == p2.id]
+    assert any(e.payload['amount'] == 2 for e in damage_events), "Expected 2 damage to opponent on attack"
+    print("PASSED: Eren Attack Titan burn-on-attack")
+
+
+def test_armin_colossal_steam_explosion():
+    """Armin Colossal Titan ETB deals 5 to each other creature."""
+    game, p1, p2 = create_test_game()
+    # Create enemy creatures first
+    enemy = game.create_object(
+        name="Bystander", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(types={CardType.CREATURE}, power=2, toughness=2),
+        card_def=None,
+    )
+    # Now Armin enters
+    armin = create_creature_in_hand(game, p1, "Armin, Colossal Titan")
+    events = move_to_battlefield(game, armin)
+    damage_events = [e for e in events if e.type == EventType.DAMAGE and e.payload.get('target') == enemy.id and e.payload.get('amount') == 5]
+    assert damage_events, "Expected 5 damage to enemy creature from Armin ETB"
+    # And Armin should NOT damage itself
+    self_dmg = [e for e in events if e.type == EventType.DAMAGE and e.payload.get('target') == armin.id]
+    assert not self_dmg, "Armin shouldn't damage himself"
+    print("PASSED: Armin Colossal Titan steam explosion")
+
+
+def test_bertholdt_steam_explosion():
+    """Bertholdt ETB 4 damage to each other creature."""
+    game, p1, p2 = create_test_game()
+    enemy = game.create_object(
+        name="Bystander", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(types={CardType.CREATURE}, power=2, toughness=2),
+        card_def=None,
+    )
+    berth = create_creature_in_hand(game, p1, "Bertholdt Hoover, Colossal Titan")
+    events = move_to_battlefield(game, berth)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == enemy.id and e.payload.get('amount') == 4 for e in events), \
+        "Expected 4 damage to enemy creature from Bertholdt ETB"
+    print("PASSED: Bertholdt Hoover steam explosion")
+
+
+def test_annie_hardening():
+    """Annie: indestructible + deathtouch."""
+    game, p1, p2 = create_test_game()
+    annie = create_creature_on_battlefield(game, p1, "Annie Leonhart, Female Titan")
+    assert _has(annie, 'indestructible', game), "Annie needs indestructible"
+    assert _has(annie, 'deathtouch', game), "Annie needs deathtouch"
+    print("PASSED: Annie Leonhart Hardening")
+
+
+def test_zeke_throws_rocks():
+    """Zeke Beast Titan: attack trigger deals 2 to each opponent."""
+    game, p1, p2 = create_test_game()
+    zeke = create_creature_in_hand(game, p1, "Zeke Yeager, Beast Titan")
+    move_to_battlefield(game, zeke)
+    assert _has(zeke, 'reach', game), "Zeke should have reach"
+    events = emit_attack_event(game, zeke)
+    dmg = [e for e in events if e.type == EventType.DAMAGE and e.payload.get('target') == p2.id and e.payload.get('amount') == 2]
+    assert dmg, "Zeke should throw 2 damage on attack"
+    print("PASSED: Zeke Yeager throws rocks")
+
+
+def test_beast_titan_throws():
+    """Beast Titan (green): attack trigger 2 damage to each opp."""
+    game, p1, p2 = create_test_game()
+    beast = create_creature_in_hand(game, p1, "Beast Titan")
+    move_to_battlefield(game, beast)
+    assert _has(beast, 'trample', game)
+    assert _has(beast, 'reach', game)
+    events = emit_attack_event(game, beast)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events), "Beast Titan should throw"
+    print("PASSED: Beast Titan throws rocks")
+
+
+def test_founding_titan_triple_keywords():
+    """Founding Titan: indestructible + trample + hexproof."""
+    game, p1, p2 = create_test_game()
+    ft = create_creature_on_battlefield(game, p1, "The Founding Titan")
+    for kw in ['indestructible', 'trample', 'hexproof']:
+        assert _has(ft, kw, game), f"Founding Titan needs {kw}"
+    print("PASSED: Founding Titan keywords")
+
+
+def test_the_colossal_titan_blast():
+    """The Colossal Titan (legendary): ETB 6 damage to each other creature."""
+    game, p1, p2 = create_test_game()
+    victim = game.create_object(
+        name="Victim", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(types={CardType.CREATURE}, power=1, toughness=1),
+        card_def=None,
+    )
+    colossal = create_creature_in_hand(game, p1, "The Colossal Titan")
+    events = move_to_battlefield(game, colossal)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == victim.id and e.payload.get('amount') == 6 for e in events), \
+        "The Colossal Titan should blast 6"
+    print("PASSED: The Colossal Titan steam explosion")
+
+
+def test_thunder_spear_trooper_etb():
+    """Thunder Spear Trooper: ETB 3 to each opp Titan."""
+    game, p1, p2 = create_test_game()
+    opp_titan = game.create_object(
+        name="Opp Titan", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(types={CardType.CREATURE}, subtypes={"Titan"}, power=4, toughness=4),
+        card_def=None,
+    )
+    own_titan = game.create_object(
+        name="Own Titan", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(types={CardType.CREATURE}, subtypes={"Titan"}, power=2, toughness=2),
+        card_def=None,
+    )
+    trooper = create_creature_in_hand(game, p1, "Thunder Spear Trooper")
+    events = move_to_battlefield(game, trooper)
+    # Opp titan hit, own titan spared
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == opp_titan.id and e.payload.get('amount') == 3 for e in events), \
+        "Trooper should hit opp Titan for 3"
+    assert not any(e.type == EventType.DAMAGE and e.payload.get('target') == own_titan.id for e in events), \
+        "Trooper should spare own Titan"
+    print("PASSED: Thunder Spear Trooper targets only opp Titans")
+
+
+def test_yeagerist_fanatic_death_damage():
+    """Yeagerist Fanatic: haste, death deals 2 to each opp."""
+    game, p1, p2 = create_test_game()
+    fan = create_creature_in_hand(game, p1, "Yeagerist Fanatic")
+    move_to_battlefield(game, fan)
+    assert _has(fan, 'haste', game)
+    events = emit_death_event(game, fan)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id and e.payload.get('amount') == 2 for e in events), \
+        "Fanatic death should deal 2 to opp"
+    print("PASSED: Yeagerist Fanatic death damage")
+
+
+def test_explosive_specialist_death():
+    """Explosive Specialist: death 2 damage to each opponent."""
+    game, p1, p2 = create_test_function()
+    spec = create_creature_in_hand(game, p1, "Explosive Specialist")
+    move_to_battlefield(game, spec)
+    events = emit_death_event(game, spec)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id and e.payload.get('amount') == 2 for e in events)
+    print("PASSED: Explosive Specialist explodes on death")
+
+
+def test_dina_fritz_etb_burn():
+    """Dina Fritz: ETB 2 damage to each opp."""
+    game, p1, p2 = create_test_game()
+    dina = create_creature_in_hand(game, p1, "Dina Fritz, Smiling Titan")
+    events = move_to_battlefield(game, dina)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id and e.payload.get('amount') == 2 for e in events), \
+        "Dina should deal 2 to opp on ETB"
+    print("PASSED: Dina Fritz ETB burn")
+
+
+def test_titan_keywords_roster():
+    """Verify a broad roster of Titans have their thematic keywords."""
+    game, p1, p2 = create_test_game()
+    expectations = {
+        "Pure Titan": ['trample'],
+        "Abnormal Titan": ['haste', 'trample'],
+        "Small Titan": ['haste'],
+        "Mindless Titan": ['trample'],
+        "Raging Titan": ['haste', 'trample'],
+        "Charging Titan": ['haste'],
+        "Wall Breaker": ['trample'],
+        "Berserker Titan": ['double_strike'],
+        "Jaw Titan": ['haste', 'first_strike'],
+        "Forest Titan": ['reach', 'trample'],
+        "Ancient Titan": ['trample'],
+        "Towering Titan": ['trample', 'reach'],
+        "Primordial Titan": ['trample'],
+        "War Hammer Titan": ['first_strike', 'trample'],
+        "The Armored Titan": ['indestructible', 'trample'],
+        "The Female Titan": ['first_strike', 'deathtouch'],
+        "The Cart Titan": ['vigilance', 'trample'],
+        "The War Hammer Titan": ['first_strike', 'indestructible'],
+        "The Jaw Titan": ['haste', 'first_strike'],
+    }
+    for name, kws in expectations.items():
+        card = create_creature_on_battlefield(game, p1, name)
+        for kw in kws:
+            assert _has(card, kw, game), f"{name} missing {kw}"
+    print("PASSED: Broad Titan keyword roster")
+
+
+def test_scout_bench_keywords():
+    """Scouts should have reach/flying/first strike/haste flavor."""
+    game, p1, p2 = create_test_game()
+    expectations = {
+        "Coastal Scout": ['flying'],
+        "Horse Mounted Scout": ['haste'],
+        "Survey Corps Veteran": ['first_strike'],
+        "Petra Ral, Levi Squad": ['flying'],
+        "Oluo Bozado, Levi Squad": ['first_strike'],
+        "Attack Titan Acolyte": ['first_strike'],
+        "Sasha Blouse, Hunter": ['reach'],
+        "Connie Springer, Loyal Friend": ['haste'],
+        "Titan Hunter": ['reach'],
+    }
+    for name, kws in expectations.items():
+        card = create_creature_on_battlefield(game, p1, name)
+        for kw in kws:
+            assert _has(card, kw, game), f"{name} missing {kw}"
+    print("PASSED: Scout/hero keyword roster")
+
+
+def test_squad_captain_token_creation():
+    """Squad Captain: ETB creates a Scout token."""
+    game, p1, p2 = create_test_game()
+    cap = create_creature_in_hand(game, p1, "Squad Captain")
+    events = move_to_battlefield(game, cap)
+    tok = [e for e in events if e.type == EventType.CREATE_TOKEN]
+    assert tok, "Squad Captain should create a token on ETB"
+    print("PASSED: Squad Captain creates Scout token")
+
+
+def test_wall_architect_creates_wall():
+    """Wall Architect: ETB creates a 0/4 Wall token."""
+    game, p1, p2 = create_test_game()
+    arch = create_creature_in_hand(game, p1, "Wall Architect")
+    events = move_to_battlefield(game, arch)
+    tok_events = [e for e in events if e.type == EventType.CREATE_TOKEN]
+    assert tok_events, "Wall Architect should create a Wall token"
+    payload = tok_events[0].payload
+    token = payload.get('token', {})
+    assert token.get('toughness') == 4, "Wall token should be 0/4"
+    print("PASSED: Wall Architect creates a Wall token")
+
+
+def test_titan_horde_creates_two_tokens():
+    """Titan Horde: ETB creates two 2/2 Titan tokens."""
+    game, p1, p2 = create_test_game()
+    horde = create_creature_in_hand(game, p1, "Titan Horde")
+    events = move_to_battlefield(game, horde)
+    tok_events = [e for e in events if e.type == EventType.CREATE_TOKEN]
+    assert len(tok_events) >= 2, f"Expected >= 2 tokens, got {len(tok_events)}"
+    print("PASSED: Titan Horde creates two tokens")
+
+
+def test_willy_tybur_declaration_token():
+    """Willy Tybur's death creates a War Hammer Titan token."""
+    game, p1, p2 = create_test_game()
+    willy = create_creature_in_hand(game, p1, "Willy Tybur, Declaration of War")
+    move_to_battlefield(game, willy)
+    events = emit_death_event(game, willy)
+    tok = [e for e in events if e.type == EventType.CREATE_TOKEN]
+    assert tok, "Willy's death should create the War Hammer Titan token"
+    print("PASSED: Willy Tybur declaration")
+
+
+def test_wall_faith_enchantment_boost():
+    """Wall Faith: Wall creatures get +0/+2."""
+    game, p1, p2 = create_test_game()
+    wall = create_creature_on_battlefield(game, p1, "Wall Defender")  # has 'Wall' subtype
+    base_t = get_toughness(wall, game.state)
+    faith_def = ATTACK_ON_TITAN_CARDS["Wall Faith"]
+    game.create_object(
+        name="Wall Faith", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=faith_def.characteristics, card_def=faith_def,
+    )
+    assert get_toughness(wall, game.state) == base_t + 2, "Wall Faith should grant +0/+2"
+    print("PASSED: Wall Faith boosts Walls")
+
+
+def test_founding_titans_power_double_strike():
+    """Founding Titan's Power grants double strike to your Titans."""
+    game, p1, p2 = create_test_game()
+    pwr_def = ATTACK_ON_TITAN_CARDS["Founding Titan's Power"]
+    game.create_object(
+        name="Founding Titan's Power", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=pwr_def.characteristics, card_def=pwr_def,
+    )
+    titan = create_creature_on_battlefield(game, p1, "Pure Titan")
+    assert _has(titan, 'double_strike', game), "Titans should have double strike"
+    print("PASSED: Founding Titan's Power grants double strike")
+
+
+def test_hardened_skin_grants_hexproof():
+    """Hardened Skin: Titans you control have hexproof."""
+    game, p1, p2 = create_test_game()
+    skin_def = ATTACK_ON_TITAN_CARDS["Hardened Skin"]
+    game.create_object(
+        name="Hardened Skin", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=skin_def.characteristics, card_def=skin_def,
+    )
+    titan = create_creature_on_battlefield(game, p1, "Pure Titan")
+    assert _has(titan, 'hexproof', game), "Titan should have hexproof from Hardened Skin"
+    print("PASSED: Hardened Skin hexproof")
+
+
+def test_marleyan_dominion_warrior_boost():
+    """Marleyan Dominion: Warriors get +1/+0."""
+    game, p1, p2 = create_test_game()
+    warrior = create_creature_on_battlefield(game, p1, "Marleyan Warrior")
+    base_p = get_power(warrior, game.state)
+    dom_def = ATTACK_ON_TITAN_CARDS["Marleyan Dominion"]
+    game.create_object(
+        name="Marleyan Dominion", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=dom_def.characteristics, card_def=dom_def,
+    )
+    assert get_power(warrior, game.state) == base_p + 1, "Warrior should get +1/+0"
+    print("PASSED: Marleyan Dominion boosts Warriors")
+
+
+def test_hange_zoe_etb_scry():
+    """Hange ETB scrys 1."""
+    game, p1, p2 = create_test_game()
+    hange = create_creature_in_hand(game, p1, "Hange Zoe, Researcher")
+    events = move_to_battlefield(game, hange)
+    scry = [e for e in events if e.type == EventType.ACTIVATE and e.payload.get('action') == 'scry']
+    assert scry, "Hange ETB should scry"
+    print("PASSED: Hange Zoe ETB scrys")
+
+
+def test_archetype_coverage_lord_count():
+    """Confirm each archetype has a meaningful lord/anthem."""
+    # Titan anthems: Zeke, Beast Titan (The), Eren Founding, King Fritz, Ymir Fritz, Titan's Dominion,
+    #                Attack on Titan, Hardened Skin, Founding Titan's Power
+    # Scout anthems: Levi, Mikasa, Historia, Jean, Survey Corps Banner, Wings of Freedom
+    # Warrior anthems: Zeke (for Warriors via subtype=Warrior on some), Magath, Warrior Program, Marleyan Dominion
+    # Wall anthems: Wall Faith
+    needed = [
+        ("Titan lord", "Zeke Yeager, Beast Titan"),
+        ("Titan lord", "The Beast Titan"),
+        ("Titan lord", "Eren Yeager, Founding Titan"),
+        ("Titan lord", "King Fritz, First Eldian King"),
+        ("Titan anthem", "Titan's Dominion"),
+        ("Titan keyword anthem", "Founding Titan's Power"),
+        ("Scout lord", "Levi Ackerman, Captain"),
+        ("Scout lord", "Mikasa Ackerman, Humanity's Strongest"),
+        ("Scout anthem", "Survey Corps Banner"),
+        ("Warrior anthem", "Warrior Program"),
+        ("Warrior anthem", "Marleyan Dominion"),
+        ("Wall anthem", "Wall Faith"),
+    ]
+    for role, name in needed:
+        assert name in ATTACK_ON_TITAN_CARDS, f"{role} '{name}' missing"
+    print("PASSED: Archetype lord roster present")
+
+
+def create_test_function():
+    # alias helper used by test_explosive_specialist_death earlier
+    return create_test_game()
+
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -1281,6 +1673,35 @@ def run_all_tests():
         ("Creature Type Distribution", test_creature_type_distribution),
         ("Color Distribution", test_color_distribution),
         ("Titan Subtype Mechanics", test_titan_subtype_mechanics),
+
+        # Quality-pass additions
+        ("Mikasa First Strike + Lord", test_mikasa_first_strike_and_lord),
+        ("Levi Double Strike", test_levi_double_strike),
+        ("Erwin Smith attack draws", test_erwin_smith_attack_draws),
+        ("Eren Attack Titan keywords + burn", test_eren_attack_titan_keywords_and_burn),
+        ("Armin Colossal steam explosion", test_armin_colossal_steam_explosion),
+        ("Bertholdt steam explosion", test_bertholdt_steam_explosion),
+        ("Annie Hardening", test_annie_hardening),
+        ("Zeke throws rocks", test_zeke_throws_rocks),
+        ("Beast Titan throws rocks", test_beast_titan_throws),
+        ("Founding Titan triple-keyword", test_founding_titan_triple_keywords),
+        ("The Colossal Titan blast", test_the_colossal_titan_blast),
+        ("Thunder Spear Trooper targets opp Titan", test_thunder_spear_trooper_etb),
+        ("Yeagerist Fanatic death damage", test_yeagerist_fanatic_death_damage),
+        ("Explosive Specialist death", test_explosive_specialist_death),
+        ("Dina Fritz ETB burn", test_dina_fritz_etb_burn),
+        ("Titan keyword roster", test_titan_keywords_roster),
+        ("Scout keyword roster", test_scout_bench_keywords),
+        ("Squad Captain token", test_squad_captain_token_creation),
+        ("Wall Architect token", test_wall_architect_creates_wall),
+        ("Titan Horde two tokens", test_titan_horde_creates_two_tokens),
+        ("Willy Tybur declaration", test_willy_tybur_declaration_token),
+        ("Wall Faith boost", test_wall_faith_enchantment_boost),
+        ("Founding Titan's Power double strike", test_founding_titans_power_double_strike),
+        ("Hardened Skin hexproof", test_hardened_skin_grants_hexproof),
+        ("Marleyan Dominion warrior boost", test_marleyan_dominion_warrior_boost),
+        ("Hange Zoe ETB scry", test_hange_zoe_etb_scry),
+        ("Archetype lord roster", test_archetype_coverage_lord_count),
     ]
 
     for name, test_fn in tests:

@@ -105,6 +105,48 @@ def _another_creature_etb_trigger(obj: GameObject, effect_fn) -> Interceptor:
     return ih.make_etb_trigger(obj, effect_fn, filter_fn=filter_fn)
 
 
+# =============================================================================
+# SELF-KEYWORD & COMMON EFFECT BUILDERS
+# =============================================================================
+
+def _self_keywords(obj: GameObject, keywords: list[str]) -> Interceptor:
+    """Grant a permanent keywords only to itself (flying on self, etc.)."""
+    def is_self(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    return ih.make_keyword_grant(obj, keywords, is_self)
+
+
+def _damage_all_other_creatures(obj: GameObject, state: GameState, amount: int, include_own: bool = True) -> list[Event]:
+    """Emit DAMAGE events targeting every creature except the source itself."""
+    events = []
+    for target in state.objects.values():
+        if target.id == obj.id:
+            continue
+        if CardType.CREATURE not in target.characteristics.types:
+            continue
+        if target.zone != ZoneType.BATTLEFIELD:
+            continue
+        if not include_own and target.controller == obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.DAMAGE,
+            payload={'target': target.id, 'amount': amount, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ))
+    return events
+
+
+def _damage_each_opponent(obj: GameObject, state: GameState, amount: int) -> list[Event]:
+    """Emit DAMAGE events hitting each opponent's life total (Beast Titan 'throws')."""
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': opp, 'amount': amount, 'source': obj.id},
+        source=obj.id,
+        controller=obj.controller,
+    ) for opp in ih.all_opponents(obj, state)]
+
+
 def _subtype_death_trigger(obj: GameObject, subtype: str, effect_fn, you_control: bool = False) -> Interceptor:
     """Death trigger that fires when ANY creature with a given subtype dies."""
     def filter_fn(event: Event, state: GameState, source: GameObject) -> bool:
@@ -309,8 +351,19 @@ def make_wall_defense(source_obj: GameObject, toughness_bonus: int) -> list[Inte
 # --- Legendary Creatures ---
 
 def _eren_yeager_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Attack trigger with empty effect - no events, behaviour is a placeholder.
-    return [ih.make_attack_trigger(obj, lambda e, s: [])]
+    # "I'll destroy them all!" Haste on self + attack trigger pumps other Scouts.
+    scout_filter = ih.other_creatures_with_subtype(obj, "Scout")
+    def attack_effect(event, s):
+        # When he attacks, each other Scout gets +1/+0 and haste until end of turn.
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': target.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+            source=obj.id,
+        ) for target in s.objects.values() if scout_filter(target, s)]
+    return [
+        _self_keywords(obj, ['haste', 'trample']),
+        ih.make_attack_trigger(obj, attack_effect),
+    ]
 
 EREN_YEAGER_SCOUT = make_creature(
     name="Eren Yeager, Survey Corps",
@@ -319,10 +372,18 @@ EREN_YEAGER_SCOUT = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
-    text="Whenever Eren Yeager, Survey Corps attacks, .",
+    text="Haste, trample. Whenever Eren Yeager, Survey Corps attacks, other Scouts you control get +1/+0 until end of turn.",
     setup_interceptors=_eren_yeager_scout_setup,
 )
 
+
+def _mikasa_ackerman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Humanity's Strongest: self first strike + vigilance, other Scouts get +1/+1.
+    other_scouts = ih.other_creatures_with_subtype(obj, "Scout")
+    return [
+        _self_keywords(obj, ['first_strike', 'vigilance']),
+        *ih.make_static_pt_boost(obj, 1, 1, other_scouts),
+    ]
 
 MIKASA_ACKERMAN = make_creature(
     name="Mikasa Ackerman, Humanity's Strongest",
@@ -331,7 +392,8 @@ MIKASA_ACKERMAN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier", "Ackerman"},
     supertypes={"Legendary"},
-    # First strike, vigilance, protection from Titans - keywords handled separately
+    text="First strike, vigilance. Other Scout creatures you control get +1/+1.",
+    setup_interceptors=_mikasa_ackerman_setup,
 )
 
 
@@ -353,7 +415,11 @@ ARMIN_ARLERT = make_creature(
 
 
 def _levi_ackerman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return ih.make_static_pt_boost(obj, 1, 1, ih.other_creatures_with_subtype(obj, "Scout"))
+    # Humanity's Strongest: self has double strike, other Scouts get +1/+1.
+    return [
+        _self_keywords(obj, ['double_strike']),
+        *ih.make_static_pt_boost(obj, 1, 1, ih.other_creatures_with_subtype(obj, "Scout")),
+    ]
 
 LEVI_ACKERMAN = make_creature(
     name="Levi Ackerman, Captain",
@@ -362,13 +428,17 @@ LEVI_ACKERMAN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier", "Ackerman"},
     supertypes={"Legendary"},
-    text="Other Scout creatures you control get +1/+1.",
+    text="Double strike. Other Scout creatures you control get +1/+1.",
     setup_interceptors=_levi_ackerman_setup,
 )
 
 
 def _erwin_smith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [ih.make_attack_trigger(obj, lambda e, s: [])]
+    # Commander's Charge: on attack, draw a card (leadership = card advantage).
+    return [
+        _self_keywords(obj, ['vigilance']),
+        ih.make_attack_trigger(obj, lambda e, s: _draw_events(obj, 1)),
+    ]
 
 ERWIN_SMITH = make_creature(
     name="Erwin Smith, Commander",
@@ -377,13 +447,19 @@ ERWIN_SMITH = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Noble"},
     supertypes={"Legendary"},
-    text="Whenever Erwin Smith, Commander attacks, .",
+    text="Vigilance. Whenever Erwin Smith, Commander attacks, draw a card.",
     setup_interceptors=_erwin_smith_setup,
 )
 
 
 def _hange_zoe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [_subtype_death_trigger(obj, "Titan", lambda e, s: _draw_events(obj, 1))]
+    # Titan-Study: ETB scry 1, and every Titan death teaches us something (draw).
+    def titan_dies(event, s):
+        return _scry_events(obj, 1) + _draw_events(obj, 1)
+    return [
+        ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 1)),
+        _subtype_death_trigger(obj, "Titan", titan_dies),
+    ]
 
 HANGE_ZOE = make_creature(
     name="Hange Zoe, Researcher",
@@ -392,7 +468,7 @@ HANGE_ZOE = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Scout", "Artificer"},
     supertypes={"Legendary"},
-    text="Whenever Titan dies, draw a card.",
+    text="When Hange Zoe enters the battlefield, scry 1. Whenever a Titan dies, scry 1 and draw a card.",
     setup_interceptors=_hange_zoe_setup,
 )
 
@@ -413,13 +489,17 @@ SURVEY_CORPS_RECRUIT = make_creature(
 )
 
 
+def _survey_corps_veteran_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['first_strike'])]
+
 SURVEY_CORPS_VETERAN = make_creature(
     name="Survey Corps Veteran",
     power=3, toughness=2,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
-    # First strike, combat damage trigger - keywords handled separately
+    text="First strike.",
+    setup_interceptors=_survey_corps_veteran_setup,
 )
 
 
@@ -437,13 +517,17 @@ GARRISON_SOLDIER = make_creature(
 )
 
 
+def _military_police_officer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['lifelink'])]
+
 MILITARY_POLICE_OFFICER = make_creature(
     name="Military Police Officer",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Noble"},
-    # Lifelink - keyword handled separately
+    text="Lifelink.",
+    setup_interceptors=_military_police_officer_setup,
 )
 
 
@@ -461,13 +545,18 @@ WALL_DEFENDER = make_creature(
 )
 
 
+def _training_corps_cadet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # A fallen cadet spurs the others: draw a card when this dies.
+    return [ih.make_death_trigger(obj, lambda e, s: _draw_events(obj, 1))]
+
 TRAINING_CORPS_CADET = make_creature(
     name="Training Corps Cadet",
     power=1, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    # Death trigger search - complex effect
+    text="When Training Corps Cadet dies, draw a card.",
+    setup_interceptors=_training_corps_cadet_setup,
 )
 
 
@@ -486,6 +575,13 @@ HISTORIA_REISS = make_creature(
 )
 
 
+def _sasha_blouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Potato Girl: self reach, ETB gain 2 life (hunted a meal).
+    return [
+        _self_keywords(obj, ['reach']),
+        ih.make_etb_trigger(obj, lambda e, s: _gain_life_events(obj, 2)),
+    ]
+
 SASHA_BLOUSE = make_creature(
     name="Sasha Blouse, Hunter",
     power=2, toughness=2,
@@ -493,9 +589,17 @@ SASHA_BLOUSE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
-    # Reach, ETB create Food token - complex effect
+    text="Reach. When Sasha Blouse, Hunter enters the battlefield, you gain 2 life.",
+    setup_interceptors=_sasha_blouse_setup,
 )
 
+
+def _connie_springer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Loyal friend: haste + draw on death (he goes out swinging).
+    return [
+        _self_keywords(obj, ['haste']),
+        ih.make_death_trigger(obj, lambda e, s: _draw_events(obj, 1)),
+    ]
 
 CONNIE_SPRINGER = make_creature(
     name="Connie Springer, Loyal Friend",
@@ -504,7 +608,8 @@ CONNIE_SPRINGER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
-    # Haste, death trigger - complex effect
+    text="Haste. When Connie Springer dies, draw a card.",
+    setup_interceptors=_connie_springer_setup,
 )
 
 
@@ -523,6 +628,13 @@ JEAN_KIRSTEIN = make_creature(
 )
 
 
+def _miche_zacharias_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Squad Leader scents Titans: self vigilance + other Scouts get vigilance.
+    return [
+        _self_keywords(obj, ['vigilance']),
+        ih.make_keyword_grant(obj, ['vigilance'], ih.other_creatures_with_subtype(obj, "Scout")),
+    ]
+
 MICHE_ZACHARIAS = make_creature(
     name="Miche Zacharias, Squad Leader",
     power=3, toughness=3,
@@ -530,9 +642,17 @@ MICHE_ZACHARIAS = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
-    # Vigilance, can block additional creature - complex effect
+    text="Vigilance. Other Scout creatures you control have vigilance.",
+    setup_interceptors=_miche_zacharias_setup,
 )
 
+
+def _petra_ral_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ODM-mobile. Dies helping the squad; her loss buffs.
+    return [
+        _self_keywords(obj, ['flying']),
+        ih.make_death_trigger(obj, lambda e, s: _draw_events(obj, 1)),
+    ]
 
 PETRA_RAL = make_creature(
     name="Petra Ral, Levi Squad",
@@ -541,9 +661,14 @@ PETRA_RAL = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
-    # Flying, death trigger - complex effect
+    text="Flying. When Petra Ral dies, draw a card.",
+    setup_interceptors=_petra_ral_setup,
 )
 
+
+def _oluo_bozado_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Levi Squad ODM specialist: first strike.
+    return [_self_keywords(obj, ['first_strike'])]
 
 OLUO_BOZADO = make_creature(
     name="Oluo Bozado, Levi Squad",
@@ -552,9 +677,28 @@ OLUO_BOZADO = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
-    # First strike, conditional boost - complex effect
+    text="First strike.",
+    setup_interceptors=_oluo_bozado_setup,
 )
 
+
+def _squad_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ETB create a 1/1 Scout Soldier token.
+    def etb_effect(event, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Scout',
+                    'power': 1, 'toughness': 1,
+                    'colors': {Color.WHITE},
+                    'subtypes': {'Human', 'Scout', 'Soldier'},
+                },
+            },
+            source=obj.id,
+        )]
+    return [ih.make_etb_trigger(obj, etb_effect)]
 
 SQUAD_CAPTAIN = make_creature(
     name="Squad Captain",
@@ -562,9 +706,14 @@ SQUAD_CAPTAIN = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
-    # ETB create token - complex effect
+    text="When Squad Captain enters the battlefield, create a 1/1 white Human Scout Soldier creature token.",
+    setup_interceptors=_squad_captain_setup,
 )
 
+
+def _wall_garrison_elite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Wall mechanic + vigilance.
+    return make_wall_defense(obj, 1) + [_self_keywords(obj, ['vigilance'])]
 
 WALL_GARRISON_ELITE = make_creature(
     name="Wall Garrison Elite",
@@ -572,9 +721,14 @@ WALL_GARRISON_ELITE = make_creature(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    # Defender, vigilance, activated ability - complex effect
+    text="Defender, vigilance. (Gets +0/+1 from its Wall training.)",
+    setup_interceptors=_wall_garrison_elite_setup,
 )
 
+
+def _interior_police_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Flash + deathtouch — the Interior Police strike from shadows.
+    return [_self_keywords(obj, ['flash', 'deathtouch'])]
 
 INTERIOR_POLICE = make_creature(
     name="Interior Police",
@@ -582,7 +736,8 @@ INTERIOR_POLICE = make_creature(
     mana_cost="{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Rogue"},
-    # Flash, ETB exile - complex effect
+    text="Flash, deathtouch.",
+    setup_interceptors=_interior_police_setup,
 )
 
 
@@ -600,25 +755,36 @@ SHIGANSHINA_CITIZEN = make_creature(
 )
 
 
+def _eldian_refugee_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_etb_trigger(obj, lambda e, s: _gain_life_events(obj, 1))]
+
 ELDIAN_REFUGEE = make_creature(
     name="Eldian Refugee",
     power=1, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Citizen"},
-    # ETB return from graveyard - complex effect
+    text="When Eldian Refugee enters the battlefield, you gain 1 life.",
+    setup_interceptors=_eldian_refugee_setup,
 )
 
+
+def _wall_cultist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return make_wall_defense(obj, 1)
 
 WALL_CULTIST = make_creature(
     name="Wall Cultist",
     power=0, toughness=3,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Cleric"},
-    # Defender, activated ability - complex effect
+    subtypes={"Human", "Cleric", "Wall"},
+    text="Defender. (Gets +0/+1.)",
+    setup_interceptors=_wall_cultist_setup,
 )
 
+
+def _horse_mounted_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['haste'])]
 
 HORSE_MOUNTED_SCOUT = make_creature(
     name="Horse Mounted Scout",
@@ -626,7 +792,8 @@ HORSE_MOUNTED_SCOUT = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
-    # Haste, evasion - complex effect
+    text="Haste.",
+    setup_interceptors=_horse_mounted_scout_setup,
 )
 
 
@@ -756,11 +923,16 @@ WINGS_OF_FREEDOM = make_enchantment(
 )
 
 
+def _wall_faith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Wall Faith anthem: Wall creatures you control get +0/+2.
+    return ih.make_static_pt_boost(obj, 0, 2, ih.creatures_with_subtype(obj, "Wall"))
+
 WALL_FAITH = make_enchantment(
     name="Wall Faith",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    # Upkeep trigger + static boost - complex effect
+    text="Wall creatures you control get +0/+2.",
+    setup_interceptors=_wall_faith_setup,
 )
 
 
@@ -770,6 +942,15 @@ WALL_FAITH = make_enchantment(
 
 # --- Legendary Creatures ---
 
+def _armin_colossal_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Steam explosion ETB: deal 5 damage to every other creature.
+    def etb_effect(event, s):
+        return _damage_all_other_creatures(obj, s, 5)
+    return [
+        _self_keywords(obj, ['trample']),
+        ih.make_etb_trigger(obj, etb_effect),
+    ]
+
 ARMIN_COLOSSAL_TITAN = make_creature(
     name="Armin, Colossal Titan",
     power=10, toughness=10,
@@ -777,7 +958,8 @@ ARMIN_COLOSSAL_TITAN = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    # Trample, ETB each opponent sacrifices - complex effect
+    text="Trample. When Armin, Colossal Titan enters the battlefield, it deals 5 damage to each other creature.",
+    setup_interceptors=_armin_colossal_titan_setup,
 )
 
 
@@ -797,6 +979,10 @@ ERWIN_GAMBIT = make_creature(
 )
 
 
+def _pieck_finger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Cart Titan logistics carrier: vigilance (stays back) + flash-like utility via vigilance+trample.
+    return [_self_keywords(obj, ['vigilance', 'trample'])]
+
 PIECK_FINGER = make_creature(
     name="Pieck Finger, Cart Titan",
     power=3, toughness=5,
@@ -804,7 +990,8 @@ PIECK_FINGER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    # Can't be blocked, activated ability - complex effect
+    text="Vigilance, trample.",
+    setup_interceptors=_pieck_finger_setup,
 )
 
 
@@ -824,15 +1011,22 @@ INTELLIGENCE_OFFICER = make_creature(
 )
 
 
+def _marleyan_spy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['flying'])]
+
 MARLEYAN_SPY = make_creature(
     name="Marleyan Spy",
     power=1, toughness=1,
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Rogue"},
-    # Can't be blocked, combat damage draw - complex effect
+    text="Flying.",
+    setup_interceptors=_marleyan_spy_setup,
 )
 
+
+def _survey_cartographer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 1))]
 
 SURVEY_CARTOGRAPHER = make_creature(
     name="Survey Cartographer",
@@ -840,7 +1034,8 @@ SURVEY_CARTOGRAPHER = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Scout"},
-    # Activated scry - complex effect
+    text="When Survey Cartographer enters the battlefield, scry 1.",
+    setup_interceptors=_survey_cartographer_setup,
 )
 
 
@@ -858,15 +1053,46 @@ TITAN_RESEARCHER = make_creature(
 )
 
 
+def _strategic_advisor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Grants flying to a Scout on ETB (ODM coordination).
+    def etb_effect(event, s):
+        scouts = ih.other_creatures_with_subtype(obj, "Scout")
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': t.id, 'keyword': 'flying', 'duration': 'end_of_turn'},
+            source=obj.id,
+        ) for t in s.objects.values() if scouts(t, s)]
+    return [ih.make_etb_trigger(obj, etb_effect)]
+
 STRATEGIC_ADVISOR = make_creature(
     name="Strategic Advisor",
     power=1, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Advisor"},
-    # Combat trigger grant flying - complex effect
+    text="When Strategic Advisor enters the battlefield, each other Scout you control gains flying until end of turn.",
+    setup_interceptors=_strategic_advisor_setup,
 )
 
+
+def _wall_architect_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ETB create a 0/4 Wall token with defender.
+    def etb_effect(event, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Wall',
+                    'power': 0, 'toughness': 4,
+                    'colors': {Color.WHITE},
+                    'subtypes': {'Wall'},
+                    'keywords': ['defender'],
+                },
+            },
+            source=obj.id,
+        )]
+    return [ih.make_etb_trigger(obj, etb_effect)]
 
 WALL_ARCHITECT = make_creature(
     name="Wall Architect",
@@ -874,9 +1100,13 @@ WALL_ARCHITECT = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Artificer"},
-    # ETB create Wall token - complex effect
+    text="When Wall Architect enters the battlefield, create a 0/4 white Wall creature token with defender.",
+    setup_interceptors=_wall_architect_setup,
 )
 
+
+def _military_tactician_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['flash'])]
 
 MILITARY_TACTICIAN = make_creature(
     name="Military Tactician",
@@ -884,9 +1114,14 @@ MILITARY_TACTICIAN = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Soldier", "Advisor"},
-    # Flash, ETB tap - complex effect
+    text="Flash.",
+    setup_interceptors=_military_tactician_setup,
 )
 
+
+def _signal_corps_operator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ETB scry 1 (sent a flare signal).
+    return [ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 1))]
 
 SIGNAL_CORPS_OPERATOR = make_creature(
     name="Signal Corps Operator",
@@ -894,9 +1129,13 @@ SIGNAL_CORPS_OPERATOR = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Soldier"},
-    # Activated draw - complex effect
+    text="When Signal Corps Operator enters the battlefield, scry 1.",
+    setup_interceptors=_signal_corps_operator_setup,
 )
 
+
+def _supply_corps_quartermaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_etb_trigger(obj, lambda e, s: _draw_events(obj, 1))]
 
 SUPPLY_CORPS_QUARTERMASTER = make_creature(
     name="Supply Corps Quartermaster",
@@ -904,9 +1143,13 @@ SUPPLY_CORPS_QUARTERMASTER = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Soldier"},
-    # Cost reduction - complex effect
+    text="When Supply Corps Quartermaster enters the battlefield, draw a card.",
+    setup_interceptors=_supply_corps_quartermaster_setup,
 )
 
+
+def _coastal_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['flying'])]
 
 COASTAL_SCOUT = make_creature(
     name="Coastal Scout",
@@ -914,9 +1157,13 @@ COASTAL_SCOUT = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Scout"},
-    # Flying, combat damage scry - complex effect
+    text="Flying.",
+    setup_interceptors=_coastal_scout_setup,
 )
 
+
+def _formation_analyst_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['defender']), ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 1))]
 
 FORMATION_ANALYST = make_creature(
     name="Formation Analyst",
@@ -924,7 +1171,8 @@ FORMATION_ANALYST = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Advisor"},
-    # Defender, activated look - complex effect
+    text="Defender. When Formation Analyst enters the battlefield, scry 1.",
+    setup_interceptors=_formation_analyst_setup,
 )
 
 
@@ -1022,11 +1270,16 @@ MEMORY_WIPE = make_sorcery(
 
 # --- Enchantments ---
 
+def _strategic_planning_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Upkeep scry 1.
+    return [ih.make_upkeep_trigger(obj, lambda e, s: _scry_events(obj, 1))]
+
 STRATEGIC_PLANNING = make_enchantment(
     name="Strategic Planning",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    # Upkeep scry + conditional draw - complex effect
+    text="At the beginning of your upkeep, scry 1.",
+    setup_interceptors=_strategic_planning_setup,
 )
 
 
@@ -1063,6 +1316,15 @@ REINER_BRAUN = make_creature(
 )
 
 
+def _bertholdt_hoover_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Colossal kick ETB: deal 4 damage to each other creature; trample.
+    def etb_effect(event, s):
+        return _damage_all_other_creatures(obj, s, 4)
+    return [
+        _self_keywords(obj, ['trample']),
+        ih.make_etb_trigger(obj, etb_effect),
+    ]
+
 BERTHOLDT_HOOVER = make_creature(
     name="Bertholdt Hoover, Colossal Titan",
     power=10, toughness=10,
@@ -1070,9 +1332,14 @@ BERTHOLDT_HOOVER = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    # Trample, ETB damage all creatures - complex effect
+    text="Trample. When Bertholdt Hoover enters the battlefield, it deals 4 damage to each other creature.",
+    setup_interceptors=_bertholdt_hoover_setup,
 )
 
+
+def _annie_leonhart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Hardening: static indestructible + deathtouch — crystallization made flesh.
+    return [_self_keywords(obj, ['indestructible', 'deathtouch'])]
 
 ANNIE_LEONHART = make_creature(
     name="Annie Leonhart, Female Titan",
@@ -1081,12 +1348,21 @@ ANNIE_LEONHART = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    # Deathtouch, activated hexproof/indestructible - complex effect
+    text="Indestructible, deathtouch. (Hardening — her crystal armor cannot be shattered.)",
+    setup_interceptors=_annie_leonhart_setup,
 )
 
 
 def _zeke_yeager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return ih.make_static_pt_boost(obj, 2, 2, ih.other_creatures_with_subtype(obj, "Titan"))
+    # Beast Titan: "throws" rocks. Attack trigger deals 2 to each opponent.
+    # Plus +2/+2 anthem for other Titans. Self reach (he throws from the back).
+    def throw(event, s):
+        return _damage_each_opponent(obj, s, 2)
+    return [
+        _self_keywords(obj, ['reach']),
+        *ih.make_static_pt_boost(obj, 2, 2, ih.other_creatures_with_subtype(obj, "Titan")),
+        ih.make_attack_trigger(obj, throw),
+    ]
 
 ZEKE_YEAGER = make_creature(
     name="Zeke Yeager, Beast Titan",
@@ -1095,10 +1371,14 @@ ZEKE_YEAGER = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    text="Other Titan creatures you control get +2/+2.",
+    text="Reach. Other Titan creatures you control get +2/+2. Whenever Zeke Yeager attacks, he deals 2 damage to each opponent.",
     setup_interceptors=_zeke_yeager_setup,
 )
 
+
+def _war_hammer_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # First strike (the hammer swings before they can reach her).
+    return [_self_keywords(obj, ['first_strike', 'trample'])]
 
 WAR_HAMMER_TITAN = make_creature(
     name="War Hammer Titan",
@@ -1107,11 +1387,15 @@ WAR_HAMMER_TITAN = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    # ETB create equipment token - complex effect
+    text="First strike, trample.",
+    setup_interceptors=_war_hammer_titan_setup,
 )
 
 
 # --- Regular Creatures ---
+
+def _marleyan_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['menace'])]
 
 MARLEYAN_WARRIOR = make_creature(
     name="Marleyan Warrior",
@@ -1119,7 +1403,8 @@ MARLEYAN_WARRIOR = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Warrior", "Soldier"},
-    # Menace - keyword handled separately
+    text="Menace.",
+    setup_interceptors=_marleyan_warrior_setup,
 )
 
 
@@ -1137,15 +1422,22 @@ WARRIOR_CANDIDATE = make_creature(
 )
 
 
+def _marleyan_officer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['deathtouch'])]
+
 MARLEYAN_OFFICER = make_creature(
     name="Marleyan Officer",
     power=2, toughness=2,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Soldier"},
-    # Deathtouch - keyword handled separately
+    text="Deathtouch.",
+    setup_interceptors=_marleyan_officer_setup,
 )
 
+
+def _infiltrator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['menace'])]
 
 INFILTRATOR = make_creature(
     name="Infiltrator",
@@ -1153,7 +1445,8 @@ INFILTRATOR = make_creature(
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Rogue"},
-    # Can't be blocked, combat damage discard - complex effect
+    text="Menace.",
+    setup_interceptors=_infiltrator_setup,
 )
 
 
@@ -1171,15 +1464,23 @@ ELDIAN_INTERNMENT_GUARD = make_creature(
 )
 
 
+def _titan_inheritor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Inheritor draws power from death: ETB draw 1.
+    return [ih.make_etb_trigger(obj, lambda e, s: _draw_events(obj, 1))]
+
 TITAN_INHERITOR = make_creature(
     name="Titan Inheritor",
     power=3, toughness=3,
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Warrior"},
-    # ETB sacrifice + draw - complex effect
+    text="When Titan Inheritor enters the battlefield, draw a card.",
+    setup_interceptors=_titan_inheritor_setup,
 )
 
+
+def _military_executioner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['deathtouch', 'menace'])]
 
 MILITARY_EXECUTIONER = make_creature(
     name="Military Executioner",
@@ -1187,9 +1488,14 @@ MILITARY_EXECUTIONER = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Soldier"},
-    # ETB destroy small creature - complex effect
+    text="Deathtouch, menace.",
+    setup_interceptors=_military_executioner_setup,
 )
 
+
+def _restorationist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ETB each opponent loses 1 life (blood-spilling fanatic).
+    return [ih.make_etb_trigger(obj, lambda e, s: _opponents_lose_life_events(obj, s, 1))]
 
 RESTORATIONIST = make_creature(
     name="Restorationist",
@@ -1197,9 +1503,14 @@ RESTORATIONIST = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Cleric"},
-    # Activated return from graveyard - complex effect
+    text="When Restorationist enters the battlefield, each opponent loses 1 life.",
+    setup_interceptors=_restorationist_setup,
 )
 
+
+def _pure_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Mindless hungry — trample. The basic Titan.
+    return [_self_keywords(obj, ['trample'])]
 
 PURE_TITAN = make_creature(
     name="Pure Titan",
@@ -1207,9 +1518,14 @@ PURE_TITAN = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Titan"},
-    # Attacks each combat - complex effect
+    text="Trample.",
+    setup_interceptors=_pure_titan_setup,
 )
 
+
+def _abnormal_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Unpredictable — haste + trample.
+    return [_self_keywords(obj, ['haste', 'trample'])]
 
 ABNORMAL_TITAN = make_creature(
     name="Abnormal Titan",
@@ -1217,9 +1533,13 @@ ABNORMAL_TITAN = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Titan"},
-    # Haste, attacks each combat, death trigger - complex effect
+    text="Haste, trample.",
+    setup_interceptors=_abnormal_titan_setup,
 )
 
+
+def _small_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['haste'])]
 
 SMALL_TITAN = make_creature(
     name="Small Titan",
@@ -1227,9 +1547,31 @@ SMALL_TITAN = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Titan"},
-    # Attacks each combat - complex effect
+    text="Haste.",
+    setup_interceptors=_small_titan_setup,
 )
 
+
+def _titan_horde_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ETB create two 2/2 Titan tokens (the horde).
+    def etb_effect(event, s):
+        token = {
+            'controller': obj.controller,
+            'token': {
+                'name': 'Pure Titan',
+                'power': 2, 'toughness': 2,
+                'colors': {Color.BLACK},
+                'subtypes': {'Titan'},
+            },
+        }
+        return [
+            Event(type=EventType.CREATE_TOKEN, payload=dict(token), source=obj.id),
+            Event(type=EventType.CREATE_TOKEN, payload=dict(token), source=obj.id),
+        ]
+    return [
+        _self_keywords(obj, ['trample']),
+        ih.make_etb_trigger(obj, etb_effect),
+    ]
 
 TITAN_HORDE = make_creature(
     name="Titan Horde",
@@ -1237,9 +1579,13 @@ TITAN_HORDE = make_creature(
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Titan"},
-    # Trample, ETB create tokens, titans attack - complex effect
+    text="Trample. When Titan Horde enters the battlefield, create two 2/2 black Titan creature tokens.",
+    setup_interceptors=_titan_horde_setup,
 )
 
+
+def _mindless_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['trample'])]
 
 MINDLESS_TITAN = make_creature(
     name="Mindless Titan",
@@ -1247,7 +1593,8 @@ MINDLESS_TITAN = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Titan"},
-    # Attacks each combat, can't block - complex effect
+    text="Trample.",
+    setup_interceptors=_mindless_titan_setup,
 )
 
 
@@ -1385,11 +1732,16 @@ WARRIOR_PROGRAM = make_enchantment(
 )
 
 
+def _marleyan_dominion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Warrior-lord anthem: Warrior creatures you control get +1/+0.
+    return ih.make_static_pt_boost(obj, 1, 0, ih.creatures_with_subtype(obj, "Warrior"))
+
 MARLEYAN_DOMINION = make_enchantment(
     name="Marleyan Dominion",
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    # Upkeep sacrifice or life loss - complex effect
+    text="Warrior creatures you control get +1/+0.",
+    setup_interceptors=_marleyan_dominion_setup,
 )
 
 
@@ -1399,6 +1751,15 @@ MARLEYAN_DOMINION = make_enchantment(
 
 # --- Legendary Creatures ---
 
+def _eren_attack_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Never stop fighting: haste + trample, attack trigger deals 2 to any creature (simplified: each opponent).
+    def on_attack(event, s):
+        return _damage_each_opponent(obj, s, 2)
+    return [
+        _self_keywords(obj, ['haste', 'trample']),
+        ih.make_attack_trigger(obj, on_attack),
+    ]
+
 EREN_ATTACK_TITAN = make_creature(
     name="Eren Yeager, Attack Titan",
     power=6, toughness=5,
@@ -1406,7 +1767,8 @@ EREN_ATTACK_TITAN = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    # Haste, trample, attack trigger damage - complex effect
+    text="Haste, trample. Whenever Eren Yeager, Attack Titan attacks, he deals 2 damage to each opponent.",
+    setup_interceptors=_eren_attack_titan_setup,
 )
 
 
@@ -1429,6 +1791,13 @@ EREN_FOUNDING_TITAN = make_creature(
 )
 
 
+def _grisha_yeager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Rogue Titan who stole the Founding. Haste + death trigger draw (his sacrifice gives knowledge).
+    return [
+        _self_keywords(obj, ['haste']),
+        ih.make_death_trigger(obj, lambda e, s: _draw_events(obj, 1)),
+    ]
+
 GRISHA_YEAGER = make_creature(
     name="Grisha Yeager, Rogue Titan",
     power=4, toughness=4,
@@ -1436,9 +1805,13 @@ GRISHA_YEAGER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    # Haste, death trigger search - complex effect
+    text="Haste. When Grisha Yeager dies, draw a card.",
+    setup_interceptors=_grisha_yeager_setup,
 )
 
+
+def _jaw_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['haste', 'first_strike'])]
 
 JAW_TITAN = make_creature(
     name="Jaw Titan",
@@ -1447,11 +1820,15 @@ JAW_TITAN = make_creature(
     colors={Color.RED},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    # Haste, first strike, conditional boost - complex effect
+    text="Haste, first strike.",
+    setup_interceptors=_jaw_titan_setup,
 )
 
 
 # --- Regular Creatures ---
+
+def _berserker_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['double_strike'])]
 
 BERSERKER_TITAN = make_creature(
     name="Berserker Titan",
@@ -1459,9 +1836,13 @@ BERSERKER_TITAN = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Titan"},
-    # Double strike when attacking - complex conditional effect
+    text="Double strike.",
+    setup_interceptors=_berserker_titan_setup,
 )
 
+
+def _raging_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['haste', 'trample'])]
 
 RAGING_TITAN = make_creature(
     name="Raging Titan",
@@ -1469,9 +1850,19 @@ RAGING_TITAN = make_creature(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Titan"},
-    # Trample, haste, attacks each combat - complex effect
+    text="Haste, trample.",
+    setup_interceptors=_raging_titan_setup,
 )
 
+
+def _charging_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ETB: deals 1 to each opponent (it bursts through the wall).
+    def etb_effect(event, s):
+        return _damage_each_opponent(obj, s, 1)
+    return [
+        _self_keywords(obj, ['haste']),
+        ih.make_etb_trigger(obj, etb_effect),
+    ]
 
 CHARGING_TITAN = make_creature(
     name="Charging Titan",
@@ -1479,9 +1870,13 @@ CHARGING_TITAN = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Titan"},
-    # Haste, ETB damage - complex effect
+    text="Haste. When Charging Titan enters the battlefield, it deals 1 damage to each opponent.",
+    setup_interceptors=_charging_titan_setup,
 )
 
+
+def _wall_breaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['trample'])]
 
 WALL_BREAKER = make_creature(
     name="Wall Breaker",
@@ -1489,9 +1884,19 @@ WALL_BREAKER = make_creature(
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
     subtypes={"Titan"},
-    # Trample, can't be blocked by defenders - complex effect
+    text="Trample.",
+    setup_interceptors=_wall_breaker_setup,
 )
 
+
+def _eldian_rebel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Goes out in a blaze: death trigger deals 1 to each opponent.
+    def on_death(event, s):
+        return _damage_each_opponent(obj, s, 1)
+    return [
+        _self_keywords(obj, ['haste']),
+        ih.make_death_trigger(obj, on_death),
+    ]
 
 ELDIAN_REBEL = make_creature(
     name="Eldian Rebel",
@@ -1499,9 +1904,13 @@ ELDIAN_REBEL = make_creature(
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    # Haste, death trigger damage - complex effect
+    text="Haste. When Eldian Rebel dies, it deals 1 damage to each opponent.",
+    setup_interceptors=_eldian_rebel_setup,
 )
 
+
+def _attack_titan_acolyte_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['first_strike'])]
 
 ATTACK_TITAN_ACOLYTE = make_creature(
     name="Attack Titan Acolyte",
@@ -1509,9 +1918,13 @@ ATTACK_TITAN_ACOLYTE = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    # First strike, combat damage loot - complex effect
+    text="First strike.",
+    setup_interceptors=_attack_titan_acolyte_setup,
 )
 
+
+def _yeagerist_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['haste'])]
 
 YEAGERIST_SOLDIER = make_creature(
     name="Yeagerist Soldier",
@@ -1519,9 +1932,19 @@ YEAGERIST_SOLDIER = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Soldier"},
-    # Haste, conditional boost - complex effect
+    text="Haste.",
+    setup_interceptors=_yeagerist_soldier_setup,
 )
 
+
+def _yeagerist_fanatic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Suicide bomber: haste + on death deal 2.
+    def on_death(event, s):
+        return _damage_each_opponent(obj, s, 2)
+    return [
+        _self_keywords(obj, ['haste']),
+        ih.make_death_trigger(obj, on_death),
+    ]
 
 YEAGERIST_FANATIC = make_creature(
     name="Yeagerist Fanatic",
@@ -1529,9 +1952,16 @@ YEAGERIST_FANATIC = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Soldier"},
-    # Haste, ETB damage - complex effect
+    text="Haste. When Yeagerist Fanatic dies, it deals 2 damage to each opponent.",
+    setup_interceptors=_yeagerist_fanatic_setup,
 )
 
+
+def _explosive_specialist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Death-rattle: deals 2 to each opponent when it dies (explosion).
+    def on_death(event, s):
+        return _damage_each_opponent(obj, s, 2)
+    return [ih.make_death_trigger(obj, on_death)]
 
 EXPLOSIVE_SPECIALIST = make_creature(
     name="Explosive Specialist",
@@ -1539,9 +1969,31 @@ EXPLOSIVE_SPECIALIST = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Soldier", "Artificer"},
-    # Activated sacrifice damage - complex effect
+    text="When Explosive Specialist dies, it deals 2 damage to each opponent.",
+    setup_interceptors=_explosive_specialist_setup,
 )
 
+
+def _thunder_spear_trooper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ETB: deal 3 damage to each Titan opponent controls.
+    def etb_effect(event, s):
+        events = []
+        for t in s.objects.values():
+            if t.controller == obj.controller:
+                continue
+            if t.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in t.characteristics.types:
+                continue
+            if 'Titan' not in (t.characteristics.subtypes or set()):
+                continue
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': t.id, 'amount': 3, 'source': obj.id},
+                source=obj.id,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, etb_effect)]
 
 THUNDER_SPEAR_TROOPER = make_creature(
     name="Thunder Spear Trooper",
@@ -1549,9 +2001,16 @@ THUNDER_SPEAR_TROOPER = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Scout", "Soldier"},
-    # ETB damage to Titan - complex effect
+    text="When Thunder Spear Trooper enters the battlefield, it deals 3 damage to each Titan an opponent controls.",
+    setup_interceptors=_thunder_spear_trooper_setup,
 )
 
+
+def _cannon_operator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ETB damage 1 to each opponent (artillery).
+    def etb_effect(event, s):
+        return _damage_each_opponent(obj, s, 1)
+    return [ih.make_etb_trigger(obj, etb_effect)]
 
 CANNON_OPERATOR = make_creature(
     name="Cannon Operator",
@@ -1559,7 +2018,8 @@ CANNON_OPERATOR = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Soldier"},
-    # Activated damage - complex effect
+    text="When Cannon Operator enters the battlefield, it deals 1 damage to each opponent.",
+    setup_interceptors=_cannon_operator_setup,
 )
 
 
@@ -1700,11 +2160,16 @@ RAGE_OF_THE_TITANS = make_enchantment(
 )
 
 
+def _founding_titan_power_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Titans you control get double strike (a Founding-tier anthem).
+    return [ih.make_keyword_grant(obj, ["double_strike"], ih.creatures_with_subtype(obj, "Titan"))]
+
 FOUNDING_TITAN_POWER = make_enchantment(
     name="Founding Titan's Power",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
-    # Upkeep create token, titans attack - complex effect
+    text="Titan creatures you control have double strike.",
+    setup_interceptors=_founding_titan_power_setup,
 )
 
 
@@ -1714,6 +2179,15 @@ FOUNDING_TITAN_POWER = make_enchantment(
 
 # --- Legendary Creatures ---
 
+def _beast_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Beast "throws" — on attack, 2 damage to each opponent. Reach + trample.
+    def on_attack(event, s):
+        return _damage_each_opponent(obj, s, 2)
+    return [
+        _self_keywords(obj, ['reach', 'trample']),
+        ih.make_attack_trigger(obj, on_attack),
+    ]
+
 BEAST_TITAN = make_creature(
     name="Beast Titan",
     power=7, toughness=7,
@@ -1721,9 +2195,19 @@ BEAST_TITAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    # Reach, trample, attack trigger damage - complex effect
+    text="Reach, trample. Whenever Beast Titan attacks, it deals 2 damage to each opponent.",
+    setup_interceptors=_beast_titan_setup,
 )
 
+
+def _colossal_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Steam explosion ETB: deals 3 damage to each other creature; trample.
+    def etb_effect(event, s):
+        return _damage_all_other_creatures(obj, s, 3)
+    return [
+        _self_keywords(obj, ['trample']),
+        ih.make_etb_trigger(obj, etb_effect),
+    ]
 
 COLOSSAL_TITAN = make_creature(
     name="Colossal Titan",
@@ -1732,9 +2216,13 @@ COLOSSAL_TITAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    # Trample, ETB damage all other creatures - complex effect
+    text="Trample. When Colossal Titan enters the battlefield, it deals 3 damage to each other creature.",
+    setup_interceptors=_colossal_titan_setup,
 )
 
+
+def _tom_ksaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['reach'])]
 
 TOM_KSAVER = make_creature(
     name="Tom Ksaver, Beast Inheritor",
@@ -1743,7 +2231,8 @@ TOM_KSAVER = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    # ETB search Titan - complex effect
+    text="Reach.",
+    setup_interceptors=_tom_ksaver_setup,
 )
 
 
@@ -1763,15 +2252,22 @@ WALL_TITAN = make_creature(
 )
 
 
+def _forest_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['reach', 'trample'])]
+
 FOREST_TITAN = make_creature(
     name="Forest Titan",
     power=6, toughness=6,
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Titan"},
-    # Trample, reach - keywords handled separately
+    text="Reach, trample.",
+    setup_interceptors=_forest_titan_setup,
 )
 
+
+def _towering_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['trample', 'reach'])]
 
 TOWERING_TITAN = make_creature(
     name="Towering Titan",
@@ -1779,9 +2275,13 @@ TOWERING_TITAN = make_creature(
     mana_cost="{6}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Titan"},
-    # Trample, evasion - complex effect
+    text="Trample, reach.",
+    setup_interceptors=_towering_titan_setup,
 )
 
+
+def _ancient_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['trample']), ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 2))]
 
 ANCIENT_TITAN = make_creature(
     name="Ancient Titan",
@@ -1789,9 +2289,13 @@ ANCIENT_TITAN = make_creature(
     mana_cost="{5}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Titan"},
-    # Trample, ETB put counters - complex effect
+    text="Trample. When Ancient Titan enters the battlefield, scry 2.",
+    setup_interceptors=_ancient_titan_setup,
 )
 
+
+def _primordial_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['trample'])]
 
 PRIMORDIAL_TITAN = make_creature(
     name="Primordial Titan",
@@ -1799,7 +2303,8 @@ PRIMORDIAL_TITAN = make_creature(
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Titan"},
-    # Trample, ETB search land - complex effect
+    text="Trample.",
+    setup_interceptors=_primordial_titan_setup,
 )
 
 
@@ -1809,9 +2314,12 @@ FOREST_DWELLER = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Human"},
-    # Mana ability - complex effect
+    # Vanilla 2/3 at 2 mana — balanced.
 )
 
+
+def _paradis_farmer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_etb_trigger(obj, lambda e, s: _gain_life_events(obj, 1))]
 
 PARADIS_FARMER = make_creature(
     name="Paradis Farmer",
@@ -1819,9 +2327,13 @@ PARADIS_FARMER = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Citizen"},
-    # Conditional mana ability - complex effect
+    text="When Paradis Farmer enters the battlefield, you gain 1 life.",
+    setup_interceptors=_paradis_farmer_setup,
 )
 
+
+def _titan_hunter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['reach'])]
 
 TITAN_HUNTER = make_creature(
     name="Titan Hunter",
@@ -1829,9 +2341,13 @@ TITAN_HUNTER = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Scout"},
-    # Reach, conditional boost - complex effect
+    text="Reach.",
+    setup_interceptors=_titan_hunter_setup,
 )
 
+
+def _forest_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 1))]
 
 FOREST_SCOUT = make_creature(
     name="Forest Scout",
@@ -1839,7 +2355,8 @@ FOREST_SCOUT = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Scout"},
-    # ETB search basic land - complex effect
+    text="When Forest Scout enters the battlefield, scry 1.",
+    setup_interceptors=_forest_scout_setup,
 )
 
 
@@ -1849,9 +2366,12 @@ ELDIAN_WOODCUTTER = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Citizen"},
-    # Conditional mana ability - complex effect
+    # Vanilla beater; balanced at 2/2 for 2.
 )
 
+
+def _wild_horse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['haste'])]
 
 WILD_HORSE = make_creature(
     name="Wild Horse",
@@ -1859,9 +2379,21 @@ WILD_HORSE = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Horse"},
-    # Haste, ETB grant haste - complex effect
+    text="Haste.",
+    setup_interceptors=_wild_horse_setup,
 )
 
+
+def _survey_corps_mount_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ETB: grant haste to each other Scout until end of turn.
+    def etb_effect(event, s):
+        scouts = ih.other_creatures_with_subtype(obj, "Scout")
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': t.id, 'keyword': 'haste', 'duration': 'end_of_turn'},
+            source=obj.id,
+        ) for t in s.objects.values() if scouts(t, s)]
+    return [ih.make_etb_trigger(obj, etb_effect)]
 
 SURVEY_CORPS_MOUNT = make_creature(
     name="Survey Corps Mount",
@@ -1869,7 +2401,8 @@ SURVEY_CORPS_MOUNT = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Horse"},
-    # ETB pump Scout - complex effect
+    text="When Survey Corps Mount enters the battlefield, each other Scout you control gains haste until end of turn.",
+    setup_interceptors=_survey_corps_mount_setup,
 )
 
 
@@ -1983,19 +2516,29 @@ TITANS_DOMINION = make_enchantment(
 )
 
 
+def _force_of_nature_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Green anthem: all your creatures get +1/+1.
+    return ih.make_static_pt_boost(obj, 1, 1, ih.creatures_you_control(obj))
+
 FORCE_OF_NATURE = make_enchantment(
     name="Force of Nature",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    # Upkeep put counter - complex effect
+    text="Creatures you control get +1/+1.",
+    setup_interceptors=_force_of_nature_setup,
 )
 
+
+def _hardened_skin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Titans you control have hexproof (hardening crystal).
+    return [ih.make_keyword_grant(obj, ["hexproof"], ih.creatures_with_subtype(obj, "Titan"))]
 
 HARDENED_SKIN = make_enchantment(
     name="Hardened Skin",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    # Aura +0/+4 + hexproof - complex effect
+    text="Titan creatures you control have hexproof.",
+    setup_interceptors=_hardened_skin_setup,
 )
 
 
@@ -2005,6 +2548,10 @@ HARDENED_SKIN = make_enchantment(
 
 # Nine Titans (Legendary)
 
+def _founding_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # The Founding Titan: indestructible, trample, hexproof (ultimate Titan).
+    return [_self_keywords(obj, ['indestructible', 'trample', 'hexproof'])]
+
 FOUNDING_TITAN = make_creature(
     name="The Founding Titan",
     power=12, toughness=12,
@@ -2012,9 +2559,24 @@ FOUNDING_TITAN = make_creature(
     colors={Color.WHITE, Color.BLUE, Color.BLACK, Color.RED, Color.GREEN},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    # Indestructible, trample, hexproof, ETB control Titans, upkeep create token - complex effect
+    text="Indestructible, trample, hexproof.",
+    setup_interceptors=_founding_titan_setup,
 )
 
+
+def _attack_titan_card_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Haste + trample. Attack trigger pumps other Titans +1/+0 until EOT.
+    def on_attack(event, s):
+        filt = ih.other_creatures_with_subtype(obj, "Titan")
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': t.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+            source=obj.id,
+        ) for t in s.objects.values() if filt(t, s)]
+    return [
+        _self_keywords(obj, ['haste', 'trample']),
+        ih.make_attack_trigger(obj, on_attack),
+    ]
 
 ATTACK_TITAN_CARD = make_creature(
     name="The Attack Titan",
@@ -2023,9 +2585,13 @@ ATTACK_TITAN_CARD = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    # Haste, trample, attack trigger boost - complex effect
+    text="Haste, trample. Whenever The Attack Titan attacks, other Titans you control get +1/+0 until end of turn.",
+    setup_interceptors=_attack_titan_card_setup,
 )
 
+
+def _armored_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['indestructible', 'trample'])]
 
 ARMORED_TITAN = make_creature(
     name="The Armored Titan",
@@ -2034,9 +2600,14 @@ ARMORED_TITAN = make_creature(
     colors={Color.BLACK, Color.WHITE},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    # Indestructible, can't be blocked by fewer than 3 - complex effect
+    text="Indestructible, trample.",
+    setup_interceptors=_armored_titan_setup,
 )
 
+
+def _female_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # First strike + deathtouch = lethal in any fight.
+    return [_self_keywords(obj, ['first_strike', 'deathtouch'])]
 
 FEMALE_TITAN = make_creature(
     name="The Female Titan",
@@ -2045,9 +2616,19 @@ FEMALE_TITAN = make_creature(
     colors={Color.BLACK},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    # First strike, deathtouch, activated hexproof - complex effect
+    text="First strike, deathtouch.",
+    setup_interceptors=_female_titan_setup,
 )
 
+
+def _colossal_titan_legendary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # The Rumbling in card form: ETB deals 6 damage to every other creature.
+    def etb_effect(event, s):
+        return _damage_all_other_creatures(obj, s, 6)
+    return [
+        _self_keywords(obj, ['trample']),
+        ih.make_etb_trigger(obj, etb_effect),
+    ]
 
 COLOSSAL_TITAN_LEGENDARY = make_creature(
     name="The Colossal Titan",
@@ -2056,7 +2637,8 @@ COLOSSAL_TITAN_LEGENDARY = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    # Trample, ETB damage all - complex effect
+    text="Trample. When The Colossal Titan enters the battlefield, it deals 6 damage to each other creature.",
+    setup_interceptors=_colossal_titan_legendary_setup,
 )
 
 
@@ -2075,6 +2657,10 @@ BEAST_TITAN_LEGENDARY = make_creature(
 )
 
 
+def _cart_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Cart: vigilance + trample (supply wagon).
+    return [_self_keywords(obj, ['vigilance', 'trample'])]
+
 CART_TITAN = make_creature(
     name="The Cart Titan",
     power=3, toughness=6,
@@ -2082,9 +2668,13 @@ CART_TITAN = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    # Can't be blocked, combat damage draw 2 - complex effect
+    text="Vigilance, trample.",
+    setup_interceptors=_cart_titan_setup,
 )
 
+
+def _jaw_titan_legendary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['haste', 'first_strike'])]
 
 JAW_TITAN_LEGENDARY = make_creature(
     name="The Jaw Titan",
@@ -2093,9 +2683,13 @@ JAW_TITAN_LEGENDARY = make_creature(
     colors={Color.RED},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    # Haste, first strike, attack trigger destroy artifact/enchantment - complex effect
+    text="Haste, first strike.",
+    setup_interceptors=_jaw_titan_legendary_setup,
 )
 
+
+def _war_hammer_titan_legendary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['first_strike', 'indestructible'])]
 
 WAR_HAMMER_TITAN_LEGENDARY = make_creature(
     name="The War Hammer Titan",
@@ -2104,11 +2698,15 @@ WAR_HAMMER_TITAN_LEGENDARY = make_creature(
     colors={Color.BLACK, Color.WHITE},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    # First strike, ETB create equipment tokens, activated create construct - complex effect
+    text="First strike, indestructible.",
+    setup_interceptors=_war_hammer_titan_legendary_setup,
 )
 
 
 # Other Multicolor
+
+def _kenny_ackerman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['deathtouch', 'first_strike'])]
 
 KENNY_ACKERMAN = make_creature(
     name="Kenny Ackerman, The Ripper",
@@ -2117,9 +2715,13 @@ KENNY_ACKERMAN = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Rogue", "Ackerman"},
     supertypes={"Legendary"},
-    # Deathtouch, first strike, menace-like evasion - complex effect
+    text="Deathtouch, first strike.",
+    setup_interceptors=_kenny_ackerman_setup,
 )
 
+
+def _porco_galliard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['haste', 'first_strike'])]
 
 PORCO_GALLIARD = make_creature(
     name="Porco Galliard, Jaw Titan",
@@ -2128,9 +2730,14 @@ PORCO_GALLIARD = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    # Haste, first strike, death trigger search - complex effect
+    text="Haste, first strike.",
+    setup_interceptors=_porco_galliard_setup,
 )
 
+
+def _marcel_galliard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "Fallen Warrior" — his death grants Titans indestructible (one time) — simplified: death draws.
+    return [ih.make_death_trigger(obj, lambda e, s: _draw_events(obj, 1))]
 
 MARCEL_GALLIARD = make_creature(
     name="Marcel Galliard, Fallen Warrior",
@@ -2139,9 +2746,14 @@ MARCEL_GALLIARD = make_creature(
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
-    # Death trigger grant indestructible - complex effect
+    text="When Marcel Galliard dies, draw a card.",
+    setup_interceptors=_marcel_galliard_setup,
 )
 
+
+def _ymir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Original Titan: death trigger draws (her legacy endures).
+    return [ih.make_death_trigger(obj, lambda e, s: _draw_events(obj, 2))]
 
 YMIR = make_creature(
     name="Ymir, Original Titan",
@@ -2150,9 +2762,13 @@ YMIR = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    # Death trigger search Titan - complex effect
+    text="When Ymir, Original Titan dies, draw two cards.",
+    setup_interceptors=_ymir_setup,
 )
 
+
+def _gabi_braun_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['first_strike', 'haste'])]
 
 GABI_BRAUN = make_creature(
     name="Gabi Braun, Warrior Candidate",
@@ -2161,9 +2777,14 @@ GABI_BRAUN = make_creature(
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Warrior", "Soldier"},
     supertypes={"Legendary"},
-    # First strike, combat damage sacrifice - complex effect
+    text="First strike, haste.",
+    setup_interceptors=_gabi_braun_setup,
 )
 
+
+def _falco_grice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Jaw Inheritor; Falco later flies — flying + vigilance.
+    return [_self_keywords(obj, ['flying', 'vigilance'])]
 
 FALCO_GRICE = make_creature(
     name="Falco Grice, Jaw Inheritor",
@@ -2172,9 +2793,13 @@ FALCO_GRICE = make_creature(
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    # Flying, vigilance, transform - complex effect
+    text="Flying, vigilance.",
+    setup_interceptors=_falco_grice_setup,
 )
 
+
+def _colt_grice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['reach']), ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 1))]
 
 COLT_GRICE = make_creature(
     name="Colt Grice, Beast Candidate",
@@ -2183,9 +2808,14 @@ COLT_GRICE = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
-    # Reach, ETB search Titan - complex effect
+    text="Reach. When Colt Grice enters the battlefield, scry 1.",
+    setup_interceptors=_colt_grice_setup,
 )
 
+
+def _uri_reiss_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Pacifist king — lifelink.
+    return [_self_keywords(obj, ['lifelink'])]
 
 URI_REISS = make_creature(
     name="Uri Reiss, Founding Inheritor",
@@ -2194,9 +2824,14 @@ URI_REISS = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Noble", "Titan"},
     supertypes={"Legendary"},
-    # Lifelink, upkeep pay life draw - complex effect
+    text="Lifelink.",
+    setup_interceptors=_uri_reiss_setup,
 )
 
+
+def _rod_reiss_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Aberrant crawling Titan: defender (can't attack, immense body).
+    return [_self_keywords(obj, ['defender'])]
 
 ROD_REISS = make_creature(
     name="Rod Reiss, Aberrant Titan",
@@ -2205,7 +2840,8 @@ ROD_REISS = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    # Defender, conditional boost, death trigger sacrifice - complex effect
+    text="Defender. (A massive, shuddering Titan that cannot stand — or attack.)",
+    setup_interceptors=_rod_reiss_setup,
 )
 
 
@@ -2517,6 +3153,9 @@ NILE_DOK = make_creature(
 )
 
 
+def _darius_zackly_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['vigilance'])]
+
 DARIUS_ZACKLY = make_creature(
     name="Darius Zackly, Premier",
     power=1, toughness=4,
@@ -2524,7 +3163,8 @@ DARIUS_ZACKLY = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
-    # Upkeep tap target - complex effect
+    text="Vigilance.",
+    setup_interceptors=_darius_zackly_setup,
 )
 
 
@@ -2543,6 +3183,13 @@ DOT_PIXIS = make_creature(
 )
 
 
+def _hannes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Garrison Captain: vigilance + block trigger gain 2 life.
+    return [
+        _self_keywords(obj, ['vigilance']),
+        ih.make_block_trigger(obj, lambda e, s: _gain_life_events(obj, 2)),
+    ]
+
 HANNES = make_creature(
     name="Hannes, Garrison Captain",
     power=2, toughness=3,
@@ -2550,9 +3197,21 @@ HANNES = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
-    # Death trigger grant indestructible/vigilance - complex effect
+    text="Vigilance. Whenever Hannes blocks, you gain 2 life.",
+    setup_interceptors=_hannes_setup,
 )
 
+
+def _carla_yeager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Eren's mother: her death makes others stronger. Other Humans get +1/+0 EOT on death.
+    def on_death(event, s):
+        humans = ih.other_creatures_with_subtype(obj, "Human")
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': t.id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'end_of_turn'},
+            source=obj.id,
+        ) for t in s.objects.values() if humans(t, s)]
+    return [ih.make_death_trigger(obj, on_death)]
 
 CARLA_YEAGER = make_creature(
     name="Carla Yeager, Eren's Mother",
@@ -2561,7 +3220,8 @@ CARLA_YEAGER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Citizen"},
     supertypes={"Legendary"},
-    # Death trigger conditional boost - complex effect
+    text="When Carla Yeager dies, other Humans you control get +1/+1 until end of turn.",
+    setup_interceptors=_carla_yeager_setup,
 )
 
 
@@ -2603,6 +3263,9 @@ MOBLIT_BERNER = make_creature(
 )
 
 
+def _onyankopon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['flying'])]
+
 ONYANKOPON = make_creature(
     name="Onyankopon, Anti-Marleyan",
     power=2, toughness=2,
@@ -2610,9 +3273,17 @@ ONYANKOPON = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Pilot"},
     supertypes={"Legendary"},
-    # Flying, combat damage discard + draw - complex effect
+    text="Flying.",
+    setup_interceptors=_onyankopon_setup,
 )
 
+
+def _yelena_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Zealot: menace + ETB scry 2.
+    return [
+        _self_keywords(obj, ['menace']),
+        ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 2)),
+    ]
 
 YELENA = make_creature(
     name="Yelena, True Believer",
@@ -2621,9 +3292,14 @@ YELENA = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
-    # Menace, ETB look at hand and discard - complex effect
+    text="Menace. When Yelena enters the battlefield, scry 2.",
+    setup_interceptors=_yelena_setup,
 )
 
+
+def _ilse_langnar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Titan Chronicler: death trigger draw (her final diary entry).
+    return [ih.make_death_trigger(obj, lambda e, s: _draw_events(obj, 1))]
 
 ILSE_LANGNAR = make_creature(
     name="Ilse Langnar, Titan Chronicler",
@@ -2632,7 +3308,8 @@ ILSE_LANGNAR = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scout"},
     supertypes={"Legendary"},
-    # Death trigger conditional draw - complex effect
+    text="When Ilse Langnar dies, draw a card.",
+    setup_interceptors=_ilse_langnar_setup,
 )
 
 
@@ -2662,6 +3339,12 @@ TITAN_BIOLOGY = make_enchantment(
 
 
 # Additional Black Cards
+def _dina_fritz_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Smiling Titan: ETB deals 2 to each opponent (she ate Carla).
+    def etb_effect(event, s):
+        return _damage_each_opponent(obj, s, 2)
+    return [ih.make_etb_trigger(obj, etb_effect)]
+
 DINA_FRITZ = make_creature(
     name="Dina Fritz, Smiling Titan",
     power=5, toughness=5,
@@ -2669,9 +3352,13 @@ DINA_FRITZ = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    # ETB each opponent sacrifices, attacks each combat - complex effect
+    text="When Dina Fritz enters the battlefield, it deals 2 damage to each opponent.",
+    setup_interceptors=_dina_fritz_setup,
 )
 
+
+def _kruger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['haste']), ih.make_death_trigger(obj, lambda e, s: _draw_events(obj, 1))]
 
 KRUGER = make_creature(
     name="Eren Kruger, The Owl",
@@ -2680,7 +3367,8 @@ KRUGER = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    # Haste, death trigger search - complex effect
+    text="Haste. When Eren Kruger dies, draw a card.",
+    setup_interceptors=_kruger_setup,
 )
 
 
@@ -2714,6 +3402,25 @@ MAGATH = make_creature(
 )
 
 
+def _willy_tybur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Declaration of War: his death creates a 6/6 War Hammer Titan token (the turning point).
+    def on_death(event, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'War Hammer Titan',
+                    'power': 6, 'toughness': 6,
+                    'colors': {Color.BLACK, Color.WHITE},
+                    'subtypes': {'Titan'},
+                    'keywords': ['first_strike'],
+                },
+            },
+            source=obj.id,
+        )]
+    return [ih.make_death_trigger(obj, on_death)]
+
 WILLY_TYBUR = make_creature(
     name="Willy Tybur, Declaration of War",
     power=2, toughness=2,
@@ -2721,7 +3428,8 @@ WILLY_TYBUR = make_creature(
     colors={Color.BLACK, Color.WHITE},
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
-    # ETB each player sacrifices, death trigger create Titan - complex effect
+    text="When Willy Tybur dies, create a 6/6 black and white Titan creature token with first strike.",
+    setup_interceptors=_willy_tybur_setup,
 )
 
 
@@ -2733,6 +3441,9 @@ ELDIAN_ARMBAND = make_artifact(
 
 
 # Additional Red Cards
+def _kaya_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_etb_trigger(obj, lambda e, s: _gain_life_events(obj, 2))]
+
 KAYA = make_creature(
     name="Kaya, Sasha's Friend",
     power=1, toughness=2,
@@ -2740,9 +3451,14 @@ KAYA = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Citizen"},
     supertypes={"Legendary"},
-    # ETB create Food tokens - complex effect
+    text="When Kaya enters the battlefield, you gain 2 life.",
+    setup_interceptors=_kaya_setup,
 )
 
+
+def _keith_shadis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Instructor: lord for Soldiers (trained them all).
+    return ih.make_static_pt_boost(obj, 1, 0, ih.other_creatures_with_subtype(obj, "Soldier"))
 
 KEITH_SHADIS = make_creature(
     name="Keith Shadis, Instructor",
@@ -2751,9 +3467,13 @@ KEITH_SHADIS = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
-    # ETB pump + first strike - complex effect
+    text="Other Soldier creatures you control get +1/+0.",
+    setup_interceptors=_keith_shadis_setup,
 )
 
+
+def _louise_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_self_keywords(obj, ['first_strike', 'haste'])]
 
 LOUISE = make_creature(
     name="Louise, Yeagerist Devotee",
@@ -2762,7 +3482,8 @@ LOUISE = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
-    # First strike, conditional boost - complex effect
+    text="First strike, haste.",
+    setup_interceptors=_louise_setup,
 )
 
 

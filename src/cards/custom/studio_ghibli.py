@@ -594,6 +594,49 @@ NAUSICAA_PRINCESS_OF_WIND = make_creature(
 
 # --- Kiki's Delivery Service ---
 
+def _kiki_delivery_witch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On ETB, create a 1/1 black Cat Familiar token (Jiji). Whenever you cast
+    an instant or sorcery spell, Kiki gets +1/+1 until end of turn."""
+    from src.cards import interceptor_helpers as ih
+
+    def etb_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Cat Familiar',
+                'power': 1,
+                'toughness': 1,
+                'colors': {Color.BLACK},
+                'subtypes': {'Cat', 'Familiar'},
+                'keywords': ['flying'],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    def pump_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 1,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [
+        ih.make_etb_trigger(obj, etb_fn),
+        ih.make_spell_cast_trigger(
+            obj, pump_fn,
+            spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+        ),
+    ]
+
 KIKI_DELIVERY_WITCH = make_creature(
     name="Kiki, Delivery Witch",
     power=2, toughness=2,
@@ -601,7 +644,8 @@ KIKI_DELIVERY_WITCH = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Witch"},
     supertypes={"Legendary"},
-    text="Flying. When Kiki enters, create Jiji, a legendary 1/1 black Cat Familiar creature token with flying. As long as you control Jiji, Kiki gets +1/+1."
+    text="Flying. When Kiki enters, create a 1/1 black Cat Familiar creature token with flying. Whenever you cast an instant or sorcery spell, Kiki gets +1/+1 until end of turn.",
+    setup_interceptors=_kiki_delivery_witch_setup,
 )
 
 
@@ -616,7 +660,39 @@ JIJI_FAMILIAR = make_creature(
 )
 
 
+# --- New: Princess Kaguya ---
+
+def _kaguya_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever Kaguya attacks, you gain 2 life."""
+    from src.cards import interceptor_helpers as ih
+
+    def attack_effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [ih.make_attack_trigger(obj, attack_effect_fn)]
+
+KAGUYA_MOON_PRINCESS = make_creature(
+    name="Kaguya, Moon Princess",
+    power=3, toughness=4,
+    mana_cost="{3}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Noble", "Spirit"},
+    supertypes={"Legendary"},
+    text="Flying, vigilance. Whenever Kaguya attacks, you gain 2 life.",
+    setup_interceptors=_kaguya_setup,
+)
+
+
 # --- White Commons/Uncommons ---
+
+def _bathhouse_servant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _ = etb_gain_life(obj, 2)
+    return [itc]
 
 BATHHOUSE_SERVANT = make_creature(
     name="Bathhouse Servant",
@@ -624,7 +700,8 @@ BATHHOUSE_SERVANT = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Spirit", "Worker"},
-    text="{T}: Gain 1 life. If you control a legendary Spirit, gain 2 life instead."
+    text=substitute_card_name(render_etb_gain_life(2), "Bathhouse Servant"),
+    setup_interceptors=_bathhouse_servant_setup,
 )
 
 
@@ -643,13 +720,44 @@ VALLEY_VILLAGER = make_creature(
 )
 
 
+def _irontown_worker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Irontown Worker dies, if you control an artifact, create a
+    1/1 Human Citizen."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        has_artifact = any(
+            CardType.ARTIFACT in o.characteristics.types and
+            o.controller == obj.controller and
+            o.zone == ZoneType.BATTLEFIELD
+            for o in state.objects.values()
+        )
+        if not has_artifact:
+            return []
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Citizen',
+                'power': 1,
+                'toughness': 1,
+                'colors': {Color.WHITE},
+                'subtypes': {'Human', 'Citizen'},
+                'keywords': [],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_death_trigger(obj, effect_fn)]
+
 IRONTOWN_WORKER = make_creature(
     name="Irontown Worker",
     power=2, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Artificer"},
-    text="First strike. {T}: Add {C}. Spend this mana only on artifact spells."
+    text="First strike. When Irontown Worker dies, if you control an artifact, create a 1/1 white Human Citizen creature token.",
+    setup_interceptors=_irontown_worker_setup,
 )
 
 
@@ -692,25 +800,74 @@ REFUGEE_CHILD = make_creature(
 )
 
 
+def _castle_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you gain life, put a +1/+1 counter on Castle Guardian."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_life_gain_trigger(obj, effect_fn)]
+
 CASTLE_GUARDIAN = make_creature(
     name="Castle Guardian",
-    power=2, toughness=4,
+    power=3, toughness=5,
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    text="Vigilance, defender. Other creatures you control with defender can attack as though they didn't have defender."
+    text="Vigilance. Whenever you gain life, put a +1/+1 counter on Castle Guardian.",
+    setup_interceptors=_castle_guardian_setup,
 )
 
+
+def _wind_rider_cadet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On ETB, if you control another Pilot or Vehicle, draw a card."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        for o in state.objects.values():
+            if (o.id != obj.id and
+                o.controller == obj.controller and
+                o.zone == ZoneType.BATTLEFIELD and
+                ('Pilot' in o.characteristics.subtypes or
+                 'Vehicle' in o.characteristics.subtypes)):
+                return [Event(
+                    type=EventType.DRAW,
+                    payload={'player': obj.controller},
+                    source=obj.id,
+                    controller=obj.controller,
+                )]
+        return []
+
+    from src.cards import interceptor_helpers as ih
+    return [ih.make_etb_trigger(obj, effect_fn)]
 
 WIND_RIDER_CADET = make_creature(
     name="Wind Rider Cadet",
-    power=2, toughness=1,
+    power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Pilot"},
-    text="Flying. When Wind Rider Cadet enters, scry 1."
+    text="Flying. When Wind Rider Cadet enters, if you control another Pilot or Vehicle, draw a card.",
+    setup_interceptors=_wind_rider_cadet_setup,
 )
 
+
+def _young_witch_apprentice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast an instant or sorcery, gain 1 life."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_spell_cast_trigger(
+        obj, effect_fn,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )]
 
 YOUNG_WITCH_APPRENTICE = make_creature(
     name="Young Witch Apprentice",
@@ -718,9 +875,18 @@ YOUNG_WITCH_APPRENTICE = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Witch"},
-    text="Flying. {2}{W}: Young Witch Apprentice gains lifelink until end of turn."
+    text="Flying. Whenever you cast an instant or sorcery spell, you gain 1 life.",
+    setup_interceptors=_young_witch_apprentice_setup,
 )
 
+
+def _pejite_refugee_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.ability_bundles import etb_create_token
+    itc, _ = etb_create_token(
+        obj, power=1, toughness=1, subtype="Citizen",
+        count=1, colors={Color.WHITE},
+    )
+    return [itc]
 
 PEJITE_REFUGEE = make_creature(
     name="Pejite Refugee",
@@ -728,7 +894,8 @@ PEJITE_REFUGEE = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Citizen"},
-    text="When Pejite Refugee enters, create a 1/1 white Human Citizen creature token."
+    text="When Pejite Refugee enters, create a 1/1 white Citizen creature token.",
+    setup_interceptors=_pejite_refugee_setup,
 )
 
 
@@ -1116,13 +1283,35 @@ WATER_SPIRIT_MINOR = make_creature(
 )
 
 
+def _sky_pirate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever Sky Pirate deals combat damage to a player, that player
+    discards a card."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        target = event.payload.get('target')
+        if not target:
+            return []
+        # Only target-players (skip damage-to-creature events)
+        if target not in state.players:
+            return []
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': target, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [ih.make_damage_trigger(obj, effect_fn, combat_only=True)]
+
 SKY_PIRATE = make_creature(
     name="Sky Pirate",
     power=2, toughness=2,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Pirate"},
-    text="Flying. When Sky Pirate deals combat damage to a player, that player discards a card."
+    text="Flying. Whenever Sky Pirate deals combat damage to a player, that player discards a card.",
+    setup_interceptors=_sky_pirate_setup,
 )
 
 
@@ -1147,15 +1336,47 @@ DOLA_SKY_PIRATE_CAPTAIN = make_creature(
 )
 
 
+def _wind_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast an instant or sorcery, Wind Mage gets +1/+0 until end of turn."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 1,
+                'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_spell_cast_trigger(
+        obj, effect_fn,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )]
+
 WIND_MAGE = make_creature(
     name="Wind Mage",
     power=1, toughness=3,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="{T}: Target creature gains flying until end of turn."
+    text="Flying. Whenever you cast an instant or sorcery spell, Wind Mage gets +1/+0 until end of turn.",
+    setup_interceptors=_wind_mage_setup,
 )
 
+
+def _airship_navigator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_etb_trigger(obj, effect_fn)]
 
 AIRSHIP_NAVIGATOR = make_creature(
     name="Airship Navigator",
@@ -1163,7 +1384,8 @@ AIRSHIP_NAVIGATOR = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Pilot"},
-    text="Flying. When Airship Navigator enters, scry 2."
+    text="Flying. When Airship Navigator enters, scry 2.",
+    setup_interceptors=_airship_navigator_setup,
 )
 
 
@@ -1174,6 +1396,36 @@ MYSTICAL_GUARDIAN = make_creature(
     colors={Color.BLUE},
     subtypes={"Spirit", "Guardian"},
     text="Flying, ward {2}."
+)
+
+
+# --- New: Howling Wind Spirit (spellslinger payoff) ---
+
+def _howling_wind_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast an instant or sorcery, scry 1."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [ih.make_spell_cast_trigger(
+        obj, effect_fn,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )]
+
+HOWLING_WIND_SPIRIT = make_creature(
+    name="Howling Wind Spirit",
+    power=2, toughness=3,
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    subtypes={"Spirit", "Elemental"},
+    text="Flying. Whenever you cast an instant or sorcery spell, scry 1.",
+    setup_interceptors=_howling_wind_spirit_setup,
 )
 
 
@@ -1717,6 +1969,42 @@ WITCH_OF_THE_WASTE = make_creature(
 )
 
 
+# --- New: Markl, Howl's Apprentice ---
+
+def _markl_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast an instant or sorcery, Markl deals 1 damage to any
+    target (enters-the-battlefield damage routed to each opponent for
+    simplicity)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': 1, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            )
+            for opp_id in ih.all_opponents(obj, state)
+        ]
+
+    return [ih.make_spell_cast_trigger(
+        obj, effect_fn,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )]
+
+MARKL_HOWLS_APPRENTICE = make_creature(
+    name="Markl, Howl's Apprentice",
+    power=1, toughness=2,
+    mana_cost="{U}{R}",
+    colors={Color.BLUE, Color.RED},
+    subtypes={"Human", "Wizard"},
+    supertypes={"Legendary"},
+    text="Whenever you cast an instant or sorcery spell, Markl deals 1 damage to each opponent.",
+    setup_interceptors=_markl_setup,
+)
+
+
 # --- Nausicaa ---
 
 TORUMEKIAN_SOLDIER = make_creature(
@@ -1752,13 +2040,33 @@ GOLIATH_AIRSHIP = make_artifact(
 
 # --- Red Commons/Uncommons ---
 
+def _fire_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast an instant or sorcery, Fire Spirit deals 1 damage to
+    each opponent."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': 1, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            )
+            for opp_id in ih.all_opponents(obj, state)
+        ]
+    return [ih.make_spell_cast_trigger(
+        obj, effect_fn,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )]
+
 FIRE_SPIRIT = make_creature(
     name="Fire Spirit",
-    power=2, toughness=1,
+    power=1, toughness=2,
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Spirit"},
-    text="Haste. {R}: Fire Spirit gets +1/+0 until end of turn."
+    text="Haste. Whenever you cast an instant or sorcery spell, Fire Spirit deals 1 damage to each opponent.",
+    setup_interceptors=_fire_spirit_setup,
 )
 
 
@@ -1822,13 +2130,20 @@ WILD_BOAR = make_creature(
 )
 
 
+def _angry_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Angry Spirit enters, it deals 1 damage to each opponent."""
+    from src.cards.ability_bundles import etb_deal_damage
+    itc, _ = etb_deal_damage(obj, 1, target="each_opponent")
+    return [itc]
+
 ANGRY_SPIRIT = make_creature(
     name="Angry Spirit",
     power=3, toughness=1,
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Spirit"},
-    text="Haste. Angry Spirit can't block."
+    text="Haste. When Angry Spirit enters, it deals 1 damage to each opponent.",
+    setup_interceptors=_angry_spirit_setup,
 )
 
 
@@ -2261,13 +2576,33 @@ TOXIC_JUNGLE_GUARDIAN = make_creature(
 
 # --- Green Commons/Uncommons ---
 
+def _forest_kodama_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Spirit - phase; When Forest Kodama enters, you gain 1 life for each
+    Forest you control."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        amount = count_forests(obj.controller, state)
+        if amount <= 0:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': amount},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [
+        make_spirit_phasing(obj),
+        ih.make_etb_trigger(obj, effect_fn),
+    ]
+
 FOREST_KODAMA = make_creature(
     name="Forest Kodama",
     power=1, toughness=1,
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Spirit", "Kodama"},
-    text="Spirit - At the beginning of your upkeep, you may have Forest Kodama phase out."
+    text="Spirit - At the beginning of your upkeep, you may have Forest Kodama phase out. When Forest Kodama enters, you gain 1 life for each Forest you control.",
+    setup_interceptors=_forest_kodama_setup,
 )
 
 
@@ -2366,6 +2701,28 @@ NATURE_SPRITE = make_creature(
 )
 
 
+# --- New: Soot Sprites (Spirit token-maker) ---
+
+def _soot_sprites_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Soot Sprites enters, create two 0/1 black Soot Spirit tokens."""
+    from src.cards.ability_bundles import etb_create_token
+    itc, _ = etb_create_token(
+        obj, power=0, toughness=1, subtype="Spirit",
+        count=2, colors={Color.BLACK},
+    )
+    return [itc]
+
+SOOT_SPRITES = make_creature(
+    name="Soot Sprites",
+    power=1, toughness=1,
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    subtypes={"Spirit"},
+    text="When Soot Sprites enters, create two 0/1 black Spirit creature tokens.",
+    setup_interceptors=_soot_sprites_setup,
+)
+
+
 WILD_WOLF = make_creature(
     name="Wild Wolf",
     power=2, toughness=2,
@@ -2430,13 +2787,19 @@ MOSS_COVERED_GOLEM = make_creature(
 )
 
 
+def _spirit_wolf_pup_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """+1/+1 to other Wolves you control, plus Spirit - phase out."""
+    interceptors, _ = static_pt_boost_by_subtype(obj, 1, 1, "Wolf", include_self=False)
+    return list(interceptors) + [make_spirit_phasing(obj)]
+
 SPIRIT_WOLF_PUP = make_creature(
     name="Spirit Wolf Pup",
-    power=2, toughness=1,
+    power=1, toughness=1,
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Wolf", "Spirit"},
-    text="Spirit - At the beginning of your upkeep, you may have Spirit Wolf Pup phase out."
+    text="Spirit - At the beginning of your upkeep, you may have Spirit Wolf Pup phase out. Other Wolf creatures you control get +1/+1.",
+    setup_interceptors=_spirit_wolf_pup_setup,
 )
 
 
@@ -2811,6 +3174,7 @@ STUDIO_GHIBLI_CARDS = {
     "Nausicaa, Princess of the Wind": NAUSICAA_PRINCESS_OF_WIND,
     "Kiki, Delivery Witch": KIKI_DELIVERY_WITCH,
     "Jiji, Black Cat Familiar": JIJI_FAMILIAR,
+    "Kaguya, Moon Princess": KAGUYA_MOON_PRINCESS,
     "Bathhouse Servant": BATHHOUSE_SERVANT,
     "Valley Villager": VALLEY_VILLAGER,
     "Irontown Worker": IRONTOWN_WORKER,
@@ -2853,6 +3217,7 @@ STUDIO_GHIBLI_CARDS = {
     "Wind Mage": WIND_MAGE,
     "Airship Navigator": AIRSHIP_NAVIGATOR,
     "Mystical Guardian": MYSTICAL_GUARDIAN,
+    "Howling Wind Spirit": HOWLING_WIND_SPIRIT,
     "River Current": RIVER_CURRENT,
     "Spirit Guidance": SPIRIT_GUIDANCE,
     "Phase Shift": PHASE_SHIFT,
@@ -2898,6 +3263,7 @@ STUDIO_GHIBLI_CARDS = {
     "Calcifer, Fire Demon": CALCIFER_FIRE_DEMON,
     "Howl, Wandering Wizard": HOWL_WIZARD,
     "Witch of the Waste": WITCH_OF_THE_WASTE,
+    "Markl, Howl's Apprentice": MARKL_HOWLS_APPRENTICE,
     "Torumekian Soldier": TORUMEKIAN_SOLDIER,
     "Kushana, War Princess": KUSHANA_WAR_PRINCESS,
     "Goliath Airship": GOLIATH_AIRSHIP,
@@ -2939,6 +3305,7 @@ STUDIO_GHIBLI_CARDS = {
     "Ancient Tree Spirit": ANCIENT_TREE_SPIRIT,
     "Forest Guardian": FOREST_GUARDIAN,
     "Nature Sprite": NATURE_SPRITE,
+    "Soot Sprites": SOOT_SPRITES,
     "Wild Wolf": WILD_WOLF,
     "Forest Deer": FOREST_DEER,
     "Giant Camphor Tree": GIANT_CAMPHOR_TREE,
@@ -3013,6 +3380,7 @@ CARDS = [
     NAUSICAA_PRINCESS_OF_WIND,
     KIKI_DELIVERY_WITCH,
     JIJI_FAMILIAR,
+    KAGUYA_MOON_PRINCESS,
     BATHHOUSE_SERVANT,
     VALLEY_VILLAGER,
     IRONTOWN_WORKER,
@@ -3053,6 +3421,7 @@ CARDS = [
     WIND_MAGE,
     AIRSHIP_NAVIGATOR,
     MYSTICAL_GUARDIAN,
+    HOWLING_WIND_SPIRIT,
     RIVER_CURRENT,
     SPIRIT_GUIDANCE,
     PHASE_SHIFT,
@@ -3094,6 +3463,7 @@ CARDS = [
     CALCIFER_FIRE_DEMON,
     HOWL_WIZARD,
     WITCH_OF_THE_WASTE,
+    MARKL_HOWLS_APPRENTICE,
     TORUMEKIAN_SOLDIER,
     KUSHANA_WAR_PRINCESS,
     GOLIATH_AIRSHIP,
@@ -3133,6 +3503,7 @@ CARDS = [
     ANCIENT_TREE_SPIRIT,
     FOREST_GUARDIAN,
     NATURE_SPRITE,
+    SOOT_SPRITES,
     WILD_WOLF,
     FOREST_DEER,
     GIANT_CAMPHOR_TREE,

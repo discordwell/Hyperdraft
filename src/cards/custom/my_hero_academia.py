@@ -115,6 +115,16 @@ def make_land(name: str, text: str = "", subtypes: set = None, supertypes: set =
 # MY HERO ACADEMIA KEYWORD MECHANICS
 # =============================================================================
 
+def _self_keyword_setup(*keywords: str) -> Callable[[GameObject, GameState], list[Interceptor]]:
+    """Closure factory - grants the given keywords to the source creature only.
+    Used for vanilla-keyword cards to avoid repeating 10 lines per card."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def self_filter(target: GameObject, state: GameState) -> bool:
+            return target.id == obj.id
+        return [_ih.make_keyword_grant(obj, list(keywords), self_filter)]
+    return _setup
+
+
 def make_quirk_ability(source_obj: GameObject, tap_cost: bool, effect_fn: Callable[[Event, GameState], list[Event]]) -> Interceptor:
     """
     Quirk - Activated ability unique to each hero.
@@ -341,15 +351,27 @@ BEST_JEANIST = make_creature(
 
 
 def mirko_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Double strike when attacking alone"""
-    from src.cards.interceptor_helpers import make_keyword_grant
+    """Rabbit Hero: haste and first strike. Whenever Mirko attacks, she
+    gets +2/+0 until end of turn."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['haste', 'first_strike'], self_filter)
+    ]
 
-    def attack_alone_filter(target: GameObject, state: GameState) -> bool:
-        if target.id != obj.id:
-            return False
-        # Check if attacking alone (simplified - would need combat state)
-        return target.zone == ZoneType.BATTLEFIELD
-    return [make_keyword_grant(obj, ['double_strike'], attack_alone_filter)]
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 2, 'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    itcs.append(_ih.make_attack_trigger(obj, attack_effect))
+    return itcs
 
 MIRKO = make_creature(
     name="Mirko, Rabbit Hero",
@@ -358,7 +380,7 @@ MIRKO = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    # Conditional keyword - keep setup
+    text="Haste, first strike. Whenever Mirko attacks, she gets +2/+0 until end of turn.",
     setup_interceptors=mirko_setup
 )
 
@@ -441,7 +463,8 @@ HERO_INTERN = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Student"},
-    # Lifelink - keyword ability
+    text="Lifelink",
+    setup_interceptors=_self_keyword_setup('lifelink'),
 )
 
 
@@ -462,9 +485,35 @@ SELKIE = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    # Hexproof, can't be blocked by power 2 or less - keywords/evasion
+    text="Hexproof, vigilance",
+    setup_interceptors=_self_keyword_setup('hexproof', 'vigilance'),
 )
 
+
+def _gang_orca_setup(obj, state):
+    """Orcinus: menace. When Gang Orca enters, tap all creatures opponents
+    control (intimidation from the big whale)."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['menace'], self_filter)
+    ]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in state.objects.values():
+            if (o.controller != obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types):
+                events.append(Event(
+                    type=EventType.TAP,
+                    payload={'object_id': o.id},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+    itcs.append(_ih.make_etb_trigger(obj, etb_effect))
+    return itcs
 
 GANG_ORCA = make_creature(
     name="Gang Orca, Whale Hero",
@@ -473,9 +522,21 @@ GANG_ORCA = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    # Menace, ETB destroy - would need targeting
+    text="Menace. When Gang Orca enters the battlefield, tap all creatures your opponents control.",
+    setup_interceptors=_gang_orca_setup,
 )
 
+
+def _thirteen_setup(obj, state):
+    """Black Hole: Thirteen has defender. When she enters, you gain 4 life."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['defender'], self_filter)
+    ]
+    itc, _ = etb_gain_life(obj, 4)
+    itcs.append(itc)
+    return itcs
 
 THIRTEEN = make_creature(
     name="Thirteen, Rescue Hero",
@@ -484,7 +545,8 @@ THIRTEEN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    # Defender, Quirk activated ability
+    text="Defender. When Thirteen enters the battlefield, you gain 4 life.",
+    setup_interceptors=_thirteen_setup,
 )
 
 
@@ -711,6 +773,28 @@ SIR_NIGHTEYE = make_creature(
 )
 
 
+def _shinso_setup(obj, state):
+    """Brainwashing: unblockable. When Shinso deals combat damage to a
+    player, that player discards a card (they obey him)."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['unblockable'], self_filter)
+    ]
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        target = event.payload.get('target')
+        if target not in state.players:
+            return []
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': target, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    itcs.append(_ih.make_damage_trigger(obj, damage_effect, combat_only=True))
+    return itcs
+
 SHINSO = make_creature(
     name="Shinso, Mind Control",
     power=2, toughness=2,
@@ -718,7 +802,8 @@ SHINSO = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Student"},
     supertypes={"Legendary"},
-    # Can't be blocked by power 3+, Quirk - complex
+    text="Unblockable. Whenever Shinso deals combat damage to a player, that player discards a card.",
+    setup_interceptors=_shinso_setup,
 )
 
 
@@ -995,35 +1080,40 @@ ALL_FOR_ONE = make_creature(
 )
 
 
-def shigaraki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When deals combat damage, destroy target permanent"""
-    from src.cards.interceptor_helpers import make_damage_trigger
-
+def _shigaraki_setup(obj, state):
+    """Decay: when Shigaraki deals combat damage to a player, destroy target
+    creature that player controls with the least toughness. Also drains 2 life.
+    """
     def damage_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DESTROY,
-            payload={'target': 'any_permanent'},  # Would need targeting
-            source=obj.id
-        )]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
-
-def _shigaraki_setup_combined(obj, state):
-    # Former abilities-DSL placeholder: 0-life-loss to each opponent on combat
-    # damage to a player. No bundle for damage-trigger lose-life; use
-    # interceptor_helpers directly.
-    def life_loss_effect(event, state):
-        return [
+        target = event.payload.get('target')
+        # Only when dealing damage to a player (not a creature)
+        if target not in state.players:
+            return []
+        # Pick the opponent's creature with least toughness as a "decay" victim.
+        victims = [
+            o for o in state.objects.values()
+            if o.controller == target
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+        ]
+        events: list[Event] = [
             Event(
                 type=EventType.LIFE_CHANGE,
-                payload={'player': opp, 'amount': 0},
+                payload={'player': target, 'amount': -2},
                 source=obj.id,
                 controller=obj.controller,
             )
-            for opp in _ih.all_opponents(obj, state)
         ]
-    itcs = [_ih.make_damage_trigger(obj, life_loss_effect, combat_only=True)]
-    itcs.extend(shigaraki_setup(obj, state))
-    return itcs
+        if victims:
+            victim = min(victims, key=lambda o: get_toughness(o, state))
+            events.append(Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': victim.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [_ih.make_damage_trigger(obj, damage_effect, combat_only=True)]
 
 SHIGARAKI = make_creature(
     name="Shigaraki, Decay Lord",
@@ -1033,10 +1123,10 @@ SHIGARAKI = make_creature(
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
     text=substitute_card_name(
-        "Whenever {this} deals combat damage to a player, each opponent loses 0 life.",
+        "Whenever {this} deals combat damage to a player, that player loses 2 life and destroy the creature they control with the least toughness.",
         "Shigaraki, Decay Lord",
     ),
-    setup_interceptors=_shigaraki_setup_combined,
+    setup_interceptors=_shigaraki_setup,
 )
 
 
@@ -1073,16 +1163,35 @@ DABI = make_creature(
 
 
 def toga_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When deals combat damage to player, copy target creature"""
-    from src.cards.interceptor_helpers import make_damage_trigger
+    """Blood Obsession: deathtouch. Whenever Toga deals combat damage to a
+    player, that player discards a card and you gain 2 life (stole their
+    blood)."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['deathtouch'], self_filter)
+    ]
 
     def damage_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.CREATE_TOKEN,
-            payload={'controller': obj.controller, 'copy_target': True},
-            source=obj.id
-        )]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+        target = event.payload.get('target')
+        if target not in state.players:
+            return []
+        return [
+            Event(
+                type=EventType.DISCARD,
+                payload={'player': target, 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+    itcs.append(_ih.make_damage_trigger(obj, damage_effect, combat_only=True))
+    return itcs
 
 TOGA = make_creature(
     name="Toga, Blood Obsession",
@@ -1091,10 +1200,43 @@ TOGA = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    # Deathtouch, complex damage trigger with copy
+    text="Deathtouch. Whenever Toga deals combat damage to a player, that player discards a card and you gain 2 life.",
     setup_interceptors=toga_setup
 )
 
+
+def _stain_setup(obj, state):
+    """Hero Killer: has first strike and deathtouch always. When it attacks,
+    if an opponent controls a Hero, Stain gets +2/+0 until end of turn
+    (models the 'doubles down against Heroes' fantasy)."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['first_strike', 'deathtouch'], self_filter)
+    ]
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        hero_present = any(
+            o.controller != obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and "Hero" in o.characteristics.subtypes
+            for o in state.objects.values()
+        )
+        if not hero_present:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 2, 'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    itcs.append(_ih.make_attack_trigger(obj, attack_effect))
+    return itcs
 
 STAIN = make_creature(
     name="Stain, Hero Killer",
@@ -1103,9 +1245,34 @@ STAIN = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    # First strike, deathtouch, conditional double strike
+    text="First strike, deathtouch. Whenever Stain attacks, if an opponent controls a Hero, Stain gets +2/+0 until end of turn.",
+    setup_interceptors=_stain_setup,
 )
 
+
+def _overhaul_setup(obj, state):
+    """Disassemble: when Overhaul enters, remove all +1/+1 counters from
+    each creature opponents control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in state.objects.values():
+            if (o.controller != obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types):
+                count = o.state.counters.get('+1/+1', 0) if hasattr(o, 'state') and o.state else 0
+                if count > 0:
+                    events.append(Event(
+                        type=EventType.COUNTER_REMOVED,
+                        payload={
+                            'object_id': o.id,
+                            'counter_type': '+1/+1',
+                            'amount': count,
+                        },
+                        source=obj.id,
+                        controller=obj.controller,
+                    ))
+        return events
+    return [_ih.make_etb_trigger(obj, etb_effect)]
 
 OVERHAUL = make_creature(
     name="Overhaul, Yakuza Boss",
@@ -1114,9 +1281,32 @@ OVERHAUL = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    # ETB destroy then return from graveyard - complex
+    text="When Overhaul enters the battlefield, remove all +1/+1 counters from each creature your opponents control.",
+    setup_interceptors=_overhaul_setup,
 )
 
+
+def _twice_setup(obj, state):
+    """Double: when Twice enters, create two 2/2 black Human Villain tokens
+    named Clone."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': obj.controller,
+                    'name': 'Clone',
+                    'power': 2, 'toughness': 2,
+                    'colors': {Color.BLACK},
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Human', 'Villain'},
+                },
+                source=obj.id,
+                controller=obj.controller,
+            )
+            for _ in range(2)
+        ]
+    return [_ih.make_etb_trigger(obj, etb_effect)]
 
 TWICE = make_creature(
     name="Twice, Double Trouble",
@@ -1125,7 +1315,8 @@ TWICE = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    # ETB create copy token - complex
+    text="When Twice enters the battlefield, create two 2/2 black Human Villain creature tokens named Clone.",
+    setup_interceptors=_twice_setup,
 )
 
 
@@ -1147,7 +1338,8 @@ KUROGIRI = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Elemental", "Villain"},
     supertypes={"Legendary"},
-    # Flash, Quirk flicker
+    text="Flash, hexproof",
+    setup_interceptors=_self_keyword_setup('flash', 'hexproof'),
 )
 
 
@@ -1158,7 +1350,8 @@ MUSCULAR = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    # Trample, haste, must attack
+    text="Trample, haste",
+    setup_interceptors=_self_keyword_setup('trample', 'haste'),
 )
 
 
@@ -1169,7 +1362,8 @@ MOONFISH = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    # First strike, destroy on combat damage
+    text="First strike, deathtouch",
+    setup_interceptors=_self_keyword_setup('first_strike', 'deathtouch'),
 )
 
 
@@ -1180,16 +1374,24 @@ GIGANTOMACHIA = make_creature(
     colors={Color.BLACK},
     subtypes={"Giant", "Villain"},
     supertypes={"Legendary"},
-    # Trample, vigilance, evasion, ETB destroy all
+    text="Trample, menace",
+    setup_interceptors=_self_keyword_setup('trample', 'menace'),
 )
 
 
 # --- Regular Creatures ---
 
 def league_grunt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Villain - draw card when opponent loses life"""
+    """Villain - when an opponent loses life, you gain 1 life. (Safer
+    than chaining additional LIFE_CHANGEs, which could recurse with any
+    future 'villain hits life loss' effect.)"""
     def villain_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Simplified
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
     return [make_villain_trigger(obj, villain_effect)]
 
 LEAGUE_GRUNT = make_creature(
@@ -1198,6 +1400,7 @@ LEAGUE_GRUNT = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
+    text="Villain - Whenever an opponent loses life, you gain 1 life.",
     setup_interceptors=league_grunt_setup
 )
 
@@ -1236,7 +1439,8 @@ HIGH_END_NOMU = make_creature(
     mana_cost="{5}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie", "Villain"},
-    # Flying, trample, regenerate, ETB fight
+    text="Flying, trample",
+    setup_interceptors=_self_keyword_setup('flying', 'trample'),
 )
 
 
@@ -1312,6 +1516,45 @@ TRUMPET = make_creature(
 )
 
 
+def _re_destro_setup(obj, state):
+    """Stress: Re-Destro has menace. Whenever you lose life, put a +1/+1
+    counter on Re-Destro (Stress fuels his Quirk)."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['menace'], self_filter)
+    ]
+
+    def stress_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.LIFE_CHANGE:
+            return False
+        if event.payload.get('amount', 0) >= 0:
+            return False
+        return event.payload.get('player') == obj.controller
+
+    def stress_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_events = [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events,
+        )
+
+    itcs.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=stress_filter,
+        handler=stress_handler,
+        duration='while_on_battlefield',
+    ))
+    return itcs
+
 RE_DESTRO = make_creature(
     name="Re-Destro, Liberation Leader",
     power=5, toughness=5,
@@ -1319,7 +1562,8 @@ RE_DESTRO = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    # Menace, dynamic P/T based on life lost, Quirk
+    text="Menace. Stress - Whenever you lose life, put a +1/+1 counter on Re-Destro.",
+    setup_interceptors=_re_destro_setup,
 )
 
 
@@ -1502,12 +1746,15 @@ BAKUGO = make_creature(
 
 
 def kirishima_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Indestructible while attacking"""
+    """Unbreakable: Kirishima has indestructible during your turn (he's at his
+    toughest when he's active). Otherwise he's just sturdy."""
     from src.cards.interceptor_helpers import make_keyword_grant
 
-    def attacking_filter(target: GameObject, state: GameState) -> bool:
-        return target.id == obj.id and target.zone == ZoneType.BATTLEFIELD
-    return [make_keyword_grant(obj, ['indestructible'], attacking_filter)]
+    def my_turn_filter(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return getattr(state, 'active_player', None) == obj.controller
+    return [make_keyword_grant(obj, ['indestructible'], my_turn_filter)]
 
 KIRISHIMA = make_creature(
     name="Kirishima, Red Riot",
@@ -1516,10 +1763,43 @@ KIRISHIMA = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Conditional indestructible
+    text="Unbreakable - Kirishima, Red Riot has indestructible during your turn.",
     setup_interceptors=kirishima_setup
 )
 
+
+def _kaminari_setup(obj, state):
+    """Chargebolt: has haste. ETB deals 3 damage to each opponent; then
+    Kaminari short-circuits and gets -2/-0 until end of turn (he's dumb
+    after using his Quirk)."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['haste'], self_filter)
+    ]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp, 'amount': 3, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': -2, 'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        ))
+        return events
+    itcs.append(_ih.make_etb_trigger(obj, etb_effect))
+    return itcs
 
 KAMINARI = make_creature(
     name="Kaminari, Chargebolt",
@@ -1528,9 +1808,32 @@ KAMINARI = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Haste, Quirk deals damage to target and self
+    text="Haste. When Kaminari enters the battlefield, he deals 3 damage to each opponent and gets -2/-0 until end of turn.",
+    setup_interceptors=_kaminari_setup,
 )
 
+
+def _tetsutetsu_setup(obj, state):
+    """Real Steel: trample. Gets +0/+2 whenever it blocks (hardens on impact)."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['trample'], self_filter)
+    ]
+
+    def block_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 0, 'toughness_mod': 2,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    itcs.append(_ih.make_block_trigger(obj, block_effect))
+    return itcs
 
 TETSUTETSU = make_creature(
     name="Tetsutetsu, Real Steel",
@@ -1539,7 +1842,8 @@ TETSUTETSU = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Trample, Quirk indestructible
+    text="Trample. Whenever Tetsutetsu blocks, it gets +0/+2 until end of turn.",
+    setup_interceptors=_tetsutetsu_setup,
 )
 
 
@@ -1561,7 +1865,8 @@ FATGUM = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    # Defender, Quirk damage conversion
+    text="Vigilance, lifelink",
+    setup_interceptors=_self_keyword_setup('vigilance', 'lifelink'),
 )
 
 
@@ -1572,18 +1877,26 @@ RYUKYU = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Hero", "Dragon"},
     supertypes={"Legendary"},
-    # Flying, trample, Quirk pump
+    text="Flying, trample",
+    setup_interceptors=_self_keyword_setup('flying', 'trample'),
 )
 
 
 def _crimson_riot_setup(obj, state):
-    # Flagged stub: original DSL paired AttackTrigger with a StaticEffect
-    # (PTBoost), which had no working runtime behaviour (PTBoost has no
-    # generate_events). Register a no-op attack trigger to preserve the
-    # interceptor-count contract asserted by tests.
-    def noop_effect(event, state):
-        return []
-    return [_ih.make_attack_trigger(obj, noop_effect)]
+    """Legendary Manliness: whenever Crimson Riot attacks, it gets +2/+0
+    until end of turn and gains first strike."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 2, 'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [_ih.make_attack_trigger(obj, attack_effect)]
 
 CRIMSON_RIOT = make_creature(
     name="Crimson Riot, Legendary Hero",
@@ -1592,7 +1905,7 @@ CRIMSON_RIOT = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    text="Whenever Crimson Riot, Legendary Hero attacks, get +1/+0.",
+    text="Whenever Crimson Riot, Legendary Hero attacks, it gets +2/+0 until end of turn.",
     setup_interceptors=_crimson_riot_setup,
 )
 
@@ -1623,7 +1936,8 @@ COMBAT_HERO = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Hero"},
-    # First strike, haste - keywords
+    text="First strike, haste",
+    setup_interceptors=_self_keyword_setup('first_strike', 'haste'),
 )
 
 
@@ -1633,7 +1947,8 @@ POWER_TYPE_STUDENT = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Human", "Student"},
-    # Trample, activated pump
+    text="Trample",
+    setup_interceptors=_self_keyword_setup('trample'),
 )
 
 
@@ -1643,7 +1958,8 @@ RAGING_HERO = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Human", "Hero"},
-    # Trample, haste, must attack
+    text="Trample, haste",
+    setup_interceptors=_self_keyword_setup('trample', 'haste'),
 )
 
 
@@ -1653,7 +1969,8 @@ FIERY_SIDEKICK = make_creature(
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Human", "Hero"},
-    # Haste
+    text="Haste",
+    setup_interceptors=_self_keyword_setup('haste'),
 )
 
 
@@ -1663,7 +1980,8 @@ BATTLE_STUDENT = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Student"},
-    # First strike
+    text="First strike",
+    setup_interceptors=_self_keyword_setup('first_strike'),
 )
 
 
@@ -1673,7 +1991,8 @@ BERSERKER_HERO = make_creature(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Human", "Hero"},
-    # Trample, combat damage to player damages you
+    text="Trample, haste",
+    setup_interceptors=_self_keyword_setup('trample', 'haste'),
 )
 
 
@@ -1858,6 +2177,19 @@ DEKU = make_creature(
 )
 
 
+def _uraraka_setup(obj, state):
+    """Zero Gravity: Uraraka has flying. Other Hero creatures you control
+    have flying. (Her power lifts her allies off the ground.)"""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    return [
+        _ih.make_keyword_grant(obj, ['flying'], self_filter),
+        _ih.make_keyword_grant(
+            obj, ['flying'],
+            _ih.other_creatures_with_subtype(obj, "Hero"),
+        ),
+    ]
+
 URARAKA = make_creature(
     name="Uraraka, Zero Gravity",
     power=2, toughness=3,
@@ -1865,9 +2197,16 @@ URARAKA = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Flying, Quirk grants flying
+    text="Flying. Other Hero creatures you control have flying.",
+    setup_interceptors=_uraraka_setup,
 )
 
+
+def _iida_setup(obj, state):
+    """Engine: Iida has haste and vigilance."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    return [_ih.make_keyword_grant(obj, ['haste', 'vigilance'], self_filter)]
 
 IIDA = make_creature(
     name="Iida, Ingenium",
@@ -1876,9 +2215,43 @@ IIDA = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Haste, vigilance, conditional first strike
+    text="Haste, vigilance.",
+    setup_interceptors=_iida_setup,
 )
 
+
+def _todoroki_setup(obj, state):
+    """Half-Cold Half-Hot: when Todoroki enters, he deals 2 damage to
+    target opponent (fire side) and taps target creature (ice side).
+    Simplified: 2 damage to each opponent AND tap a creature opponents
+    control with the highest power."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Fire: 2 damage to each opponent
+        for opp in _ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp, 'amount': 2, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        # Ice: tap strongest opponent creature
+        enemies = [
+            o for o in state.objects.values()
+            if o.controller != obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+        ]
+        if enemies:
+            target = max(enemies, key=lambda o: get_power(o, state))
+            events.append(Event(
+                type=EventType.TAP,
+                payload={'object_id': target.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [_ih.make_etb_trigger(obj, etb_effect)]
 
 TODOROKI = make_creature(
     name="Todoroki, Half-Cold Half-Hot",
@@ -1887,7 +2260,8 @@ TODOROKI = make_creature(
     colors={Color.RED, Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Multiple Quirk activated abilities
+    text="When Todoroki enters the battlefield, he deals 2 damage to each opponent and taps the creature opponents control with the greatest power.",
+    setup_interceptors=_todoroki_setup,
 )
 
 
@@ -1898,7 +2272,8 @@ TSUYU = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Flash, hexproof, evasion, Quirk bounce
+    text="Flash, reach, hexproof",
+    setup_interceptors=_self_keyword_setup('flash', 'reach', 'hexproof'),
 )
 
 
@@ -1914,8 +2289,14 @@ MOMO = make_creature(
 
 
 def tokoyami_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Dark Shadow - gets stronger at low life"""
-    return make_plus_ultra_bonus(obj, 4, 0)
+    """Dark Shadow - has flying, and gets +4/+0 when at 5 or less life
+    (Plus Ultra - Dark Shadow becomes uncontrollable at low light)."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    return (
+        [_ih.make_keyword_grant(obj, ['flying'], self_filter)]
+        + make_plus_ultra_bonus(obj, 4, 0)
+    )
 
 TOKOYAMI = make_creature(
     name="Tokoyami, Dark Shadow",
@@ -1924,7 +2305,7 @@ TOKOYAMI = make_creature(
     colors={Color.GREEN, Color.BLACK},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Flying, Plus Ultra, Quirk menace
+    text="Flying. Plus Ultra - Tokoyami gets +4/+0 as long as you have 5 or less life.",
     setup_interceptors=tokoyami_setup
 )
 
@@ -1936,7 +2317,8 @@ SERO = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Reach, Quirk tap
+    text="Reach",
+    setup_interceptors=_self_keyword_setup('reach'),
 )
 
 
@@ -1947,7 +2329,8 @@ SHOJI = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Vigilance, can block additional creature
+    text="Vigilance, reach",
+    setup_interceptors=_self_keyword_setup('vigilance', 'reach'),
 )
 
 
@@ -1969,7 +2352,8 @@ OJIRO = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # First strike, Quirk pump
+    text="First strike",
+    setup_interceptors=_self_keyword_setup('first_strike'),
 )
 
 
@@ -1980,7 +2364,8 @@ SATO = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Trample, Quirk pay life pump
+    text="Trample",
+    setup_interceptors=_self_keyword_setup('trample'),
 )
 
 
@@ -2027,7 +2412,8 @@ NATURE_HERO = make_creature(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Hero"},
-    # Reach, trample
+    text="Reach, trample",
+    setup_interceptors=_self_keyword_setup('reach', 'trample'),
 )
 
 
@@ -2037,7 +2423,8 @@ MUTANT_STUDENT = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Student"},
-    # Trample
+    text="Trample",
+    setup_interceptors=_self_keyword_setup('trample'),
 )
 
 
@@ -2047,7 +2434,8 @@ HEALING_HERO = make_creature(
     mana_cost="{1}{G}{W}",
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Hero"},
-    # Lifelink, regenerate ability
+    text="Lifelink",
+    setup_interceptors=_self_keyword_setup('lifelink'),
 )
 
 
@@ -2057,7 +2445,8 @@ FOREST_GUARDIAN = make_creature(
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Hero"},
-    # Vigilance, reach
+    text="Vigilance, reach",
+    setup_interceptors=_self_keyword_setup('vigilance', 'reach'),
 )
 
 
@@ -2252,6 +2641,13 @@ MONOMA = make_creature(
 )
 
 
+def _mirio_setup(obj, state):
+    """Permeation: Mirio can't be blocked (grant 'unblockable') and has
+    hexproof (phases through targeting)."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    return [_ih.make_keyword_grant(obj, ['unblockable', 'hexproof'], self_filter)]
+
 MIRIO = make_creature(
     name="Mirio, Lemillion",
     power=4, toughness=4,
@@ -2259,9 +2655,50 @@ MIRIO = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Unblockable, Quirk hexproof/indestructible
+    text="Permeation - Mirio, Lemillion can't be blocked and has hexproof.",
+    setup_interceptors=_mirio_setup,
 )
 
+
+def _tamaki_setup(obj, state):
+    """Manifest: when Tamaki enters, he adopts a random form. Mechanically -
+    gains one of trample, flying, or deathtouch (rotates based on how many
+    creatures you control: 0-1 => deathtouch, 2 => flying, 3+ => trample)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        allies = sum(
+            1 for o in state.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.id != obj.id
+        )
+        if allies >= 3:
+            pm = 2
+        elif allies >= 2:
+            pm = 1
+        else:
+            pm = 0
+        # Straight +P/+P until end of turn based on allies ("feeds off what
+        # he's eaten").
+        if pm == 0:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': pm, 'toughness_mod': pm,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    return [
+        _ih.make_keyword_grant(obj, ['flying', 'trample'], self_filter),
+        _ih.make_etb_trigger(obj, etb_effect),
+    ]
 
 TAMAKI = make_creature(
     name="Tamaki, Suneater",
@@ -2270,9 +2707,48 @@ TAMAKI = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Multiple Quirk abilities
+    text="Flying, trample. When Tamaki enters the battlefield, he gets +1/+1 for each other creature you control, up to +2/+2, until end of turn.",
+    setup_interceptors=_tamaki_setup,
 )
 
+
+def _nejire_setup(obj, state):
+    """Wave Motion: flying. When Nejire enters, she deals 3 damage divided
+    as you choose among any number of targets — simplified to 3 damage to
+    the strongest opponent creature."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['flying'], self_filter)
+    ]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        enemies = [
+            o for o in state.objects.values()
+            if o.controller != obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+        ]
+        if not enemies:
+            # Nothing to zap? Hit each opponent for 2 instead.
+            return [
+                Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': opp, 'amount': 2, 'source': obj.id},
+                    source=obj.id,
+                    controller=obj.controller,
+                )
+                for opp in _ih.all_opponents(obj, state)
+            ]
+        target = max(enemies, key=lambda o: get_power(o, state))
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': target.id, 'amount': 3, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    itcs.append(_ih.make_etb_trigger(obj, etb_effect))
+    return itcs
 
 NEJIRE = make_creature(
     name="Nejire, Nejire Wave",
@@ -2281,7 +2757,8 @@ NEJIRE = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # Flying, Quirk damages flyers
+    text="Flying. When Nejire enters the battlefield, she deals 3 damage to the creature opponents control with the greatest power (or 2 damage to each opponent if none).",
+    setup_interceptors=_nejire_setup,
 )
 
 
@@ -2327,7 +2804,8 @@ EDGESHOT = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    # Flash, deathtouch, evasion
+    text="Flash, deathtouch, unblockable",
+    setup_interceptors=_self_keyword_setup('flash', 'deathtouch', 'unblockable'),
 )
 
 
@@ -2338,7 +2816,8 @@ KAMUI_WOODS = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    # Reach, Quirk tap all
+    text="Reach, vigilance",
+    setup_interceptors=_self_keyword_setup('reach', 'vigilance'),
 )
 
 
@@ -2349,7 +2828,8 @@ MT_LADY = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    # Trample, enters with -1/-1 counters, removes them
+    text="Trample, vigilance",
+    setup_interceptors=_self_keyword_setup('trample', 'vigilance'),
 )
 
 
@@ -2360,7 +2840,8 @@ DEATH_ARMS = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    # First strike, destroy on combat damage
+    text="Menace, first strike",
+    setup_interceptors=_self_keyword_setup('menace', 'first_strike'),
 )
 
 
@@ -2860,7 +3341,8 @@ SPINNER = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    # First strike, gets +1/+1 per villain
+    text="First strike, reach",
+    setup_interceptors=_self_keyword_setup('first_strike', 'reach'),
 )
 
 
@@ -2871,7 +3353,8 @@ MAGNE = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
-    # Haste, Quirk force attack/can't block
+    text="Haste, menace",
+    setup_interceptors=_self_keyword_setup('haste', 'menace'),
 )
 
 
@@ -2911,7 +3394,8 @@ ENDING = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Villain"},
-    # Menace, conditional pump vs legendary
+    text="Menace",
+    setup_interceptors=_self_keyword_setup('menace'),
 )
 
 
@@ -2984,7 +3468,166 @@ MS_JOKE = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Hero"},
     supertypes={"Legendary"},
-    # Quirk can't attack/block
+    text="Flash",
+    setup_interceptors=_self_keyword_setup('flash'),
+)
+
+
+# =============================================================================
+# NEW LEGENDARY VILLAINS & HEROES (Quality-pass additions)
+# =============================================================================
+
+def _lady_nagant_setup(obj, state):
+    """Hunter-Arm: reach. When Lady Nagant enters, destroy target creature
+    with the greatest power that opponents control. (Assassination shot.)"""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['reach'], self_filter)
+    ]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        enemies = [
+            o for o in state.objects.values()
+            if o.controller != obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+        ]
+        if not enemies:
+            return []
+        target = max(enemies, key=lambda o: get_power(o, state))
+        return [Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={'object_id': target.id},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    itcs.append(_ih.make_etb_trigger(obj, etb_effect))
+    return itcs
+
+LADY_NAGANT = make_creature(
+    name="Lady Nagant, Rifle Hero",
+    power=3, toughness=3,
+    mana_cost="{2}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Human", "Villain"},
+    supertypes={"Legendary"},
+    text="Reach. When Lady Nagant enters the battlefield, destroy the creature opponents control with the greatest power.",
+    setup_interceptors=_lady_nagant_setup,
+)
+
+
+def _nine_setup(obj, state):
+    """Quirk Theft: flying, trample. When Nine enters, each opponent
+    sacrifices a creature (he steals their Quirks) — simplified to
+    destroying the opponent's weakest creature."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['flying', 'trample'], self_filter)
+    ]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, state):
+            victims = [
+                o for o in state.objects.values()
+                if o.controller == opp
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types
+            ]
+            if victims:
+                victim = min(victims, key=lambda o: get_power(o, state))
+                events.append(Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': victim.id},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+    itcs.append(_ih.make_etb_trigger(obj, etb_effect))
+    return itcs
+
+NINE = make_creature(
+    name="Nine, Quirk Thief",
+    power=6, toughness=5,
+    mana_cost="{4}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Villain"},
+    supertypes={"Legendary"},
+    text="Flying, trample. When Nine enters the battlefield, each opponent's weakest creature is destroyed.",
+    setup_interceptors=_nine_setup,
+)
+
+
+def _star_and_stripe_setup(obj, state):
+    """New Order: flying, vigilance. When Star and Stripe enters, all
+    other creatures you control get +1/+1 counters. Massive team rally."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['flying', 'vigilance'], self_filter)
+    ]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in state.objects.values():
+            if (o.id != obj.id
+                and o.controller == obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+    itcs.append(_ih.make_etb_trigger(obj, etb_effect))
+    return itcs
+
+STAR_AND_STRIPE = make_creature(
+    name="Star and Stripe, U.S. Number One",
+    power=6, toughness=6,
+    mana_cost="{4}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Hero"},
+    supertypes={"Legendary"},
+    text="Flying, vigilance. When Star and Stripe enters the battlefield, put a +1/+1 counter on each other creature you control.",
+    setup_interceptors=_star_and_stripe_setup,
+)
+
+
+def _mirio_hero_intern_setup(obj, state):
+    """Team-up bonus: this 2/2 Student costs {1}{U} and draws a card when
+    it enters if you control another Student. Supports team-up archetype."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        has_other_student = any(
+            o.id != obj.id
+            and o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and "Student" in o.characteristics.subtypes
+            for o in state.objects.values()
+        )
+        if not has_other_student:
+            return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [_ih.make_etb_trigger(obj, etb_effect)]
+
+CLASS_1A_ROOKIE = make_creature(
+    name="Class 1-A Rookie",
+    power=2, toughness=2,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Student"},
+    text="When Class 1-A Rookie enters the battlefield, if you control another Student, draw a card.",
+    setup_interceptors=_mirio_hero_intern_setup,
 )
 
 
@@ -3322,6 +3965,10 @@ MY_HERO_ACADEMIA_CARDS = {
     "Shindo, Quake Hero": SHINDO,
     "Nakagame, Shield Hero": NAKAGAME,
     "Ms. Joke, Smile Hero": MS_JOKE,
+    "Lady Nagant, Rifle Hero": LADY_NAGANT,
+    "Nine, Quirk Thief": NINE,
+    "Star and Stripe, U.S. Number One": STAR_AND_STRIPE,
+    "Class 1-A Rookie": CLASS_1A_ROOKIE,
 
     # ADDITIONAL INSTANTS
     "Half-Cold": HALF_COLD,
@@ -3582,6 +4229,10 @@ CARDS = [
     SHINDO,
     NAKAGAME,
     MS_JOKE,
+    LADY_NAGANT,
+    NINE,
+    STAR_AND_STRIPE,
+    CLASS_1A_ROOKIE,
     HALF_COLD,
     HALF_HOT,
     RECIPRO_BURST,
