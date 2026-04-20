@@ -919,6 +919,320 @@ def test_kodama_of_growth_phase_in_mana():
 
 
 # =============================================================================
+# QUALITY-PASS TESTS — NEW / REDESIGNED CARDS
+# =============================================================================
+
+def test_bathhouse_servant_etb_life():
+    """Bathhouse Servant (redesigned): ETB gain 2 life."""
+    print("\n=== Test: Bathhouse Servant ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    start = p1.life
+    create_creature_with_etb(game, p1.id, "Bathhouse Servant")
+    assert p1.life >= start + 2, f"Expected +2 life, got {p1.life - start}"
+    print("PASSED: Bathhouse Servant ETB life gain works!")
+
+
+def test_young_witch_apprentice_spell_cast_life():
+    """Young Witch Apprentice (redesigned): gain 1 life per instant/sorcery cast."""
+    print("\n=== Test: Young Witch Apprentice Spell Cast Life ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    create_creature_no_etb(game, p1.id, "Young Witch Apprentice")
+    events = game.emit(Event(
+        type=EventType.CAST,
+        payload={'caster': p1.id, 'types': [CardType.INSTANT]},
+    ))
+    life_events = [e for e in events if e.type == EventType.LIFE_CHANGE and e.payload.get('amount') == 1]
+    assert len(life_events) == 1, f"Expected 1 life event, got {len(life_events)}"
+    print("PASSED: Young Witch Apprentice spell cast life works!")
+
+
+def test_wind_mage_spell_cast_pt_boost():
+    """Wind Mage (redesigned): +1/+0 when you cast instant/sorcery."""
+    print("\n=== Test: Wind Mage Spell Cast PT Boost ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    wind_mage = create_creature_no_etb(game, p1.id, "Wind Mage")
+    events = game.emit(Event(
+        type=EventType.CAST,
+        payload={'caster': p1.id, 'types': [CardType.SORCERY]},
+    ))
+    pt_events = [e for e in events if e.type == EventType.PT_MODIFICATION
+                 and e.payload.get('object_id') == wind_mage.id]
+    assert len(pt_events) == 1, f"Expected 1 PT event, got {len(pt_events)}"
+    assert pt_events[0].payload.get('power_mod') == 1
+    print("PASSED: Wind Mage spell cast PT boost works!")
+
+
+def test_fire_spirit_spell_cast_damage():
+    """Fire Spirit (redesigned): deals 1 damage to each opponent on spell cast."""
+    print("\n=== Test: Fire Spirit Spell Cast Damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    create_creature_no_etb(game, p1.id, "Fire Spirit")
+    events = game.emit(Event(
+        type=EventType.CAST,
+        payload={'caster': p1.id, 'types': [CardType.INSTANT]},
+    ))
+    dmg = [e for e in events if e.type == EventType.DAMAGE]
+    assert len(dmg) >= 1, f"Expected at least 1 damage event, got {len(dmg)}"
+    print("PASSED: Fire Spirit spell cast damage works!")
+
+
+def test_markl_spell_cast_damage():
+    """Markl (new): deals 1 damage to each opponent when you cast instant/sorcery."""
+    print("\n=== Test: Markl Spell Cast Damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    create_creature_no_etb(game, p1.id, "Markl, Howl's Apprentice")
+    events = game.emit(Event(
+        type=EventType.CAST,
+        payload={'caster': p1.id, 'types': [CardType.INSTANT]},
+    ))
+    dmg_to_opp = [e for e in events if e.type == EventType.DAMAGE
+                  and e.payload.get('target') == p2.id]
+    assert len(dmg_to_opp) == 1, f"Expected 1 damage to opponent, got {len(dmg_to_opp)}"
+    print("PASSED: Markl spell cast damage works!")
+
+
+def test_howling_wind_spirit_scry_on_spell():
+    """Howling Wind Spirit (new): scry 1 when you cast instant/sorcery."""
+    print("\n=== Test: Howling Wind Spirit Scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    create_creature_no_etb(game, p1.id, "Howling Wind Spirit")
+    events = game.emit(Event(
+        type=EventType.CAST,
+        payload={'caster': p1.id, 'types': [CardType.SORCERY]},
+    ))
+    scry_events = [e for e in events if e.type == EventType.SCRY]
+    assert len(scry_events) == 1, f"Expected 1 scry event, got {len(scry_events)}"
+    print("PASSED: Howling Wind Spirit scry works!")
+
+
+def test_soot_sprites_etb_tokens():
+    """Soot Sprites (new): create two 0/1 Spirit tokens on ETB."""
+    print("\n=== Test: Soot Sprites ETB Tokens ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    create_creature_with_etb(game, p1.id, "Soot Sprites")
+    # Count Spirit tokens created (new objects with subtype Spirit controlled by p1)
+    spirit_tokens = [
+        o for o in game.state.objects.values()
+        if o.controller == p1.id
+        and o.zone == ZoneType.BATTLEFIELD
+        and o.name != "Soot Sprites"
+        and 'Spirit' in o.characteristics.subtypes
+    ]
+    assert len(spirit_tokens) >= 2, f"Expected at least 2 Spirit tokens, got {len(spirit_tokens)}"
+    print("PASSED: Soot Sprites creates tokens!")
+
+
+def test_kaguya_attack_life_gain():
+    """Kaguya (new): gain 2 life whenever she attacks."""
+    print("\n=== Test: Kaguya Attack Life Gain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    kaguya = create_creature_no_etb(game, p1.id, "Kaguya, Moon Princess")
+    start = p1.life
+    events = game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': kaguya.id},
+    ))
+    life_events = [e for e in events if e.type == EventType.LIFE_CHANGE]
+    assert len(life_events) == 1
+    assert life_events[0].payload['amount'] == 2
+    print("PASSED: Kaguya attack life gain works!")
+
+
+def test_kiki_etb_creates_jiji_token():
+    """Kiki (redesigned): ETB creates a Cat Familiar token."""
+    print("\n=== Test: Kiki ETB Cat Familiar Token ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    create_creature_with_etb(game, p1.id, "Kiki, Delivery Witch")
+    cats = [
+        o for o in game.state.objects.values()
+        if o.controller == p1.id
+        and o.zone == ZoneType.BATTLEFIELD
+        and 'Cat' in o.characteristics.subtypes
+    ]
+    assert len(cats) >= 1, f"Expected at least 1 Cat token, got {len(cats)}"
+    print("PASSED: Kiki creates Cat Familiar token!")
+
+
+def test_castle_guardian_life_gain_counter():
+    """Castle Guardian (redesigned): +1/+1 counter when you gain life."""
+    print("\n=== Test: Castle Guardian Life Gain Counter ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    guardian = create_creature_no_etb(game, p1.id, "Castle Guardian")
+    events = game.emit(Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': p1.id, 'amount': 3},
+    ))
+    counter_events = [e for e in events if e.type == EventType.COUNTER_ADDED
+                      and e.payload.get('object_id') == guardian.id
+                      and e.payload.get('counter_type') == '+1/+1']
+    assert len(counter_events) == 1, f"Expected 1 counter event, got {len(counter_events)}"
+    print("PASSED: Castle Guardian life gain counter works!")
+
+
+def test_pejite_refugee_etb_token():
+    """Pejite Refugee (redesigned): ETB creates a 1/1 Citizen token."""
+    print("\n=== Test: Pejite Refugee ETB Token ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    create_creature_with_etb(game, p1.id, "Pejite Refugee")
+    citizens = [
+        o for o in game.state.objects.values()
+        if o.controller == p1.id
+        and o.zone == ZoneType.BATTLEFIELD
+        and 'Citizen' in o.characteristics.subtypes
+        and o.name != "Pejite Refugee"
+    ]
+    assert len(citizens) >= 1, f"Expected at least 1 Citizen token, got {len(citizens)}"
+    print("PASSED: Pejite Refugee creates Citizen token!")
+
+
+def test_airship_navigator_etb_scry():
+    """Airship Navigator (redesigned): ETB scry 2."""
+    print("\n=== Test: Airship Navigator ETB Scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    card_def = STUDIO_GHIBLI_CARDS["Airship Navigator"]
+    nav = game.create_object(
+        name="Airship Navigator",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    events = game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': nav.id,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'from_zone_type': ZoneType.HAND,
+        },
+        source=nav.id,
+        controller=p1.id,
+    ))
+    scry_events = [e for e in events if e.type == EventType.SCRY]
+    assert len(scry_events) >= 1, f"Expected at least 1 scry event, got {len(scry_events)}"
+    print("PASSED: Airship Navigator scry works!")
+
+
+def test_angry_spirit_etb_damage_each_opponent():
+    """Angry Spirit (redesigned): ETB deals 1 damage to each opponent."""
+    print("\n=== Test: Angry Spirit ETB Damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    create_creature_with_etb(game, p1.id, "Angry Spirit")
+    # Check final life of opponent — should have lost 1
+    assert p2.life <= 19, f"Expected opponent life <= 19, got {p2.life}"
+    print("PASSED: Angry Spirit ETB damage works!")
+
+
+def test_spirit_wolf_pup_wolf_lord():
+    """Spirit Wolf Pup (redesigned): +1/+1 to other Wolves."""
+    print("\n=== Test: Spirit Wolf Pup Wolf Lord ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    create_creature_no_etb(game, p1.id, "Spirit Wolf Pup")
+    other_wolf = create_basic_creature(game, p1.id, "Wolf Mate", 2, 2, {"Wolf"})
+    # Query other wolf's power — should be 2 + 1 = 3
+    assert get_power(other_wolf, game.state) == 3, f"Expected 3 power, got {get_power(other_wolf, game.state)}"
+    print("PASSED: Spirit Wolf Pup boosts other Wolves!")
+
+
+def test_forest_kodama_etb_life_per_forest():
+    """Forest Kodama (redesigned): ETB gain life for each Forest controlled."""
+    print("\n=== Test: Forest Kodama Forest Life Gain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    create_forest(game, p1.id)
+    create_forest(game, p1.id)
+    start = p1.life
+    create_creature_with_etb(game, p1.id, "Forest Kodama")
+    assert p1.life >= start + 2, f"Expected +2 life (2 Forests), got +{p1.life - start}"
+    print("PASSED: Forest Kodama scales with Forests!")
+
+
+def test_irontown_worker_death_token_with_artifact():
+    """Irontown Worker (redesigned): creates Citizen on death if you have an artifact."""
+    print("\n=== Test: Irontown Worker Death Token ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    worker = create_creature_no_etb(game, p1.id, "Irontown Worker")
+    # Add an artifact
+    artifact = game.create_object(
+        name="Dummy Artifact", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(types={CardType.ARTIFACT}),
+        card_def=None,
+    )
+    # Move worker to graveyard and emit death
+    worker.zone = ZoneType.GRAVEYARD
+    events = game.emit(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': worker.id},
+        source=worker.id,
+    ))
+    created = [e for e in events if e.type == EventType.OBJECT_CREATED]
+    assert len(created) >= 1, f"Expected 1 token creation, got {len(created)}"
+    print("PASSED: Irontown Worker death token works!")
+
+
+def test_wind_rider_cadet_etb_draw_with_pilot():
+    """Wind Rider Cadet (redesigned): draws a card if you control another Pilot/Vehicle."""
+    print("\n=== Test: Wind Rider Cadet ETB Conditional Draw ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Create another Pilot first
+    create_basic_creature(game, p1.id, "Other Pilot", 2, 2, {"Human", "Pilot"})
+    # Now ETB the cadet
+    card_def = STUDIO_GHIBLI_CARDS["Wind Rider Cadet"]
+    cadet = game.create_object(
+        name="Wind Rider Cadet", owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics, card_def=card_def,
+    )
+    events = game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': cadet.id,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'from_zone_type': ZoneType.HAND,
+        },
+        source=cadet.id, controller=p1.id,
+    ))
+    draw_events = [e for e in events if e.type == EventType.DRAW]
+    assert len(draw_events) == 1, f"Expected 1 draw event, got {len(draw_events)}"
+    print("PASSED: Wind Rider Cadet conditional draw works!")
+
+
+def test_sky_pirate_combat_damage_discard():
+    """Sky Pirate (redesigned): causes opponent to discard on combat damage."""
+    print("\n=== Test: Sky Pirate Combat Damage Discard ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    pirate = create_creature_no_etb(game, p1.id, "Sky Pirate")
+    events = game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': pirate.id, 'target': p2.id, 'amount': 2, 'is_combat': True},
+    ))
+    discard_events = [e for e in events if e.type == EventType.DISCARD
+                      and e.payload.get('player') == p2.id]
+    assert len(discard_events) == 1, f"Expected 1 discard event, got {len(discard_events)}"
+    print("PASSED: Sky Pirate combat discard works!")
+
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -971,6 +1285,26 @@ def run_all_tests():
         ("Laputa Robot Guardian Alone Attack", test_laputa_robot_alone_attack_draw),
         ("Pazu Equipped Attack Draw", test_pazu_equipped_attack_draw),
         ("Kodama of Growth Phase In", test_kodama_of_growth_phase_in_mana),
+
+        # Quality-pass Tests (new/redesigned cards)
+        ("Bathhouse Servant ETB Life", test_bathhouse_servant_etb_life),
+        ("Young Witch Apprentice Spell Cast Life", test_young_witch_apprentice_spell_cast_life),
+        ("Wind Mage Spell Cast PT Boost", test_wind_mage_spell_cast_pt_boost),
+        ("Fire Spirit Spell Cast Damage", test_fire_spirit_spell_cast_damage),
+        ("Markl Spell Cast Damage", test_markl_spell_cast_damage),
+        ("Howling Wind Spirit Scry", test_howling_wind_spirit_scry_on_spell),
+        ("Soot Sprites ETB Tokens", test_soot_sprites_etb_tokens),
+        ("Kaguya Attack Life Gain", test_kaguya_attack_life_gain),
+        ("Kiki ETB Cat Familiar Token", test_kiki_etb_creates_jiji_token),
+        ("Castle Guardian Life Gain Counter", test_castle_guardian_life_gain_counter),
+        ("Pejite Refugee ETB Token", test_pejite_refugee_etb_token),
+        ("Airship Navigator ETB Scry", test_airship_navigator_etb_scry),
+        ("Angry Spirit ETB Damage", test_angry_spirit_etb_damage_each_opponent),
+        ("Spirit Wolf Pup Wolf Lord", test_spirit_wolf_pup_wolf_lord),
+        ("Forest Kodama Forest Life Gain", test_forest_kodama_etb_life_per_forest),
+        ("Irontown Worker Death Token", test_irontown_worker_death_token_with_artifact),
+        ("Wind Rider Cadet ETB Draw", test_wind_rider_cadet_etb_draw_with_pilot),
+        ("Sky Pirate Combat Damage Discard", test_sky_pirate_combat_damage_discard),
     ]
 
     for test_name, test_func in tests:

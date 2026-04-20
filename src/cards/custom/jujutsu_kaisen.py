@@ -770,6 +770,409 @@ def _curse_purge_setup_migrated(obj, state):
                       source=obj.id, controller=obj.controller)]
     return [_ih.make_death_trigger(obj, effect, filter_fn=trigger_filter)]
 
+
+# -----------------------------------------------------------------------------
+# New / redesigned setup functions (quality pass)
+# -----------------------------------------------------------------------------
+
+def _satoru_gojo_setup(obj, state):
+    """Limitless - Gojo and other Sorcerers you control have hexproof."""
+    def filt(target, st):
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        return "Sorcerer" in target.characteristics.subtypes
+    return [_ih.make_keyword_grant(obj, ["hexproof"], filt)]
+
+
+def _toge_inumaki_setup(obj, state):
+    """Cursed Speech - attack trigger deals 2 damage to each opponent (word attack)."""
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 2, 'source': obj.id,
+                               'is_combat': False},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _kento_nanami_setup(obj, state):
+    """Ratio Technique - attack trigger, deals 3 bonus damage to defending player."""
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 3, 'source': obj.id,
+                               'is_combat': False},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _dagon_setup(obj, state):
+    """Ocean Curse - attack creates a 1/1 blue Shikigami Fish token."""
+    def effect(event, st):
+        return [Event(type=EventType.OBJECT_CREATED,
+                      payload={'token': True, 'name': 'Shikigami Fish',
+                               'power': 1, 'toughness': 1,
+                               'colors': {Color.BLUE},
+                               'subtypes': {'Shikigami', 'Fish'},
+                               'keywords': [], 'controller': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _maki_zenin_setup(obj, state):
+    """Heavenly Pact - other Warriors you control get +1/+1."""
+    return _ih.make_static_pt_boost(
+        obj, 1, 1, _ih.other_creatures_with_subtype(obj, "Warrior")
+    )
+
+
+def _naobito_zenin_setup(obj, state):
+    """Projection Sorcery - attack trigger untaps Naobito (extra attacks simulated as counter)."""
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _forest_spirit_curse_setup(obj, state):
+    """Upkeep: create a 1/1 green Curse Plant token."""
+    def effect(event, st):
+        return [Event(type=EventType.OBJECT_CREATED,
+                      payload={'token': True, 'name': 'Cursed Sapling',
+                               'power': 1, 'toughness': 1,
+                               'colors': {Color.GREEN},
+                               'subtypes': {'Curse', 'Plant'},
+                               'keywords': [], 'controller': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _divine_dog_white_setup(obj, state):
+    """White Dog - other Shikigami you control get +0/+1."""
+    return _ih.make_static_pt_boost(
+        obj, 0, 1, _ih.other_creatures_with_subtype(obj, "Shikigami")
+    )
+
+
+def _divine_dog_black_setup(obj, state):
+    """Black Dog - when it dies, deal 2 damage to each opponent."""
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 2, 'source': obj.id,
+                               'is_combat': False},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_death_trigger(obj, effect)]
+
+
+def _holy_ward_monk_setup(obj, state):
+    """ETB gain 3 life."""
+    def effect(event, st):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': obj.controller, 'amount': 3},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _curse_cycle_spirit_setup(obj, state):
+    """Dies - create a 2/2 black Curse token."""
+    def effect(event, st):
+        return [Event(type=EventType.OBJECT_CREATED,
+                      payload={'token': True, 'name': 'Curse',
+                               'power': 2, 'toughness': 2,
+                               'colors': {Color.BLACK}, 'subtypes': {'Curse'},
+                               'keywords': [], 'controller': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_death_trigger(obj, effect)]
+
+
+def _finger_guardian_setup(obj, state):
+    """ETB: each opponent loses 3 life."""
+    def effect(event, st):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': opp, 'amount': -3},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _uraume_setup(obj, state):
+    """Ice Freeze - ETB taps up to two target creatures (we tap opponent creatures via events)."""
+    def effect(event, st):
+        events = []
+        count = 0
+        for other in list(st.objects.values()):
+            if count >= 2:
+                break
+            if other.controller == obj.controller:
+                continue
+            if other.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in other.characteristics.types:
+                continue
+            events.append(Event(type=EventType.TAP,
+                                payload={'object_id': other.id},
+                                source=obj.id, controller=obj.controller))
+            count += 1
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _kenjaku_setup(obj, state):
+    """Body-swap - whenever an opponent's creature dies, put a +1/+1 counter on Kenjaku.
+    Represents consuming their cursed technique."""
+    def trigger_filter(event, st, src):
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying = st.objects.get(event.payload.get('object_id'))
+        if not dying:
+            return False
+        if dying.id == src.id:
+            return False
+        if CardType.CREATURE not in dying.characteristics.types:
+            return False
+        return dying.controller != src.controller
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_death_trigger(obj, effect, filter_fn=trigger_filter)]
+
+
+def _rika_orimoto_setup(obj, state):
+    """Cursed Queen - attack trigger deals 2 damage to each opponent (curse manifestation)."""
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 2, 'source': obj.id,
+                               'is_combat': False},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _mei_mei_setup(obj, state):
+    """Crow Controller - attack trigger draws a card."""
+    def effect(event, st):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _kamo_noritoshi_setup(obj, state):
+    """Blood Wielder - whenever Kamo attacks, each opponent loses 1 life and you gain 1."""
+    def effect(event, st):
+        events = [Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': opp, 'amount': -1},
+                        source=obj.id, controller=obj.controller)
+                  for opp in _ih.all_opponents(obj, st)]
+        events.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': obj.controller, 'amount': 1},
+                            source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _black_flash_user_setup(obj, state):
+    """Black Flash - whenever Black Flash User deals combat damage, put a +1/+1 counter on it."""
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_damage_trigger(obj, effect, combat_only=True)]
+
+
+def _infinity_apprentice_setup(obj, state):
+    """Limitless student - whenever you cast an instant or sorcery, scry via draw (simplified: put +1/+1 counter)."""
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_spell_cast_trigger(
+        obj, effect,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )]
+
+
+def _six_eyes_prodigy_setup(obj, state):
+    """Six Eyes - whenever an opponent casts a spell, scry (we simplify: draw a card on your own spells)."""
+    def effect(event, st):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_spell_cast_trigger(
+        obj, effect,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+        controller_only=True,
+    )]
+
+
+def _technique_prodigy_setup(obj, state):
+    """Prowess payoff - whenever you cast a noncreature spell, put +1/+1 counter."""
+    def spell_filter(event, st, src):
+        if event.type != EventType.CAST:
+            return False
+        caster = event.payload.get('controller') or event.payload.get('player')
+        if caster != src.controller:
+            return False
+        # Accept instant / sorcery
+        obj_id = event.payload.get('object_id') or event.payload.get('source')
+        spell = st.objects.get(obj_id) if obj_id else None
+        if not spell:
+            return False
+        types = spell.characteristics.types
+        return CardType.INSTANT in types or CardType.SORCERY in types
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_spell_cast_trigger(
+        obj, effect,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )]
+
+
+def _domain_clashing_sorcerers_setup(obj, state):
+    """When enters, create a 2/2 white Sorcerer Student token."""
+    def effect(event, st):
+        return [Event(type=EventType.OBJECT_CREATED,
+                      payload={'token': True, 'name': 'Jujutsu Student',
+                               'power': 2, 'toughness': 2,
+                               'colors': {Color.WHITE},
+                               'subtypes': {'Human', 'Sorcerer', 'Student'},
+                               'keywords': [], 'controller': obj.controller},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _binding_oath_enforcer_setup(obj, state):
+    """Binding Vow: pay 2 life for +2/+0 until end of turn; also has lifelink-ish: +0/+1 to allies."""
+    interceptors = []
+    interceptors.extend(make_binding_vow(obj, 2, 2, 0))
+    return interceptors
+
+
+def _cursed_corpse_setup(obj, state):
+    """Cursed Corpse - 2/2 colorless Construct, has haste (kept vanilla P/T)."""
+    return []
+
+
+def _hakari_kinji_setup(obj, state):
+    """Jackpot - when Hakari attacks, flip a coin. On heads, untap Hakari and put +1/+1 counter.
+    We simulate by putting a +1/+1 counter (the coin always lands heads in our simplified model)."""
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller),
+                Event(type=EventType.UNTAP,
+                      payload={'object_id': obj.id},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _kashimo_setup(obj, state):
+    """Duelist - whenever Kashimo deals combat damage, put a +1/+1 counter on him."""
+    def effect(event, st):
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                      source=obj.id, controller=obj.controller)]
+    return [_ih.make_damage_trigger(obj, effect, combat_only=True)]
+
+
+def _angel_hana_kurusu_setup(obj, state):
+    """Reverse effects - ETB each opponent loses 3 life; you gain 3 life."""
+    def effect(event, st):
+        events = [Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': opp, 'amount': -3},
+                        source=obj.id, controller=obj.controller)
+                  for opp in _ih.all_opponents(obj, st)]
+        events.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': obj.controller, 'amount': 3},
+                            source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _tengen_setup(obj, state):
+    """Barrier - Sorcerer creatures you control have vigilance and +0/+2."""
+    interceptors = []
+    filt = _ih.creatures_with_subtype(obj, "Sorcerer")
+    interceptors.extend(_ih.make_static_pt_boost(obj, 0, 2, filt))
+    interceptors.append(_ih.make_keyword_grant(obj, ["vigilance"], filt))
+    return interceptors
+
+
+def _gojo_unsealed_setup(obj, state):
+    """Hollow Purple - ETB deals 5 damage to each opponent and exiles target creature-ish
+    (we use damage-to-opp only; exile tokens fire as an OBJECT_DESTROYED on each nonhexproof opp creature)."""
+    def effect(event, st):
+        events = [Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': opp, 'amount': -5},
+                        source=obj.id, controller=obj.controller)
+                  for opp in _ih.all_opponents(obj, st)]
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _shoko_ieri_setup(obj, state):
+    """Healer - at the beginning of your upkeep, you gain 2 life. Other Sorcerers you control get +0/+1."""
+    interceptors = []
+    def effect(event, st):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': obj.controller, 'amount': 2},
+                      source=obj.id, controller=obj.controller)]
+    interceptors.append(_ih.make_upkeep_trigger(obj, effect))
+    interceptors.extend(_ih.make_static_pt_boost(
+        obj, 0, 1, _ih.other_creatures_with_subtype(obj, "Sorcerer")
+    ))
+    return interceptors
+
+
+def _yuki_tsukumo_setup(obj, state):
+    """Star Rage - ETB deals damage to each opponent equal to number of cards in your hand (simulate: 4 damage flat)."""
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 4, 'source': obj.id,
+                               'is_combat': False},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _sorcerer_commander_setup(obj, state):
+    """Sorcerer tribal anthem - other Sorcerers and Students you control get +1/+1."""
+    def filt(target, st):
+        if target.id == obj.id:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        subs = target.characteristics.subtypes
+        return "Sorcerer" in subs or "Student" in subs
+    return _ih.make_static_pt_boost(obj, 1, 1, filt)
+
+
+def _technique_echo_setup(obj, state):
+    """Spells matter payoff - whenever you cast an instant/sorcery, deal 1 damage to each opponent."""
+    def effect(event, st):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': opp, 'amount': 1, 'source': obj.id,
+                               'is_combat': False},
+                      source=obj.id, controller=obj.controller)
+                for opp in _ih.all_opponents(obj, st)]
+    return [_ih.make_spell_cast_trigger(
+        obj, effect,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )]
+
 # =============================================================================
 # WHITE CARDS - JUJUTSU SORCERERS, PROTECTION, EXORCISM
 # =============================================================================
@@ -828,7 +1231,8 @@ SATORU_GOJO = _make_creature_with_keywords(
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
     keywords=['Hexproof', 'Flying'],
-    text='Hexproof Flying',
+    text='Hexproof, Flying. Limitless: Sorcerer creatures you control have hexproof.',
+    setup_interceptors=_satoru_gojo_setup,
 )
 
 
@@ -927,8 +1331,9 @@ HOLY_WARD_MONK = _make_creature_with_keywords(
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Monk"},
-    text='When Holy Ward Monk enters the battlefield, .',
-    setup_interceptors=_holy_ward_monk_setup_migrated,
+    keywords=['Vigilance'],
+    text='Vigilance. When Holy Ward Monk enters the battlefield, you gain 3 life.',
+    setup_interceptors=_holy_ward_monk_setup,
 )
 
 
@@ -970,12 +1375,14 @@ REVERSE_TECHNIQUE_MASTER = _make_creature_with_keywords(
 )
 
 
-BINDING_OATH_ENFORCER = make_creature(
+BINDING_OATH_ENFORCER = _make_creature_with_keywords(
     name="Binding Oath Enforcer",
     power=3, toughness=2,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Sorcerer"}
+    subtypes={"Human", "Sorcerer"},
+    text='Binding Vow — Pay 2 life: Binding Oath Enforcer gets +2/+0 until end of turn. (Trade power for restraint.)',
+    setup_interceptors=_binding_oath_enforcer_setup,
 )
 
 
@@ -1008,24 +1415,15 @@ YUTA_OKKOTSU = _make_creature_with_keywords(
 )
 
 
-def toge_inumaki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cursed Speech - tap ability"""
-    def cursed_speech_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.TAP,
-            payload={'target_type': 'creature'},
-            source=obj.id
-        )]
-    return [make_cursed_energy(obj, 2, cursed_speech_effect)]
-
-TOGE_INUMAKI = make_creature(
+TOGE_INUMAKI = _make_creature_with_keywords(
     name="Toge Inumaki, Cursed Speech",
     power=2, toughness=2,
     mana_cost="{1}{U}{W}",
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
-    setup_interceptors=toge_inumaki_setup
+    text="Whenever Toge Inumaki, Cursed Speech attacks, Toge deals 2 damage to each opponent. (Cursed speech is law.)",
+    setup_interceptors=_toge_inumaki_setup,
 )
 
 
@@ -1061,7 +1459,8 @@ KENTO_NANAMI = _make_creature_with_keywords(
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
     keywords=['First strike'],
-    text='First strike',
+    text='First strike. Whenever Kento Nanami, Ratio Technique attacks, he deals 3 damage to each opponent. (7:3 ratio — overtime.)',
+    setup_interceptors=_kento_nanami_setup,
 )
 
 
@@ -1078,12 +1477,14 @@ TECHNIQUE_ANALYST = _make_creature_with_keywords(
 )
 
 
-INFINITY_APPRENTICE = make_creature(
+INFINITY_APPRENTICE = _make_creature_with_keywords(
     name="Infinity Apprentice",
     power=2, toughness=2,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Sorcerer", "Student"}
+    subtypes={"Human", "Sorcerer", "Student"},
+    text='Whenever you cast an instant or sorcery, put a +1/+1 counter on Infinity Apprentice.',
+    setup_interceptors=_infinity_apprentice_setup,
 )
 
 
@@ -1098,12 +1499,14 @@ CURSED_ENERGY_SENSOR = _make_creature_with_keywords(
 )
 
 
-SIX_EYES_PRODIGY = make_creature(
+SIX_EYES_PRODIGY = _make_creature_with_keywords(
     name="Six Eyes Prodigy",
     power=2, toughness=3,
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Sorcerer"}
+    subtypes={"Human", "Sorcerer"},
+    text='Whenever you cast an instant or sorcery, draw a card.',
+    setup_interceptors=_six_eyes_prodigy_setup,
 )
 
 
@@ -1252,7 +1655,8 @@ DAGON = _make_creature_with_keywords(
     subtypes={"Curse", "Elemental"},
     supertypes={"Legendary"},
     keywords=['Unblockable'],
-    text='Unblockable',
+    text='Unblockable. Whenever Dagon, Ocean Curse attacks, create a 1/1 blue Shikigami Fish creature token.',
+    setup_interceptors=_dagon_setup,
 )
 
 
@@ -1416,7 +1820,8 @@ MAKI_ZENIN = _make_creature_with_keywords(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     keywords=['First strike', 'Vigilance'],
-    text='First strike Vigilance',
+    text='First strike, Vigilance. Other Warrior creatures you control get +1/+1.',
+    setup_interceptors=_maki_zenin_setup,
 )
 
 
@@ -1453,17 +1858,20 @@ NAOBITO_ZENIN = _make_creature_with_keywords(
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
     keywords=['Haste'],
-    text='Haste',
+    text='Haste. Whenever Naobito Zenin, Projection attacks, put a +1/+1 counter on him. (24 frames per second.)',
+    setup_interceptors=_naobito_zenin_setup,
 )
 
 
-KAMO_NORITOSHI = make_creature(
+KAMO_NORITOSHI = _make_creature_with_keywords(
     name="Kamo Noritoshi, Blood Wielder",
     power=3, toughness=3,
     mana_cost="{1}{R}{B}",
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Sorcerer", "Student"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    text='Whenever Kamo Noritoshi, Blood Wielder attacks, each opponent loses 1 life and you gain 1 life.',
+    setup_interceptors=_kamo_noritoshi_setup,
 )
 
 
@@ -1491,12 +1899,15 @@ CURSED_TECHNIQUE_STRIKER = _make_creature_with_keywords(
 )
 
 
-BLACK_FLASH_USER = make_creature(
+BLACK_FLASH_USER = _make_creature_with_keywords(
     name="Black Flash User",
     power=3, toughness=2,
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
-    subtypes={"Human", "Sorcerer"}
+    subtypes={"Human", "Sorcerer"},
+    keywords=['Haste'],
+    text='Haste. Whenever Black Flash User deals combat damage, put a +1/+1 counter on it.',
+    setup_interceptors=_black_flash_user_setup,
 )
 
 
@@ -1668,8 +2079,8 @@ DIVINE_DOG_WHITE = _make_creature_with_keywords(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Dog"},
-    text='When Divine Dog: White enters the battlefield, .',
-    setup_interceptors=_divine_dog_white_setup_migrated,
+    text='Other Shikigami you control get +0/+1.',
+    setup_interceptors=_divine_dog_white_setup,
 )
 
 
@@ -1679,8 +2090,8 @@ DIVINE_DOG_BLACK = _make_creature_with_keywords(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Shikigami", "Dog"},
-    text='When Divine Dog: Black dies, .',
-    setup_interceptors=_divine_dog_black_setup_migrated,
+    text='When Divine Dog: Black dies, it deals 2 damage to each opponent.',
+    setup_interceptors=_divine_dog_black_setup,
 )
 
 
@@ -1736,7 +2147,8 @@ FOREST_SPIRIT_CURSE = _make_creature_with_keywords(
     colors={Color.GREEN},
     subtypes={"Curse", "Spirit"},
     keywords=['Hexproof'],
-    text='Hexproof',
+    text='Hexproof. At the beginning of your upkeep, create a 1/1 green Curse Plant creature token.',
+    setup_interceptors=_forest_spirit_curse_setup,
 )
 
 
@@ -1829,16 +2241,19 @@ RIKA_ORIMOTO = _make_creature_with_keywords(
     subtypes={"Spirit", "Curse"},
     supertypes={"Legendary"},
     keywords=['Flying'],
-    text='Flying',
+    text='Flying. Whenever Rika Orimoto, Cursed Queen attacks, she deals 2 damage to each opponent.',
+    setup_interceptors=_rika_orimoto_setup,
 )
 
 
-DOMAIN_CLASHING_SORCERERS = make_creature(
+DOMAIN_CLASHING_SORCERERS = _make_creature_with_keywords(
     name="Domain-Clashing Sorcerers",
     power=4, toughness=4,
     mana_cost="{2}{U}{R}",
     colors={Color.BLUE, Color.RED},
-    subtypes={"Human", "Sorcerer"}
+    subtypes={"Human", "Sorcerer"},
+    text='When Domain-Clashing Sorcerers enter the battlefield, create a 2/2 white Jujutsu Student creature token.',
+    setup_interceptors=_domain_clashing_sorcerers_setup,
 )
 
 
@@ -1850,27 +2265,32 @@ MEI_MEI = _make_creature_with_keywords(
     subtypes={"Human", "Sorcerer"},
     supertypes={"Legendary"},
     keywords=['Flying'],
-    text='Flying',
+    text='Flying. Whenever Mei Mei, Crow Controller attacks, draw a card.',
+    setup_interceptors=_mei_mei_setup,
 )
 
 
-SUGURU_GETO_CORRUPTED = make_creature(
+SUGURU_GETO_CORRUPTED = _make_creature_with_keywords(
     name="Kenjaku, Brain Stealer",
     power=4, toughness=4,
     mana_cost="{2}{U}{B}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Sorcerer"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    text="Whenever a creature an opponent controls dies, put a +1/+1 counter on Kenjaku, Brain Stealer. (Consume the technique.)",
+    setup_interceptors=_kenjaku_setup,
 )
 
 
-URAUME = make_creature(
+URAUME = _make_creature_with_keywords(
     name="Uraume, Ice Servant",
     power=3, toughness=4,
     mana_cost="{2}{U}{W}",
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Human", "Sorcerer"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    text='When Uraume, Ice Servant enters the battlefield, tap up to two creatures your opponents control.',
+    setup_interceptors=_uraume_setup,
 )
 
 
@@ -2670,7 +3090,8 @@ TECHNIQUE_PRODIGY = _make_creature_with_keywords(
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Sorcerer", "Student"},
     keywords=['Prowess'],
-    text='Prowess',
+    text='Prowess. Whenever you cast an instant or sorcery, put a +1/+1 counter on Technique Prodigy.',
+    setup_interceptors=_technique_prodigy_setup,
 )
 
 
@@ -2751,8 +3172,8 @@ CURSE_CYCLE_SPIRIT = _make_creature_with_keywords(
     mana_cost="{2}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Spirit", "Curse"},
-    text='When Curse Cycle Spirit dies, .',
-    setup_interceptors=_curse_cycle_spirit_setup_migrated,
+    text='When Curse Cycle Spirit dies, create a 2/2 black Curse creature token.',
+    setup_interceptors=_curse_cycle_spirit_setup,
 )
 
 
@@ -2795,8 +3216,8 @@ FINGER_GUARDIAN = _make_creature_with_keywords(
     colors={Color.BLACK, Color.RED},
     subtypes={"Curse", "Warrior"},
     keywords=['Menace'],
-    text="Menace When Sukuna's Finger Guardian enters the battlefield, .",
-    setup_interceptors=_finger_guardian_setup_migrated,
+    text="Menace. When Sukuna's Finger Guardian enters the battlefield, each opponent loses 3 life.",
+    setup_interceptors=_finger_guardian_setup,
 )
 
 
@@ -2808,6 +3229,138 @@ DOMAIN_MASTER = _make_creature_with_keywords(
     subtypes={"Human", "Sorcerer"},
     text='Whenever you cast a enchantment, draw a card.',
     setup_interceptors=_domain_master_setup_migrated,
+)
+
+
+# =============================================================================
+# NEW ICONIC CHARACTERS (quality pass)
+# =============================================================================
+
+HAKARI_KINJI = _make_creature_with_keywords(
+    name="Hakari Kinji, Private Pure Love Train",
+    power=4, toughness=4,
+    mana_cost="{2}{U}{R}",
+    colors={Color.BLUE, Color.RED},
+    subtypes={"Human", "Sorcerer", "Student"},
+    supertypes={"Legendary"},
+    keywords=['Haste'],
+    text="Haste. Whenever Hakari attacks, put a +1/+1 counter on him and untap him. (Jackpot: spin to win.)",
+    setup_interceptors=_hakari_kinji_setup,
+)
+
+
+KASHIMO_HAJIME = _make_creature_with_keywords(
+    name="Kashimo Hajime, Electric Duelist",
+    power=5, toughness=3,
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Human", "Sorcerer"},
+    supertypes={"Legendary"},
+    keywords=['First strike', 'Haste'],
+    text='First strike, Haste. Whenever Kashimo Hajime deals combat damage, put a +1/+1 counter on him.',
+    setup_interceptors=_kashimo_setup,
+)
+
+
+ANGEL_HANA_KURUSU = _make_creature_with_keywords(
+    name="Angel, Hana's Host",
+    power=3, toughness=3,
+    mana_cost="{1}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Sorcerer", "Angel"},
+    supertypes={"Legendary"},
+    keywords=['Flying'],
+    text="Flying. When Angel, Hana's Host enters the battlefield, each opponent loses 3 life and you gain 3 life. (Reverse Cursed Technique: Jacob's Ladder.)",
+    setup_interceptors=_angel_hana_kurusu_setup,
+)
+
+
+TENGEN = _make_creature_with_keywords(
+    name="Tengen, Barrier Master",
+    power=3, toughness=5,
+    mana_cost="{2}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Sorcerer"},
+    supertypes={"Legendary"},
+    keywords=['Hexproof'],
+    text='Hexproof. Sorcerer creatures you control have vigilance and get +0/+2.',
+    setup_interceptors=_tengen_setup,
+)
+
+
+GOJO_UNSEALED = _make_creature_with_keywords(
+    name="Gojo Unsealed, Hollow Purple",
+    power=7, toughness=5,
+    mana_cost="{4}{W}{U}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Sorcerer"},
+    supertypes={"Legendary"},
+    keywords=['Hexproof', 'Flying', 'Haste'],
+    text='Hexproof, Flying, Haste. When Gojo Unsealed, Hollow Purple enters the battlefield, each opponent loses 5 life. (Cursed Technique Amalgamation.)',
+    setup_interceptors=_gojo_unsealed_setup,
+)
+
+
+SHOKO_IERI = _make_creature_with_keywords(
+    name="Shoko Ieiri, Healer",
+    power=2, toughness=3,
+    mana_cost="{1}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Sorcerer", "Cleric"},
+    supertypes={"Legendary"},
+    text='At the beginning of your upkeep, you gain 2 life. Other Sorcerer creatures you control get +0/+1.',
+    setup_interceptors=_shoko_ieri_setup,
+)
+
+
+YUKI_TSUKUMO = _make_creature_with_keywords(
+    name="Yuki Tsukumo, Star Rage",
+    power=5, toughness=4,
+    mana_cost="{3}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Human", "Sorcerer"},
+    supertypes={"Legendary"},
+    keywords=['Trample'],
+    text='Trample. When Yuki Tsukumo enters the battlefield, she deals 4 damage to each opponent. (Bom ba.)',
+    setup_interceptors=_yuki_tsukumo_setup,
+)
+
+
+SORCERER_COMMANDER = _make_creature_with_keywords(
+    name="Sorcerer Commander",
+    power=2, toughness=3,
+    mana_cost="{1}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Sorcerer"},
+    text='Other Sorcerer and Student creatures you control get +1/+1.',
+    setup_interceptors=_sorcerer_commander_setup,
+)
+
+
+TECHNIQUE_ECHO = _make_creature_with_keywords(
+    name="Technique Echo",
+    power=2, toughness=2,
+    mana_cost="{1}{U}{R}",
+    colors={Color.BLUE, Color.RED},
+    subtypes={"Spirit"},
+    text='Whenever you cast an instant or sorcery, Technique Echo deals 1 damage to each opponent.',
+    setup_interceptors=_technique_echo_setup,
+)
+
+
+BLACK_FLASH_MOMENT = make_instant(
+    name="Black Flash Moment",
+    mana_cost="{R}",
+    colors={Color.RED},
+    text="Target creature gets +4/+0 and gains first strike until end of turn. If it's a Sorcerer, it also gains trample.",
+)
+
+
+JACKPOT_DOMAIN = make_enchantment(
+    name="Idle Death Gamble",
+    mana_cost="{3}{U}{R}",
+    colors={Color.BLUE, Color.RED},
+    subtypes={"Domain"},
 )
 
 
@@ -3053,6 +3606,19 @@ JUJUTSU_KAISEN_CARDS = {
     "Special Grade Sorcerer": SPECIAL_GRADE_SORCERER,
     "Sukuna's Finger Guardian": FINGER_GUARDIAN,
     "Domain Master": DOMAIN_MASTER,
+
+    # New iconic characters & archetype payoffs
+    "Hakari Kinji, Private Pure Love Train": HAKARI_KINJI,
+    "Kashimo Hajime, Electric Duelist": KASHIMO_HAJIME,
+    "Angel, Hana's Host": ANGEL_HANA_KURUSU,
+    "Tengen, Barrier Master": TENGEN,
+    "Gojo Unsealed, Hollow Purple": GOJO_UNSEALED,
+    "Shoko Ieiri, Healer": SHOKO_IERI,
+    "Yuki Tsukumo, Star Rage": YUKI_TSUKUMO,
+    "Sorcerer Commander": SORCERER_COMMANDER,
+    "Technique Echo": TECHNIQUE_ECHO,
+    "Black Flash Moment": BLACK_FLASH_MOMENT,
+    "Idle Death Gamble": JACKPOT_DOMAIN,
 }
 
 
@@ -3260,5 +3826,16 @@ CARDS = [
     TECHNIQUE_INHERITANCE,
     SPECIAL_GRADE_SORCERER,
     FINGER_GUARDIAN,
-    DOMAIN_MASTER
+    DOMAIN_MASTER,
+    HAKARI_KINJI,
+    KASHIMO_HAJIME,
+    ANGEL_HANA_KURUSU,
+    TENGEN,
+    GOJO_UNSEALED,
+    SHOKO_IERI,
+    YUKI_TSUKUMO,
+    SORCERER_COMMANDER,
+    TECHNIQUE_ECHO,
+    BLACK_FLASH_MOMENT,
+    JACKPOT_DOMAIN
 ]

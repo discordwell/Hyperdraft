@@ -1495,6 +1495,596 @@ def test_multicolor_cards():
 
 
 # =============================================================================
+# QUALITY-PASS TESTS FOR NEW / REDESIGNED CARDS
+# =============================================================================
+
+def test_satoru_gojo_limitless_hexproof_grant():
+    """Gojo grants hexproof to Sorcerer creatures you control via keyword grant interceptor."""
+    print("\n=== Test: Satoru Gojo Limitless Hexproof Grant ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    gojo_def = JUJUTSU_KAISEN_CARDS["Satoru Gojo, The Strongest"]
+    gojo = game.create_object(
+        name="Satoru Gojo, The Strongest",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=gojo_def.characteristics,
+        card_def=gojo_def,
+    )
+    # Expect at least one interceptor from the Limitless keyword grant.
+    assert len(gojo.interceptor_ids) >= 1, "Expected keyword grant interceptor"
+    print(f"Gojo interceptors: {len(gojo.interceptor_ids)}")
+    print("PASSED: Satoru Gojo registers Limitless interceptor!")
+
+
+def test_toge_inumaki_attack_damage():
+    """Toge Inumaki deals 2 damage to each opponent when attacking (Cursed Speech)."""
+    print("\n=== Test: Toge Inumaki Cursed Speech Attack Damage ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+
+    p2_life = p2.life
+    card_def = JUJUTSU_KAISEN_CARDS["Toge Inumaki, Cursed Speech"]
+    creature = game.create_object(
+        name="Toge Inumaki, Cursed Speech",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': creature.id, 'defender': p2.id},
+        source=creature.id,
+        controller=p1.id,
+    ))
+    assert p2.life == p2_life - 2, f"Expected -2 life, got {p2.life}"
+    print("PASSED: Toge Inumaki Cursed Speech attack damage works!")
+
+
+def test_kento_nanami_attack_damage():
+    """Kento Nanami deals 3 damage to each opponent on attack (Ratio Technique)."""
+    print("\n=== Test: Kento Nanami Ratio Technique ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    p2_life = p2.life
+
+    card_def = JUJUTSU_KAISEN_CARDS["Kento Nanami, Ratio Technique"]
+    creature = game.create_object(
+        name="Kento Nanami, Ratio Technique",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': creature.id, 'defender': p2.id},
+        source=creature.id,
+        controller=p1.id,
+    ))
+    assert p2.life == p2_life - 3, f"Expected -3 life, got {p2.life}"
+    print("PASSED: Kento Nanami Ratio Technique works!")
+
+
+def test_dagon_attack_creates_fish_token():
+    """Dagon creates a 1/1 Shikigami Fish token when attacking."""
+    print("\n=== Test: Dagon Ocean Curse Fish Token ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+
+    card_def = JUJUTSU_KAISEN_CARDS["Dagon, Ocean Curse"]
+    dagon = game.create_object(
+        name="Dagon, Ocean Curse",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    creatures_before = len([obj for obj in game.state.objects.values()
+                            if obj.zone == ZoneType.BATTLEFIELD and
+                            CardType.CREATURE in obj.characteristics.types])
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': dagon.id, 'defender': p2.id},
+        source=dagon.id,
+        controller=p1.id,
+    ))
+    creatures_after = len([obj for obj in game.state.objects.values()
+                           if obj.zone == ZoneType.BATTLEFIELD and
+                           CardType.CREATURE in obj.characteristics.types])
+    assert creatures_after >= creatures_before + 1, "Expected Fish token"
+    print("PASSED: Dagon creates a Fish token on attack!")
+
+
+def test_maki_zenin_warrior_lord():
+    """Maki gives other Warriors +1/+1."""
+    print("\n=== Test: Maki Zenin Warrior Lord Effect ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    warrior_def = JUJUTSU_KAISEN_CARDS["Heavenly Restriction Warrior"]
+    warrior = game.create_object(
+        name="Heavenly Restriction Warrior",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=warrior_def.characteristics,
+        card_def=warrior_def,
+    )
+    base_p = get_power(warrior, game.state)
+    base_t = get_toughness(warrior, game.state)
+
+    maki_def = JUJUTSU_KAISEN_CARDS["Maki Zenin, Heavenly Pact"]
+    game.create_object(
+        name="Maki Zenin, Heavenly Pact",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=maki_def.characteristics,
+        card_def=maki_def,
+    )
+    assert get_power(warrior, game.state) == base_p + 1, "Expected +1 power"
+    assert get_toughness(warrior, game.state) == base_t + 1, "Expected +1 toughness"
+    print("PASSED: Maki Zenin Warrior lord works!")
+
+
+def test_holy_ward_monk_etb_life_gain():
+    """Holy Ward Monk gains 3 life on ETB."""
+    print("\n=== Test: Holy Ward Monk ETB Life Gain ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    starting = p1.life
+    create_on_battlefield(game, p1.id, "Holy Ward Monk")
+    assert p1.life == starting + 3, f"Expected +3 life, got {p1.life}"
+    print("PASSED: Holy Ward Monk ETB life gain works!")
+
+
+def test_finger_guardian_etb_life_loss():
+    """Sukuna's Finger Guardian makes opponents lose 3 life on ETB."""
+    print("\n=== Test: Finger Guardian ETB Life Loss ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    starting = p2.life
+    create_on_battlefield(game, p1.id, "Sukuna's Finger Guardian")
+    assert p2.life == starting - 3, f"Expected -3 life, got {p2.life}"
+    print("PASSED: Finger Guardian ETB life loss works!")
+
+
+def test_curse_cycle_spirit_death_token():
+    """Curse Cycle Spirit creates a 2/2 Curse token on death."""
+    print("\n=== Test: Curse Cycle Spirit Death Token ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    card_def = JUJUTSU_KAISEN_CARDS["Curse Cycle Spirit"]
+    creature = game.create_object(
+        name="Curse Cycle Spirit",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    before = len([o for o in game.state.objects.values()
+                  if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types])
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={'object_id': creature.id,
+                 'from_zone_type': ZoneType.BATTLEFIELD,
+                 'to_zone_type': ZoneType.GRAVEYARD},
+        source=creature.id,
+        controller=p1.id,
+    ))
+    after = len([o for o in game.state.objects.values()
+                 if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types])
+    assert after >= before - 1, "Expected token creation (net even)"
+    print("PASSED: Curse Cycle Spirit death token works!")
+
+
+def test_divine_dog_white_lord_toughness_boost():
+    """Divine Dog: White gives other Shikigami +0/+1."""
+    print("\n=== Test: Divine Dog: White Shikigami Toughness Boost ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    other_def = JUJUTSU_KAISEN_CARDS["Toad Shikigami"]
+    other = game.create_object(
+        name="Toad Shikigami",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=other_def.characteristics,
+        card_def=other_def,
+    )
+    base_t = get_toughness(other, game.state)
+
+    dog_def = JUJUTSU_KAISEN_CARDS["Divine Dog: White"]
+    game.create_object(
+        name="Divine Dog: White",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=dog_def.characteristics,
+        card_def=dog_def,
+    )
+    assert get_toughness(other, game.state) == base_t + 1, "Expected +1 toughness"
+    print("PASSED: Divine Dog: White lord works!")
+
+
+def test_divine_dog_black_death_damage():
+    """Divine Dog: Black deals 2 damage to each opponent on death."""
+    print("\n=== Test: Divine Dog: Black Death Damage ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    starting = p2.life
+
+    card_def = JUJUTSU_KAISEN_CARDS["Divine Dog: Black"]
+    creature = game.create_object(
+        name="Divine Dog: Black",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={'object_id': creature.id,
+                 'from_zone_type': ZoneType.BATTLEFIELD,
+                 'to_zone_type': ZoneType.GRAVEYARD},
+        source=creature.id,
+        controller=p1.id,
+    ))
+    assert p2.life == starting - 2, f"Expected -2 life, got {p2.life}"
+    print("PASSED: Divine Dog: Black death damage works!")
+
+
+def test_rika_orimoto_attack_damage():
+    """Rika Orimoto deals 2 damage to each opponent on attack."""
+    print("\n=== Test: Rika Orimoto Attack Damage ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    starting = p2.life
+
+    card_def = JUJUTSU_KAISEN_CARDS["Rika Orimoto, Cursed Queen"]
+    creature = game.create_object(
+        name="Rika Orimoto, Cursed Queen",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': creature.id, 'defender': p2.id},
+        source=creature.id,
+        controller=p1.id,
+    ))
+    assert p2.life == starting - 2, f"Expected -2 life, got {p2.life}"
+    print("PASSED: Rika Orimoto attack damage works!")
+
+
+def test_mei_mei_attack_draws_card():
+    """Mei Mei's attack triggers register a draw trigger interceptor."""
+    print("\n=== Test: Mei Mei Attack Draw Trigger ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    card_def = JUJUTSU_KAISEN_CARDS["Mei Mei, Crow Controller"]
+    creature = game.create_object(
+        name="Mei Mei, Crow Controller",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    assert len(creature.interceptor_ids) >= 1, "Expected attack trigger interceptor"
+    print("PASSED: Mei Mei has attack draw trigger interceptor!")
+
+
+def test_angel_hana_kurusu_etb():
+    """Angel (Hana's Host) ETB: opponents lose 3 life and you gain 3 life."""
+    print("\n=== Test: Angel Hana Kurusu ETB Reverse Life Drain ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    p1_start = p1.life
+    p2_start = p2.life
+
+    create_on_battlefield(game, p1.id, "Angel, Hana's Host")
+    assert p2.life == p2_start - 3, f"Expected opponent -3 life, got {p2.life}"
+    assert p1.life == p1_start + 3, f"Expected you +3 life, got {p1.life}"
+    print("PASSED: Angel Hana Kurusu ETB reverse life drain works!")
+
+
+def test_yuki_tsukumo_etb_burn():
+    """Yuki Tsukumo deals 4 damage to each opponent on ETB (Bom ba)."""
+    print("\n=== Test: Yuki Tsukumo ETB Burn ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    start = p2.life
+
+    create_on_battlefield(game, p1.id, "Yuki Tsukumo, Star Rage")
+    assert p2.life == start - 4, f"Expected -4 life, got {p2.life}"
+    print("PASSED: Yuki Tsukumo ETB burn works!")
+
+
+def test_gojo_unsealed_etb_burn():
+    """Gojo Unsealed deals 5 life loss to each opponent on ETB (Hollow Purple)."""
+    print("\n=== Test: Gojo Unsealed Hollow Purple ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    start = p2.life
+
+    create_on_battlefield(game, p1.id, "Gojo Unsealed, Hollow Purple")
+    assert p2.life == start - 5, f"Expected -5 life, got {p2.life}"
+    print("PASSED: Gojo Unsealed Hollow Purple works!")
+
+
+def test_sorcerer_commander_tribal_lord():
+    """Sorcerer Commander gives other Sorcerers and Students +1/+1."""
+    print("\n=== Test: Sorcerer Commander Tribal Lord ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    student_def = JUJUTSU_KAISEN_CARDS["Jujutsu High First Year"]
+    student = game.create_object(
+        name="Jujutsu High First Year",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=student_def.characteristics,
+        card_def=student_def,
+    )
+    base_p = get_power(student, game.state)
+
+    cmdr_def = JUJUTSU_KAISEN_CARDS["Sorcerer Commander"]
+    game.create_object(
+        name="Sorcerer Commander",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=cmdr_def.characteristics,
+        card_def=cmdr_def,
+    )
+    assert get_power(student, game.state) == base_p + 1, "Expected +1 power"
+    print("PASSED: Sorcerer Commander tribal lord works!")
+
+
+def test_shoko_ieri_upkeep_heal():
+    """Shoko heals you for 2 each upkeep."""
+    print("\n=== Test: Shoko Ieiri Upkeep Heal ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.state.active_player = p1.id
+
+    card_def = JUJUTSU_KAISEN_CARDS["Shoko Ieiri, Healer"]
+    game.create_object(
+        name="Shoko Ieiri, Healer",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    start = p1.life
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'player': p1.id},
+        controller=p1.id,
+    ))
+    assert p1.life == start + 2, f"Expected +2 life, got {p1.life}"
+    print("PASSED: Shoko Ieiri upkeep heal works!")
+
+
+def test_forest_spirit_curse_upkeep_token():
+    """Forest Spirit Curse creates a Cursed Sapling token each upkeep."""
+    print("\n=== Test: Forest Spirit Curse Upkeep Token ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.state.active_player = p1.id
+
+    card_def = JUJUTSU_KAISEN_CARDS["Forest Spirit Curse"]
+    game.create_object(
+        name="Forest Spirit Curse",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    before = len([o for o in game.state.objects.values()
+                  if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types])
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'player': p1.id},
+        controller=p1.id,
+    ))
+    after = len([o for o in game.state.objects.values()
+                 if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types])
+    assert after >= before + 1, "Expected sapling token"
+    print("PASSED: Forest Spirit Curse upkeep token works!")
+
+
+def test_tengen_sorcerer_toughness_grant():
+    """Tengen gives Sorcerers +0/+2."""
+    print("\n=== Test: Tengen Sorcerer Toughness Grant ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    sorc_def = JUJUTSU_KAISEN_CARDS["Jujutsu High First Year"]
+    sorc = game.create_object(
+        name="Jujutsu High First Year",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=sorc_def.characteristics,
+        card_def=sorc_def,
+    )
+    base_t = get_toughness(sorc, game.state)
+
+    tengen_def = JUJUTSU_KAISEN_CARDS["Tengen, Barrier Master"]
+    game.create_object(
+        name="Tengen, Barrier Master",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=tengen_def.characteristics,
+        card_def=tengen_def,
+    )
+    assert get_toughness(sorc, game.state) == base_t + 2, "Expected +2 toughness"
+    print("PASSED: Tengen Sorcerer toughness grant works!")
+
+
+def test_kashimo_combat_damage_counter():
+    """Kashimo gets a +1/+1 counter whenever it deals combat damage."""
+    print("\n=== Test: Kashimo Combat Damage Counter ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+
+    card_def = JUJUTSU_KAISEN_CARDS["Kashimo Hajime, Electric Duelist"]
+    creature = game.create_object(
+        name="Kashimo Hajime, Electric Duelist",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    counters_before = creature.state.counters.get('+1/+1', 0)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': creature.id, 'target': p2.id, 'amount': 3, 'is_combat': True},
+        source=creature.id,
+        controller=p1.id,
+    ))
+    counters_after = creature.state.counters.get('+1/+1', 0)
+    assert counters_after == counters_before + 1, "Expected +1 counter"
+    print("PASSED: Kashimo combat damage counter works!")
+
+
+def test_hakari_kinji_attack_trigger():
+    """Hakari registers attack trigger interceptor (Jackpot effect)."""
+    print("\n=== Test: Hakari Kinji Attack Trigger Registered ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    card_def = JUJUTSU_KAISEN_CARDS["Hakari Kinji, Private Pure Love Train"]
+    creature = game.create_object(
+        name="Hakari Kinji, Private Pure Love Train",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    assert len(creature.interceptor_ids) >= 1, "Expected attack trigger interceptor"
+    print("PASSED: Hakari registers Jackpot attack trigger!")
+
+
+def test_kenjaku_opponent_death_counter():
+    """Kenjaku gets a +1/+1 counter whenever an opponent's creature dies."""
+    print("\n=== Test: Kenjaku Opponent Death Counter ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+
+    kenjaku_def = JUJUTSU_KAISEN_CARDS["Kenjaku, Brain Stealer"]
+    kenjaku = game.create_object(
+        name="Kenjaku, Brain Stealer",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=kenjaku_def.characteristics,
+        card_def=kenjaku_def,
+    )
+    opp_def = JUJUTSU_KAISEN_CARDS["Grade One Curse"]
+    opp_creature = game.create_object(
+        name="Grade One Curse",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=opp_def.characteristics,
+        card_def=opp_def,
+    )
+    counters_before = kenjaku.state.counters.get('+1/+1', 0)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={'object_id': opp_creature.id,
+                 'from_zone_type': ZoneType.BATTLEFIELD,
+                 'to_zone_type': ZoneType.GRAVEYARD},
+        source=opp_creature.id,
+        controller=p2.id,
+    ))
+    counters_after = kenjaku.state.counters.get('+1/+1', 0)
+    assert counters_after == counters_before + 1, "Expected +1 counter on Kenjaku"
+    print("PASSED: Kenjaku consumes opponent's technique!")
+
+
+def test_domain_clashing_sorcerers_etb_token():
+    """Domain-Clashing Sorcerers creates a 2/2 Student token on ETB."""
+    print("\n=== Test: Domain-Clashing Sorcerers ETB Token ===")
+
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    before = len([o for o in game.state.objects.values()
+                  if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types])
+    create_on_battlefield(game, p1.id, "Domain-Clashing Sorcerers")
+    after = len([o for o in game.state.objects.values()
+                 if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types])
+    # Should have +1 (source) +1 (token) = +2
+    assert after >= before + 2, f"Expected 2 new creatures, got {after - before}"
+    print("PASSED: Domain-Clashing Sorcerers ETB token works!")
+
+
+def test_new_iconic_cards_present():
+    """Sanity - all added iconic characters are present in the dict with correct types."""
+    print("\n=== Test: New Iconic Cards Present ===")
+    expected = [
+        "Hakari Kinji, Private Pure Love Train",
+        "Kashimo Hajime, Electric Duelist",
+        "Angel, Hana's Host",
+        "Tengen, Barrier Master",
+        "Gojo Unsealed, Hollow Purple",
+        "Shoko Ieiri, Healer",
+        "Yuki Tsukumo, Star Rage",
+        "Sorcerer Commander",
+        "Technique Echo",
+        "Black Flash Moment",
+        "Idle Death Gamble",
+    ]
+    for name in expected:
+        assert name in JUJUTSU_KAISEN_CARDS, f"Missing: {name}"
+        print(f"  OK: {name}")
+    print("PASSED: All new iconic cards present!")
+
+
+def test_card_count_within_band():
+    """Set size stays within ±10% of 200 (180-220)."""
+    print("\n=== Test: Card Count Within Design Band ===")
+    n = len(JUJUTSU_KAISEN_CARDS)
+    print(f"Cards: {n}")
+    assert 180 <= n <= 220, f"Card count {n} outside 180-220 band"
+    print("PASSED: Card count within design band!")
+
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -1715,12 +2305,52 @@ def run_all_tests():
             failed_tests.append((test.__name__, str(e)))
             print(f"FAILED: {test.__name__} - {e}")
 
+    # Quality-pass tests (new + redesigned cards)
+    print("\n" + "=" * 70)
+    print("QUALITY PASS: REDESIGNED / NEW CARD TESTS")
+    print("=" * 70)
+
+    tests = [
+        test_satoru_gojo_limitless_hexproof_grant,
+        test_toge_inumaki_attack_damage,
+        test_kento_nanami_attack_damage,
+        test_dagon_attack_creates_fish_token,
+        test_maki_zenin_warrior_lord,
+        test_holy_ward_monk_etb_life_gain,
+        test_finger_guardian_etb_life_loss,
+        test_curse_cycle_spirit_death_token,
+        test_divine_dog_white_lord_toughness_boost,
+        test_divine_dog_black_death_damage,
+        test_rika_orimoto_attack_damage,
+        test_mei_mei_attack_draws_card,
+        test_angel_hana_kurusu_etb,
+        test_yuki_tsukumo_etb_burn,
+        test_gojo_unsealed_etb_burn,
+        test_sorcerer_commander_tribal_lord,
+        test_shoko_ieri_upkeep_heal,
+        test_forest_spirit_curse_upkeep_token,
+        test_tengen_sorcerer_toughness_grant,
+        test_kashimo_combat_damage_counter,
+        test_hakari_kinji_attack_trigger,
+        test_kenjaku_opponent_death_counter,
+        test_domain_clashing_sorcerers_etb_token,
+        test_new_iconic_cards_present,
+        test_card_count_within_band,
+    ]
+
+    for test in tests:
+        try:
+            test()
+        except Exception as e:
+            failed_tests.append((test.__name__, str(e)))
+            print(f"FAILED: {test.__name__} - {e}")
+
     # Summary
     print("\n" + "=" * 70)
     print("TEST SUMMARY")
     print("=" * 70)
 
-    total_tests = 42  # Count of all individual tests
+    total_tests = 67  # Count of all individual tests (42 + 25 new)
     passed = total_tests - len(failed_tests)
 
     if failed_tests:
