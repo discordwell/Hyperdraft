@@ -678,7 +678,10 @@ class CardDefinition:
     text: str = ""
     rarity: Optional[str] = None  # 'common', 'uncommon', 'rare', 'mythic'
 
-    # NEW: Declarative abilities - single source of truth for text and behavior
+    # Keyword-ability metadata (list of dicts like {'keyword': 'taunt'}). Retained
+    # for the Hearthstone keyword catalog and legacy text-based assertions in
+    # tests/test_jujutsu_kaisen.py. Not a declarative DSL — behaviour comes
+    # exclusively from setup_interceptors / ability_bundles.
     abilities: list = field(default_factory=list)
 
     # Function to set up interceptors when this card enters play
@@ -735,52 +738,6 @@ class CardDefinition:
     split_left: Optional[CardFace] = None     # Left half of split card
     split_right: Optional[CardFace] = None    # Right half of split card
     back_face: Optional[CardFace] = None      # Back face of MDFC
-
-    def __post_init__(self):
-        """Auto-generate text and setup_interceptors from abilities if provided."""
-        if not self.abilities:
-            return
-
-        # Generate text if not provided.
-        if not self.text:
-            self.text = self._generate_text()
-
-        # Always include declarative ability interceptors. If a card also provides a
-        # custom setup_interceptors, combine both (abilities first, then custom).
-        ability_setup = self._generate_setup()
-        if self.setup_interceptors:
-            custom_setup = self.setup_interceptors
-
-            def combined_setup(obj: 'GameObject', state: 'GameState') -> list['Interceptor']:
-                interceptors: list[Interceptor] = []
-                interceptors.extend(ability_setup(obj, state) or [])
-                interceptors.extend(custom_setup(obj, state) or [])
-                return interceptors
-
-            self.setup_interceptors = combined_setup
-        else:
-            self.setup_interceptors = ability_setup
-
-    def _generate_text(self) -> str:
-        """Generate rules text from abilities."""
-        texts = []
-        for ability in self.abilities:
-            if hasattr(ability, 'render_text'):
-                texts.append(ability.render_text(self.name))
-        return " ".join(texts)
-
-    def _generate_setup(self) -> Callable[['GameObject', 'GameState'], list[Interceptor]]:
-        """Generate setup_interceptors function from abilities."""
-        abilities = self.abilities
-
-        def setup(obj: 'GameObject', state: 'GameState') -> list[Interceptor]:
-            interceptors = []
-            for ability in abilities:
-                if hasattr(ability, 'generate_interceptors'):
-                    interceptors.extend(ability.generate_interceptors(obj, state))
-            return interceptors
-
-        return setup
 
 
 # =============================================================================

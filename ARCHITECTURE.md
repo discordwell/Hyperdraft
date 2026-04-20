@@ -29,9 +29,10 @@ Each event flows through `EventPipeline._process_single` (pipeline.py:56) in thi
 | Path | Purpose |
 |---|---|
 | `src/engine/` | The rules engine: events, interceptors, pipeline, turn managers, combat, mana/energy, stack, priority, targeting, queries. |
-| `src/engine/abilities/` | Declarative ability DSL (base/effects/keywords/static/targets/triggers) — a second, less-used path for expressing card behavior. |
 | `src/cards/` | Card catalog. Real MTG sets from Scryfall at top level; fan-made interceptor-bearing sets under `custom/`; mode-specific catalogs under `hearthstone/`, `pokemon/`, `yugioh/`. |
-| `src/cards/interceptor_helpers.py` | The primary card-building DSL (`make_etb_trigger`, `make_static_pt_boost`, etc.). |
+| `src/cards/interceptor_helpers.py` | The card-building DSL (`make_etb_trigger`, `make_static_pt_boost`, etc.). |
+| `src/cards/ability_bundles.py` | Reusable trigger + effect bundles (e.g. ETB token, death deal-damage) composed from interceptor helpers. |
+| `src/cards/text_render.py` | Rules-text rendering used alongside the bundle helpers. |
 | `src/ai/` | AI decision-making. Shared `engine.py`/`evaluator.py`/`heuristics.py` plus MTG `strategies/` and per-mode adapters. |
 | `src/server/` | FastAPI + Socket.IO server. `main.py` is the ASGI entry; `session.py` is the per-game orchestrator; `routes/` exposes REST endpoints; `services/` holds cross-cutting helpers. |
 | `frontend/` | React + TypeScript + Vite + Tailwind client. `src/components/game/` holds per-mode boards; `src/stores/` holds Zustand stores; `src/hooks/` holds reusable game-state hooks. |
@@ -115,7 +116,7 @@ These are documented here so contributors know what *not* to reach for as a clea
 
 1. **`game_mode == "..."` string branching** — factory methods in `game.py` and dispatch in `pipeline.py`, `session.py`, etc. switch on a mode string. Adding a fifth mode means auditing every `if mode == "..."` site.
 2. **Pokemon and Yu-Gi-Oh bypass the event pipeline for zone movement.** Their turn managers mutate zone lists directly. This means interceptors on `ZONE_CHANGE` cannot observe, transform, or react to most zone transitions in those modes.
-3. **Two parallel effect DSLs.** `src/cards/interceptor_helpers.py` is the dominant path; `src/engine/abilities/` is a partially-adopted declarative alternative. Most card code reaches for the helpers; the abilities package is still a viable target for consolidation.
+3. ~~**Two parallel effect DSLs.**~~ **Resolved.** The declarative `src/engine/abilities/` package has been retired. All card code now goes through the single path: `src/cards/interceptor_helpers.py` + `src/cards/ability_bundles.py` + `src/cards/text_render.py`. `CardDefinition.abilities` remains as a list of keyword-ability dicts (e.g. `[{'keyword': 'taunt'}]`) used by the Hearthstone catalog and legacy keyword-substring assertions; it no longer triggers any auto-generated interceptor logic.
 4. **`TurnManager` inheritance forces dual-state syncing.** `PokemonTurnManager` and `YugiohTurnManager` maintain their own `*_turn_state` dataclasses but must also keep the base class's `turn_state.active_player_id` and `turn_state.turn_number` in lockstep, or frontend checks like `isMyTurn` silently break.
 5. **`pipeline.py` is 3,200+ lines in one module.** It handles dispatch for every `EventType` across four game modes.
 6. **`session.py` is a 2,700+ line god-object.** Per-mode branches for action handling, logging, serialization, and AI orchestration all live side-by-side.

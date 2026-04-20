@@ -19,6 +19,7 @@ from src.cards.ability_bundles import (
     static_pt_boost_by_subtype,
     static_keyword_grant_others,
 )
+from src.cards.interceptor_helpers import make_etb_trigger, make_upkeep_trigger
 from src.cards.text_render import substitute_card_name
 from typing import Optional, Callable
 
@@ -433,6 +434,11 @@ MR_FANTASTIC = make_creature(
     subtypes={"Human", "Scientist"},
     supertypes={"Legendary"},
     text="At the beginning of your upkeep, scry 1.",
+    setup_interceptors=lambda o, s: [make_upkeep_trigger(o, lambda e, st: [
+        Event(type=EventType.ACTIVATE,
+              payload={'action': 'scry', 'amount': 1},
+              source=o.id, controller=o.controller)
+    ])],
 )
 
 STARK_INDUSTRIES_DRONE = make_creature(
@@ -452,6 +458,11 @@ FRIDAY_AI = make_creature(
     subtypes={"Construct"},
     supertypes={"Legendary"},
     text="When FRIDAY enters, scry 2.",
+    setup_interceptors=lambda o, s: [make_etb_trigger(o, lambda e, st: [
+        Event(type=EventType.ACTIVATE,
+              payload={'action': 'scry', 'amount': 2},
+              source=o.id, controller=o.controller)
+    ])],
 )
 
 SHIELD_TECH_SPECIALIST = make_creature(
