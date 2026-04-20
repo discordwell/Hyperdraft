@@ -2585,3 +2585,143 @@ def add_one_shot_cost_reduction(player, card_type_filter, amount, duration='this
         'duration': duration,
         'uses_remaining': 1,
     })
+
+
+# =============================================================================
+# GAP-FILLER FILTERS (parity with src/engine/abilities/targets.py)
+# =============================================================================
+
+def all_creatures_filter() -> Callable[[GameObject, GameState], bool]:
+    """Filter: Every creature on the battlefield (both players).
+
+    Mirrors ``AllCreaturesFilter`` from the abilities DSL.
+    """
+    def filter_fn(target: GameObject, state: GameState) -> bool:
+        return (target.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in target.characteristics.types)
+    return filter_fn
+
+
+def opponent_creatures_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]:
+    """Filter: Creatures controlled by opponents of ``source``'s controller.
+
+    Mirrors ``OpponentCreaturesFilter`` from the abilities DSL.
+    """
+    def filter_fn(target: GameObject, state: GameState) -> bool:
+        return (target.controller != source.controller and
+                target.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in target.characteristics.types)
+    return filter_fn
+
+
+def nonland_permanents_filter() -> Callable[[GameObject, GameState], bool]:
+    """Filter: Nonland permanents on the battlefield.
+
+    Mirrors the ``NonlandPermanent`` trigger-target predicate.
+    """
+    def filter_fn(target: GameObject, state: GameState) -> bool:
+        return (target.zone == ZoneType.BATTLEFIELD and
+                CardType.LAND not in target.characteristics.types)
+    return filter_fn
+
+
+# =============================================================================
+# GAP-FILLER INTERCEPTORS
+# =============================================================================
+
+def type_grant_interceptor(
+    source_obj: GameObject,
+    added_types: list[str],
+    duration: str = 'while_on_battlefield',
+    affects_filter: Optional[Callable[[GameObject, GameState], bool]] = None,
+) -> Interceptor:
+    """Create a QUERY_TYPES interceptor that adds subtypes to matching objects.
+
+    Args:
+        source_obj: The permanent granting the subtypes.
+        added_types: List of subtype strings to inject (e.g. ``["Zombie"]``).
+        duration: Interceptor duration tag (default: while_on_battlefield).
+        affects_filter: Predicate ``(target, state) -> bool``. If omitted,
+            grants to every object on the battlefield (same shape as TypeGrant
+            with a permissive filter). Callers almost always want to pass a
+            filter such as ``creatures_you_control(source_obj)``.
+
+    Event: QUERY_TYPES. Transforms ``payload['subtypes']`` to include added_types.
+    """
+    source_id = source_obj.id
+    types_to_add = list(added_types)
+    filter_fn = affects_filter
+
+    def type_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_TYPES:
+            return False
+        source = state.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        target_id = event.payload.get('object_id')
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        if filter_fn is None:
+            return True
+        return filter_fn(target, state)
+
+    def type_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        subtypes = set(new_event.payload.get('subtypes', set()))
+        for t in types_to_add:
+            subtypes.add(t)
+        new_event.payload['subtypes'] = subtypes
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=type_filter,
+        handler=type_handler,
+        duration=duration,
+    )
+
+
+def make_cant_block(
+    source_obj: GameObject,
+    filter_fn: Optional[Callable[[GameObject, GameState], bool]] = None,
+) -> Interceptor:
+    """Create a PREVENT interceptor on BLOCK_DECLARED.
+
+    If ``filter_fn`` is None, prevents blocks only when the blocker *is*
+    ``source_obj`` itself ("{this} can't block"). When given a filter, prevents
+    any blocker matching the filter (lord-style "creatures you control can't
+    block"). Mirrors ``CantBlockEffect`` from the abilities DSL.
+    """
+    source_id = source_obj.id
+    predicate = filter_fn
+
+    def cant_block_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.BLOCK_DECLARED:
+            return False
+        blocker_id = event.payload.get('blocker_id')
+        if predicate is None:
+            return blocker_id == source_id
+        blocker = state.objects.get(blocker_id)
+        if not blocker:
+            return False
+        return predicate(blocker, state)
+
+    def cant_block_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=cant_block_filter,
+        handler=cant_block_handler,
+        duration='while_on_battlefield',
+    )
