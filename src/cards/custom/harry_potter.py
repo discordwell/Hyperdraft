@@ -12,17 +12,17 @@ from src.engine import (
     Characteristics, ObjectState, CardDefinition,
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness,
-    # Ability system
-    TriggeredAbility, StaticAbility, KeywordAbility,
-    ETBTrigger, DeathTrigger, AttackTrigger, BlockTrigger, DealsDamageTrigger,
-    UpkeepTrigger, EndStepTrigger, SpellCastTrigger,
-    GainLife, LoseLife, DealDamage, DrawCards, DiscardCards, AddCounters, CreateToken,
-    CompositeEffect, Scry,
-    PTBoost, KeywordGrant,
-    SelfTarget, AnotherCreature, AnotherCreatureYouControl, CreatureWithSubtype,
-    OtherCreaturesYouControlFilter, CreaturesYouControlFilter, CreaturesWithSubtypeFilter,
-    ControllerTarget, EachOpponentTarget,
+    # Ability system (kept for legacy setup fns that still use them)
+    TriggeredAbility,
+    ETBTrigger, UpkeepTrigger, SpellCastTrigger,
+    GainLife, AddCounters, CreateToken,
 )
+from src.cards.ability_bundles import (
+    etb_gain_life, etb_draw, death_draw,
+    static_pt_boost_by_subtype, static_pt_boost_other_you_control,
+    static_keyword_grant_others,
+)
+from src.cards import interceptor_helpers as _ih
 from typing import Optional, Callable
 
 
@@ -358,6 +358,11 @@ HERMIONE_GRANGER = make_creature(
 )
 
 
+def albus_dumbledore_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    pt_itcs, _t1 = static_pt_boost_by_subtype(obj, 1, 1, "Wizard", include_self=False)
+    kw_itc = _ih.make_keyword_grant(obj, ['hexproof'], _ih.other_creatures_with_subtype(obj, "Wizard"))
+    return pt_itcs + [kw_itc]
+
 ALBUS_DUMBLEDORE = make_creature(
     name="Albus Dumbledore, Headmaster",
     power=4, toughness=5,
@@ -365,18 +370,14 @@ ALBUS_DUMBLEDORE = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Wizard", include_self=False)
-        ),
-        StaticAbility(
-            effect=KeywordGrant(['hexproof']),
-            filter=CreaturesWithSubtypeFilter("Wizard", include_self=False)
-        )
-    ]
+    text="Other Wizard creatures you control get +1/+1 and have hexproof.",
+    setup_interceptors=albus_dumbledore_setup
 )
 
+
+def minerva_mcgonagall_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    kw_itc = _ih.make_keyword_grant(obj, ['vigilance'], _ih.other_creatures_with_subtype(obj, "Gryffindor"))
+    return [kw_itc]
 
 MINERVA_MCGONAGALL = make_creature(
     name="Minerva McGonagall, Transfiguration Master",
@@ -385,12 +386,8 @@ MINERVA_MCGONAGALL = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Gryffindor"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=KeywordGrant(['vigilance']),
-            filter=CreaturesWithSubtypeFilter("Gryffindor", include_self=False)
-        )
-    ]
+    text="Other Gryffindor creatures you control have vigilance.",
+    setup_interceptors=minerva_mcgonagall_setup
 )
 
 
@@ -430,20 +427,24 @@ NEVILLE_LONGBOTTOM = make_creature(
 
 # --- Regular White Creatures ---
 
+def gryffindor_prefect_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _t = static_pt_boost_by_subtype(obj, 1, 0, "Gryffindor", include_self=False)
+    return itcs
+
 GRYFFINDOR_PREFECT = make_creature(
     name="Gryffindor Prefect",
     power=2, toughness=2,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Gryffindor"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 0),
-            filter=CreaturesWithSubtypeFilter("Gryffindor", include_self=False)
-        )
-    ]
+    text="Other Gryffindor creatures you control get +1/+0.",
+    setup_interceptors=gryffindor_prefect_setup
 )
 
+
+def auror_recruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _t = etb_gain_life(obj, 2)
+    return [itc]
 
 AUROR_RECRUIT = make_creature(
     name="Auror Recruit",
@@ -451,12 +452,8 @@ AUROR_RECRUIT = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Auror"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(2)
-        )
-    ]
+    text="When Auror Recruit enters, you gain 2 life.",
+    setup_interceptors=auror_recruit_setup
 )
 
 
@@ -784,6 +781,17 @@ FILIUS_FLITWICK = make_creature(
 )
 
 
+def cho_chang_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB - scry 2 (placeholder ACTIVATE event, same as old DSL stub)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.ACTIVATE,
+            payload={'action': 'scry', 'amount': 2, 'player': obj.controller},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [_ih.make_etb_trigger(obj, effect_fn)]
+
 CHO_CHANG = make_creature(
     name="Cho Chang, Seeker",
     power=2, toughness=2,
@@ -791,14 +799,14 @@ CHO_CHANG = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard", "Ravenclaw"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=Scry(2)
-        )
-    ]
+    text="When Cho Chang enters, scry 2.",
+    setup_interceptors=cho_chang_setup,
 )
 
+
+def moaning_myrtle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _t = death_draw(obj, 2)
+    return [itc]
 
 MOANING_MYRTLE = make_creature(
     name="Moaning Myrtle",
@@ -807,16 +815,20 @@ MOANING_MYRTLE = make_creature(
     colors={Color.BLUE},
     subtypes={"Spirit"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=DrawCards(2)
-        )
-    ]
+    text="When Moaning Myrtle dies, draw 2 cards.",
+    setup_interceptors=moaning_myrtle_setup
 )
 
 
 # --- Regular Blue Creatures ---
+
+def ravenclaw_prefect_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller}, source=obj.id),
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'count': 1}, source=obj.id),
+        ]
+    return [_ih.make_etb_trigger(obj, effect_fn)]
 
 RAVENCLAW_PREFECT = make_creature(
     name="Ravenclaw Prefect",
@@ -824,12 +836,8 @@ RAVENCLAW_PREFECT = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard", "Ravenclaw"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CompositeEffect([DrawCards(1), DiscardCards(1)])
-        )
-    ]
+    text="When Ravenclaw Prefect enters, draw a card, then discard a card.",
+    setup_interceptors=ravenclaw_prefect_setup
 )
 
 
@@ -1091,6 +1099,16 @@ LORD_VOLDEMORT = make_creature(
 )
 
 
+def severus_snape_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DAMAGE,
+                  payload={'target': opp_id, 'amount': 3, 'source': obj.id},
+                  source=obj.id)
+            for opp_id in _ih.all_opponents(obj, state)
+        ]
+    return [_ih.make_death_trigger(obj, effect_fn)]
+
 SEVERUS_SNAPE = make_creature(
     name="Severus Snape, Double Agent",
     power=3, toughness=4,
@@ -1098,12 +1116,8 @@ SEVERUS_SNAPE = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Wizard", "Slytherin"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=DealDamage(3, target=EachOpponentTarget())  # Simplified - original targeted a creature
-        )
-    ]
+    text="When Severus Snape dies, he deals 3 damage to each opponent.",
+    setup_interceptors=severus_snape_setup
 )
 
 
@@ -1144,6 +1158,10 @@ BELLATRIX_LESTRANGE = make_creature(
 )
 
 
+def draco_malfoy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _t = static_pt_boost_by_subtype(obj, 1, 0, "Slytherin", include_self=False)
+    return itcs
+
 DRACO_MALFOY = make_creature(
     name="Draco Malfoy, Cunning Heir",
     power=2, toughness=2,
@@ -1151,14 +1169,20 @@ DRACO_MALFOY = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Wizard", "Slytherin"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 0),
-            filter=CreaturesWithSubtypeFilter("Slytherin", include_self=False)
-        )
-    ]
+    text="Other Slytherin creatures you control get +1/+0.",
+    setup_interceptors=draco_malfoy_setup
 )
 
+
+def lucius_malfoy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DISCARD,
+                  payload={'player': opp_id, 'count': 1},
+                  source=obj.id)
+            for opp_id in _ih.all_opponents(obj, state)
+        ]
+    return [_ih.make_etb_trigger(obj, effect_fn)]
 
 LUCIUS_MALFOY = make_creature(
     name="Lucius Malfoy, Dark Aristocrat",
@@ -1167,12 +1191,8 @@ LUCIUS_MALFOY = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Wizard", "Death Eater"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DiscardCards(1, target=EachOpponentTarget())
-        )
-    ]
+    text="When Lucius Malfoy enters, each opponent discards a card.",
+    setup_interceptors=lucius_malfoy_setup
 )
 
 
@@ -1559,6 +1579,16 @@ SIRIUS_BLACK = make_creature(
 )
 
 
+def molly_weasley_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DAMAGE,
+                  payload={'target': opp_id, 'amount': 5, 'source': obj.id},
+                  source=obj.id)
+            for opp_id in _ih.all_opponents(obj, state)
+        ]
+    return [_ih.make_death_trigger(obj, effect_fn)]
+
 MOLLY_WEASLEY = make_creature(
     name="Molly Weasley, Protective Mother",
     power=2, toughness=4,
@@ -1566,12 +1596,8 @@ MOLLY_WEASLEY = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=DealDamage(5, target=EachOpponentTarget())  # Simplified - original targeted a creature
-        )
-    ]
+    text="When Molly Weasley dies, she deals 5 damage to each opponent.",
+    setup_interceptors=molly_weasley_setup
 )
 
 
@@ -1795,6 +1821,10 @@ GRYFFINDOR_COURAGE = make_enchantment(
 
 # --- Legendary Creatures ---
 
+def rubeus_hagrid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _t = static_pt_boost_other_you_control(obj, 1, 1)
+    return itcs
+
 RUBEUS_HAGRID = make_creature(
     name="Rubeus Hagrid, Keeper of Keys",
     power=4, toughness=5,
@@ -1802,12 +1832,8 @@ RUBEUS_HAGRID = make_creature(
     colors={Color.GREEN},
     subtypes={"Giant", "Wizard"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=OtherCreaturesYouControlFilter()
-        )
-    ]
+    text="Other creatures you control get +1/+1.",
+    setup_interceptors=rubeus_hagrid_setup
 )
 
 

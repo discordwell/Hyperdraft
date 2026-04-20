@@ -7,35 +7,69 @@ Features mechanics: Fellowship, Ring-bearer, Corruption
 
 from src.engine import (
     Event, EventType,
-    Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
+    Interceptor,
     GameObject, GameState, ZoneType, CardType, Color,
-    Characteristics, ObjectState, CardDefinition,
+    Characteristics, CardDefinition,
     make_creature, make_instant, make_enchantment,
-    new_id, get_power, get_toughness,
-    # New ability system
-    TriggeredAbility, StaticAbility, KeywordAbility,
-    ETBTrigger, DeathTrigger, AttackTrigger, DealsDamageTrigger, UpkeepTrigger,
-    GainLife, LoseLife, DrawCards, DiscardCards, DealDamage, AddCounters, Scry,
-    CreateToken, CompositeEffect,
-    PTBoost, KeywordGrant,
-    SelfTarget, AnotherCreature, AnotherCreatureYouControl, CreatureWithSubtype,
-    OtherCreaturesYouControlFilter, CreaturesWithSubtypeFilter, CreaturesYouControlFilter,
-    OpponentCreaturesFilter, EachOpponentTarget,
 )
-from typing import Optional, Callable
+from typing import Callable
 from src.cards.interceptor_helpers import (
     make_etb_trigger, make_death_trigger, make_attack_trigger,
     make_damage_trigger, make_static_pt_boost, make_keyword_grant,
     other_creatures_you_control, creatures_with_subtype,
-    make_spell_cast_trigger, make_upkeep_trigger, make_end_step_trigger,
-    make_life_gain_trigger, make_life_loss_trigger, creatures_you_control,
+    make_spell_cast_trigger, make_upkeep_trigger,
+    creatures_you_control,
     other_creatures_with_subtype, all_opponents
+)
+from src.cards.ability_bundles import (
+    etb_gain_life, etb_create_token, etb_draw,
+    death_draw, static_pt_boost_by_subtype,
+    static_pt_boost_all_you_control, static_keyword_grant_others,
 )
 
 
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+def _kw(*keywords: str) -> list[dict]:
+    """Convert keyword strings to ability dict list for CardDefinition/Characteristics."""
+    return [{'keyword': k} for k in keywords]
+
+
+def _make_creature(
+    *,
+    name: str,
+    power: int,
+    toughness: int,
+    mana_cost: str,
+    colors: set,
+    subtypes: set = None,
+    supertypes: set = None,
+    keywords: list[str] = None,
+    text: str = "",
+    setup_interceptors=None,
+) -> CardDefinition:
+    """Build creature with keyword dicts properly installed in abilities lists."""
+    kw_list = _kw(*(keywords or []))
+    return CardDefinition(
+        name=name,
+        mana_cost=mana_cost,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes=subtypes or set(),
+            supertypes=supertypes or set(),
+            colors=colors,
+            mana_cost=mana_cost,
+            power=power,
+            toughness=toughness,
+            abilities=list(kw_list),
+        ),
+        text=text,
+        abilities=list(kw_list),
+        setup_interceptors=setup_interceptors,
+    )
+
 
 def make_sorcery(name: str, mana_cost: str, colors: set, subtypes: set = None, supertypes: set = None, resolve=None):
     """Helper to create sorcery card definitions."""
@@ -255,17 +289,15 @@ ARAGORN_KING_OF_GONDOR = make_creature(
 )
 
 
-BOROMIR_CAPTAIN_OF_GONDOR = make_creature(
+BOROMIR_CAPTAIN_OF_GONDOR = _make_creature(
     name="Boromir, Captain of Gondor",
     power=4, toughness=3,
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Noble", "Soldier"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Vigilance")
-        # Death trigger to grant indestructible requires setup_interceptors
-    ]
+    keywords=["vigilance"],
+    text="Vigilance",
 )
 
 
@@ -300,6 +332,10 @@ FARAMIR_RANGER_OF_ITHILIEN = make_creature(
 )
 
 
+def theoden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Human", include_self=False)
+    return interceptors
+
 THEODEN_KING_OF_ROHAN = make_creature(
     name="Theoden, King of Rohan",
     power=3, toughness=4,
@@ -307,43 +343,40 @@ THEODEN_KING_OF_ROHAN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Noble", "Knight"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Human", include_self=False)
-        )
-    ]
+    text="Other Human creatures you control get +1/+1.",
+    setup_interceptors=theoden_setup,
 )
 
 
-EOWYN_SHIELDMAIDEN = make_creature(
+EOWYN_SHIELDMAIDEN = _make_creature(
     name="Eowyn, Shieldmaiden of Rohan",
     power=3, toughness=3,
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Noble", "Warrior"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="First strike")
-    ]
+    keywords=["first strike"],
+    text="First strike",
 )
 
 
-EOMER_MARSHAL_OF_ROHAN = make_creature(
+EOMER_MARSHAL_OF_ROHAN = _make_creature(
     name="Eomer, Marshal of Rohan",
     power=4, toughness=3,
     mana_cost="{2}{W}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Noble", "Knight"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Haste")
-        # Attack trigger for +2/+0 when attacks alone requires setup_interceptors
-    ]
+    keywords=["haste"],
+    text="Haste",
 )
 
 
 # --- Regular Creatures ---
+
+def gondor_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_gain_life(obj, 1)
+    return [itc]
 
 GONDOR_SOLDIER = make_creature(
     name="Soldier of Gondor",
@@ -351,81 +384,75 @@ GONDOR_SOLDIER = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(1)
-        )
-    ]
+    text="When Soldier of Gondor enters the battlefield, you gain 1 life.",
+    setup_interceptors=gondor_soldier_setup,
 )
 
 
-TOWER_GUARD = make_creature(
+def tower_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _txt = static_keyword_grant_others(obj, ["vigilance"])
+    # filter to Soldiers only
+    soldier_itc = make_keyword_grant(obj, ["vigilance"], creatures_with_subtype(obj, "Soldier"))
+    return [soldier_itc]
+
+TOWER_GUARD = _make_creature(
     name="Tower Guard of Minas Tirith",
     power=2, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    abilities=[
-        KeywordAbility(keyword="Vigilance"),
-        StaticAbility(
-            effect=KeywordGrant(["vigilance"]),
-            filter=CreaturesWithSubtypeFilter(subtype="Soldier", include_self=False)
-        )
-    ]
+    keywords=["vigilance"],
+    text="Vigilance. Other Soldier creatures you control have vigilance.",
+    setup_interceptors=tower_guard_setup,
 )
 
 
-RIDER_OF_ROHAN = make_creature(
+def rider_of_rohan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_create_token(obj, 1, 1, "Human Soldier", colors={Color.WHITE}, keywords=[])
+    return [itc]
+
+RIDER_OF_ROHAN = _make_creature(
     name="Rider of Rohan",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
-    abilities=[
-        KeywordAbility(keyword="First strike"),
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name="Human Soldier", power=1, toughness=1, colors={"W"}, subtypes={"Human", "Soldier"})
-        )
-    ]
+    keywords=["first strike"],
+    text="First strike. When Rider of Rohan enters the battlefield, create a 1/1 white Human Soldier creature token.",
+    setup_interceptors=rider_of_rohan_setup,
 )
 
 
-KNIGHTS_OF_DOL_AMROTH = make_creature(
+KNIGHTS_OF_DOL_AMROTH = _make_creature(
     name="Knights of Dol Amroth",
     power=3, toughness=2,
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
-    abilities=[
-        KeywordAbility(keyword="First strike")
-        # Attack trigger for Knights +1/+0 requires setup_interceptors
-    ]
+    keywords=["first strike"],
+    text="First strike",
 )
 
 
-CITADEL_CASTELLAN = make_creature(
+CITADEL_CASTELLAN = _make_creature(
     name="Citadel Castellan",
     power=1, toughness=4,
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    abilities=[
-        KeywordAbility(keyword="Defender")
-    ]
+    keywords=["defender"],
+    text="Defender",
 )
 
 
-ROHIRRIM_LANCER = make_creature(
+ROHIRRIM_LANCER = _make_creature(
     name="Rohirrim Lancer",
     power=3, toughness=1,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
-    abilities=[
-        KeywordAbility(keyword="Haste")
-    ]
+    keywords=["haste"],
+    text="Haste",
 )
 
 
@@ -465,34 +492,44 @@ DUNEDAIN_HEALER = make_creature(
 )
 
 
+def minas_tirith_recruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True, 'name': 'Human Soldier',
+                'power': 1, 'toughness': 1,
+                'colors': {Color.WHITE}, 'subtypes': {'Human', 'Soldier'},
+                'keywords': [], 'controller': obj.controller,
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_death_trigger(obj, effect_fn)]
+
 MINAS_TIRITH_RECRUIT = make_creature(
     name="Minas Tirith Recruit",
     power=1, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=CreateToken(name="Human Soldier", power=1, toughness=1, colors={"W"}, subtypes={"Human", "Soldier"})
-        )
-    ]
+    text="When Minas Tirith Recruit dies, create a 1/1 white Human Soldier creature token.",
+    setup_interceptors=minas_tirith_recruit_setup,
 )
 
 
-HELM_S_DEEP_GUARD = make_creature(
+def helms_deep_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_create_token(obj, 1, 1, "Human Soldier", colors={Color.WHITE}, keywords=[])
+    return [itc]
+
+HELM_S_DEEP_GUARD = _make_creature(
     name="Helm's Deep Guard",
     power=0, toughness=5,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    abilities=[
-        KeywordAbility(keyword="Defender"),
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name="Human Soldier", power=1, toughness=1, colors={"W"}, subtypes={"Human", "Soldier"})
-        )
-    ]
+    keywords=["defender"],
+    text="Defender. When Helm's Deep Guard enters the battlefield, create a 1/1 white Human Soldier creature token.",
+    setup_interceptors=helms_deep_guard_setup,
 )
 
 
@@ -572,16 +609,16 @@ DAWN_OF_HOPE = make_sorcery(
 
 # --- Enchantments ---
 
+def banner_of_gondor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Human", include_self=True)
+    return interceptors
+
 BANNER_OF_GONDOR = make_enchantment(
     name="Banner of Gondor",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Human")
-        )
-    ]
+    text="Human creatures you control get +1/+1.",
+    setup_interceptors=banner_of_gondor_setup,
 )
 
 
@@ -648,16 +685,15 @@ ELROND_LORD_OF_RIVENDELL = make_creature(
 )
 
 
-ARWEN_EVENSTAR = make_creature(
+ARWEN_EVENSTAR = _make_creature(
     name="Arwen, Evenstar",
     power=2, toughness=3,
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Elf", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Lifelink")
-    ]
+    keywords=["lifelink"],
+    text="Lifelink",
 )
 
 
@@ -679,6 +715,10 @@ LEGOLAS_PRINCE_OF_MIRKWOOD = make_creature(
 )
 
 
+def celeborn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Elf", include_self=False)
+    return interceptors
+
 CELEBORN_LORD_OF_LORIEN = make_creature(
     name="Celeborn, Lord of Lorien",
     power=2, toughness=4,
@@ -686,29 +726,21 @@ CELEBORN_LORD_OF_LORIEN = make_creature(
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Elf", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Elf", include_self=False)
-        )
-    ]
+    text="Other Elf creatures you control get +1/+1.",
+    setup_interceptors=celeborn_setup,
 )
 
 
 # --- Regular Creatures ---
 
+# STUB: ETB Scry(1) — Scry not implemented; text preserved, no interceptor
 LORIEN_SENTINEL = make_creature(
     name="Lorien Sentinel",
     power=2, toughness=2,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Elf", "Scout"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=Scry(1)
-        )
-    ]
+    text="When Lorien Sentinel enters the battlefield, scry 1.",
 )
 
 
@@ -721,30 +753,25 @@ RIVENDELL_SCHOLAR = make_creature(
 )
 
 
-MIRKWOOD_ARCHER = make_creature(
+MIRKWOOD_ARCHER = _make_creature(
     name="Mirkwood Archer",
     power=2, toughness=1,
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Elf", "Archer"},
-    abilities=[
-        KeywordAbility(keyword="Reach")
-    ]
+    keywords=["reach"],
+    text="Reach",
 )
 
 
+# STUB: ETB Scry(2) — Scry not implemented; text preserved, no interceptor
 GREY_HAVENS_NAVIGATOR = make_creature(
     name="Grey Havens Navigator",
     power=1, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Elf", "Sailor"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=Scry(2)
-        )
-    ]
+    text="When Grey Havens Navigator enters the battlefield, scry 2.",
 )
 
 
@@ -766,30 +793,29 @@ SILVAN_TRACKER = make_creature(
 )
 
 
+def noldor_loremaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_draw(obj, 2)
+    return [itc]
+
 NOLDOR_LOREMASTER = make_creature(
     name="Noldor Loremaster",
     power=2, toughness=3,
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Elf", "Wizard"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DrawCards(2)
-        )
-    ]
+    text="When Noldor Loremaster enters the battlefield, draw two cards.",
+    setup_interceptors=noldor_loremaster_setup,
 )
 
 
-IMLADRIS_GUARDIAN = make_creature(
+IMLADRIS_GUARDIAN = _make_creature(
     name="Imladris Guardian",
     power=1, toughness=4,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Elf", "Soldier"},
-    abilities=[
-        KeywordAbility(keyword="Flash")
-    ]
+    keywords=["flash"],
+    text="Flash",
 )
 
 
@@ -915,34 +941,33 @@ ELVEN_SANCTUARY = make_enchantment(
 
 # --- Legendary Creatures ---
 
-SAURON_THE_DARK_LORD = make_creature(
+def sauron_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import opponent_creatures_filter
+    interceptors = make_static_pt_boost(obj, -1, -1, opponent_creatures_filter(obj))
+    return interceptors
+
+SAURON_THE_DARK_LORD = _make_creature(
     name="Sauron, the Dark Lord",
     power=7, toughness=7,
     mana_cost="{4}{B}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Avatar", "Horror"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Menace"),
-        KeywordAbility(keyword="Trample"),
-        StaticAbility(
-            effect=PTBoost(-1, -1),
-            filter=OpponentCreaturesFilter()
-        )
-    ]
+    keywords=["menace", "trample"],
+    text="Menace, trample. Creatures your opponents control get -1/-1.",
+    setup_interceptors=sauron_setup,
 )
 
 
-WITCH_KING_OF_ANGMAR = make_creature(
+WITCH_KING_OF_ANGMAR = _make_creature(
     name="Witch-king of Angmar",
     power=5, toughness=4,
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Wraith", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Flying")
-    ]
+    keywords=["flying"],
+    text="Flying",
 )
 
 
@@ -968,20 +993,16 @@ SARUMAN_THE_WHITE = make_creature(
 )
 
 
-MOUTH_OF_SAURON = make_creature(
+# STUB: ETB DiscardCards — targeted discard not implemented; keyword migrated, text preserved
+MOUTH_OF_SAURON = _make_creature(
     name="Mouth of Sauron",
     power=3, toughness=3,
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Advisor"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Menace"),
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DiscardCards(1, target=EachOpponentTarget())
-        )
-    ]
+    keywords=["menace"],
+    text="Menace. When Mouth of Sauron enters the battlefield, each opponent discards a card.",
 )
 
 
@@ -1022,15 +1043,14 @@ NAZGUL = make_creature(
 )
 
 
-ORC_WARRIOR = make_creature(
+ORC_WARRIOR = _make_creature(
     name="Orc Warrior",
     power=2, toughness=1,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Orc", "Warrior"},
-    abilities=[
-        KeywordAbility(keyword="Menace")
-    ]
+    keywords=["menace"],
+    text="Menace",
 )
 
 
@@ -1043,29 +1063,41 @@ URUK_HAI_BERSERKER = make_creature(
 )
 
 
-MORDOR_SIEGE_TOWER = make_creature(
+MORDOR_SIEGE_TOWER = _make_creature(
     name="Mordor Siege Engine",
     power=4, toughness=4,
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     subtypes={"Construct"},
-    abilities=[
-        KeywordAbility(keyword="Trample")
-    ]
+    keywords=["trample"],
+    text="Trample",
 )
 
 
-HARADRIM_ASSASSIN = make_creature(
+HARADRIM_ASSASSIN = _make_creature(
     name="Haradrim Assassin",
     power=2, toughness=1,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Assassin"},
-    abilities=[
-        KeywordAbility(keyword="Deathtouch")
-    ]
+    keywords=["deathtouch"],
+    text="Deathtouch",
 )
 
+
+def moria_orc_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True, 'name': 'Orc',
+                'power': 1, 'toughness': 1,
+                'colors': {Color.BLACK}, 'subtypes': {'Orc', 'Soldier'},
+                'keywords': [], 'controller': obj.controller,
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_death_trigger(obj, effect_fn)]
 
 MORIA_ORC = make_creature(
     name="Moria Orc",
@@ -1073,14 +1105,26 @@ MORIA_ORC = make_creature(
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Orc", "Soldier"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=CreateToken(name="Orc", power=1, toughness=1, colors={"B"}, subtypes={"Orc", "Soldier"})
-        )
-    ]
+    text="When Moria Orc dies, create a 1/1 black Orc Soldier creature token.",
+    setup_interceptors=moria_orc_setup,
 )
 
+
+def corsair_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        events = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 CORSAIR_OF_UMBAR = make_creature(
     name="Corsair of Umbar",
@@ -1088,17 +1132,19 @@ CORSAIR_OF_UMBAR = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Pirate"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CompositeEffect([
-                LoseLife(2, target=EachOpponentTarget()),
-                GainLife(2)
-            ])
-        )
-    ]
+    text="When Corsair of Umbar enters the battlefield, each opponent loses 2 life and you gain 2 life.",
+    setup_interceptors=corsair_setup,
 )
 
+
+def easterling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp_id, 'amount': -1},
+            source=obj.id, controller=obj.controller,
+        ) for opp_id in all_opponents(obj, state)]
+    return [make_death_trigger(obj, effect_fn)]
 
 EASTERLING_SOLDIER = make_creature(
     name="Easterling Soldier",
@@ -1106,14 +1152,14 @@ EASTERLING_SOLDIER = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Soldier"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=LoseLife(1, target=EachOpponentTarget())
-        )
-    ]
+    text="When Easterling Soldier dies, each opponent loses 1 life.",
+    setup_interceptors=easterling_setup,
 )
 
+
+def orc_chieftain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _txt = static_pt_boost_by_subtype(obj, 1, 0, "Orc", include_self=False)
+    return interceptors
 
 ORC_CHIEFTAIN = make_creature(
     name="Orc Chieftain",
@@ -1121,12 +1167,8 @@ ORC_CHIEFTAIN = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Orc", "Warrior"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 0),
-            filter=CreaturesWithSubtypeFilter(subtype="Orc", include_self=False)
-        )
-    ]
+    text="Other Orc creatures you control get +1/+0.",
+    setup_interceptors=orc_chieftain_setup,
 )
 
 
@@ -1139,16 +1181,14 @@ MORGUL_KNIGHT = make_creature(
 )
 
 
-SHELOB_SPAWN = make_creature(
+SHELOB_SPAWN = _make_creature(
     name="Spawn of Shelob",
     power=2, toughness=3,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Spider"},
-    abilities=[
-        KeywordAbility(keyword="Reach"),
-        KeywordAbility(keyword="Deathtouch")
-    ]
+    keywords=["reach", "deathtouch"],
+    text="Reach, deathtouch",
 )
 
 
@@ -1282,22 +1322,26 @@ GIMLI_SON_OF_GLOIN = make_creature(
 )
 
 
-THORIN_OAKENSHIELD = make_creature(
+def thorin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Dwarf", include_self=False)
+    return interceptors
+
+THORIN_OAKENSHIELD = _make_creature(
     name="Thorin Oakenshield",
     power=4, toughness=3,
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Dwarf", "Noble", "Warrior"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Haste"),
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Dwarf", include_self=False)
-        )
-    ]
+    keywords=["haste"],
+    text="Haste. Other Dwarf creatures you control get +1/+1.",
+    setup_interceptors=thorin_setup,
 )
 
+
+def dain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc = make_keyword_grant(obj, ["haste"], creatures_with_subtype(obj, "Dwarf"))
+    return [itc]
 
 DAIN_IRONFOOT = make_creature(
     name="Dain Ironfoot",
@@ -1306,12 +1350,8 @@ DAIN_IRONFOOT = make_creature(
     colors={Color.RED},
     subtypes={"Dwarf", "Noble", "Warrior"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=KeywordGrant(["haste"]),
-            filter=CreaturesWithSubtypeFilter(subtype="Dwarf")
-        )
-    ]
+    text="Dwarf creatures you control have haste.",
+    setup_interceptors=dain_setup,
 )
 
 
@@ -1345,29 +1385,31 @@ BALROG_OF_MORIA = make_creature(
 
 # --- Regular Creatures ---
 
-IRON_HILLS_WARRIOR = make_creature(
+IRON_HILLS_WARRIOR = _make_creature(
     name="Iron Hills Warrior",
     power=2, toughness=2,
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Dwarf", "Warrior"},
-    abilities=[
-        KeywordAbility(keyword="Haste")
-    ]
+    keywords=["haste"],
+    text="Haste",
 )
 
 
-DWARF_BERSERKER = make_creature(
+DWARF_BERSERKER = _make_creature(
     name="Dwarf Berserker",
     power=3, toughness=1,
     mana_cost="{R}{R}",
     colors={Color.RED},
     subtypes={"Dwarf", "Berserker"},
-    abilities=[
-        KeywordAbility(keyword="Haste")
-    ]
+    keywords=["haste"],
+    text="Haste",
 )
 
+
+def erebor_smith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_create_token(obj, 0, 0, "Treasure", keywords=[])
+    return [itc]
 
 EREBOR_SMITH = make_creature(
     name="Erebor Smith",
@@ -1375,14 +1417,24 @@ EREBOR_SMITH = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Dwarf", "Artificer"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name="Treasure", power=0, toughness=0, subtypes={"Treasure"})
-        )
-    ]
+    text="When Erebor Smith enters the battlefield, create a Treasure token.",
+    setup_interceptors=erebor_smith_setup,
 )
 
+
+def dwarf_miner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True, 'name': 'Treasure',
+                'power': 0, 'toughness': 0,
+                'colors': set(), 'subtypes': {'Treasure'},
+                'keywords': [], 'controller': obj.controller,
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_attack_trigger(obj, effect_fn)]
 
 DWARF_MINER = make_creature(
     name="Dwarf Miner",
@@ -1390,60 +1442,52 @@ DWARF_MINER = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Dwarf", "Citizen"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=CreateToken(name="Treasure", power=0, toughness=0, subtypes={"Treasure"})
-        )
-    ]
+    text="Whenever Dwarf Miner attacks, create a Treasure token.",
+    setup_interceptors=dwarf_miner_setup,
 )
 
 
-MOUNTAIN_GUARD = make_creature(
+MOUNTAIN_GUARD = _make_creature(
     name="Mountain Guard",
     power=2, toughness=3,
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Dwarf", "Soldier"},
-    abilities=[
-        KeywordAbility(keyword="First strike")
-    ]
+    keywords=["first strike"],
+    text="First strike",
 )
 
 
-CAVE_TROLL = make_creature(
+CAVE_TROLL = _make_creature(
     name="Cave Troll",
     power=5, toughness=4,
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Troll"},
-    abilities=[
-        KeywordAbility(keyword="Trample")
-    ]
+    keywords=["trample"],
+    text="Trample",
 )
 
 
-WARG_RIDER = make_creature(
+WARG_RIDER = _make_creature(
     name="Warg Rider",
     power=3, toughness=2,
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Orc", "Knight"},
-    abilities=[
-        KeywordAbility(keyword="Haste")
-    ]
+    keywords=["haste"],
+    text="Haste",
 )
 
 
-DRAGON_OF_THE_NORTH = make_creature(
+DRAGON_OF_THE_NORTH = _make_creature(
     name="Dragon of the North",
     power=5, toughness=4,
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
     subtypes={"Dragon"},
-    abilities=[
-        KeywordAbility(keyword="Flying")
-    ]
+    keywords=["flying"],
+    text="Flying",
 )
 
 
@@ -1456,27 +1500,25 @@ KHAZAD_DUM_VETERAN = make_creature(
 )
 
 
-FIRE_DRAKE = make_creature(
+FIRE_DRAKE = _make_creature(
     name="Fire Drake",
     power=2, toughness=2,
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Drake"},
-    abilities=[
-        KeywordAbility(keyword="Flying")
-    ]
+    keywords=["flying"],
+    text="Flying",
 )
 
 
-MORIA_GOBLIN = make_creature(
+MORIA_GOBLIN = _make_creature(
     name="Moria Goblin",
     power=1, toughness=1,
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Goblin"},
-    abilities=[
-        KeywordAbility(keyword="Haste")
-    ]
+    keywords=["haste"],
+    text="Haste",
 )
 
 
@@ -1556,16 +1598,16 @@ MINES_OF_MORIA = make_sorcery(
 
 # --- Enchantments ---
 
+def forge_of_erebor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _txt = static_pt_boost_by_subtype(obj, 1, 0, "Dwarf", include_self=True)
+    return interceptors
+
 FORGE_OF_EREBOR = make_enchantment(
     name="Forge of Erebor",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 0),
-            filter=CreaturesWithSubtypeFilter(subtype="Dwarf")
-        )
-    ]
+    text="Dwarf creatures you control get +1/+0.",
+    setup_interceptors=forge_of_erebor_setup,
 )
 
 
@@ -1617,6 +1659,10 @@ SAMWISE_THE_BRAVE = make_creature(
 )
 
 
+def merry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Hobbit", include_self=False)
+    return interceptors
+
 MERRY_BRANDYBUCK = make_creature(
     name="Merry, Esquire of Rohan",
     power=2, toughness=2,
@@ -1624,14 +1670,14 @@ MERRY_BRANDYBUCK = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Hobbit", "Knight"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Hobbit", include_self=False)
-        )
-    ]
+    text="Other Hobbit creatures you control get +1/+1.",
+    setup_interceptors=merry_setup,
 )
 
+
+def pippin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_draw(obj, 1)
+    return [itc]
 
 PIPPIN_GUARD_OF_THE_CITADEL = make_creature(
     name="Pippin, Guard of the Citadel",
@@ -1640,32 +1686,31 @@ PIPPIN_GUARD_OF_THE_CITADEL = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Hobbit", "Soldier"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DrawCards(1)
-        )
-    ]
+    text="When Pippin, Guard of the Citadel enters the battlefield, draw a card.",
+    setup_interceptors=pippin_setup,
 )
 
 
-TREEBEARD_ELDEST_OF_ENTS = make_creature(
+def treebeard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _txt = static_pt_boost_by_subtype(obj, 2, 2, "Treefolk", include_self=False)
+    return interceptors
+
+TREEBEARD_ELDEST_OF_ENTS = _make_creature(
     name="Treebeard, Eldest of Ents",
     power=5, toughness=7,
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Reach"),
-        KeywordAbility(keyword="Vigilance"),
-        StaticAbility(
-            effect=PTBoost(2, 2),
-            filter=CreaturesWithSubtypeFilter(subtype="Treefolk", include_self=False)
-        )
-    ]
+    keywords=["reach", "vigilance"],
+    text="Reach, vigilance. Other Treefolk creatures you control get +2/+2.",
+    setup_interceptors=treebeard_setup,
 )
 
+
+def tom_bombadil_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_gain_life(obj, 4)
+    return [itc]
 
 TOM_BOMBADIL = make_creature(
     name="Tom Bombadil",
@@ -1674,16 +1719,16 @@ TOM_BOMBADIL = make_creature(
     colors={Color.GREEN},
     subtypes={"God"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(4)
-        )
-    ]
+    text="When Tom Bombadil enters the battlefield, you gain 4 life.",
+    setup_interceptors=tom_bombadil_setup,
 )
 
 
 # --- Regular Creatures ---
+
+def shire_hobbit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_create_token(obj, 0, 0, "Food", keywords=[])
+    return [itc]
 
 SHIRE_HOBBIT = make_creature(
     name="Shire Hobbit",
@@ -1691,25 +1736,19 @@ SHIRE_HOBBIT = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Hobbit", "Citizen"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name="Food", power=0, toughness=0, subtypes={"Food"})
-        )
-    ]
+    text="When Shire Hobbit enters the battlefield, create a Food token.",
+    setup_interceptors=shire_hobbit_setup,
 )
 
 
-ENT_SAPLING = make_creature(
+ENT_SAPLING = _make_creature(
     name="Ent Sapling",
     power=0, toughness=3,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk"},
-    abilities=[
-        KeywordAbility(keyword="Defender"),
-        KeywordAbility(keyword="Reach")
-    ]
+    keywords=["defender", "reach"],
+    text="Defender, reach",
 )
 
 
@@ -1722,66 +1761,60 @@ HOBBITON_GARDENER = make_creature(
 )
 
 
-FANGORN_GUARDIAN = make_creature(
+FANGORN_GUARDIAN = _make_creature(
     name="Fangorn Guardian",
     power=4, toughness=6,
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk"},
-    abilities=[
-        KeywordAbility(keyword="Reach"),
-        KeywordAbility(keyword="Trample")
-    ]
+    keywords=["reach", "trample"],
+    text="Reach, trample",
 )
 
 
-GREAT_EAGLE = make_creature(
+GREAT_EAGLE = _make_creature(
     name="Great Eagle",
     power=3, toughness=3,
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Bird"},
-    abilities=[
-        KeywordAbility(keyword="Flying")
-    ]
+    keywords=["flying"],
+    text="Flying",
 )
 
 
-GWAIHIR_WIND_LORD = make_creature(
+GWAIHIR_WIND_LORD = _make_creature(
     name="Gwaihir, Wind Lord",
     power=4, toughness=4,
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Bird"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Flying")
-    ]
+    keywords=["flying"],
+    text="Flying",
 )
 
 
-OLD_MAN_WILLOW = make_creature(
+OLD_MAN_WILLOW = _make_creature(
     name="Old Man Willow",
     power=3, toughness=5,
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk"},
-    abilities=[
-        KeywordAbility(keyword="Reach")
-    ]
+    keywords=["reach"],
+    text="Reach",
 )
 
 
-QUICKBEAM = make_creature(
+QUICKBEAM = _make_creature(
     name="Quickbeam, Bregalad",
     power=3, toughness=4,
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Haste")
-    ]
+    keywords=["haste"],
+    text="Haste",
 )
 
 
@@ -1794,27 +1827,25 @@ BUCKLAND_SHIRRIFF = make_creature(
 )
 
 
-OLIPHAUNT = make_creature(
+OLIPHAUNT = _make_creature(
     name="Oliphaunt",
     power=6, toughness=6,
     mana_cost="{5}{G}",
     colors={Color.GREEN},
     subtypes={"Elephant"},
-    abilities=[
-        KeywordAbility(keyword="Trample")
-    ]
+    keywords=["trample"],
+    text="Trample",
 )
 
 
-RADAGAST_S_COMPANION = make_creature(
+RADAGAST_S_COMPANION = _make_creature(
     name="Radagast's Companion",
     power=2, toughness=2,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Bird"},
-    abilities=[
-        KeywordAbility(keyword="Flying")
-    ]
+    keywords=["flying"],
+    text="Flying",
 )
 
 
@@ -1903,16 +1934,16 @@ ISENGARD_UNLEASHED = make_sorcery(
 
 # --- Enchantments ---
 
+def party_tree_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Hobbit", include_self=True)
+    return interceptors
+
 PARTY_TREE = make_enchantment(
     name="The Party Tree",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Hobbit")
-        )
-    ]
+    text="Hobbit creatures you control get +1/+1.",
+    setup_interceptors=party_tree_setup,
 )
 
 
@@ -1936,37 +1967,37 @@ SECOND_BREAKFAST = make_enchantment(
 
 # --- Legendary Creatures ---
 
-GANDALF_THE_GREY = make_creature(
+def gandalf_grey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_draw(obj, 2)
+    return [itc]
+
+GANDALF_THE_GREY = _make_creature(
     name="Gandalf the Grey",
     power=3, toughness=4,
     mana_cost="{2}{U}{R}",
     colors={Color.BLUE, Color.RED},
     subtypes={"Avatar", "Wizard"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Flash"),
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DrawCards(2)
-        )
-    ]
+    keywords=["flash"],
+    text="Flash. When Gandalf the Grey enters the battlefield, draw two cards.",
+    setup_interceptors=gandalf_grey_setup,
 )
 
 
-GANDALF_THE_WHITE = make_creature(
+def gandalf_white_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _txt = static_pt_boost_all_you_control(obj, 1, 1)
+    return interceptors
+
+GANDALF_THE_WHITE = _make_creature(
     name="Gandalf the White",
     power=4, toughness=5,
     mana_cost="{3}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Avatar", "Wizard"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Vigilance"),
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesYouControlFilter()
-        )
-    ]
+    keywords=["vigilance"],
+    text="Vigilance. Creatures you control get +1/+1.",
+    setup_interceptors=gandalf_white_setup,
 )
 
 
@@ -1991,6 +2022,16 @@ SHELOB_CHILD_OF_UNGOLIANT = make_creature(
 )
 
 
+def elrond_arwen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3},
+                  source=obj.id, controller=obj.controller),
+            Event(type=EventType.DRAW, payload={'player': obj.controller},
+                  source=obj.id, controller=obj.controller),
+        ]
+    return [make_etb_trigger(obj, effect_fn)]
+
 ELROND_AND_ARWEN = make_creature(
     name="Elrond and Arwen, United",
     power=4, toughness=4,
@@ -1998,33 +2039,35 @@ ELROND_AND_ARWEN = make_creature(
     colors={Color.WHITE, Color.BLUE, Color.GREEN},
     subtypes={"Elf", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CompositeEffect([
-                GainLife(3),
-                DrawCards(1)
-            ])
-        )
-    ]
+    text="When Elrond and Arwen, United enters the battlefield, you gain 3 life and draw a card.",
+    setup_interceptors=elrond_arwen_setup,
 )
 
 
-ARAGORN_AND_ARWEN = make_creature(
+def aragorn_arwen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True, 'name': 'Human Soldier',
+                'power': 2, 'toughness': 2,
+                'colors': {Color.WHITE}, 'subtypes': {'Human', 'Soldier'},
+                'keywords': [], 'controller': obj.controller,
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_attack_trigger(obj, effect_fn)]
+
+ARAGORN_AND_ARWEN = _make_creature(
     name="Aragorn and Arwen, Reunited",
     power=5, toughness=5,
     mana_cost="{3}{W}{G}",
     colors={Color.WHITE, Color.GREEN},
     subtypes={"Human", "Elf", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        KeywordAbility(keyword="Vigilance"),
-        KeywordAbility(keyword="Lifelink"),
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=CreateToken(name="Human Soldier", power=2, toughness=2, colors={"W"}, subtypes={"Human", "Soldier"})
-        )
-    ]
+    keywords=["vigilance", "lifelink"],
+    text="Vigilance, lifelink. Whenever Aragorn and Arwen, Reunited attacks, create a 2/2 white Human Soldier creature token.",
+    setup_interceptors=aragorn_arwen_setup,
 )
 
 
@@ -2043,13 +2086,17 @@ def one_ring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         ]
     return [make_upkeep_trigger(obj, upkeep_effect)]
 
-THE_ONE_RING = make_equipment(
+THE_ONE_RING = CardDefinition(
     name="The One Ring",
     mana_cost="{4}",
-    equip_cost="{2}",
-    subtypes={"Ring"},
-    supertypes={"Legendary"},
-    abilities=[one_ring_setup]  # Pass as list of setup functions
+    characteristics=Characteristics(
+        types={CardType.ARTIFACT},
+        subtypes={"Ring", "Equipment"},
+        supertypes={"Legendary"},
+        mana_cost="{4}",
+    ),
+    text="At the beginning of your upkeep, put a corruption counter on The One Ring, then lose life equal to the number of corruption counters on it.",
+    setup_interceptors=one_ring_setup,
 )
 
 

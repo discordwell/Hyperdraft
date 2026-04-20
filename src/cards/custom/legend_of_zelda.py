@@ -12,15 +12,19 @@ from src.engine import (
     Characteristics, ObjectState, CardDefinition,
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness,
-    # New ability system imports
-    TriggeredAbility, StaticAbility, KeywordAbility,
-    ETBTrigger, DeathTrigger, AttackTrigger, DealsDamageTrigger,
-    UpkeepTrigger, SpellCastTrigger, DrawTrigger,
-    GainLife, LoseLife, DrawCards, DealDamage, AddCounters, CompositeEffect,
-    DiscardCards, Scry, CreateToken,
-    PTBoost, KeywordGrant,
-    OtherCreaturesYouControlFilter, CreaturesWithSubtypeFilter, CreaturesYouControlFilter,
-    EachOpponentTarget,
+)
+from src.cards.interceptor_helpers import (
+    make_etb_trigger, make_death_trigger, make_attack_trigger,
+    make_damage_trigger, make_static_pt_boost, make_keyword_grant,
+    make_upkeep_trigger, make_draw_trigger, make_spell_cast_trigger,
+    other_creatures_you_control, other_creatures_with_subtype,
+    creatures_with_subtype, creatures_you_control, all_opponents,
+)
+from src.cards.ability_bundles import (
+    etb_gain_life, etb_draw, etb_deal_damage, etb_create_token,
+    attack_deal_damage, death_drain,
+    static_pt_boost_other_you_control, static_pt_boost_by_subtype,
+    static_keyword_grant_others, upkeep_gain_life, spell_cast_draw,
 )
 from typing import Optional, Callable
 
@@ -45,7 +49,7 @@ def make_sorcery(name: str, mana_cost: str, colors: set, text: str, subtypes: se
     )
 
 
-def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, abilities: list = None):
+def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
     return CardDefinition(
         name=name,
         mana_cost=mana_cost,
@@ -56,12 +60,12 @@ def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, su
             mana_cost=mana_cost
         ),
         text=text,
-        abilities=abilities
+        setup_interceptors=setup_interceptors
     )
 
 
 def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str, colors: set, text: str,
-                           subtypes: set = None, supertypes: set = None, abilities: list = None):
+                           subtypes: set = None, supertypes: set = None, setup_interceptors=None):
     return CardDefinition(
         name=name,
         mana_cost=mana_cost,
@@ -75,11 +79,11 @@ def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str
             toughness=toughness
         ),
         text=text,
-        abilities=abilities
+        setup_interceptors=setup_interceptors
     )
 
 
-def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, supertypes: set = None, abilities: list = None):
+def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
     base_subtypes = {"Equipment"}
     if subtypes:
         base_subtypes.update(subtypes)
@@ -93,7 +97,7 @@ def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtyp
             mana_cost=mana_cost
         ),
         text=f"{text}\nEquip {equip_cost}",
-        abilities=abilities
+        setup_interceptors=setup_interceptors
     )
 
 
@@ -225,11 +229,21 @@ def make_triforce_bonus(source_obj: GameObject, power_bonus: int, toughness_bonu
     return interceptors
 
 
-def make_heart_container_ability(life_amount: int) -> TriggeredAbility:
+def make_heart_container_setup(life_amount: int):
     """Heart Container - When this permanent enters, you gain N life."""
-    return TriggeredAbility(
-        trigger=ETBTrigger(),
-        effect=GainLife(life_amount)
+    def setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        itc, _ = etb_gain_life(obj, life_amount)
+        return [itc]
+    return setup
+
+
+# STUB helper: Scry N emits an ACTIVATE placeholder event (proper scry requires player choice UI).
+def _make_scry_event(obj: GameObject, amount: int) -> Event:
+    return Event(
+        type=EventType.ACTIVATE,
+        payload={'action': 'scry', 'amount': amount, 'player': obj.controller},
+        source=obj.id,
+        controller=obj.controller,
     )
 
 
@@ -239,7 +253,6 @@ def _triforce_and_etb_setup(triforce_power: int, triforce_toughness: int, trifor
     def setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         interceptors = []
         interceptors.extend(make_triforce_bonus(obj, triforce_power, triforce_toughness, triforce_required))
-        # ETB effect handled by abilities system
         return interceptors
     return setup
 
@@ -264,6 +277,11 @@ def _dungeon_setup(room_count: int, effect_fn):
 
 # --- Legendary Creatures ---
 
+def _zelda_princess_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    triforce_itcs = make_triforce_bonus(obj, 2, 2, 2)
+    etb_itc, _ = etb_gain_life(obj, 3)
+    return triforce_itcs + [etb_itc]
+
 ZELDA_PRINCESS_OF_HYRULE = make_creature(
     name="Zelda, Princess of Hyrule",
     power=2, toughness=4,
@@ -271,10 +289,8 @@ ZELDA_PRINCESS_OF_HYRULE = make_creature(
     colors={Color.WHITE},
     subtypes={"Hylian", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=ETBTrigger(), effect=GainLife(3))
-    ],
-    setup_interceptors=_triforce_setup(2, 2, 2)
+    text="When Zelda, Princess of Hyrule enters, you gain 3 life. As long as you control two or more artifacts named Triforce, Zelda gets +2/+2.",
+    setup_interceptors=_zelda_princess_setup
 )
 
 
@@ -285,9 +301,8 @@ ZELDA_WIELDER_OF_WISDOM = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Hylian", "Noble", "Wizard"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=SpellCastTrigger(controller_only=True), effect=DrawCards(1))
-    ]
+    text="Whenever you cast a spell, draw a card.",
+    setup_interceptors=lambda o, s: [spell_cast_draw(o, 1)[0]]
 )
 
 
@@ -298,12 +313,8 @@ IMPA_SHEIKAH_GUARDIAN = make_creature(
     colors={Color.WHITE},
     subtypes={"Sheikah", "Warrior"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=KeywordGrant(['hexproof']),
-            filter=CreaturesWithSubtypeFilter("Sheikah", include_self=False)
-        )
-    ]
+    text="Other Sheikah creatures you control have hexproof.",
+    setup_interceptors=lambda o, s: [make_keyword_grant(o, ['hexproof'], other_creatures_with_subtype(o, "Sheikah"))]
 )
 
 
@@ -314,9 +325,8 @@ RAURU_SAGE_OF_LIGHT = make_creature(
     colors={Color.WHITE},
     subtypes={"Spirit", "Cleric"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=UpkeepTrigger(), effect=GainLife(2))
-    ]
+    text="At the beginning of your upkeep, you gain 2 life.",
+    setup_interceptors=lambda o, s: [upkeep_gain_life(o, 2)[0]]
 )
 
 
@@ -327,9 +337,8 @@ HYLIA_GODDESS_OF_LIGHT = make_creature(
     colors={Color.WHITE},
     subtypes={"God"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(effect=PTBoost(1, 1), filter=OtherCreaturesYouControlFilter())
-    ]
+    text="Other creatures you control get +1/+1.",
+    setup_interceptors=lambda o, s: static_pt_boost_other_you_control(o, 1, 1)[0]
 )
 
 
@@ -341,9 +350,8 @@ SHEIKAH_WARRIOR = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Sheikah", "Warrior"},
-    abilities=[
-        TriggeredAbility(trigger=ETBTrigger(), effect=GainLife(2))
-    ]
+    text="When Sheikah Warrior enters, you gain 2 life.",
+    setup_interceptors=lambda o, s: [etb_gain_life(o, 2)[0]]
 )
 
 
@@ -362,9 +370,8 @@ TEMPLE_GUARDIAN = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit", "Soldier"},
-    abilities=[
-        make_heart_container_ability(3)
-    ]
+    text="When Temple Guardian enters, you gain 3 life.",
+    setup_interceptors=make_heart_container_setup(3)
 )
 
 
@@ -401,9 +408,9 @@ SHEIKAH_SCOUT = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Sheikah", "Scout"},
-    abilities=[
-        TriggeredAbility(trigger=ETBTrigger(), effect=Scry(2))
-    ]
+    text="When Sheikah Scout enters, scry 2.",
+    # STUB: Scry requires player choice — emits ACTIVATE placeholder
+    setup_interceptors=lambda o, s: [make_etb_trigger(o, lambda e, st: [_make_scry_event(o, 2)])]
 )
 
 
@@ -495,9 +502,8 @@ MIPHA_ZORA_CHAMPION = make_creature(
     colors={Color.BLUE},
     subtypes={"Zora", "Champion"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=UpkeepTrigger(), effect=GainLife(2))
-    ]
+    text="At the beginning of your upkeep, you gain 2 life.",
+    setup_interceptors=lambda o, s: [upkeep_gain_life(o, 2)[0]]
 )
 
 
@@ -508,12 +514,8 @@ RUTO_ZORA_PRINCESS = make_creature(
     colors={Color.BLUE},
     subtypes={"Zora", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Zora", include_self=False)
-        )
-    ]
+    text="Other Zora creatures you control get +1/+1.",
+    setup_interceptors=lambda o, s: static_pt_boost_by_subtype(o, 1, 1, "Zora", include_self=False)[0]
 )
 
 
@@ -524,9 +526,8 @@ KING_ZORA = make_creature(
     colors={Color.BLUE},
     subtypes={"Zora", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=ETBTrigger(), effect=DrawCards(2))
-    ]
+    text="When King Zora, Domain Ruler enters, draw two cards.",
+    setup_interceptors=lambda o, s: [etb_draw(o, 2)[0]]
 )
 
 
@@ -537,9 +538,9 @@ NAYRU_ORACLE_OF_WISDOM = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=DrawTrigger(), effect=Scry(1))
-    ]
+    text="Whenever you draw a card, scry 1.",
+    # STUB: Scry requires player choice — emits ACTIVATE placeholder
+    setup_interceptors=lambda o, s: [make_draw_trigger(o, lambda e, st: [_make_scry_event(o, 1)])]
 )
 
 
@@ -550,9 +551,8 @@ SIDON_ZORA_PRINCE = make_creature(
     colors={Color.BLUE},
     subtypes={"Zora", "Noble", "Warrior"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=AttackTrigger(), effect=DrawCards(1))
-    ]
+    text="Whenever Sidon, Zora Prince attacks, draw a card.",
+    setup_interceptors=lambda o, s: [make_attack_trigger(o, lambda e, st: [Event(type=EventType.DRAW, payload={'player': o.controller}, source=o.id, controller=o.controller)])]
 )
 
 
@@ -573,9 +573,8 @@ ZORA_SCHOLAR = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Wizard"},
-    abilities=[
-        TriggeredAbility(trigger=ETBTrigger(), effect=DrawCards(1))
-    ]
+    text="When Zora Scholar enters, draw a card.",
+    setup_interceptors=lambda o, s: [etb_draw(o, 1)[0]]
 )
 
 
@@ -648,9 +647,9 @@ ZORA_SAGE = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Wizard"},
-    abilities=[
-        TriggeredAbility(trigger=SpellCastTrigger(), effect=Scry(1))
-    ]
+    text="Whenever you cast a spell, scry 1.",
+    # STUB: Scry requires player choice — emits ACTIVATE placeholder
+    setup_interceptors=lambda o, s: [make_spell_cast_trigger(o, lambda e, st: [_make_scry_event(o, 1)])]
 )
 
 
@@ -699,6 +698,15 @@ COUNTER_MAGIC = make_instant(
 
 # --- Legendary Creatures ---
 
+def _ganondorf_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    triforce_itcs = make_triforce_bonus(obj, 3, 3, 1)
+    death_itc = make_death_trigger(obj, lambda e, st: [
+        Event(type=EventType.LIFE_CHANGE, payload={'player': opp_id, 'amount': -3},
+              source=obj.id, controller=obj.controller)
+        for opp_id in all_opponents(obj, st)
+    ])
+    return triforce_itcs + [death_itc]
+
 GANONDORF_KING_OF_EVIL = make_creature(
     name="Ganondorf, King of Evil",
     power=5, toughness=5,
@@ -706,13 +714,8 @@ GANONDORF_KING_OF_EVIL = make_creature(
     colors={Color.BLACK},
     subtypes={"Gerudo", "Warlock"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=LoseLife(3, target=EachOpponentTarget())
-        )
-    ],
-    setup_interceptors=_triforce_setup(3, 3, 1)
+    text="When Ganondorf, King of Evil dies, each opponent loses 3 life. As long as you control a Triforce artifact, Ganondorf gets +3/+3.",
+    setup_interceptors=_ganondorf_setup
 )
 
 
@@ -723,12 +726,11 @@ GANON_CALAMITY_INCARNATE = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon", "Beast"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=DiscardCards(1, target=EachOpponentTarget())
-        )
-    ]
+    text="Whenever Ganon, Calamity Incarnate attacks, each opponent discards a card.",
+    setup_interceptors=lambda o, s: [make_attack_trigger(o, lambda e, st: [
+        Event(type=EventType.DISCARD, payload={'player': opp_id, 'amount': 1}, source=o.id, controller=o.controller)
+        for opp_id in all_opponents(o, st)
+    ])]
 )
 
 
@@ -749,12 +751,10 @@ MIDNA_TWILIGHT_PRINCESS = make_creature(
     colors={Color.BLACK},
     subtypes={"Twili", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DealsDamageTrigger(combat_only=True, to_player=True),
-            effect=DrawCards(1)
-        )
-    ]
+    text="Whenever Midna, Twilight Princess deals combat damage to a player, draw a card.",
+    setup_interceptors=lambda o, s: [make_damage_trigger(o, lambda e, st: [
+        Event(type=EventType.DRAW, payload={'player': o.controller}, source=o.id, controller=o.controller)
+    ], combat_only=True)]
 )
 
 
@@ -765,12 +765,11 @@ VAATI_WIND_MAGE = make_creature(
     colors={Color.BLACK},
     subtypes={"Minish", "Warlock"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=LoseLife(1, target=EachOpponentTarget())
-        )
-    ]
+    text="At the beginning of your upkeep, each opponent loses 1 life.",
+    setup_interceptors=lambda o, s: [make_upkeep_trigger(o, lambda e, st: [
+        Event(type=EventType.LIFE_CHANGE, payload={'player': opp_id, 'amount': -1}, source=o.id, controller=o.controller)
+        for opp_id in all_opponents(o, st)
+    ])]
 )
 
 
@@ -782,12 +781,14 @@ SHADOW_BEAST = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Beast", "Shadow"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=CreateToken(name="Shadow", power=1, toughness=1, colors={'B'}, subtypes={'Shadow'})
-        )
-    ]
+    text="When Shadow Beast dies, create a 1/1 black Shadow creature token.",
+    setup_interceptors=lambda o, s: [make_death_trigger(o, lambda e, st: [
+        Event(type=EventType.OBJECT_CREATED, payload={
+            'token': True, 'name': 'Shadow', 'power': 1, 'toughness': 1,
+            'colors': {Color.BLACK}, 'subtypes': {'Shadow'}, 'keywords': [],
+            'controller': o.controller,
+        }, source=o.id, controller=o.controller)
+    ])]
 )
 
 
@@ -925,12 +926,11 @@ DARUK_GORON_CHAMPION = make_creature(
     colors={Color.RED},
     subtypes={"Goron", "Champion"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DealsDamageTrigger(combat_only=True, to_player=True),
-            effect=DealDamage(2, target=EachOpponentTarget())
-        )
-    ]
+    text="Whenever Daruk, Goron Champion deals combat damage to a player, it deals 2 damage to each opponent.",
+    setup_interceptors=lambda o, s: [make_damage_trigger(o, lambda e, st: [
+        Event(type=EventType.DAMAGE, payload={'target': opp_id, 'amount': 2, 'source': o.id}, source=o.id, controller=o.controller)
+        for opp_id in all_opponents(o, st)
+    ], combat_only=True)]
 )
 
 
@@ -941,12 +941,8 @@ DARUNIA_GORON_CHIEF = make_creature(
     colors={Color.RED},
     subtypes={"Goron", "Warrior"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Goron", include_self=False)
-        )
-    ]
+    text="Other Goron creatures you control get +1/+1.",
+    setup_interceptors=lambda o, s: static_pt_boost_by_subtype(o, 1, 1, "Goron", include_self=False)[0]
 )
 
 
@@ -957,12 +953,8 @@ DIN_ORACLE_OF_POWER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=DealDamage(2, target=EachOpponentTarget())
-        )
-    ]
+    text="Whenever Din, Oracle of Power attacks, it deals 2 damage to each opponent.",
+    setup_interceptors=lambda o, s: [attack_deal_damage(o, 2, target="each_opponent")[0]]
 )
 
 
@@ -983,12 +975,8 @@ YUNOBO_GORON_DESCENDANT = make_creature(
     colors={Color.RED},
     subtypes={"Goron", "Warrior"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DealDamage(3, target=EachOpponentTarget())
-        )
-    ]
+    text="When Yunobo, Goron Descendant enters, it deals 3 damage to each opponent.",
+    setup_interceptors=lambda o, s: [etb_deal_damage(o, 3, target="each_opponent")[0]]
 )
 
 
@@ -1166,12 +1154,8 @@ SARIA_FOREST_SAGE = make_creature(
     colors={Color.GREEN},
     subtypes={"Kokiri", "Druid"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Kokiri", include_self=False)
-        )
-    ]
+    text="Other Kokiri creatures you control get +1/+1.",
+    setup_interceptors=lambda o, s: static_pt_boost_by_subtype(o, 1, 1, "Kokiri", include_self=False)[0]
 )
 
 
@@ -1192,12 +1176,14 @@ GREAT_DEKU_TREE = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant", "Treefolk"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=CreateToken(name="Deku Sprout", power=1, toughness=1, colors={'G'}, subtypes={'Plant'})
-        )
-    ]
+    text="At the beginning of your upkeep, create a 1/1 green Plant creature token.",
+    setup_interceptors=lambda o, s: [make_upkeep_trigger(o, lambda e, st: [
+        Event(type=EventType.OBJECT_CREATED, payload={
+            'token': True, 'name': 'Deku Sprout', 'power': 1, 'toughness': 1,
+            'colors': {Color.GREEN}, 'subtypes': {'Plant'}, 'keywords': [],
+            'controller': o.controller,
+        }, source=o.id, controller=o.controller)
+    ])]
 )
 
 
@@ -1208,12 +1194,8 @@ FARORE_ORACLE_OF_COURAGE = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Druid"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name="Spirit", power=2, toughness=2, colors={'G'}, subtypes={'Spirit'})
-        )
-    ]
+    text="When Farore, Oracle of Courage enters, create a 2/2 green Spirit creature token.",
+    setup_interceptors=lambda o, s: [etb_create_token(o, 2, 2, "Spirit", colors={Color.GREEN})[0]]
 )
 
 
@@ -1359,12 +1341,8 @@ URBOSA_GERUDO_CHAMPION = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Gerudo", "Champion"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=DealDamage(2, target=EachOpponentTarget())
-        )
-    ]
+    text="Whenever Urbosa, Gerudo Champion attacks, it deals 2 damage to each opponent.",
+    setup_interceptors=lambda o, s: [attack_deal_damage(o, 2, target="each_opponent")[0]]
 )
 
 
@@ -1375,9 +1353,9 @@ FI_SWORD_SPIRIT = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Spirit"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=SpellCastTrigger(), effect=Scry(1))
-    ]
+    text="Whenever you cast a spell, scry 1.",
+    # STUB: Scry requires player choice — emits ACTIVATE placeholder
+    setup_interceptors=lambda o, s: [make_spell_cast_trigger(o, lambda e, st: [_make_scry_event(o, 1)])]
 )
 
 
@@ -1398,12 +1376,11 @@ SKULL_KID_MASKED_MENACE = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Spirit"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=DiscardCards(1, target=EachOpponentTarget(), random=True)
-        )
-    ]
+    text="At the beginning of your upkeep, each opponent discards a card at random.",
+    setup_interceptors=lambda o, s: [make_upkeep_trigger(o, lambda e, st: [
+        Event(type=EventType.DISCARD, payload={'player': opp_id, 'amount': 1, 'random': True}, source=o.id, controller=o.controller)
+        for opp_id in all_opponents(o, st)
+    ])]
 )
 
 
@@ -1414,12 +1391,14 @@ TETRA_PIRATE_PRINCESS = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Hylian", "Pirate"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DealsDamageTrigger(combat_only=True, to_player=True),
-            effect=CreateToken(name="Treasure", power=0, toughness=0, subtypes={'Treasure'})
-        )
-    ]
+    text="Whenever Tetra, Pirate Princess deals combat damage to a player, create a Treasure token.",
+    setup_interceptors=lambda o, s: [make_damage_trigger(o, lambda e, st: [
+        Event(type=EventType.OBJECT_CREATED, payload={
+            'token': True, 'name': 'Treasure', 'power': 0, 'toughness': 0,
+            'colors': set(), 'subtypes': {'Treasure'}, 'keywords': [],
+            'controller': o.controller,
+        }, source=o.id, controller=o.controller)
+    ], combat_only=True)]
 )
 
 
@@ -1480,9 +1459,7 @@ DIVINE_BEAST_VAH_RUTA = make_artifact(
     mana_cost="{5}",
     text="At the beginning of your upkeep, you gain 2 life. {3}, {T}: Return target creature to its owner's hand.",
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=UpkeepTrigger(), effect=GainLife(2))
-    ]
+    setup_interceptors=lambda o, s: [upkeep_gain_life(o, 2)[0]]
 )
 
 
@@ -1491,9 +1468,10 @@ DIVINE_BEAST_VAH_RUDANIA = make_artifact(
     mana_cost="{5}",
     text="At the beginning of your upkeep, Divine Beast Vah Rudania deals 2 damage to any target. {3}, {T}: It deals 3 damage to target creature.",
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=UpkeepTrigger(), effect=DealDamage(2, target=EachOpponentTarget()))
-    ]
+    setup_interceptors=lambda o, s: [make_upkeep_trigger(o, lambda e, st: [
+        Event(type=EventType.DAMAGE, payload={'target': opp_id, 'amount': 2, 'source': o.id}, source=o.id, controller=o.controller)
+        for opp_id in all_opponents(o, st)
+    ])]
 )
 
 
@@ -1502,9 +1480,8 @@ DIVINE_BEAST_VAH_MEDOH = make_artifact(
     mana_cost="{5}",
     text="At the beginning of your upkeep, scry 2. {3}, {T}: Target creature gains flying until end of turn.",
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=UpkeepTrigger(), effect=Scry(2))
-    ]
+    # STUB: Scry requires player choice — emits ACTIVATE placeholder
+    setup_interceptors=lambda o, s: [make_upkeep_trigger(o, lambda e, st: [_make_scry_event(o, 2)])]
 )
 
 
@@ -1513,9 +1490,10 @@ DIVINE_BEAST_VAH_NABORIS = make_artifact(
     mana_cost="{5}",
     text="At the beginning of your upkeep, Vah Naboris deals 1 damage to each opponent. {3}, {T}: Tap target creature.",
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(trigger=UpkeepTrigger(), effect=DealDamage(1, target=EachOpponentTarget()))
-    ]
+    setup_interceptors=lambda o, s: [make_upkeep_trigger(o, lambda e, st: [
+        Event(type=EventType.DAMAGE, payload={'target': opp_id, 'amount': 1, 'source': o.id}, source=o.id, controller=o.controller)
+        for opp_id in all_opponents(o, st)
+    ])]
 )
 
 
@@ -1697,9 +1675,7 @@ HEART_CONTAINER_ARTIFACT = make_artifact(
     name="Heart Container",
     mana_cost="{2}",
     text="When Heart Container enters, you gain 4 life. Sacrifice Heart Container: You gain 2 life.",
-    abilities=[
-        TriggeredAbility(trigger=ETBTrigger(), effect=GainLife(4))
-    ]
+    setup_interceptors=lambda o, s: [etb_gain_life(o, 4)[0]]
 )
 
 
