@@ -1048,15 +1048,32 @@ def _handle_counter_removed(event: Event, state: GameState):
 
 def _handle_pt_modification(event: Event, state: GameState):
     """
-    Handle PT_MODIFICATION event - temporary P/T changes.
+    Handle temporary P/T change events.
+
+    Unified handler for the full family of P/T-modifier event types:
+      PT_MODIFICATION, PT_MODIFIER, PT_CHANGE, PT_MODIFY,
+      TEMPORARY_PT_CHANGE, PUMP, TEMPORARY_BOOST, GRANT_PT_MODIFIER.
+
+    Accepts either payload shape:
+      - ``power_mod`` / ``toughness_mod`` (canonical, used by PT_MODIFICATION)
+      - ``power`` / ``toughness`` (legacy, used by PT_CHANGE/PUMP/GRANT_PT_MODIFIER)
+
+    Duration may be given as either ``duration`` (canonical) or ``until``
+    (legacy). Strings like ``until_end_of_turn`` / ``eot`` are normalized to
+    ``end_of_turn``. Modifiers with duration ``end_of_turn`` are swept at the
+    cleanup step.
 
     Stores the modification on the object's state for QUERY handlers to use.
-    Modifications with duration='end_of_turn' are cleared at cleanup step.
     """
     object_id = event.payload.get('object_id')
-    power_mod = event.payload.get('power_mod', 0)
-    toughness_mod = event.payload.get('toughness_mod', 0)
-    duration = event.payload.get('duration', 'end_of_turn')
+    # Accept both canonical and legacy payload keys.
+    power_mod = event.payload.get('power_mod', event.payload.get('power', 0))
+    toughness_mod = event.payload.get(
+        'toughness_mod', event.payload.get('toughness', 0)
+    )
+    duration = event.payload.get(
+        'duration', event.payload.get('until', 'end_of_turn')
+    )
     if isinstance(duration, str):
         d = duration.strip().lower().replace(" ", "_")
         if d in {"until_end_of_turn", "until_eot", "eot"}:
@@ -1080,38 +1097,10 @@ def _handle_pt_modification(event: Event, state: GameState):
     })
 
 
-def _handle_pt_change(event: Event, state: GameState):
-    """
-    Handle PT_CHANGE event - legacy alias for temporary P/T deltas.
-
-    Expected payload keys (common in older card files):
-        object_id: str
-        power: int (delta)
-        toughness: int (delta)
-        duration: str (e.g. 'until_end_of_turn')
-    """
-    object_id = event.payload.get('object_id')
-    power_mod = event.payload.get('power', 0)
-    toughness_mod = event.payload.get('toughness', 0)
-    duration = event.payload.get('duration', 'end_of_turn')
-    if isinstance(duration, str):
-        d = duration.strip().lower().replace(" ", "_")
-        if d in {"until_end_of_turn", "until_eot", "eot"}:
-            duration = "end_of_turn"
-
-    if object_id not in state.objects:
-        return
-
-    obj = state.objects[object_id]
-    if not hasattr(obj.state, 'pt_modifiers'):
-        obj.state.pt_modifiers = []
-
-    obj.state.pt_modifiers.append({
-        'power': power_mod,
-        'toughness': toughness_mod,
-        'duration': duration,
-        'timestamp': state.timestamp
-    })
+# Backward-compatible alias; _handle_pt_change used to be a separate function
+# with a legacy payload shape. It now just delegates to the unified handler so
+# any lingering direct references keep working.
+_handle_pt_change = _handle_pt_modification
 
 
 def _handle_grant_keyword(event: Event, state: GameState):
@@ -3159,13 +3148,17 @@ EVENT_HANDLERS = {
     EventType.CONTROL_CHANGE: _handle_gain_control,
     EventType.COUNTER_ADDED: _handle_counter_added,
     EventType.COUNTER_REMOVED: _handle_counter_removed,
+    # All P/T-modifier event types route to the single unified handler,
+    # which normalizes both payload shapes (power_mod/toughness_mod vs
+    # power/toughness, duration vs until).
     EventType.PT_MODIFICATION: _handle_pt_modification,
     EventType.PT_MODIFIER: _handle_pt_modification,
-    EventType.PT_CHANGE: _handle_pt_change,
-    EventType.PT_MODIFY: _handle_pt_change,
-    EventType.TEMPORARY_PT_CHANGE: _handle_pt_change,
-    EventType.PUMP: _handle_pt_change,
-    EventType.TEMPORARY_BOOST: _handle_pt_change,
+    EventType.PT_CHANGE: _handle_pt_modification,
+    EventType.PT_MODIFY: _handle_pt_modification,
+    EventType.TEMPORARY_PT_CHANGE: _handle_pt_modification,
+    EventType.PUMP: _handle_pt_modification,
+    EventType.TEMPORARY_BOOST: _handle_pt_modification,
+    EventType.GRANT_PT_MODIFIER: _handle_pt_modification,
     EventType.GRANT_KEYWORD: _handle_grant_keyword,
     EventType.KEYWORD_GRANT: _handle_grant_keyword,
     EventType.GRANT_ABILITY: _handle_grant_keyword,
