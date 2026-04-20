@@ -49,22 +49,23 @@ class Game:
         # tests that emit spell effects directly.
         self.state.countered_spell_sources = set()
 
+        # Adapter holds per-mode behavior (factories + pipeline hooks).
+        from .mode_adapter import get_mode_adapter
+        self.mode_adapter = get_mode_adapter(mode)
+
         # Set mode-specific defaults
-        if mode == "hearthstone":
-            self.state.max_hand_size = 10
-        elif mode == "pokemon":
-            self.state.max_hand_size = 999  # No hand size limit in Pokemon
-        elif mode == "yugioh":
-            self.state.max_hand_size = 6  # Discard to 6 during End Phase
+        max_hand = self.mode_adapter.default_max_hand_size()
+        if max_hand is not None:
+            self.state.max_hand_size = max_hand
 
         self.pipeline = EventPipeline(self.state)
 
-        # Initialize subsystems using factory methods
-        self.mana_system = self._create_mana_system()
+        # Initialize subsystems via adapter factories.
+        self.mana_system = self.mode_adapter.create_mana_system(self.state)
         self.stack = StackManager(self.state)
-        self.turn_manager = self._create_turn_manager()
+        self.turn_manager = self.mode_adapter.create_turn_manager(self.state)
         self.priority_system = PrioritySystem(self.state)
-        self.combat_manager = self._create_combat_manager()
+        self.combat_manager = self.mode_adapter.create_combat_manager(self.state)
         self.targeting_system = TargetingSystem(self.state)
 
         # Wire up subsystem dependencies
@@ -78,44 +79,6 @@ class Game:
         self.get_mulligan_decision: Optional[Callable[[str, list[GameObject], int], bool]] = None
 
         self._setup_system_interceptors()
-
-    def _create_mana_system(self):
-        """Factory method for creating mode-specific mana system."""
-        if self.state.game_mode == "hearthstone":
-            from .hearthstone_mana import HearthstoneManaSystem
-            return HearthstoneManaSystem(self.state)
-        elif self.state.game_mode == "pokemon":
-            from .pokemon_energy import PokemonEnergySystem
-            return PokemonEnergySystem(self.state)
-        elif self.state.game_mode == "yugioh":
-            return None  # Yu-Gi-Oh! has no mana system
-        return ManaSystem(self.state)
-
-    def _create_combat_manager(self):
-        """Factory method for creating mode-specific combat manager."""
-        if self.state.game_mode == "hearthstone":
-            from .hearthstone_combat import HearthstoneCombatManager
-            return HearthstoneCombatManager(self.state)
-        elif self.state.game_mode == "pokemon":
-            from .pokemon_combat import PokemonCombatManager
-            return PokemonCombatManager(self.state)
-        elif self.state.game_mode == "yugioh":
-            from .yugioh_combat import YugiohCombatManager
-            return YugiohCombatManager(self.state)
-        return CombatManager(self.state)
-
-    def _create_turn_manager(self):
-        """Factory method for creating mode-specific turn manager."""
-        if self.state.game_mode == "hearthstone":
-            from .hearthstone_turn import HearthstoneTurnManager
-            return HearthstoneTurnManager(self.state)
-        elif self.state.game_mode == "pokemon":
-            from .pokemon_turn import PokemonTurnManager
-            return PokemonTurnManager(self.state)
-        elif self.state.game_mode == "yugioh":
-            from .yugioh_turn import YugiohTurnManager
-            return YugiohTurnManager(self.state)
-        return TurnManager(self.state)
 
     def _connect_subsystems(self):
         """Wire up dependencies between subsystems."""
@@ -152,33 +115,15 @@ class Game:
         return player
 
     def _create_player_zones(self, player_id: str):
-        """Create library, hand, graveyard for a player."""
-        for zone_type in [ZoneType.LIBRARY, ZoneType.HAND, ZoneType.GRAVEYARD]:
+        """Create library, hand, graveyard (+ mode-specific per-player zones)."""
+        base_zones = [ZoneType.LIBRARY, ZoneType.HAND, ZoneType.GRAVEYARD]
+        extras = self.mode_adapter.extra_player_zone_types()
+        for zone_type in base_zones + list(extras):
             key = f"{zone_type.name.lower()}_{player_id}"
             self.state.zones[key] = Zone(
                 type=zone_type,
                 owner=player_id
             )
-
-        # Pokemon-specific zones
-        if self.state.game_mode == "pokemon":
-            for zone_type in [ZoneType.ACTIVE_SPOT, ZoneType.BENCH, ZoneType.PRIZE_CARDS]:
-                key = f"{zone_type.name.lower()}_{player_id}"
-                self.state.zones[key] = Zone(
-                    type=zone_type,
-                    owner=player_id
-                )
-
-        # Yu-Gi-Oh!-specific zones
-        if self.state.game_mode == "yugioh":
-            for zone_type in [ZoneType.MONSTER_ZONE, ZoneType.SPELL_TRAP_ZONE,
-                              ZoneType.FIELD_SPELL_ZONE, ZoneType.PENDULUM_ZONE,
-                              ZoneType.EXTRA_DECK, ZoneType.BANISHED]:
-                key = f"{zone_type.name.lower()}_{player_id}"
-                self.state.zones[key] = Zone(
-                    type=zone_type,
-                    owner=player_id
-                )
 
     def setup_hearthstone_player(self, player: Player, hero_def, hero_power_def):
         """
@@ -273,18 +218,12 @@ class Game:
                 )
 
     def _setup_shared_zones(self):
-        """Create battlefield, stack, exile, command zones."""
-        for zone_type in [ZoneType.BATTLEFIELD, ZoneType.STACK, ZoneType.EXILE, ZoneType.COMMAND]:
+        """Create battlefield, stack, exile, command (+ mode-specific shared zones)."""
+        base = [ZoneType.BATTLEFIELD, ZoneType.STACK, ZoneType.EXILE, ZoneType.COMMAND]
+        for zone_type in base + list(self.mode_adapter.extra_shared_zone_types()):
             key = zone_type.name.lower()
             if key not in self.state.zones:
                 self.state.zones[key] = Zone(type=zone_type, owner=None)
-
-        # Pokemon shared zones
-        if self.state.game_mode == "pokemon":
-            for zone_type in [ZoneType.LOST_ZONE, ZoneType.STADIUM_ZONE]:
-                key = zone_type.name.lower()
-                if key not in self.state.zones:
-                    self.state.zones[key] = Zone(type=zone_type, owner=None)
 
     def create_object(
         self,
@@ -807,83 +746,8 @@ class Game:
             )
         )
 
-        # Hearthstone Divine Shield interceptor
-        if self.state.game_mode == "hearthstone":
-            def _divine_shield_filter(event: Event, state: GameState) -> bool:
-                if event.type != EventType.DAMAGE:
-                    return False
-                target_ref = event.payload.get("target")
-                target_id = target_ref[0] if isinstance(target_ref, list) and target_ref else target_ref
-                if not isinstance(target_id, str):
-                    return False
-                target = state.objects.get(target_id)
-                if target is None:
-                    return False
-                # Immune should supersede Divine Shield.
-                if has_ability(target, "immune", state):
-                    return False
-                return target.state.divine_shield
-
-            def _divine_shield_handler(event: Event, state: GameState) -> InterceptorResult:
-                target_ref = event.payload.get("target")
-                target_id = target_ref[0] if isinstance(target_ref, list) and target_ref else target_ref
-                if not isinstance(target_id, str) or target_id not in state.objects:
-                    return InterceptorResult(action=InterceptorAction.PASS)
-                target = state.objects[target_id]
-
-                # Break the shield
-                target.state.divine_shield = False
-
-                # Emit shield break event
-                shield_break = Event(
-                    type=EventType.DIVINE_SHIELD_BREAK,
-                    payload={'target': target_id},
-                    source=event.source
-                )
-
-                # Prevent the damage
-                return InterceptorResult(
-                    action=InterceptorAction.PREVENT,
-                    new_events=[shield_break]
-                )
-
-            self.register_interceptor(
-                Interceptor(
-                    id=new_id(),
-                    source="SYSTEM",
-                    controller="SYSTEM",
-                    priority=InterceptorPriority.PREVENT,
-                    filter=_divine_shield_filter,
-                    handler=_divine_shield_handler,
-                    duration="forever",
-                )
-            )
-
-            # Hearthstone Immune interceptor
-            def _immune_filter(event: Event, state: GameState) -> bool:
-                if event.type != EventType.DAMAGE:
-                    return False
-                target_ref = event.payload.get("target")
-                target_id = target_ref[0] if isinstance(target_ref, list) and target_ref else target_ref
-                if not isinstance(target_id, str):
-                    return False
-                target = state.objects.get(target_id)
-                return target is not None and has_ability(target, "immune", state)
-
-            def _immune_handler(event: Event, state: GameState) -> InterceptorResult:
-                return InterceptorResult(action=InterceptorAction.PREVENT)
-
-            self.register_interceptor(
-                Interceptor(
-                    id=new_id(),
-                    source="SYSTEM",
-                    controller="SYSTEM",
-                    priority=InterceptorPriority.PREVENT,
-                    filter=_immune_filter,
-                    handler=_immune_handler,
-                    duration="forever",
-                )
-            )
+        # Mode-specific system interceptors (HS: Divine Shield + Immune).
+        self.mode_adapter.register_system_interceptors(self)
 
     # =========================================================================
     # Game Flow Methods
@@ -895,42 +759,22 @@ class Game:
 
         Call this after adding players and setting up decks.
         """
-        # Set up turn order
         player_ids = list(self.state.players.keys())
-        if self.state.game_mode == "pokemon":
-            # Pokemon: setup_game() handles everything (shuffle, draw, mulligans,
-            # active placement, prizes, coin flip). Already called by session.
-            self.turn_manager.set_turn_order(player_ids)
+
+        # YGO: the session-driven setup has already ordered turns; bail out.
+        if self.mode_adapter.skips_turn_order_setup():
             return
-        elif self.state.game_mode == "yugioh":
-            # Yu-Gi-Oh: setup_game() handles shuffle, draw 5, coin flip.
-            # Already called by session. No mulligans in YGO.
-            return
-        elif self.state.game_mode == "hearthstone":
-            # Hearthstone: randomize who goes first
-            import random
-            random.shuffle(player_ids)
+
+        # Give the adapter a chance to reorder (HS randomizes).
+        player_ids = self.mode_adapter.shuffle_turn_order(player_ids)
         self.turn_manager.set_turn_order(player_ids)
 
-        # Draw starting hands
-        if self.state.game_mode == "hearthstone":
-            # Hearthstone: Player 1 draws 3, Player 2 draws 4 + The Coin
-            for i, player_id in enumerate(player_ids):
-                draw_count = 3 if i == 0 else 4
-                self.draw_cards(player_id, draw_count)
+        # PKM: session's turn_manager.setup_game() has already drawn hands etc.
+        if self.mode_adapter.delegates_start_to_session():
+            return
 
-            # Give player 2 The Coin
-            from src.cards.hearthstone.basic import THE_COIN
-            import copy
-            self.create_object(
-                name="The Coin",
-                owner_id=player_ids[1],
-                zone=ZoneType.HAND,
-                characteristics=copy.deepcopy(THE_COIN.characteristics),
-                card_def=THE_COIN
-            )
-        else:
-            # MTG: London Mulligan
+        # Adapter may handle starting hands (HS). Otherwise run MTG's London Mulligan.
+        if not await self.mode_adapter.setup_starting_hands(self, player_ids):
             for player_id in player_ids:
                 await self._resolve_mulligans(player_id)
 
@@ -1256,13 +1100,8 @@ class Game:
     def set_ai_player(self, player_id: str) -> None:
         """Mark a player as AI-controlled."""
         self.priority_system.set_ai_player(player_id)
-
-        # Also register with mode-specific turn managers
-        if self.state.game_mode in ("hearthstone", "pokemon"):
-            if hasattr(self.turn_manager, 'set_ai_player'):
-                self.turn_manager.set_ai_player(player_id)
-        elif self.state.game_mode == "yugioh":
-            self.turn_manager.ai_players.add(player_id)
+        # Also register with mode-specific turn managers.
+        self.mode_adapter.register_ai_player(self, player_id)
 
     def set_human_action_handler(
         self,

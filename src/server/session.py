@@ -446,12 +446,8 @@ class GameSession:
         # Get battlefield (exclude heroes/hero powers in HS mode — those are in player data)
         battlefield = []
         for obj in self.game.get_battlefield():
-            if game_state.game_mode == "hearthstone":
-                from src.engine.types import CardType
-                if CardType.HERO in obj.characteristics.types:
-                    continue
-                if CardType.HERO_POWER in obj.characteristics.types:
-                    continue
+            if self.game.mode_adapter.excludes_from_battlefield_serialization(obj):
+                continue
             battlefield.append(self._serialize_permanent(obj))
 
         # Get stack
@@ -467,7 +463,11 @@ class GameSession:
 
         # Get graveyards
         graveyards = {}
-        serialize_fn = self._serialize_pokemon_card if game_state.game_mode == "pokemon" else self._serialize_card
+        serialize_fn = (
+            self._serialize_pokemon_card
+            if self.game.mode_adapter.uses_pokemon_card_serializer()
+            else self._serialize_card
+        )
         for pid in game_state.players:
             graveyards[pid] = [
                 serialize_fn(obj)
@@ -564,8 +564,8 @@ class GameSession:
                 for obj in self.game.get_hand(player_id):
                     hand.append(self._serialize_pokemon_card(obj))
 
-        # Include game log (last 50 entries) for Pokemon/YGO mode
-        game_log = self._game_log[-50:] if game_state.game_mode in ("pokemon", "yugioh") else []
+        # Include game log (last 50 entries) for modes that surface it (PKM/YGO).
+        game_log = self._game_log[-50:] if self.game.mode_adapter.includes_game_log_in_state() else []
 
         # Yu-Gi-Oh! zone serialization
         monster_zones: dict = {}

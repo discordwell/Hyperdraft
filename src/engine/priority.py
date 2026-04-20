@@ -1027,15 +1027,10 @@ class PrioritySystem:
                     continue
                 if CardType.CREATURE in obj.characteristics.types:
                     # Creatures with summoning sickness can't use tap abilities.
-                    if self.state.game_mode == "hearthstone":
-                        if obj.state.summoning_sickness:
-                            continue
-                    else:
-                        # MTG: same check as combat (timestamp-based)
-                        if obj.entered_zone_at == self.state.timestamp:
-                            from .queries import has_ability
-                            if not has_ability(obj, 'haste', self.state):
-                                continue
+                    from .mode_adapter import get_mode_adapter
+                    adapter = get_mode_adapter(self.state.game_mode)
+                    if adapter.tap_ability_blocked_by_summoning_sickness(obj, self.state):
+                        continue
 
                 actions.append(LegalAction(
                     type=ActionType.ACTIVATE_ABILITY,
