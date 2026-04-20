@@ -12,15 +12,13 @@ from src.engine import (
     Characteristics, ObjectState, CardDefinition,
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness,
-    # Ability system
-    TriggeredAbility, StaticAbility,
-    ETBTrigger, DeathTrigger, AttackTrigger, UpkeepTrigger, DealsDamageTrigger,
-    GainLife, DrawCards, LoseLife, AddCounters, Scry, DealDamage, CreateToken, Destroy, Sacrifice,
-    PTBoost, KeywordGrant,
-    SelfTarget, AnotherCreatureYouControl, CreatureWithSubtype,
-    CreaturesYouControlFilter, OtherCreaturesYouControlFilter, CreaturesWithSubtypeFilter,
-    EachOpponentTarget,
 )
+from src.cards.ability_bundles import (
+    etb_gain_life, etb_draw, etb_deal_damage, etb_create_token,
+    death_draw, attack_deal_damage, attack_add_counters,
+    static_pt_boost_by_subtype, static_keyword_grant_others,
+)
+from src.cards import interceptor_helpers as ih
 from typing import Optional, Callable
 
 
@@ -220,6 +218,41 @@ GOKU_EARTHS_HERO = make_creature(
 )
 
 
+def gohan_hidden_power_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def death_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        dying_id = event.payload.get('object_id')
+        if dying_id == obj.id:
+            return False
+        dying = state.objects.get(dying_id)
+        return (dying is not None and
+                CardType.CREATURE in dying.characteristics.types and
+                dying.controller == obj.controller)
+
+    def counter_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            )
+            for _ in range(2)
+        ]
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=death_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=counter_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
 GOHAN_HIDDEN_POWER = make_creature(
     name="Gohan, Hidden Power",
     power=3, toughness=4,
@@ -227,14 +260,14 @@ GOHAN_HIDDEN_POWER = make_creature(
     colors={Color.WHITE},
     subtypes={"Saiyan", "Z-Fighter", "Scholar"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(target=AnotherCreatureYouControl()),
-            effect=AddCounters(counter_type="+1/+1", amount=2)
-        )
-    ]
+    text="Whenever another creature you control dies, put two +1/+1 counters on Gohan, Hidden Power.",
+    setup_interceptors=gohan_hidden_power_setup,
 )
 
+
+def krillin_brave_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_gain_life(obj, 3)
+    return [itc]
 
 KRILLIN_BRAVE_WARRIOR = make_creature(
     name="Krillin, Brave Warrior",
@@ -243,14 +276,14 @@ KRILLIN_BRAVE_WARRIOR = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Z-Fighter", "Monk"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(3)
-        )
-    ]
+    text="When Krillin, Brave Warrior enters, you gain 3 life.",
+    setup_interceptors=krillin_brave_warrior_setup,
 )
 
+
+def videl_hero_in_training_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    filter_fn = ih.other_creatures_with_subtype(obj, "Z-Fighter")
+    return [ih.make_keyword_grant(obj, ['vigilance'], filter_fn)]
 
 VIDEL_HERO_IN_TRAINING = make_creature(
     name="Videl, Hero in Training",
@@ -259,14 +292,20 @@ VIDEL_HERO_IN_TRAINING = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Z-Fighter"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=KeywordGrant(['vigilance']),
-            filter=CreaturesWithSubtypeFilter("Z-Fighter", include_self=False)
-        )
-    ]
+    text="Other Z-Fighter creatures you control have vigilance.",
+    setup_interceptors=videl_hero_in_training_setup,
 )
 
+
+def supreme_kai_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def scry_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.ACTIVATE,
+            payload={'action': 'scry', 'amount': 3, 'player': obj.controller},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_etb_trigger(obj, scry_effect)]
 
 SUPREME_KAI = make_creature(
     name="Supreme Kai, Divine Watcher",
@@ -275,14 +314,20 @@ SUPREME_KAI = make_creature(
     colors={Color.WHITE},
     subtypes={"Kai", "God"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=Scry(3)
-        )
-    ]
+    text="When Supreme Kai, Divine Watcher enters, scry 3.",
+    setup_interceptors=supreme_kai_setup,
 )
 
+
+def king_kai_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def draw_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_upkeep_trigger(obj, draw_effect)]
 
 KING_KAI = make_creature(
     name="King Kai, Martial Arts Master",
@@ -291,12 +336,8 @@ KING_KAI = make_creature(
     colors={Color.WHITE},
     subtypes={"Kai"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=DrawCards(1)
-        )
-    ]
+    text="At the beginning of your upkeep, draw a card.",
+    setup_interceptors=king_kai_setup,
 )
 
 
@@ -510,16 +551,16 @@ WORLD_TOURNAMENT = make_sorcery(
 
 # White Enchantments
 
+def z_fighters_unite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Z-Fighter", include_self=True)
+    return itcs
+
 Z_FIGHTERS_UNITE = make_enchantment(
     name="Z-Fighters Unite",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Z-Fighter")
-        )
-    ]
+    text="Z-Fighter creatures you control get +1/+1.",
+    setup_interceptors=z_fighters_unite_setup,
 )
 
 
@@ -543,6 +584,10 @@ KAIS_BLESSING = make_enchantment(
 # BLUE CARDS - ANDROIDS, STRATEGY, KI CONTROL
 # =============================================================================
 
+def android_18_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_draw(obj, 1)
+    return [itc]
+
 ANDROID_18 = make_creature(
     name="Android 18, Infinite Energy",
     power=4, toughness=4,
@@ -550,14 +595,14 @@ ANDROID_18 = make_creature(
     colors={Color.BLUE},
     subtypes={"Android"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DrawCards(1)
-        )
-    ]
+    text="When Android 18, Infinite Energy enters, draw a card.",
+    setup_interceptors=android_18_setup,
 )
 
+
+def android_17_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    filter_fn = ih.other_creatures_with_subtype(obj, "Android")
+    return [ih.make_keyword_grant(obj, ['hexproof'], filter_fn)]
 
 ANDROID_17 = make_creature(
     name="Android 17, Nature's Protector",
@@ -566,14 +611,23 @@ ANDROID_17 = make_creature(
     colors={Color.BLUE},
     subtypes={"Android"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=KeywordGrant(['hexproof']),
-            filter=CreaturesWithSubtypeFilter("Android", include_self=False)
-        )
-    ]
+    text="Other Android creatures you control have hexproof.",
+    setup_interceptors=android_17_setup,
 )
 
+
+def android_16_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': 5, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            )
+            for opp_id in ih.all_opponents(obj, state)
+        ]
+    return [ih.make_death_trigger(obj, death_effect)]
 
 ANDROID_16 = make_creature(
     name="Android 16, Gentle Giant",
@@ -582,12 +636,8 @@ ANDROID_16 = make_creature(
     colors={Color.BLUE},
     subtypes={"Android"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=DealDamage(5, target=EachOpponentTarget())
-        )
-    ]
+    text="When Android 16, Gentle Giant dies, it deals 5 damage to each opponent.",
+    setup_interceptors=android_16_setup,
 )
 
 
@@ -920,6 +970,19 @@ CELL_PERFECT_FORM = make_creature(
 )
 
 
+def kid_buu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def lose_life_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2},
+                source=obj.id,
+                controller=obj.controller,
+            )
+            for opp_id in ih.all_opponents(obj, state)
+        ]
+    return [ih.make_upkeep_trigger(obj, lose_life_effect)]
+
 KID_BUU = make_creature(
     name="Kid Buu, Pure Destruction",
     power=7, toughness=5,
@@ -927,12 +990,8 @@ KID_BUU = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon", "Majin"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=LoseLife(2, target=EachOpponentTarget())
-        )
-    ]
+    text="At the beginning of your upkeep, each opponent loses 2 life.",
+    setup_interceptors=kid_buu_setup,
 )
 
 
@@ -953,12 +1012,7 @@ SUPER_BUU = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon", "Majin"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=Sacrifice()  # TODO: Target opponent sacrifices creature
-        )
-    ]
+    text="Whenever Super Buu, Absorber attacks, target opponent sacrifices a creature.",
 )
 
 
@@ -1179,16 +1233,16 @@ RESURRECTION_F = make_sorcery(
 
 # Black Enchantments
 
+def frieza_force_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _txt = static_pt_boost_by_subtype(obj, 1, 0, "Soldier", include_self=True)
+    return itcs
+
 FRIEZA_FORCE = make_enchantment(
     name="Frieza Force",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 0),
-            filter=CreaturesWithSubtypeFilter("Soldier")
-        )
-    ]
+    text="Soldier creatures you control get +1/+0.",
+    setup_interceptors=frieza_force_setup,
 )
 
 
@@ -1229,6 +1283,10 @@ VEGETA_SAIYAN_PRINCE = make_creature(
 )
 
 
+def broly_legendary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = attack_add_counters(obj, "+1/+1", 2)
+    return [itc]
+
 BROLY_LEGENDARY = make_creature(
     name="Broly, Legendary Super Saiyan",
     power=8, toughness=8,
@@ -1236,12 +1294,8 @@ BROLY_LEGENDARY = make_creature(
     colors={Color.RED},
     subtypes={"Saiyan", "Berserker"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=AddCounters(counter_type="+1/+1", amount=2)
-        )
-    ]
+    text="Whenever Broly, Legendary Super Saiyan attacks, put two +1/+1 counters on it.",
+    setup_interceptors=broly_legendary_setup,
 )
 
 
@@ -1255,6 +1309,10 @@ FUTURE_TRUNKS = make_creature(
 )
 
 
+def kid_trunks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _txt = static_pt_boost_by_subtype(obj, 1, 0, "Saiyan", include_self=False)
+    return itcs
+
 KID_TRUNKS = make_creature(
     name="Trunks, Young Fighter",
     power=3, toughness=2,
@@ -1262,14 +1320,14 @@ KID_TRUNKS = make_creature(
     colors={Color.RED},
     subtypes={"Saiyan", "Z-Fighter"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 0),
-            filter=CreaturesWithSubtypeFilter("Saiyan", include_self=False)
-        )
-    ]
+    text="Other Saiyan creatures you control get +1/+0.",
+    setup_interceptors=kid_trunks_setup,
 )
 
+
+def goten_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_deal_damage(obj, 2, "each_opponent")
+    return [itc]
 
 GOTEN = make_creature(
     name="Goten, Cheerful Saiyan",
@@ -1278,12 +1336,8 @@ GOTEN = make_creature(
     colors={Color.RED},
     subtypes={"Saiyan", "Z-Fighter"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DealDamage(2, target=EachOpponentTarget())  # Simplified - targets any
-        )
-    ]
+    text="When Goten, Cheerful Saiyan enters, it deals 2 damage to each opponent.",
+    setup_interceptors=goten_setup,
 )
 
 
@@ -1317,6 +1371,10 @@ BARDOCK = make_creature(
 )
 
 
+def king_vegeta_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Saiyan", include_self=False)
+    return itcs
+
 KING_VEGETA = make_creature(
     name="King Vegeta",
     power=5, toughness=4,
@@ -1324,12 +1382,8 @@ KING_VEGETA = make_creature(
     colors={Color.RED},
     subtypes={"Saiyan", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Saiyan", include_self=False)
-        )
-    ]
+    text="Other Saiyan creatures you control get +1/+1.",
+    setup_interceptors=king_vegeta_setup,
 )
 
 
@@ -1485,16 +1539,16 @@ ZENKAI_BOOST = make_sorcery(
 
 # Red Enchantments
 
+def saiyan_pride_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _txt = static_pt_boost_by_subtype(obj, 2, 1, "Saiyan", include_self=True)
+    return itcs
+
 SAIYAN_PRIDE = make_enchantment(
     name="Saiyan Pride",
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(2, 1),
-            filter=CreaturesWithSubtypeFilter("Saiyan")
-        )
-    ]
+    text="Saiyan creatures you control get +2/+1.",
+    setup_interceptors=saiyan_pride_setup,
 )
 
 
@@ -1518,6 +1572,16 @@ BATTLE_RAGE = make_enchantment(
 # GREEN CARDS - NAMEKIANS, REGENERATION, NATURE
 # =============================================================================
 
+def piccolo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def counter_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [ih.make_upkeep_trigger(obj, counter_effect)]
+
 PICCOLO_NAMEKIAN_WARRIOR = make_creature(
     name="Piccolo, Namekian Warrior",
     power=4, toughness=4,
@@ -1525,14 +1589,14 @@ PICCOLO_NAMEKIAN_WARRIOR = make_creature(
     colors={Color.GREEN},
     subtypes={"Namekian", "Z-Fighter", "Warrior"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=AddCounters(counter_type="+1/+1", amount=1)
-        )
-    ]
+    text="At the beginning of your upkeep, put a +1/+1 counter on Piccolo, Namekian Warrior.",
+    setup_interceptors=piccolo_setup,
 )
 
+
+def nail_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Namekian", include_self=False)
+    return itcs
 
 NAIL = make_creature(
     name="Nail, Namekian Elite",
@@ -1541,12 +1605,8 @@ NAIL = make_creature(
     colors={Color.GREEN},
     subtypes={"Namekian", "Warrior"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Namekian", include_self=False)
-        )
-    ]
+    text="Other Namekian creatures you control get +1/+1.",
+    setup_interceptors=nail_setup,
 )
 
 
@@ -1636,18 +1696,18 @@ NAMEKIAN_ELDER = make_creature(
 )
 
 
+def namekian_child_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_gain_life(obj, 1)
+    return [itc]
+
 NAMEKIAN_CHILD = make_creature(
     name="Namekian Child",
     power=1, toughness=2,
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Namekian"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(1)
-        )
-    ]
+    text="When Namekian Child enters, you gain 1 life.",
+    setup_interceptors=namekian_child_setup,
 )
 
 
@@ -1679,20 +1739,24 @@ AJISA_TREE = make_creature(
 )
 
 
+def namek_frog_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = death_draw(obj, 1)
+    return [itc]
+
 NAMEK_FROG = make_creature(
     name="Namek Frog",
     power=1, toughness=1,
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Frog"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=DrawCards(1)
-        )
-    ]
+    text="When Namek Frog dies, draw a card.",
+    setup_interceptors=namek_frog_setup,
 )
 
+
+def namek_crab_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_gain_life(obj, 2)
+    return [itc]
 
 NAMEK_CRAB = make_creature(
     name="Namek Crab",
@@ -1700,12 +1764,8 @@ NAMEK_CRAB = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Crab"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(2)
-        )
-    ]
+    text="When Namek Crab enters, you gain 2 life.",
+    setup_interceptors=namek_crab_setup,
 )
 
 
@@ -1804,16 +1864,16 @@ PLANET_NAMEK = make_sorcery(
 
 # Green Enchantments
 
+def namekian_resilience_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    filter_fn = ih.creatures_with_subtype(obj, "Namekian")
+    return [ih.make_keyword_grant(obj, ['hexproof'], filter_fn)]
+
 NAMEKIAN_RESILIENCE = make_enchantment(
     name="Namekian Resilience",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
-    abilities=[
-        StaticAbility(
-            effect=KeywordGrant(['hexproof']),
-            filter=CreaturesWithSubtypeFilter("Namekian")
-        )
-    ]
+    text="Namekian creatures you control have hexproof.",
+    setup_interceptors=namekian_resilience_setup,
 )
 
 
@@ -1853,6 +1913,10 @@ VEGITO = make_creature(
 )
 
 
+def gogeta_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = attack_deal_damage(obj, 3, "each_opponent")
+    return [itc]
+
 GOGETA = make_creature(
     name="Gogeta, Fusion Warrior",
     power=7, toughness=6,
@@ -1860,14 +1924,14 @@ GOGETA = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Saiyan", "Z-Fighter", "Fusion"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=DealDamage(3, target=EachOpponentTarget())
-        )
-    ]
+    text="Whenever Gogeta, Fusion Warrior attacks, it deals 3 damage to each opponent.",
+    setup_interceptors=gogeta_setup,
 )
 
+
+def gotenks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_create_token(obj, 1, 1, "Super Ghost", count=3, colors={Color.WHITE})
+    return [itc]
 
 GOTENKS = make_creature(
     name="Gotenks, Young Fusion",
@@ -1876,12 +1940,8 @@ GOTENKS = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Saiyan", "Z-Fighter", "Fusion"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name="Super Ghost", power=1, toughness=1, colors={'W'}, subtypes={'Spirit'}, count=3)
-        )
-    ]
+    text="When Gotenks, Young Fusion enters, create three 1/1 white Super Ghost creature tokens.",
+    setup_interceptors=gotenks_setup,
 )
 
 
@@ -1925,6 +1985,19 @@ GOHAN_SSJ2 = make_creature(
 )
 
 
+def beerus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def destroy_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': opp_id},
+                source=obj.id,
+                controller=obj.controller,
+            )
+            for opp_id in ih.all_opponents(obj, state)
+        ]
+    return [ih.make_upkeep_trigger(obj, destroy_effect)]
+
 BEERUS = make_creature(
     name="Beerus, God of Destruction",
     power=8, toughness=6,
@@ -1932,12 +2005,8 @@ BEERUS = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"God", "Cat"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=Destroy(target=EachOpponentTarget())  # Simplified
-        )
-    ]
+    text="At the beginning of your upkeep, destroy target permanent an opponent controls.",
+    setup_interceptors=beerus_setup,
 )
 
 

@@ -12,17 +12,14 @@ from src.engine import (
     Characteristics, ObjectState, CardDefinition,
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness,
-    # New ability system imports
-    TriggeredAbility, StaticAbility, KeywordAbility,
-    ETBTrigger, DeathTrigger, AttackTrigger, DealsDamageTrigger, UpkeepTrigger,
-    SpellCastTrigger,
-    GainLife, LoseLife, DrawCards, DealDamage, AddCounters, Scry, CreateToken,
-    CompositeEffect, UntapEffect,
-    PTBoost, KeywordGrant,
-    SelfTarget, AnotherCreature, AnotherCreatureYouControl, CreatureWithSubtype,
-    OtherCreaturesYouControlFilter, CreaturesWithSubtypeFilter, CreaturesYouControlFilter,
-    EachOpponentTarget,
 )
+from src.cards.ability_bundles import (
+    etb_gain_life, etb_draw, etb_create_token,
+    attack_add_counters,
+    static_pt_boost_by_subtype,
+    static_keyword_grant_others,
+)
+from src.cards.text_render import substitute_card_name
 from typing import Optional, Callable
 
 
@@ -40,14 +37,14 @@ def make_sorcery(name: str, mana_cost: str, colors: set, text: str, subtypes: se
         text=text, resolve=resolve
     )
 
-def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None, abilities=None):
+def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
     return CardDefinition(
         name=name, mana_cost=mana_cost,
         characteristics=Characteristics(
             types={CardType.ARTIFACT}, subtypes=subtypes or set(),
             supertypes=supertypes or set(), mana_cost=mana_cost
         ),
-        text=text, setup_interceptors=setup_interceptors, abilities=abilities
+        text=text, setup_interceptors=setup_interceptors
     )
 
 def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
@@ -158,6 +155,16 @@ FALCON = make_creature(
     setup_interceptors=falcon_setup
 )
 
+def bucky_barnes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_etb_trigger
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.CREATE_TOKEN, payload={
+            'controller': obj.controller,
+            'token': {'name': 'Soldier', 'power': 1, 'toughness': 1,
+                      'colors': {Color.WHITE}, 'subtypes': {'Human', 'Soldier'}},
+        }, source=obj.id)]
+    return [make_etb_trigger(obj, etb_effect)]
+
 BUCKY_BARNES = make_creature(
     name="Bucky Barnes, Winter Soldier",
     power=3, toughness=3,
@@ -165,12 +172,8 @@ BUCKY_BARNES = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Avenger", "Soldier"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name='Soldier', power=1, toughness=1, colors={'W'}, subtypes={'Human', 'Soldier'})
-        )
-    ]
+    text="When Bucky Barnes enters, create a 1/1 white Human Soldier creature token.",
+    setup_interceptors=bucky_barnes_setup
 )
 
 def peggy_carter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -198,18 +201,18 @@ SHIELD_AGENT = make_creature(
     text="Vigilance"
 )
 
+def shield_recruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_gain_life(obj, 2)
+    return [itc]
+
 SHIELD_RECRUIT = make_creature(
     name="SHIELD Recruit",
     power=1, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(2)
-        )
-    ]
+    text=substitute_card_name("When {this} enters, you gain 2 life.", "SHIELD Recruit"),
+    setup_interceptors=shield_recruit_setup
 )
 
 def war_machine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -236,6 +239,14 @@ ASGARDIAN_WARRIOR = make_creature(
     text="First strike"
 )
 
+def valkyrie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_death_trigger
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': obj.controller, 'amount': 3},
+                      source=obj.id)]
+    return [make_death_trigger(obj, death_effect)]
+
 VALKYRIE = make_creature(
     name="Valkyrie, Chooser of the Slain",
     power=3, toughness=3,
@@ -243,12 +254,8 @@ VALKYRIE = make_creature(
     colors={Color.WHITE},
     subtypes={"Asgardian", "Warrior", "Avenger"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=GainLife(3)
-        )
-    ]
+    text="When Valkyrie dies, you gain 3 life.",
+    setup_interceptors=valkyrie_setup
 )
 
 EINHERJAR_SOLDIER = make_creature(
@@ -425,12 +432,7 @@ MR_FANTASTIC = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scientist"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=Scry(1)
-        )
-    ]
+    text="At the beginning of your upkeep, scry 1.",
 )
 
 STARK_INDUSTRIES_DRONE = make_creature(
@@ -449,12 +451,7 @@ FRIDAY_AI = make_creature(
     colors={Color.BLUE},
     subtypes={"Construct"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=Scry(2)
-        )
-    ]
+    text="When FRIDAY enters, scry 2.",
 )
 
 SHIELD_TECH_SPECIALIST = make_creature(
@@ -466,6 +463,10 @@ SHIELD_TECH_SPECIALIST = make_creature(
     text="{T}: Untap target artifact."
 )
 
+def hank_pym_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_create_token(obj, 1, 1, "Insect", count=1, colors={Color.GREEN})
+    return [itc]
+
 HANK_PYM = make_creature(
     name="Hank Pym, Size Shifter",
     power=2, toughness=2,
@@ -473,12 +474,8 @@ HANK_PYM = make_creature(
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Scientist", "Avenger"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name='Ant', power=1, toughness=1, colors={'G'}, subtypes={'Insect'})
-        )
-    ]
+    text="When Hank Pym enters, create a 1/1 green Insect creature token.",
+    setup_interceptors=hank_pym_setup
 )
 
 QUANTUM_REALM_EXPLORER = make_creature(
@@ -519,6 +516,10 @@ ROCKET_RACCOON = make_creature(
     setup_interceptors=rocket_raccoon_setup
 )
 
+def star_lord_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Guardian", include_self=False)
+    return itcs
+
 STAR_LORD = make_creature(
     name="Star-Lord, Legendary Outlaw",
     power=3, toughness=3,
@@ -526,12 +527,8 @@ STAR_LORD = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Guardian", "Pirate"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Guardian", include_self=False)
-        )
-    ]
+    text="Other Guardian creatures you control get +1/+1.",
+    setup_interceptors=star_lord_setup
 )
 
 KREE_SENTRY = make_creature(
@@ -620,6 +617,19 @@ HAWKEYE = make_creature(
     setup_interceptors=hawkeye_setup
 )
 
+def nick_fury_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_etb_trigger
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.CREATE_TOKEN, payload={
+                'controller': obj.controller,
+                'token': {'name': 'SHIELD Agent', 'power': 1, 'toughness': 1,
+                          'colors': {Color.BLACK}, 'subtypes': {'Human', 'Spy'}},
+            }, source=obj.id)
+            for _ in range(2)
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
+
 NICK_FURY = make_creature(
     name="Nick Fury, Director of SHIELD",
     power=3, toughness=3,
@@ -627,12 +637,8 @@ NICK_FURY = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Spy"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name='SHIELD Agent', power=1, toughness=1, colors={'B'}, subtypes={'Human', 'Spy'}, count=2)
-        )
-    ]
+    text="When Nick Fury enters, create two 1/1 black Human Spy creature tokens.",
+    setup_interceptors=nick_fury_setup
 )
 
 def punisher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -747,6 +753,10 @@ KINGPIN_ENFORCER = make_creature(
     text="Menace. When Kingpin's Enforcer enters, each opponent discards a card."
 )
 
+def nebula_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = attack_add_counters(obj, "+1/+1", 1)
+    return [itc]
+
 NEBULA = make_creature(
     name="Nebula, Cybernetic Assassin",
     power=2, toughness=2,
@@ -754,12 +764,8 @@ NEBULA = make_creature(
     colors={Color.BLACK},
     subtypes={"Alien", "Assassin", "Villain"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=AddCounters("+1/+1", 1)
-        )
-    ]
+    text="Whenever Nebula attacks, put a +1/+1 counter on it.",
+    setup_interceptors=nebula_setup
 )
 
 CROSSBONES = make_creature(
@@ -939,6 +945,16 @@ SURTUR = make_creature(
     setup_interceptors=surtur_setup
 )
 
+def ultron_prime_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_upkeep_trigger
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.CREATE_TOKEN, payload={
+            'controller': obj.controller,
+            'token': {'name': 'Ultron Drone', 'power': 2, 'toughness': 2,
+                      'colors': set(), 'subtypes': {'Construct', 'Villain'}},
+        }, source=obj.id)]
+    return [make_upkeep_trigger(obj, upkeep_effect)]
+
 ULTRON_PRIME = make_creature(
     name="Ultron Prime",
     power=5, toughness=5,
@@ -946,12 +962,8 @@ ULTRON_PRIME = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Construct", "Villain"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=CreateToken(name='Ultron Drone', power=2, toughness=2, colors=set(), subtypes={'Construct', 'Villain'})
-        )
-    ]
+    text="At the beginning of your upkeep, create a 2/2 colorless Construct Villain creature token.",
+    setup_interceptors=ultron_prime_setup
 )
 
 ULTRON_DRONE = make_creature(
@@ -1111,6 +1123,16 @@ SHE_HULK = make_creature(
     setup_interceptors=she_hulk_setup
 )
 
+def groot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_death_trigger
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.CREATE_TOKEN, payload={
+            'controller': obj.controller,
+            'token': {'name': 'Baby Groot', 'power': 1, 'toughness': 1,
+                      'colors': {Color.GREEN}, 'subtypes': {'Plant', 'Guardian'}},
+        }, source=obj.id)]
+    return [make_death_trigger(obj, death_effect)]
+
 GROOT = make_creature(
     name="Groot, I Am Groot",
     power=4, toughness=6,
@@ -1118,12 +1140,8 @@ GROOT = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant", "Guardian"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=CreateToken(name='Baby Groot', power=1, toughness=1, colors={'G'}, subtypes={'Plant', 'Guardian'})
-        )
-    ]
+    text="When Groot dies, create a 1/1 green Plant Guardian creature token.",
+    setup_interceptors=groot_setup
 )
 
 def black_panther_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1149,6 +1167,10 @@ BLACK_PANTHER = make_creature(
     setup_interceptors=black_panther_setup
 )
 
+def ant_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_create_token(obj, 1, 1, "Insect", count=3, colors={Color.GREEN})
+    return [itc]
+
 ANT_MAN = make_creature(
     name="Ant-Man, Scott Lang",
     power=2, toughness=2,
@@ -1156,12 +1178,8 @@ ANT_MAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Avenger"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name='Ant', power=1, toughness=1, colors={'G'}, subtypes={'Insect'}, count=3)
-        )
-    ]
+    text="When Ant-Man enters, create three 1/1 green Insect creature tokens.",
+    setup_interceptors=ant_man_setup
 )
 
 def wasp_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1288,6 +1306,16 @@ FOREST_TROLL = make_creature(
     text="Trample. At the beginning of your upkeep, regenerate Forest Troll."
 )
 
+def korg_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_etb_trigger
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.CREATE_TOKEN, payload={
+            'controller': obj.controller,
+            'token': {'name': 'Miek', 'power': 1, 'toughness': 1,
+                      'colors': {Color.GREEN}, 'subtypes': {'Insect', 'Warrior'}},
+        }, source=obj.id)]
+    return [make_etb_trigger(obj, etb_effect)]
+
 KORG = make_creature(
     name="Korg, Revolutionary",
     power=3, toughness=4,
@@ -1295,12 +1323,8 @@ KORG = make_creature(
     colors={Color.GREEN},
     subtypes={"Kronan", "Warrior"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CreateToken(name='Miek', power=1, toughness=1, colors={'G'}, subtypes={'Insect', 'Warrior'})
-        )
-    ]
+    text="When Korg enters, create a 1/1 green Insect Warrior creature token.",
+    setup_interceptors=korg_setup
 )
 
 
@@ -1329,6 +1353,14 @@ RED_SKULL = make_creature(
     text="Menace. At the beginning of your upkeep, each opponent loses 1 life and you gain 1 life."
 )
 
+def quicksilver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_attack_trigger
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.UNTAP,
+                      payload={'object_id': obj.id},
+                      source=obj.id)]
+    return [make_attack_trigger(obj, attack_effect)]
+
 QUICKSILVER = make_creature(
     name="Quicksilver, Pietro Maximoff",
     power=2, toughness=2,
@@ -1336,12 +1368,8 @@ QUICKSILVER = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Avenger", "Mutant"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=UntapEffect()
-        )
-    ]
+    text="Whenever Quicksilver attacks, untap it.",
+    setup_interceptors=quicksilver_setup
 )
 
 EBONY_MAW = make_creature(
@@ -1427,6 +1455,14 @@ DORMAMMU = make_creature(
 # X-MEN REPRESENTATIVES
 # =============================================================================
 
+def wolverine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_damage_trigger
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': obj.controller, 'amount': 2},
+                      source=obj.id)]
+    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+
 WOLVERINE = make_creature(
     name="Wolverine, Logan",
     power=3, toughness=2,
@@ -1434,12 +1470,8 @@ WOLVERINE = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Mutant"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DealsDamageTrigger(combat_only=True, to_creature=True),
-            effect=GainLife(2)
-        )
-    ]
+    text="Whenever Wolverine deals combat damage to a creature, you gain 2 life.",
+    setup_interceptors=wolverine_setup
 )
 
 STORM = make_creature(
@@ -1453,6 +1485,10 @@ STORM = make_creature(
     # Note: Mass tap effect - keeping as text
 )
 
+def cyclops_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Mutant", include_self=False)
+    return itcs
+
 CYCLOPS = make_creature(
     name="Cyclops, X-Men Leader",
     power=3, toughness=3,
@@ -1460,12 +1496,8 @@ CYCLOPS = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Mutant"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Mutant", include_self=False)
-        )
-    ]
+    text="Other Mutant creatures you control get +1/+1.",
+    setup_interceptors=cyclops_setup
 )
 
 def jean_grey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1567,12 +1599,6 @@ MIND_STONE_INFINITY = make_artifact(
     text="Infinity Stone - At the beginning of your upkeep, scry 1. {T}: Add {U}. You have no maximum hand size.",
     subtypes={"Infinity Stone"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=Scry(1)
-        )
-    ]
 )
 
 def space_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1616,18 +1642,17 @@ POWER_STONE_INFINITY = make_artifact(
     setup_interceptors=power_stone_setup
 )
 
+def reality_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _txt = etb_draw(obj, 2)
+    return [itc]
+
 REALITY_STONE = make_artifact(
     name="Reality Stone",
     mana_cost="{4}",
     text="Infinity Stone - When Reality Stone enters, draw two cards. {T}: Add {R}. {2}, {T}: Exile target permanent, then return it to the battlefield under your control.",
     subtypes={"Infinity Stone"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=DrawCards(2)
-        )
-    ]
+    setup_interceptors=reality_stone_setup
 )
 
 def soul_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1981,16 +2006,16 @@ IMPALE = make_instant(
 # ENCHANTMENTS
 # =============================================================================
 
+def avengers_initiative_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itcs, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Avenger", include_self=True)
+    return itcs
+
 AVENGERS_INITIATIVE = make_enchantment(
     name="Avengers Initiative",
     mana_cost="{2}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Avenger")
-        )
-    ]
+    text="Avenger creatures you control get +1/+1.",
+    setup_interceptors=avengers_initiative_setup
 )
 
 def stark_industries_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2015,28 +2040,21 @@ SHIELD_HEADQUARTERS = make_enchantment(
     name="SHIELD Headquarters",
     mana_cost="{2}{W}{B}",
     colors={Color.WHITE, Color.BLACK},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=Scry(1)
-        )
-    ]
+    text="At the beginning of your upkeep, scry 1.",
 )
+
+def guardians_bond_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_keyword_grant, creatures_with_subtype
+    itcs, _txt = static_pt_boost_by_subtype(obj, 1, 1, "Guardian", include_self=True)
+    itcs.append(make_keyword_grant(obj, ['vigilance'], creatures_with_subtype(obj, "Guardian")))
+    return itcs
 
 GUARDIANS_BOND = make_enchantment(
     name="Guardians of the Galaxy United",
     mana_cost="{2}{G}{R}",
     colors={Color.GREEN, Color.RED},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter("Guardian")
-        ),
-        StaticAbility(
-            effect=KeywordGrant(['vigilance']),
-            filter=CreaturesWithSubtypeFilter("Guardian")
-        )
-    ]
+    text="Guardian creatures you control get +1/+1 and have vigilance.",
+    setup_interceptors=guardians_bond_setup
 )
 
 def hydra_influence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2097,16 +2115,24 @@ COSMIC_CONVERGENCE = make_enchantment(
     text="Whenever you cast a spell, if it's the second spell you cast this turn, copy it. You may choose new targets for the copy."
 )
 
+def dark_dimension_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_upkeep_trigger
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for pid, player in state.players.items():
+            if pid != obj.controller:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': pid, 'amount': -2},
+                                    source=obj.id))
+        return events
+    return [make_upkeep_trigger(obj, upkeep_effect)]
+
 DARK_DIMENSION = make_enchantment(
     name="Dark Dimension",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
-    abilities=[
-        TriggeredAbility(
-            trigger=UpkeepTrigger(),
-            effect=LoseLife(2, target=EachOpponentTarget())
-        )
-    ]
+    text="At the beginning of your upkeep, each opponent loses 2 life.",
+    setup_interceptors=dark_dimension_setup
 )
 
 VIBRANIUM_MINES = make_enchantment(
