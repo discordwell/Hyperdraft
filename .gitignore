@@ -40,6 +40,9 @@ data/generated_metas/
 data/playtest_results/
 *.json.backup
 
+# Raw scraped card data (large, regeneratable via scripts/build_cardsrealm_extra_context.py etc.)
+data/raw/
+
 # Database
 *.db
 *.sqlite
