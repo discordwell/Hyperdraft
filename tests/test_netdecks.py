@@ -13,7 +13,7 @@ import json
 import time
 import sys
 
-BASE_URL = "http://localhost:8000/api/match"
+BASE_URL = "http://localhost:8030/api/match"
 
 # Available standard deck IDs:
 # - mono_red_aggro, mono_green_ramp, dimir_control
