@@ -5,6 +5,13 @@ Set released 2026. ~250 cards.
 Features mechanics: Quirk, Plus Ultra, Villain
 """
 
+from src.cards.card_factories import (
+    make_artifact,
+    make_equipment,
+    make_land,
+    make_sorcery,
+)
+
 from src.engine import (
     Event, EventType,
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
@@ -43,73 +50,6 @@ from typing import Optional, Callable
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
-
-def make_sorcery(name: str, mana_cost: str, colors: set, text: str, subtypes: set = None, supertypes: set = None, resolve=None):
-    """Helper to create sorcery card definitions."""
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.SORCERY},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            colors=colors,
-            mana_cost=mana_cost
-        ),
-        text=text,
-        resolve=resolve
-    )
-
-
-def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
-    """Helper to create artifact card definitions."""
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.ARTIFACT},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            mana_cost=mana_cost
-        ),
-        text=text,
-        setup_interceptors=setup_interceptors
-    )
-
-
-def make_equipment(name: str, mana_cost: str, text: str, equip_cost: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
-    """Helper to create equipment card definitions."""
-    base_subtypes = {"Equipment"}
-    if subtypes:
-        base_subtypes.update(subtypes)
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.ARTIFACT},
-            subtypes=base_subtypes,
-            supertypes=supertypes or set(),
-            mana_cost=mana_cost
-        ),
-        text=f"{text}\nEquip {equip_cost}",
-        setup_interceptors=setup_interceptors
-    )
-
-
-def make_land(name: str, text: str = "", subtypes: set = None, supertypes: set = None):
-    """Helper to create land card definitions."""
-    return CardDefinition(
-        name=name,
-        mana_cost="",
-        characteristics=Characteristics(
-            types={CardType.LAND},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            mana_cost=""
-        ),
-        text=text
-    )
-
 
 # =============================================================================
 # MY HERO ACADEMIA KEYWORD MECHANICS

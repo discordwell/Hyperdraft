@@ -7,6 +7,13 @@ NOTE: This is a custom set. The real "Lorwyn Eclipsed" MTG set was released
 after my knowledge cutoff and may have different cards.
 """
 
+from src.cards.card_factories import (
+    make_artifact,
+    make_land,
+    make_planeswalker,
+    make_sorcery,
+)
+
 from src.engine import (
     Event, EventType,
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
@@ -168,55 +175,6 @@ def make_static_pt_boost(
         ))
 
     return interceptors
-
-
-def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, setup_interceptors=None):
-    """Helper to create artifact card definitions."""
-    from src.engine import CardDefinition, Characteristics
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.ARTIFACT},
-            subtypes=subtypes or set(),
-            mana_cost=mana_cost
-        ),
-        text=text,
-        setup_interceptors=setup_interceptors
-    )
-
-
-def make_sorcery(name: str, mana_cost: str, colors: set, text: str, resolve=None):
-    """Helper to create sorcery card definitions."""
-    from src.engine import CardDefinition, Characteristics
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.SORCERY},
-            colors=colors,
-            mana_cost=mana_cost
-        ),
-        text=text,
-        resolve=resolve
-    )
-
-
-def make_planeswalker(name: str, mana_cost: str, colors: set, subtypes: set, text: str, loyalty: int):
-    """Helper to create planeswalker card definitions."""
-    from src.engine import CardDefinition, Characteristics
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.PLANESWALKER},
-            subtypes=subtypes,
-            colors=colors,
-            mana_cost=mana_cost
-        ),
-        text=text,
-        setup_interceptors=None
-    )
 
 
 # =============================================================================
@@ -1406,22 +1364,6 @@ SURLY_FARRIER = make_creature(
 # {2}{G} Sorcery
 # Search your library for a basic land card, put it onto the battlefield tapped.
 # Then if you control seven or more lands and/or Treefolk, create a 3/4 Treefolk.
-
-def make_sorcery(name: str, mana_cost: str, colors: set, text: str, resolve=None):
-    """Helper to create sorcery card definitions."""
-    from src.engine import CardDefinition, Characteristics
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.SORCERY},
-            colors=colors or set(),
-            mana_cost=mana_cost
-        ),
-        text=text,
-        resolve=resolve
-    )
-
 
 TEND_THE_SPRIGS = make_sorcery(
     name="Tend the Sprigs",
@@ -5749,22 +5691,6 @@ STALACTITE_DAGGER = make_artifact(
 # =============================================================================
 # LAND CARDS
 # =============================================================================
-
-def make_land(name: str, subtypes: set = None, supertypes: set = None, text: str = ""):
-    """Helper to create land card definitions."""
-    from src.engine import CardDefinition, Characteristics
-    return CardDefinition(
-        name=name,
-        mana_cost="",
-        characteristics=Characteristics(
-            types={CardType.LAND},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            mana_cost=""
-        ),
-        text=text
-    )
-
 
 # Basic Lands
 FOREST = make_land(

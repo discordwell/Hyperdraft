@@ -5,6 +5,13 @@ Set released June 2026. ~270 cards.
 Features mechanics: Devil Fruit, Haki (Observation/Armament/Conqueror's), Crew, Bounty
 """
 
+from src.cards.card_factories import (
+    make_artifact,
+    make_artifact_creature,
+    make_land,
+    make_sorcery,
+)
+
 from src.engine import (
     Event, EventType,
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
@@ -27,78 +34,6 @@ from src.cards.interceptor_helpers import (
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
-
-def make_sorcery(name: str, mana_cost: str, colors: set, text: str, subtypes: set = None, supertypes: set = None, resolve=None):
-    """Helper to create sorcery card definitions."""
-    from src.engine import CardDefinition, Characteristics
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.SORCERY},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            colors=colors,
-            mana_cost=mana_cost
-        ),
-        text=text,
-        resolve=resolve
-    )
-
-
-def make_artifact(name: str, mana_cost: str, text: str, subtypes: set = None, supertypes: set = None, setup_interceptors=None):
-    """Helper to create artifact card definitions."""
-    from src.engine import CardDefinition, Characteristics
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.ARTIFACT},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            mana_cost=mana_cost
-        ),
-        text=text,
-        setup_interceptors=setup_interceptors
-    )
-
-
-def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str, text: str,
-                           subtypes: set = None, supertypes: set = None, setup_interceptors=None):
-    """Helper to create artifact creature card definitions."""
-    from src.engine import CardDefinition, Characteristics
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.ARTIFACT, CardType.CREATURE},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            power=power,
-            toughness=toughness,
-            mana_cost=mana_cost
-        ),
-        text=text,
-        setup_interceptors=setup_interceptors
-    )
-
-
-def make_land(name: str, subtypes: set = None, supertypes: set = None, text: str = "", setup_interceptors=None):
-    """Helper to create land card definitions."""
-    from src.engine import CardDefinition, Characteristics
-    return CardDefinition(
-        name=name,
-        mana_cost="",
-        characteristics=Characteristics(
-            types={CardType.LAND},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            mana_cost=""
-        ),
-        text=text,
-        setup_interceptors=setup_interceptors
-    )
-
 
 def make_enchantment_with_subtypes(name: str, mana_cost: str, colors: set, text: str,
                                     subtypes: set = None, supertypes: set = None, setup_interceptors=None):
