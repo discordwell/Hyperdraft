@@ -5,6 +5,14 @@ Set featuring Middle-earth. ~250 cards.
 Features mechanics: Fellowship, Ring-bearer, Corruption
 """
 
+from src.cards.card_factories import (
+    make_artifact,
+    make_artifact_creature,
+    make_equipment,
+    make_land,
+    make_sorcery,
+)
+
 from src.engine import (
     Event, EventType,
     Interceptor,
@@ -68,88 +76,6 @@ def _make_creature(
         text=text,
         abilities=list(kw_list),
         setup_interceptors=setup_interceptors,
-    )
-
-
-def make_sorcery(name: str, mana_cost: str, colors: set, subtypes: set = None, supertypes: set = None, resolve=None):
-    """Helper to create sorcery card definitions."""
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.SORCERY},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            colors=colors,
-            mana_cost=mana_cost
-        ),
-        resolve=resolve
-    )
-
-
-def make_artifact(name: str, mana_cost: str, subtypes: set = None, supertypes: set = None, abilities=None):
-    """Helper to create artifact card definitions."""
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.ARTIFACT},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            mana_cost=mana_cost
-        ),
-        abilities=abilities
-    )
-
-
-def make_artifact_creature(name: str, power: int, toughness: int, mana_cost: str, colors: set,
-                           subtypes: set = None, supertypes: set = None, abilities=None):
-    """Helper to create artifact creature card definitions."""
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.ARTIFACT, CardType.CREATURE},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            colors=colors,
-            mana_cost=mana_cost,
-            power=power,
-            toughness=toughness
-        ),
-        abilities=abilities
-    )
-
-
-def make_equipment(name: str, mana_cost: str, equip_cost: str, subtypes: set = None, supertypes: set = None, abilities=None):
-    """Helper to create equipment card definitions."""
-    base_subtypes = {"Equipment"}
-    if subtypes:
-        base_subtypes.update(subtypes)
-    return CardDefinition(
-        name=name,
-        mana_cost=mana_cost,
-        characteristics=Characteristics(
-            types={CardType.ARTIFACT},
-            subtypes=base_subtypes,
-            supertypes=supertypes or set(),
-            mana_cost=mana_cost
-        ),
-        abilities=abilities
-    )
-
-
-def make_land(name: str, subtypes: set = None, supertypes: set = None):
-    """Helper to create land card definitions."""
-    return CardDefinition(
-        name=name,
-        mana_cost="",
-        characteristics=Characteristics(
-            types={CardType.LAND},
-            subtypes=subtypes or set(),
-            supertypes=supertypes or set(),
-            mana_cost=""
-        )
     )
 
 
