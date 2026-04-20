@@ -2,6 +2,12 @@
 Game Session Management
 
 Manages active game sessions, player connections, and game state.
+
+This module is the orchestrator: it owns lifecycle (start/stop/reconnect),
+socket tracking, replay recording, the MTG priority-based action flow, and
+the AI engine registry. Per-mode game loops, action handlers, and card
+serializers live in `src.server.modes.*` and are reached via
+`get_server_mode_adapter(game_mode)`.
 """
 
 import asyncio
@@ -24,6 +30,7 @@ from .models import (
     LegalActionData, CombatData, PlayerActionRequest, ReplayFrame,
     PendingChoiceData, PendingChoiceWaitingData, GameLogEntry
 )
+from .modes import get_server_mode_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +38,26 @@ logger = logging.getLogger(__name__)
 def generate_id() -> str:
     """Generate a short unique ID."""
     return str(uuid4())[:8]
+
+
+# Action type prefixes handled by specific mode adapters.
+_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO"}
+
+_HS_ACTION_TYPES = frozenset({
+    "HS_PLAY_CARD", "HS_ATTUNE_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN",
+})
+
+_PKM_ACTION_TYPES = frozenset({
+    "PKM_PLAY_CARD", "PKM_ATTACH_ENERGY", "PKM_ATTACK", "PKM_RETREAT",
+    "PKM_EVOLVE", "PKM_USE_ABILITY", "PKM_END_TURN",
+})
+
+_YGO_ACTION_TYPES = frozenset({
+    "YGO_NORMAL_SUMMON", "YGO_SET_MONSTER", "YGO_FLIP_SUMMON",
+    "YGO_CHANGE_POSITION", "YGO_ACTIVATE", "YGO_SET_SPELL_TRAP",
+    "YGO_DECLARE_ATTACK", "YGO_DIRECT_ATTACK", "YGO_CHAIN_RESPONSE",
+    "YGO_CHAIN_PASS", "YGO_END_TURN", "YGO_SPECIAL_SUMMON", "YGO_END_PHASE",
+})
 
 
 @dataclass
@@ -43,6 +70,8 @@ class GameSession:
     - State serialization for clients
     - Action handling with validation
     - Replay recording
+    - Delegates per-mode game loop / action handling / serialization to
+      `src.server.modes.ModeAdapter` instances.
     """
     id: str
     game: Game
@@ -75,7 +104,7 @@ class GameSession:
     _pending_choice_player_id: Optional[str] = None
     _pending_choice_id: Optional[str] = None
 
-    # Game log for Pokemon mode
+    # Game log (used by PKM/YGO modes)
     _game_log: list[GameLogEntry] = field(default_factory=list)
 
     # AI engine (lazy initialized)
@@ -110,6 +139,13 @@ class GameSession:
         self.game.set_mulligan_handler(self._get_mulligan_decision)
         # Set up action processed callback for synchronization
         self.game.priority_system.on_action_processed = self._on_action_processed
+
+    # --- Mode adapter accessor -------------------------------------------
+
+    @property
+    def mode_adapter(self):
+        """Server-side mode adapter for the current game mode."""
+        return get_server_mode_adapter(self.game.state.game_mode)
 
     async def _on_action_processed(self, action: Optional[PlayerAction] = None):
         """
@@ -230,95 +266,14 @@ class GameSession:
                 print(f"AI layer preparation failed for {ai_pid}: {e}")
 
     async def start_game(self) -> None:
-        """Start the game."""
+        """Start the game (dispatches per-mode setup)."""
         if self.is_started:
             return
 
         self.is_started = True
 
-        # Setup AI handlers based on game mode
-        if self.game.state.game_mode == "pokemon":
-            # Setup Pokemon AI adapter
-            from src.ai.pokemon_adapter import PokemonAIAdapter
-
-            if self.ai_profiles_by_player:
-                first_profile = next(iter(self.ai_profiles_by_player.values()))
-                difficulty = first_profile.get('difficulty', self.ai_difficulty or 'medium')
-            else:
-                difficulty = self.ai_difficulty or 'medium'
-            if hasattr(difficulty, "value"):
-                difficulty = difficulty.value
-            difficulty = str(difficulty).strip().lower()
-
-            ai_adapter = PokemonAIAdapter(difficulty=difficulty)
-            self.game.turn_manager.set_ai_handler(ai_adapter)
-
-            # Wire human action handler for Pokemon mode with human players
-            if self.human_players:
-                self.game.turn_manager.human_action_handler = self._get_pkm_human_action
-
-            # Setup game (shuffle, draw 7, mulligans, prizes, coin flip)
-            import asyncio
-            await self.game.turn_manager.setup_game()
-
-        elif self.game.state.game_mode == "hearthstone":
-            # Setup Hearthstone AI adapter
-            from src.ai.hearthstone_adapter import HearthstoneAIAdapter
-
-            # Default difficulty from first AI profile, else session-level
-            # difficulty passed at match creation.
-            if self.ai_profiles_by_player:
-                first_profile = next(iter(self.ai_profiles_by_player.values()))
-                difficulty = first_profile.get('difficulty', self.ai_difficulty or 'medium')
-            else:
-                difficulty = self.ai_difficulty or 'medium'
-            if hasattr(difficulty, "value"):
-                difficulty = difficulty.value
-            difficulty = str(difficulty).strip().lower()
-
-            ai_adapter = HearthstoneAIAdapter(difficulty=difficulty)
-
-            # Set per-player difficulty overrides for bot-vs-bot
-            for pid, profile in self.ai_profiles_by_player.items():
-                player_diff = profile.get('difficulty', difficulty)
-                ai_adapter.player_difficulties[pid] = player_diff
-
-            self.game.set_hearthstone_ai_handler(ai_adapter)
-
-            # Wire human action handler for HS mode with human players
-            if self.human_players:
-                self.game.turn_manager.human_action_handler = self._get_hs_human_action
-
-        elif self.game.state.game_mode == "yugioh":
-            # Setup Yu-Gi-Oh! AI adapter
-            from src.ai.yugioh_adapter import YugiohAIAdapter
-
-            if self.ai_profiles_by_player:
-                first_profile = next(iter(self.ai_profiles_by_player.values()))
-                difficulty = first_profile.get('difficulty', self.ai_difficulty or 'medium')
-            else:
-                difficulty = self.ai_difficulty or 'medium'
-            if hasattr(difficulty, "value"):
-                difficulty = difficulty.value
-            difficulty = str(difficulty).strip().lower()
-
-            ai_adapter = YugiohAIAdapter(difficulty=difficulty)
-            if self.ygo_ai_strategy:
-                ai_adapter.strategy = self.ygo_ai_strategy
-            self.game.turn_manager.set_ai_handler(ai_adapter)
-
-            # Wire human action handler and log callback for YGO mode
-            if self.human_players:
-                self.game.turn_manager.human_action_handler = self._get_ygo_human_action
-            self.game.turn_manager.action_log_callback = self._add_ygo_log
-
-            # Setup game (shuffle, draw 5, coin flip)
-            import asyncio
-            await self.game.turn_manager.setup_game()
-
-        else:
-            # MTG mode - prepare AI layers before the first priority decision
-            await self._prepare_ai_layers()
+        # Per-mode setup (AI adapter wiring, turn_manager.setup_game(), etc.)
+        await self.mode_adapter.setup_game(self)
 
         await self.game.start_game()
 
@@ -328,54 +283,9 @@ class GameSession:
     async def run_until_human_input(self) -> None:
         """Run the game until human input is needed or game ends."""
         try:
-            if self.game.state.game_mode == "pokemon":
-                await self._run_pkm_game_loop()
-            elif self.game.state.game_mode == "hearthstone":
-                await self._run_hs_game_loop()
-            elif self.game.state.game_mode == "yugioh":
-                await self._run_ygo_game_loop()
-            else:
-                await self._run_mtg_game_loop()
+            await self.mode_adapter.run_game_loop(self)
         except asyncio.CancelledError:
             pass
-
-    async def _run_mtg_game_loop(self) -> None:
-        """MTG game loop - runs until human input needed or game ends."""
-        while not self.is_finished:
-            await self._process_ai_pending_choices()
-            await self.game.turn_manager.run_turn()
-            await self._process_ai_pending_choices()
-
-            if self.game.is_game_over():
-                self.is_finished = True
-                self.winner_id = self.game.get_winner()
-                break
-
-    async def _run_hs_game_loop(self) -> None:
-        """
-        Hearthstone game loop.
-
-        run_turn() blocks during human turns (via future) and auto-executes
-        AI turns, so we just keep calling it in a loop.
-        """
-        while not self.is_finished:
-            await self.game.turn_manager.run_turn()
-
-            if self.game.is_game_over():
-                self.is_finished = True
-                self.winner_id = self.game.get_winner()
-                # Notify clients of game over
-                if self.on_state_change:
-                    for pid in self.human_players:
-                        state = self.get_client_state(pid)
-                        await self.on_state_change(pid, state.model_dump())
-                break
-
-            # After each turn completes, broadcast updated state
-            if self.on_state_change:
-                for pid in self.human_players:
-                    state = self.get_client_state(pid)
-                    await self.on_state_change(pid, state.model_dump())
 
     async def _process_ai_pending_choices(self) -> None:
         """Process any pending choices for AI players."""
@@ -413,6 +323,7 @@ class GameSession:
             self.winner_id = self.game.get_winner()
 
         game_state = self.game.state
+        adapter = self.mode_adapter
 
         # Get player data
         players = {}
@@ -433,9 +344,9 @@ class GameSession:
                 fatigue_damage=player.fatigue_damage,
                 hero_power_used=player.hero_power_used,
                 hero_power_id=player.hero_power_id,
-                hero_power_name=self._get_hero_power_name(player),
-                hero_power_cost=self._get_hero_power_cost(player),
-                hero_power_text=self._get_hero_power_text(player),
+                hero_power_name=adapter.get_hero_power_name(self, player),
+                hero_power_cost=adapter.get_hero_power_cost(self, player),
+                hero_power_text=adapter.get_hero_power_text(self, player),
                 max_life=player.max_life,
                 variant_resources=self._get_variant_resources(player),
                 prizes_remaining=getattr(player, 'prizes_remaining', 0),
@@ -463,11 +374,12 @@ class GameSession:
 
         # Get graveyards
         graveyards = {}
-        serialize_fn = (
-            self._serialize_pokemon_card
-            if self.game.mode_adapter.uses_pokemon_card_serializer()
-            else self._serialize_card
-        )
+        # Choose a serializer based on mode. PKM/YGO use mode-specific serializers;
+        # MTG/HS use the default CardData serializer.
+        if self.game.mode_adapter.uses_pokemon_card_serializer():
+            serialize_fn = lambda o: adapter.serialize_card(self, o)
+        else:
+            serialize_fn = self._serialize_card
         for pid in game_state.players:
             graveyards[pid] = [
                 serialize_fn(obj)
@@ -537,7 +449,7 @@ class GameSession:
                 active_zone = game_state.zones.get(f"active_spot_{pid}")
                 if active_zone and active_zone.objects:
                     obj = _resolve_obj(active_zone.objects[0])
-                    active_pokemon[pid] = self._serialize_pokemon_card(obj) if obj else None
+                    active_pokemon[pid] = adapter.serialize_card(self, obj) if obj else None
                 else:
                     active_pokemon[pid] = None
 
@@ -548,7 +460,7 @@ class GameSession:
                     for entry in bench_zone.objects:
                         obj = _resolve_obj(entry)
                         if obj:
-                            bench[pid].append(self._serialize_pokemon_card(obj))
+                            bench[pid].append(adapter.serialize_card(self, obj))
                 else:
                     bench[pid] = []
 
@@ -556,13 +468,13 @@ class GameSession:
             stadium_zone = game_state.zones.get("stadium_zone")
             if stadium_zone and stadium_zone.objects:
                 obj = _resolve_obj(stadium_zone.objects[0])
-                stadium_card_data = self._serialize_pokemon_card(obj) if obj else None
+                stadium_card_data = adapter.serialize_card(self, obj) if obj else None
 
             # For Pokemon, serialize hand cards with Pokemon-specific fields
             hand = []
             if player_id:
                 for obj in self.game.get_hand(player_id):
-                    hand.append(self._serialize_pokemon_card(obj))
+                    hand.append(adapter.serialize_card(self, obj))
 
         # Include game log (last 50 entries) for modes that surface it (PKM/YGO).
         game_log = self._game_log[-50:] if self.game.mode_adapter.includes_game_log_in_state() else []
@@ -593,7 +505,7 @@ class GameSession:
                         else:
                             obj = _resolve_obj(oid)
                             monster_zones[pid].append(
-                                self._serialize_ygo_card(obj, pid == player_id) if obj else None
+                                adapter.serialize_card(self, obj, reveal=(pid == player_id)) if obj else None
                             )
 
                 # Spell/Trap zones (5 slots)
@@ -606,14 +518,14 @@ class GameSession:
                         else:
                             obj = _resolve_obj(oid)
                             spell_trap_zones[pid].append(
-                                self._serialize_ygo_card(obj, pid == player_id) if obj else None
+                                adapter.serialize_card(self, obj, reveal=(pid == player_id)) if obj else None
                             )
 
                 # Field spell
                 fsz = game_state.zones.get(f"field_spell_zone_{pid}")
                 if fsz and fsz.objects:
                     obj = _resolve_obj(fsz.objects[0])
-                    field_spells[pid] = self._serialize_ygo_card(obj, True) if obj else None
+                    field_spells[pid] = adapter.serialize_card(self, obj, reveal=True) if obj else None
                 else:
                     field_spells[pid] = None
 
@@ -624,7 +536,7 @@ class GameSession:
                     for oid in bz.objects:
                         obj = _resolve_obj(oid)
                         if obj:
-                            banished[pid].append(self._serialize_ygo_card(obj, True))
+                            banished[pid].append(adapter.serialize_card(self, obj, reveal=True))
 
                 # Extra deck size
                 edz = game_state.zones.get(f"extra_deck_{pid}")
@@ -639,7 +551,7 @@ class GameSession:
             hand = []
             if player_id:
                 for obj in self.game.get_hand(player_id):
-                    hand.append(self._serialize_ygo_card(obj, True))
+                    hand.append(adapter.serialize_card(self, obj, reveal=True))
 
             # Serialize graveyards with YGO fields
             for pid in game_state.players:
@@ -649,7 +561,7 @@ class GameSession:
                     for oid in gy.objects:
                         obj = _resolve_obj(oid)
                         if obj:
-                            graveyards[pid].append(self._serialize_ygo_card(obj, True))
+                            graveyards[pid].append(adapter.serialize_card(self, obj, reveal=True))
 
             # Update player data with YGO-specific fields
             for pid, player in game_state.players.items():
@@ -704,27 +616,17 @@ class GameSession:
         # Validate action matches the current game mode
         mode = self.game.state.game_mode
         action_prefix = request.action_type.split("_")[0] if "_" in request.action_type else ""
-        mode_prefixes = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO"}
-        expected_prefix = mode_prefixes.get(mode)
-        if expected_prefix and action_prefix in mode_prefixes.values() and action_prefix != expected_prefix:
+        expected_prefix = _MODE_ACTION_PREFIXES.get(mode)
+        if expected_prefix and action_prefix in _MODE_ACTION_PREFIXES.values() and action_prefix != expected_prefix:
             return False, f"Action {request.action_type} is not valid for {mode} mode."
 
-        # Route Pokemon actions to dedicated handler
-        if request.action_type in ("PKM_PLAY_CARD", "PKM_ATTACH_ENERGY", "PKM_ATTACK", "PKM_RETREAT", "PKM_EVOLVE", "PKM_USE_ABILITY", "PKM_END_TURN"):
-            return await self.handle_pkm_action(request)
-
-        # Route HS actions to dedicated handler
-        if request.action_type in ("HS_PLAY_CARD", "HS_ATTUNE_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN"):
-            return await self.handle_hs_action(request)
-
-        # Route YGO actions to dedicated handler
-        if request.action_type in (
-            "YGO_NORMAL_SUMMON", "YGO_SET_MONSTER", "YGO_FLIP_SUMMON",
-            "YGO_CHANGE_POSITION", "YGO_ACTIVATE", "YGO_SET_SPELL_TRAP",
-            "YGO_DECLARE_ATTACK", "YGO_DIRECT_ATTACK", "YGO_CHAIN_RESPONSE",
-            "YGO_CHAIN_PASS", "YGO_END_TURN", "YGO_SPECIAL_SUMMON", "YGO_END_PHASE",
-        ):
-            return await self.handle_ygo_action(request)
+        # Route mode-specific actions to the current mode adapter.
+        if request.action_type in _PKM_ACTION_TYPES:
+            return await get_server_mode_adapter("pokemon").handle_action(self, request)
+        if request.action_type in _HS_ACTION_TYPES:
+            return await get_server_mode_adapter("hearthstone").handle_action(self, request)
+        if request.action_type in _YGO_ACTION_TYPES:
+            return await get_server_mode_adapter("yugioh").handle_action(self, request)
 
         # Combat declarations are not wired through the priority action loop yet.
         if request.action_type in ("DECLARE_ATTACKERS", "DECLARE_BLOCKERS"):
@@ -773,770 +675,28 @@ class GameSession:
 
         return False, "No pending action expected"
 
-    # === Hearthstone Human Action Handling =====================================
-
-    async def _get_hs_human_action(self, player_id: str, game_state: GameState) -> dict:
-        """
-        Callback for HearthstoneTurnManager.human_action_handler.
-
-        Blocks (via asyncio.Future) until the client submits an HS action.
-        Returns an action dict with 'action_type' and relevant fields.
-        """
-        # Signal that the *previous* action has been fully processed
-        if self._action_processed_event:
-            self._action_processed_event.set()
-            self._action_processed_event = None
-
-        loop = asyncio.get_event_loop()
-        self._pending_action_future = loop.create_future()
-        self._pending_player_id = player_id
-        self._action_processed_event = asyncio.Event()
-
-        # Notify the client they need to act (send updated state)
-        if self.on_state_change:
-            for pid in self.human_players:
-                state = self.get_client_state(pid)
-                await self.on_state_change(pid, state.model_dump())
-
-        # Wait for the action
-        try:
-            action = await asyncio.wait_for(self._pending_action_future, timeout=300.0)
-            return action
-        except asyncio.TimeoutError:
-            return {'action_type': 'HS_END_TURN'}
+    # === Per-mode action shims (for test compatibility) =====================
+    # These are thin pass-throughs to the corresponding mode adapters. They
+    # exist so test modules (and any legacy callers) that invoke
+    # `session.handle_hs_action(...)` / `session.handle_pkm_action(...)` /
+    # `session.handle_ygo_action(...)` continue to work.
 
     async def handle_hs_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
-        """
-        Handle a Hearthstone-specific player action.
-
-        Validates the player is active and resolves the pending future.
-        """
-        # Validate it's this player's turn
-        active_player = self.game.get_active_player()
-        if request.player_id != active_player:
-            return False, "Not your turn"
-
-        # Build HS action dict from the request
-        target_id = request.targets[0][0] if request.targets and request.targets[0] else None
-
-        # Validate attack has required fields
-        if request.action_type == 'HS_ATTACK':
-            if not request.source_id:
-                return False, "Attack requires an attacker (source_id)"
-            if not target_id:
-                return False, "Attack requires a target"
-        elif request.action_type == 'HS_ATTUNE_CARD':
-            if not request.card_id:
-                return False, "Attune requires a card_id from hand"
-
-        action_dict = {
-            'action_type': request.action_type,
-            'card_id': request.card_id,
-            'attacker_id': request.source_id,  # source_id used for attacker
-            'target_id': target_id,
-        }
-
-        # If we're waiting for this player's input, resolve the future
-        if (self._pending_action_future and
-            not self._pending_action_future.done() and
-            self._pending_player_id == request.player_id):
-
-            is_end_turn = request.action_type == 'HS_END_TURN'
-            pending_future = self._pending_action_future
-            processed_event = self._action_processed_event
-
-            self._pending_action_future.set_result(action_dict)
-
-            # Record the action
-            self._record_frame(action=request.model_dump())
-
-            # For end turn, the human loop breaks and won't call _get_hs_human_action
-            # again, so we wait longer for the AI turn + next human draw to complete.
-            timeout = 30.0 if is_end_turn else 5.0
-
-            if processed_event:
-                try:
-                    await asyncio.wait_for(processed_event.wait(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    pass
-
-            # Clear only the action context we resolved. The game loop may have
-            # already created the next turn's pending future by now.
-            if self._pending_action_future is pending_future:
-                self._pending_action_future = None
-                self._pending_player_id = None
-            if self._action_processed_event is processed_event:
-                self._action_processed_event = None
-
-            # Yield briefly so the turn manager loop can advance
-            await asyncio.sleep(0.05)
-
-            return True, "Action accepted"
-
-        return False, "No pending action expected"
-
-    # === Pokemon Game Loop + Action Handling ====================================
-
-    async def _run_pkm_game_loop(self) -> None:
-        """
-        Pokemon game loop.
-
-        run_turn() blocks during human turns (via future) and auto-executes
-        AI turns, so we just keep calling it in a loop.
-        """
-        while not self.is_finished:
-            await self.game.turn_manager.run_turn()
-
-            if self.game.is_game_over():
-                self.is_finished = True
-                self.winner_id = self.game.get_winner()
-                if self.on_state_change:
-                    for pid in self.human_players:
-                        state = self.get_client_state(pid)
-                        await self.on_state_change(pid, state.model_dump())
-                break
-
-            # Broadcast updated state after each turn
-            if self.on_state_change:
-                for pid in self.human_players:
-                    state = self.get_client_state(pid)
-                    await self.on_state_change(pid, state.model_dump())
-
-    async def _get_pkm_human_action(self, player_id: str, game_state) -> dict:
-        """
-        Callback for PokemonTurnManager.human_action_handler.
-
-        Blocks (via asyncio.Future) until the client submits a Pokemon action.
-        Returns an action dict with 'action_type' and relevant fields.
-        """
-        # Log turn start when human is prompted for action
-        turn = self.game.turn_manager.turn_number if hasattr(self.game.turn_manager, 'turn_number') else 0
-        player_name = self.player_names.get(player_id, 'Player')
-        # Only log if this is a new turn (avoid double-logging)
-        if not self._game_log or self._game_log[-1].turn != turn or self._game_log[-1].event_type != 'turn_start':
-            self._add_pkm_log(f"Turn {turn} - {player_name}'s turn.", "turn_start", player_id)
-
-        if self._action_processed_event:
-            self._action_processed_event.set()
-            self._action_processed_event = None
-
-        loop = asyncio.get_event_loop()
-        self._pending_action_future = loop.create_future()
-        self._pending_player_id = player_id
-        self._action_processed_event = asyncio.Event()
-
-        # Notify the client they need to act
-        if self.on_state_change:
-            for pid in self.human_players:
-                state = self.get_client_state(pid)
-                await self.on_state_change(pid, state.model_dump())
-
-        try:
-            action = await asyncio.wait_for(self._pending_action_future, timeout=300.0)
-            return action
-        except asyncio.TimeoutError:
-            return {'action_type': 'PKM_END_TURN'}
+        return await get_server_mode_adapter("hearthstone").handle_action(self, request)
 
     async def handle_pkm_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
-        """Handle a Pokemon-specific player action."""
-        active_player = self.game.get_active_player()
-        if request.player_id != active_player:
-            return False, "Not your turn"
-
-        target_id = request.targets[0][0] if request.targets and request.targets[0] else None
-
-        # Build Pokemon action dict matching pokemon_turn.py expectations
-        action_dict: dict = {'action_type': request.action_type}
-
-        if request.action_type == 'PKM_PLAY_CARD':
-            # Determine card type to route to correct sub-action
-            card_id = request.card_id
-            if not card_id:
-                return False, "PKM_PLAY_CARD requires card_id"
-
-            # Look up the card to determine its type
-            card_obj = self.game.state.objects.get(card_id)
-            if not card_obj:
-                return False, "Card not found"
-
-            from src.engine.types import CardType
-            types = card_obj.characteristics.types
-            if CardType.POKEMON in types:
-                stage = card_obj.card_def.evolution_stage if card_obj.card_def else 'Basic'
-                if stage == 'Basic':
-                    action_dict = {'action_type': 'PKM_PLAY_BASIC', 'card_id': card_id}
-                else:
-                    action_dict = {'action_type': 'PKM_EVOLVE', 'card_id': card_id, 'target_id': target_id}
-            elif CardType.ITEM in types:
-                action_dict = {'action_type': 'PKM_PLAY_ITEM', 'card_id': card_id}
-            elif CardType.SUPPORTER in types:
-                action_dict = {'action_type': 'PKM_PLAY_SUPPORTER', 'card_id': card_id}
-            elif CardType.STADIUM in types:
-                action_dict = {'action_type': 'PKM_PLAY_STADIUM', 'card_id': card_id}
-            elif CardType.ENERGY in types:
-                action_dict = {'action_type': 'PKM_ATTACH_ENERGY', 'energy_id': card_id, 'target_id': target_id}
-            else:
-                return False, f"Unknown card type for PKM_PLAY_CARD"
-
-        elif request.action_type == 'PKM_ATTACH_ENERGY':
-            action_dict = {
-                'action_type': 'PKM_ATTACH_ENERGY',
-                'energy_id': request.card_id,
-                'target_id': target_id,
-            }
-
-        elif request.action_type == 'PKM_ATTACK':
-            attack_index = int(target_id) if target_id else 0
-            action_dict = {
-                'action_type': 'PKM_ATTACK',
-                'attack_index': attack_index,
-            }
-
-        elif request.action_type == 'PKM_RETREAT':
-            action_dict = {
-                'action_type': 'PKM_RETREAT',
-                'bench_pokemon_id': target_id,
-            }
-
-        elif request.action_type == 'PKM_EVOLVE':
-            action_dict = {
-                'action_type': 'PKM_EVOLVE',
-                'card_id': request.card_id,
-                'target_id': request.source_id or target_id,
-            }
-
-        elif request.action_type == 'PKM_USE_ABILITY':
-            action_dict = {
-                'action_type': 'PKM_USE_ABILITY',
-                'pokemon_id': request.source_id,
-            }
-
-        elif request.action_type == 'PKM_END_TURN':
-            action_dict = {'action_type': 'PKM_END_TURN'}
-
-        # Log the action for the game log
-        self._log_pkm_action(request, action_dict)
-
-        # Resolve the pending future
-        if (self._pending_action_future and
-            not self._pending_action_future.done() and
-            self._pending_player_id == request.player_id):
-
-            is_end_turn = request.action_type == 'PKM_END_TURN'
-            pending_future = self._pending_action_future
-            processed_event = self._action_processed_event
-
-            self._pending_action_future.set_result(action_dict)
-            self._record_frame(action=request.model_dump())
-
-            timeout = 30.0 if is_end_turn else 5.0
-
-            if processed_event:
-                try:
-                    await asyncio.wait_for(processed_event.wait(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    pass
-
-            if self._pending_action_future is pending_future:
-                self._pending_action_future = None
-                self._pending_player_id = None
-            if self._action_processed_event is processed_event:
-                self._action_processed_event = None
-
-            # Check for KOs after attack resolves
-            if request.action_type == 'PKM_ATTACK':
-                self._check_and_log_kos()
-
-            await asyncio.sleep(0.05)
-            return True, "Action accepted"
-
-        return False, "No pending action expected"
-
-    def _log_pkm_action(self, request: PlayerActionRequest, action_dict: dict) -> None:
-        """Generate a log entry for a Pokemon action."""
-        player_name = self.player_names.get(request.player_id, 'Player')
-        action = request.action_type
-
-        if action == 'PKM_END_TURN':
-            self._add_pkm_log(f"{player_name} ended their turn.", "turn_end", request.player_id)
-        elif action == 'PKM_ATTACK':
-            attack_idx = action_dict.get('attack_index', 0)
-            # Try to get attack name from active Pokemon
-            active_key = f"active_spot_{request.player_id}"
-            active_zone = self.game.state.zones.get(active_key)
-            atk_name = "?"
-            atk_dmg = ""
-            if active_zone and active_zone.objects:
-                active_obj = self.game.state.objects.get(active_zone.objects[0])
-                if active_obj and active_obj.card_def:
-                    attacks = getattr(active_obj.card_def, 'attacks', []) or []
-                    if attack_idx < len(attacks):
-                        atk_name = attacks[attack_idx].get('name', '?')
-                        dmg = attacks[attack_idx].get('damage', 0)
-                        if dmg:
-                            atk_dmg = f" for {dmg}"
-                    pokemon_name = active_obj.name
-                    self._add_pkm_log(f"{pokemon_name} attacked with {atk_name}{atk_dmg}!", "attack", request.player_id)
-                    return
-            self._add_pkm_log(f"{player_name} attacked with {atk_name}!", "attack", request.player_id)
-        elif action == 'PKM_PLAY_CARD':
-            card_obj = self.game.state.objects.get(request.card_id or '')
-            card_name = card_obj.name if card_obj else '?'
-            sub = action_dict.get('action_type', '')
-            if sub == 'PKM_PLAY_BASIC':
-                self._add_pkm_log(f"{player_name} played {card_name} to bench.", "play_basic", request.player_id)
-            elif sub in ('PKM_PLAY_ITEM', 'PKM_PLAY_SUPPORTER', 'PKM_PLAY_STADIUM'):
-                self._add_pkm_log(f"{player_name} played {card_name}.", "trainer", request.player_id)
-            elif sub == 'PKM_EVOLVE':
-                self._add_pkm_log(f"{player_name} evolved into {card_name}.", "evolution", request.player_id)
-            elif sub == 'PKM_ATTACH_ENERGY':
-                self._add_pkm_log(f"{player_name} attached {card_name}.", "energy", request.player_id)
-            else:
-                self._add_pkm_log(f"{player_name} played {card_name}.", "play", request.player_id)
-        elif action == 'PKM_ATTACH_ENERGY':
-            card_obj = self.game.state.objects.get(request.card_id or '')
-            target_id = request.targets[0][0] if request.targets and request.targets[0] else None
-            target_obj = self.game.state.objects.get(target_id or '') if target_id else None
-            card_name = card_obj.name if card_obj else 'Energy'
-            target_name = target_obj.name if target_obj else '?'
-            self._add_pkm_log(f"{player_name} attached {card_name} to {target_name}.", "energy", request.player_id)
-        elif action == 'PKM_RETREAT':
-            target_id = request.targets[0][0] if request.targets and request.targets[0] else None
-            target_obj = self.game.state.objects.get(target_id or '') if target_id else None
-            target_name = target_obj.name if target_obj else '?'
-            self._add_pkm_log(f"{player_name} retreated, promoting {target_name}.", "retreat", request.player_id)
-        elif action == 'PKM_EVOLVE':
-            card_obj = self.game.state.objects.get(request.card_id or '')
-            card_name = card_obj.name if card_obj else '?'
-            self._add_pkm_log(f"{player_name} evolved into {card_name}!", "evolution", request.player_id)
-        elif action == 'PKM_USE_ABILITY':
-            source_obj = self.game.state.objects.get(request.source_id or '')
-            ability_name = '?'
-            if source_obj and source_obj.card_def:
-                ability = getattr(source_obj.card_def, 'ability', None)
-                if ability:
-                    ability_name = ability.get('name', '?')
-            self._add_pkm_log(f"{player_name} used {ability_name}.", "ability", request.player_id)
-
-    def _check_and_log_kos(self) -> None:
-        """Check for Pokemon with lethal damage and log KO entries."""
-        for pid in self.game.state.players:
-            active_zone = self.game.state.zones.get(f"active_spot_{pid}")
-            if active_zone:
-                for obj_id in active_zone.objects:
-                    obj = self.game.state.objects.get(obj_id)
-                    if obj and obj.state:
-                        hp = getattr(obj.card_def, 'hp', 0) if obj.card_def else 0
-                        dmg = getattr(obj.state, 'damage_counters', 0) * 10
-                        if hp > 0 and dmg >= hp:
-                            self._add_pkm_log(f"{obj.name} was knocked out!", "ko", pid)
-
-    def _add_pkm_log(self, text: str, event_type: str, player: Optional[str] = None) -> None:
-        """Add an entry to the Pokemon game log."""
-        turn = self.game.turn_manager.turn_number if hasattr(self.game.turn_manager, 'turn_number') else 0
-        self._game_log.append(GameLogEntry(
-            turn=turn,
-            text=text,
-            event_type=event_type,
-            player=player,
-            timestamp=time.time(),
-        ))
-
-    def _serialize_pokemon_card(self, obj) -> CardData:
-        """Serialize a Pokemon game object to CardData with Pokemon-specific fields."""
-        card_data = self._serialize_card(obj)
-
-        # Add Pokemon-specific fields from card definition
-        card_def = obj.card_def
-        if card_def:
-            card_data.hp = getattr(card_def, 'hp', None)
-            card_data.pokemon_type = getattr(card_def, 'pokemon_type', None)
-            card_data.evolution_stage = getattr(card_def, 'evolution_stage', None)
-            card_data.weakness_type = getattr(card_def, 'weakness_type', None)
-            card_data.resistance_type = getattr(card_def, 'resistance_type', None)
-            card_data.retreat_cost = getattr(card_def, 'retreat_cost', 0)
-            card_data.is_ex = getattr(card_def, 'is_ex', False)
-            card_data.prize_count = getattr(card_def, 'prize_count', 1)
-            card_data.image_url = getattr(card_def, 'image_url', None)
-
-            # Serialize attacks
-            raw_attacks = getattr(card_def, 'attacks', []) or []
-            card_data.attacks = []
-            for atk in raw_attacks:
-                attack_data = {
-                    'name': atk.get('name', '?'),
-                    'damage': atk.get('damage', 0),
-                    'text': atk.get('text', ''),
-                    'cost': atk.get('cost', []),
-                }
-                card_data.attacks.append(attack_data)
-
-            # Serialize ability
-            ability = getattr(card_def, 'ability', None)
-            if ability:
-                card_data.ability_name = ability.get('name')
-                card_data.ability_text = ability.get('text')
-
-        # Add runtime state from ObjectState
-        state = obj.state if obj.state else None
-        if state:
-            card_data.damage_counters = getattr(state, 'damage_counters', 0)
-            card_data.status_conditions = list(getattr(state, 'status_conditions', set()))
-
-            # Attached energy: resolve energy type codes
-            attached_ids = getattr(state, 'attached_energy', []) or []
-            energy_types = []
-            for eid in attached_ids:
-                energy_obj = self.game.state.objects.get(eid)
-                if energy_obj and energy_obj.card_def:
-                    energy_types.append(getattr(energy_obj.card_def, 'pokemon_type', 'C') or 'C')
-                else:
-                    energy_types.append('C')
-            card_data.attached_energy = energy_types
-
-            # Attached tool
-            tool_id = getattr(state, 'attached_tool', None)
-            if tool_id:
-                tool_obj = self.game.state.objects.get(tool_id)
-                if tool_obj:
-                    card_data.attached_tool_name = tool_obj.name
-
-        return card_data
-
-    # === Yu-Gi-Oh! Game Loop + Action Handling ====================================
-
-    async def _run_ygo_game_loop(self) -> None:
-        """
-        Yu-Gi-Oh! game loop.
-
-        run_turn() blocks during human turns (via future) and auto-executes
-        AI turns, so we just keep calling it in a loop.
-        """
-        while not self.is_finished:
-            await self.game.turn_manager.run_turn()
-
-            if self.game.is_game_over():
-                self.is_finished = True
-                self.winner_id = self.game.get_winner()
-                if self.on_state_change:
-                    for pid in self.human_players:
-                        state = self.get_client_state(pid)
-                        await self.on_state_change(pid, state.model_dump())
-                break
-
-            # Broadcast updated state after each turn
-            if self.on_state_change:
-                for pid in self.human_players:
-                    state = self.get_client_state(pid)
-                    await self.on_state_change(pid, state.model_dump())
-
-    async def _get_ygo_human_action(self, player_id: str, game_state) -> dict:
-        """
-        Callback for YugiohTurnManager.human_action_handler.
-
-        Blocks (via asyncio.Future) until the client submits a YGO action.
-        Returns an action dict with 'action_type' and relevant fields.
-        """
-        turn = self.game.turn_manager.turn_number if hasattr(self.game.turn_manager, 'turn_number') else 0
-        player_name = self.player_names.get(player_id, 'Player')
-        if not self._game_log or self._game_log[-1].turn != turn or self._game_log[-1].event_type != 'turn_start':
-            self._add_ygo_log(f"Turn {turn} - {player_name}'s turn.", "turn_start", player_id)
-
-        if self._action_processed_event:
-            self._action_processed_event.set()
-            self._action_processed_event = None
-
-        loop = asyncio.get_event_loop()
-        self._pending_action_future = loop.create_future()
-        self._pending_player_id = player_id
-        self._action_processed_event = asyncio.Event()
-
-        # Notify the client they need to act
-        if self.on_state_change:
-            for pid in self.human_players:
-                state = self.get_client_state(pid)
-                await self.on_state_change(pid, state.model_dump())
-
-        try:
-            action = await asyncio.wait_for(self._pending_action_future, timeout=300.0)
-            return action
-        except asyncio.TimeoutError:
-            return {'action_type': 'end_phase'}
+        return await get_server_mode_adapter("pokemon").handle_action(self, request)
 
     async def handle_ygo_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
-        """Handle a Yu-Gi-Oh!-specific player action."""
-        active_player = self.game.get_active_player()
-        if request.player_id != active_player:
-            return False, "Not your turn"
+        return await get_server_mode_adapter("yugioh").handle_action(self, request)
 
-        # Pre-validate common failure cases so we can return clear errors
-        error = self._validate_ygo_action(request)
-        if error:
-            return False, error
-
-        target_id = request.targets[0][0] if request.targets and request.targets[0] else None
-
-        # Build YGO action dict matching yugioh_turn.py expectations
-        action_dict: dict = {'action_type': request.action_type}
-
-        if request.action_type == 'YGO_NORMAL_SUMMON':
-            action_dict = {
-                'action_type': 'normal_summon',
-                'card_id': request.card_id,
-            }
-
-        elif request.action_type == 'YGO_SET_MONSTER':
-            action_dict = {
-                'action_type': 'set_monster',
-                'card_id': request.card_id,
-            }
-
-        elif request.action_type == 'YGO_FLIP_SUMMON':
-            action_dict = {
-                'action_type': 'flip_summon',
-                'card_id': request.card_id,
-            }
-
-        elif request.action_type == 'YGO_CHANGE_POSITION':
-            action_dict = {
-                'action_type': 'change_position',
-                'card_id': request.card_id,
-            }
-
-        elif request.action_type == 'YGO_ACTIVATE':
-            action_dict = {
-                'action_type': 'activate_spell',
-                'card_id': request.card_id,
-                'targets': [target_id] if target_id else [],
-            }
-
-        elif request.action_type == 'YGO_SET_SPELL_TRAP':
-            action_dict = {
-                'action_type': 'set_spell_trap',
-                'card_id': request.card_id,
-            }
-
-        elif request.action_type == 'YGO_DECLARE_ATTACK':
-            action_dict = {
-                'action_type': 'declare_attack',
-                'attacker_id': request.source_id or request.card_id,
-                'target_id': target_id,
-            }
-
-        elif request.action_type == 'YGO_DIRECT_ATTACK':
-            action_dict = {
-                'action_type': 'declare_attack',
-                'attacker_id': request.source_id or request.card_id,
-                'target_id': None,
-            }
-
-        elif request.action_type == 'YGO_END_TURN':
-            action_dict = {'action_type': 'end_turn'}
-
-        elif request.action_type == 'YGO_END_PHASE':
-            action_dict = {'action_type': 'end_phase'}
-
-        elif request.action_type == 'YGO_SPECIAL_SUMMON':
-            action_dict = {
-                'action_type': 'special_summon',
-                'card_id': request.card_id,
-            }
-
-        # Log the action
-        self._log_ygo_action(request, action_dict)
-
-        # Resolve the pending future
-        if (self._pending_action_future and
-            not self._pending_action_future.done() and
-            self._pending_player_id == request.player_id):
-
-            is_end = request.action_type in ('YGO_END_TURN', 'YGO_END_PHASE')
-            pending_future = self._pending_action_future
-            processed_event = self._action_processed_event
-
-            self._pending_action_future.set_result(action_dict)
-            self._record_frame(action=request.model_dump())
-
-            timeout = 30.0 if is_end else 5.0
-
-            if processed_event:
-                try:
-                    await asyncio.wait_for(processed_event.wait(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    pass
-
-            if self._pending_action_future is pending_future:
-                self._pending_action_future = None
-                self._pending_player_id = None
-            if self._action_processed_event is processed_event:
-                self._action_processed_event = None
-
-            await asyncio.sleep(0.05)
-            return True, "Action accepted"
-
-        return False, "No pending action expected"
-
-    def _log_ygo_action(self, request: PlayerActionRequest, action_dict: dict) -> None:
-        """Generate a log entry for a Yu-Gi-Oh! action."""
-        player_name = self.player_names.get(request.player_id, 'Player')
-        action = request.action_type
-
-        if action in ('YGO_END_TURN', 'YGO_END_PHASE'):
-            self._add_ygo_log(f"{player_name} ended their turn.", "turn_end", request.player_id)
-        elif action == 'YGO_NORMAL_SUMMON':
-            card_obj = self.game.state.objects.get(request.card_id) if request.card_id else None
-            card_name = card_obj.name if card_obj else "a monster"
-            self._add_ygo_log(f"{player_name} Normal Summoned {card_name}!", "summon", request.player_id)
-        elif action == 'YGO_SET_MONSTER':
-            self._add_ygo_log(f"{player_name} set a monster.", "set", request.player_id)
-        elif action == 'YGO_FLIP_SUMMON':
-            card_obj = self.game.state.objects.get(request.card_id) if request.card_id else None
-            card_name = card_obj.name if card_obj else "a monster"
-            self._add_ygo_log(f"{player_name} Flip Summoned {card_name}!", "summon", request.player_id)
-        elif action == 'YGO_ACTIVATE':
-            card_obj = self.game.state.objects.get(request.card_id) if request.card_id else None
-            card_name = card_obj.name if card_obj else "a card"
-            self._add_ygo_log(f"{player_name} activated {card_name}!", "activate", request.player_id)
-        elif action == 'YGO_SET_SPELL_TRAP':
-            self._add_ygo_log(f"{player_name} set a card.", "set", request.player_id)
-        elif action == 'YGO_CHANGE_POSITION':
-            card_obj = self.game.state.objects.get(request.card_id) if request.card_id else None
-            card_name = card_obj.name if card_obj else "a monster"
-            self._add_ygo_log(f"{player_name} changed {card_name}'s position.", "position", request.player_id)
-        elif action == 'YGO_SPECIAL_SUMMON':
-            card_obj = self.game.state.objects.get(request.card_id) if request.card_id else None
-            card_name = card_obj.name if card_obj else "a monster"
-            self._add_ygo_log(f"{player_name} Special Summoned {card_name}!", "summon", request.player_id)
-        elif action in ('YGO_DECLARE_ATTACK', 'YGO_DIRECT_ATTACK'):
-            attacker_id = request.source_id or request.card_id
-            attacker_obj = self.game.state.objects.get(attacker_id) if attacker_id else None
-            attacker_name = attacker_obj.name if attacker_obj else "a monster"
-            if action == 'YGO_DIRECT_ATTACK':
-                self._add_ygo_log(f"{attacker_name} attacks directly!", "attack", request.player_id)
-            else:
-                target_id = request.targets[0][0] if request.targets and request.targets[0] else None
-                target_obj = self.game.state.objects.get(target_id) if target_id else None
-                target_name = target_obj.name if target_obj else "a monster"
-                self._add_ygo_log(f"{attacker_name} attacks {target_name}!", "attack", request.player_id)
-
-    def _validate_ygo_action(self, request: PlayerActionRequest) -> Optional[str]:
-        """Pre-validate a YGO action. Returns error string or None if valid."""
-        turn_mgr = self.game.turn_manager
-        if not hasattr(turn_mgr, 'ygo_turn_state'):
-            return None
-
-        yts = turn_mgr.ygo_turn_state
-
-        # Common card ownership/zone check for card-based actions
-        if request.card_id and request.action_type not in ('YGO_END_TURN', 'YGO_END_PHASE'):
-            obj = self.game.state.objects.get(request.card_id)
-            if not obj:
-                return "Card not found."
-            if request.action_type in ('YGO_NORMAL_SUMMON', 'YGO_SET_MONSTER', 'YGO_ACTIVATE', 'YGO_SET_SPELL_TRAP'):
-                if obj.zone != ZoneType.HAND or obj.controller != request.player_id:
-                    return "That card is not in your hand."
-
-        if request.action_type in ('YGO_NORMAL_SUMMON', 'YGO_SET_MONSTER'):
-            if yts.normal_summon_used:
-                return "You already used your Normal Summon this turn."
-            if request.card_id:
-                obj = self.game.state.objects.get(request.card_id)
-                if obj and obj.card_def:
-                    level = getattr(obj.card_def, 'level', 0) or 0
-                    tributes_needed = 0
-                    if level >= 5:
-                        tributes_needed = 1
-                    if level >= 7:
-                        tributes_needed = 2
-                    if tributes_needed > 0:
-                        return f"Level {level} monsters require {tributes_needed} tribute(s). Tribute Summon not yet supported in UI."
-            slot = turn_mgr._find_empty_monster_slot(request.player_id)
-            if slot is None:
-                return "Monster Zone is full."
-
-        elif request.action_type == 'YGO_SET_SPELL_TRAP':
-            slot = turn_mgr._find_empty_spell_trap_slot(request.player_id)
-            if slot is None:
-                return "Spell/Trap Zone is full."
-
-        elif request.action_type == 'YGO_FLIP_SUMMON':
-            if request.card_id:
-                obj = self.game.state.objects.get(request.card_id)
-                if obj:
-                    if getattr(obj.state, 'ygo_position', None) != 'face_down_def':
-                        return "That monster is not face-down in Defense Position."
-                    if getattr(obj.state, 'turns_set', 0) < 1:
-                        return "Cannot Flip Summon a monster the same turn it was Set."
-
-        elif request.action_type == 'YGO_CHANGE_POSITION':
-            if request.card_id:
-                obj = self.game.state.objects.get(request.card_id)
-                if obj and yts.position_changes.get(request.card_id):
-                    return "That monster already changed position this turn."
-
-        elif request.action_type in ('YGO_DECLARE_ATTACK', 'YGO_DIRECT_ATTACK'):
-            attacker_id = request.source_id or request.card_id
-            if attacker_id:
-                obj = self.game.state.objects.get(attacker_id)
-                if not obj:
-                    return "Attacker not found."
-                if obj.controller != request.player_id:
-                    return "That monster is not yours."
-                if obj.zone != ZoneType.MONSTER_ZONE:
-                    return "That card is not on the field."
-                if getattr(obj.state, 'ygo_position', None) != 'face_up_atk':
-                    return "Only face-up ATK position monsters can attack."
-                if yts.attacks_declared.get(attacker_id, 0) >= 1:
-                    return "That monster already attacked this turn."
-
-        return None
+    def _add_pkm_log(self, text: str, event_type: str, player: Optional[str] = None) -> None:
+        """Shim: delegate PKM log entry creation to the Pokemon adapter."""
+        get_server_mode_adapter("pokemon").add_log(self, text, event_type, player)
 
     def _add_ygo_log(self, text: str, event_type: str, player: Optional[str] = None) -> None:
-        """Add an entry to the Yu-Gi-Oh! game log."""
-        turn = self.game.turn_manager.turn_number if hasattr(self.game.turn_manager, 'turn_number') else 0
-        self._game_log.append(GameLogEntry(
-            turn=turn,
-            text=text,
-            event_type=event_type,
-            player=player,
-            timestamp=time.time(),
-        ))
-
-    def _serialize_ygo_card(self, obj, reveal: bool = True) -> CardData:
-        """Serialize a Yu-Gi-Oh! game object to CardData with YGO-specific fields."""
-        card_data = self._serialize_card(obj)
-
-        # Face-down cards: hide info from opponent
-        is_face_down = getattr(obj.state, 'face_down', False)
-        if is_face_down and not reveal:
-            card_data.name = "Set Card"
-            card_data.text = ""
-            card_data.face_down = True
-            card_data.ygo_position = getattr(obj.state, 'ygo_position', None)
-            return card_data
-
-        card_def = obj.card_def
-        if card_def:
-            card_data.level = getattr(card_def, 'level', None)
-            card_data.rank = getattr(card_def, 'rank', None)
-            card_data.link_rating = getattr(card_def, 'link_rating', None)
-            card_data.atk = getattr(card_def, 'atk', None)
-            card_data.def_val = getattr(card_def, 'def_val', None)
-            card_data.attribute = getattr(card_def, 'attribute', None)
-            card_data.ygo_monster_type = getattr(card_def, 'ygo_monster_type', None)
-            card_data.ygo_spell_type = getattr(card_def, 'ygo_spell_type', None)
-            card_data.ygo_trap_type = getattr(card_def, 'ygo_trap_type', None)
-            card_data.is_tuner = getattr(card_def, 'is_tuner', False)
-            card_data.image_url = getattr(card_def, 'image_url', None)
-
-        # Runtime state
-        card_data.face_down = is_face_down
-        card_data.ygo_position = getattr(obj.state, 'ygo_position', None)
-        overlay_units = getattr(obj.state, 'overlay_units', None)
-        if overlay_units:
-            card_data.overlay_units = len(overlay_units)
-
-        return card_data
+        """Shim: delegate YGO log entry creation to the Yu-Gi-Oh! adapter."""
+        get_server_mode_adapter("yugioh").add_log(self, text, event_type, player)
 
     def _build_action(self, request: PlayerActionRequest) -> PlayerAction:
         """Convert API request to engine PlayerAction."""
@@ -2562,28 +1722,6 @@ class GameSession:
 
         # Mulligan hands with 0-1 or 6+ lands
         return False
-
-    def _get_hero_power_name(self, player) -> str | None:
-        if not player.hero_power_id:
-            return None
-        hp = self.game.state.objects.get(player.hero_power_id)
-        return hp.name if hp else None
-
-    def _get_hero_power_cost(self, player) -> int:
-        if not player.hero_power_id:
-            return 2
-        hp = self.game.state.objects.get(player.hero_power_id)
-        if hp and hp.characteristics.mana_cost:
-            import re
-            nums = re.findall(r'\{(\d+)\}', hp.characteristics.mana_cost)
-            return sum(int(n) for n in nums) if nums else 2
-        return 2
-
-    def _get_hero_power_text(self, player) -> str | None:
-        if not player.hero_power_id:
-            return None
-        hp = self.game.state.objects.get(player.hero_power_id)
-        return hp.card_def.text if hp and hp.card_def else None
 
     def _get_variant_resources(self, player) -> dict[str, int]:
         """
