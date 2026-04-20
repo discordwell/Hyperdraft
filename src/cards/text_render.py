@@ -173,9 +173,18 @@ def render_attack_add_counters(counter_type: str, count: int) -> str:
 # STATIC TEMPLATES (LORDS / AURAS)
 # =============================================================================
 
+def _capitalize_first(s: str) -> str:
+    """Uppercase the first character only; preserve the case of the rest.
+
+    str.capitalize() lowercases everything after the first character, which
+    corrupts subtype casing in scopes like "other Scout creatures you control".
+    """
+    return s[:1].upper() + s[1:] if s else s
+
+
 def render_static_pt_boost(power: int, toughness: int, scope: str) -> str:
     """'<Scope> get +X/+Y.' — matches StaticAbility.render_text composition."""
-    return f"{scope.capitalize()} get {_signed(power)}/{_signed(toughness)}."
+    return f"{_capitalize_first(scope)} get {_signed(power)}/{_signed(toughness)}."
 
 
 def render_static_keyword_grant(keywords: Sequence[str], scope: str) -> str:
@@ -190,7 +199,7 @@ def render_static_keyword_grant(keywords: Sequence[str], scope: str) -> str:
         body = f"{kws[0]} and {kws[1]}"
     else:
         body = ", ".join(kws[:-1]) + f", and {kws[-1]}"
-    return f"{scope.capitalize()} have {body}."
+    return f"{_capitalize_first(scope)} have {body}."
 
 
 # =============================================================================

@@ -13,14 +13,17 @@ from src.engine import (
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness
 )
-from src.engine.abilities import (
-    TriggeredAbility, StaticAbility,
-    ETBTrigger, DeathTrigger, AttackTrigger,
-    GainLife, DrawCards, AddCounters,
-    PTBoost,
-    OtherCreaturesYouControlFilter, CreaturesYouControlFilter,
-    CreaturesWithSubtypeFilter,
-    AnotherCreature, AnotherCreatureYouControl,
+from src.cards.ability_bundles import (
+    etb_gain_life,
+    death_draw,
+    attack_add_counters,
+    static_pt_boost_by_subtype,
+)
+from src.cards.text_render import (
+    substitute_card_name,
+    render_etb_gain_life,
+    render_death_draw,
+    render_attack_add_counters,
 )
 from typing import Optional, Callable
 
@@ -281,6 +284,10 @@ CHIHIRO_SPIRITED_CHILD = make_creature(
 )
 
 
+def _lin_bathhouse_worker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _ = static_pt_boost_by_subtype(obj, 1, 1, "Human", include_self=False)
+    return list(interceptors)
+
 LIN_BATHHOUSE_WORKER = make_creature(
     name="Lin, Bathhouse Worker",
     power=2, toughness=2,
@@ -288,12 +295,8 @@ LIN_BATHHOUSE_WORKER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Spirit"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Human", include_self=False)
-        )
-    ]
+    text="Other Human creatures you control get +1/+1.",
+    setup_interceptors=_lin_bathhouse_worker_setup,
 )
 
 
@@ -625,18 +628,18 @@ BATHHOUSE_SERVANT = make_creature(
 )
 
 
+def _valley_villager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _ = etb_gain_life(obj, 2)
+    return [itc]
+
 VALLEY_VILLAGER = make_creature(
     name="Valley Villager",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Peasant"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(2)
-        )
-    ]
+    text=substitute_card_name(render_etb_gain_life(2), "Valley Villager"),
+    setup_interceptors=_valley_villager_setup,
 )
 
 
@@ -650,18 +653,42 @@ IRONTOWN_WORKER = make_creature(
 )
 
 
+def _refugee_child_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another creature you control enters the battlefield, gain 1 life."""
+    def event_filter(event: Event, st: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering = st.objects.get(entering_id)
+        if not entering:
+            return False
+        if entering.controller != source.controller:
+            return False
+        return CardType.CREATURE in entering.characteristics.types
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    from src.cards import interceptor_helpers as ih
+    return [ih.make_etb_trigger(obj, effect_fn, filter_fn=event_filter)]
+
 REFUGEE_CHILD = make_creature(
     name="Refugee Child",
     power=1, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Child"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(target=AnotherCreatureYouControl()),
-            effect=GainLife(1)
-        )
-    ]
+    text="Whenever another creature you control enters the battlefield, you gain 1 life.",
+    setup_interceptors=_refugee_child_setup,
 )
 
 
@@ -726,6 +753,10 @@ SEAPLANE_MECHANIC = make_creature(
 )
 
 
+def _eboshi_lady_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _ = static_pt_boost_by_subtype(obj, 1, 1, "Human", include_self=False)
+    return list(interceptors)
+
 EBOSHI_LADY = make_creature(
     name="Lady Eboshi, Iron Town Leader",
     power=3, toughness=4,
@@ -733,12 +764,8 @@ EBOSHI_LADY = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Human", include_self=False)
-        )
-    ]
+    text="Other Human creatures you control get +1/+1.",
+    setup_interceptors=_eboshi_lady_setup,
 )
 
 
@@ -1242,6 +1269,10 @@ SKY_DOMAIN = make_enchantment(
 
 # --- Spirited Away ---
 
+def _no_face_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _ = attack_add_counters(obj, "+1/+1", 1)
+    return [itc]
+
 NO_FACE_HUNGRY_SPIRIT = make_creature(
     name="No-Face, Hungry Spirit",
     power=2, toughness=2,
@@ -1249,12 +1280,11 @@ NO_FACE_HUNGRY_SPIRIT = make_creature(
     colors={Color.BLACK},
     subtypes={"Spirit"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=AddCounters("+1/+1", 1)
-        )
-    ]
+    text=substitute_card_name(
+        render_attack_add_counters("+1/+1", 1),
+        "No-Face, Hungry Spirit",
+    ),
+    setup_interceptors=_no_face_setup,
 )
 
 
@@ -1282,6 +1312,10 @@ BOH_GIANT_BABY = make_creature(
 
 # --- Princess Mononoke ---
 
+def _moro_wolf_god_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors, _ = static_pt_boost_by_subtype(obj, 2, 1, "Wolf", include_self=False)
+    return list(interceptors)
+
 MORO_WOLF_GOD = make_creature(
     name="Moro, Wolf God",
     power=5, toughness=4,
@@ -1289,12 +1323,8 @@ MORO_WOLF_GOD = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Wolf", "God", "Spirit"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(2, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Wolf", include_self=False)
-        )
-    ]
+    text="Other Wolf creatures you control get +2/+1.",
+    setup_interceptors=_moro_wolf_god_setup,
 )
 
 
@@ -1432,18 +1462,18 @@ DARK_FOREST_CREATURE = make_creature(
 )
 
 
+def _witch_familiar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    itc, _ = death_draw(obj, 1)
+    return [itc]
+
 WITCH_FAMILIAR = make_creature(
     name="Witch's Familiar",
     power=1, toughness=1,
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Cat", "Spirit"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=DrawCards(1)
-        )
-    ]
+    text=substitute_card_name(render_death_draw(1), "Witch's Familiar"),
+    setup_interceptors=_witch_familiar_setup,
 )
 
 
@@ -2346,18 +2376,27 @@ WILD_WOLF = make_creature(
 )
 
 
+def _forest_deer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Forest Deer dies, you gain 3 life."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    from src.cards import interceptor_helpers as ih
+    return [ih.make_death_trigger(obj, effect_fn)]
+
 FOREST_DEER = make_creature(
     name="Forest Deer",
     power=2, toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Elk"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=GainLife(3)
-        )
-    ]
+    text="When Forest Deer dies, you gain 3 life.",
+    setup_interceptors=_forest_deer_setup,
 )
 
 

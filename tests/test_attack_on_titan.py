@@ -285,21 +285,13 @@ def test_shiganshina_citizen_death():
 
     print(f"Life gain events: {len(gain_events)}")
 
-    if gain_events:
-        assert any(e.payload['amount'] == 2 for e in gain_events), f"Expected +2 life event"
-        print("PASSED: Shiganshina Citizen death trigger works!")
-    else:
-        # Death triggers may fire differently
-        print("NOTE: Shiganshina Citizen death trigger - checking interceptor exists")
-        # Check if death trigger was registered
-        from src.engine.abilities import DeathTrigger
-        card_def = ATTACK_ON_TITAN_CARDS["Shiganshina Citizen"]
-        has_death_trigger = any(
-            hasattr(a, 'trigger') and isinstance(a.trigger, DeathTrigger)
-            for a in (card_def.abilities or [])
-        )
-        assert has_death_trigger, "Card should have a death trigger ability"
-        print("PASSED: Shiganshina Citizen has death trigger ability defined!")
+    # Behavioral check: post-migration, death trigger is a closure-based
+    # interceptor; we verify that firing the event produces the expected
+    # +2 life effect. (Previously this fell back to isinstance(DeathTrigger)
+    # introspection which no longer applies.)
+    assert len(gain_events) >= 1, "Expected at least one life-gain event on death"
+    assert any(e.payload['amount'] == 2 for e in gain_events), "Expected +2 life event"
+    print("PASSED: Shiganshina Citizen death trigger works!")
 
 
 def test_warrior_candidate_death():
@@ -318,19 +310,10 @@ def test_warrior_candidate_death():
 
     print(f"Life loss events: {len(loss_events)}")
 
-    if loss_events:
-        assert any(e.payload['amount'] == -2 for e in loss_events), "Expected -2 life event"
-        print("PASSED: Warrior Candidate death trigger works!")
-    else:
-        # Verify the ability exists
-        from src.engine.abilities import DeathTrigger
-        card_def = ATTACK_ON_TITAN_CARDS["Warrior Candidate"]
-        has_death_trigger = any(
-            hasattr(a, 'trigger') and isinstance(a.trigger, DeathTrigger)
-            for a in (card_def.abilities or [])
-        )
-        assert has_death_trigger, "Card should have a death trigger ability"
-        print("PASSED: Warrior Candidate has death trigger ability defined!")
+    # Behavioral check post-migration (see test_shiganshina_citizen_death).
+    assert len(loss_events) >= 1, "Expected at least one life-loss event on death"
+    assert any(e.payload['amount'] == -2 for e in loss_events), "Expected -2 life event"
+    print("PASSED: Warrior Candidate death trigger works!")
 
 
 def test_crawling_titan_death():
@@ -349,19 +332,10 @@ def test_crawling_titan_death():
 
     print(f"Life loss events: {len(loss_events)}")
 
-    if loss_events:
-        assert any(e.payload['amount'] == -2 for e in loss_events), "Expected -2 life event"
-        print("PASSED: Crawling Titan death trigger works!")
-    else:
-        # Verify the ability exists
-        from src.engine.abilities import DeathTrigger
-        card_def = ATTACK_ON_TITAN_CARDS["Crawling Titan"]
-        has_death_trigger = any(
-            hasattr(a, 'trigger') and isinstance(a.trigger, DeathTrigger)
-            for a in (card_def.abilities or [])
-        )
-        assert has_death_trigger, "Card should have a death trigger ability"
-        print("PASSED: Crawling Titan has death trigger ability defined!")
+    # Behavioral check post-migration (see test_shiganshina_citizen_death).
+    assert len(loss_events) >= 1, "Expected at least one life-loss event on death"
+    assert any(e.payload['amount'] == -2 for e in loss_events), "Expected -2 life event"
+    print("PASSED: Crawling Titan death trigger works!")
 
 
 # =============================================================================
@@ -398,19 +372,10 @@ def test_garrison_soldier_block():
 
     print(f"Life gain events: {len(gain_events)}")
 
-    if gain_events:
-        assert any(e.payload['amount'] == 2 for e in gain_events), "Expected +2 life"
-        print("PASSED: Garrison Soldier block trigger works!")
-    else:
-        # Verify the ability exists
-        from src.engine.abilities import BlockTrigger
-        card_def = ATTACK_ON_TITAN_CARDS["Garrison Soldier"]
-        has_block_trigger = any(
-            hasattr(a, 'trigger') and isinstance(a.trigger, BlockTrigger)
-            for a in (card_def.abilities or [])
-        )
-        assert has_block_trigger, "Card should have a block trigger ability"
-        print("PASSED: Garrison Soldier has block trigger ability defined!")
+    # Behavioral check post-migration (see test_shiganshina_citizen_death).
+    assert len(gain_events) >= 1, "Expected at least one life-gain event on block"
+    assert any(e.payload['amount'] == 2 for e in gain_events), "Expected +2 life"
+    print("PASSED: Garrison Soldier block trigger works!")
 
 
 # =============================================================================

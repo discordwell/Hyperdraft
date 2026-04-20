@@ -13,16 +13,160 @@ from src.engine import (
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness
 )
-from src.engine.abilities import (
-    TriggeredAbility, StaticAbility,
-    ETBTrigger, DeathTrigger, AttackTrigger, BlockTrigger,
-    GainLife, LoseLife, DrawCards, Scry, CompositeEffect,
-    PTBoost, KeywordGrant,
-    OtherCreaturesYouControlFilter, CreaturesYouControlFilter,
-    CreaturesWithSubtypeFilter, SelfTarget, AnotherCreature,
-    CreatureWithSubtype,
-)
+from src.cards import interceptor_helpers as ih
 from typing import Optional, Callable
+
+
+# =============================================================================
+# POST-DSL MIGRATION HELPERS
+# =============================================================================
+# Replacements for the old src.engine.abilities DSL primitives. These are
+# inlined closure-builders rather than class-based Abilities: each card wires
+# its behaviour directly via setup_interceptors, with hand-written rules text.
+
+def _scry_events(obj: GameObject, amount: int) -> list[Event]:
+    """Emit a scry ACTIVATE placeholder event (matches old Scry(N).generate_events)."""
+    return [Event(
+        type=EventType.ACTIVATE,
+        payload={'action': 'scry', 'amount': amount, 'player': obj.controller},
+        source=obj.id,
+        controller=obj.controller,
+    )]
+
+
+def _draw_events(obj: GameObject, amount: int = 1) -> list[Event]:
+    return [Event(
+        type=EventType.DRAW,
+        payload={'player': obj.controller},
+        source=obj.id,
+        controller=obj.controller,
+    ) for _ in range(amount)]
+
+
+def _gain_life_events(obj: GameObject, amount: int) -> list[Event]:
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': obj.controller, 'amount': amount},
+        source=obj.id,
+        controller=obj.controller,
+    )]
+
+
+def _opponents_lose_life_events(obj: GameObject, state: GameState, amount: int) -> list[Event]:
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': opp, 'amount': -amount},
+        source=obj.id,
+        controller=obj.controller,
+    ) for opp in ih.all_opponents(obj, state)]
+
+
+def _subtype_etb_trigger(obj: GameObject, subtype: str, effect_fn, you_control: bool = False) -> Interceptor:
+    """ETB trigger that fires when ANY creature with a given subtype enters the battlefield.
+
+    Mirrors the old ETBTrigger(target=CreatureWithSubtype(...)) wiring. Default
+    you_control=False matches DSL default (no controller restriction).
+    """
+    def filter_fn(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering = state.objects.get(entering_id)
+        if not entering:
+            return False
+        if CardType.CREATURE not in entering.characteristics.types:
+            return False
+        if subtype not in (entering.characteristics.subtypes or set()):
+            return False
+        if you_control and entering.controller != source.controller:
+            return False
+        return True
+
+    return ih.make_etb_trigger(obj, effect_fn, filter_fn=filter_fn)
+
+
+def _another_creature_etb_trigger(obj: GameObject, effect_fn) -> Interceptor:
+    """ETB trigger that fires when ANOTHER creature (not self) enters the battlefield."""
+    def filter_fn(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering = state.objects.get(entering_id)
+        if not entering:
+            return False
+        return CardType.CREATURE in entering.characteristics.types
+
+    return ih.make_etb_trigger(obj, effect_fn, filter_fn=filter_fn)
+
+
+def _subtype_death_trigger(obj: GameObject, subtype: str, effect_fn, you_control: bool = False) -> Interceptor:
+    """Death trigger that fires when ANY creature with a given subtype dies."""
+    def filter_fn(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        dying = state.objects.get(dying_id)
+        if not dying:
+            return False
+        if CardType.CREATURE not in dying.characteristics.types:
+            return False
+        if subtype not in (dying.characteristics.subtypes or set()):
+            return False
+        if you_control and dying.controller != source.controller:
+            return False
+        return True
+
+    return ih.make_death_trigger(obj, effect_fn, filter_fn=filter_fn)
+
+
+def _another_creature_death_trigger(obj: GameObject, effect_fn) -> Interceptor:
+    """Death trigger that fires when ANOTHER creature (not self) dies."""
+    def filter_fn(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        if dying_id == source.id:
+            return False
+        dying = state.objects.get(dying_id)
+        if not dying:
+            return False
+        return CardType.CREATURE in dying.characteristics.types
+
+    return ih.make_death_trigger(obj, effect_fn, filter_fn=filter_fn)
+
+
+def _subtype_attack_trigger(obj: GameObject, subtype: str, effect_fn, you_control: bool = True) -> Interceptor:
+    """Attack trigger: fires when any creature with the given subtype attacks."""
+    def filter_fn(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return False
+        if CardType.CREATURE not in attacker.characteristics.types:
+            return False
+        if subtype not in (attacker.characteristics.subtypes or set()):
+            return False
+        if you_control and attacker.controller != source.controller:
+            return False
+        return True
+
+    return ih.make_attack_trigger(obj, effect_fn, filter_fn=filter_fn)
 
 
 # =============================================================================
@@ -164,6 +308,10 @@ def make_wall_defense(source_obj: GameObject, toughness_bonus: int) -> list[Inte
 
 # --- Legendary Creatures ---
 
+def _eren_yeager_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Attack trigger with empty effect - no events, behaviour is a placeholder.
+    return [ih.make_attack_trigger(obj, lambda e, s: [])]
+
 EREN_YEAGER_SCOUT = make_creature(
     name="Eren Yeager, Survey Corps",
     power=3, toughness=3,
@@ -171,12 +319,8 @@ EREN_YEAGER_SCOUT = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=CompositeEffect([])  # Complex boost effect - kept as placeholder
-        )
-    ]
+    text="Whenever Eren Yeager, Survey Corps attacks, .",
+    setup_interceptors=_eren_yeager_scout_setup,
 )
 
 
@@ -191,6 +335,11 @@ MIKASA_ACKERMAN = make_creature(
 )
 
 
+def _armin_arlert_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect(event, s):
+        return _scry_events(obj, 2) + _draw_events(obj, 1)
+    return [ih.make_etb_trigger(obj, effect)]
+
 ARMIN_ARLERT = make_creature(
     name="Armin Arlert, Tactician",
     power=1, toughness=3,
@@ -198,14 +347,13 @@ ARMIN_ARLERT = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Scout", "Advisor"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=CompositeEffect([Scry(2), DrawCards(1)])
-        )
-    ]
+    text="When Armin Arlert, Tactician enters the battlefield, scry 2 and draw a card.",
+    setup_interceptors=_armin_arlert_setup,
 )
 
+
+def _levi_ackerman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_static_pt_boost(obj, 1, 1, ih.other_creatures_with_subtype(obj, "Scout"))
 
 LEVI_ACKERMAN = make_creature(
     name="Levi Ackerman, Captain",
@@ -214,14 +362,13 @@ LEVI_ACKERMAN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier", "Ackerman"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Scout", include_self=False)
-        )
-    ]
+    text="Other Scout creatures you control get +1/+1.",
+    setup_interceptors=_levi_ackerman_setup,
 )
 
+
+def _erwin_smith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_attack_trigger(obj, lambda e, s: [])]
 
 ERWIN_SMITH = make_creature(
     name="Erwin Smith, Commander",
@@ -230,14 +377,13 @@ ERWIN_SMITH = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(),
-            effect=CompositeEffect([])  # Scouts gain indestructible - complex effect
-        )
-    ]
+    text="Whenever Erwin Smith, Commander attacks, .",
+    setup_interceptors=_erwin_smith_setup,
 )
 
+
+def _hange_zoe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_subtype_death_trigger(obj, "Titan", lambda e, s: _draw_events(obj, 1))]
 
 HANGE_ZOE = make_creature(
     name="Hange Zoe, Researcher",
@@ -246,16 +392,15 @@ HANGE_ZOE = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Scout", "Artificer"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(target=CreatureWithSubtype(subtype="Titan", you_control=False)),
-            effect=DrawCards(1)
-        )
-    ]
+    text="Whenever Titan dies, draw a card.",
+    setup_interceptors=_hange_zoe_setup,
 )
 
 
 # --- Regular Creatures ---
+
+def _survey_corps_recruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_etb_trigger(obj, lambda e, s: _gain_life_events(obj, 2))]
 
 SURVEY_CORPS_RECRUIT = make_creature(
     name="Survey Corps Recruit",
@@ -263,12 +408,8 @@ SURVEY_CORPS_RECRUIT = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=GainLife(2)
-        )
-    ]
+    text="When Survey Corps Recruit enters the battlefield, you gain 2 life.",
+    setup_interceptors=_survey_corps_recruit_setup,
 )
 
 
@@ -282,18 +423,17 @@ SURVEY_CORPS_VETERAN = make_creature(
 )
 
 
+def _garrison_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_block_trigger(obj, lambda e, s: _gain_life_events(obj, 2))]
+
 GARRISON_SOLDIER = make_creature(
     name="Garrison Soldier",
     power=1, toughness=4,
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    abilities=[
-        TriggeredAbility(
-            trigger=BlockTrigger(),
-            effect=GainLife(2)
-        )
-    ]
+    text="Whenever Garrison Soldier blocks, you gain 2 life.",
+    setup_interceptors=_garrison_soldier_setup,
 )
 
 
@@ -331,6 +471,9 @@ TRAINING_CORPS_CADET = make_creature(
 )
 
 
+def _historia_reiss_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_static_pt_boost(obj, 1, 1, ih.other_creatures_with_subtype(obj, "Human"))
+
 HISTORIA_REISS = make_creature(
     name="Historia Reiss, True Queen",
     power=2, toughness=3,
@@ -338,12 +481,8 @@ HISTORIA_REISS = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Human", include_self=False)
-        )
-    ]
+    text="Other Human creatures you control get +1/+1.",
+    setup_interceptors=_historia_reiss_setup,
 )
 
 
@@ -369,6 +508,9 @@ CONNIE_SPRINGER = make_creature(
 )
 
 
+def _jean_kirstein_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_keyword_grant(obj, ["vigilance"], ih.other_creatures_with_subtype(obj, "Scout"))]
+
 JEAN_KIRSTEIN = make_creature(
     name="Jean Kirstein, Natural Leader",
     power=3, toughness=2,
@@ -376,12 +518,8 @@ JEAN_KIRSTEIN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=KeywordGrant(["vigilance"]),
-            filter=CreaturesWithSubtypeFilter(subtype="Scout", include_self=False)
-        )
-    ]
+    text="Other Scout creatures you control have vigilance.",
+    setup_interceptors=_jean_kirstein_setup,
 )
 
 
@@ -448,18 +586,17 @@ INTERIOR_POLICE = make_creature(
 )
 
 
+def _shiganshina_citizen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_death_trigger(obj, lambda e, s: _gain_life_events(obj, 2))]
+
 SHIGANSHINA_CITIZEN = make_creature(
     name="Shiganshina Citizen",
     power=1, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Citizen"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=GainLife(2)
-        )
-    ]
+    text="When Shiganshina Citizen dies, you gain 2 life.",
+    setup_interceptors=_shiganshina_citizen_setup,
 )
 
 
@@ -595,29 +732,27 @@ TRAINING_EXERCISE = make_sorcery(
 
 # --- Enchantments ---
 
+def _survey_corps_banner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_static_pt_boost(obj, 1, 1, ih.creatures_with_subtype(obj, "Scout"))
+
 SURVEY_CORPS_BANNER = make_enchantment(
     name="Survey Corps Banner",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Scout")
-        )
-    ]
+    text="Scout creatures you control get +1/+1.",
+    setup_interceptors=_survey_corps_banner_setup,
 )
 
+
+def _wings_of_freedom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_keyword_grant(obj, ["flying"], ih.creatures_with_subtype(obj, "Scout"))]
 
 WINGS_OF_FREEDOM = make_enchantment(
     name="Wings of Freedom",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    abilities=[
-        StaticAbility(
-            effect=KeywordGrant(["flying"]),
-            filter=CreaturesWithSubtypeFilter(subtype="Scout")
-        )
-    ]
+    text="Scout creatures you control have flying.",
+    setup_interceptors=_wings_of_freedom_setup,
 )
 
 
@@ -646,6 +781,10 @@ ARMIN_COLOSSAL_TITAN = make_creature(
 )
 
 
+def _erwin_gambit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Text says "When ~ enters, scry 1" (simplified from spell-cast trigger).
+    return [ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 1))]
+
 ERWIN_GAMBIT = make_creature(
     name="Erwin Smith, The Gambit",
     power=2, toughness=4,
@@ -653,12 +792,8 @@ ERWIN_GAMBIT = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scout", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),  # Actually spell cast trigger, simplified
-            effect=Scry(1)
-        )
-    ]
+    text="When Erwin Smith, The Gambit enters the battlefield, scry 1.",
+    setup_interceptors=_erwin_gambit_setup,
 )
 
 
@@ -675,18 +810,17 @@ PIECK_FINGER = make_creature(
 
 # --- Regular Creatures ---
 
+def _intelligence_officer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 2))]
+
 INTELLIGENCE_OFFICER = make_creature(
     name="Intelligence Officer",
     power=1, toughness=3,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Scout", "Advisor"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=Scry(2)
-        )
-    ]
+    text="When Intelligence Officer enters the battlefield, scry 2.",
+    setup_interceptors=_intelligence_officer_setup,
 )
 
 
@@ -710,18 +844,17 @@ SURVEY_CARTOGRAPHER = make_creature(
 )
 
 
+def _titan_researcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_subtype_etb_trigger(obj, "Titan", lambda e, s: _draw_events(obj, 1))]
+
 TITAN_RESEARCHER = make_creature(
     name="Titan Researcher",
     power=1, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Artificer"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(target=CreatureWithSubtype(subtype="Titan", you_control=False)),
-            effect=DrawCards(1)
-        )
-    ]
+    text="Whenever Titan enters the battlefield, draw a card.",
+    setup_interceptors=_titan_researcher_setup,
 )
 
 
@@ -897,16 +1030,15 @@ STRATEGIC_PLANNING = make_enchantment(
 )
 
 
+def _information_network_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_another_creature_etb_trigger(obj, lambda e, s: _scry_events(obj, 1))]
+
 INFORMATION_NETWORK = make_enchantment(
     name="Information Network",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(target=AnotherCreature()),
-            effect=Scry(1)
-        )
-    ]
+    text="Whenever another creature enters the battlefield, scry 1.",
+    setup_interceptors=_information_network_setup,
 )
 
 
@@ -953,6 +1085,9 @@ ANNIE_LEONHART = make_creature(
 )
 
 
+def _zeke_yeager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_static_pt_boost(obj, 2, 2, ih.other_creatures_with_subtype(obj, "Titan"))
+
 ZEKE_YEAGER = make_creature(
     name="Zeke Yeager, Beast Titan",
     power=6, toughness=6,
@@ -960,12 +1095,8 @@ ZEKE_YEAGER = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(2, 2),
-            filter=CreaturesWithSubtypeFilter(subtype="Titan", include_self=False)
-        )
-    ]
+    text="Other Titan creatures you control get +2/+2.",
+    setup_interceptors=_zeke_yeager_setup,
 )
 
 
@@ -992,18 +1123,17 @@ MARLEYAN_WARRIOR = make_creature(
 )
 
 
+def _warrior_candidate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_death_trigger(obj, lambda e, s: _opponents_lose_life_events(obj, s, 2))]
+
 WARRIOR_CANDIDATE = make_creature(
     name="Warrior Candidate",
     power=2, toughness=1,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Warrior"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=LoseLife(2)
-        )
-    ]
+    text="When Warrior Candidate dies, each opponent loses 2 life.",
+    setup_interceptors=_warrior_candidate_setup,
 )
 
 
@@ -1027,18 +1157,17 @@ INFILTRATOR = make_creature(
 )
 
 
+def _eldian_internment_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_another_creature_death_trigger(obj, lambda e, s: _gain_life_events(obj, 1))]
+
 ELDIAN_INTERNMENT_GUARD = make_creature(
     name="Eldian Internment Guard",
     power=2, toughness=3,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Soldier"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(target=AnotherCreature()),
-            effect=GainLife(1)
-        )
-    ]
+    text="Whenever another creature dies, you gain 1 life.",
+    setup_interceptors=_eldian_internment_guard_setup,
 )
 
 
@@ -1122,18 +1251,17 @@ MINDLESS_TITAN = make_creature(
 )
 
 
+def _crawling_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_death_trigger(obj, lambda e, s: _opponents_lose_life_events(obj, s, 2))]
+
 CRAWLING_TITAN = make_creature(
     name="Crawling Titan",
     power=2, toughness=4,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Titan"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(),
-            effect=LoseLife(2)
-        )
-    ]
+    text="When Crawling Titan dies, each opponent loses 2 life.",
+    setup_interceptors=_crawling_titan_setup,
 )
 
 
@@ -1231,29 +1359,29 @@ ELDIAN_PURGE = make_sorcery(
 
 # --- Enchantments ---
 
+def _paths_of_titans_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect(event, s):
+        return _draw_events(obj, 1) + _opponents_lose_life_events(obj, s, 1)
+    return [_subtype_death_trigger(obj, "Titan", effect)]
+
 PATHS_OF_TITANS = make_enchantment(
     name="Paths of Titans",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(target=CreatureWithSubtype(subtype="Titan", you_control=False)),
-            effect=CompositeEffect([DrawCards(1), LoseLife(1)])
-        )
-    ]
+    text="Whenever Titan dies, draw a card and each opponent loses 1 life.",
+    setup_interceptors=_paths_of_titans_setup,
 )
 
+
+def _warrior_program_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_static_pt_boost(obj, 1, 1, ih.creatures_with_subtype(obj, "Warrior"))
 
 WARRIOR_PROGRAM = make_enchantment(
     name="Warrior Program",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Warrior")
-        )
-    ]
+    text="Warrior creatures you control get +1/+1.",
+    setup_interceptors=_warrior_program_setup,
 )
 
 
@@ -1282,6 +1410,13 @@ EREN_ATTACK_TITAN = make_creature(
 )
 
 
+def _eren_founding_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    filt = ih.other_creatures_with_subtype(obj, "Titan")
+    return (
+        ih.make_static_pt_boost(obj, 3, 3, filt)
+        + [ih.make_keyword_grant(obj, ["haste"], filt)]
+    )
+
 EREN_FOUNDING_TITAN = make_creature(
     name="Eren Yeager, Founding Titan",
     power=10, toughness=10,
@@ -1289,16 +1424,8 @@ EREN_FOUNDING_TITAN = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(3, 3),
-            filter=CreaturesWithSubtypeFilter(subtype="Titan", include_self=False)
-        ),
-        StaticAbility(
-            effect=KeywordGrant(["haste"]),
-            filter=CreaturesWithSubtypeFilter(subtype="Titan", include_self=False)
-        )
-    ]
+    text="Other Titan creatures you control get +3/+3. Other Titan creatures you control have haste.",
+    setup_interceptors=_eren_founding_titan_setup,
 )
 
 
@@ -1436,6 +1563,9 @@ CANNON_OPERATOR = make_creature(
 )
 
 
+def _floch_forster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_static_pt_boost(obj, 1, 0, ih.other_creatures_with_subtype(obj, "Soldier"))
+
 FLOCH_FORSTER = make_creature(
     name="Floch Forster, Yeagerist Leader",
     power=3, toughness=2,
@@ -1443,12 +1573,8 @@ FLOCH_FORSTER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 0),
-            filter=CreaturesWithSubtypeFilter(subtype="Soldier", include_self=False)
-        )
-    ]
+    text="Other Soldier creatures you control get +1/+0.",
+    setup_interceptors=_floch_forster_setup,
 )
 
 
@@ -1546,33 +1672,31 @@ RALLY_THE_YEAGERISTS = make_sorcery(
 
 # --- Enchantments ---
 
+def _attack_on_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    filt = ih.creatures_with_subtype(obj, "Titan")
+    return (
+        ih.make_static_pt_boost(obj, 2, 0, filt)
+        + [ih.make_keyword_grant(obj, ["haste"], filt)]
+    )
+
 ATTACK_ON_TITAN = make_enchantment(
     name="Attack on Titan",
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(2, 0),
-            filter=CreaturesWithSubtypeFilter(subtype="Titan")
-        ),
-        StaticAbility(
-            effect=KeywordGrant(["haste"]),
-            filter=CreaturesWithSubtypeFilter(subtype="Titan")
-        )
-    ]
+    text="Titan creatures you control get +2/+0. Titan creatures you control have haste.",
+    setup_interceptors=_attack_on_titan_setup,
 )
 
+
+def _rage_of_the_titans_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_subtype_attack_trigger(obj, "Titan", lambda e, s: [])]
 
 RAGE_OF_THE_TITANS = make_enchantment(
     name="Rage of the Titans",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    abilities=[
-        TriggeredAbility(
-            trigger=AttackTrigger(target=CreatureWithSubtype(subtype="Titan", you_control=True, exclude_self=False)),
-            effect=CompositeEffect([])  # +1/+0 until end of turn - complex effect
-        )
-    ]
+    text="Whenever Titan you control attacks, .",
+    setup_interceptors=_rage_of_the_titans_setup,
 )
 
 
@@ -1843,20 +1967,19 @@ AWAKENING_OF_THE_TITANS = make_sorcery(
 
 # --- Enchantments ---
 
+def _titans_dominion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    filt = ih.creatures_with_subtype(obj, "Titan")
+    return (
+        ih.make_static_pt_boost(obj, 2, 2, filt)
+        + [ih.make_keyword_grant(obj, ["trample"], filt)]
+    )
+
 TITANS_DOMINION = make_enchantment(
     name="Titan's Dominion",
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(2, 2),
-            filter=CreaturesWithSubtypeFilter(subtype="Titan")
-        ),
-        StaticAbility(
-            effect=KeywordGrant(["trample"]),
-            filter=CreaturesWithSubtypeFilter(subtype="Titan")
-        )
-    ]
+    text="Titan creatures you control get +2/+2. Titan creatures you control have trample.",
+    setup_interceptors=_titans_dominion_setup,
 )
 
 
@@ -1937,6 +2060,9 @@ COLOSSAL_TITAN_LEGENDARY = make_creature(
 )
 
 
+def _beast_titan_legendary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_static_pt_boost(obj, 2, 2, ih.other_creatures_with_subtype(obj, "Titan"))
+
 BEAST_TITAN_LEGENDARY = make_creature(
     name="The Beast Titan",
     power=8, toughness=8,
@@ -1944,12 +2070,8 @@ BEAST_TITAN_LEGENDARY = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(2, 2),
-            filter=CreaturesWithSubtypeFilter(subtype="Titan", include_self=False)
-        )
-    ]
+    text="Other Titan creatures you control get +2/+2.",
+    setup_interceptors=_beast_titan_legendary_setup,
 )
 
 
@@ -2380,6 +2502,9 @@ UNDERGROUND_CITY = make_land(
 
 
 # Additional White Cards
+def _nile_dok_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_static_pt_boost(obj, 0, 1, ih.other_creatures_with_subtype(obj, "Soldier"))
+
 NILE_DOK = make_creature(
     name="Nile Dok, Military Police Commander",
     power=2, toughness=3,
@@ -2387,12 +2512,8 @@ NILE_DOK = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(0, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Soldier", include_self=False)
-        )
-    ]
+    text="Other Soldier creatures you control get +0/+1.",
+    setup_interceptors=_nile_dok_setup,
 )
 
 
@@ -2407,6 +2528,9 @@ DARIUS_ZACKLY = make_creature(
 )
 
 
+def _dot_pixis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_static_pt_boost(obj, 1, 0, ih.creatures_with_subtype(obj, "Soldier"))
+
 DOT_PIXIS = make_creature(
     name="Dot Pixis, Garrison Commander",
     power=2, toughness=4,
@@ -2414,12 +2538,8 @@ DOT_PIXIS = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 0),
-            filter=CreaturesWithSubtypeFilter(subtype="Soldier")
-        )
-    ]
+    text="Soldier creatures you control get +1/+0.",
+    setup_interceptors=_dot_pixis_setup,
 )
 
 
@@ -2445,18 +2565,17 @@ CARLA_YEAGER = make_creature(
 )
 
 
+def _wall_rose_garrison_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_block_trigger(obj, lambda e, s: _gain_life_events(obj, 3))]
+
 WALL_ROSE_GARRISON = make_creature(
     name="Wall Rose Garrison",
     power=1, toughness=5,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Wall"},
-    abilities=[
-        TriggeredAbility(
-            trigger=BlockTrigger(),
-            effect=GainLife(3)
-        )
-    ]
+    text="Whenever Wall Rose Garrison blocks, you gain 3 life.",
+    setup_interceptors=_wall_rose_garrison_setup,
 )
 
 
@@ -2469,6 +2588,9 @@ MILITARY_TRIBUNAL = make_sorcery(
 
 
 # Additional Blue Cards
+def _moblit_berner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 2))]
+
 MOBLIT_BERNER = make_creature(
     name="Moblit Berner, Hange's Assistant",
     power=1, toughness=3,
@@ -2476,12 +2598,8 @@ MOBLIT_BERNER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scout"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(),
-            effect=Scry(2)
-        )
-    ]
+    text="When Moblit Berner, Hange's Assistant enters the battlefield, scry 2.",
+    setup_interceptors=_moblit_berner_setup,
 )
 
 
@@ -2526,20 +2644,20 @@ INFORMATION_GATHERING = make_sorcery(
 )
 
 
+def _titan_biology_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect(event, s):
+        return _scry_events(obj, 1) + _draw_events(obj, 1)
+    return [
+        _subtype_etb_trigger(obj, "Titan", effect),
+        _subtype_death_trigger(obj, "Titan", effect),
+    ]
+
 TITAN_BIOLOGY = make_enchantment(
     name="Titan Biology",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    abilities=[
-        TriggeredAbility(
-            trigger=ETBTrigger(target=CreatureWithSubtype(subtype="Titan", you_control=False)),
-            effect=CompositeEffect([Scry(1), DrawCards(1)])
-        ),
-        TriggeredAbility(
-            trigger=DeathTrigger(target=CreatureWithSubtype(subtype="Titan", you_control=False)),
-            effect=CompositeEffect([Scry(1), DrawCards(1)])
-        )
-    ]
+    text="Whenever Titan enters the battlefield, scry 1 and draw a card. Whenever Titan dies, scry 1 and draw a card.",
+    setup_interceptors=_titan_biology_setup,
 )
 
 
@@ -2566,6 +2684,9 @@ KRUGER = make_creature(
 )
 
 
+def _gross_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [_another_creature_death_trigger(obj, lambda e, s: _opponents_lose_life_events(obj, s, 1))]
+
 GROSS = make_creature(
     name="Sergeant Major Gross",
     power=2, toughness=2,
@@ -2573,14 +2694,13 @@ GROSS = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
-    abilities=[
-        TriggeredAbility(
-            trigger=DeathTrigger(target=AnotherCreature()),
-            effect=LoseLife(1)
-        )
-    ]
+    text="Whenever another creature dies, each opponent loses 1 life.",
+    setup_interceptors=_gross_setup,
 )
 
+
+def _magath_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_static_pt_boost(obj, 1, 1, ih.other_creatures_with_subtype(obj, "Warrior"))
 
 MAGATH = make_creature(
     name="Theo Magath, Marleyan General",
@@ -2589,12 +2709,8 @@ MAGATH = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Soldier", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Warrior", include_self=False)
-        )
-    ]
+    text="Other Warrior creatures you control get +1/+1.",
+    setup_interceptors=_magath_setup,
 )
 
 
@@ -2667,6 +2783,9 @@ DECLARATION_OF_WAR = make_sorcery(
 
 
 # Additional Green Cards
+def _ymir_fritz_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [ih.make_keyword_grant(obj, ["hexproof"], ih.creatures_with_subtype(obj, "Titan"))]
+
 YMIR_FRITZ = make_creature(
     name="Ymir Fritz, Source of All Titans",
     power=8, toughness=8,
@@ -2674,14 +2793,13 @@ YMIR_FRITZ = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=KeywordGrant(["hexproof"]),
-            filter=CreaturesWithSubtypeFilter(subtype="Titan")
-        )
-    ]
+    text="Titan creatures you control have hexproof.",
+    setup_interceptors=_ymir_fritz_setup,
 )
 
+
+def _king_fritz_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_static_pt_boost(obj, 1, 1, ih.creatures_with_subtype(obj, "Titan"))
 
 KING_FRITZ = make_creature(
     name="King Fritz, First Eldian King",
@@ -2690,12 +2808,8 @@ KING_FRITZ = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
-    abilities=[
-        StaticAbility(
-            effect=PTBoost(1, 1),
-            filter=CreaturesWithSubtypeFilter(subtype="Titan")
-        )
-    ]
+    text="Titan creatures you control get +1/+1.",
+    setup_interceptors=_king_fritz_setup,
 )
 
 
