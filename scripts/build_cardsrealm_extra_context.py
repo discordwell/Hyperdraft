@@ -165,8 +165,8 @@ def _build_one(name: str, *, cache_dir: Path | None, sleep_s: float) -> CardCont
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--set-code", required=True, help="Set code in Hyperdraft set registry (e.g., BIG, MKM, OTJ)")
-    p.add_argument("--out", default=None, help="Output JSON path (default: logs/cardsrealm_<set>.json)")
-    p.add_argument("--cache-dir", default="logs/cardsrealm_cache", help="Cache directory for fetched HTML")
+    p.add_argument("--out", default=None, help="Output JSON path (default: data/raw/cardsrealm/cardsrealm_<set>.json)")
+    p.add_argument("--cache-dir", default="data/raw/cardsrealm/cache", help="Cache directory for fetched HTML")
     p.add_argument("--no-cache", action="store_true", help="Disable cache reads/writes")
     p.add_argument("--sleep", type=float, default=0.25, help="Sleep between requests (seconds)")
     args = p.parse_args(argv)
@@ -177,7 +177,7 @@ def main(argv: list[str]) -> int:
         print(f"Unknown or empty set code: {args.set_code}", file=sys.stderr)
         return 2
 
-    out_path = Path(args.out or f"logs/cardsrealm_{args.set_code.upper()}.json")
+    out_path = Path(args.out or f"data/raw/cardsrealm/cardsrealm_{args.set_code.upper()}.json")
     cache_dir = None if args.no_cache else Path(args.cache_dir)
 
     context_map: dict[str, list[str]] = {}
