@@ -27,10 +27,15 @@ from src.engine.types import (
     InterceptorAction,
     InterceptorPriority,
     InterceptorResult,
+    ZoneType,
     new_id,
 )
 from src.engine.queries import get_power, get_toughness
-from src.cards.interceptor_helpers import get_enemy_hero_id, get_enemy_minions
+from src.cards.interceptor_helpers import (
+    get_enemy_hero_id,
+    get_enemy_minions,
+    get_friendly_minions,
+)
 
 
 TRI_COLORS = ("azure", "ember", "verdant")
@@ -340,27 +345,90 @@ ZOLTRAAK_BOLT = _assign_affinity(
 )
 
 
-def eisen_deathrattle(obj: GameObject, _state: GameState) -> list[Event]:
-    return [
-        Event(
-            type=EventType.ARMOR_GAIN,
-            payload={"player": obj.controller, "amount": 2},
-            source=obj.id,
+def eisen_setup(obj: GameObject, _state: GameState) -> list[Interceptor]:
+    """
+    Eisen, Wall of the Past — lockout + sustain.
+
+    - While Eisen is on the battlefield, any damage targeted at your hero is
+      redirected to gain you 1 armor instead (enemies can still attack your
+      other minions; this is the "hero hunker" rule).
+    - At the start of each turn (either player's), you gain 2 Armor.
+    """
+
+    def _damage_filter(event: Event, s: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        target = event.payload.get("target")
+        if not target:
+            return False
+        player = s.players.get(obj.controller)
+        if not player or player.hero_id != target:
+            return False
+        return True
+
+    def _damage_handler(_event: Event, _s: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.PREVENT,
+            new_events=[
+                Event(
+                    type=EventType.ARMOR_GAIN,
+                    payload={"player": obj.controller, "amount": 1},
+                    source=obj.id,
+                )
+            ],
         )
+
+    def _turnstart_filter(event: Event, _s: GameState) -> bool:
+        return event.type == EventType.TURN_START
+
+    def _turnstart_handler(_event: Event, _s: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(
+                    type=EventType.ARMOR_GAIN,
+                    payload={"player": obj.controller, "amount": 2},
+                    source=obj.id,
+                )
+            ],
+        )
+
+    return [
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.PREVENT,
+            filter=_damage_filter,
+            handler=_damage_handler,
+            duration="while_on_battlefield",
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_turnstart_filter,
+            handler=_turnstart_handler,
+            duration="while_on_battlefield",
+        ),
     ]
 
 
 EISEN_ANCIENT_SHIELD = _assign_affinity(
     make_minion(
-        name="Eisen, Ancient Shield",
+        name="Eisen, Wall of the Past",
         attack=3,
-        health=6,
-        mana_cost="{4}",
+        health=10,
+        mana_cost="{6}",
         subtypes={"Dwarf", "Warrior"},
         keywords={"taunt"},
-        text="Taunt. Deathrattle: Gain 2 Armor.",
-        rarity="epic",
-        deathrattle=eisen_deathrattle,
+        text=(
+            "Taunt. While Eisen is on the battlefield, damage to your hero is prevented "
+            "and you gain 1 Armor instead. At the start of each turn, gain 2 Armor."
+        ),
+        rarity="legendary",
+        setup_interceptors=eisen_setup,
     ),
     azure=1,
     verdant=1,
@@ -448,23 +516,52 @@ FERN_FOLLOW_UP = _assign_affinity(
 
 
 def frieren_setup(obj: GameObject, _state: GameState) -> list[Interceptor]:
-    def _spell_filter(event: Event, s: GameState) -> bool:
-        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
-            return False
-        source_obj = s.objects.get(event.source)
-        return source_obj is not None and source_obj.controller == obj.controller
+    """
+    Frieren, Mage of the Age — mana engine + regenerate.
 
-    def _spell_handler(_event: Event, _s: GameState) -> InterceptorResult:
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[
-                Event(
-                    type=EventType.DRAW,
-                    payload={"player": obj.controller, "count": 1},
-                    source=obj.id,
-                )
-            ],
-        )
+    1. Death memory: whenever any minion dies, stamp the current turn on Frieren.
+    2. End of controller's turn: if no minion has died this turn, gain 1 max mana.
+    3. Damage to Frieren is fully prevented; her damage_marked is cleared
+       (regenerate — elves slow-time past the wound).
+    """
+
+    def _death_filter(event: Event, _s: GameState) -> bool:
+        return event.type == EventType.OBJECT_DESTROYED
+
+    def _death_handler(_event: Event, s: GameState) -> InterceptorResult:
+        # Stamp turn number where a death last occurred.
+        setattr(obj, "_frieren_last_death_turn", int(getattr(s, "turn_number", 0) or 0))
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def _endturn_filter(event: Event, _s: GameState) -> bool:
+        if event.type != EventType.PHASE_END:
+            return False
+        if event.payload.get("phase") != "end":
+            return False
+        return event.payload.get("player") == obj.controller
+
+    def _endturn_handler(_event: Event, s: GameState) -> InterceptorResult:
+        turn_no = int(getattr(s, "turn_number", 0) or 0)
+        last_death = int(getattr(obj, "_frieren_last_death_turn", -1) or -1)
+        if last_death == turn_no:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        player = s.players.get(obj.controller)
+        if not player:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # Slow-time reward: a mana crystal blooms this turn and stays.
+        if getattr(player, "mana_crystals", 0) < 10:
+            player.mana_crystals = int(getattr(player, "mana_crystals", 0)) + 1
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def _damage_filter(event: Event, _s: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        return event.payload.get("target") == obj.id
+
+    def _damage_handler(_event: Event, _s: GameState) -> InterceptorResult:
+        # Regenerate: clear any accumulated damage and prevent the new hit.
+        obj.state.damage = 0
+        return InterceptorResult(action=InterceptorAction.PREVENT)
 
     return [
         Interceptor(
@@ -472,27 +569,49 @@ def frieren_setup(obj: GameObject, _state: GameState) -> list[Interceptor]:
             source=obj.id,
             controller=obj.controller,
             priority=InterceptorPriority.REACT,
-            filter=_spell_filter,
-            handler=_spell_handler,
+            filter=_death_filter,
+            handler=_death_handler,
             duration="while_on_battlefield",
-        )
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_endturn_filter,
+            handler=_endturn_handler,
+            duration="while_on_battlefield",
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.PREVENT,
+            filter=_damage_filter,
+            handler=_damage_handler,
+            duration="while_on_battlefield",
+        ),
     ]
 
 
 FRIEREN_LAST_GREAT_MAGE = _assign_affinity(
     make_minion(
-        name="Frieren, Last Great Mage",
+        name="Frieren, Mage of the Age",
         attack=5,
         health=7,
-        mana_cost="{6}",
+        mana_cost="{7}",
         subtypes={"Elf", "Mage"},
-        text="After you cast a spell, draw a card.",
+        text=(
+            "Regenerate (prevent all damage dealt to Frieren; she clears marked damage). "
+            "At end of your turn, if no minion died this turn, gain a mana crystal "
+            "(long-memory elves slow time past the wound)."
+        ),
         rarity="legendary",
         setup_interceptors=frieren_setup,
     ),
     azure=2,
     verdant=1,
-    attune_colors=["azure"],
+    attune_colors=["azure", "verdant"],
 )
 
 
@@ -580,15 +699,106 @@ CANON_OF_SOULS = _assign_affinity(
 )
 
 
+def himmel_setup(obj: GameObject, _state: GameState) -> list[Interceptor]:
+    """
+    Himmel, Legacy of the Brave — delayed alt-win condition.
+
+    - While Himmel is on the battlefield, at the start of each of your turns,
+      if no minion of yours has attacked since Himmel entered play, deal
+      4 damage to the enemy hero (legacy unbroken).
+    - When one of yours attacks, the streak is severed.
+    - On arrival, stamp the current turn so we count from *after* ETB.
+    """
+
+    def _attack_filter(event: Event, _s: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get("attacker")
+        if not attacker_id:
+            return False
+        return event.payload.get("controller") == obj.controller or (
+            attacker_id in getattr(_s, "objects", {})
+            and _s.objects[attacker_id].controller == obj.controller
+        )
+
+    def _attack_handler(_event: Event, _s: GameState) -> InterceptorResult:
+        setattr(obj, "_himmel_streak_broken", True)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def _etb_filter(event: Event, _s: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        return (
+            event.payload.get("object_id") == obj.id
+            and event.payload.get("to_zone_type") == ZoneType.BATTLEFIELD
+        )
+
+    def _etb_handler(_event: Event, s: GameState) -> InterceptorResult:
+        setattr(obj, "_himmel_streak_broken", False)
+        setattr(obj, "_himmel_etb_turn", int(getattr(s, "turn_number", 0) or 0))
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def _turnstart_filter(event: Event, _s: GameState) -> bool:
+        if event.type != EventType.TURN_START:
+            return False
+        return event.payload.get("player") == obj.controller
+
+    def _turnstart_handler(_event: Event, s: GameState) -> InterceptorResult:
+        # Only fire on turns *after* Himmel entered.
+        etb_turn = int(getattr(obj, "_himmel_etb_turn", -1) or -1)
+        cur = int(getattr(s, "turn_number", 0) or 0)
+        if cur <= etb_turn:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        if getattr(obj, "_himmel_streak_broken", False):
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=_deal_enemy_hero(obj, s, 4),
+        )
+
+    return [
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_etb_filter,
+            handler=_etb_handler,
+            duration="while_on_battlefield",
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_attack_filter,
+            handler=_attack_handler,
+            duration="while_on_battlefield",
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_turnstart_filter,
+            handler=_turnstart_handler,
+            duration="while_on_battlefield",
+        ),
+    ]
+
+
 HIMMELS_LEGACY = _assign_affinity(
     make_minion(
-        name="Himmel's Legacy",
+        name="Himmel, Legacy of the Brave",
         attack=5,
         health=5,
-        mana_cost="{5}",
+        mana_cost="{6}",
         subtypes={"Human", "Hero"},
-        text="Battlecry: Gain 4 Armor.",
-        rarity="epic",
+        text=(
+            "Battlecry: Gain 4 Armor. At the start of each of your turns, if no minion "
+            "of yours has attacked since Himmel entered, deal 4 damage to the enemy hero."
+        ),
+        rarity="legendary",
         battlecry=lambda obj, _s: [
             Event(
                 type=EventType.ARMOR_GAIN,
@@ -596,6 +806,7 @@ HIMMELS_LEGACY = _assign_affinity(
                 source=obj.id,
             )
         ],
+        setup_interceptors=himmel_setup,
     ),
     azure=1,
     verdant=1,
@@ -765,16 +976,110 @@ DEMON_SUPPRESSION = _assign_affinity(
 )
 
 
+def solitar_setup(obj: GameObject, _state: GameState) -> list[Interceptor]:
+    """
+    Solitar, Shadowchord — selection/deck-ID break.
+
+    Tracks the last spell name any opponent has cast. Battlecry is encoded here
+    via an ETB interceptor (rather than the ``battlecry`` hook) so we share the
+    same state with the passive tracker.
+
+    On ETB: copy the enemy's last-cast spell (if remembered) into your hand as
+    a free attunement — its cost becomes 0 while on the stack, so it plays like
+    an extra card drawn from the opponent's deck.
+    """
+
+    def _opp_spell_filter(event: Event, s: GameState) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = (
+            event.payload.get("caster")
+            or event.payload.get("controller")
+            or event.controller
+        )
+        # Remember opponent spells; fall back to source object controller check.
+        if caster and caster == obj.controller:
+            return False
+        if caster and caster in s.players and caster != obj.controller:
+            return True
+        source_obj = s.objects.get(event.source)
+        return source_obj is not None and source_obj.controller != obj.controller
+
+    def _opp_spell_handler(event: Event, s: GameState) -> InterceptorResult:
+        # Try to grab the card definition by walking the spell source object.
+        spell_obj = s.objects.get(
+            event.payload.get("spell_id")
+            or event.payload.get("card_id")
+            or event.source
+        )
+        if spell_obj and getattr(spell_obj, "card_def", None) is not None:
+            setattr(obj, "_solitar_memorized", spell_obj.card_def)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def _etb_filter(event: Event, _s: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        return (
+            event.payload.get("object_id") == obj.id
+            and event.payload.get("to_zone_type") == ZoneType.BATTLEFIELD
+            and event.payload.get("from_zone_type") == ZoneType.HAND
+        )
+
+    def _etb_handler(_event: Event, _s: GameState) -> InterceptorResult:
+        memorized = getattr(obj, "_solitar_memorized", None)
+        if memorized is None:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(
+                    type=EventType.ADD_TO_HAND,
+                    payload={
+                        "player": obj.controller,
+                        "card_def": memorized,
+                        "cost_override": 0,
+                    },
+                    source=obj.id,
+                )
+            ],
+        )
+
+    return [
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_opp_spell_filter,
+            handler=_opp_spell_handler,
+            duration="while_on_battlefield",
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_etb_filter,
+            handler=_etb_handler,
+            duration="while_on_battlefield",
+        ),
+    ]
+
+
 SOLITAR_MIRAGE = _assign_affinity(
     make_minion(
-        name="Solitar's Mirage",
+        name="Solitar, Shadowchord",
         attack=5,
         health=5,
-        mana_cost="{5}",
+        mana_cost="{6}",
         subtypes={"Demon"},
         keywords={"stealth"},
-        text="Stealth",
-        rarity="epic",
+        text=(
+            "Stealth. While Solitar is on the battlefield, remember the last spell any "
+            "opponent cast. Battlecry: Add a copy of that spell to your hand; it costs 0."
+        ),
+        rarity="legendary",
+        setup_interceptors=solitar_setup,
     ),
     ember=1,
     azure=1,
@@ -783,16 +1088,35 @@ SOLITAR_MIRAGE = _assign_affinity(
 
 
 def aura_execution_battlecry(obj: GameObject, state: GameState) -> list[Event]:
-    target = _highest_attack_enemy_minion_id(obj, state)
-    if not target:
-        return []
-    return [
-        Event(
-            type=EventType.DAMAGE,
-            payload={"target": target, "amount": 4, "source": obj.id},
-            source=obj.id,
-        )
-    ]
+    """
+    Aura's Scales of Obedience: destroy every enemy minion with Attack strictly
+    less than Aura's Attack; freeze the rest. Asymmetric sweeper keyed to the
+    Attack axis — power-down effects from your hand punish enemy boards twice.
+    """
+    aura_attack = int(get_power(obj, state) or 0)
+    events: list[Event] = []
+    for oid in _enemy_minion_ids(obj, state):
+        enemy = state.objects.get(oid)
+        if not enemy:
+            continue
+        enemy_attack = int(get_power(enemy, state) or 0)
+        if enemy_attack < aura_attack:
+            events.append(
+                Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={"object_id": oid, "reason": "scales_of_obedience"},
+                    source=obj.id,
+                )
+            )
+        else:
+            events.append(
+                Event(
+                    type=EventType.FREEZE_TARGET,
+                    payload={"target": oid},
+                    source=obj.id,
+                )
+            )
+    return events
 
 
 AURA_EXECUTION_SAINT = _assign_affinity(
@@ -800,9 +1124,12 @@ AURA_EXECUTION_SAINT = _assign_affinity(
         name="Aura, Execution Saint",
         attack=6,
         health=6,
-        mana_cost="{6}",
+        mana_cost="{7}",
         subtypes={"Demon"},
-        text="Battlecry: Deal 4 damage to the highest-Attack enemy minion.",
+        text=(
+            "Battlecry: Destroy every enemy minion with Attack less than Aura's Attack. "
+            "Freeze the rest. Scales of Obedience."
+        ),
         rarity="legendary",
         battlecry=aura_execution_battlecry,
     ),
@@ -961,22 +1288,312 @@ GOLDEN_RAIN = _assign_affinity(
 
 
 def macht_setup(obj: GameObject, _state: GameState) -> list[Interceptor]:
+    """
+    Macht, Golden General — resource-axis break on the Attune action itself.
+
+    While Macht is on the battlefield, his controller may Attune a second time
+    each turn (attunements_per_turn = 2). After every spell their side casts,
+    the opponent loses 1 mana crystal (if any) — the gold hex taxes the enemy's
+    own ramp, mirroring Frieren's shard growth.
+
+    Stored fields (cleaned up on departure via leaves-battlefield interceptor):
+      player._macht_active  — sentinel so we don't stack attune bonuses
+    """
+
+    # Grant the Attune bonus the moment Macht arrives.
+    def _grant_attune_bonus(state: GameState) -> None:
+        player = state.players.get(obj.controller)
+        if not player or getattr(player, "_macht_active", False):
+            return
+        setattr(
+            player,
+            "_macht_prior_attune_cap",
+            int(getattr(player, "attunements_per_turn", 1) or 1),
+        )
+        player.attunements_per_turn = int(getattr(player, "attunements_per_turn", 1) or 1) + 1
+        setattr(player, "_macht_active", True)
+
+    def _etb_filter(event: Event, _s: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        return (
+            event.payload.get("object_id") == obj.id
+            and event.payload.get("to_zone_type") == ZoneType.BATTLEFIELD
+        )
+
+    def _etb_handler(_event: Event, s: GameState) -> InterceptorResult:
+        _grant_attune_bonus(s)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def _leaves_filter(event: Event, _s: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get("object_id") != obj.id:
+            return False
+        return event.payload.get("from_zone_type") == ZoneType.BATTLEFIELD
+
+    def _leaves_handler(_event: Event, s: GameState) -> InterceptorResult:
+        player = s.players.get(obj.controller)
+        if player and getattr(player, "_macht_active", False):
+            cap = int(getattr(player, "_macht_prior_attune_cap", 1) or 1)
+            player.attunements_per_turn = cap
+            setattr(player, "_macht_active", False)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
     def _spell_filter(event: Event, s: GameState) -> bool:
         if event.type not in (EventType.CAST, EventType.SPELL_CAST):
             return False
+        caster = (
+            event.payload.get("caster")
+            or event.payload.get("controller")
+            or event.controller
+        )
+        if caster and caster == obj.controller:
+            return True
         source_obj = s.objects.get(event.source)
         return source_obj is not None and source_obj.controller == obj.controller
 
     def _spell_handler(_event: Event, s: GameState) -> InterceptorResult:
+        events: list[Event] = []
         enemy_hero = get_enemy_hero_id(obj, s)
-        if not enemy_hero:
-            return InterceptorResult(action=InterceptorAction.PASS)
+        if enemy_hero:
+            events.append(
+                Event(
+                    type=EventType.DAMAGE,
+                    payload={"target": enemy_hero, "amount": 1, "source": obj.id},
+                    source=obj.id,
+                )
+            )
+        # Gold hex tax: opponent loses one available mana crystal (if possible).
+        for pid, player in s.players.items():
+            if pid == obj.controller:
+                continue
+            if getattr(player, "mana_crystals_available", 0) > 0:
+                player.mana_crystals_available = int(player.mana_crystals_available) - 1
+            break
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=events,
+        )
+
+    # Immediate apply (covers cases where ETB event already fired before setup runs).
+    _grant_attune_bonus(_state)
+
+    return [
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_etb_filter,
+            handler=_etb_handler,
+            duration="while_on_battlefield",
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_leaves_filter,
+            handler=_leaves_handler,
+            duration="permanent",
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_spell_filter,
+            handler=_spell_handler,
+            duration="while_on_battlefield",
+        ),
+    ]
+
+
+MACHT_GOLDEN_GENERAL = _assign_affinity(
+    make_minion(
+        name="Macht, Golden General",
+        attack=7,
+        health=8,
+        mana_cost="{8}",
+        subtypes={"Demon", "Lord"},
+        text=(
+            "While Macht is on the battlefield, you may Attune an additional time each turn. "
+            "After you cast a spell, deal 1 damage to the enemy hero and the opponent loses "
+            "one available mana crystal."
+        ),
+        rarity="legendary",
+        setup_interceptors=macht_setup,
+    ),
+    ember=2,
+    verdant=1,
+    attune_colors=["ember"],
+)
+
+
+# =============================================================================
+# New Legendaries — signature moments that lean on mode mechanics
+# =============================================================================
+
+
+def heiter_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """
+    Heiter's benediction scales with attune history: the number of shards he
+    has witnessed (sum of all three resources) becomes a cost reduction and a
+    draw. Reward for committed tri-color decks.
+    """
+    resources = _resources_for_player_id(state, obj.controller)
+    shard_total = sum(int(resources.get(k, 0)) for k in TRI_COLORS)
+    events: list[Event] = [
+        Event(
+            type=EventType.DRAW,
+            payload={"player": obj.controller, "count": 1},
+            source=obj.id,
+        )
+    ]
+    # Heal your hero for shard_total (generosity of the Goddess).
+    player = state.players.get(obj.controller)
+    if player and player.hero_id and shard_total > 0:
+        events.append(
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={
+                    "target": player.hero_id,
+                    "amount": shard_total,
+                    "source": obj.id,
+                },
+                source=obj.id,
+            )
+        )
+    return events
+
+
+def heiter_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    """
+    Death rattle: resurrect a friendly minion from your graveyard with the
+    smallest mana cost (Heiter mourns the youngest fallen).
+    """
+    gy_key = f"graveyard_{obj.controller}"
+    gy = state.zones.get(gy_key)
+    if not gy:
+        return []
+
+    candidates: list[tuple[int, str]] = []
+    for oid in gy.objects:
+        if oid == obj.id:
+            continue
+        other = state.objects.get(oid)
+        if not other or CardType.MINION not in other.characteristics.types:
+            continue
+        cost = _parse_numeric_cost(
+            getattr(other, "mana_cost", None)
+            or getattr(other.characteristics, "mana_cost", "")
+        )
+        candidates.append((cost, oid))
+
+    if not candidates:
+        return []
+    candidates.sort(key=lambda pair: pair[0])
+    target_id = candidates[0][1]
+    return [
+        Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={
+                "object_id": target_id,
+                "player": obj.controller,
+                "destination": "battlefield",
+                "source": "heiter_deathrattle",
+            },
+            source=obj.id,
+        )
+    ]
+
+
+HEITER_PRIEST_OF_THE_GODDESS = _assign_affinity(
+    make_minion(
+        name="Heiter, Priest of the Goddess",
+        attack=3,
+        health=5,
+        mana_cost="{5}",
+        subtypes={"Human", "Priest"},
+        text=(
+            "Battlecry: Draw a card and heal your hero for the total number of shards "
+            "you have accumulated. Deathrattle: Resurrect the lowest-cost friendly minion "
+            "from your graveyard."
+        ),
+        rarity="legendary",
+        battlecry=heiter_battlecry,
+        deathrattle=heiter_deathrattle,
+    ),
+    azure=2,
+    attune_colors=["azure"],
+)
+
+
+def stark_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """
+    Stark, Breakthrough — tutor break.
+    Search your deck, reveal up to three minions with subtype Warrior, and
+    put them into your hand as attune-0 cards (cost stays the same mana-wise;
+    the attune-0 tag lives on the hand-side ``card_def.attune_cost`` override).
+    """
+    library_key = f"library_{obj.controller}"
+    library = state.zones.get(library_key)
+    if not library:
+        return []
+
+    picked: list[str] = []
+    events: list[Event] = []
+    for oid in list(library.objects):
+        card = state.objects.get(oid)
+        if not card:
+            continue
+        if "Warrior" not in card.characteristics.subtypes:
+            continue
+        picked.append(oid)
+        if len(picked) >= 3:
+            break
+
+    for oid in picked:
+        card = state.objects.get(oid)
+        if not card:
+            continue
+        events.append(
+            Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    "object_id": oid,
+                    "from_zone": library_key,
+                    "from_zone_type": ZoneType.LIBRARY,
+                    "to_zone": f"hand_{obj.controller}",
+                    "to_zone_type": ZoneType.HAND,
+                },
+                source=obj.id,
+            )
+        )
+    return events
+
+
+def stark_setup(obj: GameObject, _state: GameState) -> list[Interceptor]:
+    """Each time Stark attacks, he gains +1/+1 until end of turn (scaling)."""
+
+    def _attack_filter(event: Event, _s: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        return event.payload.get("attacker") == obj.id
+
+    def _attack_handler(_event: Event, _s: GameState) -> InterceptorResult:
         return InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=[
                 Event(
-                    type=EventType.DAMAGE,
-                    payload={"target": enemy_hero, "amount": 2, "source": obj.id},
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        "object_id": obj.id,
+                        "power_mod": 1,
+                        "toughness_mod": 1,
+                        "duration": "end_of_turn",
+                    },
                     source=obj.id,
                 )
             ],
@@ -988,27 +1605,260 @@ def macht_setup(obj: GameObject, _state: GameState) -> list[Interceptor]:
             source=obj.id,
             controller=obj.controller,
             priority=InterceptorPriority.REACT,
-            filter=_spell_filter,
-            handler=_spell_handler,
+            filter=_attack_filter,
+            handler=_attack_handler,
             duration="while_on_battlefield",
         )
     ]
 
 
-MACHT_GOLDEN_GENERAL = _assign_affinity(
+STARK_BREAKTHROUGH = _assign_affinity(
     make_minion(
-        name="Macht, Golden General",
-        attack=7,
-        health=8,
-        mana_cost="{7}",
-        subtypes={"Demon", "Lord"},
-        text="After you cast a spell, deal 2 damage to the enemy hero.",
+        name="Stark, Breakthrough",
+        attack=4,
+        health=6,
+        mana_cost="{5}",
+        subtypes={"Human", "Warrior"},
+        text=(
+            "Battlecry: Search your deck for up to three Warrior minions; put them "
+            "into your hand. Whenever Stark attacks, gain +1/+1 this turn."
+        ),
         rarity="legendary",
-        setup_interceptors=macht_setup,
+        battlecry=stark_battlecry,
+        setup_interceptors=stark_setup,
     ),
-    ember=2,
+    verdant=2,
+    attune_colors=["verdant"],
+)
+
+
+def sein_setup(obj: GameObject, _state: GameState) -> list[Interceptor]:
+    """
+    Sein, Cleric Companion — rewards heavy attune play.
+    At the end of each turn, the controller's hero heals for
+    (attunements performed this turn) x 2.
+    """
+
+    def _endturn_filter(event: Event, _s: GameState) -> bool:
+        if event.type != EventType.PHASE_END:
+            return False
+        if event.payload.get("phase") != "end":
+            return False
+        return event.payload.get("player") == obj.controller
+
+    def _endturn_handler(_event: Event, s: GameState) -> InterceptorResult:
+        player = s.players.get(obj.controller)
+        if not player:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        attunes = int(getattr(player, "attunements_this_turn", 0) or 0)
+        if attunes <= 0 or not player.hero_id:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={
+                        "target": player.hero_id,
+                        "amount": attunes * 2,
+                        "source": obj.id,
+                    },
+                    source=obj.id,
+                )
+            ],
+        )
+
+    return [
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_endturn_filter,
+            handler=_endturn_handler,
+            duration="while_on_battlefield",
+        )
+    ]
+
+
+SEIN_CLERIC_COMPANION = _assign_affinity(
+    make_minion(
+        name="Sein, Cleric Companion",
+        attack=2,
+        health=5,
+        mana_cost="{4}",
+        subtypes={"Human", "Cleric"},
+        text=(
+            "At end of your turn, your hero heals for twice the number of times you "
+            "Attuned this turn."
+        ),
+        rarity="legendary",
+        setup_interceptors=sein_setup,
+    ),
+    azure=1,
     verdant=1,
+    attune_colors=["azure", "verdant"],
+)
+
+
+def aurelia_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """
+    The Demon Lord Aurelia — reality-bender.
+
+    Zero out each opponent's mana crystals_available *and* mana_crystals (they
+    begin growing again next turn, at one per turn), and grant the controller
+    10 mana crystals (to the cap). Each opponent also discards one shard of
+    each color they have (affinity-axis break).
+    """
+    events: list[Event] = []
+    for pid, player in state.players.items():
+        if pid == obj.controller:
+            continue
+        player.mana_crystals_available = 0
+        player.mana_crystals = 0
+        resources = _ensure_variant_resources(player)
+        for key in TRI_COLORS:
+            if resources[key] > 0:
+                resources[key] -= 1
+        player.variant_resources = resources
+
+    player = state.players.get(obj.controller)
+    if player:
+        player.mana_crystals = 10
+        player.mana_crystals_available = 10
+    # Silence every enemy minion (mythic presence).
+    for oid in _enemy_minion_ids(obj, state):
+        events.append(
+            Event(
+                type=EventType.SILENCE_TARGET,
+                payload={"target": oid},
+                source=obj.id,
+            )
+        )
+    return events
+
+
+def aurelia_dynamic_cost(obj, state: GameState) -> int:
+    """
+    Aurelia costs 1 less for each non-Human minion (Elf/Dwarf/Demon) the
+    controller controls. Min cost 5. This bypasses the normal affinity gate
+    because legendary-class cost reduction is the set's 'demon lord' hallmark.
+
+    Accepts either a GameObject (engine path) or a CardDefinition (test path);
+    in either case, we read ``mana_cost`` and prefer the object's controller
+    over any ``last_controller`` stamp on the card def.
+    """
+    controller_id = getattr(obj, "controller", None) or getattr(obj, "last_controller", None)
+    if not controller_id and state:
+        controller_id = getattr(state, "active_player", None)
+    # mana_cost lives on the card def / characteristics for GameObjects; direct
+    # on CardDefinition objects. Fall back gracefully.
+    raw_cost = (
+        getattr(obj, "mana_cost", None)
+        or getattr(getattr(obj, "card_def", None), "mana_cost", None)
+        or getattr(getattr(obj, "characteristics", None), "mana_cost", None)
+        or ""
+    )
+    base = _parse_numeric_cost(raw_cost)
+    if not state or not controller_id:
+        return base
+    battlefield = state.zones.get("battlefield")
+    if not battlefield:
+        return base
+    reduction = 0
+    for oid in battlefield.objects:
+        m = state.objects.get(oid)
+        if not m or m.controller != controller_id:
+            continue
+        if CardType.MINION not in m.characteristics.types:
+            continue
+        subs = m.characteristics.subtypes or set()
+        if subs & {"Elf", "Dwarf", "Demon"}:
+            reduction += 1
+    return max(5, base - reduction)
+
+
+AURELIA_DEMON_LORD = _assign_affinity(
+    make_minion(
+        name="The Demon Lord Aurelia",
+        attack=8,
+        health=8,
+        mana_cost="{9}",
+        subtypes={"Demon", "Lord"},
+        text=(
+            "Costs 1 less for each Elf, Dwarf, or Demon you control (min 5). "
+            "Battlecry: Your mana crystals become 10. Each opponent's mana crystals "
+            "become 0 and they lose one shard of each color. Silence every enemy minion."
+        ),
+        rarity="legendary",
+        battlecry=aurelia_battlecry,
+    ),
+    ember=3,
     attune_colors=["ember"],
+)
+# Override the affinity-gated dynamic cost with the mythic cost-reduction rule
+# while still enforcing affinity at cast-time (we wrap _assign_affinity's gate).
+_aurelia_affinity_gate = AURELIA_DEMON_LORD.dynamic_cost
+
+
+def _aurelia_cost(card, state: GameState) -> int:
+    gated = _aurelia_affinity_gate(card, state)
+    if gated >= 99:
+        return gated
+    return aurelia_dynamic_cost(card, state)
+
+
+AURELIA_DEMON_LORD.dynamic_cost = _aurelia_cost
+
+
+def eternal_flame_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
+    """
+    Eternal Flame of Ethos — mythic sweeper + persistent shard hall-pass.
+
+    1. Destroy every minion (both sides).
+    2. Grant each player 1 of every shard color (one burst of colorless truth).
+    3. Both players gain 1 max mana crystal (the flame tempers the world).
+    """
+    events: list[Event] = []
+    for pid, player in state.players.items():
+        if getattr(player, "mana_crystals", 0) < 10:
+            player.mana_crystals = int(getattr(player, "mana_crystals", 0)) + 1
+        resources = _ensure_variant_resources(player)
+        for key in TRI_COLORS:
+            resources[key] = int(resources.get(key, 0)) + 1
+        player.variant_resources = resources
+
+    battlefield = state.zones.get("battlefield")
+    if battlefield:
+        for oid in list(battlefield.objects):
+            mob = state.objects.get(oid)
+            if not mob or CardType.MINION not in mob.characteristics.types:
+                continue
+            events.append(
+                Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={"object_id": oid, "reason": "eternal_flame"},
+                    source=obj.id,
+                )
+            )
+    return events
+
+
+ETERNAL_FLAME_OF_ETHOS = _assign_affinity(
+    make_spell(
+        name="Eternal Flame of Ethos",
+        mana_cost="{8}",
+        text=(
+            "Destroy all minions. Each player gains 1 shard of each color and "
+            "1 max mana crystal."
+        ),
+        spell_effect=eternal_flame_effect,
+        rarity="legendary",
+    ),
+    azure=1,
+    ember=1,
+    verdant=1,
+    attune_colors=["azure", "ember", "verdant"],
 )
 
 
@@ -1027,8 +1877,7 @@ FRIERENRIFT_FRIEREN_DECK = [
     HEITER_BENEDICTION,
     ZOLTRAAK_BOLT,
     ZOLTRAAK_BOLT,
-    EISEN_ANCIENT_SHIELD,
-    EISEN_ANCIENT_SHIELD,
+    EISEN_ANCIENT_SHIELD,  # Eisen, Wall of the Past (legendary, unique)
     FLIGHT_MAGIC_CIRCLE,
     FLIGHT_MAGIC_CIRCLE,
     GRIMOIRE_ARCHIVE,
@@ -1039,14 +1888,15 @@ FRIERENRIFT_FRIEREN_DECK = [
     AURA_SEVERING_RAY,
     CANON_OF_SOULS,
     CANON_OF_SOULS,
-    HIMMELS_LEGACY,
-    HIMMELS_LEGACY,
+    HIMMELS_LEGACY,  # legendary, unique
     JOURNEY_TO_AUREOLE,
     JOURNEY_TO_AUREOLE,
-    FRIEREN_LAST_GREAT_MAGE,
+    FRIEREN_LAST_GREAT_MAGE,  # legendary, unique
+    HEITER_PRIEST_OF_THE_GODDESS,  # new legendary
+    STARK_BREAKTHROUGH,  # new legendary
+    SEIN_CLERIC_COMPANION,  # new legendary
+    ETERNAL_FLAME_OF_ETHOS,  # mythic sweeper
     APPRENTICE_CASTER,
-    GRIMOIRE_ARCHIVE,
-    ZOLTRAAK_BOLT,
 ]
 
 FRIERENRIFT_MACHT_DECK = [
@@ -1064,9 +1914,8 @@ FRIERENRIFT_MACHT_DECK = [
     BLOOD_SIGIL,
     DEMON_SUPPRESSION,
     DEMON_SUPPRESSION,
-    SOLITAR_MIRAGE,
-    SOLITAR_MIRAGE,
-    AURA_EXECUTION_SAINT,
+    SOLITAR_MIRAGE,  # Solitar, Shadowchord — legendary, unique
+    AURA_EXECUTION_SAINT,  # legendary, unique
     EL_DORADO_COLLAPSE,
     EL_DORADO_COLLAPSE,
     QUAL_VENOM_LANCE,
@@ -1079,7 +1928,8 @@ FRIERENRIFT_MACHT_DECK = [
     FEARSOME_BATTALION,
     GOLDEN_RAIN,
     GOLDEN_RAIN,
-    MACHT_GOLDEN_GENERAL,
+    MACHT_GOLDEN_GENERAL,  # legendary, unique
+    AURELIA_DEMON_LORD,  # mythic legendary
 ]
 
 FRIERENRIFT_DECKS = {
