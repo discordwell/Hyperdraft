@@ -271,29 +271,68 @@ ZENIBA_GOOD_WITCH = make_creature(
 # --- Princess Mononoke ---
 
 def ashitaka_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Vigilance, can't be blocked by cursed creatures"""
-    def curse_block_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.BLOCK_DECLARED:
+    """Asymmetric sweeper + rule rewrite: Ashitaka bears the demon-curse so
+    others don't have to. At the beginning of each upkeep, destroy each
+    creature with a curse counter on it (this includes Ashitaka — he
+    sacrifices himself to cleanse them — so opponents must commit cursed
+    threats or lose their board). When Ashitaka dies, remove all curse
+    counters from permanents you control, so your own cursed creatures are
+    spared. This rewrites the 'curses are stat boosters' axiom that the rest
+    of the set leans on."""
+    def upkeep_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
             return False
-        if event.payload.get('attacker_id') != obj.id:
-            return False
-        blocker_id = event.payload.get('blocker_id')
-        blocker = state.objects.get(blocker_id)
-        if blocker and blocker.state.state.counters.get('curse', 0) > 0:
-            return True
-        return False
+        return event.payload.get('phase') == 'upkeep'
 
-    def prevent_block(event: Event, state: GameState) -> InterceptorResult:
-        return InterceptorResult(action=InterceptorAction.PREVENT)
+    def sweep_handler(event: Event, st: GameState) -> InterceptorResult:
+        events: list[Event] = []
+        # Before the sweep, if Ashitaka dies that turn, we first clear curses
+        # on our own permanents so our stuff survives. Model this by pre-
+        # emitting COUNTER_REMOVED for our own cursed creatures first.
+        for o in list(st.objects.values()):
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if o.controller != obj.controller:
+                continue
+            if o.state.counters.get('curse', 0) <= 0:
+                continue
+            # Skip Ashitaka herself — she keeps her curse and perishes.
+            if o.id == obj.id:
+                continue
+            events.append(Event(
+                type=EventType.COUNTER_REMOVED,
+                payload={
+                    'object_id': o.id,
+                    'counter_type': 'curse',
+                    'amount': o.state.counters.get('curse', 0),
+                },
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        # Now destroy every creature that still has curse counters.
+        for o in list(st.objects.values()):
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in o.characteristics.types:
+                continue
+            if o.state.counters.get('curse', 0) <= 0:
+                continue
+            events.append(Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': o.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
 
     return [Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.PREVENT,
-        filter=curse_block_filter,
-        handler=prevent_block,
-        duration='while_on_battlefield'
+        priority=InterceptorPriority.REACT,
+        filter=upkeep_filter,
+        handler=sweep_handler,
+        duration='while_on_battlefield',
     )]
 
 ASHITAKA_CURSED_PRINCE = make_creature(
@@ -303,58 +342,125 @@ ASHITAKA_CURSED_PRINCE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Warrior", "Noble"},
     supertypes={"Legendary"},
-    text="Vigilance. Ashitaka can't be blocked by creatures with curse counters. When Ashitaka dies, remove all curse counters from permanents you control.",
+    text="Vigilance. At the beginning of each upkeep, remove all curse counters from permanents you control, then destroy each creature with a curse counter on it.",
     setup_interceptors=ashitaka_setup
 )
 
 
 def san_human_form_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """First strike, gets +2/+0 when attacking with Wolves"""
-    def wolf_attack_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.ATTACK_DECLARED:
-            return False
-        if event.payload.get('attacker_id') != obj.id:
-            return False
-        for o in state.objects.values():
-            if (o.id != obj.id and
-                o.controller == obj.controller and
-                'Wolf' in o.characteristics.subtypes and
-                o.zone == ZoneType.BATTLEFIELD and
-                o.state.tapped):  # Tapped creatures are attacking
-                return True
-        return False
+    """Spirit-tribe lord + token engine. San gets +1/+0 for each other Spirit
+    creature you control (she rides the spirits' anger). Whenever San
+    attacks, create a 1/1 green Wolf Spirit creature token that enters
+    tapped and attacking alongside her. This is a multi-mode engine:
+    lord dimension + persistent token generator, so every combat step
+    escalates."""
+    from src.cards import interceptor_helpers as ih
 
-    def attack_handler(event: Event, state: GameState) -> InterceptorResult:
-        boost_event = Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': 'attack_boost', 'power': 2, 'duration': 'end_of_turn'},
-            source=obj.id
-        )
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[boost_event])
+    # Dynamic power boost: +1/+0 per other Spirit you control.
+    def power_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        return event.payload.get('object_id') == obj.id
 
-    return [Interceptor(
+    def power_handler(event: Event, st: GameState) -> InterceptorResult:
+        bonus = 0
+        for o in st.objects.values():
+            if o.id == obj.id:
+                continue
+            if o.controller != obj.controller:
+                continue
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in o.characteristics.types:
+                continue
+            if 'Spirit' in o.characteristics.subtypes:
+                bonus += 1
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + bonus
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    power_interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=wolf_attack_filter,
-        handler=attack_handler,
-        duration='while_on_battlefield'
-    )]
+        priority=InterceptorPriority.QUERY,
+        filter=power_filter,
+        handler=power_handler,
+        duration='while_on_battlefield',
+    )
+
+    def wolf_token_fn(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'token': True,
+                'name': 'Wolf Spirit',
+                'power': 1,
+                'toughness': 1,
+                'colors': {Color.GREEN},
+                'subtypes': {'Wolf', 'Spirit'},
+                'keywords': [],
+                'controller': obj.controller,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    token_trigger = ih.make_attack_trigger(obj, wolf_token_fn)
+    return [power_interceptor, token_trigger]
 
 SAN_WOLF_PRINCESS = make_creature(
     name="San, Wolf Princess",
-    power=3, toughness=2,
+    power=2, toughness=2,
     mana_cost="{1}{W}{G}",
     colors={Color.WHITE, Color.GREEN},
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
-    text="First strike. Whenever San attacks alongside a Wolf, she gets +2/+0 until end of turn.",
+    text="First strike. San gets +1/+0 for each other Spirit creature you control. Whenever San attacks, create a 1/1 green Wolf Spirit creature token.",
     setup_interceptors=san_human_form_setup
 )
 
 
 # --- My Neighbor Totoro ---
+
+def _satsuki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Selection break: whenever another creature enters under your
+    control, look at the top three cards of your library. You may reveal a
+    Spirit or Forest card from among them and put it into your hand. Put
+    the rest on the bottom of your library in any order. Every creature
+    you play fires a soft-tutor — hand quality ratchets upward
+    continuously. The power is gated on creature ETBs, and she's fragile
+    (2/2 for 2)."""
+    from src.cards import interceptor_helpers as ih
+
+    def event_filter(event: Event, st: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering = st.objects.get(entering_id)
+        if not entering:
+            return False
+        if entering.controller != source.controller:
+            return False
+        return CardType.CREATURE in entering.characteristics.types
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={
+                'player': obj.controller,
+                'amount': 3,
+                'into_hand_matching': {'subtypes': {'Spirit', 'Forest'}, 'types': {CardType.LAND, CardType.CREATURE}},
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [ih.make_etb_trigger(obj, effect_fn, filter_fn=event_filter)]
 
 SATSUKI_BRAVE_SISTER = make_creature(
     name="Satsuki, Brave Sister",
@@ -363,9 +469,36 @@ SATSUKI_BRAVE_SISTER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Child"},
     supertypes={"Legendary"},
-    text="When Satsuki enters, you may search your library for a basic Forest card, reveal it, put it into your hand, then shuffle."
+    text="Whenever another creature enters under your control, look at the top three cards of your library. You may reveal a Spirit or Forest card from among them and put it into your hand. Put the rest on the bottom.",
+    setup_interceptors=_satsuki_setup,
 )
 
+
+def _mei_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reality-bending one-shot flavor: Mei wanders off into the forest and
+    returns with a companion. When Mei attacks, exile the top card of your
+    library. If it's a Spirit or creature with power 3 or less, you may
+    put it onto the battlefield tapped and attacking alongside Mei. At end
+    of turn, return it to your hand. This is impulse-draw + cheat-into-
+    play, keyed off her being active. The payoff ramps with Spirit density
+    in your deck."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.IMPULSE_DRAW,
+            payload={
+                'player': obj.controller,
+                'amount': 1,
+                'playable_if': {'subtypes': {'Spirit'}, 'max_power': 3},
+                'enter_tapped_attacking': True,
+                'return_to_hand_eot': True,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [ih.make_attack_trigger(obj, effect_fn)]
 
 MEI_CURIOUS_CHILD = make_creature(
     name="Mei, Curious Child",
@@ -374,7 +507,8 @@ MEI_CURIOUS_CHILD = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Child"},
     supertypes={"Legendary"},
-    text="Mei can't be blocked by creatures with power 3 or greater. When Mei enters, scry 2."
+    text="Mei can't be blocked by creatures with power 3 or greater. Whenever Mei attacks, exile the top card of your library. If it's a Spirit with power 3 or less, you may put it onto the battlefield tapped and attacking. Return it to your hand at end of turn.",
+    setup_interceptors=_mei_setup,
 )
 
 
@@ -595,21 +729,41 @@ JIJI_FAMILIAR = make_creature(
 )
 
 
-# --- New: Princess Kaguya ---
+# --- Redesigned: Princess Kaguya (resource-axis break) ---
 
 def _kaguya_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever Kaguya attacks, you gain 2 life."""
-    from src.cards import interceptor_helpers as ih
+    """Persistent rule rewrite: at the beginning of each player's upkeep,
+    that player draws an additional card. (Symmetric card-advantage engine.)
+    She's expensive and fragile (4 toughness, targetable), but while she's
+    on the board the resource axis is permanently tilted — every hand fills
+    up, every draw step matters. Cards breed cards."""
 
-    def attack_effect_fn(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.LIFE_CHANGE,
-            payload={'player': obj.controller, 'amount': 2},
+    def upkeep_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        return event.payload.get('phase') == 'upkeep'
+
+    def extra_draw_handler(event: Event, st: GameState) -> InterceptorResult:
+        active = st.active_player
+        if active is None:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        draw_event = Event(
+            type=EventType.DRAW,
+            payload={'player': active, 'amount': 1},
             source=obj.id,
             controller=obj.controller,
-        )]
+        )
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[draw_event])
 
-    return [ih.make_attack_trigger(obj, attack_effect_fn)]
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=upkeep_filter,
+        handler=extra_draw_handler,
+        duration='while_on_battlefield',
+    )]
 
 KAGUYA_MOON_PRINCESS = make_creature(
     name="Kaguya, Moon Princess",
@@ -618,7 +772,7 @@ KAGUYA_MOON_PRINCESS = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Noble", "Spirit"},
     supertypes={"Legendary"},
-    text="Flying, vigilance. Whenever Kaguya attacks, you gain 2 life.",
+    text="Flying, vigilance. As long as Kaguya is on the battlefield, each player draws an additional card at the beginning of their upkeep.",
     setup_interceptors=_kaguya_setup,
 )
 
@@ -834,6 +988,38 @@ PEJITE_REFUGEE = make_creature(
 )
 
 
+def _porco_rosso_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Resource-axis break: whenever Porco Rosso deals combat damage to a
+    player, after that combat phase, there is an additional combat phase
+    and an additional main phase this turn (only once per turn). This is a
+    classic 'extra combat' finisher, classically at 5+ mana, but the
+    requirement of dealing combat damage acts as a natural gating. The
+    flying body ensures he usually connects, but a single removal or a
+    chump with flying shuts it down."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        target = event.payload.get('target')
+        # Only trigger for damage to a player.
+        if target not in st.players:
+            return []
+        # Guard against multiple extra-combat loops per turn.
+        already = st.turn_state.extra_combats_triggered.get(obj.id) if hasattr(st, 'turn_state') and hasattr(st.turn_state, 'extra_combats_triggered') else False
+        if already:
+            return []
+        return [Event(
+            type=EventType.PHASE_START,
+            payload={
+                'phase': 'combat',
+                'extra_combat': True,
+                'source_object': obj.id,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [ih.make_damage_trigger(obj, effect_fn, combat_only=True)]
+
 PORCO_ROSSO_PILOT = make_creature(
     name="Porco Rosso, Sky Pirate",
     power=3, toughness=3,
@@ -841,7 +1027,8 @@ PORCO_ROSSO_PILOT = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Pig", "Pilot"},
     supertypes={"Legendary"},
-    text="Flying. Whenever Porco Rosso deals combat damage to a player, create a Treasure token."
+    text="Flying. Whenever Porco Rosso deals combat damage to a player, after this phase there is an additional combat phase. (This triggers only once per turn.)",
+    setup_interceptors=_porco_rosso_setup,
 )
 
 
@@ -1143,6 +1330,78 @@ MUSKA_FALLEN_PRINCE = make_creature(
 
 # --- Ponyo ---
 
+def _ponyo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Alt win-condition threat: Ponyo accumulates +1/+1 counters whenever
+    you gain life (she grows more human-shaped with every gift of food).
+    If Ponyo ever has ten or more +1/+1 counters on her, you win the game.
+    Cheap body, but must be protected for a long time; opponents must
+    remove her or race. Ties in tightly with the Food & Hospitality
+    archetype."""
+    from src.cards import interceptor_helpers as ih
+
+    def life_gain_filter(event: Event, st: GameState, source: GameObject) -> bool:
+        if event.type != EventType.LIFE_CHANGE:
+            return False
+        if event.payload.get('player') != source.controller:
+            return False
+        return event.payload.get('amount', 0) > 0
+
+    def counter_fn(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    # Life-gain trigger via a custom filter on LIFE_CHANGE.
+    life_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: life_gain_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=counter_fn(e, s),
+        ),
+        duration='while_on_battlefield',
+    )
+
+    # Win check: whenever a counter is added to Ponyo, check the total.
+    def check_win_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.COUNTER_ADDED:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        return event.payload.get('counter_type') == '+1/+1'
+
+    def check_win_handler(event: Event, st: GameState) -> InterceptorResult:
+        current = obj.state.counters.get('+1/+1', 0) + event.payload.get('amount', 1)
+        if current >= 10:
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.PLAYER_WINS,
+                    payload={'player': obj.controller, 'reason': 'Ponyo transformation'},
+                    source=obj.id,
+                    controller=obj.controller,
+                )],
+            )
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    win_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=check_win_filter,
+        handler=check_win_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [life_itc, win_itc]
+
 PONYO_FISH_GIRL = make_creature(
     name="Ponyo, Fish Girl",
     power=1, toughness=1,
@@ -1150,9 +1409,60 @@ PONYO_FISH_GIRL = make_creature(
     colors={Color.BLUE},
     subtypes={"Fish", "Spirit"},
     supertypes={"Legendary"},
-    text="Ponyo can't be blocked. Transformation - At the beginning of your end step, if you gained life this turn, Ponyo becomes 3/3 until your next turn."
+    text="Ponyo can't be blocked. Whenever you gain life, put a +1/+1 counter on Ponyo. If Ponyo has ten or more +1/+1 counters on her, you win the game.",
+    setup_interceptors=_ponyo_setup,
 )
 
+
+def _sosuke_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reality-bending: Sosuke's seawater world submerges opposing threats.
+    Whenever a creature enters under an opponent's control, that player
+    returns it to their hand unless they pay 1 life. Sosuke is a soft-lock
+    Zeniba-style tax on opposing creatures — every creature spell becomes
+    either a tempo loss or a chip-damage bill."""
+
+    def opp_creature_etb_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering = st.objects.get(entering_id)
+        if not entering:
+            return False
+        if entering.controller == obj.controller:
+            return False
+        return CardType.CREATURE in entering.characteristics.types
+
+    def bounce_handler(event: Event, st: GameState) -> InterceptorResult:
+        entering_id = event.payload.get('object_id')
+        entering = st.objects.get(entering_id)
+        if not entering:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        opp = entering.controller
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.RETURN_TO_HAND,
+                payload={
+                    'object_id': entering_id,
+                    'unless_pay_life': 1,
+                    'unless_payer': opp,
+                },
+                source=obj.id,
+                controller=obj.controller,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=opp_creature_etb_filter,
+        handler=bounce_handler,
+        duration='while_on_battlefield',
+    )]
 
 SOSUKE_YOUNG_SAILOR = make_creature(
     name="Sosuke, Young Sailor",
@@ -1161,7 +1471,8 @@ SOSUKE_YOUNG_SAILOR = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Child"},
     supertypes={"Legendary"},
-    text="Whenever a Fish enters under your control, scry 1. {T}: Target Fish creature can't be blocked this turn."
+    text="Whenever a creature enters under an opponent's control, that player returns it to their hand unless they pay 1 life.",
+    setup_interceptors=_sosuke_setup,
 )
 
 
@@ -1260,6 +1571,66 @@ TIGER_MOTH_CREW = make_creature(
 )
 
 
+def _dola_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reality-bending: Dola plunders the opponent's future. Whenever a
+    Pirate you control deals combat damage to a player, exile the top
+    card of that player's library face down. You may look at and cast
+    those cards (paying their costs) for as long as Dola remains on the
+    battlefield. Removing Dola locks away those cards. This is a
+    deck-stealing engine that grows with each unblocked Pirate — a true
+    signature finisher that shifts whose cards win the game."""
+    from src.cards import interceptor_helpers as ih
+
+    def damage_filter(event: Event, st: GameState, source: GameObject) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat', False):
+            return False
+        target = event.payload.get('target')
+        if target not in st.players:
+            return False
+        dealer_id = event.payload.get('source')
+        dealer = st.objects.get(dealer_id) if dealer_id else None
+        if not dealer:
+            return False
+        if dealer.controller != source.controller:
+            return False
+        return 'Pirate' in dealer.characteristics.subtypes
+
+    def plunder_fn(event: Event, st: GameState) -> list[Event]:
+        opp = event.payload.get('target')
+        return [Event(
+            type=EventType.EXILE_FROM_TOP,
+            payload={
+                'player': opp,
+                'amount': 1,
+                'face_down': True,
+                'castable_by': obj.controller,
+                'anchor_object': obj.id,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    plunder_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: damage_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=plunder_fn(e, s),
+        ),
+        duration='while_on_battlefield',
+    )
+
+    # Pirate lord: other Pirates +1/+0 (kept from original; part of the
+    # signature is still "she captains a fleet").
+    pirate_pt_itcs, _ = static_pt_boost_by_subtype(obj, 1, 0, "Pirate", include_self=False)
+
+    return [plunder_itc] + list(pirate_pt_itcs)
+
 DOLA_SKY_PIRATE_CAPTAIN = make_creature(
     name="Dola, Sky Pirate Captain",
     power=3, toughness=3,
@@ -1267,7 +1638,8 @@ DOLA_SKY_PIRATE_CAPTAIN = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="Flying. Other Pirates you control get +1/+0 and have flying. Whenever a Pirate you control deals combat damage to a player, draw a card."
+    text="Flying. Other Pirates you control get +1/+0. Whenever a Pirate you control deals combat damage to a player, exile the top card of that player's library face down. You may cast exiled cards for as long as Dola remains on the battlefield.",
+    setup_interceptors=_dola_setup,
 )
 
 
@@ -1834,32 +2206,66 @@ DARK_FOREST_PACT = make_enchantment(
 # --- Howl's Moving Castle ---
 
 def calcifer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you cast an instant or sorcery, Calcifer deals 1 damage to any target"""
-    def spell_cast_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.CAST:
+    """Heart-bound tempo engine: whenever you cast an instant or sorcery,
+    draw a card, then discard a card (loot). Additionally, instants and
+    sorceries you cast cost {1} less to cast (cost alternative / resource
+    break via QUERY_COST interceptor). Calcifer is small and fragile (1
+    toughness) so he must be protected — but while he's burning, every
+    spell refills your hand and costs less to cast."""
+    from src.cards import interceptor_helpers as ih
+
+    def loot_fn(event: Event, st: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.DISCARD,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+
+    loot_trigger = ih.make_spell_cast_trigger(
+        obj, loot_fn,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )
+
+    # Cost reduction: {1} less for instants/sorceries cast by controller.
+    def cost_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.QUERY_COST:
             return False
         if event.payload.get('caster') != obj.controller:
             return False
-        event_types = set(event.payload.get('types', []))
-        return bool(event_types.intersection({CardType.INSTANT, CardType.SORCERY}))
+        types = set(event.payload.get('types', []))
+        if not types and event.payload.get('spell_type') is not None:
+            types = {event.payload.get('spell_type')}
+        return bool(types.intersection({CardType.INSTANT, CardType.SORCERY}))
 
-    def damage_handler(event: Event, state: GameState) -> InterceptorResult:
-        damage_event = Event(
-            type=EventType.DAMAGE,
-            payload={'target_type': 'any', 'amount': 1},
-            source=obj.id
-        )
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[damage_event])
+    def cost_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        current = new_event.payload.get('generic_cost', new_event.payload.get('value', 0))
+        reduced = max(0, current - 1)
+        if 'generic_cost' in new_event.payload:
+            new_event.payload['generic_cost'] = reduced
+        new_event.payload['value'] = reduced
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
 
-    return [Interceptor(
+    cost_interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=spell_cast_filter,
-        handler=damage_handler,
-        duration='while_on_battlefield'
-    )]
+        priority=InterceptorPriority.QUERY,
+        filter=cost_filter,
+        handler=cost_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [loot_trigger, cost_interceptor]
 
 CALCIFER_FIRE_DEMON = make_creature(
     name="Calcifer, Fire Demon",
@@ -1868,7 +2274,7 @@ CALCIFER_FIRE_DEMON = make_creature(
     colors={Color.RED},
     subtypes={"Elemental", "Demon"},
     supertypes={"Legendary"},
-    text="Haste. Whenever you cast an instant or sorcery spell, Calcifer deals 1 damage to any target. {R}: Calcifer gets +1/+0 until end of turn.",
+    text="Haste. Instant and sorcery spells you cast cost {1} less to cast. Whenever you cast an instant or sorcery spell, draw a card, then discard a card.",
     setup_interceptors=calcifer_setup
 )
 
@@ -1893,6 +2299,54 @@ HOWL_WIZARD = make_creature(
 )
 
 
+def _witch_of_the_waste_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Persistent state modifier: while the Witch is on the battlefield,
+    each creature you don't control enters the battlefield with a curse
+    counter on it. This re-writes the rules of the set — curse counters
+    are usually buffs for Okkoto-type cards, but combined with
+    Ashitaka/Curse of the Witch/Ashitaka-cycle removal, this is a global
+    tax on opponents' creatures. She's 4/4 for 5 — a beater in her own
+    right. Removable by targeted removal or bounce."""
+
+    def opp_creature_etb_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering = st.objects.get(entering_id)
+        if not entering:
+            return False
+        if entering.controller == obj.controller:
+            return False
+        return CardType.CREATURE in entering.characteristics.types
+
+    def curse_handler(event: Event, st: GameState) -> InterceptorResult:
+        entering_id = event.payload.get('object_id')
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_ADDED,
+                payload={
+                    'object_id': entering_id,
+                    'counter_type': 'curse',
+                    'amount': 1,
+                },
+                source=obj.id,
+                controller=obj.controller,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=opp_creature_etb_filter,
+        handler=curse_handler,
+        duration='while_on_battlefield',
+    )]
+
 WITCH_OF_THE_WASTE = make_creature(
     name="Witch of the Waste",
     power=4, toughness=4,
@@ -1900,7 +2354,8 @@ WITCH_OF_THE_WASTE = make_creature(
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Witch"},
     supertypes={"Legendary"},
-    text="When Witch of the Waste enters, put two curse counters on target creature. {2}{R}: Witch of the Waste deals 2 damage to target creature with a curse counter."
+    text="As long as Witch of the Waste is on the battlefield, each creature an opponent controls enters the battlefield with a curse counter on it.",
+    setup_interceptors=_witch_of_the_waste_setup,
 )
 
 
@@ -1952,6 +2407,44 @@ TORUMEKIAN_SOLDIER = make_creature(
 )
 
 
+def _kushana_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Deck-ID / alt cost flavor: Kushana conscripts the fallen. Whenever
+    Kushana attacks, sacrifice any number of creatures. For each creature
+    sacrificed this way, create a 2/1 red Soldier creature token with
+    haste. This is a controlled sacrifice-to-tokens pivot — asymmetric
+    because she demands commitment: every combat, you can rotate chump
+    blockers / deathrattle creatures / tokens into fresh hasty soldiers.
+    Four-mana finisher, first-striking body, and a loop engine."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        # Emit a SACRIFICE_REQUIRED with follow-up conversion; token count
+        # is resolved by the engine based on how many creatures are actually
+        # sacrificed (flagged via conversion_target).
+        return [Event(
+            type=EventType.SACRIFICE_REQUIRED,
+            payload={
+                'player': obj.controller,
+                'filter': {'types': {CardType.CREATURE}},
+                'min_count': 0,
+                'max_count': None,
+                'for_effect': 'kushana_token',
+                'conversion_token': {
+                    'name': 'Soldier',
+                    'power': 2,
+                    'toughness': 1,
+                    'colors': {Color.RED},
+                    'subtypes': {'Human', 'Soldier'},
+                    'keywords': ['haste'],
+                },
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    sacrifice_itc = ih.make_attack_trigger(obj, effect_fn)
+    return [sacrifice_itc]
+
 KUSHANA_WAR_PRINCESS = make_creature(
     name="Kushana, War Princess",
     power=4, toughness=3,
@@ -1959,7 +2452,8 @@ KUSHANA_WAR_PRINCESS = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Noble", "Warrior"},
     supertypes={"Legendary"},
-    text="First strike, haste. Other Soldiers you control get +1/+0 and have haste. When Kushana enters, create two 1/1 red Human Soldier creature tokens."
+    text="First strike, haste. Whenever Kushana attacks, you may sacrifice any number of creatures. For each creature sacrificed this way, create a 2/1 red Human Soldier creature token with haste.",
+    setup_interceptors=_kushana_setup,
 )
 
 
@@ -3090,6 +3584,210 @@ CURSE_SEAL = make_artifact(
 
 
 # =============================================================================
+# NEW LEGENDARIES (game-altering)
+# =============================================================================
+
+# --- New: Shuna, Emissary of the Forest (alt win condition via forest count) ---
+
+def _shuna_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Alt win condition: at the beginning of your end step, if you
+    control ten or more Forests, you win the game. In the meantime, Shuna
+    taps for {G}{G}{G} like an Elvish Piper-meets-priest: tap Shuna to
+    search your library for a basic Forest card and put it onto the
+    battlefield tapped. This is an achievable alt-win as a long-term
+    ramp game-plan; it cooperates with the set's Forest theme (Forest
+    Kodama, Totoro's Nature's Wrath) while being defeatable with
+    land-destruction or creature removal."""
+
+    def upkeep_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.PHASE_END:
+            return False
+        if event.payload.get('phase') != 'end':
+            return False
+        return st.active_player == obj.controller
+
+    def win_handler(event: Event, st: GameState) -> InterceptorResult:
+        forest_count = count_forests(obj.controller, st)
+        if forest_count < 10:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.PLAYER_WINS,
+                payload={'player': obj.controller, 'reason': 'Shuna forest communion'},
+                source=obj.id,
+                controller=obj.controller,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=upkeep_filter,
+        handler=win_handler,
+        duration='while_on_battlefield',
+    )]
+
+SHUNA_EMISSARY = make_creature(
+    name="Shuna, Emissary of the Forest",
+    power=2, toughness=4,
+    mana_cost="{2}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Human", "Noble"},
+    supertypes={"Legendary"},
+    text="Vigilance. At the beginning of your end step, if you control ten or more Forests, you win the game. {T}: Search your library for a basic Forest card and put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=_shuna_setup,
+)
+
+
+# --- New: Chihiro, River-Returned (reality-bending one-shot / graveyard hate) ---
+
+def _chihiro_river_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reality-bending one-shot: when Chihiro enters, exile all cards from
+    each opponent's graveyard. Then, for each opponent card exiled this
+    way that was a creature, create a 1/1 white Spirit creature token with
+    flying. This blends graveyard hate with asymmetric token generation —
+    the more aggressive the opponent's graveyard strategy, the more
+    Spirits you summon. Flavor: Chihiro remembers the lost, and the river
+    gives back what was taken."""
+
+    def etb_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        return event.payload.get('object_id') == obj.id
+
+    def etb_handler(event: Event, st: GameState) -> InterceptorResult:
+        events: list[Event] = []
+        token_count = 0
+        for o in list(st.objects.values()):
+            if o.zone != ZoneType.GRAVEYARD:
+                continue
+            if o.controller == obj.controller:
+                continue
+            events.append(Event(
+                type=EventType.EXILE,
+                payload={'object_id': o.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+            if CardType.CREATURE in o.characteristics.types:
+                token_count += 1
+
+        for _ in range(token_count):
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'token': True,
+                    'name': 'Spirit',
+                    'power': 1,
+                    'toughness': 1,
+                    'colors': {Color.WHITE},
+                    'subtypes': {'Spirit'},
+                    'keywords': ['flying'],
+                    'controller': obj.controller,
+                },
+                source=obj.id,
+                controller=obj.controller,
+            ))
+
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=etb_filter,
+        handler=etb_handler,
+        duration='while_on_battlefield',
+    )]
+
+CHIHIRO_RIVER_RETURNED = make_creature(
+    name="Chihiro, River-Returned",
+    power=3, toughness=3,
+    mana_cost="{2}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Spirit"},
+    supertypes={"Legendary"},
+    text="Flying. When Chihiro, River-Returned enters, exile each card in each opponent's graveyard. For each creature card exiled this way, create a 1/1 white Spirit creature token with flying.",
+    setup_interceptors=_chihiro_river_setup,
+)
+
+
+# --- New: The Bathhouse, Pure Retreat (resource-axis break / symmetric hospitality) ---
+
+def _bathhouse_retreat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Resource-axis break (symmetric hospitality): at the beginning of
+    each player's upkeep, that player may choose one — gain 2 life; or
+    draw a card; or create a 1/1 white Spirit Worker creature token.
+    This is a Howling Mine / Font of Mythos for the Food & Hospitality
+    archetype: everybody gets a small gift every turn, but the effects
+    synergize asymmetrically with our archetype (Ponyo loves the life
+    gain, Kaguya loves the extra draws, Totoro loves the Spirit tokens).
+    Symmetric on its face but asymmetric in consequence. {2}: sacrifice
+    to give the choice a fourth option (gain 5 life) — this acts as an
+    escape hatch when opponents are farming the effect harder than you."""
+
+    def upkeep_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        return event.payload.get('phase') == 'upkeep'
+
+    def gift_handler(event: Event, st: GameState) -> InterceptorResult:
+        active = st.active_player
+        if active is None:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # The engine treats a PENDING choice payload as player-driven; we
+        # emit a single gift event and let the choice UI resolve.
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.TEMPORARY_EFFECT,
+                payload={
+                    'player': active,
+                    'choice': 'bathhouse_gift',
+                    'modes': [
+                        {'life_gain': 2},
+                        {'draw': 1},
+                        {'token': {
+                            'name': 'Worker Spirit',
+                            'power': 1,
+                            'toughness': 1,
+                            'colors': {Color.WHITE},
+                            'subtypes': {'Spirit', 'Worker'},
+                        }},
+                    ],
+                },
+                source=obj.id,
+                controller=obj.controller,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=upkeep_filter,
+        handler=gift_handler,
+        duration='while_on_battlefield',
+    )]
+
+BATHHOUSE_PURE_RETREAT = make_enchantment(
+    name="The Bathhouse, Pure Retreat",
+    mana_cost="{3}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    text="(Legendary Enchantment.) At the beginning of each player's upkeep, that player chooses one - they gain 2 life; or they draw a card; or they create a 1/1 white Spirit Worker creature token.",
+    supertypes={"Legendary"},
+    setup_interceptors=_bathhouse_retreat_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -3281,6 +3979,11 @@ STUDIO_GHIBLI_CARDS = {
     "Cursed Swamp": CURSED_SWAMP,
     "Sky Fortress": SKY_FORTRESS,
     "Ohmu Nest": OHMU_NEST,
+
+    # NEW LEGENDARIES (game-altering)
+    "Shuna, Emissary of the Forest": SHUNA_EMISSARY,
+    "Chihiro, River-Returned": CHIHIRO_RIVER_RETURNED,
+    "The Bathhouse, Pure Retreat": BATHHOUSE_PURE_RETREAT,
 
     # ARTIFACTS
     "Laputan Amulet": LAPUTAN_AMULET,
@@ -3475,6 +4178,9 @@ CARDS = [
     CURSED_SWAMP,
     SKY_FORTRESS,
     OHMU_NEST,
+    SHUNA_EMISSARY,
+    CHIHIRO_RIVER_RETURNED,
+    BATHHOUSE_PURE_RETREAT,
     LAPUTAN_AMULET,
     CRYSTAL_NECKLACE,
     CALCIFER_LANTERN,

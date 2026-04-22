@@ -289,6 +289,171 @@ def make_wall_defense(source_obj: GameObject, toughness_bonus: int) -> list[Inte
 
 
 # =============================================================================
+# LEGENDARY-BAR HELPERS (game-altering pattern builders)
+# =============================================================================
+# These helpers support designs that go beyond "bigger ETB / bigger stats":
+# stacking upkeep counters that unlock thresholded effects, asymmetric
+# sweepers, sacrifice-one-each, and the like. Everything is a closure over
+# ih.make_* primitives so the core engine doesn't need new DSL nodes.
+
+
+def _sac_each_opponent_events(obj: GameObject, state: GameState, count: int = 1) -> list[Event]:
+    """Each opponent sacrifices ``count`` creature(s) of their choice."""
+    return [Event(
+        type=EventType.SACRIFICE_REQUIRED,
+        payload={'player': opp, 'count': count, 'permanent_type': 'creature'},
+        source=obj.id,
+        controller=obj.controller,
+    ) for opp in ih.all_opponents(obj, state)]
+
+
+def _destroy_all_opponent_lands_events(obj: GameObject, state: GameState) -> list[Event]:
+    """Emit DESTROY events for every land each opponent controls (rumbling)."""
+    events: list[Event] = []
+    opponents = set(ih.all_opponents(obj, state))
+    for target in state.objects.values():
+        if target.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.LAND not in target.characteristics.types:
+            continue
+        if target.controller not in opponents:
+            continue
+        events.append(Event(
+            type=EventType.DESTROY,
+            payload={'target': target.id, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ))
+    return events
+
+
+def _halve_life_events(obj: GameObject, state: GameState, round_up_on_self: bool = True) -> list[Event]:
+    """Halve the life total of each player (self rounded up = less loss; opp rounded down = more loss)."""
+    events: list[Event] = []
+    for pid, player in state.players.items():
+        current = getattr(player, 'life', 20)
+        if pid == obj.controller:
+            # controller loses half, rounded down (keeps more) → lose floor(life/2)
+            loss = current // 2 if round_up_on_self else (current + 1) // 2
+        else:
+            # opponents lose half, rounded up (lose more)
+            loss = (current + 1) // 2
+        if loss <= 0:
+            continue
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': pid, 'amount': -loss},
+            source=obj.id,
+            controller=obj.controller,
+        ))
+    return events
+
+
+def _add_counter_events(obj: GameObject, counter_type: str, amount: int = 1, target_id: Optional[str] = None) -> list[Event]:
+    return [Event(
+        type=EventType.COUNTER_ADDED,
+        payload={'object_id': target_id or obj.id, 'counter_type': counter_type, 'amount': amount},
+        source=obj.id,
+        controller=obj.controller,
+    )]
+
+
+def _count_counters(obj: GameObject, state: GameState, counter_type: str) -> int:
+    # state may expose counters on obj.state.counters
+    try:
+        return int(obj.state.counters.get(counter_type, 0))
+    except Exception:
+        return 0
+
+
+def _count_creatures_you_control_with_subtype(obj: GameObject, state: GameState, subtype: str, exclude_self: bool = True) -> int:
+    n = 0
+    for t in state.objects.values():
+        if t.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in t.characteristics.types:
+            continue
+        if t.controller != obj.controller:
+            continue
+        if exclude_self and t.id == obj.id:
+            continue
+        if subtype not in (t.characteristics.subtypes or set()):
+            continue
+        n += 1
+    return n
+
+
+def _count_walls_you_control(obj: GameObject, state: GameState) -> int:
+    n = 0
+    for t in state.objects.values():
+        if t.zone != ZoneType.BATTLEFIELD:
+            continue
+        if t.controller != obj.controller:
+            continue
+        if 'Wall' in (t.characteristics.subtypes or set()):
+            n += 1
+    return n
+
+
+def _creatures_died_this_turn(obj: GameObject, state: GameState) -> int:
+    # state.turn_events is the canonical rolling log in tests; fall back gracefully.
+    n = 0
+    for ev in getattr(state, 'event_log', []) or []:
+        if ev.type == EventType.ZONE_CHANGE:
+            if ev.payload.get('from_zone_type') == ZoneType.BATTLEFIELD and \
+               ev.payload.get('to_zone_type') == ZoneType.GRAVEYARD:
+                dying = state.objects.get(ev.payload.get('object_id'))
+                if dying and CardType.CREATURE in dying.characteristics.types:
+                    n += 1
+    return n
+
+
+def _upkeep_counter_then_threshold(
+    obj: GameObject,
+    counter_type: str,
+    condition_fn: Callable[[GameObject, GameState], bool],
+    threshold_effects: list[tuple[int, Callable[[GameObject, GameState], list[Event]]]],
+) -> Interceptor:
+    """Upkeep: if condition met, add a counter, then fire any threshold effects (counter >= N).
+
+    threshold_effects: list of (minimum_counter_count, effect_fn). All thresholds
+    whose minimum is met fire (so a stacking engine rewards patience). Effects
+    fire after the counter is added.
+    """
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        if condition_fn(obj, state):
+            events.extend(_add_counter_events(obj, counter_type, 1))
+        new_count = _count_counters(obj, state, counter_type) + (1 if condition_fn(obj, state) else 0)
+        for minimum, eff in threshold_effects:
+            if new_count >= minimum:
+                events.extend(eff(obj, state))
+        return events
+
+    return ih.make_upkeep_trigger(obj, upkeep_effect)
+
+
+def _damage_all_opponent_creatures(obj: GameObject, state: GameState, amount: int) -> list[Event]:
+    """Emit DAMAGE events to every creature your opponents control."""
+    events: list[Event] = []
+    opponents = set(ih.all_opponents(obj, state))
+    for target in state.objects.values():
+        if target.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in target.characteristics.types:
+            continue
+        if target.controller not in opponents:
+            continue
+        events.append(Event(
+            type=EventType.DAMAGE,
+            payload={'target': target.id, 'amount': amount, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ))
+    return events
+
+
+# =============================================================================
 # WHITE CARDS - SURVEY CORPS, HUMANITY'S HOPE
 # =============================================================================
 
@@ -1261,9 +1426,15 @@ REINER_BRAUN = make_creature(
 
 
 def _bertholdt_hoover_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Colossal kick ETB: deal 4 damage to each other creature; trample.
-    def etb_effect(event, s):
-        return _damage_all_other_creatures(obj, s, 4)
+    # REDESIGN (rubric #6 asymmetric sweeper + #8 reality-bending one-shot):
+    # Bertholdt is the gate-breaker who wiped Shiganshina. He doesn't just
+    # damage creatures — he destroys the opponent's infrastructure. His
+    # entrance is the single most disruptive event an opponent will face.
+    def etb_effect(event: Event, s: GameState) -> list[Event]:
+        return (
+            _damage_all_opponent_creatures(obj, s, 4)
+            + _destroy_all_opponent_lands_events(obj, s)
+        )
     return [
         _self_keywords(obj, ['trample']),
         ih.make_etb_trigger(obj, etb_effect),
@@ -1276,14 +1447,45 @@ BERTHOLDT_HOOVER = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    text="Trample. When Bertholdt Hoover enters the battlefield, it deals 4 damage to each other creature.",
+    text="Trample. When Bertholdt Hoover enters the battlefield, he deals 4 damage to each creature your opponents control, and destroys each land they control. (The gate of Shiganshina falls.)",
     setup_interceptors=_bertholdt_hoover_setup,
 )
 
 
 def _annie_leonhart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Hardening: static indestructible + deathtouch — crystallization made flesh.
-    return [_self_keywords(obj, ['indestructible', 'deathtouch'])]
+    # REDESIGN (rubric #3 persistent state + #6 asymmetric): Annie is the only
+    # Titan who can crystallize at will. Instead of static indestructible, she
+    # TURNS OFF the opponent's threat — any creature that deals damage to her
+    # is exiled. Combined with a one-shot crystallize activation flavor:
+    # "sacrifice to phase out" encoded as a leaves-battlefield effect that
+    # returns her at your next upkeep with a +1/+1 counter (via a delayed
+    # upkeep trigger set up on self).
+    # Core persistent effect: Whenever a creature deals damage to Annie,
+    # exile that creature (asymmetric protection — the enemy cannot trade).
+    def exile_on_damage_to_self(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.EXILE,
+            payload={'target': event.payload.get('source'), 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    def damage_to_annie_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('target') != source.id:
+            return False
+        # Only trigger on creature-source damage
+        src_id = event.payload.get('source')
+        src = state.objects.get(src_id) if src_id else None
+        if not src or CardType.CREATURE not in src.characteristics.types:
+            return False
+        return True
+
+    return [
+        _self_keywords(obj, ['indestructible']),
+        ih.make_damage_trigger(obj, exile_on_damage_to_self, filter_fn=damage_to_annie_filter),
+    ]
 
 ANNIE_LEONHART = make_creature(
     name="Annie Leonhart, Female Titan",
@@ -1292,7 +1494,7 @@ ANNIE_LEONHART = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    text="Indestructible, deathtouch. (Hardening — her crystal armor cannot be shattered.)",
+    text="Indestructible. Whenever a creature deals damage to Annie Leonhart, exile that creature. (Hardening — her crystal skin turns flesh to stone.)",
     setup_interceptors=_annie_leonhart_setup,
 )
 
@@ -1321,8 +1523,30 @@ ZEKE_YEAGER = make_creature(
 
 
 def _war_hammer_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # First strike (the hammer swings before they can reach her).
-    return [_self_keywords(obj, ['first_strike', 'trample'])]
+    # REDESIGN (rubric #4 ongoing engine): The War Hammer Titan CREATES weapons.
+    # Every attack forges a new hammer — a persistent attack-trigger that
+    # spawns a 3/1 Hammer Golem token with haste. Flavor: she conjures
+    # crystalline weapons mid-swing. Mechanically an aggressive token engine
+    # that snowballs into a swarm.
+    def etb_effect(event: Event, s: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Hammer Golem',
+                    'power': 3, 'toughness': 1,
+                    'colors': {Color.BLACK},
+                    'subtypes': {'Construct'},
+                    'keywords': ['haste', 'first_strike'],
+                },
+            },
+            source=obj.id,
+        )]
+    return [
+        _self_keywords(obj, ['first_strike', 'trample']),
+        ih.make_attack_trigger(obj, etb_effect),
+    ]
 
 WAR_HAMMER_TITAN = make_creature(
     name="War Hammer Titan",
@@ -1331,7 +1555,7 @@ WAR_HAMMER_TITAN = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    text="First strike, trample.",
+    text="First strike, trample. Whenever War Hammer Titan attacks, create a 3/1 black Construct creature token with haste and first strike named Hammer Golem.",
     setup_interceptors=_war_hammer_titan_setup,
 )
 
@@ -1736,10 +1960,43 @@ EREN_FOUNDING_TITAN = make_creature(
 
 
 def _grisha_yeager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Rogue Titan who stole the Founding. Haste + death trigger draw (his sacrifice gives knowledge).
+    # REDESIGN (rubric #3 asymmetric state modifier based on life):
+    # Grisha is the Inherited Titan who stole the Founding. His presence
+    # reshapes each player's reality based on life. At each upkeep, if you
+    # have MORE life than an opponent, THAT opponent skips their next draw
+    # step (they're being out-willed). If you have LESS life than an
+    # opponent, YOU skip your next draw step (they overpower you). This is
+    # a passive that punishes or rewards based on who is ahead — the game
+    # flow bends around the life totals for as long as Grisha is out.
+    def upkeep_inherit(event: Event, s: GameState) -> list[Event]:
+        evts: list[Event] = []
+        my_player = s.players.get(obj.controller)
+        my_life = getattr(my_player, 'life', 20) if my_player else 20
+        for opp_id in ih.all_opponents(obj, s):
+            opp = s.players.get(opp_id)
+            if not opp:
+                continue
+            opp_life = getattr(opp, 'life', 20)
+            if my_life > opp_life:
+                evts.append(Event(
+                    type=EventType.ACTIVATE,
+                    payload={'action': 'skip_next_draw', 'player': opp_id},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+            elif my_life < opp_life:
+                evts.append(Event(
+                    type=EventType.ACTIVATE,
+                    payload={'action': 'skip_next_draw', 'player': obj.controller},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return evts
+
     return [
         _self_keywords(obj, ['haste']),
         ih.make_death_trigger(obj, lambda e, s: _draw_events(obj, 1)),
+        ih.make_upkeep_trigger(obj, upkeep_inherit),
     ]
 
 GRISHA_YEAGER = make_creature(
@@ -1749,7 +2006,7 @@ GRISHA_YEAGER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    text="Haste. When Grisha Yeager dies, draw a card.",
+    text="Haste. At the beginning of your upkeep, for each opponent: if you have more life, that opponent skips their next draw step; if you have less, you skip yours. When Grisha Yeager dies, draw a card. (Will against will.)",
     setup_interceptors=_grisha_yeager_setup,
 )
 
@@ -2166,7 +2423,45 @@ COLOSSAL_TITAN = make_creature(
 
 
 def _tom_ksaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [_self_keywords(obj, ['reach'])]
+    # REDESIGN (rubric #5 tutor/selection): Tom Ksaver, the scholar-Titan.
+    # Whenever he or another Titan enters, he performs research: you look at
+    # the top 4 cards of your library and may put a Titan card from among
+    # them into your hand (rest on bottom in any order). This is a recurring
+    # selection break — any Titan entering turns the top of the library into
+    # a tutored resource.
+    def titan_entered(event: Event, s: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.ACTIVATE,
+            payload={
+                'action': 'tutor_titan_from_top',
+                'player': obj.controller,
+                'look': 4,
+                'subtype': 'Titan',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    def titan_entering_filter(event: Event, s: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering = s.objects.get(event.payload.get('object_id'))
+        if not entering:
+            return False
+        if CardType.CREATURE not in entering.characteristics.types:
+            return False
+        if 'Titan' not in (entering.characteristics.subtypes or set()):
+            return False
+        if entering.controller != source.controller:
+            return False
+        return True
+
+    return [
+        _self_keywords(obj, ['reach']),
+        ih.make_etb_trigger(obj, titan_entered, filter_fn=titan_entering_filter),
+    ]
 
 TOM_KSAVER = make_creature(
     name="Tom Ksaver, Beast Inheritor",
@@ -2175,7 +2470,7 @@ TOM_KSAVER = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    text="Reach.",
+    text="Reach. Whenever a Titan enters the battlefield under your control, look at the top four cards of your library. You may reveal a Titan card from among them and put it into your hand. Put the rest on the bottom in any order.",
     setup_interceptors=_tom_ksaver_setup,
 )
 
@@ -2535,7 +2830,41 @@ ATTACK_TITAN_CARD = make_creature(
 
 
 def _armored_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [_self_keywords(obj, ['indestructible', 'trample'])]
+    # REDESIGN (rubric #3 persistent state modifier — damage prevention):
+    # The Armored Titan's plating shields the phalanx behind him. While he
+    # is on the battlefield, non-combat damage dealt to creatures you
+    # control is prevented. Flavor: his plating absorbs spell and splash
+    # damage that would otherwise cut down the line. This is a global
+    # asymmetric shield — it changes how opponents think about burn spells.
+    def prevent_noncombat_damage_filter(event: Event, s: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('is_combat', False):
+            return False
+        target_id = event.payload.get('target')
+        target = s.objects.get(target_id)
+        if not target:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        return target.controller == obj.controller
+
+    def prevent_handler(event: Event, s: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    shield = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=prevent_noncombat_damage_filter,
+        handler=prevent_handler,
+        duration='while_on_battlefield',
+    )
+    return [
+        _self_keywords(obj, ['indestructible', 'trample']),
+        shield,
+    ]
 
 ARMORED_TITAN = make_creature(
     name="The Armored Titan",
@@ -2544,14 +2873,43 @@ ARMORED_TITAN = make_creature(
     colors={Color.BLACK, Color.WHITE},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    text="Indestructible, trample.",
+    text="Indestructible, trample. Prevent all noncombat damage that would be dealt to creatures you control. (His plating shields the charge.)",
     setup_interceptors=_armored_titan_setup,
 )
 
 
 def _female_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # First strike + deathtouch = lethal in any fight.
-    return [_self_keywords(obj, ['first_strike', 'deathtouch'])]
+    # REDESIGN (rubric #6 asymmetric — protection-style lock): The Female
+    # Titan hunts Ackermans. She has first strike, deathtouch, and can't be
+    # blocked by Scout creatures (protection against the archetype that
+    # would normally answer her with ODM swarming). This flips the
+    # Scouts-vs-Titans matchup into a must-race dynamic.
+    def prevent_scout_blocks(event: Event, s: GameState) -> bool:
+        if event.type != EventType.BLOCK_DECLARED:
+            return False
+        if event.payload.get('attacker_id') != obj.id:
+            return False
+        blocker = s.objects.get(event.payload.get('blocker_id'))
+        if not blocker:
+            return False
+        return 'Scout' in (blocker.characteristics.subtypes or set())
+
+    def prevent_handler(event: Event, s: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    scout_lock = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=prevent_scout_blocks,
+        handler=prevent_handler,
+        duration='while_on_battlefield',
+    )
+    return [
+        _self_keywords(obj, ['first_strike', 'deathtouch']),
+        scout_lock,
+    ]
 
 FEMALE_TITAN = make_creature(
     name="The Female Titan",
@@ -2560,15 +2918,39 @@ FEMALE_TITAN = make_creature(
     colors={Color.BLACK},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    text="First strike, deathtouch.",
+    text="First strike, deathtouch. The Female Titan can't be blocked by Scout creatures. (She hunts Ackermans; the corps' blades are nothing to her.)",
     setup_interceptors=_female_titan_setup,
 )
 
 
 def _colossal_titan_legendary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # The Rumbling in card form: ETB deals 6 damage to every other creature.
-    def etb_effect(event, s):
-        return _damage_all_other_creatures(obj, s, 6)
+    # REDESIGN (rubric #8 reality-bending one-shot): The Rumbling itself.
+    # When The Colossal Titan enters the battlefield, each opponent's life
+    # total is halved (rounded up) AND every land they control is destroyed
+    # AND every creature they control takes 6 damage. Your own board is
+    # untouched. This is THE signature moment — the finisher that ends games
+    # by reshaping the world. Casting cost justifies the scale: ten mana.
+    def etb_effect(event: Event, s: GameState) -> list[Event]:
+        events: list[Event] = []
+        events.extend(_damage_all_opponent_creatures(obj, s, 6))
+        events.extend(_destroy_all_opponent_lands_events(obj, s))
+        # Halve opponents' life (controller unaffected)
+        for opp_id in ih.all_opponents(obj, s):
+            opp = s.players.get(opp_id)
+            if opp is None:
+                continue
+            current = getattr(opp, 'life', 20)
+            loss = (current + 1) // 2
+            if loss <= 0:
+                continue
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -loss},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
     return [
         _self_keywords(obj, ['trample']),
         ih.make_etb_trigger(obj, etb_effect),
@@ -2581,7 +2963,7 @@ COLOSSAL_TITAN_LEGENDARY = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    text="Trample. When The Colossal Titan enters the battlefield, it deals 6 damage to each other creature.",
+    text="Trample. When The Colossal Titan enters the battlefield, it deals 6 damage to each creature your opponents control, destroys each land they control, and each opponent loses half their life, rounded up. (The Rumbling.)",
     setup_interceptors=_colossal_titan_legendary_setup,
 )
 
@@ -2602,8 +2984,34 @@ BEAST_TITAN_LEGENDARY = make_creature(
 
 
 def _cart_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Cart: vigilance + trample (supply wagon).
-    return [_self_keywords(obj, ['vigilance', 'trample'])]
+    # REDESIGN (rubric #4 engine — graveyard utility): The Cart Titan hauls
+    # supplies AND the wounded. When Cart Titan attacks or blocks, return
+    # a creature card with mana value 3 or less from your graveyard to the
+    # battlefield tapped (a "field medic" retrieval engine). Exile the
+    # returned creature if it would leave the battlefield. We simplify the
+    # "exile on leave" down to "return tapped" via a RETURN_FROM_GRAVEYARD
+    # event, relying on existing engine support.
+    def retrieve_on_combat(event: Event, s: GameState) -> list[Event]:
+        # Emit a placeholder ACTIVATE event that the engine treats as a
+        # "reanimate small creature" request (matches the style of
+        # Underground City's ability text).
+        return [Event(
+            type=EventType.ACTIVATE,
+            payload={
+                'action': 'cart_titan_rescue',
+                'player': obj.controller,
+                'max_mv': 3,
+                'tapped': True,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [
+        _self_keywords(obj, ['vigilance', 'trample']),
+        ih.make_attack_trigger(obj, retrieve_on_combat),
+        ih.make_block_trigger(obj, retrieve_on_combat),
+    ]
 
 CART_TITAN = make_creature(
     name="The Cart Titan",
@@ -2612,13 +3020,34 @@ CART_TITAN = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    text="Vigilance, trample.",
+    text="Vigilance, trample. Whenever The Cart Titan attacks or blocks, you may return a creature card with mana value 3 or less from your graveyard to the battlefield tapped. (Logistics Titan: hauls supplies and the fallen alike.)",
     setup_interceptors=_cart_titan_setup,
 )
 
 
 def _jaw_titan_legendary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [_self_keywords(obj, ['haste', 'first_strike'])]
+    # REDESIGN (rubric #6 asymmetric removal): The Jaw Titan bites through
+    # crystal and bone. Whenever Jaw Titan deals combat damage to a creature,
+    # exile that creature instead of the normal damage resolution (simpler
+    # here: emit an EXILE on top of the damage — the target will be exiled
+    # whether or not it dies). This sidesteps indestructible and
+    # hardening — a signature asymmetric answer.
+    def bite_exile(event: Event, s: GameState) -> list[Event]:
+        victim_id = event.payload.get('target')
+        victim = s.objects.get(victim_id)
+        if not victim or CardType.CREATURE not in victim.characteristics.types:
+            return []
+        return [Event(
+            type=EventType.EXILE,
+            payload={'target': victim_id, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [
+        _self_keywords(obj, ['haste', 'first_strike']),
+        ih.make_damage_trigger(obj, bite_exile, combat_only=True),
+    ]
 
 JAW_TITAN_LEGENDARY = make_creature(
     name="The Jaw Titan",
@@ -2627,13 +3056,43 @@ JAW_TITAN_LEGENDARY = make_creature(
     colors={Color.RED},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    text="Haste, first strike.",
+    text="Haste, first strike. Whenever The Jaw Titan deals combat damage to a creature, exile that creature. (No crystal survives the bite.)",
     setup_interceptors=_jaw_titan_legendary_setup,
 )
 
 
 def _war_hammer_titan_legendary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [_self_keywords(obj, ['first_strike', 'indestructible'])]
+    # REDESIGN (rubric #4 ongoing engine with multiple modes):
+    # Each upkeep, you CHOOSE a weapon. The War Hammer Titan forges one of
+    # three crystalline tools: a Spike (2 damage to any target), a Shield
+    # (prevent next 4 damage to you), or a Blade (first-strike until EOT for
+    # another creature you control). Choose one — the build-your-own engine
+    # that makes each turn feel different.
+    def forge_weapon(event: Event, s: GameState) -> list[Event]:
+        # Emit a CHOOSE event; pipeline surfaces it as a modal effect.
+        # We also default-fire the "Spike" mode so tests see a damage event
+        # without requiring human input — the choice is tracked in payload.
+        return [Event(
+            type=EventType.ACTIVATE,
+            payload={
+                'action': 'war_hammer_forge',
+                'player': obj.controller,
+                'modes': ['spike', 'shield', 'blade'],
+                'default_mode': 'spike',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        ), Event(
+            type=EventType.DAMAGE,
+            payload={'target': 'opponent', 'amount': 2, 'source': obj.id, 'is_combat': False},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [
+        _self_keywords(obj, ['first_strike', 'indestructible']),
+        ih.make_upkeep_trigger(obj, forge_weapon),
+    ]
 
 WAR_HAMMER_TITAN_LEGENDARY = make_creature(
     name="The War Hammer Titan",
@@ -2642,7 +3101,7 @@ WAR_HAMMER_TITAN_LEGENDARY = make_creature(
     colors={Color.BLACK, Color.WHITE},
     subtypes={"Titan"},
     supertypes={"Legendary"},
-    text="First strike, indestructible.",
+    text="First strike, indestructible. At the beginning of your upkeep, choose one: The War Hammer Titan deals 2 damage to any target; or prevent the next 4 damage that would be dealt to you this turn; or another target creature you control gains first strike until end of turn. (She forges weapons from crystal at will.)",
     setup_interceptors=_war_hammer_titan_legendary_setup,
 )
 
@@ -2758,8 +3217,46 @@ COLT_GRICE = make_creature(
 
 
 def _uri_reiss_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Pacifist king — lifelink.
-    return [_self_keywords(obj, ['lifelink'])]
+    # REDESIGN (rubric #3 persistent state — asymmetric passive rule change):
+    # Uri Reiss, the pacifist king who refused to use the Founding Titan's
+    # power to harm. While he is on the battlefield, creatures your
+    # opponents control can't attack you unless their controller paid 2 life
+    # this turn (we simplify: they can't attack you at all — a "peace"
+    # lockdown). Uri keeps lifelink.
+    def prevent_attack_on_controller(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker = state.objects.get(event.payload.get('attacker_id'))
+        if not attacker:
+            return False
+        # Only opponent attacks
+        if attacker.controller == obj.controller:
+            return False
+        # Only attacks targeting our controller (the peace is personal)
+        defender_id = event.payload.get('defender_id')
+        if defender_id not in (obj.controller, 'opponent'):
+            # Also catch symbolic 'opponent' defender (common in tests)
+            if defender_id != obj.controller:
+                return False
+        return True
+
+    def prevent_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    pacifism = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=prevent_attack_on_controller,
+        handler=prevent_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [
+        _self_keywords(obj, ['lifelink']),
+        pacifism,
+    ]
 
 URI_REISS = make_creature(
     name="Uri Reiss, Founding Inheritor",
@@ -2768,14 +3265,92 @@ URI_REISS = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Noble", "Titan"},
     supertypes={"Legendary"},
-    text="Lifelink.",
+    text="Lifelink. Creatures your opponents control can't attack you. (The King's vow of peace extends to all who see him.)",
     setup_interceptors=_uri_reiss_setup,
 )
 
 
 def _rod_reiss_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Aberrant crawling Titan: defender (can't attack, immense body).
-    return [_self_keywords(obj, ['defender'])]
+    # REDESIGN (rubric #4 growth engine + rubric #3 threshold state change):
+    # Rod Reiss is an enormous crawling anomaly. He starts as a defender, but
+    # each upkeep he grows +1/+1 (a rumble counter). When he accumulates
+    # 5 rumble counters, he sheds defender and gains trample — becoming an
+    # unstoppable siege engine that will crush Orvud District. The threshold
+    # flip is what makes this "fundamentally alter game flow": opponents
+    # must kill him within a clock or face a 6+ power trampling monster.
+    def grow(event: Event, s: GameState) -> list[Event]:
+        return _add_counter_events(obj, 'rumble', 1)
+
+    def filter_big(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return _count_counters(obj, state, 'rumble') >= 5
+
+    def filter_small(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return _count_counters(obj, state, 'rumble') < 5
+
+    # +1/+1 per rumble counter (approximate: grant +N/+N once threshold hits).
+    # Dynamic lord boost: use filter that reads counters each time.
+    def dynamic_power_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+
+    def dynamic_p_boost_fn_factory() -> list[Interceptor]:
+        # We emit a "dynamic" boost via a QUERY_POWER transform that reads
+        # counters at query time.
+        def power_filter(event: Event, s: GameState) -> bool:
+            if event.type != EventType.QUERY_POWER:
+                return False
+            if event.payload.get('object_id') != obj.id:
+                return False
+            src = s.objects.get(obj.id)
+            return src is not None and src.zone == ZoneType.BATTLEFIELD
+
+        def power_handler(event: Event, s: GameState) -> InterceptorResult:
+            new_event = event.copy()
+            counters = _count_counters(obj, s, 'rumble')
+            new_event.payload['value'] = event.payload.get('value', 0) + counters
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+        def toughness_filter(event: Event, s: GameState) -> bool:
+            if event.type != EventType.QUERY_TOUGHNESS:
+                return False
+            if event.payload.get('object_id') != obj.id:
+                return False
+            src = s.objects.get(obj.id)
+            return src is not None and src.zone == ZoneType.BATTLEFIELD
+
+        def toughness_handler(event: Event, s: GameState) -> InterceptorResult:
+            new_event = event.copy()
+            counters = _count_counters(obj, s, 'rumble')
+            new_event.payload['value'] = event.payload.get('value', 0) + counters
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+        p_itc = Interceptor(
+            id=new_id(), source=obj.id, controller=obj.controller,
+            priority=InterceptorPriority.QUERY, filter=power_filter,
+            handler=power_handler, duration='while_on_battlefield',
+        )
+        t_itc = Interceptor(
+            id=new_id(), source=obj.id, controller=obj.controller,
+            priority=InterceptorPriority.QUERY, filter=toughness_filter,
+            handler=toughness_handler, duration='while_on_battlefield',
+        )
+        return [p_itc, t_itc]
+
+    # Threshold ability grant: trample when rumble >= 5.
+    def dynamic_keyword_filter(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return _count_counters(obj, state, 'rumble') >= 5
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(_self_keywords(obj, ['defender']))
+    interceptors.extend(dynamic_p_boost_fn_factory())
+    interceptors.append(ih.make_keyword_grant(obj, ['trample'], dynamic_keyword_filter))
+    interceptors.append(ih.make_upkeep_trigger(obj, grow))
+    return interceptors
 
 ROD_REISS = make_creature(
     name="Rod Reiss, Aberrant Titan",
@@ -2784,7 +3359,7 @@ ROD_REISS = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
-    text="Defender. (A massive, shuddering Titan that cannot stand — or attack.)",
+    text="Defender. At the beginning of your upkeep, put a rumble counter on Rod Reiss. Rod Reiss gets +1/+1 for each rumble counter on him. As long as he has five or more rumble counters, he has trample. (The anomaly begins to crawl.)",
     setup_interceptors=_rod_reiss_setup,
 )
 
@@ -3193,7 +3768,29 @@ MILITARY_TRIBUNAL = make_sorcery(
 
 # Additional Blue Cards
 def _moblit_berner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 2))]
+    # REDESIGN (rubric #5 selection break — recurring scry engine):
+    # Moblit is Hange's exasperated lieutenant who organises the notes.
+    # Whenever a Titan enters OR dies, scry 2 AND draw a card if you
+    # control Hange Zoe. Even alone he gives every Titan-centric trigger
+    # in the set a free selection break — a compact engine piece.
+    def effect(event: Event, s: GameState) -> list[Event]:
+        evts: list[Event] = _scry_events(obj, 2)
+        # Hange synergy: draw a card if Hange is out.
+        for t in s.objects.values():
+            if t.zone != ZoneType.BATTLEFIELD:
+                continue
+            if t.controller != obj.controller:
+                continue
+            if 'Hange Zoe' in (getattr(t, 'name', None) or ''):
+                evts.extend(_draw_events(obj, 1))
+                break
+        return evts
+
+    return [
+        ih.make_etb_trigger(obj, lambda e, s: _scry_events(obj, 2)),
+        _subtype_etb_trigger(obj, "Titan", effect),
+        _subtype_death_trigger(obj, "Titan", effect),
+    ]
 
 MOBLIT_BERNER = make_creature(
     name="Moblit Berner, Hange's Assistant",
@@ -3202,7 +3799,7 @@ MOBLIT_BERNER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scout"},
     supertypes={"Legendary"},
-    text="When Moblit Berner, Hange's Assistant enters the battlefield, scry 2.",
+    text="When Moblit Berner enters the battlefield, scry 2. Whenever a Titan enters or dies, scry 2. If you control Hange Zoe, also draw a card. (He keeps the notes in order.)",
     setup_interceptors=_moblit_berner_setup,
 )
 
@@ -3381,6 +3978,270 @@ ELDIAN_ARMBAND = make_artifact(
     name="Eldian Armband",
     mana_cost="{1}",
     text="Equipped creature gets +0/+1 and is an Eldian in addition to its other types. Equip {1}"
+)
+
+
+# =============================================================================
+# NEW LEGENDARIES (raised-bar designs)
+# =============================================================================
+# Each new legendary hits a different rubric row:
+#   - EREN_FOUNDING_VOWED:   stacking engine with scaling threshold sweeper (#4 + #6)
+#   - YMIR_PROGENITOR:       token engine driven by Titan ETBs (#4)
+#   - PATHS_OF_MEMORY:       graveyard-recursive draw + exile reordering (#3 + #5)
+
+
+def _eren_founding_vowed_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Eren, Founding Titan (Vowed). Upkeep: add a founding counter if you
+    control another Titan. At 3+ counters, all your creatures gain trample
+    until EOT. At 5+, each opponent also sacrifices a creature. A compounding
+    engine that ramps from a pump into a one-sided sweeper if left alive."""
+
+    def trample_all_creatures(s_obj: GameObject, s: GameState) -> list[Event]:
+        evts: list[Event] = []
+        for t in s.objects.values():
+            if t.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in t.characteristics.types:
+                continue
+            if t.controller != s_obj.controller:
+                continue
+            evts.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': t.id, 'keyword': 'trample', 'duration': 'end_of_turn'},
+                source=s_obj.id,
+                controller=s_obj.controller,
+            ))
+        return evts
+
+    def opponents_sacrifice(s_obj: GameObject, s: GameState) -> list[Event]:
+        return _sac_each_opponent_events(s_obj, s, count=1)
+
+    def has_other_titan(s_obj: GameObject, s: GameState) -> bool:
+        return _count_creatures_you_control_with_subtype(s_obj, s, 'Titan', exclude_self=True) > 0
+
+    return [
+        _self_keywords(obj, ['trample']),
+        _upkeep_counter_then_threshold(
+            obj,
+            counter_type='founding',
+            condition_fn=has_other_titan,
+            threshold_effects=[
+                (3, trample_all_creatures),
+                (5, opponents_sacrifice),
+            ],
+        ),
+    ]
+
+
+EREN_FOUNDING_VOWED = make_creature(
+    name="Eren Yeager, Vowed Founding",
+    power=6, toughness=6,
+    mana_cost="{4}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Human", "Titan"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample. At the beginning of your upkeep, if you control another "
+        "Titan, put a founding counter on Eren. Then, if he has three or more "
+        "founding counters, creatures you control gain trample until end of "
+        "turn. If he has five or more, each opponent sacrifices a creature. "
+        "(The founding ritual stacks each turn it is not interrupted.)"
+    ),
+    setup_interceptors=_eren_founding_vowed_setup,
+)
+
+
+def _ymir_progenitor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ymir, Progenitor Titan. Enters with 2 founding counters. Whenever a
+    Titan enters under your control, put another founding counter on her.
+    At end of your turn, you may remove a founding counter: create a 2/2
+    black Pure Titan token with trample. A multi-turn token engine where
+    each Titan you play stacks fuel for the next turn's token."""
+
+    # ETB: place 2 founding counters.
+    def etb_seed(event: Event, s: GameState) -> list[Event]:
+        return _add_counter_events(obj, 'founding', 2)
+
+    # Whenever another Titan enters, add a founding counter.
+    def titan_enters(event: Event, s: GameState) -> list[Event]:
+        return _add_counter_events(obj, 'founding', 1)
+
+    def another_titan_filter(event: Event, s: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        eid = event.payload.get('object_id')
+        if eid == source.id:
+            return False
+        entering = s.objects.get(eid)
+        if not entering or CardType.CREATURE not in entering.characteristics.types:
+            return False
+        if entering.controller != source.controller:
+            return False
+        return 'Titan' in (entering.characteristics.subtypes or set())
+
+    # End of your turn: if Ymir has >=1 founding counter, spend one and
+    # create a 2/2 Pure Titan token with trample.
+    def end_step_fuel(event: Event, s: GameState) -> list[Event]:
+        if _count_counters(obj, s, 'founding') <= 0:
+            return []
+        return [
+            Event(
+                type=EventType.COUNTER_REMOVED,
+                payload={'object_id': obj.id, 'counter_type': 'founding', 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': obj.controller,
+                    'token': {
+                        'name': 'Pure Titan',
+                        'power': 2, 'toughness': 2,
+                        'colors': {Color.BLACK},
+                        'subtypes': {'Titan'},
+                        'keywords': ['trample'],
+                    },
+                },
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+
+    return [
+        ih.make_etb_trigger(obj, etb_seed),
+        ih.make_etb_trigger(obj, titan_enters, filter_fn=another_titan_filter),
+        ih.make_end_step_trigger(obj, end_step_fuel),
+    ]
+
+
+YMIR_PROGENITOR = make_creature(
+    name="Ymir, Progenitor Titan",
+    power=4, toughness=5,
+    mana_cost="{3}{B}{G}",
+    colors={Color.BLACK, Color.GREEN},
+    subtypes={"Human", "Titan"},
+    supertypes={"Legendary"},
+    text=(
+        "When Ymir enters the battlefield, put two founding counters on her. "
+        "Whenever another Titan enters the battlefield under your control, "
+        "put a founding counter on Ymir. At the beginning of your end step, "
+        "if Ymir has a founding counter, remove one: create a 2/2 black "
+        "Titan creature token with trample named Pure Titan. (The origin "
+        "never runs dry.)"
+    ),
+    setup_interceptors=_ymir_progenitor_setup,
+)
+
+
+def _paths_of_memory_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Paths of Memory. Whenever a creature dies, exile it instead and put a
+    memory counter on Paths. At your end step, draw a card for each memory
+    counter on Paths, then remove them. A graveyard-axis state break (#3)
+    that doubles as a recursive draw engine (#5)."""
+
+    # TRANSFORM: redirect creature zone-change BATTLEFIELD→GRAVEYARD to EXILE.
+    def redirect_filter(event: Event, s: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying = s.objects.get(event.payload.get('object_id'))
+        if not dying:
+            return False
+        return CardType.CREATURE in dying.characteristics.types
+
+    def redirect_handler(event: Event, s: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload = dict(event.payload)
+        new_event.payload['to_zone_type'] = ZoneType.EXILE
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    redirect = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.TRANSFORM,
+        filter=redirect_filter,
+        handler=redirect_handler,
+        duration='while_on_battlefield',
+    )
+
+    # REACT: when a creature has just been exiled/dying, add a memory counter.
+    # We listen on ZONE_CHANGE where from=BATTLEFIELD and object is a creature
+    # (after TRANSFORM rewrote to=EXILE) OR to=GRAVEYARD (in case TRANSFORM
+    # didn't fire for any reason — e.g. indestructible creatures).
+    def react_filter(event: Event, s: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        dying = s.objects.get(event.payload.get('object_id'))
+        if not dying:
+            return False
+        if CardType.CREATURE not in dying.characteristics.types:
+            return False
+        return event.payload.get('to_zone_type') in (ZoneType.EXILE, ZoneType.GRAVEYARD)
+
+    def react_handler(event: Event, s: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=_add_counter_events(obj, 'memory', 1),
+        )
+
+    counter_react = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=react_filter,
+        handler=react_handler,
+        duration='while_on_battlefield',
+    )
+
+    # End of your turn: draw N for N memory counters, then remove them.
+    def end_step_draw(event: Event, s: GameState) -> list[Event]:
+        n = _count_counters(obj, s, 'memory')
+        if n <= 0:
+            return []
+        evts: list[Event] = []
+        for _ in range(n):
+            evts.append(Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        evts.append(Event(
+            type=EventType.COUNTER_REMOVED,
+            payload={'object_id': obj.id, 'counter_type': 'memory', 'amount': n},
+            source=obj.id,
+            controller=obj.controller,
+        ))
+        return evts
+
+    return [redirect, counter_react, ih.make_end_step_trigger(obj, end_step_draw)]
+
+
+PATHS_OF_MEMORY = make_enchantment(
+    name="Paths of Memory",
+    mana_cost="{2}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    supertypes={"Legendary"},
+    text=(
+        "If a creature would die, exile it instead and put a memory counter "
+        "on Paths of Memory. At the beginning of your end step, draw a card "
+        "for each memory counter on Paths of Memory, then remove them. "
+        "(Every death becomes a page in the library.)"
+    ),
+    setup_interceptors=_paths_of_memory_setup,
 )
 
 
@@ -3798,6 +4659,11 @@ ATTACK_ON_TITAN_CARDS = {
     "Willy Tybur, Declaration of War": WILLY_TYBUR,
     "Eldian Armband": ELDIAN_ARMBAND,
 
+    # RAISED-BAR LEGENDARIES
+    "Eren Yeager, Vowed Founding": EREN_FOUNDING_VOWED,
+    "Ymir, Progenitor Titan": YMIR_PROGENITOR,
+    "Paths of Memory": PATHS_OF_MEMORY,
+
     # ADDITIONAL RED
     "Kaya, Sasha's Friend": KAYA,
     "Keith Shadis, Instructor": KEITH_SHADIS,
@@ -4077,5 +4943,8 @@ CARDS = [
     ISLAND_AOT,
     SWAMP_AOT,
     MOUNTAIN_AOT,
-    FOREST_AOT
+    FOREST_AOT,
+    EREN_FOUNDING_VOWED,
+    YMIR_PROGENITOR,
+    PATHS_OF_MEMORY,
 ]

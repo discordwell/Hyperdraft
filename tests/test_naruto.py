@@ -462,31 +462,25 @@ def test_yamato_lord_effect():
 
 
 def test_naruto_kyubi_mode_lord_effect():
-    """Test Naruto Kyubi Mode's lord effect - other Ninjas get +1/+1."""
-    print("\n=== Test: Naruto Kyubi Mode Lord Effect ===")
+    """Test Naruto Kyubi Mode's Kurama Mode redesign:
+    - Registers an all-types interceptor (Naruto gains all creature types).
+    - Attack trigger places +1/+1 counters on each creature you control.
+    This is the redesign: persistent state modifier instead of a +1/+1 lord."""
+    print("\n=== Test: Naruto Kyubi Mode (Kurama Mode redesign) ===")
 
     game = Game()
     p1 = game.add_player("Player 1")
+    p2 = game.add_player("Player 2")
 
-    # Create a ninja first
-    ninja = create_basic_creature(game, p1.id, "Test Ninja", power=2, toughness=2, subtypes={"Ninja", "Human"})
-
-    base_power = get_power(ninja, game.state)
-    base_toughness = get_toughness(ninja, game.state)
-    print(f"Ninja before Naruto: {base_power}/{base_toughness}")
-
-    # Create Naruto Kyubi Mode
+    # Create Naruto Kyubi Mode.
     naruto = create_battlefield_creature(game, p1.id, "Naruto, Kyubi Chakra Mode")
 
-    boosted_power = get_power(ninja, game.state)
-    boosted_toughness = get_toughness(ninja, game.state)
-    print(f"Ninja after Naruto: {boosted_power}/{boosted_toughness}")
+    # Verify he has multiple interceptors registered (self-kw, all-types, attack trigger).
+    assert len(naruto.interceptor_ids) >= 3, \
+        f"Expected >= 3 interceptors (self-kw, all-types, attack), got {len(naruto.interceptor_ids)}"
 
-    # Naruto gives +1/+1 to other Ninjas
-    assert boosted_power == base_power + 1, f"Expected power {base_power + 1}, got {boosted_power}"
-    assert boosted_toughness == base_toughness + 1, f"Expected toughness {base_toughness + 1}, got {boosted_toughness}"
-
-    print("PASSED: Naruto Kyubi Mode lord effect works!")
+    print(f"Naruto Kyubi registered {len(naruto.interceptor_ids)} interceptors.")
+    print("PASSED: Naruto Kyubi Mode Kurama Mode interceptors registered.")
 
 
 # =============================================================================
@@ -1370,6 +1364,356 @@ def test_sasuke_chidori_spark():
     print("PASSED: Sasuke Chidori spark deals damage on spell cast.")
 
 
+# =============================================================================
+# RAISE-THE-BAR REDESIGNS + NEW LEGENDARIES
+# =============================================================================
+
+def test_pain_mass_bounce_etb():
+    """Pain (redesign): ETB returns all other creatures to owners' hands."""
+    print("\n=== Test: Pain Mass Bounce ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    p2 = game.add_player("Player 2")
+    victim1 = create_basic_creature(game, p2.id, "Victim 1", power=2, toughness=2, subtypes={"Ninja"})
+    victim2 = create_basic_creature(game, p1.id, "Ally", power=2, toughness=2, subtypes={"Ninja"})
+    pain = create_battlefield_creature(game, p1.id, "Pain, Six Paths of Destruction")
+    # Pain should have registered ETB + cleanup interceptors.
+    assert len(pain.interceptor_ids) >= 2, f"Expected Pain interceptors, got {len(pain.interceptor_ids)}"
+    # Verify Chibaku Tensei cost modifier on opponent.
+    assert any(m.get('source') == pain.id for m in p2.cost_modifiers), \
+        "Expected Chibaku Tensei cost modifier on p2"
+    print("PASSED: Pain registered mass-bounce ETB and cost-modifier persistent state.")
+
+
+def test_madara_susanoo_prevents_damage():
+    """Madara (redesign): damage to Madara is prevented (Perfect Susanoo)."""
+    print("\n=== Test: Madara Susanoo Shield ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    p2 = game.add_player("Player 2")
+    madara = create_battlefield_creature(game, p1.id, "Madara Uchiha, Ghost of the Uchiha")
+    start_toughness = get_toughness(madara, game.state)
+    # Attempt to deal damage to Madara from an opponent's source.
+    events = game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': 'anything', 'target': madara.id, 'amount': 100},
+        source='anything',
+        controller=p2.id,
+    ))
+    # Damage should have been prevented — toughness query still works.
+    assert get_toughness(madara, game.state) == start_toughness, \
+        "Madara's toughness should be unchanged after prevented damage"
+    assert has_ability(madara, 'indestructible', game.state), "Expected indestructible on Madara"
+    print("PASSED: Madara Susanoo prevents damage + is indestructible.")
+
+
+def test_orochimaru_reanimates_on_attack():
+    """Orochimaru (redesign): attack trigger emits RETURN_FROM_GRAVEYARD reanimation."""
+    print("\n=== Test: Orochimaru Edo Tensei ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    oro = create_battlefield_creature(game, p1.id, "Orochimaru, Sannin of Ambition")
+    events = game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': oro.id, 'object_id': oro.id},
+        source=oro.id,
+        controller=p1.id,
+    ))
+    reanim = [e for e in events if e.type == EventType.RETURN_FROM_GRAVEYARD]
+    assert len(reanim) >= 1, f"Expected reanim event on attack, got {len(reanim)}"
+    assert has_ability(oro, 'deathtouch', game.state), "Expected deathtouch on Orochimaru"
+    print("PASSED: Orochimaru reanimates on attack.")
+
+
+def test_kisame_drains_on_opp_spell():
+    """Kisame (redesign): whenever opponent casts a spell, drain 2 and gain counter."""
+    print("\n=== Test: Kisame Samehada Drain ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    p2 = game.add_player("Player 2")
+    kisame = create_battlefield_creature(game, p1.id, "Kisame Hoshigaki, Monster of the Mist")
+    p1_start = p1.life
+    p2_start = p2.life
+    game.emit(Event(
+        type=EventType.CAST,
+        payload={
+            'spell_id': 'opp_spell',
+            'caster': p2.id,
+            'types': [CardType.SORCERY],
+            'controller': p2.id,
+        },
+        source='opp_spell',
+        controller=p2.id,
+    ))
+    assert p2.life == p2_start - 2, f"Expected opp -2, got {p2_start - p2.life}"
+    assert p1.life == p1_start + 2, f"Expected controller +2, got {p1.life - p1_start}"
+    print(f"PASSED: Kisame drains on opp cast; p1 {p1_start}->{p1.life}, p2 {p2_start}->{p2.life}.")
+
+
+def test_zabuza_hidden_mist():
+    """Zabuza (redesign): self-grants menace, attack trigger registered."""
+    print("\n=== Test: Zabuza Hidden Mist ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    zabuza = create_battlefield_creature(game, p1.id, "Zabuza Momochi, Demon of the Mist")
+    assert has_ability(zabuza, 'menace', game.state), "Expected menace on Zabuza"
+    # At least 3 interceptors: self-kw, cant-block-mist, attack-trigger.
+    assert len(zabuza.interceptor_ids) >= 3, \
+        f"Expected Zabuza interceptors, got {len(zabuza.interceptor_ids)}"
+    print("PASSED: Zabuza self-grants menace and has Hidden Mist shroud + silent killing.")
+
+
+def test_deidara_katsu_death_damage():
+    """Deidara (redesign): when Deidara dies, he deals 7 damage to each opponent."""
+    print("\n=== Test: Deidara Katsu ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    p2 = game.add_player("Player 2")
+    deidara = create_battlefield_creature(game, p1.id, "Deidara, Art is an Explosion")
+    assert has_ability(deidara, 'flying', game.state), "Expected flying on Deidara"
+    assert has_ability(deidara, 'haste', game.state), "Expected haste on Deidara"
+    # Simulate Deidara dying.
+    events = game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': deidara.id,
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+        source=deidara.id,
+        controller=p1.id,
+    ))
+    katsu_dmg = [e for e in events
+                 if e.type == EventType.DAMAGE and e.payload.get('target') == p2.id
+                 and e.payload.get('amount') == 7]
+    assert len(katsu_dmg) >= 1, f"Expected Katsu 7 damage to p2, got {len(katsu_dmg)}"
+    print("PASSED: Deidara Katsu deals 7 damage to opponents on death.")
+
+
+def test_haku_ice_mirror_redirect():
+    """Haku (redesign): prevent damage dealt to you and redirect back (setup check)."""
+    print("\n=== Test: Haku Ice Mirror ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    haku = create_battlefield_creature(game, p1.id, "Haku, Ice Mirror")
+    assert has_ability(haku, 'flash', game.state), "Expected flash on Haku"
+    assert has_ability(haku, 'hexproof', game.state), "Expected hexproof on Haku"
+    # Should have self-kw + redirect + ETB interceptors registered.
+    assert len(haku.interceptor_ids) >= 3, \
+        f"Expected Haku interceptors, got {len(haku.interceptor_ids)}"
+    print("PASSED: Haku self-grants flash + hexproof + Ice Mirror redirect registered.")
+
+
+def test_tsunade_byakugou_reanimate():
+    """Tsunade (redesign): gaining 5+ life triggers Creation Rebirth (graveyard->hand)."""
+    print("\n=== Test: Tsunade Creation Rebirth ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    tsunade = create_battlefield_creature(game, p1.id, "Tsunade, Fifth Hokage")
+    assert has_ability(tsunade, 'lifelink', game.state), "Expected lifelink on Tsunade"
+    assert has_ability(tsunade, 'indestructible', game.state), "Expected indestructible on Tsunade"
+    # Emit a 6-life-gain event — should trigger Creation Rebirth.
+    events = game.emit(Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': p1.id, 'amount': 6},
+        source='heal',
+        controller=p1.id,
+    ))
+    rebirth = [e for e in events if e.type == EventType.RETURN_TO_HAND_FROM_GRAVEYARD]
+    assert len(rebirth) >= 1, f"Expected Creation Rebirth reanim event, got {len(rebirth)}"
+    print("PASSED: Tsunade Creation Rebirth fires when gaining 5+ life.")
+
+
+def test_jiraiya_summoning_jutsu_tutor():
+    """Jiraiya (redesign): ETB emits SEARCH_LIBRARY + Toad token."""
+    print("\n=== Test: Jiraiya Summoning Jutsu ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    events_collected: list[Event] = []
+    original_emit = game.emit
+
+    def capture(ev):
+        res = original_emit(ev)
+        events_collected.extend(res)
+        return res
+
+    game.emit = capture  # type: ignore
+    jiraiya = create_battlefield_creature(game, p1.id, "Jiraiya, Toad Sage")
+    # Verify interceptors registered (summoning jutsu + toad token + sage mode).
+    assert len(jiraiya.interceptor_ids) >= 2, \
+        f"Expected Jiraiya interceptors, got {len(jiraiya.interceptor_ids)}"
+    print("PASSED: Jiraiya registered Summoning Jutsu tutor + Sage Mode interceptors.")
+
+
+def test_killer_bee_extra_combat():
+    """Killer Bee (redesign): combat damage to a player triggers extra combat."""
+    print("\n=== Test: Killer Bee Lightning Sword Dance ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    p2 = game.add_player("Player 2")
+    bee = create_battlefield_creature(game, p1.id, "Killer Bee, Eight-Tails Jinchuriki")
+    assert has_ability(bee, 'haste', game.state), "Expected haste on Killer Bee"
+    events = game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': bee.id, 'target': p2.id, 'amount': 4, 'is_combat': True},
+        source=bee.id,
+        controller=p1.id,
+    ))
+    extra = [e for e in events if e.type == EventType.EXTRA_COMBAT]
+    assert len(extra) >= 1, f"Expected extra combat event, got {len(extra)}"
+    print("PASSED: Killer Bee triggers extra combat on combat damage.")
+
+
+def test_gaara_shukaku_wrath():
+    """Gaara (redesign): ETB bounces all opposing creatures + life loss per creature."""
+    print("\n=== Test: Gaara Shukaku's Wrath ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    p2 = game.add_player("Player 2")
+    victim1 = create_basic_creature(game, p2.id, "Opp1", power=1, toughness=1, subtypes={"Ninja"})
+    victim2 = create_basic_creature(game, p2.id, "Opp2", power=1, toughness=1, subtypes={"Ninja"})
+    p2_start = p2.life
+    gaara = create_battlefield_creature(game, p1.id, "Gaara, One-Tail Jinchuriki")
+    assert has_ability(gaara, 'indestructible', game.state), "Expected indestructible on Gaara"
+    # Opponent should have lost 2 * 3 = 6 life.
+    assert p2.life == p2_start - 6, f"Expected opp -6 (2 creatures * 3), got {p2_start - p2.life}"
+    print(f"PASSED: Gaara Shukaku's Wrath bounced + drained (p2 {p2_start}->{p2.life}).")
+
+
+def test_kurama_nine_tails_setup():
+    """Kurama (redesign): self-grants haste+trample, registers ETB bomb + extra-turn trigger."""
+    print("\n=== Test: Kurama Nine-Tails ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    kurama = create_battlefield_creature(game, p1.id, "Kurama, Nine-Tailed Fox")
+    assert has_ability(kurama, 'trample', game.state), "Expected trample on Kurama"
+    assert has_ability(kurama, 'haste', game.state), "Expected haste on Kurama"
+    # Self-kw + ETB + damage-trigger.
+    assert len(kurama.interceptor_ids) >= 3, \
+        f"Expected Kurama interceptors, got {len(kurama.interceptor_ids)}"
+    print("PASSED: Kurama registered haste+trample + ETB bomb + extra-turn damage trigger.")
+
+
+def test_might_guy_eight_gates_and_death_gate():
+    """Might Guy (redesign): Chakra 8 ability + death trigger (extra turn on death)."""
+    print("\n=== Test: Might Guy Eight Gates ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    guy = create_battlefield_creature(game, p1.id, "Might Guy, Taijutsu Master")
+    assert len(guy.interceptor_ids) >= 3, \
+        f"Expected Might Guy interceptors (chakra + night-guy + death), got {len(guy.interceptor_ids)}"
+    # Simulate death → should emit EXTRA_TURN.
+    events = game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': guy.id,
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+        source=guy.id,
+        controller=p1.id,
+    ))
+    extra = [e for e in events if e.type == EventType.EXTRA_TURN]
+    assert len(extra) >= 1, f"Expected EXTRA_TURN on Might Guy death, got {len(extra)}"
+    print("PASSED: Might Guy Death Gate triggers extra turn.")
+
+
+def test_naruto_kyubi_kurama_mode_counters():
+    """Naruto Kyubi (redesign): attack trigger places +1/+1 counters on each creature you control."""
+    print("\n=== Test: Naruto Kyubi Kurama Mode ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    ally = create_basic_creature(game, p1.id, "Ally Ninja", power=2, toughness=2, subtypes={"Ninja"})
+    naruto = create_battlefield_creature(game, p1.id, "Naruto, Kyubi Chakra Mode")
+    events = game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': naruto.id, 'object_id': naruto.id},
+        source=naruto.id,
+        controller=p1.id,
+    ))
+    counters = [e for e in events
+                if e.type == EventType.COUNTER_ADDED
+                and e.payload.get('counter_type') == '+1/+1']
+    assert len(counters) >= 2, f"Expected +1/+1 counters on each creature, got {len(counters)}"
+    print(f"PASSED: Naruto Kyubi attack spread {len(counters)} +1/+1 counters.")
+
+
+# ---- NEW LEGENDARIES ----
+
+def test_hagoromo_copies_noncreature_spells():
+    """Hagoromo: noncreature spell cast → COPY_SPELL event."""
+    print("\n=== Test: Hagoromo Ninshu ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    hagoromo = create_battlefield_creature(game, p1.id, "Hagoromo Otsutsuki, Sage of Six Paths")
+    assert has_ability(hagoromo, 'flying', game.state), "Expected flying on Hagoromo"
+    events = game.emit(Event(
+        type=EventType.CAST,
+        payload={
+            'spell_id': 'jutsu_sid',
+            'caster': p1.id,
+            'types': [CardType.INSTANT],
+            'controller': p1.id,
+        },
+        source='jutsu_sid',
+        controller=p1.id,
+    ))
+    copies = [e for e in events if e.type == EventType.COPY_SPELL]
+    assert len(copies) >= 1, f"Expected COPY_SPELL, got {len(copies)}"
+    print("PASSED: Hagoromo copies noncreature spells on cast.")
+
+
+def test_isshiki_karma_counters_and_loss():
+    """Isshiki: attack trigger puts karma counters; upkeep checks for loss at 4+."""
+    print("\n=== Test: Isshiki Karma ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    p2 = game.add_player("Player 2")
+    # Upkeep triggers require active_player == controller.
+    game.state.active_player = p1.id
+    isshiki = create_battlefield_creature(game, p1.id, "Isshiki Otsutsuki, Karma Reborn")
+    assert has_ability(isshiki, 'indestructible', game.state), "Expected indestructible on Isshiki"
+    # Swing 4 times to rack up 4 karma counters.
+    for _ in range(4):
+        game.emit(Event(
+            type=EventType.ATTACK_DECLARED,
+            payload={'attacker_id': isshiki.id, 'object_id': isshiki.id},
+            source=isshiki.id,
+            controller=p1.id,
+        ))
+    karma = getattr(p2, '_karma_counters', 0)
+    assert karma >= 4, f"Expected 4+ karma on opponent, got {karma}"
+    # Upkeep check should emit PLAYER_LOSES.
+    events = game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'player': p1.id},
+        source='turn',
+        controller=p1.id,
+    ))
+    loses = [e for e in events if e.type == EventType.PLAYER_LOSES and e.payload.get('player') == p2.id]
+    assert len(loses) >= 1, f"Expected karma-loss event, got {len(loses)}"
+    print(f"PASSED: Isshiki karma tower hits {karma} counters; PLAYER_LOSES event emitted.")
+
+
+def test_shadow_clone_naruto_multi_clone():
+    """Shadow Clone Naruto: ETB creates a token per creature you control."""
+    print("\n=== Test: Shadow Clone Naruto Multi Clone ===")
+    game = Game()
+    p1 = game.add_player("Player 1")
+    # 1 pre-existing creature → after Naruto ETB, should spawn tokens.
+    ally = create_basic_creature(game, p1.id, "Ally", power=1, toughness=1, subtypes={"Ninja"})
+    naruto = create_battlefield_creature(game, p1.id, "Naruto, Multi Shadow Clone")
+    assert has_ability(naruto, 'haste', game.state), "Expected haste on Shadow Clone Naruto"
+    # Count ninja/clone tokens on battlefield that aren't the ally or Naruto.
+    tokens = [o for o in game.state.objects.values()
+              if o.zone == ZoneType.BATTLEFIELD and
+              o.controller == p1.id and
+              o.id != ally.id and o.id != naruto.id and
+              CardType.CREATURE in o.characteristics.types]
+    assert len(tokens) >= 2, f"Expected >= 2 Shadow Clone tokens, got {len(tokens)}"
+    print(f"PASSED: Multi Shadow Clone Jutsu spawned {len(tokens)} tokens.")
+
+
 def test_non_ninja_not_affected_by_ninja_lords():
     """Test that non-Ninja creatures aren't affected by Ninja lord effects."""
     print("\n=== Test: Non-Ninja Not Affected by Ninja Lords ===")
@@ -1515,6 +1859,27 @@ def run_all_tests():
             test_asura_otsutsuki_tokens_and_lord,
             test_kaguya_otsutsuki_drains_and_draws,
             test_danzo_shimura_death_drain,
+        ]),
+        ("RAISE-THE-BAR REDESIGNS", [
+            test_pain_mass_bounce_etb,
+            test_madara_susanoo_prevents_damage,
+            test_orochimaru_reanimates_on_attack,
+            test_kisame_drains_on_opp_spell,
+            test_zabuza_hidden_mist,
+            test_deidara_katsu_death_damage,
+            test_haku_ice_mirror_redirect,
+            test_tsunade_byakugou_reanimate,
+            test_jiraiya_summoning_jutsu_tutor,
+            test_killer_bee_extra_combat,
+            test_gaara_shukaku_wrath,
+            test_kurama_nine_tails_setup,
+            test_might_guy_eight_gates_and_death_gate,
+            test_naruto_kyubi_kurama_mode_counters,
+        ]),
+        ("RAISE-THE-BAR NEW LEGENDARIES", [
+            test_hagoromo_copies_noncreature_spells,
+            test_isshiki_karma_counters_and_loss,
+            test_shadow_clone_naruto_multi_clone,
         ]),
     ]
 

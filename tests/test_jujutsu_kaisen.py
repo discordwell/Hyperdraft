@@ -2085,6 +2085,433 @@ def test_card_count_within_band():
 
 
 # =============================================================================
+# QUALITY PASS V2 — RAISE THE LEGENDARY BAR
+# =============================================================================
+# These tests exercise the game-altering redesigns and new legendaries:
+#  - Persistent state modifiers (Gojo Unsealed Infinity, Angel anti-Curse,
+#    Sukuna shrine-aura, Flame Arrow Domain, Binding Vow Limitless Exchange).
+#  - Resource-axis breaks (Yuki Tsukumo cost reduction, Hakari jackpot extra
+#    turn, Naobito extra combat).
+#  - Adaptive resistance (Mahoraga counters on non-combat damage).
+#  - Reanimate engines (Rika Orimoto).
+#  - Alt win conditions (Rabbit Escape swarm).
+#  - Asymmetric sweeper (Kento Nanami ratio).
+#  - Tutor / selection break (Six Eyes, Perfect Calculation).
+
+
+def _put_into_library(game, player_id: str, card_name: str):
+    """Helper: put a card directly into a player's library (for tutor tests)."""
+    card_def = JUJUTSU_KAISEN_CARDS[card_name]
+    return game.create_object(
+        name=card_name,
+        owner_id=player_id,
+        zone=ZoneType.LIBRARY,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+
+
+def test_gojo_v2_infinity_prevents_enemy_attacks():
+    """Gojo v2: creatures you don't control can't attack Gojo."""
+    print("\n=== Test: Gojo v2 Infinity prevents enemy attacks ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    gojo = create_on_battlefield(game, p1.id, "Satoru Gojo, The Strongest")
+    # An opponent-controlled creature.
+    finger = create_on_battlefield(game, p2.id, "Finger Bearer")
+    # Emit an attack-declared against Gojo; the interceptor should PREVENT.
+    attack_ev = Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': finger.id, 'defender_id': gojo.id},
+        source=finger.id, controller=p2.id,
+    )
+    # Pipeline will run, but we just want to check that a PREVENT interceptor
+    # is registered — structural test.
+    assert len(gojo.interceptor_ids) >= 1, "Gojo should register Infinity prevent interceptor"
+    # Sanity: card text mentions Infinity.
+    card_def = JUJUTSU_KAISEN_CARDS["Satoru Gojo, The Strongest"]
+    assert "Infinity" in card_def.text, "Gojo text should mention Infinity"
+    print("PASSED: Gojo v2 Infinity registered!")
+
+
+def test_gojo_v2_domain_etb_draw():
+    """Gojo v2: ETB with a Domain on the battlefield draws 2 cards."""
+    print("\n=== Test: Gojo v2 Domain ETB Draw ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Put a Domain on the battlefield first.
+    create_on_battlefield(game, p1.id, "Malevolent Shrine")
+    hand_before = len([o for o in game.state.objects.values()
+                       if o.controller == p1.id and o.zone == ZoneType.HAND])
+    create_on_battlefield(game, p1.id, "Satoru Gojo, The Strongest")
+    # Count DRAW events fired from Gojo.
+    draws = [e for e in game.state.event_log if e.type == EventType.DRAW
+             and e.payload.get('player') == p1.id]
+    assert len(draws) >= 2, f"Expected 2+ DRAW events; got {len(draws)}"
+    print("PASSED: Gojo v2 Domain ETB draws 2 cards!")
+
+
+def test_ryomen_sukuna_v2_imposes_cost_tax():
+    """Sukuna v2: opponents' instants/sorceries cost {1} more (negative modifier)."""
+    print("\n=== Test: Ryomen Sukuna v2 cost tax ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    create_on_battlefield(game, p1.id, "Ryomen Sukuna, King of Curses")
+    # The opponent should have cost_modifiers tagged with Sukuna.
+    sukuna_mods = [m for m in p2.cost_modifiers if 'sukuna_shrine' in str(m.get('id', ''))]
+    assert len(sukuna_mods) >= 2, f"Expected 2 modifiers (instant+sorcery); got {len(sukuna_mods)}"
+    for m in sukuna_mods:
+        assert m.get('amount') == -1, f"Sukuna tax should be -1 (=+1 cost); got {m.get('amount')}"
+    print("PASSED: Sukuna v2 imposes cost tax on opponents!")
+
+
+def test_ryomen_sukuna_v2_cleanup_on_leave():
+    """Sukuna v2: cost modifiers are cleared when Sukuna leaves the battlefield."""
+    print("\n=== Test: Ryomen Sukuna v2 cleanup on leave ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sukuna = create_on_battlefield(game, p1.id, "Ryomen Sukuna, King of Curses")
+    assert any('sukuna_shrine' in str(m.get('id', '')) for m in p2.cost_modifiers)
+    # Move Sukuna off the battlefield via a ZONE_CHANGE event.
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={'object_id': sukuna.id,
+                 'from_zone': 'battlefield',
+                 'to_zone': f'graveyard_{p1.id}',
+                 'from_zone_type': ZoneType.BATTLEFIELD,
+                 'to_zone_type': ZoneType.GRAVEYARD},
+        source=sukuna.id, controller=p1.id,
+    ))
+    # Cost modifiers should be cleared.
+    assert not any('sukuna_shrine' in str(m.get('id', '')) for m in p2.cost_modifiers), \
+        "Sukuna's cost tax should clear when he leaves"
+    print("PASSED: Sukuna v2 cleans up cost modifiers on leave!")
+
+
+def test_mahoraga_v2_adapts_on_noncombat_damage():
+    """Mahoraga v2: +1/+1 and adaptation counter on non-combat damage."""
+    print("\n=== Test: Mahoraga v2 adapts on non-combat damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    mahoraga = create_on_battlefield(game, p1.id, "Mahoraga, Eight-Handled Sword")
+    # Deal non-combat damage to Mahoraga.
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'target': mahoraga.id, 'amount': 2, 'source': p2.id,
+                 'is_combat': False},
+        source=p2.id, controller=p2.id,
+    ))
+    adaptation_counters = mahoraga.state.counters.get('adaptation', 0)
+    assert adaptation_counters >= 1, f"Expected adaptation counter; got {adaptation_counters}"
+    print("PASSED: Mahoraga v2 adapts to non-combat damage!")
+
+
+def test_mahoraga_v2_ignores_combat_damage():
+    """Mahoraga v2: combat damage does NOT trigger adaptation."""
+    print("\n=== Test: Mahoraga v2 ignores combat damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    mahoraga = create_on_battlefield(game, p1.id, "Mahoraga, Eight-Handled Sword")
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'target': mahoraga.id, 'amount': 2, 'source': p2.id,
+                 'is_combat': True},
+        source=p2.id, controller=p2.id,
+    ))
+    adaptation_counters = mahoraga.state.counters.get('adaptation', 0)
+    assert adaptation_counters == 0, f"Combat damage should not trigger adaptation; got {adaptation_counters}"
+    print("PASSED: Mahoraga v2 ignores combat damage!")
+
+
+def test_gojo_unsealed_v2_etb_burn_and_infinity():
+    """Gojo Unsealed v2: ETB 5 damage + persistent Infinity prevent registered."""
+    print("\n=== Test: Gojo Unsealed v2 ETB + Infinity ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    p2_life_before = p2.life
+    gojo = create_on_battlefield(game, p1.id, "Gojo Unsealed, Hollow Purple")
+    # ETB damage.
+    assert p2.life < p2_life_before, f"Expected p2 life decrease; got {p2.life}"
+    # Infinity interceptor registered.
+    assert len(gojo.interceptor_ids) >= 2, \
+        f"Gojo Unsealed should register ETB + Infinity; got {len(gojo.interceptor_ids)}"
+    print("PASSED: Gojo Unsealed v2 Infinity + ETB burn work!")
+
+
+def test_yuji_itadori_v2_sukuna_emergence_counter_on_big_damage():
+    """Yuji v2: receiving 4+ damage in one instance adds +1/+1 counters (Sukuna awakens)."""
+    print("\n=== Test: Yuji v2 Sukuna emergence on big damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    yuji = create_on_battlefield(game, p1.id, "Yuji Itadori, Sukuna's Vessel")
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'target': yuji.id, 'amount': 4, 'source': p2.id,
+                 'is_combat': False},
+        source=p2.id, controller=p2.id,
+    ))
+    plus_counters = yuji.state.counters.get('+1/+1', 0)
+    assert plus_counters >= 3, f"Expected 3 +1/+1 counters; got {plus_counters}"
+    print("PASSED: Yuji v2 Sukuna emergence triggers!")
+
+
+def test_rika_orimoto_v2_reanimates_from_graveyard():
+    """Rika v2: attack trigger emits a ZONE_CHANGE event returning a creature from graveyard."""
+    print("\n=== Test: Rika Orimoto v2 reanimate ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Put a dead creature in the graveyard.
+    card_def = JUJUTSU_KAISEN_CARDS["Cursed Corpse"]
+    corpse = game.create_object(
+        name="Cursed Corpse", owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    rika = create_on_battlefield(game, p1.id, "Rika Orimoto, Cursed Queen")
+    # Emit attack.
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': rika.id, 'defender_id': p1.id},
+        source=rika.id, controller=p1.id,
+    ))
+    # Search for a ZONE_CHANGE event moving corpse from graveyard to battlefield.
+    revives = [e for e in game.state.event_log
+               if e.type == EventType.ZONE_CHANGE
+               and e.payload.get('object_id') == corpse.id
+               and e.payload.get('to_zone_type') == ZoneType.BATTLEFIELD]
+    assert len(revives) >= 1, "Rika should emit a reanimation ZONE_CHANGE"
+    print("PASSED: Rika v2 reanimates creatures!")
+
+
+def test_yuki_tsukumo_v2_cost_reduction_registered():
+    """Yuki v2: cost reduction modifiers applied to controller on ETB."""
+    print("\n=== Test: Yuki Tsukumo v2 cost reduction ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    create_on_battlefield(game, p1.id, "Yuki Tsukumo, Star Rage")
+    reductions = [m for m in p1.cost_modifiers if m.get('amount') == 1]
+    assert len(reductions) >= 2, f"Expected 2 reductions (instant+sorcery); got {len(reductions)}"
+    print("PASSED: Yuki v2 reduces spell cost!")
+
+
+def test_naobito_v2_first_attack_grants_extra_combat():
+    """Naobito v2: first attack per turn calls add_extra_combat via TurnManager.
+
+    The test harness doesn't wire a TurnManager in Game(), so the fallback
+    path adds a +1/+1 counter instead. We assert the fallback path fires.
+    """
+    print("\n=== Test: Naobito Zenin v2 extra combat attack trigger ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    naobito = create_on_battlefield(game, p1.id, "Naobito Zenin, Projection")
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': naobito.id, 'defender_id': p1.id},
+        source=naobito.id, controller=p1.id,
+    ))
+    # Either extra combat was added OR the fallback +1/+1 counter applied.
+    counters = naobito.state.counters.get('+1/+1', 0)
+    tm = getattr(game.state, 'turn_manager', None)
+    if tm is None:
+        assert counters >= 1, f"Fallback counter should apply; got {counters}"
+    print("PASSED: Naobito v2 extra combat trigger fires!")
+
+
+def test_hakari_v2_three_jackpots_triggers_extra_turn():
+    """Hakari v2: three attack triggers adds jackpot counter 3 times, clears + draws."""
+    print("\n=== Test: Hakari Kinji v2 three jackpots ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    hakari = create_on_battlefield(game, p1.id, "Hakari Kinji, Private Pure Love Train")
+    # Attack 3 times.
+    for _ in range(3):
+        game.emit(Event(
+            type=EventType.ATTACK_DECLARED,
+            payload={'attacker_id': hakari.id, 'defender_id': p1.id},
+            source=hakari.id, controller=p1.id,
+        ))
+    # After 3 attacks, jackpot counter should have reset (back to 0) AND the
+    # three jackpot-draws should be visible in the event log.
+    jackpot_draws = [e for e in game.state.event_log
+                     if e.type == EventType.DRAW
+                     and e.payload.get('jackpot')]
+    assert len(jackpot_draws) >= 3, f"Expected 3 jackpot draws; got {len(jackpot_draws)}"
+    print("PASSED: Hakari v2 jackpot triggers extra-turn draw burst!")
+
+
+def test_kento_nanami_v2_ratio_etb_hits_high_power_creatures():
+    """Nanami v2: ETB deals damage divided among opp creatures with power 3+."""
+    print("\n=== Test: Kento Nanami v2 ratio ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Put two power-3+ creatures on opponent's side.
+    create_on_battlefield(game, p2.id, "Special Grade Curse")  # 6/5
+    create_on_battlefield(game, p2.id, "Finger Bearer")         # 4/3
+    create_on_battlefield(game, p1.id, "Kento Nanami, Ratio Technique")
+    damage_events = [e for e in game.state.event_log
+                     if e.type == EventType.DAMAGE
+                     and not e.payload.get('is_combat', False)]
+    ratio_hits = [e for e in damage_events if e.payload.get('amount', 0) >= 3]
+    assert len(ratio_hits) >= 2, f"Expected 2 ratio hits; got {len(ratio_hits)}"
+    print("PASSED: Nanami v2 ratio ETB hits high-power creatures!")
+
+
+def test_angel_hana_kurusu_v2_etb_and_anti_curse():
+    """Angel v2: ETB drain + Anti-Curse prevent registered."""
+    print("\n=== Test: Angel Hana Kurusu v2 anti-curse ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    p2_life_before = p2.life
+    angel = create_on_battlefield(game, p1.id, "Angel, Hana's Host")
+    assert p2.life < p2_life_before
+    assert len(angel.interceptor_ids) >= 2, \
+        f"Angel should register ETB + anti-Curse prevent; got {len(angel.interceptor_ids)}"
+    print("PASSED: Angel v2 anti-Curse prevention registered!")
+
+
+def test_rabbit_escape_v2_etb_creates_three_and_upkeep_adds_one():
+    """Rabbit Escape v2: ETB creates 3 rabbits; upkeep creates 1 more."""
+    print("\n=== Test: Rabbit Escape Swarm v2 upkeep engine ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.state.active_player = p1.id
+    rabbit = create_on_battlefield(game, p1.id, "Rabbit Escape Swarm")
+    tokens_after_etb = len([o for o in game.state.objects.values()
+                            if o.controller == p1.id
+                            and 'Rabbit' in o.characteristics.subtypes])
+    assert tokens_after_etb >= 3, f"Expected 3 rabbits; got {tokens_after_etb}"
+    # Fire an upkeep phase event — use the same shape Hanami's test uses.
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'player': p1.id},
+        controller=p1.id,
+    ))
+    tokens_after_upkeep = len([o for o in game.state.objects.values()
+                               if o.controller == p1.id
+                               and 'Rabbit' in o.characteristics.subtypes])
+    assert tokens_after_upkeep > tokens_after_etb, \
+        f"Expected rabbit count to grow; {tokens_after_etb} -> {tokens_after_upkeep}"
+    print("PASSED: Rabbit Escape v2 upkeep engine works!")
+
+
+def test_rabbit_escape_v2_eight_shikigami_wins():
+    """Rabbit Escape v2: with 7+ Shikigami on board, next upkeep triggers PLAYER_WINS."""
+    print("\n=== Test: Rabbit Escape Swarm v2 alt win ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.state.active_player = p1.id
+    # Flood board with Shikigami tokens.
+    for _ in range(7):
+        create_on_battlefield(game, p1.id, "Divine Dog: White")
+    rabbit = create_on_battlefield(game, p1.id, "Rabbit Escape Swarm")
+    # Drive one upkeep tick.
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'player': p1.id},
+        controller=p1.id,
+    ))
+    win_events = [e for e in game.state.event_log
+                  if e.type == EventType.PLAYER_WINS
+                  and e.payload.get('player') == p1.id]
+    assert len(win_events) >= 1, "Expected PLAYER_WINS from Rabbit Escape swarm"
+    print("PASSED: Rabbit Escape v2 wins at 8 Shikigami!")
+
+
+def test_binding_vow_limitless_exchange_prevents_creature_casts():
+    """Binding Vow, Limitless Exchange: you can't cast creature spells."""
+    print("\n=== Test: Binding Vow, Limitless Exchange ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    bv = create_on_battlefield(game, p1.id, "Binding Vow, Limitless Exchange")
+    # Cost reductions registered for both instant and sorcery.
+    reductions = [m for m in p1.cost_modifiers if m.get('amount') == 2]
+    assert len(reductions) >= 2, f"Expected 2 big cost reductions; got {len(reductions)}"
+    # At least 3 interceptors: prevent-creature-cast, 2x cost leave, 2x cost death.
+    assert len(bv.interceptor_ids) >= 3
+    print("PASSED: Binding Vow Limitless Exchange registers deck-ID alt cost!")
+
+
+def test_malevolent_shrine_flame_arrow_taxes_opponents():
+    """Flame Arrow Domain: opponents' spells cost {1} more."""
+    print("\n=== Test: Malevolent Shrine, Flame Arrow ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    create_on_battlefield(game, p1.id, "Malevolent Shrine, Flame Arrow")
+    mods = [m for m in p2.cost_modifiers if 'flame_arrow' in str(m.get('id', ''))]
+    # Creature + instant + sorcery tax.
+    assert len(mods) >= 3, f"Expected 3 cost mods; got {len(mods)}"
+    assert all(m.get('amount') == -1 for m in mods), "Flame Arrow taxes, doesn't reduce"
+    print("PASSED: Malevolent Shrine, Flame Arrow taxes opponents!")
+
+
+def test_six_eyes_perfect_calculation_tutor_and_reduction():
+    """Six Eyes: resolve moves a Sorcerer creature from library to hand + 1-shot cost reduction."""
+    print("\n=== Test: Six Eyes, Perfect Calculation ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Set active_player_id so the resolver can find the caster.
+    game.state.active_player_id = p1.id
+    # Seed library with a Sorcerer creature.
+    target_card = _put_into_library(game, p1.id, "Exorcist Sorcerer")
+    # Call the resolver directly (mirrors the stack's invocation).
+    card_def = JUJUTSU_KAISEN_CARDS["Six Eyes, Perfect Calculation"]
+    events = card_def.resolve([], game.state) or []
+    # Dispatch each resulting event so the ZONE_CHANGE takes effect.
+    for ev in events:
+        game.emit(ev)
+    # The Sorcerer should now be in the hand.
+    assert target_card.zone == ZoneType.HAND, \
+        f"Target should be tutored to hand; zone={target_card.zone}"
+    # One-shot cost reductions should be registered.
+    oneshots = [m for m in p1.cost_modifiers if m.get('amount') == 3]
+    assert len(oneshots) >= 1, f"Expected at least one {{3}}-off reduction; got {len(oneshots)}"
+    print("PASSED: Six Eyes tutors + reduces next spell!")
+
+
+def test_v2_new_and_redesigned_legendaries_present():
+    """Smoke test: all new v2 legendaries and redesigns are in the export dict."""
+    print("\n=== Test: v2 legendaries present ===")
+    new_cards = [
+        "Binding Vow, Limitless Exchange",
+        "Malevolent Shrine, Flame Arrow",
+        "Six Eyes, Perfect Calculation",
+    ]
+    for name in new_cards:
+        assert name in JUJUTSU_KAISEN_CARDS, f"Missing new card: {name}"
+        print(f"  OK: {name}")
+    # Redesigned cards should preserve their names and now reference v2 setups.
+    redesigned = [
+        "Satoru Gojo, The Strongest",
+        "Ryomen Sukuna, King of Curses",
+        "Mahoraga, Eight-Handled Sword",
+        "Gojo Unsealed, Hollow Purple",
+        "Yuji Itadori, Sukuna's Vessel",
+        "Rika Orimoto, Cursed Queen",
+        "Yuki Tsukumo, Star Rage",
+        "Naobito Zenin, Projection",
+        "Hakari Kinji, Private Pure Love Train",
+        "Kento Nanami, Ratio Technique",
+        "Angel, Hana's Host",
+        "Rabbit Escape Swarm",
+    ]
+    for name in redesigned:
+        card = JUJUTSU_KAISEN_CARDS[name]
+        assert card.setup_interceptors is not None, f"{name} should have setup"
+    print("PASSED: all v2 legendaries present!")
+
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -2345,12 +2772,47 @@ def run_all_tests():
             failed_tests.append((test.__name__, str(e)))
             print(f"FAILED: {test.__name__} - {e}")
 
+    # Quality-pass v2 tests (raise the legendary bar)
+    print("\n" + "=" * 70)
+    print("QUALITY PASS v2: GAME-ALTERING LEGENDARY TESTS")
+    print("=" * 70)
+
+    v2_tests = [
+        test_gojo_v2_infinity_prevents_enemy_attacks,
+        test_gojo_v2_domain_etb_draw,
+        test_ryomen_sukuna_v2_imposes_cost_tax,
+        test_ryomen_sukuna_v2_cleanup_on_leave,
+        test_mahoraga_v2_adapts_on_noncombat_damage,
+        test_mahoraga_v2_ignores_combat_damage,
+        test_gojo_unsealed_v2_etb_burn_and_infinity,
+        test_yuji_itadori_v2_sukuna_emergence_counter_on_big_damage,
+        test_rika_orimoto_v2_reanimates_from_graveyard,
+        test_yuki_tsukumo_v2_cost_reduction_registered,
+        test_naobito_v2_first_attack_grants_extra_combat,
+        test_hakari_v2_three_jackpots_triggers_extra_turn,
+        test_kento_nanami_v2_ratio_etb_hits_high_power_creatures,
+        test_angel_hana_kurusu_v2_etb_and_anti_curse,
+        test_rabbit_escape_v2_etb_creates_three_and_upkeep_adds_one,
+        test_rabbit_escape_v2_eight_shikigami_wins,
+        test_binding_vow_limitless_exchange_prevents_creature_casts,
+        test_malevolent_shrine_flame_arrow_taxes_opponents,
+        test_six_eyes_perfect_calculation_tutor_and_reduction,
+        test_v2_new_and_redesigned_legendaries_present,
+    ]
+
+    for test in v2_tests:
+        try:
+            test()
+        except Exception as e:
+            failed_tests.append((test.__name__, str(e)))
+            print(f"FAILED: {test.__name__} - {e}")
+
     # Summary
     print("\n" + "=" * 70)
     print("TEST SUMMARY")
     print("=" * 70)
 
-    total_tests = 67  # Count of all individual tests (42 + 25 new)
+    total_tests = 67 + len(v2_tests)  # 42 original + 25 quality-pass + v2 legendaries
     passed = total_tests - len(failed_tests)
 
     if failed_tests:

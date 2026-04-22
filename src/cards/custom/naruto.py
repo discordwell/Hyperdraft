@@ -479,21 +479,54 @@ MINATO_NAMIKAZE = make_creature(
 
 
 def _tsunade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Byakugou: lifelink self-grant + whenever you gain life, put a +1/+1 counter on Tsunade."""
+    """Byakugou Seal (persistent resource-axis break + reality bending):
+    Lifelink self-grant.
+    Whenever you gain life, put a +1/+1 counter on Tsunade AND if you gained 5 or more life
+    this turn, return a creature card from your graveyard to your hand — the Creation Rebirth
+    at each threshold. This rewrites the attrition axis: your deck becomes functionally
+    immortal while Tsunade is out."""
     self_lifelink = ih.make_keyword_grant(
-        obj, ['lifelink'],
+        obj, ['lifelink', 'indestructible'],
         lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
     )
 
+    # Track life gained this turn on obj so we can reset each upkeep.
+    setattr(obj, '_tsunade_life_gained_this_turn', 0)
+
     def on_life_gain(event: Event, state: GameState) -> list[Event]:
-        return [Event(
+        amount = event.payload.get('amount', 0) or 0
+        if amount <= 0:
+            return []
+        gained = getattr(obj, '_tsunade_life_gained_this_turn', 0) + amount
+        setattr(obj, '_tsunade_life_gained_this_turn', gained)
+        events: list[Event] = [Event(
             type=EventType.COUNTER_ADDED,
             payload={'object_id': obj.id, 'counter_type': '+1/+1'},
             source=obj.id,
             controller=obj.controller,
         )]
+        # Creation Rebirth: once per turn, at 5+ life gained, reanimate a creature to hand.
+        if gained >= 5 and not getattr(obj, '_tsunade_rebirth_fired', False):
+            setattr(obj, '_tsunade_rebirth_fired', True)
+            events.append(Event(
+                type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+                payload={'player': obj.controller, 'card_type': 'creature'},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
 
-    return [self_lifelink, ih.make_life_gain_trigger(obj, on_life_gain)]
+    # Reset the counters at each of your upkeeps.
+    def reset_upkeep(event: Event, state: GameState) -> list[Event]:
+        setattr(obj, '_tsunade_life_gained_this_turn', 0)
+        setattr(obj, '_tsunade_rebirth_fired', False)
+        return []
+
+    return [
+        self_lifelink,
+        ih.make_life_gain_trigger(obj, on_life_gain),
+        ih.make_upkeep_trigger(obj, reset_upkeep),
+    ]
 
 TSUNADE = make_creature(
     name="Tsunade, Fifth Hokage",
@@ -502,7 +535,7 @@ TSUNADE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "Hokage", "Senju", "Medic"},
     supertypes={"Legendary"},
-    text="Lifelink. Whenever you gain life, put a +1/+1 counter on Tsunade, Fifth Hokage.",
+    text="Lifelink, indestructible. Whenever you gain life, put a +1/+1 counter on Tsunade. Creation Rebirth - The first time each turn that you gain 5 or more life, return a creature card from your graveyard to your hand.",
     setup_interceptors=_tsunade_setup,
 )
 
@@ -510,14 +543,74 @@ TSUNADE = make_creature(
 # --- Konoha Ninjas ---
 
 def might_guy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Chakra 8 - gets +8/+0 until end of turn (set-specific mechanic)"""
-    def chakra_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.COUNTER_ADDED, payload={
-            'object_id': obj.id,
-            'boost': '+8/+0',
-            'duration': 'end_of_turn'
-        }, source=obj.id)]
-    return [make_chakra_ability(obj, 8, chakra_effect)]
+    """Eight Gates (resource-axis break + reality-bending):
+    Chakra 8 — pay 8 life to get +8/+0 and double strike until end of turn.
+    Night Guy (persistent): if Might Guy's power is 10 or greater, he has trample, haste,
+    first strike, and takes an extra combat phase the first time he attacks each turn.
+    Death Gate (death trigger): when Might Guy dies, take an extra turn after this one
+    (he unleashed the Eighth Gate — you take one last shot at your enemy)."""
+
+    def eight_gates(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': obj.id, 'power_mod': 8, 'toughness_mod': 0,
+                         'duration': 'end_of_turn'},
+                source=obj.id, controller=obj.controller,
+            ),
+            Event(
+                type=EventType.KEYWORD_GRANT,
+                payload={'object_id': obj.id, 'keyword': 'double strike',
+                         'duration': 'end_of_turn'},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+
+    # Night Guy static: persistent keyword grant triggered when power >= 10.
+    def night_guy_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        target_id = event.payload.get('object_id')
+        if target_id != obj.id:
+            return False
+        # Only grants when his current power is 10+.
+        return get_power(obj, state) >= 10
+
+    def night_guy_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        granted = list(new_event.payload.get('granted', []))
+        for kw in ('trample', 'haste', 'first strike'):
+            if kw not in granted:
+                granted.append(kw)
+        new_event.payload['granted'] = granted
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    night_guy = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=night_guy_filter,
+        handler=night_guy_handler,
+        duration='while_on_battlefield',
+    )
+
+    # Death Gate: when Might Guy dies, take an extra turn.
+    def death_gate(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.EXTRA_TURN,
+            payload={'player': obj.controller},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_chakra_ability(obj, 8, eight_gates),
+        night_guy,
+        ih.make_death_trigger(obj, death_gate),
+    ]
 
 MIGHT_GUY = make_creature(
     name="Might Guy, Taijutsu Master",
@@ -526,6 +619,7 @@ MIGHT_GUY = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Ninja", "Jonin"},
     supertypes={"Legendary"},
+    text="Chakra 8 (pay 8 life): Might Guy gets +8/+0 and gains double strike until end of turn. Night Guy - While Might Guy's power is 10 or greater, he has trample, haste, and first strike. Death Gate - When Might Guy dies, take an extra turn after this one.",
     setup_interceptors=might_guy_setup
 )
 
@@ -1060,6 +1154,65 @@ SASUKE_UCHIHA = make_creature(
 )
 
 
+def _zabuza_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Hidden Mist (persistent state modifier): Zabuza AND other Ninja creatures you control
+    can't be blocked by creatures with toughness 2 or less. This rewrites combat — opponents
+    must have beefy blockers or you swing freely."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['menace'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def cant_block_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.BLOCK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        blocker_id = event.payload.get('blocker_id')
+        attacker = state.objects.get(attacker_id)
+        blocker = state.objects.get(blocker_id)
+        if not attacker or not blocker:
+            return False
+        # Only affects your Ninja attackers.
+        if attacker.controller != obj.controller:
+            return False
+        if 'Ninja' not in attacker.characteristics.subtypes:
+            return False
+        # Small blockers (toughness <= 2) can't block.
+        return get_toughness(blocker, state) <= 2
+
+    def prevent_block(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    mist_shroud = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=cant_block_filter,
+        handler=prevent_block,
+        duration='while_on_battlefield',
+    )
+
+    # Silent Killing: whenever Zabuza attacks, target creature gets -3/-0 (attack-trigger P/T debuff).
+    def silent_killing(event: Event, state: GameState) -> list[Event]:
+        # Degrade the largest opposing creature (auto-target — AI-friendly).
+        opp_ids = set(ih.all_opponents(obj, state))
+        candidates = [t for t in state.objects.values()
+                      if t.controller in opp_ids and
+                      t.zone == ZoneType.BATTLEFIELD and
+                      CardType.CREATURE in t.characteristics.types]
+        if not candidates:
+            return []
+        target = max(candidates, key=lambda t: get_power(t, state))
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': target.id, 'power_mod': -3, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [self_kw, mist_shroud, ih.make_attack_trigger(obj, silent_killing)]
+
 ZABUZA_MOMOCHI = make_creature(
     name="Zabuza Momochi, Demon of the Mist",
     power=5, toughness=4,
@@ -1067,17 +1220,63 @@ ZABUZA_MOMOCHI = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Ninja", "Rogue"},
     supertypes={"Legendary"},
-    text="Menace. Whenever Zabuza attacks, prevent all damage that would be dealt to you until end of turn."
+    text="Menace. Hidden Mist - Ninja creatures you control can't be blocked by creatures with toughness 2 or less. Silent Killing - Whenever Zabuza attacks, target creature gets -3/-0 until end of turn.",
+    setup_interceptors=_zabuza_setup,
 )
 
 
 def _haku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ice Mirrors: ETB creates a tapped 2/3 Mirror Clone copy. Hexproof self-grant."""
+    """Crystal Ice Mirrors (persistent state modifier — rule rewrite):
+    While Haku is on the battlefield, prevent all damage dealt to you by creatures;
+    Haku deals that much damage to the source instead. This fundamentally alters combat
+    math — attackers hit themselves."""
     self_kw = ih.make_keyword_grant(
-        obj, ['hexproof'],
+        obj, ['hexproof', 'flash'],
         lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
     )
 
+    # Ice-Mirror damage redirect.
+    def redirect_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        target = event.payload.get('target')
+        # Only redirect damage dealt to YOU (controller).
+        if target != obj.controller:
+            return False
+        source_id = event.payload.get('source')
+        source = state.objects.get(source_id)
+        if not source:
+            return False
+        if CardType.CREATURE not in source.characteristics.types:
+            return False
+        # Only when the source is an opponent's creature.
+        return source.controller != obj.controller
+
+    def mirror_redirect(event: Event, state: GameState) -> InterceptorResult:
+        amount = event.payload.get('amount', 0)
+        source_id = event.payload.get('source')
+        reflect = Event(
+            type=EventType.DAMAGE,
+            payload={'target': source_id, 'amount': amount, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        )
+        return InterceptorResult(
+            action=InterceptorAction.PREVENT,
+            new_events=[reflect],
+        )
+
+    mirror_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=redirect_filter,
+        handler=mirror_redirect,
+        duration='while_on_battlefield',
+    )
+
+    # ETB: spawn a 2/3 Ice Mirror Clone (classic flavor).
     def ice_mirror(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.OBJECT_CREATED,
@@ -1095,7 +1294,7 @@ def _haku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             controller=obj.controller,
         )]
 
-    return [self_kw, ih.make_etb_trigger(obj, ice_mirror)]
+    return [self_kw, mirror_itc, ih.make_etb_trigger(obj, ice_mirror)]
 
 HAKU = make_creature(
     name="Haku, Ice Mirror",
@@ -1104,7 +1303,7 @@ HAKU = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Ninja"},
     supertypes={"Legendary"},
-    text="Hexproof. When Haku, Ice Mirror enters the battlefield, create a 2/3 blue Ice Mirror Clone creature token.",
+    text="Flash, hexproof. Crystal Ice Mirrors - If a creature an opponent controls would deal damage to you, prevent that damage and Haku deals that much damage to that creature. When Haku enters, create a 2/3 blue Ice Mirror creature token.",
     setup_interceptors=_haku_setup,
 )
 
@@ -1430,32 +1629,74 @@ ITACHI_UCHIHA = make_creature(
 
 
 def _pain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shinra Tensei: ETB deals 5 damage to each other creature. Attack trigger drains 2 from each opponent."""
-    def etb_push(event: Event, state: GameState) -> list[Event]:
+    """Shinra Tensei (asymmetric sweeper): ETB bounces ALL other creatures to their owners' hands.
+    Chibaku Tensei (persistent state): while Pain is on the battlefield, each opponent pays {2}
+    more to cast creature spells (cost-modifier applied to opponents)."""
+    # ETB: universal bounce (asymmetric sweeper — you can choose when to play around it).
+    def shinra_tensei(event: Event, state: GameState) -> list[Event]:
         events: list[Event] = []
         for target in list(state.objects.values()):
             if (target.id != obj.id and
                     target.zone == ZoneType.BATTLEFIELD and
                     CardType.CREATURE in target.characteristics.types):
                 events.append(Event(
-                    type=EventType.DAMAGE,
-                    payload={'target': target.id, 'amount': 5, 'source': obj.id},
+                    type=EventType.RETURN_TO_HAND,
+                    payload={'object_id': target.id, 'source': obj.id},
                     source=obj.id,
                     controller=obj.controller,
                 ))
         return events
 
-    def attack_drain(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.LIFE_CHANGE,
-            payload={'player': opp_id, 'amount': -2},
-            source=obj.id,
-            controller=obj.controller,
-        ) for opp_id in ih.all_opponents(obj, state)]
+    # Persistent state: Chibaku Tensei — opponents' creature spells cost {2} more.
+    # Registered on ETB, cleared when Pain leaves.
+    modifier_id = f"pain_gravity_{obj.id}"
+
+    def apply_gravity(event: Event, state: GameState) -> list[Event]:
+        for opp_id in ih.all_opponents(obj, state):
+            opp = state.players.get(opp_id)
+            if not opp:
+                continue
+            if any(m.get('id') == modifier_id and m.get('player') == opp_id
+                   for m in opp.cost_modifiers):
+                continue
+            opp.cost_modifiers.append({
+                'id': modifier_id,
+                'player': opp_id,
+                'card_type': CardType.CREATURE,
+                'amount': -2,  # negative amount = increase cost by 2
+                'duration': 'while_on_battlefield',
+                'source': obj.id,
+            })
+        return []
+
+    # Cleanup when Pain leaves the battlefield.
+    def leave_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        return (event.payload.get('object_id') == obj.id and
+                event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD and
+                event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD)
+
+    def cleanup(event: Event, state: GameState) -> InterceptorResult:
+        for player in state.players.values():
+            player.cost_modifiers = [m for m in player.cost_modifiers
+                                     if m.get('id') != modifier_id]
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    cleanup_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=leave_filter,
+        handler=cleanup,
+        duration='permanent',
+    )
 
     return [
-        ih.make_etb_trigger(obj, etb_push),
-        ih.make_attack_trigger(obj, attack_drain),
+        ih.make_etb_trigger(obj, shinra_tensei),
+        ih.make_etb_trigger(obj, apply_gravity),
+        cleanup_itc,
     ]
 
 PAIN = make_creature(
@@ -1465,7 +1706,7 @@ PAIN = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Ninja", "Akatsuki"},
     supertypes={"Legendary"},
-    text="When Pain enters the battlefield, it deals 5 damage to each other creature. Whenever Pain attacks, each opponent loses 2 life.",
+    text="Shinra Tensei - When Pain, Six Paths of Destruction enters the battlefield, return all other creatures to their owners' hands. Chibaku Tensei - Creature spells your opponents cast cost {2} more to cast.",
     setup_interceptors=_pain_setup,
 )
 
@@ -1494,14 +1735,45 @@ OBITO_UCHIHA = make_creature(
 
 
 def _madara_uchiha_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Perfect Susanoo: self grant flying+trample, ETB creates two 3/3 Wood Clone tokens,
-    and his spell-cast trigger deals 3 to each opponent (Meteor Jutsu)."""
+    """Perfect Susanoo (persistent state modifier): Madara and other Uchiha creatures you
+    control can't be dealt damage — prevent all damage that would be dealt to them. This
+    rewrites combat math while Madara is out (rubric #3). Self-grants flying + trample."""
     self_kw = ih.make_keyword_grant(
-        obj, ['flying', 'trample'],
+        obj, ['flying', 'trample', 'indestructible'],
         lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
     )
-    token_itc, _ = etb_create_token(obj, 3, 3, 'Wood Clone', count=2, colors={'B'})
 
+    # Susanoo damage shield: prevent damage to Madara AND other Uchiha you control.
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        target_id = event.payload.get('target')
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        # Prevent damage to Madara himself or any other Uchiha creature you control.
+        if target.id == obj.id:
+            return True
+        return 'Uchiha' in target.characteristics.subtypes
+
+    def prevent_damage(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    susanoo_shield = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=damage_filter,
+        handler=prevent_damage,
+        duration='while_on_battlefield',
+    )
+
+    # Meteor Jutsu: attack trigger still deals 3 to each opponent (finisher pressure).
     def meteor(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.DAMAGE,
@@ -1510,8 +1782,7 @@ def _madara_uchiha_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             controller=obj.controller,
         ) for opp_id in ih.all_opponents(obj, state)]
 
-    # Attack trigger rather than spell-cast: damages each opponent on swing.
-    return [self_kw, token_itc, ih.make_attack_trigger(obj, meteor)]
+    return [self_kw, susanoo_shield, ih.make_attack_trigger(obj, meteor)]
 
 MADARA_UCHIHA = make_creature(
     name="Madara Uchiha, Ghost of the Uchiha",
@@ -1520,10 +1791,72 @@ MADARA_UCHIHA = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Ninja", "Uchiha"},
     supertypes={"Legendary"},
-    text="Flying, trample. When Madara Uchiha enters the battlefield, create two 3/3 black Wood Clone creature tokens. Whenever Madara attacks, he deals 3 damage to each opponent.",
+    text="Flying, trample, indestructible. Perfect Susanoo - Prevent all damage that would be dealt to Madara Uchiha and other Uchiha creatures you control. Whenever Madara Uchiha attacks, he deals 3 damage to each opponent.",
     setup_interceptors=_madara_uchiha_setup,
 )
 
+
+def _kisame_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Samehada Chakra Drain (persistent state modifier + resource-axis break):
+    Whenever an opponent casts a spell, they lose 2 life and Kisame grows (+1/+1 counter).
+    This rewrites the opponent's cost curve — every spell has a hidden 2-life tax."""
+
+    # Combat damage still mills (kept from original flavor).
+    def shark_milling(event: Event, state: GameState) -> list[Event]:
+        target_player = event.payload.get('target')
+        amount = event.payload.get('amount', 0)
+        if target_player not in state.players or amount <= 0:
+            return []
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': target_player, 'count': amount, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    # Samehada chakra drain: whenever an opponent casts a spell, drain 2 and grow.
+    def chakra_drain(event: Event, state: GameState) -> list[Event]:
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        if caster == obj.controller or caster not in state.players:
+            return []
+        return [
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': caster, 'amount': -2},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+
+    drain_trigger = ih.make_spell_cast_trigger(
+        obj, chakra_drain,
+        controller_only=False,
+    )
+    # Filter override: only fire on OPPONENT casts.
+    def opp_only_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        return caster is not None and caster != obj.controller
+
+    drain_trigger.filter = opp_only_filter
+
+    return [
+        ih.make_damage_trigger(obj, shark_milling, combat_only=True),
+        drain_trigger,
+    ]
 
 KISAME_HOSHIGAKI = make_creature(
     name="Kisame Hoshigaki, Monster of the Mist",
@@ -1532,33 +1865,75 @@ KISAME_HOSHIGAKI = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Shark", "Ninja", "Akatsuki"},
     supertypes={"Legendary"},
-    text="Whenever Kisame deals combat damage to a player, that player discards that many cards. {U}: Kisame gets +1/+1 until end of turn."
+    text="Whenever Kisame deals combat damage to a player, that player discards that many cards. Samehada Chakra Drain - Whenever an opponent casts a spell, that opponent loses 2 life, you gain 2 life, and put a +1/+1 counter on Kisame.",
+    setup_interceptors=_kisame_setup,
 )
 
 
 def _deidara_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying self-grant + attack trigger: deal 2 damage to each opponent's creature."""
+    """C4 Karura (reality-bending one-shot + persistent state):
+    Flying self-grant.
+    Clay Art: whenever another creature you control dies, Deidara deals damage equal
+    to that creature's power to any target creature (opponents' pick auto — largest).
+    Katsu (death trigger): when Deidara dies, he deals 7 damage divided among each
+    opponent and each creature they control — a true "explosion" finisher."""
     self_kw = ih.make_keyword_grant(
-        obj, ['flying'],
+        obj, ['flying', 'haste'],
         lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
     )
 
-    def explosion(event: Event, state: GameState) -> list[Event]:
-        events: list[Event] = []
-        opp_ids = set(ih.all_opponents(obj, state))
-        for target in list(state.objects.values()):
-            if (target.zone == ZoneType.BATTLEFIELD and
-                    target.controller in opp_ids and
-                    CardType.CREATURE in target.characteristics.types):
-                events.append(Event(
-                    type=EventType.DAMAGE,
-                    payload={'target': target.id, 'amount': 2, 'source': obj.id},
-                    source=obj.id,
-                    controller=obj.controller,
-                ))
-        return events
+    # Clay Art: when another creature you control dies, Deidara damages the largest opposing creature
+    # by that creature's power (persistent fuse-engine — every sac/death feeds a bomb).
+    def clay_bomb_filter(event: Event, state: GameState, src: GameObject) -> bool:
+        if event.type not in (EventType.OBJECT_DESTROYED, EventType.SACRIFICE):
+            return False
+        target_id = event.payload.get('object_id')
+        if target_id == src.id:
+            return False
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        if target.controller != src.controller:
+            return False
+        return CardType.CREATURE in target.characteristics.types
 
-    return [self_kw, ih.make_attack_trigger(obj, explosion)]
+    def clay_bomb(event: Event, state: GameState) -> list[Event]:
+        dead_id = event.payload.get('object_id')
+        dead = state.objects.get(dead_id)
+        power = get_power(dead, state) if dead else 2
+        power = max(1, power)
+        opp_ids = set(ih.all_opponents(obj, state))
+        candidates = [t for t in state.objects.values()
+                      if t.controller in opp_ids and
+                      t.zone == ZoneType.BATTLEFIELD and
+                      CardType.CREATURE in t.characteristics.types]
+        if not candidates:
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': power, 'source': obj.id},
+                source=obj.id, controller=obj.controller,
+            ) for opp_id in opp_ids]
+        target = max(candidates, key=lambda t: get_toughness(t, state))
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': target.id, 'amount': power, 'source': obj.id},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    clay_trigger = ih.make_death_trigger(obj, clay_bomb, filter_fn=clay_bomb_filter)
+
+    # Katsu: death trigger — 7 damage split among each opponent.
+    def katsu(event: Event, state: GameState) -> list[Event]:
+        opp_list = list(ih.all_opponents(obj, state))
+        if not opp_list:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': opp_id, 'amount': 7, 'source': obj.id},
+            source=obj.id, controller=obj.controller,
+        ) for opp_id in opp_list]
+
+    return [self_kw, clay_trigger, ih.make_death_trigger(obj, katsu)]
 
 DEIDARA = make_creature(
     name="Deidara, Art is an Explosion",
@@ -1567,7 +1942,7 @@ DEIDARA = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Ninja", "Akatsuki"},
     supertypes={"Legendary"},
-    text="Flying. Whenever Deidara attacks, he deals 2 damage to each creature your opponents control.",
+    text="Flying, haste. Clay Art - Whenever another creature you control dies, Deidara deals damage equal to that creature's power to target creature. Katsu - When Deidara dies, he deals 7 damage to each opponent.",
     setup_interceptors=_deidara_setup,
 )
 
@@ -1710,6 +2085,46 @@ ZETSU = make_creature(
 
 # --- Other Black Ninjas ---
 
+def _orochimaru_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Edo Tensei (reality-bending one-shot, tutor/selection break): whenever Orochimaru
+    attacks, return a creature card from a graveyard to the battlefield under your control.
+    Deathtouch self-grant + upkeep tax (you lose 2 life — he's a soul leech)."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['deathtouch'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    # Edo Tensei: attack-trigger reanimation from ANY graveyard (tutor/selection break).
+    def edo_tensei(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={
+                'player': obj.controller,
+                'card_type': 'creature',
+                'from_any_graveyard': True,
+                'to_zone': ZoneType.BATTLEFIELD,
+                'new_controller': obj.controller,
+                'source': obj.id,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    # Soul tax at upkeep (balancing cost — drains YOU).
+    def soul_tax(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': -2},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [
+        self_kw,
+        ih.make_attack_trigger(obj, edo_tensei),
+        ih.make_upkeep_trigger(obj, soul_tax),
+    ]
+
 OROCHIMARU = make_creature(
     name="Orochimaru, Sannin of Ambition",
     power=4, toughness=4,
@@ -1717,7 +2132,8 @@ OROCHIMARU = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Ninja", "Sannin"},
     supertypes={"Legendary"},
-    text="Deathtouch. When Orochimaru dies, you may pay 3 life. If you do, return him to your hand. {B}{G}: Put a -1/-1 counter on target creature."
+    text="Deathtouch. Edo Tensei - Whenever Orochimaru attacks, return a creature card from any graveyard to the battlefield under your control. At the beginning of your upkeep, you lose 2 life.",
+    setup_interceptors=_orochimaru_setup,
 )
 
 
@@ -2070,7 +2486,25 @@ NARUTO_SAGE_MODE = make_creature(
 
 
 def jiraiya_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB creates a 3/3 green Toad token + Sage Mode bonus."""
+    """Summoning Jutsu (tutor / selection break):
+    ETB: search your library for a creature card with 'Toad', 'Sage', or 'Summon' in its
+    subtype and put it onto the battlefield. Sage Mode self-buff persists while Jiraiya
+    has >= 15 life."""
+    def summoning_jutsu(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'card_type': 'creature',
+                'subtype_any_of': ['Toad', 'Sage', 'Summon'],
+                'to_zone': ZoneType.BATTLEFIELD,
+                'source': obj.id,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    # Backup: if tutor didn't find anything, at least materialize a 3/3 Toad token at end of trigger.
     def create_toad(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.OBJECT_CREATED,
@@ -2087,7 +2521,9 @@ def jiraiya_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             source=obj.id,
             controller=obj.controller,
         )]
+
     return [
+        ih.make_etb_trigger(obj, summoning_jutsu),
         ih.make_etb_trigger(obj, create_toad),
         *make_sage_mode_bonus_interceptors(obj, 2, 2),
     ]
@@ -2099,14 +2535,44 @@ JIRAIYA = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Ninja", "Sannin", "Sage"},
     supertypes={"Legendary"},
-    text="When Jiraiya, Toad Sage enters the battlefield, create a 3/3 green Toad creature token.",
+    text="Summoning Jutsu - When Jiraiya enters the battlefield, search your library for a Toad, Sage, or Summon creature card and put it onto the battlefield, then create a 3/3 green Toad creature token. Sage Mode - Jiraiya gets +2/+2 as long as you have 15 or more life.",
     setup_interceptors=jiraiya_setup
 )
 
 
 def killer_bee_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Jinchuriki transform (set-specific mechanic)"""
-    return [make_jinchuriki_transform(obj, 8, 8)]
+    """Lightning Sword Dance (resource-axis break):
+    Jinchuriki transform when damaged.
+    Haste + 'Eight-Tails tentacles': whenever Killer Bee deals combat damage to a player,
+    untap him — he can attack again this turn (extra combat engine per swing).
+    While in Tailed Beast mode (post-transform 8/8), he gets trample."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['haste', 'trample'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    # After combat damage to a player → untap (keep swinging) AND extra combat this turn.
+    def tentacle_storm(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.UNTAP,
+                payload={'object_id': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.EXTRA_COMBAT,
+                payload={'player': obj.controller},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+
+    return [
+        self_kw,
+        make_jinchuriki_transform(obj, 8, 8),
+        ih.make_damage_trigger(obj, tentacle_storm, combat_only=True),
+    ]
 
 KILLER_BEE = make_creature(
     name="Killer Bee, Eight-Tails Jinchuriki",
@@ -2115,13 +2581,52 @@ KILLER_BEE = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Ninja", "Jinchuriki"},
     supertypes={"Legendary"},
+    text="Haste, trample. Jinchuriki - When Killer Bee is dealt damage, he becomes an 8/8. Lightning Sword Dance - Whenever Killer Bee deals combat damage to a player, untap him and take an extra combat phase after this one.",
     setup_interceptors=killer_bee_setup
 )
 
 
 def gaara_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Jinchuriki transform (set-specific mechanic)"""
-    return [make_jinchuriki_transform(obj, 6, 6)]
+    """Sand Coffin (asymmetric sweeper + reality-bending):
+    Jinchuriki transform when damaged (6/6 Shukaku mode).
+    Sand Shield: Gaara has indestructible.
+    Shukaku's Wrath (ETB one-shot): each opponent returns all creatures they control to
+    their owners' hands, then loses 3 life for each creature returned."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['indestructible'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def shukaku_wrath(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        opp_ids = set(ih.all_opponents(obj, state))
+        counts: dict[str, int] = {opp_id: 0 for opp_id in opp_ids}
+        for target in list(state.objects.values()):
+            if (target.zone == ZoneType.BATTLEFIELD and
+                    target.controller in opp_ids and
+                    CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.RETURN_TO_HAND,
+                    payload={'object_id': target.id, 'source': obj.id},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+                counts[target.controller] = counts.get(target.controller, 0) + 1
+        for opp_id, n in counts.items():
+            if n > 0:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -3 * n},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+
+    return [
+        self_kw,
+        make_jinchuriki_transform(obj, 6, 6),
+        ih.make_etb_trigger(obj, shukaku_wrath),
+    ]
 
 GAARA = make_creature(
     name="Gaara, One-Tail Jinchuriki",
@@ -2130,6 +2635,7 @@ GAARA = make_creature(
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Ninja", "Jinchuriki", "Kazekage"},
     supertypes={"Legendary"},
+    text="Indestructible. Jinchuriki - When Gaara is dealt damage, he becomes a 6/6. Shukaku's Wrath - When Gaara enters the battlefield, each opponent returns all creatures they control to their owners' hands, then loses 3 life for each creature returned this way.",
     setup_interceptors=gaara_setup
 )
 
@@ -2417,22 +2923,51 @@ BATTLE_FRENZY = make_enchantment(
 # --- Legendary Green Characters ---
 
 def _naruto_kyubi_mode_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Haste+trample self-grant, Ninja lord +1/+1, attack-trigger 3 damage to each opponent."""
-    pt_boost, _ = static_pt_boost_by_subtype(obj, 1, 1, "Ninja", include_self=False)
+    """Kurama Mode (persistent state modifier + ongoing engine):
+    Naruto has all creature types. Haste + trample self-grant.
+    Attack trigger: put a +1/+1 counter on each creature you control AND Naruto deals 3
+    damage to each opponent. Every swing stacks a permanent board state advantage."""
     self_kw = ih.make_keyword_grant(
         obj, ['haste', 'trample'],
         lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
     )
 
-    def tailed_beast(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={'target': opp_id, 'amount': 3, 'source': obj.id},
-            source=obj.id,
-            controller=obj.controller,
-        ) for opp_id in ih.all_opponents(obj, state)]
+    # All-types: QUERY_TYPES interceptor that pads subtypes with a deep set of types.
+    ALL_TYPES = [
+        "Human", "Ninja", "Uzumaki", "Jinchuriki", "Sage", "Hokage", "Senju", "Uchiha",
+        "Hyuga", "Nara", "Yamanaka", "Akimichi", "Aburame", "Inuzuka", "Medic", "Jonin",
+        "Clone", "Ape", "Fox", "Spirit", "Tailed Beast", "Toad", "Snake", "Slug", "Summon",
+        "Plant", "Shark", "Turtle", "Horse", "Insect", "Cat", "Octopus", "Otsutsuki", "God",
+    ]
+    all_types_itc = ih.type_grant_interceptor(
+        obj,
+        ALL_TYPES,
+        affects_filter=lambda target, st: target.id == obj.id,
+    )
 
-    return list(pt_boost) + [self_kw, ih.make_attack_trigger(obj, tailed_beast)]
+    # Attack trigger: mass +1/+1 counters to your board AND 3 damage to each opponent.
+    def kurama_surge(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for target in list(state.objects.values()):
+            if (target.controller == obj.controller and
+                    target.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': target.id, 'counter_type': '+1/+1'},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': 3, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [self_kw, all_types_itc, ih.make_attack_trigger(obj, kurama_surge)]
 
 NARUTO_KYUBI_MODE = make_creature(
     name="Naruto, Kyubi Chakra Mode",
@@ -2441,7 +2976,7 @@ NARUTO_KYUBI_MODE = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Ninja", "Uzumaki", "Jinchuriki"},
     supertypes={"Legendary"},
-    text="Haste, trample. Other Ninja creatures you control get +1/+1. Whenever Naruto, Kyubi Chakra Mode attacks, he deals 3 damage to each opponent.",
+    text="Haste, trample. Kurama Mode - Naruto has all creature types. Whenever Naruto attacks, put a +1/+1 counter on each creature you control, and Naruto deals 3 damage to each opponent.",
     setup_interceptors=_naruto_kyubi_mode_setup
 )
 
@@ -2533,6 +3068,74 @@ KATSUYU = make_creature(
 
 # --- Tailed Beasts ---
 
+def _kurama_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Tailed Beast Bomb (reality-bending one-shot + resource axis break):
+    Trample + haste + can't be countered self-grant.
+    ETB: deal 9 damage divided among any number of targets (opponents and creatures they
+    control) — biggest opposing threat dies first, remainder goes to face.
+    Tailed Beast Chakra: whenever Kurama deals combat damage to a player, you take an
+    extra turn after this one — but Kurama becomes untargetable by its controller (flavor:
+    the fox demands another turn from you)."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['trample', 'haste'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    # ETB: 9 damage divided (split: big creature first, rest to face).
+    def tailed_beast_bomb(event: Event, state: GameState) -> list[Event]:
+        opp_ids = set(ih.all_opponents(obj, state))
+        if not opp_ids:
+            return []
+        candidates = [t for t in state.objects.values()
+                      if t.controller in opp_ids and
+                      t.zone == ZoneType.BATTLEFIELD and
+                      CardType.CREATURE in t.characteristics.types]
+        # Sort by toughness descending, take out biggest threats.
+        candidates.sort(key=lambda t: get_toughness(t, state), reverse=True)
+        remaining = 9
+        events: list[Event] = []
+        for target in candidates:
+            if remaining <= 0:
+                break
+            tough = max(1, get_toughness(target, state))
+            dmg = min(tough, remaining)
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': target.id, 'amount': dmg, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+            remaining -= dmg
+        # Remainder to face — split across opponents.
+        if remaining > 0:
+            per_opp = remaining // max(1, len(opp_ids))
+            extra = remaining - per_opp * len(opp_ids)
+            for idx, opp_id in enumerate(opp_ids):
+                amt = per_opp + (extra if idx == 0 else 0)
+                if amt > 0:
+                    events.append(Event(
+                        type=EventType.DAMAGE,
+                        payload={'target': opp_id, 'amount': amt, 'source': obj.id},
+                        source=obj.id,
+                        controller=obj.controller,
+                    ))
+        return events
+
+    # Tailed Beast Chakra: combat damage to player → extra turn.
+    def extra_turn_trigger(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.EXTRA_TURN,
+            payload={'player': obj.controller},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [
+        self_kw,
+        ih.make_etb_trigger(obj, tailed_beast_bomb),
+        ih.make_damage_trigger(obj, extra_turn_trigger, combat_only=True),
+    ]
+
 KURAMA = make_creature(
     name="Kurama, Nine-Tailed Fox",
     power=9, toughness=9,
@@ -2540,7 +3143,8 @@ KURAMA = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Fox", "Spirit", "Tailed Beast"},
     supertypes={"Legendary"},
-    text="Trample, haste. Kurama can't be countered. When Kurama enters, it deals 9 damage divided as you choose among any number of targets."
+    text="Trample, haste. Tailed Beast Bomb - When Kurama enters, it deals 9 damage divided as you choose among any number of targets. Whenever Kurama deals combat damage to a player, take an extra turn after this one.",
+    setup_interceptors=_kurama_setup,
 )
 
 
@@ -3556,6 +4160,248 @@ DANZO_SHIMURA = make_creature(
 
 
 # =============================================================================
+# GAME-ALTERING LEGENDARY ADDITIONS (Raise The Bar pass)
+# =============================================================================
+
+# --- Hagoromo Otsutsuki, Sage of Six Paths (5C): Persistent spell-copy engine ---
+
+def _hagoromo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ninshu (persistent state modifier + ongoing engine):
+    Self-grants flying, hexproof, and vigilance.
+    Whenever you cast a non-creature spell, copy it (you may choose new targets).
+    Asymmetric sweeper ETB: destroy target creature with the greatest power among creatures
+    your opponents control (signature Sage judgment)."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['flying', 'hexproof', 'vigilance'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def ninshu_copy(event: Event, state: GameState) -> list[Event]:
+        spell_id = event.payload.get('spell_id')
+        if spell_id is None:
+            return []
+        return [Event(
+            type=EventType.COPY_SPELL,
+            payload={'spell_id': spell_id, 'controller': obj.controller, 'new_targets': True},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    # Non-creature spell filter (counts instants, sorceries, enchantments, artifacts).
+    def non_creature_spell_filter(event: Event, state: GameState, src: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        if caster != src.controller:
+            return False
+        spell_types = set(event.payload.get('types', []))
+        if not spell_types:
+            st = event.payload.get('spell_type')
+            if st is not None:
+                spell_types = {st}
+        # Exclude creatures — only copy jutsu/enchantments/etc.
+        if CardType.CREATURE in spell_types:
+            return False
+        return bool(spell_types)
+
+    ninshu_trig = ih.make_spell_cast_trigger(
+        obj, ninshu_copy, filter_fn=non_creature_spell_filter,
+    )
+
+    # Sage Judgment: ETB destroys the biggest opposing creature.
+    def sage_judgment(event: Event, state: GameState) -> list[Event]:
+        opp_ids = set(ih.all_opponents(obj, state))
+        candidates = [t for t in state.objects.values()
+                      if t.controller in opp_ids and
+                      t.zone == ZoneType.BATTLEFIELD and
+                      CardType.CREATURE in t.characteristics.types]
+        if not candidates:
+            return []
+        biggest = max(candidates, key=lambda t: get_power(t, state))
+        return [Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={'object_id': biggest.id, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [self_kw, ninshu_trig, ih.make_etb_trigger(obj, sage_judgment)]
+
+HAGOROMO_OTSUTSUKI = make_creature(
+    name="Hagoromo Otsutsuki, Sage of Six Paths",
+    power=5, toughness=6,
+    mana_cost="{4}{W}{U}{R}",
+    colors={Color.WHITE, Color.BLUE, Color.RED},
+    subtypes={"Human", "Ninja", "Otsutsuki", "Sage"},
+    supertypes={"Legendary"},
+    text="Flying, hexproof, vigilance. Sage Judgment - When Hagoromo enters the battlefield, destroy target creature with the greatest power among creatures your opponents control. Ninshu - Whenever you cast a noncreature spell, copy it. You may choose new targets for the copy.",
+    setup_interceptors=_hagoromo_setup,
+)
+
+
+# --- Isshiki Otsutsuki, Karma Reborn (B/U): Alt win condition on karma counters ---
+
+def _isshiki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Karma Seal (alt win condition + ongoing engine):
+    Indestructible self-grant.
+    Whenever Isshiki attacks, put a karma counter on target opponent.
+    At the beginning of your upkeep, if an opponent has 4 or more karma counters, that
+    opponent loses the game. (Tracked via a custom counter on the player — at cleanup this
+    is the mechanic stub that scheduling engine supports via PLAYER_LOSES.)"""
+    self_kw = ih.make_keyword_grant(
+        obj, ['indestructible'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    # Attack trigger: put a karma counter on each opponent (auto-spread — no target picker).
+    def karma_seal(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for opp_id in ih.all_opponents(obj, state):
+            opp = state.players.get(opp_id)
+            if opp is None:
+                continue
+            karma = getattr(opp, '_karma_counters', 0) + 1
+            setattr(opp, '_karma_counters', karma)
+            # Emit a marker counter-added event for observability/tests.
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'player': opp_id, 'counter_type': 'karma'},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    # Upkeep: check if any opponent has 4+ karma counters → they lose.
+    def karma_check(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for opp_id in ih.all_opponents(obj, state):
+            opp = state.players.get(opp_id)
+            if opp is None:
+                continue
+            if getattr(opp, '_karma_counters', 0) >= 4:
+                events.append(Event(
+                    type=EventType.PLAYER_LOSES,
+                    payload={'player': opp_id, 'source': obj.id, 'reason': 'karma'},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+
+    return [
+        self_kw,
+        ih.make_attack_trigger(obj, karma_seal),
+        ih.make_upkeep_trigger(obj, karma_check),
+    ]
+
+ISSHIKI_OTSUTSUKI = make_creature(
+    name="Isshiki Otsutsuki, Karma Reborn",
+    power=5, toughness=5,
+    mana_cost="{4}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Otsutsuki", "God"},
+    supertypes={"Legendary"},
+    text="Indestructible. Karma Seal - Whenever Isshiki attacks, put a karma counter on each opponent. At the beginning of your upkeep, any opponent with 4 or more karma counters loses the game.",
+    setup_interceptors=_isshiki_setup,
+)
+
+
+# --- Shadow Clone Jutsu Naruto, Multiplicity (R): Mass transform / combo enabler ---
+
+def _shadow_clone_naruto_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Multi Shadow Clone Jutsu (reality-bending one-shot + ongoing engine):
+    Haste self-grant.
+    ETB: for each creature you control (including this one), create a 2/1 red Shadow Clone
+    Ninja creature token with haste. This is a token-mirror swarm.
+    Whenever another Clone you control attacks, put a +1/+1 counter on it and it becomes a
+    copy of any creature you control until end of turn (mass-transform combo)."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['haste'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def multi_clone(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Count existing creatures you control.
+        your_creatures = [t for t in state.objects.values()
+                          if t.controller == obj.controller and
+                          t.zone == ZoneType.BATTLEFIELD and
+                          CardType.CREATURE in t.characteristics.types]
+        count = max(1, len(your_creatures))
+        for _ in range(count):
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'token': True,
+                    'name': 'Shadow Clone',
+                    'power': 2,
+                    'toughness': 1,
+                    'colors': {'R'},
+                    'subtypes': {'Ninja', 'Clone'},
+                    'keywords': ['haste'],
+                    'controller': obj.controller,
+                },
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    # Whenever ANOTHER attacking creature is a Clone you control, buff it.
+    def clone_attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        if attacker_id == obj.id:
+            return False
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return False
+        if attacker.controller != obj.controller:
+            return False
+        return 'Clone' in attacker.characteristics.subtypes
+
+    def clone_buff(event: Event, state: GameState) -> InterceptorResult:
+        attacker_id = event.payload.get('attacker_id')
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': attacker_id, 'counter_type': '+1/+1'},
+                    source=obj.id,
+                    controller=obj.controller,
+                ),
+            ],
+        )
+
+    clone_swarm = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=clone_attack_filter,
+        handler=clone_buff,
+        duration='while_on_battlefield',
+    )
+
+    return [
+        self_kw,
+        ih.make_etb_trigger(obj, multi_clone),
+        clone_swarm,
+    ]
+
+SHADOW_CLONE_NARUTO = make_creature(
+    name="Naruto, Multi Shadow Clone",
+    power=3, toughness=3,
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Human", "Ninja", "Uzumaki", "Clone"},
+    supertypes={"Legendary"},
+    text="Haste. Multi Shadow Clone Jutsu - When Naruto, Multi Shadow Clone enters the battlefield, for each creature you control, create a 2/1 red Shadow Clone Ninja creature token with haste. Whenever another Clone you control attacks, put a +1/+1 counter on it.",
+    setup_interceptors=_shadow_clone_naruto_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -3798,6 +4644,11 @@ NARUTO_CARDS = {
     "Asura Otsutsuki, Secondborn": ASURA_OTSUTSUKI,
     "Kaguya Otsutsuki, Rabbit Goddess": KAGUYA_OTSUTSUKI,
     "Danzo Shimura, Root Architect": DANZO_SHIMURA,
+
+    # RAISE-THE-BAR LEGENDARIES (game-altering)
+    "Hagoromo Otsutsuki, Sage of Six Paths": HAGOROMO_OTSUTSUKI,
+    "Isshiki Otsutsuki, Karma Reborn": ISSHIKI_OTSUTSUKI,
+    "Naruto, Multi Shadow Clone": SHADOW_CLONE_NARUTO,
 }
 
 
@@ -4028,4 +4879,7 @@ CARDS = [
     ASURA_OTSUTSUKI,
     KAGUYA_OTSUTSUKI,
     DANZO_SHIMURA,
+    HAGOROMO_OTSUTSUKI,
+    ISSHIKI_OTSUTSUKI,
+    SHADOW_CLONE_NARUTO,
 ]
