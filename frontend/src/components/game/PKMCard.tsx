@@ -245,6 +245,7 @@ export const PKMCard = memo(function PKMCard({
     if (imageUrl) {
       return (
         <div
+          data-card-id={card.id}
           {...dragProps}
           {...dropProps}
           {...a11y}
@@ -320,6 +321,7 @@ export const PKMCard = memo(function PKMCard({
     // Fallback compact (no image)
     return (
       <div
+        data-card-id={card.id}
         {...dragProps}
         {...dropProps}
         {...a11y}
@@ -357,6 +359,7 @@ export const PKMCard = memo(function PKMCard({
   if (imageUrl) {
     const motionEl = (
       <motion.div
+        data-card-id={card.id}
         {...dropProps}
         {...a11y}
         onClick={onClick}
@@ -468,6 +471,7 @@ export const PKMCard = memo(function PKMCard({
   // =========================================================================
   return (
     <div
+      data-card-id={card.id}
       {...dragProps}
       {...dropProps}
       {...a11y}

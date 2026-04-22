@@ -31,6 +31,7 @@ import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
 import { useCardPreviewStore, useCardPreviewBindings } from '../../hooks/useCardPreview';
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
 import { BattlefieldEventLayer } from './shared/DamageFloater';
+import { useBattlefieldEvents } from '../../hooks/useBattlefieldEvents';
 import type { CardData, GameState, PlayerData, PendingChoice } from '../../types';
 
 // ---------------------------------------------------------------------------
@@ -250,6 +251,9 @@ export function PKMGameBoard({
   const [selectedHandCardId, setSelectedHandCardId] = useState<string | null>(null);
   const [isBeingAttacked, setIsBeingAttacked] = useState(false);
   const [actionPending, setActionPending] = useState(false);
+
+  // Wire damage/heal/death floaters
+  useBattlefieldEvents(gameState, 'pkm');
 
   // Card preview store (hover + pin)
   const setPreviewHover = useCardPreviewStore((s) => s.setHover);

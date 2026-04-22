@@ -279,6 +279,7 @@ export const YGOCard = memo(function YGOCard({
   if (!animate) {
     return (
       <div
+        data-card-id={card.id}
         onClick={onClick}
         onMouseEnter={onHoverStart}
         onMouseLeave={onHoverEnd}
@@ -308,6 +309,7 @@ export const YGOCard = memo(function YGOCard({
   // Wrap the motion.div in a plain div that handles HTML5 drag when dragProps are provided.
   const motionEl = (
     <motion.div
+      data-card-id={card.id}
       onClick={onClick}
       onHoverStart={onHoverStart}
       onHoverEnd={onHoverEnd}

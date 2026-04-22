@@ -23,6 +23,7 @@ import { useCardPreviewStore, useCardPreviewBindings } from '../../hooks/useCard
 import CardPreviewWrapper from './shared/CardPreviewWrapper';
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
 import { BattlefieldEventLayer } from './shared/DamageFloater';
+import { useBattlefieldEvents } from '../../hooks/useBattlefieldEvents';
 import type { CardData, PlayerData, GameState } from '../../types';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -671,6 +672,9 @@ export function YGOGameBoard({
   const [oppLPDelta, setOppLPDelta] = useState<number | null>(null);
 
   const inBattlePhase = isInBattlePhase(ygoPhase);
+
+  // Wire death floaters (YGO has no per-card HP in state, so only death events fire)
+  useBattlefieldEvents(gameState, 'ygo');
 
   // Turn banner trigger
   const prevTurn = useRef(gameState.turn_number);

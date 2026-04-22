@@ -104,9 +104,20 @@ export const HSHandCard: React.FC<HSHandCardProps> = memo(({
   // drag-in-progress so hover/leave doesn't fight with drag ghosting.
   const previewProps = useCardPreviewBindings(card, { disabled: isBeingDragged });
 
+  // Accessibility props — card is always interactive (onClick is required)
+  const a11y = {
+    role: 'button' as const,
+    'aria-label': card.name,
+    tabIndex: 0,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); }
+    },
+  };
+
   return (
     <div
       onClick={handleClick}
+      {...a11y}
       {...guardedDragProps}
       {...previewProps}
       className={`

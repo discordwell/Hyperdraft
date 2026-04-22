@@ -88,9 +88,21 @@ export const HSMinionCard = memo(function HSMinionCard({
   // own minions and opponent minions (wrapped via OpponentMinionDropWrapper).
   const previewProps = useCardPreviewBindings(card, { disabled: isBeingDragged });
 
+  // Accessibility props — minion card is always interactive (onClick is required)
+  const a11y = {
+    role: 'button' as const,
+    'aria-label': card.name,
+    tabIndex: 0,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); }
+    },
+  };
+
   return (
     <div
+      data-card-id={card.id}
       onClick={handleClick}
+      {...a11y}
       {...guardedDragProps}
       {...previewProps}
       className={`
@@ -100,8 +112,8 @@ export const HSMinionCard = memo(function HSMinionCard({
         ${hasTaunt ? 'border-[3px] border-yellow-500' : 'border-2 border-gray-600'}
         ${hasDivineShield ? 'ring-2 ring-yellow-300 ring-opacity-75' : ''}
         ${canAttack ? 'bg-gradient-to-b from-green-900/60 to-gray-800 hover:from-green-800/80' : 'bg-gradient-to-b from-gray-700 to-gray-800'}
-        ${isSelected ? 'ring-2 ring-blue-400 scale-110 z-10' : ''}
-        ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
+        ${isSelected ? 'ring-[3px] ring-amber-400 ring-offset-1 ring-offset-gray-900 scale-110 z-10 shadow-lg shadow-amber-500/40' : ''}
+        ${isValidTarget ? 'ring-[3px] ring-red-500 ring-offset-1 ring-offset-gray-900 animate-pulse cursor-crosshair' : ''}
         ${isFrozen ? 'opacity-60 bg-gradient-to-b from-blue-900/60 to-gray-800' : ''}
         ${isStealth ? 'opacity-50' : ''}
         ${card.summoning_sickness && !canAttack ? 'border-dashed' : ''}
@@ -163,6 +175,16 @@ export const HSMinionCard = memo(function HSMinionCard({
       {/* Divine Shield glow effect */}
       {hasDivineShield && (
         <div className="absolute inset-0 rounded-lg bg-yellow-400/10 pointer-events-none" />
+      )}
+
+      {/* Selected-attacker amber glow overlay */}
+      {isSelected && (
+        <div className="absolute inset-0 rounded-lg bg-amber-400/15 pointer-events-none" />
+      )}
+
+      {/* Valid-target red glow overlay */}
+      {isValidTarget && (
+        <div className="absolute inset-0 rounded-lg bg-red-500/15 pointer-events-none" />
       )}
     </div>
   );
