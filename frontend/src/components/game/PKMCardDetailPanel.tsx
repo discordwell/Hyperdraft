@@ -9,6 +9,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cardEnter } from '../../utils/pkmAnimations';
+import { useActivePreviewCard, useCardPreviewStore } from '../../hooks/useCardPreview';
 import type { CardData } from '../../types';
 
 // ---------- Type color maps ----------
@@ -87,10 +88,20 @@ function AttackCost({ cost }: { cost: { type: string; count: number }[] }) {
 // ---------- Main component ----------
 
 interface PKMCardDetailPanelProps {
-  card: CardData | null;
+  /**
+   * Optional explicit card override. If omitted, the panel reads the active
+   * card from the shared preview store (hover ?? pin).
+   */
+  card?: CardData | null;
 }
 
-export default function PKMCardDetailPanel({ card }: PKMCardDetailPanelProps) {
+export default function PKMCardDetailPanel({ card: cardProp }: PKMCardDetailPanelProps = {}) {
+  const activeCard = useActivePreviewCard();
+  const pinnedCard = useCardPreviewStore((s) => s.pinnedCard);
+  const unpin = useCardPreviewStore((s) => s.unpin);
+  const card = cardProp !== undefined ? cardProp : activeCard;
+  const isPinned = card != null && pinnedCard?.id === card.id;
+
   // Group attached energy by type
   const groupedEnergy = React.useMemo(() => {
     if (!card?.attached_energy?.length) return null;
@@ -313,6 +324,17 @@ export default function PKMCardDetailPanel({ card }: PKMCardDetailPanelProps) {
               <div className="text-yellow-500 text-xs">
                 Worth {card.prize_count} prize cards when KO'd
               </div>
+            )}
+
+            {/* Pin control */}
+            {isPinned && (
+              <button
+                type="button"
+                onClick={unpin}
+                className="w-full mt-1 px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white text-[11px] font-bold uppercase tracking-wide shadow"
+              >
+                📌 Pinned · Click to dismiss
+              </button>
             )}
           </div>
         </motion.div>

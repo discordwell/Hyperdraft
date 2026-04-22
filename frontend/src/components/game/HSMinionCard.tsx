@@ -7,8 +7,9 @@
 
 import type { CardData } from '../../types';
 import { getHearthstoneArtPaths } from '../../utils/cardArt';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { memo, useMemo, useRef, useState } from 'react';
 import { useDraggable } from '../../hooks/useDraggable';
+import { useCardPreviewBindings } from '../../hooks/useCardPreview';
 
 interface HSMinionCardProps {
   card: CardData;
@@ -20,7 +21,7 @@ interface HSMinionCardProps {
   attackableTargets?: string[];
 }
 
-export function HSMinionCard({
+export const HSMinionCard = memo(function HSMinionCard({
   card,
   canAttack,
   isSelected,
@@ -83,10 +84,15 @@ export function HSMinionCard({
     onClick();
   };
 
+  // Preview bindings (hover + right-click / long-press to pin). Covers both
+  // own minions and opponent minions (wrapped via OpponentMinionDropWrapper).
+  const previewProps = useCardPreviewBindings(card, { disabled: isBeingDragged });
+
   return (
     <div
       onClick={handleClick}
       {...guardedDragProps}
+      {...previewProps}
       className={`
         relative w-20 h-24 rounded-lg cursor-pointer
         flex flex-col items-center justify-center
@@ -160,4 +166,4 @@ export function HSMinionCard({
       )}
     </div>
   );
-}
+});

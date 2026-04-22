@@ -9,6 +9,7 @@ import { useCallback, useState } from 'react';
 import clsx from 'clsx';
 import { Card } from './Card';
 import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
+import { useCardPreviewBindings } from '../../hooks/useCardPreview';
 import type { CardData } from '../../types';
 
 interface TargetableCardProps {
@@ -34,7 +35,10 @@ export function TargetableCard({
   onDrop,
   size = 'small',
 }: TargetableCardProps) {
-  const { isDragging, validDropZones, setHoveredZone, hoveredDropZone } = useDragDropStore();
+  const isDragging = useDragDropStore((s) => s.isDragging);
+  const validDropZones = useDragDropStore((s) => s.validDropZones);
+  const setHoveredZone = useDragDropStore((s) => s.setHoveredZone);
+  const hoveredDropZone = useDragDropStore((s) => s.hoveredDropZone);
   const [isOver, setIsOver] = useState(false);
 
   const dropZoneId = `card-${card.id}`;
@@ -78,8 +82,13 @@ export function TargetableCard({
     }
   }, [isValidDropTarget, onDrop, card, setHoveredZone]);
 
+  // Preview (hover + pin) — disabled while being targeted by a drag so drop
+  // interactions aren't disturbed.
+  const previewProps = useCardPreviewBindings(card, { disabled: isValidDropTarget });
+
   return (
     <div
+      {...previewProps}
       className={clsx(
         'relative transition-all duration-300',
         {

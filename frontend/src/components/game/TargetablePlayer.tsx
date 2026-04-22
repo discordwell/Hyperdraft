@@ -28,7 +28,11 @@ export function TargetablePlayer({
   isOpponent = false,
   onDrop,
 }: TargetablePlayerProps) {
-  const { isDragging, validDropZones, setHoveredZone, hoveredDropZone, endDrag } = useDragDropStore();
+  const isDragging = useDragDropStore((s) => s.isDragging);
+  const validDropZones = useDragDropStore((s) => s.validDropZones);
+  const setHoveredZone = useDragDropStore((s) => s.setHoveredZone);
+  const hoveredDropZone = useDragDropStore((s) => s.hoveredDropZone);
+  const endDrag = useDragDropStore((s) => s.endDrag);
   const [isOver, setIsOver] = useState(false);
 
   const dropZoneId = `player-${playerId}`;

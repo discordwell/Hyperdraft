@@ -8,6 +8,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { cardEnter } from '../../utils/ygoAnimations';
 import { YGO_CARD_ART } from '../../data/ygoCardArt';
+import { useActivePreviewCard, useCardPreviewStore } from '../../hooks/useCardPreview';
 import type { CardData } from '../../types';
 
 const ATTRIBUTE_COLORS: Record<string, string> = {
@@ -31,10 +32,19 @@ const MONSTER_TYPE_BADGE: Record<string, string> = {
 };
 
 interface YGOCardDetailPanelProps {
-  card: CardData | null;
+  /**
+   * Optional explicit card override. If omitted, the panel reads the active
+   * card from the shared preview store (hover ?? pin).
+   */
+  card?: CardData | null;
 }
 
-export default function YGOCardDetailPanel({ card }: YGOCardDetailPanelProps) {
+export default function YGOCardDetailPanel({ card: cardProp }: YGOCardDetailPanelProps = {}) {
+  const activeCard = useActivePreviewCard();
+  const pinnedCard = useCardPreviewStore((s) => s.pinnedCard);
+  const unpin = useCardPreviewStore((s) => s.unpin);
+  const card = cardProp !== undefined ? cardProp : activeCard;
+  const isPinned = card != null && pinnedCard?.id === card.id;
   const imageUrl = card ? (card.image_url || YGO_CARD_ART[card.name]) : null;
 
   return (
@@ -178,6 +188,17 @@ export default function YGOCardDetailPanel({ card }: YGOCardDetailPanelProps) {
               <div className="text-gray-500 text-xs uppercase tracking-wide">
                 {card.ygo_position.replace(/_/g, ' ')}
               </div>
+            )}
+
+            {/* Pin control */}
+            {isPinned && (
+              <button
+                type="button"
+                onClick={unpin}
+                className="w-full mt-1 px-2 py-1 rounded bg-ygo-gold/80 hover:bg-ygo-gold text-ygo-dark text-[11px] font-bold uppercase tracking-wide shadow"
+              >
+                📌 Pinned · Click to dismiss
+              </button>
             )}
           </div>
         </motion.div>

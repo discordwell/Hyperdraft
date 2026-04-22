@@ -10,6 +10,8 @@ import { useGame } from '../hooks/useGame';
 import { useGameStore } from '../stores/gameStore';
 import { useDragDropStore } from '../hooks/useDragDrop';
 import { GameBoard, GraveyardModal } from '../components/game';
+import { GameLog } from '../components/game/GameLog';
+import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
 import { ActionMenu, TargetPicker, ChoiceModal } from '../components/actions';
 import { HSGameView } from './HSGameView';
 import { PKMGameView } from './PKMGameView';
@@ -45,7 +47,7 @@ export function GameView() {
     hasActionsOtherThanPass,
   } = useGame();
 
-  const { endDrag } = useDragDropStore();
+  const endDrag = useDragDropStore((s) => s.endDrag);
 
   const storeMatchId = useGameStore((state) => state.matchId);
   const storePlayerId = useGameStore((state) => state.playerId);
@@ -485,6 +487,21 @@ export function GameView() {
             >
               Graveyard ({myGraveyard.length})
             </button>
+          </div>
+
+          {/* Game Log */}
+          <div className="mt-6 pt-4 border-t border-gray-700">
+            <GameLog
+              entries={gameState.game_log || []}
+              playerNames={Object.fromEntries(Object.entries(gameState.players).map(([id, p]) => [id, p.name]))}
+              scrollClass="max-h-64"
+              accentClass="bg-blue-800/40"
+            />
+          </div>
+
+          {/* Animations preference */}
+          <div className="mt-4 pt-3 border-t border-gray-700">
+            <AnimationsToggle />
           </div>
 
           {/* Error Display */}

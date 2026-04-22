@@ -5,6 +5,7 @@
  * attribute icons, level/rank stars, ATK/DEF bar, and animations.
  */
 
+import { memo } from 'react';
 import { motion } from 'framer-motion';
 import { YGO_CARD_ART } from '../../data/ygoCardArt';
 import { cardEnter } from '../../utils/ygoAnimations';
@@ -93,7 +94,7 @@ interface YGOCardProps {
   isDropHovered?: boolean;
 }
 
-export function YGOCard({
+export const YGOCard = memo(function YGOCard({
   card,
   size = 'md',
   onClick,
@@ -350,4 +351,4 @@ export function YGOCard({
   }
 
   return motionEl;
-}
+});

@@ -12,6 +12,7 @@
  * - Selection/targeting rings
  */
 
+import { memo } from 'react';
 import { motion } from 'framer-motion';
 import { cardEnter, typeToBorderClass } from '../../utils/pkmAnimations';
 import type { CardData } from '../../types';
@@ -74,7 +75,7 @@ interface PKMCardProps {
   isDropHovered?: boolean;
 }
 
-export function PKMCard({
+export const PKMCard = memo(function PKMCard({
   card,
   isActive = false,
   isSelected = false,
@@ -107,6 +108,16 @@ export function PKMCard({
   const attachedEnergy = card.attached_energy || [];
   const imageUrl = card.image_url;
 
+  // Accessibility props for interactive card divs
+  const a11y = onClick ? {
+    role: 'button' as const,
+    tabIndex: 0,
+    'aria-label': card.name,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); }
+    },
+  } : {};
+
   // Determine if this is an energy card
   const isEnergy = card.types?.includes('ENERGY');
   const isTrainer = card.types?.includes('ITEM') || card.types?.includes('SUPPORTER') || card.types?.includes('STADIUM') || card.types?.includes('POKEMON_TOOL');
@@ -121,6 +132,7 @@ export function PKMCard({
         <div
           {...dragProps}
           {...dropProps}
+          {...a11y}
           onClick={onClick}
           onMouseEnter={() => onHover?.(card)}
           onMouseLeave={() => onHover?.(null)}
@@ -145,6 +157,7 @@ export function PKMCard({
       <div
         {...dragProps}
         {...dropProps}
+        {...a11y}
         onClick={onClick}
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
@@ -174,6 +187,7 @@ export function PKMCard({
         <div
           {...dragProps}
           {...dropProps}
+          {...a11y}
           onClick={onClick}
           onMouseEnter={() => onHover?.(card)}
           onMouseLeave={() => onHover?.(null)}
@@ -198,6 +212,7 @@ export function PKMCard({
       <div
         {...dragProps}
         {...dropProps}
+        {...a11y}
         onClick={onClick}
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
@@ -232,6 +247,7 @@ export function PKMCard({
         <div
           {...dragProps}
           {...dropProps}
+          {...a11y}
           onClick={onClick}
           onMouseEnter={() => onHover?.(card)}
           onMouseLeave={() => onHover?.(null)}
@@ -306,6 +322,7 @@ export function PKMCard({
       <div
         {...dragProps}
         {...dropProps}
+        {...a11y}
         onClick={onClick}
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
@@ -341,6 +358,7 @@ export function PKMCard({
     const motionEl = (
       <motion.div
         {...dropProps}
+        {...a11y}
         onClick={onClick}
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
@@ -452,6 +470,7 @@ export function PKMCard({
     <div
       {...dragProps}
       {...dropProps}
+      {...a11y}
       onClick={onClick}
       onMouseEnter={() => onHover?.(card)}
       onMouseLeave={() => onHover?.(null)}
@@ -508,11 +527,11 @@ export function PKMCard({
       {/* Attacks */}
       {isActive && card.attacks && card.attacks.length > 0 && (
         <div className="mt-1 px-1.5 space-y-0.5">
-          {card.attacks.slice(0, 2).map((atk: any, i: number) => (
+          {card.attacks.slice(0, 2).map((atk, i: number) => (
             <div key={i} className="flex items-center justify-between text-[7px]">
               <div className="flex items-center gap-0.5">
                 {/* Energy cost dots */}
-                {atk.cost && atk.cost.flatMap((c: any, j: number) =>
+                {atk.cost && atk.cost.flatMap((c, j: number) =>
                   Array.from({ length: c.count || 1 }, (_, k) => (
                     <div key={`${j}-${k}`} className={`w-2 h-2 rounded-full ${TYPE_COLORS[c.type] || TYPE_COLORS.C}`} />
                   ))
@@ -576,4 +595,4 @@ export function PKMCard({
       )}
     </div>
   );
-}
+});

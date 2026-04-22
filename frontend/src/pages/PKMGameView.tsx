@@ -11,6 +11,7 @@ import { usePokemonGame } from '../hooks/usePokemonGame';
 import { useGameStore } from '../stores/gameStore';
 import { PKMGameBoard } from '../components/game/PKMGameBoard';
 import { PKMGameLog } from '../components/game/PKMGameLog';
+import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
 import { DragHintOverlay } from '../components/game/DragHintOverlay';
 import { matchAPI } from '../services/api';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -271,9 +272,17 @@ export function PKMGameView() {
                   {myGraveyard.length} cards (click to view)
                 </button>
               </div>
+
+              {/* Animations preference */}
+              <div className="mb-3 pt-3 border-t border-green-800">
+                <AnimationsToggle />
+              </div>
             </>
           ) : (
-            <PKMGameLog entries={gameLog} />
+            <PKMGameLog
+              entries={gameLog}
+              playerNames={Object.fromEntries(Object.entries(gameState.players).map(([id, p]) => [id, p.name]))}
+            />
           )}
         </div>
 

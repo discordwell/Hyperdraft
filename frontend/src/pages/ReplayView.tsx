@@ -29,13 +29,14 @@ function getSpectatorPlayerId(state: GameState | null): string {
 function summarizeFrameAction(frame: ReplayFrame | null): { title: string; reasoning?: string; model?: string; prompt?: string } {
   if (!frame || !frame.action) return { title: 'No action' };
 
-  const a: any = frame.action;
+  const a = frame.action as Record<string, unknown>;
 
   if (a.kind === 'action_processed') {
-    const who = a.player_name || a.player_id || 'Player';
-    const what = a.action_type || 'ACTION';
-    const card = a.card_name ? ` ${a.card_name}` : '';
-    const ai = a.data?.ai;
+    const who = String(a.player_name || a.player_id || 'Player');
+    const what = String(a.action_type || 'ACTION');
+    const card = a.card_name ? ` ${String(a.card_name)}` : '';
+    const dataObj = a.data as Record<string, unknown> | undefined;
+    const ai = dataObj?.ai as Record<string, unknown> | undefined;
     const reasoning = typeof ai?.reasoning === 'string' ? ai.reasoning : undefined;
     const model = typeof ai?.model === 'string' ? ai.model : undefined;
     const prompt = typeof ai?.prompt === 'string' ? ai.prompt : undefined;
@@ -43,8 +44,8 @@ function summarizeFrameAction(frame: ReplayFrame | null): { title: string; reaso
   }
 
   if (a.kind === 'ai_choice') {
-    const who = a.player_name || a.player_id || 'Player';
-    return { title: `${who}: choice (${a.choice_type || 'unknown'})` };
+    const who = String(a.player_name || a.player_id || 'Player');
+    return { title: `${who}: choice (${String(a.choice_type || 'unknown')})` };
   }
 
   if (typeof a.type === 'string') {
@@ -55,7 +56,7 @@ function summarizeFrameAction(frame: ReplayFrame | null): { title: string; reaso
 }
 
 function isInteresting(frame: ReplayFrame): boolean {
-  const a: any = frame.action;
+  const a = frame.action as Record<string, unknown> | null;
   return a?.kind === 'action_processed' && typeof a.action_type === 'string' && a.action_type !== 'PASS';
 }
 
@@ -190,7 +191,7 @@ export function ReplayView() {
 
   const clampedIndex = Math.max(0, Math.min(frameIndex, Math.max(0, frames.length - 1)));
   const currentFrame = frames.length ? frames[clampedIndex] : null;
-  const currentState = (currentFrame?.state as any) || null;
+  const currentState = currentFrame?.state ?? null;
 
   const currentPhaseIndex = frames.length ? phaseIndexByFrame[clampedIndex] || 0 : 0;
   const currentPhaseSlice = phaseSlices[currentPhaseIndex] || null;

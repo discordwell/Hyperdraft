@@ -7,16 +7,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { matchAPI, botGameAPI } from '../services/api';
+import type { DeckSummary, YgoDeckSummary } from '../types';
 import { useGameStore } from '../stores/gameStore';
 
-interface DeckInfo {
-  id: string;
-  name: string;
-  archetype: string;
-  colors: string[];
-  description: string;
-  is_netdeck: boolean;
-}
+// Legacy alias — DeckSummary is the canonical type from the API
+type DeckInfo = DeckSummary;
 
 export function Home() {
   const navigate = useNavigate();
@@ -32,7 +27,7 @@ export function Home() {
   const [decks, setDecks] = useState<DeckInfo[]>([]);
   const [playerDeck, setPlayerDeck] = useState<string>('');
   const [aiDeck, setAiDeck] = useState<string>('');
-  const [ygoDecks, setYgoDecks] = useState<{id: string; name: string; archetype: string; description: string; is_optimized: boolean}[]>([]);
+  const [ygoDecks, setYgoDecks] = useState<YgoDeckSummary[]>([]);
   const [playerYgoDeck, setPlayerYgoDeck] = useState<string>('');
   const [aiYgoDeck, setAiYgoDeck] = useState<string>('');
   const [claudexModel, setClaudexModel] = useState('claude-opus-4.6');
@@ -54,10 +49,10 @@ export function Home() {
 
     matchAPI.listYgoDecks().then((res) => {
       setYgoDecks(res.decks);
-      const goat = res.decks.find((d: any) => d.id === 'goat_control');
+      const goat = res.decks.find((d) => d.id === 'goat_control');
       if (goat) setPlayerYgoDeck(goat.id);
       else if (res.decks.length > 0) setPlayerYgoDeck(res.decks[0].id);
-      const dragon = res.decks.find((d: any) => d.id === 'dragon_beatdown');
+      const dragon = res.decks.find((d) => d.id === 'dragon_beatdown');
       if (dragon) setAiYgoDeck(dragon.id);
       else if (res.decks.length > 0) setAiYgoDeck(res.decks[0].id);
     }).catch(console.error);
@@ -509,16 +504,9 @@ export function Home() {
                   onChange={(e) => setPlayerDeck(e.target.value)}
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-game-accent"
                 >
-                  <optgroup label="Tournament Netdecks">
-                    {decks.filter(d => d.is_netdeck).map(d => (
-                      <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Standard Decks">
-                    {decks.filter(d => !d.is_netdeck).map(d => (
-                      <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
-                    ))}
-                  </optgroup>
+                  {decks.map(d => (
+                    <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                  ))}
                 </select>
               </div>
 
@@ -529,16 +517,9 @@ export function Home() {
                   onChange={(e) => setAiDeck(e.target.value)}
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-game-accent"
                 >
-                  <optgroup label="Tournament Netdecks">
-                    {decks.filter(d => d.is_netdeck).map(d => (
-                      <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Standard Decks">
-                    {decks.filter(d => !d.is_netdeck).map(d => (
-                      <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
-                    ))}
-                  </optgroup>
+                  {decks.map(d => (
+                    <option key={d.id} value={d.id}>{d.name} ({d.archetype})</option>
+                  ))}
                 </select>
               </div>
             </>

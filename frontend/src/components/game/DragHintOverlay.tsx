@@ -25,7 +25,8 @@ const MODE_COLORS: Record<string, string> = {
 };
 
 export function DragHintOverlay() {
-  const { isDragging, dragItem } = useDragDropStore();
+  const isDragging = useDragDropStore((s) => s.isDragging);
+  const dragItem = useDragDropStore((s) => s.dragItem);
 
   if (!isDragging || !dragItem) return null;
 

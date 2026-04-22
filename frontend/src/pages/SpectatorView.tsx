@@ -94,9 +94,12 @@ export function SpectatorView() {
     return () => clearInterval(interval);
   }, [gameId, isPaused, pollInterval, fetchReplayFrames]);
 
-  const lastDecision = [...recentFrames].reverse().find((f) => (f.action as any)?.kind === 'action_processed');
-  const lastAction = lastDecision?.action as any;
-  const lastAi = lastAction?.data?.ai;
+  const lastDecision = [...recentFrames].reverse().find(
+    (f) => (f.action as Record<string, unknown> | null)?.kind === 'action_processed',
+  );
+  const lastAction = lastDecision?.action as Record<string, unknown> | undefined;
+  const lastAiRaw = lastAction?.data as Record<string, unknown> | undefined;
+  const lastAi = lastAiRaw?.ai as Record<string, unknown> | undefined;
 
   // Handle speed change
   const handleSpeedChange = (speed: number) => {
@@ -214,8 +217,8 @@ export function SpectatorView() {
       {lastDecision && (
         <div className="bg-gray-900/60 border-b border-gray-800 px-4 py-2 text-xs text-gray-200">
           <span className="text-gray-400">Last:</span>{' '}
-          <span className="font-semibold text-white">{lastAction?.player_name || lastAction?.player_id}</span>{' '}
-          <span className="text-gray-300">{lastAction?.action_type}{lastAction?.card_name ? ` ${lastAction.card_name}` : ''}</span>
+          <span className="font-semibold text-white">{String(lastAction?.player_name || lastAction?.player_id || '')}</span>{' '}
+          <span className="text-gray-300">{String(lastAction?.action_type ?? '')}{lastAction?.card_name ? ` ${String(lastAction.card_name)}` : ''}</span>
           {typeof lastAi?.reasoning === 'string' && lastAi.reasoning.trim() && (
             <span className="text-gray-400"> {' '}| {lastAi.reasoning}</span>
           )}

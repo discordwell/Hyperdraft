@@ -24,13 +24,13 @@ export function PKMChoiceModal({ choice, cards, onSubmit, onCardHover }: PKMChoi
   // Reset selection when the choice changes
   useEffect(() => setSelected(new Set()), [choice.id]);
 
-  const optionCards = choice.options.map((opt: any) => {
+  const optionCards = choice.options.map((opt) => {
     const id = typeof opt === 'string' ? opt : opt.id;
     return cards.find(c => c.id === id) || null;
   }).filter(Boolean) as CardData[];
 
   // Text-only options (for non-card choices)
-  const textOptions = choice.options.filter((opt: any) => {
+  const textOptions = choice.options.filter((opt) => {
     const id = typeof opt === 'string' ? opt : opt.id;
     return !cards.find(c => c.id === id);
   });
@@ -75,7 +75,7 @@ export function PKMChoiceModal({ choice, cards, onSubmit, onCardHover }: PKMChoi
         const idx = num - 1;
         if (idx < allOptions.length) {
           const opt = allOptions[idx];
-          const id = (opt as CardData).id || (typeof opt === 'string' ? opt : (opt as any).id);
+          const id = (opt as CardData).id || (typeof opt === 'string' ? opt : (opt as { id: string }).id);
           if (id) toggleOption(id);
         }
       }
@@ -138,7 +138,7 @@ export function PKMChoiceModal({ choice, cards, onSubmit, onCardHover }: PKMChoi
           {/* Text options */}
           {textOptions.length > 0 && (
             <div className="space-y-2 mb-4">
-              {textOptions.map((opt: any, idx: number) => {
+              {textOptions.map((opt, idx: number) => {
                 const id = typeof opt === 'string' ? opt : opt.id;
                 const label = typeof opt === 'string' ? opt : (opt.label || opt.description || opt.id);
                 return (

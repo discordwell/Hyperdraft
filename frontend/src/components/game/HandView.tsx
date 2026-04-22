@@ -7,9 +7,11 @@
 
 import { useMemo, useCallback } from 'react';
 import clsx from 'clsx';
-import { DraggableCard } from '../cards/DraggableCard';
+import { Card } from '../cards/Card';
+import { useDraggable } from '../../hooks/useDraggable';
 import { CastIcon, PlayLandIcon } from '../ui/Icons';
 import { useDragDropStore } from '../../hooks/useDragDrop';
+import type { DragItem } from '../../hooks/useDragDrop';
 import type { CardData, LegalActionData } from '../../types';
 
 interface HandViewProps {
@@ -23,6 +25,91 @@ interface HandViewProps {
   disabled?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// HandCard — inline card with useDraggable (replaces DraggableCard wrapper)
+// Badges (LAND / TARGET / CAST) are MTG-specific and preserved here.
+// ---------------------------------------------------------------------------
+interface HandCardProps {
+  card: CardData;
+  action: LegalActionData | undefined;
+  isSelected: boolean;
+  isPlayable: boolean;
+  disabled: boolean;
+  onClick?: () => void;
+  validDropZones: string[];
+}
+
+function HandCard({
+  card,
+  action,
+  isSelected,
+  isPlayable,
+  disabled,
+  onClick,
+  validDropZones,
+}: HandCardProps) {
+  const isDragging = useDragDropStore((s) => s.isDragging);
+  const dragItem = useDragDropStore((s) => s.dragItem);
+
+  const dragItemPayload = useMemo<DragItem>(() => ({
+    type: 'hand-card',
+    card,
+    action,
+  }), [card, action]);
+
+  const { dragProps, isBeingDragged } = useDraggable({
+    item: dragItemPayload,
+    validDropZones,
+    disabled: disabled || !isPlayable,
+  });
+
+  const isLand = action?.type === 'PLAY_LAND';
+  const isTargetedSpell = action?.type === 'CAST_SPELL' && action.requires_targets;
+  const isOtherCardDragging = isDragging && dragItem?.card.id !== card.id;
+
+  return (
+    <div
+      {...dragProps}
+      className={clsx(
+        'transition-all duration-200',
+        {
+          'opacity-50 scale-95 shadow-2xl': isBeingDragged,
+          'opacity-30': isOtherCardDragging,
+          'cursor-grab active:cursor-grabbing': !disabled && isPlayable,
+        },
+      )}
+    >
+      <Card
+        card={card}
+        size="medium"
+        isSelected={isSelected}
+        isHighlighted={isPlayable && !disabled && !isBeingDragged}
+        onClick={onClick}
+        showDetails
+      />
+
+      {/* MTG-specific drag-intent badge */}
+      {!disabled && isPlayable && !isBeingDragged && !isOtherCardDragging && (
+        <div className="absolute -top-2 -right-2 z-20">
+          <div
+            className={clsx(
+              'px-2 py-0.5 rounded-full text-[10px] font-bold shadow-lg border',
+              isLand
+                ? 'bg-emerald-500 text-white border-emerald-400'
+                : isTargetedSpell
+                  ? 'bg-red-500 text-white border-red-400'
+                  : 'bg-blue-500 text-white border-blue-400',
+            )}
+          >
+            {/* Human-requested label: LAND / TARGET / CAST */}
+            {isLand ? 'LAND' : isTargetedSpell ? 'TARGET' : 'CAST'}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function HandView({
   cards,
   selectedCardId,
@@ -33,7 +120,9 @@ export function HandView({
   onGetValidDropZones,
   disabled = false,
 }: HandViewProps) {
-  const { isDragging, dragItem, validDropZones } = useDragDropStore();
+  const isDragging = useDragDropStore((s) => s.isDragging);
+  const dragItem = useDragDropStore((s) => s.dragItem);
+  const validDropZones = useDragDropStore((s) => s.validDropZones);
 
   // Get context about the currently dragged card
   const dragContext = useMemo(() => {
@@ -55,21 +144,18 @@ export function HandView({
     const count = cards.length;
     if (count === 0) return [];
 
-    // Adjust spread based on card count
-    const maxRotation = Math.min(count * 4, 30); // Max 30 degrees total spread
+    const maxRotation = Math.min(count * 4, 30);
     const rotationStep = count > 1 ? maxRotation / (count - 1) : 0;
     const startRotation = -maxRotation / 2;
-
-    // Card overlap - less overlap for fewer cards
     const overlapPercent = count <= 4 ? 0 : Math.min((count - 4) * 8, 50);
 
     return cards.map((_, index) => ({
       rotation: startRotation + index * rotationStep,
-      translateY: Math.abs(index - (count - 1) / 2) * 4, // Arc effect
+      translateY: Math.abs(index - (count - 1) / 2) * 4,
       zIndex: index,
       marginLeft: index === 0 ? 0 : -overlapPercent,
     }));
-  }, [cards]); // Use cards array as dependency to ensure positions update
+  }, [cards]);
 
   // Get the legal action for a card
   const getCardAction = useCallback((cardId: string): LegalActionData | undefined => {
@@ -77,14 +163,6 @@ export function HandView({
       (a) => (a.type === 'CAST_SPELL' || a.type === 'PLAY_LAND') && a.card_id === cardId
     );
   }, [legalActions]);
-
-  // Handle drag start - return valid drop zones for this card
-  const handleDragStart = useCallback((card: CardData): string[] => {
-    if (onGetValidDropZones) {
-      return onGetValidDropZones(card);
-    }
-    return [];
-  }, [onGetValidDropZones]);
 
   return (
     <div className="relative">
@@ -144,10 +222,22 @@ export function HandView({
               const isPlayable = canCast || canPlayLand;
               const position = cardPositions[index] || { rotation: 0, translateY: 0, zIndex: index, marginLeft: 0 };
               const action = getCardAction(card.id);
+              const cardValidDropZones = isPlayable && !disabled && onGetValidDropZones
+                ? onGetValidDropZones(card)
+                : [];
 
               return (
                 <div
                   key={card.id}
+                  role="button"
+                  tabIndex={!disabled || isPlayable ? 0 : -1}
+                  aria-label={card.name}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      if (!disabled || isPlayable) onCardClick?.(card);
+                    }
+                  }}
                   className={clsx(
                     'relative transition-all duration-200 ease-out',
                     {
@@ -172,16 +262,14 @@ export function HandView({
                       }
                     )}
                   >
-                    <DraggableCard
+                    <HandCard
                       card={card}
                       action={action}
-                      size="medium"
                       isSelected={isSelected}
-                      isHighlighted={isPlayable && !disabled}
+                      isPlayable={isPlayable}
+                      disabled={disabled}
                       onClick={disabled && !isPlayable ? undefined : () => onCardClick?.(card)}
-                      onDragStart={isPlayable && !disabled ? handleDragStart : undefined}
-                      showDetails={true}
-                      disabled={disabled && !isPlayable}
+                      validDropZones={cardValidDropZones}
                     />
                   </div>
 
