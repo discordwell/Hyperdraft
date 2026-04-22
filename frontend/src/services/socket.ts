@@ -49,6 +49,11 @@ export function initSocket(customHandlers: SocketHandlers = {}): Socket {
   // Set up event listeners
   socket.on('connect', () => {
     console.log('Socket connected:', socket?.id);
+    // Mark connected on the built-in event. The custom 'connected' event from
+    // the server (below) was the only path updating state, which left the UI
+    // stuck on "Disconnected" whenever the server-side handler dropped or
+    // raced with the reconnect, even though the socket was fully alive.
+    handlers.onConnect?.({ sid: socket?.id ?? '' });
   });
 
   socket.on('disconnect', (reason) => {
