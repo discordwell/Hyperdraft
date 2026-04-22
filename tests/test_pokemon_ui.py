@@ -12,6 +12,10 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("Run directly: `python tests/test_pokemon_ui.py`", allow_module_level=True)
+
 from src.engine.game import Game, make_pokemon, make_basic_energy, make_trainer_item
 from src.engine.types import CardType, ZoneType, EventType, CardDefinition
 from src.engine.pokemon_turn import PokemonTurnManager

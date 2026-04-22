@@ -16,6 +16,10 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("Run directly: `python tests/test_pokemon.py`", allow_module_level=True)
+
 from src.engine.game import Game, make_pokemon, make_basic_energy, make_trainer_item, make_trainer_supporter
 from src.engine.types import (
     CardType, ZoneType, PokemonType, EventType,
