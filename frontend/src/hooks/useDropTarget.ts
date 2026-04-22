@@ -32,8 +32,10 @@ export function useDropTarget({
   onDrop,
   disabled = false,
 }: UseDropTargetOptions): UseDropTargetResult {
-  const { isDragging, validDropZones, setHoveredZone, hoveredDropZone } =
-    useDragDropStore();
+  const isDragging = useDragDropStore((s) => s.isDragging);
+  const validDropZones = useDragDropStore((s) => s.validDropZones);
+  const setHoveredZone = useDragDropStore((s) => s.setHoveredZone);
+  const hoveredDropZone = useDragDropStore((s) => s.hoveredDropZone);
   const [isOver, setIsOver] = useState(false);
 
   // Clear local isOver when drag ends (handles drag-outside-window edge case)

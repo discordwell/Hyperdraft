@@ -2,6 +2,7 @@
  * HSHeroPortrait - Hero display with HP, armor, weapon, and hero power.
  */
 
+import { memo } from 'react';
 import type { PlayerData } from '../../types';
 import { useDropTarget } from '../../hooks/useDropTarget';
 import type { DragItem } from '../../hooks/useDragDrop';
@@ -18,7 +19,7 @@ interface HSHeroPortraitProps {
   onHeroDrop?: (item: DragItem) => void;
 }
 
-export function HSHeroPortrait({
+export const HSHeroPortrait = memo(function HSHeroPortrait({
   player,
   isOpponent,
   isMyTurn,
@@ -128,4 +129,4 @@ export function HSHeroPortrait({
       )}
     </div>
   );
-}
+});

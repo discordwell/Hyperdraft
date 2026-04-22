@@ -27,7 +27,7 @@ export function PKMSetupOverlay({ choice, hand, onSubmit }: PKMSetupOverlayProps
   const isSelectActive = choice.choice_type === 'pkm_select_active';
   const isSelectBench = choice.choice_type === 'pkm_select_bench';
 
-  const optionIds = new Set(choice.options.map((o: any) => typeof o === 'string' ? o : o.id));
+  const optionIds = new Set(choice.options.map((o) => typeof o === 'string' ? o : o.id));
   const selectableCards = hand.filter(c => optionIds.has(c.id));
 
   const toggleCard = (cardId: string) => {

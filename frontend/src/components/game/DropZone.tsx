@@ -28,7 +28,10 @@ export function DropZone({
   highlightClassName = 'ring-4 ring-emerald-400 ring-opacity-50 bg-emerald-900/20',
   activeClassName = 'ring-4 ring-emerald-500 bg-emerald-800/30',
 }: DropZoneProps) {
-  const { isDragging, validDropZones, setHoveredZone, hoveredDropZone } = useDragDropStore();
+  const isDragging = useDragDropStore((s) => s.isDragging);
+  const validDropZones = useDragDropStore((s) => s.validDropZones);
+  const setHoveredZone = useDragDropStore((s) => s.setHoveredZone);
+  const hoveredDropZone = useDragDropStore((s) => s.hoveredDropZone);
   const [isOver, setIsOver] = useState(false);
 
   const isValidDropTarget = isDragging && validDropZones.includes(id);

@@ -15,9 +15,13 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { HSHeroPortrait } from './HSHeroPortrait';
 import { HSMinionCard } from './HSMinionCard';
 import { HSHandCard } from './HSHandCard';
+import HSCardDetailPanel from './HSCardDetailPanel';
 import type { GameState, CardData } from '../../types';
 import { useDropTarget } from '../../hooks/useDropTarget';
 import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
+import { useCardPreviewStore } from '../../hooks/useCardPreview';
+import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
+import { BattlefieldEventLayer } from './shared/DamageFloater';
 
 interface HSGameBoardProps {
   gameState: GameState;
@@ -105,7 +109,14 @@ export function HSGameBoard({
   const [validTargets, setValidTargets] = useState<string[]>([]);
 
   // Drag-drop state
-  const { isDragging: storeDragging, validDropZones: storeValidZones } = useDragDropStore();
+  const storeDragging = useDragDropStore((s) => s.isDragging);
+  const storeValidZones = useDragDropStore((s) => s.validDropZones);
+
+  // Clear card preview state on unmount
+  const clearPreview = useCardPreviewStore((s) => s.clearAll);
+  useEffect(() => {
+    return () => clearPreview();
+  }, [clearPreview]);
 
   // Cancel click-based attack mode when a drag starts
   useEffect(() => {
@@ -221,6 +232,13 @@ export function HSGameBoard({
 
   return (
     <div className="h-full flex flex-col bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 select-none" onClick={mode === 'select_target' ? handleCancel : undefined}>
+      {/* Card preview panel (hover / right-click to pin) */}
+      <HSCardDetailPanel variant={gameState.variant} />
+
+      {/* Overlays (fixed-position, do not affect layout) */}
+      <LegendaryEntranceOverlay battlefieldCards={gameState.battlefield} />
+      <BattlefieldEventLayer />
+
       {/* Opponent section */}
       <div className="px-4 py-2">
         <HSHeroPortrait

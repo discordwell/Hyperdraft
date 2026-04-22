@@ -46,6 +46,9 @@ export interface UIState {
   // UI flags
   isLoading: boolean;
   error: string | null;
+
+  // Visual preferences
+  animationsEnabled: boolean;
 }
 
 interface GameStore {
@@ -100,6 +103,7 @@ interface GameStore {
   // UI state
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+  setAnimationsEnabled: (enabled: boolean) => void;
 
   // Helpers
   getMyBattlefield: () => CardData[];
@@ -124,6 +128,7 @@ const initialUIState: UIState = {
   autoPassStoppedReason: null,
   isLoading: false,
   error: null,
+  animationsEnabled: true,
 };
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -346,6 +351,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   setError: (error) =>
     set((state) => ({ ui: { ...state.ui, error } })),
+
+  setAnimationsEnabled: (enabled) =>
+    set((state) => ({ ui: { ...state.ui, animationsEnabled: enabled } })),
 
   // Helpers
   getMyBattlefield: () => {

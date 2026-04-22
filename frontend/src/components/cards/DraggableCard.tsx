@@ -1,14 +1,17 @@
 /**
- * DraggableCard Component
+ * DraggableCard Component — DEPRECATED
  *
- * Wraps the Card component with HTML5 drag and drop functionality.
- * Provides smooth drag animations and visual feedback.
+ * No longer used. HandView (the sole consumer) was migrated to useDraggable
+ * hook directly, which is the canonical drag pattern. Safe to delete.
+ *
+ * @deprecated Use useDraggable hook directly. See HandView.tsx for reference.
  */
 
 import { useCallback, useRef, useState, useEffect } from 'react';
 import clsx from 'clsx';
 import { Card } from './Card';
 import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
+import { useCardPreviewBindings } from '../../hooks/useCardPreview';
 import type { CardData, LegalActionData } from '../../types';
 
 interface DraggableCardProps {
@@ -34,7 +37,11 @@ export function DraggableCard({
   onDragStart,
   disabled = false,
 }: DraggableCardProps) {
-  const { startDrag, endDrag, isDragging, dragItem, validDropZones } = useDragDropStore();
+  const startDrag = useDragDropStore((s) => s.startDrag);
+  const endDrag = useDragDropStore((s) => s.endDrag);
+  const isDragging = useDragDropStore((s) => s.isDragging);
+  const dragItem = useDragDropStore((s) => s.dragItem);
+  const validDropZones = useDragDropStore((s) => s.validDropZones);
   const [isBeingDragged, setIsBeingDragged] = useState(false);
   const [dragHint, setDragHint] = useState<string | null>(null);
   const dragImageRef = useRef<HTMLDivElement>(null);
@@ -100,8 +107,12 @@ export function DraggableCard({
   const isLand = action?.type === 'PLAY_LAND';
   const isTargetedSpell = action?.type === 'CAST_SPELL' && action?.requires_targets;
 
+  // Preview (hover + pin) bindings. Disabled while this card is being dragged
+  // so the mouseleave from the drag ghost doesn't fight with hover state.
+  const previewProps = useCardPreviewBindings(card, { disabled: isBeingDragged });
+
   return (
-    <div className="relative">
+    <div className="relative" {...previewProps}>
       <div
         draggable={!disabled && !!onDragStart}
         onDragStart={handleDragStart}

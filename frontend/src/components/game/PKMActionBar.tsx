@@ -42,7 +42,7 @@ export function PKMActionBar({
   return (
     <div className="relative flex items-center justify-center gap-3 px-4 py-2 bg-black/40 border-t border-green-800">
       {/* Attack buttons */}
-      {showActions && activePokemon?.attacks && activePokemon.attacks.map((atk: any, i: number) => (
+      {showActions && activePokemon?.attacks && activePokemon.attacks.map((atk, i: number) => (
         <button
           key={i}
           onClick={() => onAttack(i)}
@@ -51,7 +51,7 @@ export function PKMActionBar({
           {/* Energy cost dots */}
           {atk.cost && atk.cost.length > 0 && (
             <span className="flex gap-0.5">
-              {atk.cost.map((c: any, j: number) => {
+              {atk.cost.map((c, j: number) => {
                 const count = c.count || 1;
                 return Array.from({ length: count }).map((_, k) => (
                   <span key={`${j}-${k}`} className={`w-2.5 h-2.5 rounded-full ${TYPE_COLORS[c.type] || TYPE_COLORS.C} border border-white/40 inline-block`} />

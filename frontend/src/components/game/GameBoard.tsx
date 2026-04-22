@@ -5,14 +5,18 @@
  * Manages drag and drop interactions between hand and battlefield.
  */
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect } from 'react';
 import { TargetablePlayer } from './TargetablePlayer';
 import { PhaseIndicator } from './PhaseIndicator';
 import { Battlefield } from './Battlefield';
 import { HandView } from './HandView';
 import { StackView } from './StackView';
+import MTGCardDetailPanel from './MTGCardDetailPanel';
 import { MultiTargetModal } from '../actions/MultiTargetModal';
+import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
+import { BattlefieldEventLayer } from './shared/DamageFloater';
 import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
+import { useCardPreviewStore } from '../../hooks/useCardPreview';
 import type { GameState, CardData, LegalActionData } from '../../types';
 
 interface GameBoardProps {
@@ -40,15 +44,19 @@ export function GameBoard({
   onCastSpell,
   onCastMultiTargetSpell,
 }: GameBoardProps) {
-  const {
-    multiTargetMode,
-    multiTargetSpell,
-    multiTargetCardId,
-    firstTarget,
-    secondTargetOptions,
-    startMultiTargetMode,
-    cancelMultiTarget,
-  } = useDragDropStore();
+  const multiTargetMode = useDragDropStore((s) => s.multiTargetMode);
+  const multiTargetSpell = useDragDropStore((s) => s.multiTargetSpell);
+  const multiTargetCardId = useDragDropStore((s) => s.multiTargetCardId);
+  const firstTarget = useDragDropStore((s) => s.firstTarget);
+  const secondTargetOptions = useDragDropStore((s) => s.secondTargetOptions);
+  const startMultiTargetMode = useDragDropStore((s) => s.startMultiTargetMode);
+  const cancelMultiTarget = useDragDropStore((s) => s.cancelMultiTarget);
+
+  // Clear card preview state on unmount (e.g. nav away from game)
+  const clearPreview = useCardPreviewStore((s) => s.clearAll);
+  useEffect(() => {
+    return () => clearPreview();
+  }, [clearPreview]);
 
   // Derive player info
   const player = gameState.players[playerId];
@@ -257,6 +265,13 @@ export function GameBoard({
 
   return (
     <div className="flex flex-col h-full gap-3 p-4 bg-game-bg">
+      {/* Overlays (fixed-position, do not affect layout or re-render children) */}
+      <LegendaryEntranceOverlay battlefieldCards={gameState.battlefield} />
+      <BattlefieldEventLayer />
+
+      {/* Card preview panel (hover / right-click to pin) */}
+      <MTGCardDetailPanel />
+
       {/* Top Row: Opponent Info */}
       <div className="flex items-start gap-4">
         <div className="flex-1">

@@ -30,7 +30,10 @@ export function useDraggable({
   validDropZones,
   disabled = false,
 }: UseDraggableOptions): UseDraggableResult {
-  const { isDragging, dragItem, startDrag, endDrag } = useDragDropStore();
+  const isDragging = useDragDropStore((s) => s.isDragging);
+  const dragItem = useDragDropStore((s) => s.dragItem);
+  const startDrag = useDragDropStore((s) => s.startDrag);
+  const endDrag = useDragDropStore((s) => s.endDrag);
 
   const isBeingDragged = isDragging && dragItem?.card?.id === item.card.id;
 

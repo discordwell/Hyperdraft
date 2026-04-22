@@ -28,7 +28,10 @@ import { handCard, benchSlide, cardEnter } from '../../utils/pkmAnimations';
 import { useDraggable } from '../../hooks/useDraggable';
 import { useDropTarget } from '../../hooks/useDropTarget';
 import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
-import type { CardData, PlayerData, PendingChoice } from '../../types';
+import { useCardPreviewStore, useCardPreviewBindings } from '../../hooks/useCardPreview';
+import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
+import { BattlefieldEventLayer } from './shared/DamageFloater';
+import type { CardData, GameState, PlayerData, PendingChoice } from '../../types';
 
 // ---------------------------------------------------------------------------
 // Wrapper: draggable hand card
@@ -94,15 +97,21 @@ function PKMDraggableHandCard({
     disabled: !enabled,
   });
 
+  // Preview bindings add right-click/long-press pinning on top of the
+  // existing onHover handler (which sets the shared preview store).
+  const previewProps = useCardPreviewBindings(card, { disabled: isBeingDragged });
+
   return (
-    <PKMCard
-      card={card}
-      isSelected={isSelected}
-      onClick={onClick}
-      onHover={onHover}
-      dragProps={dragProps}
-      isBeingDragged={isBeingDragged}
-    />
+    <span {...previewProps} className="inline-block">
+      <PKMCard
+        card={card}
+        isSelected={isSelected}
+        onClick={onClick}
+        onHover={onHover}
+        dragProps={dragProps}
+        isBeingDragged={isBeingDragged}
+      />
+    </span>
   );
 }
 
@@ -150,26 +159,32 @@ function PKMDropTargetCard({
     disabled: isOpponent,
   });
 
+  // Preview bindings add right-click/long-press pinning. Enemy-field cards
+  // benefit from hover too (already wired through onHover).
+  const previewProps = useCardPreviewBindings(card, { disabled: isDropValid });
+
   return (
-    <PKMCard
-      card={card}
-      compact={compact}
-      isActive={isActive}
-      isSelected={isSelected}
-      isValidTarget={isValidTargetProp}
-      isOpponent={isOpponent}
-      isBeingAttacked={isBeingAttacked}
-      onClick={onClick}
-      onHover={onHover}
-      dropProps={dropProps}
-      isDropTarget={isDropValid}
-      isDropHovered={isHovered}
-    />
+    <span {...previewProps} className="inline-block">
+      <PKMCard
+        card={card}
+        compact={compact}
+        isActive={isActive}
+        isSelected={isSelected}
+        isValidTarget={isValidTargetProp}
+        isOpponent={isOpponent}
+        isBeingAttacked={isBeingAttacked}
+        onClick={onClick}
+        onHover={onHover}
+        dropProps={dropProps}
+        isDropTarget={isDropValid}
+        isDropHovered={isHovered}
+      />
+    </span>
   );
 }
 
 interface PKMGameBoardProps {
-  gameState: any;
+  gameState: GameState;
   playerId: string;
   isMyTurn: boolean;
   myPlayer: PlayerData | null;
@@ -233,9 +248,15 @@ export function PKMGameBoard({
 }: PKMGameBoardProps) {
   const [mode, setMode] = useState<InteractionMode>('none');
   const [selectedHandCardId, setSelectedHandCardId] = useState<string | null>(null);
-  const [hoveredCard, setHoveredCard] = useState<CardData | null>(null);
   const [isBeingAttacked, setIsBeingAttacked] = useState(false);
   const [actionPending, setActionPending] = useState(false);
+
+  // Card preview store (hover + pin)
+  const setPreviewHover = useCardPreviewStore((s) => s.setHover);
+  const clearPreview = useCardPreviewStore((s) => s.clearAll);
+  useEffect(() => {
+    return () => clearPreview();
+  }, [clearPreview]);
 
   // Drag-and-drop: cancel click mode when a drag begins
   const isDragging = useDragDropStore((s) => s.isDragging);
@@ -355,10 +376,11 @@ export function PKMGameBoard({
     onUseAbility(pokemonId);
   }, [onUseAbility]);
 
-  // Handle card hover
+  // Handle card hover — routes to the shared preview store so the panel (and
+  // any other preview consumers) stay in sync across modes.
   const handleCardHover = useCallback((card: CardData | null) => {
-    setHoveredCard(card);
-  }, []);
+    setPreviewHover(card);
+  }, [setPreviewHover]);
 
   // Drop handler: bench area (basic Pokemon)
   const handleBenchDrop = useCallback((item: DragItem) => {
@@ -408,11 +430,23 @@ export function PKMGameBoard({
   const handCount = hand.length;
   const maxRotation = Math.min(handCount * 2, 15);
 
+  // All pokemon on the field (for LegendaryEntranceOverlay detection).
+  const fieldPokemon: CardData[] = [
+    ...(myActivePokemon ? [myActivePokemon] : []),
+    ...(opponentActivePokemon ? [opponentActivePokemon] : []),
+    ...myBench,
+    ...opponentBench,
+  ];
+
   return (
     <div
       className="h-full flex flex-col bg-gradient-to-b from-emerald-950 via-green-900 to-emerald-950 select-none relative"
       onClick={mode !== 'none' ? handleCancel : undefined}
     >
+      {/* Overlays (fixed-position) */}
+      <LegendaryEntranceOverlay battlefieldCards={fieldPokemon} />
+      <BattlefieldEventLayer />
+
       {/* Turn Banner */}
       <PKMTurnBanner
         isMyTurn={isMyTurn}
@@ -421,7 +455,7 @@ export function PKMGameBoard({
       />
 
       {/* Card Detail Panel */}
-      <PKMCardDetailPanel card={hoveredCard} />
+      <PKMCardDetailPanel />
 
       {/* Opponent info bar */}
       <div className="flex items-center justify-between px-4 py-1.5 bg-black/30">

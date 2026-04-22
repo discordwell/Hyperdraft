@@ -29,7 +29,10 @@ export function MultiTargetModal({
   onSelect,
   onCancel,
 }: MultiTargetModalProps) {
-  const { multiTargetMode, multiTargetSpell, firstTarget, cancelMultiTarget } = useDragDropStore();
+  const multiTargetMode = useDragDropStore((s) => s.multiTargetMode);
+  const multiTargetSpell = useDragDropStore((s) => s.multiTargetSpell);
+  const firstTarget = useDragDropStore((s) => s.firstTarget);
+  const cancelMultiTarget = useDragDropStore((s) => s.cancelMultiTarget);
 
   const handleSelect = useCallback((targetId: string) => {
     onSelect(targetId);

@@ -43,7 +43,11 @@ export function Battlefield({
   onCardDrop,
   onBattlefieldDrop,
 }: BattlefieldProps) {
-  const { isDragging, validDropZones, setHoveredZone, hoveredDropZone, endDrag } = useDragDropStore();
+  const isDragging = useDragDropStore((s) => s.isDragging);
+  const validDropZones = useDragDropStore((s) => s.validDropZones);
+  const setHoveredZone = useDragDropStore((s) => s.setHoveredZone);
+  const hoveredDropZone = useDragDropStore((s) => s.hoveredDropZone);
+  const endDrag = useDragDropStore((s) => s.endDrag);
 
   // Group permanents by type
   const creatures = permanents.filter((p) => p.types.includes('CREATURE'));

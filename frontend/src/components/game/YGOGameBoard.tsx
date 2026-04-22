@@ -19,6 +19,10 @@ import { useDraggable } from '../../hooks/useDraggable';
 import { useDropTarget } from '../../hooks/useDropTarget';
 import { cardSummon, handStagger, modalBackdrop, modalContent, gameOverOverlay } from '../../utils/ygoAnimations';
 import type { DragItem } from '../../hooks/useDragDrop';
+import { useCardPreviewStore, useCardPreviewBindings } from '../../hooks/useCardPreview';
+import CardPreviewWrapper from './shared/CardPreviewWrapper';
+import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
+import { BattlefieldEventLayer } from './shared/DamageFloater';
 import type { CardData, PlayerData, GameState } from '../../types';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -108,6 +112,9 @@ function YGODraggableHandCard({
     disabled: !isMyTurn,
   });
 
+  // Preview bindings: right-click / long-press to pin the hand card preview.
+  const previewProps = useCardPreviewBindings(card, { disabled: isBeingDragged });
+
   // Fan layout
   const fan = useMemo(() => {
     if (total <= 1) return { rotate: 0, y: 0 };
@@ -132,17 +139,19 @@ function YGODraggableHandCard({
       }}
       whileHover={{ y: -20, scale: 1.1, zIndex: 20, rotate: 0 }}
     >
-      <YGOCard
-        card={card}
-        size="sm"
-        onClick={onClick}
-        selected={selectedHandCard === card.id}
-        animate={false}
-        onHoverStart={onHoverStart}
-        onHoverEnd={onHoverEnd}
-        dragProps={dragProps}
-        isBeingDragged={isBeingDragged}
-      />
+      <span {...previewProps} className="inline-block">
+        <YGOCard
+          card={card}
+          size="sm"
+          onClick={onClick}
+          selected={selectedHandCard === card.id}
+          animate={false}
+          onHoverStart={onHoverStart}
+          onHoverEnd={onHoverEnd}
+          dragProps={dragProps}
+          isBeingDragged={isBeingDragged}
+        />
+      </span>
     </motion.div>
   );
 }
@@ -256,21 +265,26 @@ function YGOMonsterZoneSlot({
             animate="animate"
             exit="exit"
           >
-            <YGOCard
+            <CardPreviewWrapper
               card={card}
-              size="sm"
-              onClick={() => onFieldCardClick(card, isMine)}
-              selected={isMine && selectedFieldCard === card.id}
-              isTarget={attackMode !== null && !isMine}
-              isDefensePosition={card.ygo_position === 'face_up_def' || card.ygo_position === 'face_down_def'}
-              onHoverStart={() => !card.face_down && onHoverStart(card)}
-              onHoverEnd={onHoverEnd}
-              dragProps={canAttackDrag ? attackDragProps : undefined}
-              isBeingDragged={isAttackDragged}
-              dropProps={activeDropProps}
-              isDropTarget={activeIsTarget}
-              isDropHovered={activeIsHovered}
-            />
+              disabled={isAttackDragged || !!card.face_down}
+            >
+              <YGOCard
+                card={card}
+                size="sm"
+                onClick={() => onFieldCardClick(card, isMine)}
+                selected={isMine && selectedFieldCard === card.id}
+                isTarget={attackMode !== null && !isMine}
+                isDefensePosition={card.ygo_position === 'face_up_def' || card.ygo_position === 'face_down_def'}
+                onHoverStart={() => !card.face_down && onHoverStart(card)}
+                onHoverEnd={onHoverEnd}
+                dragProps={canAttackDrag ? attackDragProps : undefined}
+                isBeingDragged={isAttackDragged}
+                dropProps={activeDropProps}
+                isDropTarget={activeIsTarget}
+                isDropHovered={activeIsHovered}
+              />
+            </CardPreviewWrapper>
           </motion.div>
         )}
       </AnimatePresence>
@@ -336,16 +350,18 @@ function YGOSpellTrapZoneSlot({
             animate="animate"
             exit="exit"
           >
-            <YGOCard
-              card={card}
-              size="sm"
-              onClick={() => onFieldCardClick(card, isMine)}
-              selected={isMine && selectedFieldCard === card.id}
-              isTarget={attackMode !== null && !isMine}
-              isDefensePosition={card.ygo_position === 'face_up_def' || card.ygo_position === 'face_down_def'}
-              onHoverStart={() => !card.face_down && onHoverStart(card)}
-              onHoverEnd={onHoverEnd}
-            />
+            <CardPreviewWrapper card={card} disabled={!!card.face_down}>
+              <YGOCard
+                card={card}
+                size="sm"
+                onClick={() => onFieldCardClick(card, isMine)}
+                selected={isMine && selectedFieldCard === card.id}
+                isTarget={attackMode !== null && !isMine}
+                isDefensePosition={card.ygo_position === 'face_up_def' || card.ygo_position === 'face_down_def'}
+                onHoverStart={() => !card.face_down && onHoverStart(card)}
+                onHoverEnd={onHoverEnd}
+              />
+            </CardPreviewWrapper>
           </motion.div>
         )}
       </AnimatePresence>
@@ -625,7 +641,19 @@ export function YGOGameBoard({
   const [showGraveyard, setShowGraveyard] = useState<'mine' | 'opp' | null>(null);
   const [showBanished, setShowBanished] = useState<'mine' | 'opp' | null>(null);
   const [showExtraDeck, setShowExtraDeck] = useState(false);
-  const [hoveredCard, setHoveredCard] = useState<CardData | null>(null);
+  // Card preview (hover + pin) routes through a shared store so the detail
+  // panel and other modes stay consistent. `setHoveredCard` wraps the store
+  // action so existing zero-arg callers (framer-motion's `onHoverStart` /
+  // `onHoverEnd` signatures) still type-check — bare calls clear the hover.
+  const previewSetHover = useCardPreviewStore((s) => s.setHover);
+  const clearCardPreview = useCardPreviewStore((s) => s.clearAll);
+  const setHoveredCard = useCallback(
+    (card?: CardData | null) => previewSetHover(card ?? null),
+    [previewSetHover],
+  );
+  useEffect(() => {
+    return () => clearCardPreview();
+  }, [clearCardPreview]);
   const [showTurnBanner, setShowTurnBanner] = useState(false);
   const [graveyardFilter, setGraveyardFilter] = useState<'all' | 'monster' | 'spell' | 'trap'>('all');
 
@@ -826,8 +854,17 @@ export function YGOGameBoard({
         onDismiss={() => setShowTurnBanner(false)}
       />
 
-      {/* Card Detail Panel */}
-      <YGOCardDetailPanel card={hoveredCard} />
+      {/* Card Detail Panel (reads from shared preview store) */}
+      <YGOCardDetailPanel />
+
+      {/* Overlays (fixed-position) */}
+      <LegendaryEntranceOverlay
+        battlefieldCards={[
+          ...myMonsterZones.filter((c): c is CardData => c !== null),
+          ...oppMonsterZones.filter((c): c is CardData => c !== null),
+        ]}
+      />
+      <BattlefieldEventLayer />
 
       {/* Opponent info bar (also a direct attack drop zone) */}
       <YGOOpponentInfoBar

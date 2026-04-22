@@ -4,7 +4,7 @@
  * Renders a single MTG-style card with proper frame styling.
  */
 
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import type { CardData } from '../../types';
 import { parseManaSymbols } from '../../types/cards';
@@ -117,7 +117,7 @@ function ManaSymbol({ symbol, size = 'md' }: { symbol: string; size?: 'sm' | 'md
   );
 }
 
-export function Card({
+export const Card = memo(function Card({
   card,
   isSelected = false,
   isTargetable = false,
@@ -218,6 +218,12 @@ export function Card({
 
   return (
     <div
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={card.name}
+      onKeyDown={onClick ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); }
+      } : undefined}
       className={clsx(
         'relative rounded-xl shadow-lg transition-all duration-200 cursor-pointer select-none',
         config.width,
@@ -347,6 +353,6 @@ export function Card({
       )}
     </div>
   );
-}
+});
 
 export default Card;

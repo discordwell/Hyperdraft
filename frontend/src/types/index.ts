@@ -5,6 +5,7 @@ export type {
   DeckEntry,
   DeckData,
   DeckSummary,
+  YgoDeckSummary,
   DeckStats,
   CardFilter,
   CardSearchRequest,

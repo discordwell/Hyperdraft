@@ -48,7 +48,7 @@ export function initSocket(customHandlers: SocketHandlers = {}): Socket {
 
   // Set up event listeners
   socket.on('connect', () => {
-    console.log('Socket connected:', socket?.id);
+    if (import.meta.env.DEV) console.log('Socket connected:', socket?.id);
     // Mark connected on the built-in event. The custom 'connected' event from
     // the server (below) was the only path updating state, which left the UI
     // stuck on "Disconnected" whenever the server-side handler dropped or
@@ -57,12 +57,12 @@ export function initSocket(customHandlers: SocketHandlers = {}): Socket {
   });
 
   socket.on('disconnect', (reason) => {
-    console.log('Socket disconnected:', reason);
+    if (import.meta.env.DEV) console.log('Socket disconnected:', reason);
     handlers.onDisconnect?.();
   });
 
   socket.on('connected', (data: { sid: string }) => {
-    console.log('Server acknowledged connection:', data.sid);
+    if (import.meta.env.DEV) console.log('Server acknowledged connection:', data.sid);
     handlers.onConnect?.(data);
   });
 

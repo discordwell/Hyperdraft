@@ -1,41 +1,44 @@
 /**
- * PKMGameLog - Scrollable game log panel for the Pokemon TCG sidebar.
+ * GameLog (MTG + generic fallback)
  *
- * Redesigned for readability:
- *  - Clear turn separators with active player
- *  - Icon prefix per entry
- *  - Color-coded by event type
- *  - Compact default; AI plays cluster into a single expandable row
+ * Drop-in panel for showing the MTG/HS game log. Uses the shared helpers in
+ * ./shared/gameLogShared.ts for icons, color classes, and AI-play clustering.
+ *
+ * Renders nothing if `entries` is undefined/empty and `hideWhenEmpty` is true,
+ * otherwise shows an empty-state message so sidebars don't look broken.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GameLogEntry } from '../../types/game';
 import { clusterLogEntries, colorClassForEvent, iconForEvent } from './shared/gameLogShared';
 
-interface PKMGameLogProps {
+interface GameLogProps {
   entries: GameLogEntry[];
-  /** Optional name lookup so turn separators can show "Turn N – Player" */
   playerNames?: Record<string, string>;
+  /** Tailwind class applied to the scroll container (control max height). */
+  scrollClass?: string;
+  hideWhenEmpty?: boolean;
+  /** Theme accent for dividers. Default = mtg blue. */
+  accentClass?: string;
+  heading?: string;
 }
 
-function formatTimestamp(ts: number): string {
-  const d = new Date(ts * 1000);
-  const h = d.getHours().toString().padStart(2, '0');
-  const m = d.getMinutes().toString().padStart(2, '0');
-  const s = d.getSeconds().toString().padStart(2, '0');
-  return `${h}:${m}:${s}`;
-}
-
-export function PKMGameLog({ entries, playerNames }: PKMGameLogProps) {
+export function GameLog({
+  entries,
+  playerNames,
+  scrollClass = 'max-h-80',
+  hideWhenEmpty = false,
+  accentClass = 'bg-blue-700/40',
+  heading = 'Game Log',
+}: GameLogProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const clusters = useMemo(() => clusterLogEntries(entries), [entries]);
+  const clusters = useMemo(() => clusterLogEntries(entries || []), [entries]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
-  // Auto-scroll to bottom when new entries arrive
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [entries.length]);
+  }, [entries?.length]);
 
   const toggle = (idx: number) => {
     setExpanded((prev) => {
@@ -46,13 +49,16 @@ export function PKMGameLog({ entries, playerNames }: PKMGameLogProps) {
     });
   };
 
+  if (hideWhenEmpty && clusters.length === 0) return null;
+
   return (
     <div className="flex flex-col">
-      <div className="text-xs text-gray-400 uppercase tracking-wide mb-2 px-1">Game Log</div>
-
+      {heading && (
+        <div className="text-xs text-gray-400 uppercase tracking-wide mb-2 px-1">{heading}</div>
+      )}
       <div
         ref={scrollRef}
-        className="overflow-y-auto max-h-64 space-y-0.5 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent"
+        className={`overflow-y-auto space-y-0.5 ${scrollClass} scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent`}
       >
         {clusters.length === 0 ? (
           <div className="text-gray-600 text-xs italic px-1">No events yet.</div>
@@ -67,12 +73,12 @@ export function PKMGameLog({ entries, playerNames }: PKMGameLogProps) {
               <div key={cluster.startIndex}>
                 {showDivider && (
                   <div className="flex items-center gap-2 my-1.5">
-                    <div className="flex-1 h-px bg-emerald-700/40" />
-                    <span className="text-[10px] text-emerald-400/70 font-semibold whitespace-nowrap">
+                    <div className={`flex-1 h-px ${accentClass}`} />
+                    <span className="text-[10px] text-gray-400 font-semibold whitespace-nowrap">
                       Turn {cluster.turn}
                       {activeName ? ` - ${activeName}` : ''}
                     </span>
-                    <div className="flex-1 h-px bg-emerald-700/40" />
+                    <div className={`flex-1 h-px ${accentClass}`} />
                   </div>
                 )}
 
@@ -94,15 +100,10 @@ export function PKMGameLog({ entries, playerNames }: PKMGameLogProps) {
                       </span>
                     )}
                   </span>
-                  {cluster.headline.timestamp != null && (
-                    <span className="text-[10px] text-gray-600 flex-shrink-0 mt-px">
-                      {formatTimestamp(cluster.headline.timestamp)}
-                    </span>
-                  )}
                 </button>
 
                 {isExpanded && hasChildren && (
-                  <div className="ml-5 border-l border-emerald-800/40 pl-2 space-y-0.5 mt-0.5 mb-1">
+                  <div className="ml-5 border-l border-gray-700/60 pl-2 space-y-0.5 mt-0.5 mb-1">
                     {cluster.children.map((child, i) => (
                       <div key={i} className="flex items-start gap-1.5 px-1 py-px">
                         <span className="text-[10px] leading-snug flex-shrink-0 w-4 text-center" aria-hidden>
@@ -124,4 +125,4 @@ export function PKMGameLog({ entries, playerNames }: PKMGameLogProps) {
   );
 }
 
-export default PKMGameLog;
+export default GameLog;

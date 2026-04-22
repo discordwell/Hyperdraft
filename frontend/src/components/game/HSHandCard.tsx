@@ -1,8 +1,9 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { memo, useMemo, useRef, useState } from 'react';
 import { CardData } from '../../types';
 import { getHearthstoneArtPaths } from '../../utils/cardArt';
 import { useDraggable } from '../../hooks/useDraggable';
 import { useDragDropStore } from '../../hooks/useDragDrop';
+import { useCardPreviewBindings } from '../../hooks/useCardPreview';
 
 interface HSHandCardProps {
   card: CardData;
@@ -14,7 +15,7 @@ interface HSHandCardProps {
   onAttune?: () => void;
 }
 
-export const HSHandCard: React.FC<HSHandCardProps> = ({
+export const HSHandCard: React.FC<HSHandCardProps> = memo(({
   card,
   isPlayable,
   onClick,
@@ -54,7 +55,7 @@ export const HSHandCard: React.FC<HSHandCardProps> = ({
       }
     : null;
 
-  const { isDragging: storeDragging } = useDragDropStore();
+  const storeDragging = useDragDropStore((s) => s.isDragging);
   const didDragRef = useRef(false);
 
   const { dragProps, isBeingDragged } = useDraggable({
@@ -99,10 +100,15 @@ export const HSHandCard: React.FC<HSHandCardProps> = ({
     onClick();
   };
 
+  // Preview bindings (hover + right-click / long-press to pin). Disabled while
+  // drag-in-progress so hover/leave doesn't fight with drag ghosting.
+  const previewProps = useCardPreviewBindings(card, { disabled: isBeingDragged });
+
   return (
     <div
       onClick={handleClick}
       {...guardedDragProps}
+      {...previewProps}
       className={`
         relative w-[120px] h-[170px] rounded-lg cursor-pointer
         bg-gradient-to-b from-gray-700 to-gray-800
@@ -232,4 +238,4 @@ export const HSHandCard: React.FC<HSHandCardProps> = ({
       )}
     </div>
   );
-};
+});

@@ -16,6 +16,8 @@ import type {
   ReplayResponse,
   CardListResponse,
   CardDefinitionData,
+  DeckSummary,
+  YgoDeckSummary,
 } from '../types';
 
 const API_BASE = '/api';
@@ -43,10 +45,10 @@ async function fetchAPI<T>(
 
 // Match API
 export const matchAPI = {
-  listDecks: (): Promise<{ decks: any[]; total: number }> =>
+  listDecks: (): Promise<{ decks: DeckSummary[]; total: number }> =>
     fetchAPI('/match/decks'),
 
-  listYgoDecks: (): Promise<{ decks: any[] }> =>
+  listYgoDecks: (): Promise<{ decks: YgoDeckSummary[] }> =>
     fetchAPI('/match/ygo-decks'),
 
   create: (request: Partial<CreateMatchRequest> & { variant?: string; hero_class?: string } = {}): Promise<CreateMatchResponse> =>

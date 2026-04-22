@@ -11,6 +11,7 @@ import { useYGOGame } from '../hooks/useYGOGame';
 import { useGameStore } from '../stores/gameStore';
 import { YGOGameBoard } from '../components/game/YGOGameBoard';
 import { YGOGameLog } from '../components/game/YGOGameLog';
+import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
 import { DragHintOverlay } from '../components/game/DragHintOverlay';
 import { matchAPI } from '../services/api';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -279,10 +280,18 @@ export function YGOGameView() {
                   <span className="text-purple-400 text-right">{myExtraDeckSize}</span>
                 </div>
               </div>
+
+              {/* Animations preference */}
+              <div className="pt-2 border-t border-ygo-gold-dim/20">
+                <AnimationsToggle />
+              </div>
             </div>
           ) : (
             <div className="p-3">
-              <YGOGameLog entries={gameLog} />
+              <YGOGameLog
+                entries={gameLog}
+                playerNames={Object.fromEntries(Object.entries(gameState.players).map(([id, p]) => [id, p.name]))}
+              />
             </div>
           )}
         </div>

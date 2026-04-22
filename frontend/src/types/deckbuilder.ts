@@ -38,6 +38,15 @@ export interface DeckSummary {
   updated_at: string;
 }
 
+// Yu-Gi-Oh! deck summary (different schema from MTG decks)
+export interface YgoDeckSummary {
+  id: string;
+  name: string;
+  archetype: string;
+  description: string;
+  is_optimized: boolean;
+}
+
 // Deck statistics
 export interface DeckStats {
   card_count: number;
