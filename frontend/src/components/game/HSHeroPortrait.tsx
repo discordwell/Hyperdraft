@@ -44,6 +44,16 @@ export const HSHeroPortrait = memo(function HSHeroPortrait({
 
   const hpPercent = Math.max(0, (player.life / (player.max_life || 30)) * 100);
 
+  // Accessibility props — only applied when the portrait is actually clickable
+  const heroA11y = onHeroClick ? {
+    role: 'button' as const,
+    'aria-label': `${player.name} hero portrait`,
+    tabIndex: 0,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onHeroClick(); }
+    },
+  } : {};
+
   return (
     <div className="flex items-center gap-3">
       {/* Weapon (if equipped) */}
@@ -58,12 +68,13 @@ export const HSHeroPortrait = memo(function HSHeroPortrait({
       {/* Hero portrait */}
       <div
         onClick={onHeroClick}
+        {...heroA11y}
         {...(heroDropZoneId ? dropProps : {})}
         className={`
           relative w-16 h-16 rounded-full
           bg-gradient-to-b from-gray-600 to-gray-800
           border-2 flex items-center justify-center
-          ${isValidTarget || isDropHovered ? 'border-red-400 ring-2 ring-red-400 animate-pulse cursor-pointer' : 'border-gray-500'}
+          ${isValidTarget ? 'border-red-500 ring-[3px] ring-red-500 ring-offset-1 ring-offset-gray-900 animate-pulse cursor-crosshair' : isDropHovered ? 'border-red-400 ring-2 ring-red-400 animate-pulse cursor-pointer' : 'border-gray-500'}
           ${isDropHovered ? 'shadow-lg shadow-red-500/50' : ''}
           ${isOpponent ? '' : 'cursor-default'}
         `}

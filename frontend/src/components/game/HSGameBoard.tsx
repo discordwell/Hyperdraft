@@ -11,7 +11,7 @@
  * - Player hero portrait + hero power + end turn
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { HSHeroPortrait } from './HSHeroPortrait';
 import { HSMinionCard } from './HSMinionCard';
 import { HSHandCard } from './HSHandCard';
@@ -22,6 +22,7 @@ import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
 import { useCardPreviewStore } from '../../hooks/useCardPreview';
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
 import { BattlefieldEventLayer } from './shared/DamageFloater';
+import { useBattlefieldEvents } from '../../hooks/useBattlefieldEvents';
 
 interface HSGameBoardProps {
   gameState: GameState;
@@ -75,7 +76,7 @@ function OpponentMinionDropWrapper({
   return (
     <div
       {...dropProps}
-      className={`relative transition-opacity duration-150 ${isDimmed ? 'opacity-60' : ''} ${isHovered ? 'scale-110 z-10' : ''}`}
+      className={`relative transition-opacity duration-150 ${isDimmed ? 'opacity-60' : ''} ${isHovered ? 'scale-110 z-10' : ''} ${isClickTarget ? 'cursor-crosshair' : ''}`}
     >
       <HSMinionCard
         card={card}
@@ -107,6 +108,9 @@ export function HSGameBoard({
   const [mode, setMode] = useState<InteractionMode>('none');
   const [selectedAttackerId, setSelectedAttackerId] = useState<string | null>(null);
   const [validTargets, setValidTargets] = useState<string[]>([]);
+
+  // Wire damage/heal/death floaters
+  useBattlefieldEvents(gameState, 'hs');
 
   // Drag-drop state
   const storeDragging = useDragDropStore((s) => s.isDragging);
@@ -180,6 +184,21 @@ export function HSGameBoard({
     setSelectedAttackerId(null);
     setValidTargets([]);
   }, []);
+
+  // Escape key cancels attack selection — ref keeps the effect stable
+  const handleCancelRef = useRef(handleCancel);
+  handleCancelRef.current = handleCancel;
+  useEffect(() => {
+    if (mode !== 'select_target') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleCancelRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mode]);
 
   // Handle card play from hand
   const handleHandCardClick = useCallback((card: CardData) => {
@@ -403,7 +422,7 @@ export function HSGameBoard({
       {/* Attack mode indicator */}
       {mode === 'select_target' && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-900/90 text-red-200 px-4 py-2 rounded-lg text-sm font-bold shadow-lg z-50">
-          Select a target to attack (click empty space to cancel)
+          Select a target to attack — press <kbd className="bg-red-800 px-1 rounded text-xs font-mono">Esc</kbd> or click empty space to cancel
         </div>
       )}
 

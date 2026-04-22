@@ -15,6 +15,7 @@ import MTGCardDetailPanel from './MTGCardDetailPanel';
 import { MultiTargetModal } from '../actions/MultiTargetModal';
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
 import { BattlefieldEventLayer } from './shared/DamageFloater';
+import { useBattlefieldEvents } from '../../hooks/useBattlefieldEvents';
 import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
 import { useCardPreviewStore } from '../../hooks/useCardPreview';
 import type { GameState, CardData, LegalActionData } from '../../types';
@@ -51,6 +52,9 @@ export function GameBoard({
   const secondTargetOptions = useDragDropStore((s) => s.secondTargetOptions);
   const startMultiTargetMode = useDragDropStore((s) => s.startMultiTargetMode);
   const cancelMultiTarget = useDragDropStore((s) => s.cancelMultiTarget);
+
+  // Wire damage/heal/death floaters
+  useBattlefieldEvents(gameState, 'mtg');
 
   // Clear card preview state on unmount (e.g. nav away from game)
   const clearPreview = useCardPreviewStore((s) => s.clearAll);

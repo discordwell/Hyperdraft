@@ -218,6 +218,7 @@ export const Card = memo(function Card({
 
   return (
     <div
+      data-card-id={card.id}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       aria-label={card.name}
