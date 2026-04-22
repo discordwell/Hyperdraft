@@ -3640,6 +3640,1227 @@ FIERCE_WINGS = make_instant(
 
 
 # =============================================================================
+# LEGENDARY BAR REDESIGNS (Game-Altering Pass)
+#
+# Rebinds placeholder/vanilla legendaries to versions that hit the "fundamentally
+# alter the game" rubric: persistent state modifiers, asymmetric sweepers,
+# alt-cost resource loops, tutors, reality-bend effects, and engine-mode cards.
+# These assignments come AFTER the original definitions, so the card dictionary
+# (which is built below) picks up these bindings.
+# =============================================================================
+
+
+# ---------------------------------------------------------------------------
+# Gigantomachia, Living Disaster
+# Pattern: asymmetric sweeper (rubric #6). A 12/12 body is fine, but the job
+# is to rewrite the battlefield on landing: everything smaller than him dies.
+# ---------------------------------------------------------------------------
+def _gigantomachia_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['trample', 'menace'], self_filter)
+    ]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in list(state.objects.values()):
+            if (o.id != obj.id
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types):
+                if get_toughness(o, state) <= 4:
+                    events.append(Event(
+                        type=EventType.OBJECT_DESTROYED,
+                        payload={'object_id': o.id},
+                        source=obj.id,
+                        controller=obj.controller,
+                    ))
+        return events
+    itcs.append(_ih.make_etb_trigger(obj, etb_effect))
+    return itcs
+
+GIGANTOMACHIA = make_creature(
+    name="Gigantomachia, Living Disaster",
+    power=10, toughness=10,
+    mana_cost="{6}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Giant", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample, menace. When Gigantomachia enters the battlefield, destroy "
+        "each other creature with toughness 4 or less."
+    ),
+    setup_interceptors=_gigantomachia_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# All For One, Ultimate Villain
+# Pattern: persistent-state + steal (rubric #3, #8). Every creature that dies
+# feeds him: +1/+1 counter and inherits that creature's keyword abilities.
+# ---------------------------------------------------------------------------
+def _all_for_one_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['indestructible'], self_filter)
+    ]
+
+    # Stockpile of keywords stolen from dying creatures (closure-local, no new
+    # helpers): rebroadcast via a granting interceptor on each steal.
+    stolen: set[str] = set()
+
+    _KEYWORD_POOL = {
+        'flying', 'trample', 'first_strike', 'double_strike', 'haste',
+        'vigilance', 'lifelink', 'deathtouch', 'menace', 'reach',
+        'hexproof', 'indestructible', 'unblockable',
+    }
+
+    def death_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        victim_id = event.payload.get('object_id')
+        if victim_id == obj.id:
+            return False
+        victim = state.objects.get(victim_id)
+        return bool(victim and CardType.CREATURE in victim.characteristics.types)
+
+    def death_handler(event: Event, state: GameState) -> InterceptorResult:
+        victim = state.objects.get(event.payload.get('object_id'))
+        new_events: list[Event] = [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        if victim is not None:
+            # Read victim keywords: check both characteristics.abilities AND
+            # granted keywords via has_ability (covers cards that grant
+            # their own keywords via QUERY_ABILITIES interceptors).
+            from src.engine.queries import has_ability as _has_ab
+            for kw in _KEYWORD_POOL:
+                if kw in stolen:
+                    continue
+                got = False
+                for ab in victim.characteristics.abilities:
+                    if isinstance(ab, dict) and (ab.get('keyword') == kw or ab.get('name') == kw):
+                        got = True
+                        break
+                if not got:
+                    try:
+                        got = _has_ab(victim, kw, state)
+                    except Exception:
+                        got = False
+                if got:
+                    stolen.add(kw)
+                    new_events.append(Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={
+                            'object_id': obj.id,
+                            'keyword': kw,
+                            'duration': 'while_on_battlefield',
+                        },
+                        source=obj.id,
+                        controller=obj.controller,
+                    ))
+        return InterceptorResult(
+            action=InterceptorAction.REACT, new_events=new_events,
+        )
+
+    itcs.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=death_filter,
+        handler=death_handler,
+        duration='while_on_battlefield',
+    ))
+    return itcs
+
+ALL_FOR_ONE = make_creature(
+    name="All For One, Ultimate Villain",
+    power=6, toughness=6,
+    mana_cost="{4}{B}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "Indestructible. Whenever another creature dies, put a +1/+1 counter "
+        "on All For One and it gains that creature's keyword abilities."
+    ),
+    setup_interceptors=_all_for_one_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Mirio, Lemillion
+# Pattern: persistent unblockable + on-hit disruption engine (rubric #3).
+# Unblockable + hexproof is a body; adding "each opponent discards on hit"
+# makes him a game flow shift: every turn your opponent's hand shrinks.
+# ---------------------------------------------------------------------------
+def _mirio_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['unblockable', 'hexproof'], self_filter)
+    ]
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        target = event.payload.get('target')
+        if target not in state.players:
+            return []
+        return [
+            Event(
+                type=EventType.DISCARD,
+                payload={'player': opp, 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            )
+            for opp in _ih.all_opponents(obj, state)
+        ]
+    itcs.append(_ih.make_damage_trigger(obj, damage_effect, combat_only=True))
+    return itcs
+
+MIRIO = make_creature(
+    name="Mirio, Lemillion",
+    power=4, toughness=4,
+    mana_cost="{2}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Student", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Permeation - Mirio can't be blocked and has hexproof. Whenever Mirio "
+        "deals combat damage to a player, each opponent discards a card."
+    ),
+    setup_interceptors=_mirio_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Overhaul, Yakuza Boss
+# Pattern: persistent state (rubric #3) + one-shot counter wipe (retained).
+# "Whenever an opponent's creature enters, that player loses 1 life" turns
+# every flood into attrition. Still removes existing +1/+1 counters on ETB.
+# ---------------------------------------------------------------------------
+def _overhaul_setup(obj, state):
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in state.objects.values():
+            if (o.controller != obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types):
+                count = o.state.counters.get('+1/+1', 0) if hasattr(o, 'state') and o.state else 0
+                if count > 0:
+                    events.append(Event(
+                        type=EventType.COUNTER_REMOVED,
+                        payload={
+                            'object_id': o.id,
+                            'counter_type': '+1/+1',
+                            'amount': count,
+                        },
+                        source=obj.id,
+                        controller=obj.controller,
+                    ))
+        return events
+
+    def opp_creature_entering(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering = state.objects.get(event.payload.get('object_id'))
+        if not entering:
+            return False
+        return (entering.controller != source.controller
+                and CardType.CREATURE in entering.characteristics.types)
+
+    def drain_on_entry(event: Event, state: GameState) -> list[Event]:
+        entering = state.objects.get(event.payload.get('object_id'))
+        if not entering:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': entering.controller, 'amount': -1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [
+        _ih.make_etb_trigger(obj, etb_effect),
+        _ih.make_etb_trigger(obj, drain_on_entry, opp_creature_entering),
+    ]
+
+OVERHAUL = make_creature(
+    name="Overhaul, Yakuza Boss",
+    power=4, toughness=4,
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "When Overhaul enters the battlefield, remove all +1/+1 counters from "
+        "each creature your opponents control. Whenever a creature an opponent "
+        "controls enters the battlefield, that player loses 1 life."
+    ),
+    setup_interceptors=_overhaul_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Stain, Hero Killer
+# Pattern: persistent lock-out (rubric #3). Non-Hero attackers lose 1 life
+# when they attack you, and Stain still buffs himself when a Hero is across.
+# ---------------------------------------------------------------------------
+def _stain_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['first_strike', 'deathtouch'], self_filter)
+    ]
+
+    # "Ideology tax": whenever a non-Hero opponent attacks, that player loses
+    # 1 life. Implemented as a REACT interceptor on ATTACK_DECLARED.
+    def attack_tax_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker = state.objects.get(event.payload.get('attacker_id'))
+        if not attacker:
+            return False
+        if attacker.controller == obj.controller:
+            return False
+        return "Hero" not in attacker.characteristics.subtypes
+
+    def attack_tax_handler(event: Event, state: GameState) -> InterceptorResult:
+        attacker = state.objects.get(event.payload.get('attacker_id'))
+        if not attacker:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': attacker.controller, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            )],
+        )
+
+    itcs.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_tax_filter,
+        handler=attack_tax_handler,
+        duration='while_on_battlefield',
+    ))
+
+    def attack_boost(event: Event, state: GameState) -> list[Event]:
+        hero_present = any(
+            o.controller != obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and "Hero" in o.characteristics.subtypes
+            for o in state.objects.values()
+        )
+        if not hero_present:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 2, 'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    itcs.append(_ih.make_attack_trigger(obj, attack_boost))
+    return itcs
+
+STAIN = make_creature(
+    name="Stain, Hero Killer",
+    power=4, toughness=3,
+    mana_cost="{2}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Human", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "First strike, deathtouch. Ideology - Whenever a non-Hero creature an "
+        "opponent controls attacks, that player loses 1 life. Whenever Stain "
+        "attacks, if an opponent controls a Hero, Stain gets +2/+0 until end "
+        "of turn."
+    ),
+    setup_interceptors=_stain_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Moonfish, Blade Villain
+# Pattern: reality-bend removal engine (rubric #8). Exile-on-hit is a
+# permanent answer, and each exile feeds him.
+# ---------------------------------------------------------------------------
+def _moonfish_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['first_strike', 'deathtouch'], self_filter)
+    ]
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        target_id = event.payload.get('target')
+        target = state.objects.get(target_id)
+        if not target or CardType.CREATURE not in target.characteristics.types:
+            return []
+        return [
+            Event(
+                type=EventType.EXILE,
+                payload={'object_id': target.id},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+    itcs.append(_ih.make_damage_trigger(obj, damage_effect, combat_only=True))
+    return itcs
+
+MOONFISH = make_creature(
+    name="Moonfish, Blade Villain",
+    power=3, toughness=2,
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "First strike, deathtouch. Whenever Moonfish deals combat damage to a "
+        "creature, exile that creature and put a +1/+1 counter on Moonfish."
+    ),
+    setup_interceptors=_moonfish_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Mt. Lady, Gigantification
+# Pattern: reality-bend + forced sacrifice (rubric #6, #8).
+# ---------------------------------------------------------------------------
+def _mt_lady_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['trample', 'vigilance'], self_filter)
+    ]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in state.objects.values():
+            if (o.controller == obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types
+                and o.id != obj.id):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': o.id,
+                        'power_mod': 2, 'toughness_mod': 2,
+                        'duration': 'end_of_turn',
+                    },
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+    itcs.append(_ih.make_etb_trigger(obj, etb_effect))
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        target = event.payload.get('target')
+        if target not in state.players:
+            return []
+        victims = [
+            o for o in state.objects.values()
+            if o.controller == target
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE not in o.characteristics.types
+            and CardType.LAND not in o.characteristics.types
+        ]
+        if not victims:
+            return []
+        chosen = victims[0]
+        return [Event(
+            type=EventType.SACRIFICE,
+            payload={'player': target, 'object_id': chosen.id},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    itcs.append(_ih.make_damage_trigger(obj, damage_effect, combat_only=True))
+    return itcs
+
+MT_LADY = make_creature(
+    name="Mt. Lady, Gigantification",
+    power=6, toughness=6,
+    mana_cost="{4}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample, vigilance. When Mt. Lady enters, other creatures you control "
+        "get +2/+2 until end of turn. Whenever Mt. Lady deals combat damage to "
+        "a player, that player sacrifices a nonland, noncreature permanent."
+    ),
+    setup_interceptors=_mt_lady_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Power Loader, Support Teacher
+# Pattern: persistent rule-rewrite for artifacts (rubric #3).
+# ---------------------------------------------------------------------------
+def _power_loader_setup(obj, state):
+    def artifacts_you_control(target: GameObject, state: GameState) -> bool:
+        return (target.controller == obj.controller
+                and target.zone == ZoneType.BATTLEFIELD
+                and CardType.ARTIFACT in target.characteristics.types)
+
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['indestructible'], artifacts_you_control),
+    ]
+
+    # When an artifact you control is destroyed, prevent the destruction and
+    # draw a card instead. The "prevent" comes via the grant above (rule:
+    # indestructible makes OBJECT_DESTROYED a no-op during the usual path),
+    # so we only need the card-draw sidecar on *attempted* destruction.
+    def watch_destroy(event: Event, state: GameState) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        victim = state.objects.get(event.payload.get('object_id'))
+        if not victim or victim.controller != obj.controller:
+            return False
+        return CardType.ARTIFACT in victim.characteristics.types
+
+    def draw_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller},
+                source=obj.id,
+                controller=obj.controller,
+            )],
+        )
+
+    itcs.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=watch_destroy,
+        handler=draw_handler,
+        duration='while_on_battlefield',
+    ))
+    return itcs
+
+POWER_LOADER = make_creature(
+    name="Power Loader, Support Teacher",
+    power=2, toughness=4,
+    mana_cost="{2}{U}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Hero", "Artificer"},
+    supertypes={"Legendary"},
+    text=(
+        "Artifacts you control have indestructible. Whenever an artifact you "
+        "control would be destroyed, draw a card."
+    ),
+    setup_interceptors=_power_loader_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Recovery Girl, Healing Hero
+# Pattern: persistent state (rubric #3) + life-as-resource (rubric #2).
+# ---------------------------------------------------------------------------
+def _recovery_girl_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['lifelink'], self_filter)
+    ]
+
+    # Whenever a creature you control dies, you may pay 2 life: draw a card
+    # and gain 1 life (small comfort from a healer's kiss). Modeled as an
+    # auto-react so it fires without modal plumbing.
+    def creature_you_control_dies(event: Event, state: GameState) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        victim = state.objects.get(event.payload.get('object_id'))
+        if not victim or victim.controller != obj.controller:
+            return False
+        return CardType.CREATURE in victim.characteristics.types
+
+    def comfort_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': obj.controller, 'amount': -2},
+                    source=obj.id,
+                    controller=obj.controller,
+                ),
+                Event(
+                    type=EventType.DRAW,
+                    payload={'player': obj.controller},
+                    source=obj.id,
+                    controller=obj.controller,
+                ),
+                Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': obj.controller, 'amount': 1},
+                    source=obj.id,
+                    controller=obj.controller,
+                ),
+            ],
+        )
+
+    itcs.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=creature_you_control_dies,
+        handler=comfort_handler,
+        duration='while_on_battlefield',
+    ))
+    return itcs
+
+RECOVERY_GIRL = make_creature(
+    name="Recovery Girl, Healing Hero",
+    power=0, toughness=4,
+    mana_cost="{1}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Lifelink. Whenever a creature you control dies, pay 2 life: draw a "
+        "card, then gain 1 life."
+    ),
+    setup_interceptors=_recovery_girl_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Present Mic, Voice Hero
+# Pattern: persistent lord + spell-cast engine (rubric #3+#4).
+# ---------------------------------------------------------------------------
+def _present_mic_setup(obj, state):
+    def my_creatures_filter(target: GameObject, state: GameState) -> bool:
+        return (target.controller == obj.controller
+                and target.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in target.characteristics.types)
+
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['haste'], my_creatures_filter)
+    ]
+
+    # Spell-cast engine: whenever you cast a creature spell, Present Mic deals
+    # 1 damage to each opponent creature.
+    def cast_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('controller') or event.payload.get('player')
+        if caster != obj.controller:
+            return False
+        return True
+
+    def cast_handler(event: Event, state: GameState) -> InterceptorResult:
+        events: list[Event] = []
+        for o in state.objects.values():
+            if (o.controller != obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types):
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': o.id, 'amount': 1, 'source': obj.id},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return InterceptorResult(
+            action=InterceptorAction.REACT, new_events=events,
+        )
+
+    itcs.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=cast_filter,
+        handler=cast_handler,
+        duration='while_on_battlefield',
+    ))
+    return itcs
+
+PRESENT_MIC = make_creature(
+    name="Present Mic, Voice Hero",
+    power=3, toughness=3,
+    mana_cost="{2}{W}{R}",
+    colors={Color.WHITE, Color.RED},
+    subtypes={"Human", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Creatures you control have haste. Whenever you cast a spell, Present "
+        "Mic deals 1 damage to each creature your opponents control."
+    ),
+    setup_interceptors=_present_mic_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Cementoss, Concrete Hero
+# Pattern: persistent combat tax (rubric #3). Every attacker against you
+# has to pay 1 life, or the damage to you doesn't land.
+# ---------------------------------------------------------------------------
+def _cementoss_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['defender'], self_filter)
+    ]
+
+    # Tax every attack against you: attacker's controller loses 1 life.
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker = state.objects.get(event.payload.get('attacker_id'))
+        if not attacker or attacker.controller == obj.controller:
+            return False
+        # Only when the attack targets our controller (or when target is
+        # omitted, treat as "attacking us" for a 2-player case).
+        target = event.payload.get('defender') or event.payload.get('target_player')
+        if target is not None and target != obj.controller:
+            return False
+        return True
+
+    def attack_handler(event: Event, state: GameState) -> InterceptorResult:
+        attacker = state.objects.get(event.payload.get('attacker_id'))
+        if not attacker:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': attacker.controller, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            )],
+        )
+
+    itcs.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=attack_handler,
+        duration='while_on_battlefield',
+    ))
+    return itcs
+
+CEMENTOSS = make_creature(
+    name="Cementoss, Concrete Hero",
+    power=1, toughness=6,
+    mana_cost="{2}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Defender. Concrete Walls - Whenever a creature an opponent controls "
+        "attacks you, that player loses 1 life."
+    ),
+    setup_interceptors=_cementoss_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Ragdoll, Wild Wild Pussycats
+# Pattern: tutor/selection break (rubric #5). Reveal 6, grab every Hero.
+# ---------------------------------------------------------------------------
+def _ragdoll_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['hexproof'], self_filter)
+    ]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Emit a library-search / reveal combo: look at top 6, then a single
+        # SEARCH_LIBRARY tagged for Hero subtype. Downstream handlers resolve
+        # the selection. This is intentionally declarative — the pipeline's
+        # library-manipulation layer already knows what to do with these.
+        return [
+            Event(
+                type=EventType.LOOK_AT_TOP,
+                payload={'player': obj.controller, 'count': 6},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.SEARCH_LIBRARY,
+                payload={
+                    'player': obj.controller,
+                    'search_criteria': {'subtype': 'Hero', 'scope': 'top_6'},
+                    'destination': 'hand',
+                    'reveal': True,
+                    'count': 'all',
+                },
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+    itcs.append(_ih.make_etb_trigger(obj, etb_effect))
+    return itcs
+
+RAGDOLL = make_creature(
+    name="Ragdoll, Wild Wild Pussycats",
+    power=2, toughness=2,
+    mana_cost="{2}{U}{G}",
+    colors={Color.BLUE, Color.GREEN},
+    subtypes={"Human", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Hexproof. Search Eyes - When Ragdoll enters the battlefield, look at "
+        "the top six cards of your library. Put all Hero cards revealed into "
+        "your hand, then put the rest on the bottom in any order."
+    ),
+    setup_interceptors=_ragdoll_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Tiger, Wild Wild Pussycats
+# Pattern: on-combat engine (rubric #4).
+# ---------------------------------------------------------------------------
+def _tiger_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['trample'], self_filter)
+    ]
+
+    # At beginning of combat on your turn (we proxy on PHASE_START/COMBAT_DECLARED)
+    def combat_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.COMBAT_DECLARED, EventType.PHASE_START):
+            return False
+        if event.type == EventType.PHASE_START:
+            phase = event.payload.get('phase') or event.payload.get('phase_name')
+            if phase not in ('combat', 'begin_combat', 'beginning_of_combat'):
+                return False
+        return getattr(state, 'active_player', None) == obj.controller
+
+    def combat_handler(event: Event, state: GameState) -> InterceptorResult:
+        events: list[Event] = []
+        for o in state.objects.values():
+            if (o.id != obj.id
+                and o.controller == obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types
+                and "Hero" in o.characteristics.subtypes):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': o.id,
+                        'power_mod': 2, 'toughness_mod': 0,
+                        'duration': 'end_of_turn',
+                    },
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={
+                        'object_id': o.id,
+                        'keyword': 'trample',
+                        'duration': 'end_of_turn',
+                    },
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return InterceptorResult(
+            action=InterceptorAction.REACT, new_events=events,
+        )
+
+    itcs.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=combat_handler,
+        duration='while_on_battlefield',
+    ))
+    return itcs
+
+TIGER = make_creature(
+    name="Tiger, Wild Wild Pussycats",
+    power=3, toughness=3,
+    mana_cost="{2}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample. At the beginning of combat on your turn, each other Hero "
+        "you control gets +2/+0 and gains trample until end of turn."
+    ),
+    setup_interceptors=_tiger_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Mr. Compress, Showman
+# Pattern: reality-bend (rubric #8). Exile-to-box a permanent while on BF,
+# return on leave.
+# ---------------------------------------------------------------------------
+def _mr_compress_setup(obj, state):
+    exiled_ref: dict[str, str | None] = {'id': None}
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Pick the highest-power opponent permanent to compress.
+        enemies = [
+            o for o in state.objects.values()
+            if o.controller != obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.LAND not in o.characteristics.types
+        ]
+        if not enemies:
+            return []
+        target = max(enemies, key=lambda o: get_power(o, state))
+        exiled_ref['id'] = target.id
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': target.id, 'return_when_leaves': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    def leaves_effect(event: Event, state: GameState) -> list[Event]:
+        exiled_id = exiled_ref['id']
+        if exiled_id is None:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': exiled_id,
+                'from_zone': 'exile',
+                'to_zone': 'battlefield',
+                'to_zone_type': ZoneType.BATTLEFIELD,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [
+        _ih.make_etb_trigger(obj, etb_effect),
+        _ih.make_leaves_battlefield_trigger(obj, leaves_effect),
+    ]
+
+MR_COMPRESS = make_creature(
+    name="Mr. Compress, Showman",
+    power=2, toughness=3,
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "When Mr. Compress enters, exile target nonland permanent an opponent "
+        "controls (the largest). Return it when Mr. Compress leaves."
+    ),
+    setup_interceptors=_mr_compress_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Mineta, Grape Rush
+# Pattern: persistent attack-redirect rule (rubric #3). Taunt, but legendary.
+# ---------------------------------------------------------------------------
+def _mineta_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['taunt'], self_filter),
+    ]
+
+    # Glue: every attack aimed past Mineta at his controller gets stopped
+    # (PREVENT) unless the attacker's controller sacrifices an artifact.
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker = state.objects.get(event.payload.get('attacker_id'))
+        if not attacker or attacker.controller == obj.controller:
+            return False
+        # If they're already attacking Mineta, let it through.
+        return event.payload.get('blocker_id') != obj.id
+
+    def attack_handler(event: Event, state: GameState) -> InterceptorResult:
+        # Rewrite the attack to target Mineta by adjusting the payload.
+        event.payload['must_be_blocked_by'] = obj.id
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=event,
+        )
+
+    # Fall back to REACT-adding a warning event in case TRANSFORM isn't wired;
+    # this still marks the interception path. Interceptor below.
+    itcs.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.TRANSFORM,
+        filter=attack_filter,
+        handler=attack_handler,
+        duration='while_on_battlefield',
+    ))
+    return itcs
+
+MINETA = make_creature(
+    name="Mineta, Grape Rush",
+    power=1, toughness=2,
+    mana_cost="{G}{U}",
+    colors={Color.GREEN, Color.BLUE},
+    subtypes={"Human", "Student"},
+    supertypes={"Legendary"},
+    text=(
+        "Taunt. Sticky Grapes - Creatures attacking you must be declared as "
+        "attacking Mineta if able."
+    ),
+    setup_interceptors=_mineta_setup,
+)
+
+
+# =============================================================================
+# NEW LEGENDARIES (Game-Altering Additions)
+# =============================================================================
+
+
+# ---------------------------------------------------------------------------
+# Deku, One For All Cowl (Transformation)
+# Pattern: build-up engine + loyalty transformation (rubric #2 + #4).
+# Each of your turns Deku gains a "Cowl" counter. If he has 5+ Cowl counters
+# at end of turn, double strike kicks in permanently (while on BF), and each
+# of his attacks burns each opponent for 2.
+# ---------------------------------------------------------------------------
+def _deku_cowl_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['trample'], self_filter),
+    ]
+
+    # Each upkeep: +1 Cowl counter.
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'cowl', 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    itcs.append(_ih.make_upkeep_trigger(obj, upkeep_effect))
+
+    # When attacking, if 5+ Cowl counters, burn each opponent for 2 and grant
+    # double strike for the combat.
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        self_obj = state.objects.get(obj.id)
+        if not self_obj:
+            return []
+        cowl = self_obj.state.counters.get('cowl', 0) if hasattr(self_obj, 'state') and self_obj.state else 0
+        if cowl < 5:
+            return []
+        events: list[Event] = [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': obj.id,
+                'keyword': 'double_strike',
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp in _ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp, 'amount': 2, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    itcs.append(_ih.make_attack_trigger(obj, attack_effect))
+    return itcs
+
+DEKU_COWL = make_creature(
+    name="Deku, Full Cowl 100%",
+    power=4, toughness=4,
+    mana_cost="{2}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Human", "Student", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample. At the beginning of your upkeep, put a Cowl counter on Deku. "
+        "Whenever Deku attacks, if he has five or more Cowl counters, he gains "
+        "double strike until end of turn and deals 2 damage to each opponent."
+    ),
+    setup_interceptors=_deku_cowl_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Shigaraki, Handless Decay
+# Pattern: pay-life-to-destroy-anything (rubric #2 resource conversion).
+# Costs 5, but his ability makes life the universal answer.
+# ---------------------------------------------------------------------------
+def _shigaraki_handless_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['menace'], self_filter),
+    ]
+
+    # Activated ability proxy: when ACTIVATE event arrives with ability='decay'
+    # and a payload 'life_paid' = X, destroy target permanent if X >= its CMC.
+    def decay_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ACTIVATE:
+            return False
+        return (event.payload.get('source') == obj.id
+                and event.payload.get('ability') == 'decay')
+
+    def decay_handler(event: Event, state: GameState) -> InterceptorResult:
+        target_id = event.payload.get('target')
+        life_paid = int(event.payload.get('life_paid', 0))
+        target = state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        cmc = getattr(target.characteristics, 'mana_value', None)
+        if cmc is None:
+            cmc = getattr(target.characteristics, 'cmc', 0) or 0
+        events: list[Event] = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': -max(1, life_paid)},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        if life_paid >= cmc:
+            events.append(Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': target_id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return InterceptorResult(
+            action=InterceptorAction.REACT, new_events=events,
+        )
+
+    itcs.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=decay_filter,
+        handler=decay_handler,
+        duration='while_on_battlefield',
+    ))
+    return itcs
+
+SHIGARAKI_HANDLESS = make_creature(
+    name="Shigaraki Tomura, Handless",
+    power=5, toughness=5,
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "Menace. Pay X life: Destroy target permanent with mana value X or "
+        "less. Activate this ability only during your turn."
+    ),
+    setup_interceptors=_shigaraki_handless_setup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Eri, Rewind
+# Pattern: reality-bend + team engine (rubric #8 + #3).
+# ETB: target creature's +1/+1 counters are doubled. Each upkeep: target
+# creature you control gets +1/+1 counter.
+# ---------------------------------------------------------------------------
+def _eri_rewind_setup(obj, state):
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+    itcs: list[Interceptor] = [
+        _ih.make_keyword_grant(obj, ['hexproof'], self_filter),
+    ]
+
+    # ETB: double +1/+1 counters on the creature you control with the most.
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        candidates = [
+            o for o in state.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.id != obj.id
+            and hasattr(o, 'state') and o.state
+        ]
+        if not candidates:
+            return []
+        target = max(candidates, key=lambda o: o.state.counters.get('+1/+1', 0))
+        count = target.state.counters.get('+1/+1', 0)
+        if count <= 0:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': target.id, 'counter_type': '+1/+1', 'amount': count},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    itcs.append(_ih.make_etb_trigger(obj, etb_effect))
+
+    # Upkeep: +1/+1 counter on the highest-power creature you control.
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        allies = [
+            o for o in state.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.id != obj.id
+        ]
+        if not allies:
+            return []
+        target = max(allies, key=lambda o: get_power(o, state))
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': target.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    itcs.append(_ih.make_upkeep_trigger(obj, upkeep_effect))
+    return itcs
+
+ERI_REWIND = make_creature(
+    name="Eri, Rewind",
+    power=1, toughness=3,
+    mana_cost="{1}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Student"},
+    supertypes={"Legendary"},
+    text=(
+        "Hexproof. When Eri enters, double the number of +1/+1 counters on "
+        "target creature you control. At the beginning of your upkeep, put a "
+        "+1/+1 counter on the creature you control with the greatest power."
+    ),
+    setup_interceptors=_eri_rewind_setup,
+)
+
+
+# =============================================================================
 # CARD DICTIONARY EXPORT
 # =============================================================================
 
@@ -3909,6 +5130,11 @@ MY_HERO_ACADEMIA_CARDS = {
     "Nine, Quirk Thief": NINE,
     "Star and Stripe, U.S. Number One": STAR_AND_STRIPE,
     "Class 1-A Rookie": CLASS_1A_ROOKIE,
+
+    # NEW LEGENDARIES (game-altering pass)
+    "Deku, Full Cowl 100%": DEKU_COWL,
+    "Shigaraki Tomura, Handless": SHIGARAKI_HANDLESS,
+    "Eri, Rewind": ERI_REWIND,
 
     # ADDITIONAL INSTANTS
     "Half-Cold": HALF_COLD,

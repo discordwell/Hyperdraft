@@ -30,7 +30,7 @@ MY_HERO_ACADEMIA_CARDS = mha_module.MY_HERO_ACADEMIA_CARDS
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color,
-    get_power, get_toughness, Characteristics
+    get_power, get_toughness, Characteristics, ObjectState
 )
 from src.engine.queries import has_ability
 
@@ -1067,36 +1067,54 @@ def test_plus_ultra_tokoyami():
 # =============================================================================
 
 def test_villain_trigger_all_for_one():
-    """Test All For One Villain trigger: +1/+1 counter when opponent loses life."""
-    print("\n=== Test: All For One Villain Trigger ===")
+    """Test All For One 'Steal' trigger: whenever another creature dies, put a
+    +1/+1 counter on All For One and steal that creature's keyword abilities.
+    """
+    print("\n=== Test: All For One Steal Trigger ===")
 
     game = Game()
     p1 = game.add_player("Alice")
     p2 = game.add_player("Bob")
 
     card_def = MY_HERO_ACADEMIA_CARDS["All For One, Ultimate Villain"]
-    creature = game.create_object(
+    afo = game.create_object(
         name="All For One, Ultimate Villain",
         owner_id=p1.id,
         zone=ZoneType.BATTLEFIELD,
         characteristics=card_def.characteristics,
-        card_def=card_def
+        card_def=card_def,
     )
 
-    # Trigger opponent life loss
-    triggered_events = game.emit(Event(
-        type=EventType.LIFE_CHANGE,
-        payload={
-            'player': p2.id,
-            'amount': -2
-        }
+    # Create a victim creature with a clear keyword (flying) owned by opponent.
+    victim_def = MY_HERO_ACADEMIA_CARDS["High-End Nomu"]  # has flying, trample
+    victim = game.create_object(
+        name="High-End Nomu",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=victim_def.characteristics,
+        card_def=victim_def,
+    )
+
+    # Emit death of the victim.
+    triggered = game.emit(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': victim.id},
     ))
 
-    # Check counter events
-    counter_events = [e for e in triggered_events if e.type == EventType.COUNTER_ADDED]
-    print(f"Counter events triggered: {len(counter_events)}")
-    assert len(counter_events) >= 1, "Expected at least 1 counter event"
-    print("PASSED: All For One Villain trigger works!")
+    counter_events = [
+        e for e in triggered
+        if e.type == EventType.COUNTER_ADDED
+        and e.payload.get('object_id') == afo.id
+    ]
+    keyword_grants = [
+        e for e in triggered
+        if e.type == EventType.GRANT_KEYWORD
+        and e.payload.get('object_id') == afo.id
+    ]
+    print(f"Counter events: {len(counter_events)}, keyword grants: {len(keyword_grants)}")
+    assert len(counter_events) >= 1, "Expected +1/+1 counter on All For One"
+    assert len(keyword_grants) >= 1, "Expected at least one keyword to be stolen"
+    print("PASSED: All For One steals keywords on deaths!")
 
 
 # =============================================================================
@@ -1559,6 +1577,458 @@ def test_crimson_riot_attack_pt_boost():
 
 
 # =============================================================================
+# LEGENDARY-BAR REDESIGN & NEW-CARD TESTS (game-altering pass)
+# =============================================================================
+
+def test_gigantomachia_asymmetric_sweep():
+    """Gigantomachia ETB destroys creatures with toughness <= 4 but not itself."""
+    print("\n=== Test: Gigantomachia Asymmetric Sweep ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Small victim
+    grunt_def = MY_HERO_ACADEMIA_CARDS["League of Villains Grunt"]  # 2/1
+    grunt = game.create_object(
+        name="Grunt", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=grunt_def.characteristics, card_def=grunt_def,
+    )
+    # Tough survivor (High-End Nomu is 7/6)
+    nomu_def = MY_HERO_ACADEMIA_CARDS["High-End Nomu"]
+    nomu = game.create_object(
+        name="Nomu", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=nomu_def.characteristics, card_def=nomu_def,
+    )
+    _, triggered = _cast_on_battlefield(
+        game, p1.id, MY_HERO_ACADEMIA_CARDS["Gigantomachia, Living Disaster"]
+    )
+    destroyed = {e.payload.get('object_id') for e in triggered if e.type == EventType.OBJECT_DESTROYED}
+    assert grunt.id in destroyed, "Small grunt should be swept"
+    assert nomu.id not in destroyed, "Toughness-6 Nomu should survive"
+    print("PASSED: Gigantomachia sweeps asymmetrically by toughness!")
+
+
+def test_overhaul_opp_creature_drain():
+    """Overhaul: whenever an opponent's creature enters, that player loses 1 life."""
+    print("\n=== Test: Overhaul Persistent Drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    oh_def = MY_HERO_ACADEMIA_CARDS["Overhaul, Yakuza Boss"]
+    game.create_object(
+        name="Overhaul", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=oh_def.characteristics, card_def=oh_def,
+    )
+    _, triggered = _cast_on_battlefield(
+        game, p2.id, MY_HERO_ACADEMIA_CARDS["League of Villains Grunt"]
+    )
+    drains = [
+        e for e in triggered
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount', 0) < 0
+    ]
+    assert len(drains) >= 1, "Expected Overhaul to drain opponent on their ETB"
+    print("PASSED: Overhaul drains on opponent creature ETB!")
+
+
+def test_stain_ideology_tax():
+    """Stain: non-Hero opponent attackers make that player lose 1 life."""
+    print("\n=== Test: Stain Ideology Tax ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    stain_def = MY_HERO_ACADEMIA_CARDS["Stain, Hero Killer"]
+    game.create_object(
+        name="Stain", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=stain_def.characteristics, card_def=stain_def,
+    )
+    villain_def = MY_HERO_ACADEMIA_CARDS["League of Villains Grunt"]  # Villain, no Hero
+    attacker = game.create_object(
+        name="Grunt", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=villain_def.characteristics, card_def=villain_def,
+    )
+    triggered = game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'controller': p2.id}
+    ))
+    drains = [
+        e for e in triggered
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount', 0) < 0
+    ]
+    assert len(drains) >= 1, "Expected ideology tax on non-Hero attacker"
+    print("PASSED: Stain's ideology taxes non-Hero attackers!")
+
+
+def test_moonfish_exiles_on_hit():
+    """Moonfish: deals combat damage to creature -> exile it + +1/+1 counter."""
+    print("\n=== Test: Moonfish Exile Engine ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    mf_def = MY_HERO_ACADEMIA_CARDS["Moonfish, Blade Villain"]
+    moonfish = game.create_object(
+        name="Moonfish", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=mf_def.characteristics, card_def=mf_def,
+    )
+    victim_def = MY_HERO_ACADEMIA_CARDS["Rescue Hero"]
+    victim = game.create_object(
+        name="Victim", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=victim_def.characteristics, card_def=victim_def,
+    )
+    triggered = game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': moonfish.id, 'target': victim.id, 'amount': 2, 'is_combat': True}
+    ))
+    exiles = [e for e in triggered if e.type == EventType.EXILE]
+    counters = [e for e in triggered if e.type == EventType.COUNTER_ADDED]
+    assert len(exiles) >= 1, "Expected exile event"
+    assert len(counters) >= 1, "Expected +1/+1 counter on Moonfish"
+    print("PASSED: Moonfish exiles + grows!")
+
+
+def test_mt_lady_etb_team_buff():
+    """Mt. Lady ETB: other creatures you control get +2/+2 until end of turn."""
+    print("\n=== Test: Mt. Lady Team Buff ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ally_def = MY_HERO_ACADEMIA_CARDS["Rescue Hero"]
+    game.create_object(
+        name="Ally", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=ally_def.characteristics, card_def=ally_def,
+    )
+    _, triggered = _cast_on_battlefield(
+        game, p1.id, MY_HERO_ACADEMIA_CARDS["Mt. Lady, Gigantification"]
+    )
+    pt_mods = [e for e in triggered if e.type == EventType.PT_MODIFICATION]
+    assert len(pt_mods) >= 1, "Expected a PT_MODIFICATION buff"
+    print("PASSED: Mt. Lady buffs allies on ETB!")
+
+
+def test_power_loader_artifact_indestructible():
+    """Power Loader grants indestructible to artifacts you control."""
+    print("\n=== Test: Power Loader Artifact Shield ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    pl_def = MY_HERO_ACADEMIA_CARDS["Power Loader, Support Teacher"]
+    game.create_object(
+        name="PL", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=pl_def.characteristics, card_def=pl_def,
+    )
+    equip_def = MY_HERO_ACADEMIA_CARDS["Bakugo's Grenade Gauntlets"]
+    equip = game.create_object(
+        name="Gauntlets", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=equip_def.characteristics, card_def=equip_def,
+    )
+    assert has_ability(equip, 'indestructible', game.state), "Artifact should be indestructible"
+    print("PASSED: Power Loader grants indestructible to artifacts!")
+
+
+def test_present_mic_spell_cast_ping():
+    """Present Mic: whenever you cast a spell, ping each opponent creature."""
+    print("\n=== Test: Present Mic Spell Ping ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    pm_def = MY_HERO_ACADEMIA_CARDS["Present Mic, Voice Hero"]
+    game.create_object(
+        name="PM", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=pm_def.characteristics, card_def=pm_def,
+    )
+    enemy_def = MY_HERO_ACADEMIA_CARDS["Rescue Hero"]
+    enemy = game.create_object(
+        name="Enemy", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=enemy_def.characteristics, card_def=enemy_def,
+    )
+    triggered = game.emit(Event(
+        type=EventType.CAST,
+        payload={'controller': p1.id, 'player': p1.id}
+    ))
+    pings = [
+        e for e in triggered
+        if e.type == EventType.DAMAGE and e.payload.get('target') == enemy.id
+    ]
+    assert len(pings) >= 1, "Expected ping damage to opponent creature"
+    print("PASSED: Present Mic pings on cast!")
+
+
+def test_cementoss_attack_tax():
+    """Cementoss: attackers against you lose 1 life."""
+    print("\n=== Test: Cementoss Attack Tax ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    c_def = MY_HERO_ACADEMIA_CARDS["Cementoss, Concrete Hero"]
+    game.create_object(
+        name="Cementoss", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=c_def.characteristics, card_def=c_def,
+    )
+    atk_def = MY_HERO_ACADEMIA_CARDS["League of Villains Grunt"]
+    attacker = game.create_object(
+        name="Atkr", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=atk_def.characteristics, card_def=atk_def,
+    )
+    triggered = game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'controller': p2.id, 'defender': p1.id}
+    ))
+    drains = [
+        e for e in triggered
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount', 0) < 0
+    ]
+    assert len(drains) >= 1, "Expected attack tax on opponent"
+    print("PASSED: Cementoss's concrete walls tax attackers!")
+
+
+def test_ragdoll_search_tutor():
+    """Ragdoll ETB emits LOOK_AT_TOP + SEARCH_LIBRARY tutor events."""
+    print("\n=== Test: Ragdoll Search Eyes ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    _, triggered = _cast_on_battlefield(
+        game, p1.id, MY_HERO_ACADEMIA_CARDS["Ragdoll, Wild Wild Pussycats"]
+    )
+    looks = [e for e in triggered if e.type == EventType.LOOK_AT_TOP]
+    searches = [e for e in triggered if e.type == EventType.SEARCH_LIBRARY]
+    assert len(looks) >= 1, "Expected LOOK_AT_TOP"
+    assert len(searches) >= 1, "Expected SEARCH_LIBRARY"
+    print("PASSED: Ragdoll fires both look + search!")
+
+
+def test_tiger_combat_hero_buff():
+    """Tiger at beginning of combat on your turn buffs other Heroes."""
+    print("\n=== Test: Tiger Combat Rally ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    t_def = MY_HERO_ACADEMIA_CARDS["Tiger, Wild Wild Pussycats"]
+    game.create_object(
+        name="Tiger", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=t_def.characteristics, card_def=t_def,
+    )
+    hero_def = MY_HERO_ACADEMIA_CARDS["Rescue Hero"]
+    ally = game.create_object(
+        name="Hero", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=hero_def.characteristics, card_def=hero_def,
+    )
+    game.state.active_player = p1.id
+    triggered = game.emit(Event(
+        type=EventType.COMBAT_DECLARED,
+        payload={'active_player': p1.id},
+    ))
+    pt_mods = [
+        e for e in triggered
+        if e.type == EventType.PT_MODIFICATION
+        and e.payload.get('object_id') == ally.id
+    ]
+    assert len(pt_mods) >= 1, "Expected Tiger to buff Hero ally at combat"
+    print("PASSED: Tiger rallies other Heroes at beginning of combat!")
+
+
+def test_mr_compress_exiles_and_returns():
+    """Mr. Compress ETB exiles an opponent permanent."""
+    print("\n=== Test: Mr. Compress Exile ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    target_def = MY_HERO_ACADEMIA_CARDS["High-End Nomu"]
+    target = game.create_object(
+        name="Nomu", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=target_def.characteristics, card_def=target_def,
+    )
+    _, triggered = _cast_on_battlefield(
+        game, p1.id, MY_HERO_ACADEMIA_CARDS["Mr. Compress, Showman"]
+    )
+    exiles = [
+        e for e in triggered
+        if e.type == EventType.EXILE
+        and e.payload.get('object_id') == target.id
+    ]
+    assert len(exiles) >= 1, "Expected Mr. Compress to exile target"
+    print("PASSED: Mr. Compress exiles on ETB!")
+
+
+def test_recovery_girl_comfort_on_death():
+    """Recovery Girl reacts when your creature dies: -2 life, draw, +1 life."""
+    print("\n=== Test: Recovery Girl Comfort ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    rg_def = MY_HERO_ACADEMIA_CARDS["Recovery Girl, Healing Hero"]
+    game.create_object(
+        name="RG", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=rg_def.characteristics, card_def=rg_def,
+    )
+    victim_def = MY_HERO_ACADEMIA_CARDS["Rescue Hero"]
+    victim = game.create_object(
+        name="Victim", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=victim_def.characteristics, card_def=victim_def,
+    )
+    triggered = game.emit(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': victim.id},
+    ))
+    draws = [e for e in triggered if e.type == EventType.DRAW]
+    assert len(draws) >= 1, "Expected comfort draw on creature death"
+    print("PASSED: Recovery Girl comforts the fallen!")
+
+
+def test_deku_cowl_upkeep_counter_and_combo():
+    """Deku Cowl: upkeep adds cowl counter; attacking at 5+ bursts opponents."""
+    print("\n=== Test: Deku Full Cowl 100% ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    deku_def = MY_HERO_ACADEMIA_CARDS["Deku, Full Cowl 100%"]
+    deku = game.create_object(
+        name="Deku", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=deku_def.characteristics, card_def=deku_def,
+    )
+    # Upkeep fires cowl counter add (controller_only=True requires active_player)
+    game.state.active_player = p1.id
+    triggered = game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'active_player': p1.id}
+    ))
+    counters = [
+        e for e in triggered
+        if e.type == EventType.COUNTER_ADDED
+        and e.payload.get('object_id') == deku.id
+        and e.payload.get('counter_type') == 'cowl'
+    ]
+    assert len(counters) >= 1, "Expected a cowl counter on upkeep"
+
+    # Manually stack cowl counters to 5 and attack
+    if not hasattr(deku, 'state') or deku.state is None:
+        deku.state = ObjectState()
+    deku.state.counters['cowl'] = 5
+    atk_triggered = game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': deku.id, 'controller': p1.id}
+    ))
+    bursts = [
+        e for e in atk_triggered
+        if e.type == EventType.DAMAGE
+        and e.payload.get('target') == p2.id
+    ]
+    grants = [
+        e for e in atk_triggered
+        if e.type == EventType.GRANT_KEYWORD
+        and e.payload.get('keyword') == 'double_strike'
+    ]
+    assert len(bursts) >= 1, "Expected opponent burn at 5+ cowl"
+    assert len(grants) >= 1, "Expected double strike grant at 5+ cowl"
+    print("PASSED: Deku Cowl 100% engine fires!")
+
+
+def test_eri_rewind_doubles_counters():
+    """Eri ETB: doubles +1/+1 counters on the most-counter creature."""
+    print("\n=== Test: Eri Rewind Doubles Counters ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ally_def = MY_HERO_ACADEMIA_CARDS["Growth-Type Student"]
+    ally = game.create_object(
+        name="Ally", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=ally_def.characteristics, card_def=ally_def,
+    )
+    if not hasattr(ally, 'state') or ally.state is None:
+        ally.state = ObjectState()
+    ally.state.counters['+1/+1'] = 3
+    _, triggered = _cast_on_battlefield(
+        game, p1.id, MY_HERO_ACADEMIA_CARDS["Eri, Rewind"]
+    )
+    counter_events = [
+        e for e in triggered
+        if e.type == EventType.COUNTER_ADDED
+        and e.payload.get('object_id') == ally.id
+        and e.payload.get('amount', 0) == 3
+    ]
+    assert len(counter_events) >= 1, "Expected Eri to double existing counters"
+    print("PASSED: Eri rewinds... forward!")
+
+
+def test_shigaraki_handless_decay_activated():
+    """Shigaraki Handless: pay X life -> destroy target permanent with mv <= X."""
+    print("\n=== Test: Shigaraki Handless Decay ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sh_def = MY_HERO_ACADEMIA_CARDS["Shigaraki Tomura, Handless"]
+    sh = game.create_object(
+        name="SH", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=sh_def.characteristics, card_def=sh_def,
+    )
+    victim_def = MY_HERO_ACADEMIA_CARDS["Rescue Hero"]  # mv 3
+    victim = game.create_object(
+        name="Victim", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=victim_def.characteristics, card_def=victim_def,
+    )
+    triggered = game.emit(Event(
+        type=EventType.ACTIVATE,
+        payload={
+            'source': sh.id,
+            'ability': 'decay',
+            'target': victim.id,
+            'life_paid': 5,
+        }
+    ))
+    destroys = [
+        e for e in triggered
+        if e.type == EventType.OBJECT_DESTROYED
+        and e.payload.get('object_id') == victim.id
+    ]
+    life_losses = [
+        e for e in triggered
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount', 0) < 0
+    ]
+    assert len(destroys) >= 1, "Expected destruction of target"
+    assert len(life_losses) >= 1, "Expected Shigaraki to pay life"
+    print("PASSED: Shigaraki Handless decays for life!")
+
+
+def test_mirio_permeation_plus_discard():
+    """Mirio: unblockable + hexproof + each-opp-discard on hit."""
+    print("\n=== Test: Mirio Full Permeation ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    m_def = MY_HERO_ACADEMIA_CARDS["Mirio, Lemillion"]
+    mirio = game.create_object(
+        name="Mirio", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=m_def.characteristics, card_def=m_def,
+    )
+    assert has_ability(mirio, 'unblockable', game.state), "Expected unblockable"
+    assert has_ability(mirio, 'hexproof', game.state), "Expected hexproof"
+    triggered = game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': mirio.id, 'target': p2.id, 'amount': 4, 'is_combat': True}
+    ))
+    discards = [
+        e for e in triggered
+        if e.type == EventType.DISCARD and e.payload.get('player') == p2.id
+    ]
+    assert len(discards) >= 1, "Expected discard on combat hit"
+    print("PASSED: Mirio's permeation is relentless!")
+
+
+def test_mineta_taunt_attack_redirect():
+    """Mineta grants taunt to himself (attack redirect is pipeline-dependent)."""
+    print("\n=== Test: Mineta Sticky Grapes ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    m_def = MY_HERO_ACADEMIA_CARDS["Mineta, Grape Rush"]
+    mineta = game.create_object(
+        name="Mineta", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=m_def.characteristics, card_def=m_def,
+    )
+    assert has_ability(mineta, 'taunt', game.state), "Expected Mineta to have taunt"
+    print("PASSED: Mineta has taunt!")
+
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -1644,6 +2114,32 @@ def run_all_tests():
     print("-" * 40)
     test_shigaraki_damage_trigger()
     test_gentle_criminal_damage_trigger()
+
+    # Legendary-bar redesigns & new cards
+    print("\n" + "-" * 40)
+    print("LEGENDARY BAR: REDESIGNED CARDS")
+    print("-" * 40)
+    test_gigantomachia_asymmetric_sweep()
+    test_overhaul_opp_creature_drain()
+    test_stain_ideology_tax()
+    test_moonfish_exiles_on_hit()
+    test_mt_lady_etb_team_buff()
+    test_power_loader_artifact_indestructible()
+    test_present_mic_spell_cast_ping()
+    test_cementoss_attack_tax()
+    test_ragdoll_search_tutor()
+    test_tiger_combat_hero_buff()
+    test_mr_compress_exiles_and_returns()
+    test_recovery_girl_comfort_on_death()
+    test_mirio_permeation_plus_discard()
+    test_mineta_taunt_attack_redirect()
+
+    print("\n" + "-" * 40)
+    print("LEGENDARY BAR: NEW CARDS")
+    print("-" * 40)
+    test_deku_cowl_upkeep_counter_and_combo()
+    test_eri_rewind_doubles_counters()
+    test_shigaraki_handless_decay_activated()
 
     print("\n" + "=" * 60)
     print("ALL TESTS COMPLETE!")
