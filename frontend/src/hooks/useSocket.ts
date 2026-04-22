@@ -14,7 +14,7 @@ import {
   sendAction,
   spectateGame,
   stopSpectating,
-  disconnectSocket,
+  isConnected as socketIsConnected,
 } from '../services/socket';
 import type { PlayerActionRequest, GameState } from '../types';
 
@@ -33,7 +33,6 @@ export function useSocket(options: UseSocketOptions = {}) {
   const setGameState = useGameStore((state) => state.setGameState);
   const setError = useGameStore((state) => state.setError);
 
-  const initializedRef = useRef(false);
   const currentMatchRef = useRef<string | null>(null);
 
   // Handle game state updates
@@ -53,11 +52,12 @@ export function useSocket(options: UseSocketOptions = {}) {
     [setError, onError]
   );
 
-  // Initialize socket on mount
+  // Initialize socket on mount. initSocket is idempotent (no-op if already
+  // connected), so it is safe to call unconditionally. We intentionally do
+  // NOT disconnect on unmount — the socket is a singleton shared across
+  // all game views, and unmounting one view to navigate to another should
+  // not tear down the connection mid-flight.
   useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
-
     initSocket({
       onGameState: handleGameState,
       onError: handleError,
@@ -69,11 +69,11 @@ export function useSocket(options: UseSocketOptions = {}) {
         }
       },
     });
-
-    return () => {
-      disconnectSocket();
-      setConnected(false);
-    };
+    // If the socket was already alive when this hook mounts, reflect that
+    // in the store so the UI doesn't start at "Disconnected" for a second.
+    if (socketIsConnected()) {
+      setConnected(true);
+    }
   }, [handleGameState, handleError, setConnected, setError]);
 
   // Update handlers when callbacks change
