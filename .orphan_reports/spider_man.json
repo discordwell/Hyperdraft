@@ -1,0 +1,32 @@
+{
+  "set": "spider_man.py",
+  "results": [
+    {
+      "fn": "spiderbyte_setup",
+      "card_var": "SPIDERBYTE_WEB_WARDEN",
+      "disposition": "wired",
+      "notes": "Card name on the card is 'Spider-Byte, Web Warden' (hyphenated); the setup fn is 'spiderbyte_setup' which is why the auto-matcher missed it (name_mismatch). Wired via setup_interceptors=spiderbyte_setup. ETB body is still a placeholder that returns no events because the bounce ability requires player-targeting (engine_gap: targeted-ETB). Helper make_etb_trigger is now correctly registered so once targeting lands the body can be filled in.",
+      "engine_gap": "targeted-ETB selection (return up to one target nonland permanent to its owner's hand)"
+    },
+    {
+      "fn": "tombstone_setup",
+      "card_var": "TOMBSTONE_CAREER_CRIMINAL",
+      "disposition": "wired",
+      "notes": "Stub ETB body returns []; wired anyway so the trigger interceptor is at least attached. Two engine gaps remain: (1) targeted graveyard return for a Villain card, (2) a static cost-reduction (Villain spells you cast cost {1} less) which would need a QUERY_COST / cost-modifier interceptor.",
+      "engine_gap": "targeted graveyard-to-hand selection; static cost reduction by subtype (QUERY_COST interceptor)"
+    },
+    {
+      "fn": "j_jonah_jameson_setup",
+      "card_var": "J_JONAH_JAMESON",
+      "disposition": "fixed",
+      "notes": "multi_ability case. Existing fn built the menace-attack trigger but never appended it to the returned list (dead code). Fixed by (a) appending the make_attack_trigger via filter_fn=menace_attack_filter, (b) correcting filter signature to (event, state, source) to match helper contract, (c) replacing buggy menace check ('menace' in subtypes or 'creature' in types) with proper attacker.characteristics.keywords lookup. Then wired setup_interceptors=j_jonah_jameson_setup. ETB body remains a placeholder ([]) because 'suspect up to one target creature' needs targeting + a 'suspect' status mechanic that doesn't yet exist.",
+      "engine_gap": "targeted ETB; 'suspect' mechanic (grant menace + can't-block as a status)"
+    }
+  ],
+  "summary": {
+    "wired": 2,
+    "fixed": 1,
+    "flagged": 0,
+    "skipped": 0
+  }
+}

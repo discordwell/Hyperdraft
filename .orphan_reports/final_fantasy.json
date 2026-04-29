@@ -1,0 +1,187 @@
+{
+  "set": "final_fantasy.py",
+  "results": [
+    {
+      "fn": "sephiroth_planets_heir_setup",
+      "card_var": "SEPHIROTH_PLANETS_HEIR",
+      "disposition": "wired",
+      "notes": "name_mismatch was due to apostrophe normalization; card variable is SEPHIROTH_PLANETS_HEIR. Body fully implements ETB -2/-2 to opponent creatures and +1/+1 counter on opponent creature death.",
+      "engine_gap": null
+    },
+    {
+      "fn": "sandworm_setup",
+      "card_var": "SANDWORM",
+      "disposition": "flagged",
+      "notes": "Body is pure stub returning []. Card text requires destroying target land plus library search for basic land.",
+      "engine_gap": "targeting + library search"
+    },
+    {
+      "fn": "sazh_katzroy_setup",
+      "card_var": "SAZH_KATZROY",
+      "disposition": "flagged",
+      "notes": "Body is pure stub returning []. Requires library search/reveal/may-put-into-hand and a counter-doubling attack trigger.",
+      "engine_gap": "library search + counter doubling + targeting"
+    },
+    {
+      "fn": "sazhs_chocobo_setup",
+      "card_var": "SAZHS_CHOCOBO",
+      "disposition": "wired",
+      "notes": "name_mismatch due to apostrophe (Sazh's). Landfall +1/+1 counter body is fully implemented.",
+      "engine_gap": null
+    },
+    {
+      "fn": "vanille_cheerful_lcie_setup",
+      "card_var": "VANILLE_CHEERFUL_LCIE",
+      "disposition": "wired",
+      "notes": "name_mismatch due to apostrophe (l'Cie). ETB mill 2 implemented; graveyard-return and meld portions are unimplemented but the function still wires a working mill trigger.",
+      "engine_gap": "graveyard return + meld (partially functional)"
+    },
+    {
+      "fn": "giott_king_of_dwarves_setup",
+      "card_var": "GIOTT_KING_OF_THE_DWARVES",
+      "disposition": "wired",
+      "notes": "Card variable is GIOTT_KING_OF_THE_DWARVES (briefing dropped 'the'). Body wires Dwarf/Equipment ETB filter -> draw 1 (simplified, missing 'may discard a card' choice).",
+      "engine_gap": "may-discard choice (partially functional)"
+    },
+    {
+      "fn": "gladiolus_amicitia_setup",
+      "card_var": "GLADIOLUS_AMICITIA",
+      "disposition": "wired",
+      "notes": "multi_ability — wires ETB land-search trigger (placeholder) plus landfall +2/+2 trample trigger (placeholder for targeting). Both registered.",
+      "engine_gap": "library search + targeting (partially functional)"
+    },
+    {
+      "fn": "hope_estheim_setup",
+      "card_var": "HOPE_ESTHEIM",
+      "disposition": "flagged",
+      "notes": "make_end_step_trigger helper does exist (briefing's unknown_helper flag was wrong) but body returns [] because per-turn life-gained tracking is unimplemented.",
+      "engine_gap": "life gained per-turn tracking"
+    },
+    {
+      "fn": "ignis_scientia_setup",
+      "card_var": "IGNIS_SCIENTIA",
+      "disposition": "flagged",
+      "notes": "Body is pure stub returning []. Requires look-at-top-N library and may-put-onto-battlefield-tapped.",
+      "engine_gap": "library top-N look + may-put-onto-battlefield"
+    },
+    {
+      "fn": "shantotto_tactician_magician_setup",
+      "card_var": "SHANTOTTO_TACTICIAN_MAGICIAN",
+      "disposition": "wired",
+      "notes": "multi_ability. Body fully implements +X/+0 boost on noncreature spell cast plus draw if mana spent >= 4. Reads mana_spent from CAST event payload.",
+      "engine_gap": null
+    },
+    {
+      "fn": "tellah_great_sage_setup",
+      "card_var": "TELLAH_GREAT_SAGE",
+      "disposition": "wired",
+      "notes": "multi_ability. Body fully implements Hero token + bonus draw at >=4 mana + sacrifice/damage at >=8 mana on noncreature spell cast.",
+      "engine_gap": null
+    },
+    {
+      "fn": "tidus_blitzball_star_setup",
+      "card_var": "TIDUS_BLITZBALL_STAR",
+      "disposition": "wired",
+      "notes": "multi_ability. Artifact-ETB +1/+1 counter ability is fully implemented. Attack-tap-target trigger is registered but no-op due to missing targeting; partial functionality preserved.",
+      "engine_gap": "targeting (partially functional — first ability works)"
+    },
+    {
+      "fn": "ultimecia_temporal_threat_setup",
+      "card_var": "ULTIMECIA_TEMPORAL_THREAT",
+      "disposition": "wired",
+      "notes": "multi_ability. Body fully implements ETB tap-all-opponent-creatures and combat-damage-to-player draw trigger.",
+      "engine_gap": null
+    },
+    {
+      "fn": "yuna_hope_of_spira_setup",
+      "card_var": "YUNA_HOPE_OF_SPIRA",
+      "disposition": "flagged",
+      "notes": "make_end_step_trigger does exist (unknown_helper flag was wrong) but body returns []. Static keyword grant for trample/lifelink/ward to enchantment creatures is also unimplemented.",
+      "engine_gap": "graveyard targeting + finality counter + 'during your turn' static effect"
+    },
+    {
+      "fn": "zidane_tantalus_thief_setup",
+      "card_var": "ZIDANE_TANTALUS_THIEF",
+      "disposition": "flagged",
+      "notes": "Body is pure stub returning []. Needs control change effects.",
+      "engine_gap": "temporary control change + targeting"
+    },
+    {
+      "fn": "lion_heart_setup",
+      "card_var": "LION_HEART",
+      "disposition": "flagged",
+      "notes": "Body is pure stub returning []. Card needs ETB damage to any target plus equip-bonus +2/+1.",
+      "engine_gap": "targeting + equipment static bonus"
+    },
+    {
+      "fn": "adventurers_inn_setup",
+      "card_var": "ADVENTURERS_INN",
+      "disposition": "wired",
+      "notes": "name_mismatch due to apostrophe (Adventurer's). ETB life gain 2 is fully implemented and wired.",
+      "engine_gap": null
+    },
+    {
+      "fn": "vaan_street_thief_setup",
+      "card_var": "VAAN_STREET_THIEF",
+      "disposition": "wired",
+      "notes": "multi_ability. Wires combat-damage-by-Scout/Pirate/Rogue trigger. Effect is simplified to creating Treasure token (proxy for exile-and-cast-from-opponent-library which lacks engine support).",
+      "engine_gap": "exile from opponent library + may-cast (partially functional via proxy)"
+    },
+    {
+      "fn": "zell_dincht_setup",
+      "card_var": "ZELL_DINCHT",
+      "disposition": "flagged",
+      "notes": "make_end_step_trigger exists (unknown_helper flag was wrong) but body returns []. Card also needs additional-land-play and dynamic +1/+0 per-land static.",
+      "engine_gap": "land bounce targeting + additional land play + dynamic P/T per land"
+    },
+    {
+      "fn": "balthier_and_fran_setup",
+      "card_var": "BALTHIER_AND_FRAN",
+      "disposition": "wired",
+      "notes": "multi_ability. Wires static +1/+1 boost + vigilance/reach grant for Vehicles. Vehicle-attack additional combat phase clause not implemented but main static is fully functional.",
+      "engine_gap": "additional combat phase trigger (partially functional)"
+    },
+    {
+      "fn": "cid_timeless_artificer_setup",
+      "card_var": "CID_TIMELESS_ARTIFICER",
+      "disposition": "wired",
+      "notes": "multi_ability. Custom QUERY_POWER/QUERY_TOUGHNESS interceptors implement +1/+1 per Artificer (battlefield only — graveyard-Artificer count not included).",
+      "engine_gap": "include Artificer count from graveyard (partially functional)"
+    },
+    {
+      "fn": "sin_spiras_punishment_setup",
+      "card_var": "SIN_SPIRAS_PUNISHMENT",
+      "disposition": "flagged",
+      "notes": "Body wires ETB and attack triggers but both effect functions return []. Card needs random graveyard exile + token-copy creation.",
+      "engine_gap": "random graveyard exile + tapped copy-token creation"
+    },
+    {
+      "fn": "terra_magical_adept_setup",
+      "card_var": "TERRA_MAGICAL_ADEPT",
+      "disposition": "wired",
+      "notes": "multi_ability. Body fully implements +1/+1 counter and Shard token on noncreature spell cast. Note: card def is a placeholder split-card stub (text=\"\", power/toughness 0/0) but the setup function still works.",
+      "engine_gap": null
+    },
+    {
+      "fn": "kefka_court_mage_setup",
+      "card_var": "KEFKA_COURT_MAGE",
+      "disposition": "wired",
+      "notes": "multi_ability. Body fully implements -1 life to each opponent and +1 life to controller on noncreature spell cast. Note: card def is a placeholder split-card stub (text=\"\", power/toughness 0/0) but the setup function still works.",
+      "engine_gap": null
+    },
+    {
+      "fn": "adventurers_airship_setup",
+      "card_var": "ADVENTURERS_AIRSHIP",
+      "disposition": "wired",
+      "notes": "name_mismatch due to apostrophe (Adventurer's). Attack -> draw 1 + discard 1 fully implemented and wired.",
+      "engine_gap": null
+    }
+  ],
+  "summary": {
+    "wired": 16,
+    "fixed": 0,
+    "consolidated": 0,
+    "flagged": 9,
+    "skipped": 0
+  }
+}

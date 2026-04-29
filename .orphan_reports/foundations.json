@@ -1,0 +1,38 @@
+{
+  "set": "foundations.py",
+  "results": [
+    {"fn": "exclusion_mage_setup", "card_var": "EXCLUSION_MAGE", "disposition": "wired", "notes": "Stub effect_fn returns []; ETB trigger is wired correctly. Targeting system needed for full implementation.", "engine_gap": "targeting"},
+    {"fn": "meteor_golem_setup", "card_var": "METEOR_GOLEM", "disposition": "wired", "notes": "Stub effect_fn returns []; ETB trigger is wired. Needs targeting + DESTROY emit.", "engine_gap": "targeting"},
+    {"fn": "balmor_battlemage_captain_setup", "card_var": "BALMOR_BATTLEMAGE_CAPTAIN", "disposition": "wired", "notes": "Spell-cast trigger is wired with proper instant/sorcery filter; effect_fn is empty pending until-end-of-turn pump system.", "engine_gap": "until_end_of_turn_temp_effect"},
+    {"fn": "dauntless_veteran_setup", "card_var": "DAUNTLESS_VETERAN", "disposition": "wired", "notes": "Attack trigger wired; effect empty pending temp pump system for creatures-you-control filter.", "engine_gap": "until_end_of_turn_temp_effect"},
+    {"fn": "felidar_savior_setup", "card_var": "FELIDAR_SAVIOR", "disposition": "wired", "notes": "ETB wired; effect empty pending targeting/multi-target counter placement.", "engine_gap": "targeting"},
+    {"fn": "vanguard_seraph_setup", "card_var": "VANGUARD_SERAPH", "disposition": "wired", "notes": "Uses make_life_gain_trigger (helper exists despite briefing flag). Simplified: triggers on every life gain rather than first-each-turn.", "engine_gap": "first_event_per_turn_tracking"},
+    {"fn": "erudite_wizard_setup", "card_var": "ERUDITE_WIZARD", "disposition": "wired", "notes": "Uses make_draw_trigger (helper exists). Simplified: triggers on every draw, not just second of turn.", "engine_gap": "second_event_per_turn_tracking"},
+    {"fn": "homunculus_horde_setup", "card_var": "HOMUNCULUS_HORDE", "disposition": "wired", "notes": "Uses make_draw_trigger (helper exists). Simplified: triggers on every draw. Token is approximation (2/2 Homunculus, not a true copy).", "engine_gap": "second_event_per_turn_tracking, copy_self_token"},
+    {"fn": "arbiter_of_woe_setup", "card_var": "ARBITER_OF_WOE", "disposition": "wired", "notes": "ETB emits per-opponent DISCARD + LIFE_CHANGE plus self DRAW + LIFE_CHANGE. Sacrifice-as-additional-cost not enforced (cast-time gap).", "engine_gap": "additional_cost_sacrifice"},
+    {"fn": "highsociety_hunter_setup", "card_var": "HIGHSOCIETY_HUNTER", "disposition": "wired", "notes": "Card found despite name_mismatch flag (hyphen in name). Setup implements the death-draw ability; the attack-sac-counter ability is not implemented.", "engine_gap": "optional_sacrifice_attack_trigger"},
+    {"fn": "soulshackled_zombie_setup", "card_var": "SOULSHACKLED_ZOMBIE", "disposition": "wired", "notes": "Card found (hyphen). Stub ETB wired; targeting/exile-from-graveyard needed.", "engine_gap": "targeting"},
+    {"fn": "crackling_cyclops_setup", "card_var": "CRACKLING_CYCLOPS", "disposition": "wired", "notes": "Custom interceptor with noncreature spell filter is wired. effect_fn empty pending until-end-of-turn pump.", "engine_gap": "until_end_of_turn_temp_effect"},
+    {"fn": "beastkin_ranger_setup", "card_var": "BEASTKIN_RANGER", "disposition": "wired", "notes": "Card found (hyphen). Custom enters-battlefield filter wired; effect empty pending temp pump.", "engine_gap": "until_end_of_turn_temp_effect"},
+    {"fn": "mossborn_hydra_setup", "card_var": "MOSSBORN_HYDRA", "disposition": "wired", "notes": "Landfall trigger wired; doubles +1/+1 counters by adding (current_count) more. Enters-with-+1/+1 part of text not in setup but typically handled at ETB elsewhere.", "engine_gap": "enters_with_counters_static"},
+    {"fn": "dreadwing_scavenger_setup", "card_var": "DREADWING_SCAVENGER", "disposition": "wired", "notes": "ETB + attack triggers both wired with shared effect_fn (DRAW then DISCARD). Threshold static (P/T + deathtouch on 7+ GY) not implemented.", "engine_gap": "threshold_static_modifier"},
+    {"fn": "koma_worldeater_setup", "card_var": "KOMA_WORLDEATER", "disposition": "wired", "notes": "Card found (hyphen). Combat damage trigger creates 4 Koma's Coil tokens. Trample/ward/uncounterable handled elsewhere.", "engine_gap": ""},
+    {"fn": "kykar_zephyr_awakener_setup", "card_var": "KYKAR_ZEPHYR_AWAKENER", "disposition": "wired", "notes": "Implements the Spirit-token mode of the modal noncreature-cast trigger. Exile-and-return mode not implemented.", "engine_gap": "modal_choice_with_targeting"},
+    {"fn": "nivmizzet_visionary_setup", "card_var": "NIVMIZZET_VISIONARY", "disposition": "wired", "notes": "Card found (hyphen). Noncombat damage to opponent triggers DRAW equal to damage. Filter checks is_combat=False and source controlled by Niv.", "engine_gap": ""},
+    {"fn": "angel_of_finality_setup", "card_var": "ANGEL_OF_FINALITY", "disposition": "wired", "notes": "Stub ETB wired; targeting/exile-graveyard event needed.", "engine_gap": "targeting, exile_graveyard"},
+    {"fn": "mischievous_pup_setup", "card_var": "MISCHIEVOUS_PUP", "disposition": "wired", "notes": "Stub ETB wired; targeting needed for the BOUNCE event.", "engine_gap": "targeting"},
+    {"fn": "syr_alin_the_lions_claw_setup", "card_var": "SYR_ALIN_THE_LIONS_CLAW", "disposition": "wired", "notes": "Card found (apostrophe). Stub attack trigger wired; effect empty pending temp pump for other-creatures filter.", "engine_gap": "until_end_of_turn_temp_effect"},
+    {"fn": "driver_of_the_dead_setup", "card_var": "DRIVER_OF_THE_DEAD", "disposition": "wired", "notes": "Stub death trigger wired; targeting + return-from-graveyard with mana value filter needed.", "engine_gap": "targeting, mv_filter_return_from_graveyard"},
+    {"fn": "kalastria_highborn_setup", "card_var": "KALASTRIA_HIGHBORN", "disposition": "wired", "notes": "Vampire-dies filter wired with auto-trigger (no {B} pay) for both target-loses-2 and self-gains-2. Filter currently includes self-Vampire deaths and only fires on the first opponent (uses break).", "engine_gap": "optional_mana_pay_trigger"},
+    {"fn": "goblin_chieftain_setup", "card_var": null, "disposition": "skipped", "notes": "No GOBLIN_CHIEFTAIN card definition exists in foundations.py. The setup function is orphaned because the card itself was never defined. Cannot wire without a target.", "engine_gap": ""},
+    {"fn": "fierce_empath_setup", "card_var": "FIERCE_EMPATH", "disposition": "wired", "notes": "Stub ETB wired; library search with mana-value filter needed.", "engine_gap": "library_search_mv_filter"},
+    {"fn": "springbloom_druid_setup", "card_var": "SPRINGBLOOM_DRUID", "disposition": "wired", "notes": "Stub ETB wired; optional sacrifice + library search for two basic lands needed.", "engine_gap": "optional_sacrifice_then_search"}
+  ],
+  "summary": {
+    "wired": 25,
+    "fixed": 0,
+    "consolidated": 0,
+    "flagged": 0,
+    "skipped": 1
+  }
+}

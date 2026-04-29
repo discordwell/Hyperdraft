@@ -1,0 +1,102 @@
+{
+  "set": "murders_karlov_manor.py",
+  "results": [
+    {
+      "fn": "aurelia_the_law_above_setup",
+      "card_var": "AURELIA_THE_LAW_ABOVE",
+      "disposition": "skipped",
+      "notes": "Body is empty stub returning []. Card text 'Whenever a player attacks with three or more creatures' requires aggregate attack-counting tracking that's not supported by ATTACK_DECLARED helper.",
+      "engine_gap": "No event aggregating per-turn attacker count; would need attack-declaration phase summary or a multi-attack trigger helper."
+    },
+    {
+      "fn": "izoni_center_setup",
+      "card_var": "IZONI_CENTER_OF_THE_WEB",
+      "disposition": "wired",
+      "notes": "Body implements both ETB and attack triggers, creating two 2/1 black/green Spider tokens with menace and reach. Skips the optional 'collect evidence 4' gate (always creates), which is a safe approximation.",
+      "engine_gap": ""
+    },
+    {
+      "fn": "voja_jaws_setup",
+      "card_var": "VOJA_JAWS_OF_THE_CONCLAVE",
+      "disposition": "wired",
+      "notes": "Body counts Elves and Wolves on the battlefield, adds X +1/+1 counters to each creature controlled (X = elves), and draws cards equal to wolves. Both subroutines fully implemented.",
+      "engine_gap": ""
+    },
+    {
+      "fn": "coveted_falcon_setup",
+      "card_var": "COVETED_FALCON",
+      "disposition": "skipped",
+      "notes": "Body is empty stub returning []. Effect 'gain control of target permanent you own but don't control' requires targeting + control-change machinery.",
+      "engine_gap": "Targeting prompt for own-but-not-controlled permanent + GAIN_CONTROL event."
+    },
+    {
+      "fn": "crimestopper_sprite_setup",
+      "card_var": "CRIMESTOPPER_SPRITE",
+      "disposition": "skipped",
+      "notes": "Body is empty stub returning []. Effect 'tap target creature, optionally stun-counter' requires player targeting prompt.",
+      "engine_gap": "Targeting prompt + stun counter mechanic."
+    },
+    {
+      "fn": "soul_enervation_setup",
+      "card_var": "SOUL_ENERVATION",
+      "disposition": "wired",
+      "notes": "Body has a no-op ETB (would need targeting for -4/-4) but the secondary 'creature cards leave graveyard' trigger is fully implemented (each opponent loses 1, you gain 1). Wiring captures the working half.",
+      "engine_gap": "Targeting prompt for ETB -4/-4 effect."
+    },
+    {
+      "fn": "reckless_detective_setup",
+      "card_var": "RECKLESS_DETECTIVE",
+      "disposition": "skipped",
+      "notes": "Body is empty stub returning []. Requires 'sacrifice an artifact OR discard a card' player choice plus +2/+0 conditional buff.",
+      "engine_gap": "Cost-choice prompt (sac artifact vs discard) and conditional draw/buff."
+    },
+    {
+      "fn": "incinerator_of_guilty_setup",
+      "card_var": "INCINERATOR_OF_THE_GUILTY",
+      "disposition": "skipped",
+      "notes": "name_mismatch resolved: card text matches INCINERATOR_OF_THE_GUILTY (line 5355). However body is an empty stub. Effect 'collect evidence X to deal X damage to each creature/planeswalker' requires collect-evidence machinery.",
+      "engine_gap": "Collect-evidence player choice + variable-X damage to multiple targets."
+    },
+    {
+      "fn": "sample_collector_setup",
+      "card_var": "SAMPLE_COLLECTOR",
+      "disposition": "skipped",
+      "notes": "Body is empty stub returning []. Requires collect-evidence 3 + targeted +1/+1 counter.",
+      "engine_gap": "Collect-evidence prompt and target-creature prompt."
+    },
+    {
+      "fn": "culvert_ambusher_setup",
+      "card_var": "CULVERT_AMBUSHER",
+      "disposition": "skipped",
+      "notes": "Body is empty stub returning []. 'Target creature blocks this turn if able' requires targeting + must-block forcing.",
+      "engine_gap": "Targeting prompt + forced-block flag on creature."
+    },
+    {
+      "fn": "runebrand_juggler_setup",
+      "card_var": "RUNEBRAND_JUGGLER",
+      "disposition": "skipped",
+      "notes": "name_mismatch resolved: card is 'Rune-Brand Juggler' (RUNEBRAND_JUGGLER at line 6337). Body is empty stub returning []. Effect requires targeting + suspect mechanic which has no engine support across the file.",
+      "engine_gap": "Suspect mechanic (menace + can't-block flag granted to a creature) and targeting."
+    },
+    {
+      "fn": "rakish_scoundrel_setup",
+      "card_var": "RAKISH_SCOUNDREL",
+      "disposition": "skipped",
+      "notes": "Body is empty stub returning []. Effect 'target creature gains indestructible until end of turn' requires targeting + temporary keyword grant.",
+      "engine_gap": "Targeting prompt + until-end-of-turn keyword grant scoped to a single target."
+    },
+    {
+      "fn": "melek_reforged_researcher_setup",
+      "card_var": "MELEK_REFORGED_RESEARCHER",
+      "disposition": "fixed",
+      "notes": "Original get_instant_sorcery_count was a placeholder returning 0, leaving Melek as 0/0. Fixed to iterate state.objects, count instants/sorceries in controller's graveyard, then double. QUERY_POWER/QUERY_TOUGHNESS handlers now produce live values. Cost-reduction half (first instant/sorcery costs {3} less) still unimplemented but harmless.",
+      "engine_gap": "Once-per-turn cost reduction tracking for first instant/sorcery cast."
+    }
+  ],
+  "summary": {
+    "wired": 3,
+    "fixed": 1,
+    "flagged": 0,
+    "skipped": 9
+  }
+}

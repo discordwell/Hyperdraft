@@ -5384,6 +5384,7 @@ DAUNTLESS_VETERAN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Whenever this creature attacks, creatures you control get +1/+1 until end of turn.",
+    setup_interceptors=dauntless_veteran_setup,
 )
 
 DAZZLING_ANGEL = make_creature(
@@ -5420,6 +5421,7 @@ FELIDAR_SAVIOR = make_creature(
     colors={Color.WHITE},
     subtypes={"Beast", "Cat"},
     text="Lifelink (Damage dealt by this creature also causes you to gain that much life.)\nWhen this creature enters, put a +1/+1 counter on each of up to two other target creatures you control.",
+    setup_interceptors=felidar_savior_setup,
 )
 
 FLEETING_FLIGHT = make_instant(
@@ -5558,6 +5560,7 @@ VANGUARD_SERAPH = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel", "Warrior"},
     text="Flying\nWhenever you gain life for the first time each turn, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=vanguard_seraph_setup,
 )
 
 ARCANE_EPIPHANY = make_instant(
@@ -5641,6 +5644,7 @@ ERUDITE_WIZARD = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     text="Whenever you draw your second card each turn, put a +1/+1 counter on this creature.",
+    setup_interceptors=erudite_wizard_setup,
 )
 
 FAEBLOOM_TRICK = make_instant(
@@ -5675,6 +5679,7 @@ HOMUNCULUS_HORDE = make_creature(
     colors={Color.BLUE},
     subtypes={"Homunculus"},
     text="Whenever you draw your second card each turn, create a token that's a copy of this creature.",
+    setup_interceptors=homunculus_horde_setup,
 )
 
 ICEWIND_ELEMENTAL = make_creature(
@@ -5712,6 +5717,7 @@ KIORA_THE_RISING_TIDE = make_creature(
     subtypes={"Merfolk", "Noble"},
     supertypes={"Legendary"},
     text="When Kiora enters, draw two cards, then discard two cards.\nThreshold — Whenever Kiora attacks, if there are seven or more cards in your graveyard, you may create Scion of the Deep, a legendary 8/8 blue Octopus creature token.",
+    setup_interceptors=kiora_the_rising_tide_setup,
 )
 
 LUNAR_INSIGHT = make_sorcery(
@@ -5797,6 +5803,7 @@ ARBITER_OF_WOE = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon"},
     text="As an additional cost to cast this spell, sacrifice a creature.\nFlying\nWhen this creature enters, each opponent discards a card and loses 2 life. You draw a card and gain 2 life.",
+    setup_interceptors=arbiter_of_woe_setup,
 )
 
 BILLOWING_SHRIEKMASS = make_creature(
@@ -5806,6 +5813,7 @@ BILLOWING_SHRIEKMASS = make_creature(
     colors={Color.BLACK},
     subtypes={"Spirit"},
     text="Flying\nWhen this creature enters, mill three cards. (Put the top three cards of your library into your graveyard.)\nThreshold — This creature gets +2/+1 as long as there are seven or more cards in your graveyard.",
+    setup_interceptors=billowing_shriekmass_setup,
 )
 
 BLASPHEMOUS_EDICT = make_sorcery(
@@ -5850,6 +5858,7 @@ HIGHSOCIETY_HUNTER = make_creature(
     colors={Color.BLACK},
     subtypes={"Noble", "Vampire"},
     text="Flying\nWhenever this creature attacks, you may sacrifice another creature. If you do, put a +1/+1 counter on this creature.\nWhenever another nontoken creature dies, draw a card.",
+    setup_interceptors=highsociety_hunter_setup,
 )
 
 HUNGRY_GHOUL = make_creature(
@@ -5868,6 +5877,7 @@ INFERNAL_VESSEL = make_creature(
     colors={Color.BLACK},
     subtypes={"Cleric", "Human"},
     text="When this creature dies, if it wasn't a Demon, return it to the battlefield under its owner's control with two +1/+1 counters on it. It's a Demon in addition to its other types.",
+    setup_interceptors=infernal_vessel_setup,
 )
 
 INFESTATION_SAGE = make_creature(
@@ -5927,6 +5937,7 @@ SOULSHACKLED_ZOMBIE = make_creature(
     colors={Color.BLACK},
     subtypes={"Zombie"},
     text="When this creature enters, exile up to two target cards from a single graveyard. If at least one creature card was exiled this way, each opponent loses 2 life and you gain 2 life.",
+    setup_interceptors=soulshackled_zombie_setup,
 )
 
 STAB = make_instant(
@@ -6043,6 +6054,7 @@ CRACKLING_CYCLOPS = make_creature(
     colors={Color.RED},
     subtypes={"Cyclops", "Wizard"},
     text="Whenever you cast a noncreature spell, this creature gets +3/+0 until end of turn.",
+    setup_interceptors=crackling_cyclops_setup,
 )
 
 DRAGON_TRAINER = make_creature(
@@ -6183,6 +6195,7 @@ APOTHECARY_STOMPER = make_creature(
     colors={Color.GREEN},
     subtypes={"Elephant"},
     text="Vigilance (Attacking doesn't cause this creature to tap.)\nWhen this creature enters, choose one —\n• Put two +1/+1 counters on target creature you control.\n• You gain 4 life.",
+    setup_interceptors=apothecary_stomper_setup,
 )
 
 BEASTKIN_RANGER = make_creature(
@@ -6192,6 +6205,7 @@ BEASTKIN_RANGER = make_creature(
     colors={Color.GREEN},
     subtypes={"Elf", "Ranger"},
     text="Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)\nWhenever another creature you control enters, this creature gets +1/+0 until end of turn.",
+    setup_interceptors=beastkin_ranger_setup,
 )
 
 CACKLING_PROWLER = make_creature(
@@ -6210,6 +6224,7 @@ EAGER_TRUFFLESNOUT = make_creature(
     colors={Color.GREEN},
     subtypes={"Boar"},
     text="Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)\nWhenever this creature deals combat damage to a player, create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")",
+    setup_interceptors=eager_trufflesnout_setup,
 )
 
 ELFSWORN_GIANT = make_creature(
@@ -6256,6 +6271,7 @@ MOSSBORN_HYDRA = make_creature(
     colors={Color.GREEN},
     subtypes={"Elemental", "Hydra"},
     text="Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)\nThis creature enters with a +1/+1 counter on it.\nLandfall — Whenever a land you control enters, double the number of +1/+1 counters on this creature.",
+    setup_interceptors=mossborn_hydra_setup,
 )
 
 NEEDLETOOTH_PACK = make_creature(
@@ -6351,6 +6367,7 @@ DREADWING_SCAVENGER = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Bird", "Nightmare"},
     text="Flying\nWhenever this creature enters or attacks, draw a card, then discard a card.\nThreshold — This creature gets +1/+1 and has deathtouch as long as there are seven or more cards in your graveyard.",
+    setup_interceptors=dreadwing_scavenger_setup,
 )
 
 ELENDA_SAINT_OF_DUSK = make_creature(
@@ -6381,6 +6398,7 @@ KOMA_WORLDEATER = make_creature(
     subtypes={"Serpent"},
     supertypes={"Legendary"},
     text="This spell can't be countered.\nTrample, ward {4}\nWhenever Koma deals combat damage to a player, create four 3/3 blue Serpent creature tokens named Koma's Coil.",
+    setup_interceptors=koma_worldeater_setup,
 )
 
 KYKAR_ZEPHYR_AWAKENER = make_creature(
@@ -6391,6 +6409,7 @@ KYKAR_ZEPHYR_AWAKENER = make_creature(
     subtypes={"Bird", "Wizard"},
     supertypes={"Legendary"},
     text="Flying\nWhenever you cast a noncreature spell, choose one —\n• Exile another target creature you control. Return that card to the battlefield under its owner's control at the beginning of the next end step.\n• Create a 1/1 white Spirit creature token with flying.",
+    setup_interceptors=kykar_zephyr_awakener_setup,
 )
 
 NIVMIZZET_VISIONARY = make_creature(
@@ -6401,6 +6420,7 @@ NIVMIZZET_VISIONARY = make_creature(
     subtypes={"Dragon", "Wizard"},
     supertypes={"Legendary"},
     text="Flying\nYou have no maximum hand size.\nWhenever a source you control deals noncombat damage to an opponent, you draw that many cards.",
+    setup_interceptors=nivmizzet_visionary_setup,
 )
 
 PERFORATING_ARTIST = make_creature(
@@ -6506,6 +6526,7 @@ ANGEL_OF_FINALITY = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel"},
     text="Flying\nWhen this creature enters, exile target player's graveyard.",
+    setup_interceptors=angel_of_finality_setup,
 )
 
 AUTHORITY_OF_THE_CONSULS = make_enchantment(
@@ -6573,6 +6594,7 @@ MISCHIEVOUS_PUP = make_creature(
     colors={Color.WHITE},
     subtypes={"Dog"},
     text="Flash (You may cast this spell any time you could cast an instant.)\nWhen this creature enters, return up to one other target permanent you control to its owner's hand.",
+    setup_interceptors=mischievous_pup_setup,
 )
 
 RESOLUTE_REINFORCEMENTS = make_creature(
@@ -7487,6 +7509,7 @@ BALMOR_BATTLEMAGE_CAPTAIN = make_creature(
     subtypes={"Bird", "Wizard"},
     supertypes={"Legendary"},
     text="Flying\nWhenever you cast an instant or sorcery spell, creatures you control get +1/+0 and gain trample until end of turn.",
+    setup_interceptors=balmor_battlemage_captain_setup,
 )
 
 CONSUMING_ABERRATION = make_creature(
@@ -7657,6 +7680,7 @@ METEOR_GOLEM = make_artifact_creature(
     colors=set(),
     subtypes={"Golem"},
     text="When this creature enters, destroy target nonland permanent an opponent controls.",
+    setup_interceptors=meteor_golem_setup,
 )
 
 SOLEMN_SIMULACRUM = make_artifact_creature(
@@ -7957,6 +7981,7 @@ EXCLUSION_MAGE = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     text="When this creature enters, return target creature an opponent controls to its owner's hand.",
+    setup_interceptors=exclusion_mage_setup,
 )
 
 INTO_THE_ROIL = make_instant(
@@ -8576,6 +8601,7 @@ SYR_ALIN_THE_LIONS_CLAW = make_creature(
     subtypes={"Human", "Knight"},
     supertypes={"Legendary"},
     text="First strike (This creature deals combat damage before creatures without first strike.)\nWhenever Syr Alin attacks, other creatures you control get +1/+1 until end of turn.",
+    setup_interceptors=syr_alin_the_lions_claw_setup,
 )
 
 VALOROUS_STANCE = make_instant(
@@ -8766,6 +8792,7 @@ DRIVER_OF_THE_DEAD = make_creature(
     colors={Color.BLACK},
     subtypes={"Vampire"},
     text="When this creature dies, return target creature card with mana value 2 or less from your graveyard to the battlefield.",
+    setup_interceptors=driver_of_the_dead_setup,
 )
 
 def duress_resolve(event: Event, state: GameState) -> list[Event]:
@@ -8852,6 +8879,7 @@ KALASTRIA_HIGHBORN = make_creature(
     colors={Color.BLACK},
     subtypes={"Shaman", "Vampire"},
     text="Whenever this creature or another Vampire you control dies, you may pay {B}. If you do, target player loses 2 life and you gain 2 life.",
+    setup_interceptors=kalastria_highborn_setup,
 )
 
 KNIGHT_OF_MALICE = make_creature(
@@ -9101,6 +9129,7 @@ FIERCE_EMPATH = make_creature(
     colors={Color.GREEN},
     subtypes={"Elf"},
     text="When this creature enters, you may search your library for a creature card with mana value 6 or greater, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=fierce_empath_setup,
 )
 
 FYNN_THE_FANGBEARER = make_creature(
@@ -9189,6 +9218,7 @@ SPRINGBLOOM_DRUID = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Elf"},
     text="When this creature enters, you may sacrifice a land. If you do, search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle.",
+    setup_interceptors=springbloom_druid_setup,
 )
 
 SURRAK_THE_HUNT_CALLER = make_creature(
@@ -9631,6 +9661,7 @@ ANGEL_OF_VITALITY = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel"},
     text="Flying\nIf you would gain life, you gain that much life plus 1 instead.\nThis creature gets +2/+2 as long as you have 25 or more life.",
+    setup_interceptors=angel_of_vitality_setup,
 )
 
 LYRA_DAWNBRINGER = make_creature(

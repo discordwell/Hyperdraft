@@ -5121,6 +5121,7 @@ SPECTER_OF_MORTALITY = make_creature(
     colors={Color.BLACK},
     subtypes={"Specter"},
     text="Flying\nWhen this creature enters, you may exile one or more creature cards from your graveyard. When you do, each other creature gets -X/-X until end of turn, where X is the number of cards exiled this way.",
+    setup_interceptors=specter_of_mortality_setup,
 )
 
 SPITEFUL_HEXMAGE = make_creature(
@@ -5130,6 +5131,7 @@ SPITEFUL_HEXMAGE = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Warlock"},
     text="When this creature enters, create a Cursed Role token attached to target creature you control. (If you control another Role on it, put that one into the graveyard. Enchanted creature is 1/1.)",
+    setup_interceptors=spiteful_hexmage_setup,
 )
 
 STINGBLADE_ASSASSIN = make_creature(
@@ -5139,6 +5141,7 @@ STINGBLADE_ASSASSIN = make_creature(
     colors={Color.BLACK},
     subtypes={"Assassin", "Faerie"},
     text="Flash\nFlying\nWhen this creature enters, destroy target creature an opponent controls that was dealt damage this turn.",
+    setup_interceptors=stingblade_assassin_setup,
 )
 
 SUGAR_RUSH = make_instant(
@@ -5184,6 +5187,7 @@ TWISTED_SEWERWITCH = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Warlock"},
     text="When this creature enters, create a 1/1 black Rat creature token with \"This creature can't block.\" Then for each Rat you control, create a Wicked Role token attached to that Rat. (If you control another Role on it, put that one into the graveyard. Enchanted creature gets +1/+1. When this token is put into a graveyard, each opponent loses 1 life.)",
+    setup_interceptors=twisted_sewer_witch_setup,
 )
 
 VIRTUE_OF_PERSISTENCE = make_enchantment(
@@ -5238,6 +5242,7 @@ BELLIGERENT_OF_THE_BALL = make_creature(
     colors={Color.RED},
     subtypes={"Ogre", "Warrior"},
     text="Celebration — At the beginning of combat on your turn, if two or more nonland permanents entered the battlefield under your control this turn, target creature you control gets +1/+0 and gains menace until end of turn. (It can't be blocked except by two or more creatures.)",
+    setup_interceptors=belligerent_of_the_ball_setup,
 )
 
 BELLOWING_BRUISER = make_creature(
@@ -5263,6 +5268,7 @@ BOUNDARY_LANDS_RANGER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Ranger"},
     text="At the beginning of combat on your turn, if you control a creature with power 4 or greater, you may discard a card. If you do, draw a card.",
+    setup_interceptors=boundary_lands_ranger_setup,
 )
 
 CHARMING_SCOUNDREL = make_creature(
@@ -5387,6 +5393,7 @@ IMODANE_THE_PYROHAMMER = make_creature(
     subtypes={"Human", "Knight"},
     supertypes={"Legendary"},
     text="Whenever an instant or sorcery spell you control that targets only a single creature deals damage to that creature, Imodane deals that much damage to each opponent.",
+    setup_interceptors=imodane_the_pyrohammer_setup,
 )
 
 KINDLED_HEROISM = make_instant(
@@ -5412,6 +5419,7 @@ MERRY_BARDS = make_creature(
     colors={Color.RED},
     subtypes={"Bard", "Human"},
     text="When this creature enters, you may pay {1}. When you do, create a Young Hero Role token attached to target creature you control. (If you control another Role on it, put that one into the graveyard. Enchanted creature has \"Whenever this creature attacks, if its toughness is 3 or less, put a +1/+1 counter on it.\")",
+    setup_interceptors=merry_bards_setup,
 )
 
 MINECART_DAREDEVIL = make_creature(
@@ -5456,6 +5464,7 @@ REALMSCORCHER_HELLKITE = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nFlying, haste\nWhen this creature enters, if it was bargained, add four mana in any combination of colors.\n{1}{R}: This creature deals 1 damage to any target.",
+    setup_interceptors=realmscorcher_hellkite_setup,
 )
 
 REDCAP_GUTTERDWELLER = make_creature(
@@ -5485,6 +5494,7 @@ ROTISSERIE_ELEMENTAL = make_creature(
     colors={Color.RED},
     subtypes={"Elemental"},
     text="Menace\nWhenever this creature deals combat damage to a player, put a skewer counter on this creature. Then you may sacrifice it. If you do, exile the top X cards of your library, where X is the number of skewer counters on this creature. You may play those cards this turn.",
+    setup_interceptors=rotisserie_elemental_setup,
 )
 
 SKEWER_SLINGER = make_creature(
@@ -5494,6 +5504,7 @@ SKEWER_SLINGER = make_creature(
     colors={Color.RED},
     subtypes={"Dwarf", "Knight"},
     text="Reach\nWhenever this creature blocks or becomes blocked by a creature, this creature deals 1 damage to that creature.",
+    setup_interceptors=skewer_slinger_setup,
 )
 
 SONG_OF_TOTENTANZ = make_sorcery(
@@ -5518,6 +5529,7 @@ TATTERED_RATTER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Peasant"},
     text="Whenever a Rat you control becomes blocked, it gets +2/+0 until end of turn.",
+    setup_interceptors=tattered_ratter_setup,
 )
 
 TORCH_THE_TOWER = make_instant(
@@ -5583,6 +5595,7 @@ AGATHAS_CHAMPION = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Knight"},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nTrample\nWhen this creature enters, if it was bargained, it fights up to one target creature you don't control. (Each deals damage equal to its power to the other.)",
+    setup_interceptors=agathas_champion_setup,
 )
 
 BEANSTALK_WURM = make_creature(
@@ -5787,6 +5800,7 @@ SENTINEL_OF_LOST_LORE = make_creature(
     colors={Color.GREEN},
     subtypes={"Elf", "Knight"},
     text="When this creature enters, choose one or more —\n• Return target card you own in exile that has an Adventure to your hand.\n• Put target card you don't own in exile that has an Adventure on the bottom of its owner's library.\n• Exile target player's graveyard.",
+    setup_interceptors=sentinel_of_lost_lore_setup,
 )
 
 SKYBEAST_TRACKER = make_creature(
@@ -5832,6 +5846,7 @@ TERRITORIAL_WITCHSTALKER = make_creature(
     colors={Color.GREEN},
     subtypes={"Wolf"},
     text="Defender\nAt the beginning of combat on your turn, if you control a creature with power 4 or greater, this creature gets +1/+0 until end of turn and can attack this turn as though it didn't have defender.",
+    setup_interceptors=territorial_witchstalker_setup,
 )
 
 THUNDEROUS_DEBUT = make_sorcery(
@@ -5875,6 +5890,7 @@ TROUBLEMAKER_OUPHE = make_creature(
     colors={Color.GREEN},
     subtypes={"Ouphe"},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nWhen this creature enters, if it was bargained, exile target artifact or enchantment an opponent controls.",
+    setup_interceptors=troublemaker_ouphe_setup,
 )
 
 UP_THE_BEANSTALK = make_enchantment(
@@ -6378,6 +6394,7 @@ THE_IRENCRAG = make_artifact(
     mana_cost="{2}",
     text="{T}: Add {C}.\nWhenever a legendary creature you control enters, you may have The Irencrag become a legendary Equipment artifact named Everflame, Heroes' Legacy. If you do, it gains equip {3} and \"Equipped creature gets +3/+3\" and loses all other abilities.",
     supertypes={"Legendary"},
+    setup_interceptors=the_irencrag_setup,
 )
 
 PROPHETIC_PRISM = make_artifact(
@@ -6424,6 +6441,7 @@ THREE_BOWLS_OF_PORRIDGE = make_artifact(
 CRYSTAL_GROTTO = make_land(
     name="Crystal Grotto",
     text="When this land enters, scry 1.\n{T}: Add {C}.\n{1}, {T}: Add one mana of any color.",
+    setup_interceptors=crystal_grotto_setup,
 )
 
 EDGEWALL_INN = make_land(
@@ -6439,26 +6457,31 @@ EVOLVING_WILDS = make_land(
 RESTLESS_BIVOUAC = make_land(
     name="Restless Bivouac",
     text="This land enters tapped.\n{T}: Add {R} or {W}.\n{1}{R}{W}: This land becomes a 2/2 red and white Ox creature until end of turn. It's still a land.\nWhenever this land attacks, put a +1/+1 counter on target creature you control.",
+    setup_interceptors=restless_bivouac_setup,
 )
 
 RESTLESS_COTTAGE = make_land(
     name="Restless Cottage",
     text="This land enters tapped.\n{T}: Add {B} or {G}.\n{2}{B}{G}: This land becomes a 4/4 black and green Horror creature until end of turn. It's still a land.\nWhenever this land attacks, create a Food token and exile up to one target card from a graveyard.",
+    setup_interceptors=restless_cottage_setup,
 )
 
 RESTLESS_FORTRESS = make_land(
     name="Restless Fortress",
     text="This land enters tapped.\n{T}: Add {W} or {B}.\n{2}{W}{B}: This land becomes a 1/4 white and black Nightmare creature until end of turn. It's still a land.\nWhenever this land attacks, defending player loses 2 life and you gain 2 life.",
+    setup_interceptors=restless_fortress_setup,
 )
 
 RESTLESS_SPIRE = make_land(
     name="Restless Spire",
     text="This land enters tapped.\n{T}: Add {U} or {R}.\n{U}{R}: Until end of turn, this land becomes a 2/1 blue and red Elemental creature with \"During your turn, this creature has first strike.\" It's still a land.\nWhenever this land attacks, scry 1.",
+    setup_interceptors=restless_spire_setup,
 )
 
 RESTLESS_VINESTALK = make_land(
     name="Restless Vinestalk",
     text="This land enters tapped.\n{T}: Add {G} or {U}.\n{3}{G}{U}: Until end of turn, this land becomes a 5/5 green and blue Plant creature with trample. It's still a land.\nWhenever this land attacks, up to one other target creature has base power and toughness 3/3 until end of turn.",
+    setup_interceptors=restless_vinestalk_setup,
 )
 
 PLAINS = make_land(
@@ -6501,6 +6524,7 @@ FOOD_COMA = make_enchantment(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     text="When this enchantment enters, exile target creature an opponent controls until this enchantment leaves the battlefield. Create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")",
+    setup_interceptors=food_coma_setup,
 )
 
 LADY_OF_LAUGHTER = make_creature(
