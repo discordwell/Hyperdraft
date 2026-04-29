@@ -68,7 +68,7 @@ CARD_NAME = make_creature(
 ## Card Sets
 
 ### Real MTG Sets (from Scryfall API)
-Located in `src/cards/`. ~3,450 cards with accurate data, no interceptors yet.
+Located in `src/cards/`. ~3,450 cards with accurate data. ~1,030 cards have wired interceptors across the 12 sets; the rest are vanilla or have abilities the engine cannot yet express. See `engine_gaps.md` for the punch list of unblocked cards grouped by missing capability.
 
 | Set | Code | Cards |
 |-----|------|-------|

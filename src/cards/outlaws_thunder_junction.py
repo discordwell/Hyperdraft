@@ -1237,14 +1237,6 @@ def inventive_wingsmith_setup(obj: GameObject, state: GameState) -> list[Interce
     return [make_end_step_trigger(obj, end_step_effect)]
 
 
-def shepherd_of_clouds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, return target permanent card mv 3 or less from your graveyard."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Graveyard recursion - targeting required
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
-
-
 def nurturing_pixie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, return up to one target non-Faerie, nonland permanent you control to its owner's hand."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
@@ -1973,6 +1965,7 @@ NURTURING_PIXIE = make_creature(
     colors={Color.WHITE},
     subtypes={"Faerie", "Rogue"},
     text="Flying\nWhen this creature enters, return up to one target non-Faerie, nonland permanent you control to its owner's hand. If a permanent was returned this way, put a +1/+1 counter on this creature.",
+    setup_interceptors=nurturing_pixie_setup,
 )
 
 OMENPORT_VIGILANTE = make_creature(
@@ -2223,6 +2216,7 @@ SHEPHERD_OF_THE_CLOUDS = make_creature(
     colors={Color.WHITE},
     subtypes={"Pegasus"},
     text="Flying, vigilance\nWhen this creature enters, return target permanent card with mana value 3 or less from your graveyard to your hand. Return that card to the battlefield instead if you control a Mount.",
+    setup_interceptors=shepherd_of_clouds_setup,
 )
 
 SHERIFF_OF_SAFE_PASSAGE = make_creature(
@@ -2549,6 +2543,7 @@ DUELIST_OF_THE_MIND = make_creature(
     colors={Color.BLUE},
     subtypes={"Advisor", "Human"},
     text="Flying, vigilance\nDuelist of the Mind's power is equal to the number of cards you've drawn this turn.\nWhenever you commit a crime, you may draw a card. If you do, discard a card. This ability triggers only once each turn.",
+    setup_interceptors=duelist_of_the_mind_setup,
 )
 
 EMERGENT_HAUNTING = make_enchantment(
@@ -4116,6 +4111,7 @@ RAVEN_OF_FELL_OMENS = make_creature(
     colors={Color.BLACK},
     subtypes={"Bird"},
     text="Flying\nWhenever you commit a crime, each opponent loses 1 life and you gain 1 life. This ability triggers only once each turn. (Targeting opponents, anything they control, and/or cards in their graveyards is a crime.)",
+    setup_interceptors=raven_of_fell_omens_setup,
 )
 
 RICTUS_ROBBER = make_creature(
@@ -5046,6 +5042,7 @@ MAGDA_THE_HOARDMASTER = make_creature(
     subtypes={"Berserker", "Dwarf"},
     supertypes={"Legendary"},
     text="Whenever you commit a crime, create a tapped Treasure token. This ability triggers only once each turn. (Targeting opponents, anything they control, and/or cards in their graveyards is a crime.)\nSacrifice three Treasures: Create a 4/4 red Scorpion Dragon creature token with flying and haste. Activate only as a sorcery.",
+    setup_interceptors=magda_the_hoardmaster_setup,
 )
 
 MAGEBANE_LIZARD = make_creature(

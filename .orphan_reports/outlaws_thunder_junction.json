@@ -1,0 +1,33 @@
+{
+  "set": "outlaws_thunder_junction.py",
+  "results": [
+    {
+      "fn": "shepherd_of_clouds_setup",
+      "card_var": "SHEPHERD_OF_THE_CLOUDS",
+      "disposition": "consolidated",
+      "notes": "Two identical shepherd_of_clouds_setup defs (lines 197 and 1240) — both stub bodies returning empty events from etb_effect with make_etb_trigger. Removed duplicate at 1240. Wired the surviving def at 197 to SHEPHERD_OF_THE_CLOUDS (name mismatch: expected 'Shepherd Of Clouds', actual card name 'Shepherd of the Clouds'). Body is a no-op stub (graveyard recursion with targeting not implemented), but trigger is harmless and matches Phase 2 pattern (e.g., nurturing_pixie_setup which is also wired with empty events).",
+      "engine_gap": ""
+    },
+    {
+      "fn": "blood_hustler_setup",
+      "card_var": "BLOOD_HUSTLER",
+      "disposition": "flagged",
+      "notes": "Body returns [] because crime tracking is not implemented. The function defines crime_effect but never returns an interceptor. Crime detection would require an engine-level CRIME_COMMITTED event or interceptor that hooks targeting events to detect when an opponent/their permanents/their graveyard are targeted. Per task rules ('stub → complete or flag', and 'flagged: needs engine; do NOT wire'), not wiring.",
+      "engine_gap": "No crime tracking system in engine. Need either a CRIME_COMMITTED event emitted whenever a player targets an opponent, opponent's permanent, or card in opponent's graveyard, OR a way to attach interceptors to TARGET_DECLARED-style events. Also need 'once per turn' state tracking on the trigger."
+    },
+    {
+      "fn": "shepherd_of_clouds_setup",
+      "card_var": "SHEPHERD_OF_THE_CLOUDS",
+      "disposition": "consolidated",
+      "notes": "Second occurrence of shepherd_of_clouds_setup (line 1240) — removed as duplicate; covered by the consolidated entry above.",
+      "engine_gap": ""
+    }
+  ],
+  "summary": {
+    "wired": 0,
+    "fixed": 0,
+    "consolidated": 2,
+    "flagged": 1,
+    "skipped": 0
+  }
+}

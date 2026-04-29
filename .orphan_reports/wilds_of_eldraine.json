@@ -1,0 +1,61 @@
+{
+  "set": "wilds_of_eldraine.py",
+  "results": [
+    {
+      "fn": "boundary_lands_ranger_setup",
+      "card_var": "BOUNDARY_LANDS_RANGER",
+      "disposition": "wired",
+      "notes": "Power-4-matters combat trigger; body uses PHASE_START + DISCARD/DRAW events. Wired as last kwarg.",
+      "engine_gap": ""
+    },
+    {
+      "fn": "tattered_ratter_setup",
+      "card_var": "TATTERED_RATTER",
+      "disposition": "wired",
+      "notes": "BLOCK_DECLARED filter on Rat attacker; emits TEMPORARY_EFFECT with power_mod=2. Body matches text. Wired.",
+      "engine_gap": ""
+    },
+    {
+      "fn": "realmscorcher_hellkite_setup",
+      "card_var": "REALMSCORCHER_HELLKITE",
+      "disposition": "wired",
+      "notes": "name_mismatch was a hyphen artifact (file uses 'Realm-Scorcher Hellkite'); setup body uses make_etb_trigger + bargained check + MANA_ADDED. Wired.",
+      "engine_gap": ""
+    },
+    {
+      "fn": "imodane_the_pyrohammer_setup",
+      "card_var": "IMODANE_THE_PYROHAMMER",
+      "disposition": "wired",
+      "notes": "DAMAGE filter checks source_controller; emits DAMAGE to each opponent. Filter is broader than text (no instant/sorcery / single-target check) but valid as a baseline. Wired.",
+      "engine_gap": ""
+    },
+    {
+      "fn": "agathas_champion_setup",
+      "card_var": "AGATHAS_CHAMPION",
+      "disposition": "wired",
+      "notes": "name_mismatch was apostrophe artifact (file uses \"Agatha's Champion\"); setup uses make_etb_trigger + bargained check + FIGHT event. Wired.",
+      "engine_gap": ""
+    },
+    {
+      "fn": "territorial_witchstalker_setup",
+      "card_var": "TERRITORIAL_WITCHSTALKER",
+      "disposition": "wired",
+      "notes": "Mirror of boundary_lands_ranger structure for a different effect (self pump + can-attack-with-defender). Body emits TEMPORARY_EFFECT power_mod=1. Wired (defender bypass not yet modeled).",
+      "engine_gap": ""
+    },
+    {
+      "fn": "the_irencrag_setup",
+      "card_var": "THE_IRENCRAG",
+      "disposition": "wired",
+      "notes": "Legendary-creature-enters trigger using ZONE_CHANGE -> BATTLEFIELD; emits TRANSFORM event with new_name. Wired.",
+      "engine_gap": ""
+    }
+  ],
+  "summary": {
+    "wired": 7,
+    "fixed": 0,
+    "consolidated": 0,
+    "flagged": 0,
+    "skipped": 0
+  }
+}

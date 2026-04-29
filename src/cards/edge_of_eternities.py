@@ -2060,6 +2060,7 @@ AUXILIARY_BOOSTERS = make_artifact(
     mana_cost="{4}{W}",
     text="When this Equipment enters, create a 2/2 colorless Robot artifact creature token and attach this Equipment to it.\nEquipped creature gets +1/+2 and has flying.\nEquip {3} ({3}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=auxiliary_boosters_setup,
 )
 
 BANISHING_LIGHT = make_enchantment(
@@ -2208,6 +2209,7 @@ HONORED_KNIGHTCAPTAIN = make_creature(
     colors={Color.WHITE},
     subtypes={"Advisor", "Human", "Knight"},
     text="When this creature enters, create a 1/1 white Human Soldier creature token.\n{4}{W}{W}, Sacrifice this creature: Search your library for an Equipment card, put it onto the battlefield, then shuffle.",
+    setup_interceptors=honored_knightcaptain_setup,
 )
 
 KNIGHT_LUMINARY = make_creature(
@@ -2217,6 +2219,7 @@ KNIGHT_LUMINARY = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
     text="When this creature enters, create a 1/1 white Human Soldier creature token.\nWarp {1}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=knight_luminary_setup,
 )
 
 LIGHTSTALL_INQUISITOR = make_creature(
@@ -2226,6 +2229,7 @@ LIGHTSTALL_INQUISITOR = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel", "Wizard"},
     text="Vigilance\nWhen this creature enters, each opponent exiles a card from their hand and may play that card for as long as it remains exiled. Each spell cast this way costs {1} more to cast. Each land played this way enters tapped.",
+    setup_interceptors=lightstall_inquisitor_setup,
 )
 
 LUMENCLASS_FRIGATE = make_artifact(
@@ -2233,6 +2237,7 @@ LUMENCLASS_FRIGATE = make_artifact(
     mana_cost="{1}{W}",
     text="Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 12+.)\n2+ | Other creatures you control get +1/+1.\n12+ | Flying, lifelink",
     subtypes={"Spacecraft"},
+    setup_interceptors=lumenclass_frigate_setup,
 )
 
 LUXKNIGHT_BREACHER = make_creature(
@@ -2257,6 +2262,7 @@ PULSAR_SQUADRON_ACE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Pilot"},
     text="When this creature enters, look at the top five cards of your library. You may reveal a Spacecraft card from among them and put it into your hand. Put the rest on the bottom of your library in a random order. If you didn't put a card into your hand this way, put a +1/+1 counter on this creature.",
+    setup_interceptors=pulsar_squadron_ace_setup,
 )
 
 RADIANT_STRIKE = make_instant(
@@ -2273,6 +2279,7 @@ RAYBLADE_TROOPER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="When this creature enters, put a +1/+1 counter on target creature you control.\nWhenever a nontoken creature you control with a +1/+1 counter on it dies, create a 1/1 white Human Soldier creature token.\nWarp {1}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=rayblade_trooper_setup,
 )
 
 REROUTE_SYSTEMS = make_instant(
@@ -2287,6 +2294,7 @@ RESCUE_SKIFF = make_artifact(
     mana_cost="{5}{W}",
     text="When this Spacecraft enters, return target creature or enchantment card from your graveyard to the battlefield.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 10+.)\n10+ | Flying",
     subtypes={"Spacecraft"},
+    setup_interceptors=rescue_skiff_setup,
 )
 
 SCOUT_FOR_SURVIVORS = make_sorcery(
@@ -2325,6 +2333,7 @@ STARFIELD_SHEPHERD = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel"},
     text="Flying\nWhen this creature enters, search your library for a basic Plains card or a creature card with mana value 1 or less, reveal it, put it into your hand, then shuffle.\nWarp {1}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=starfield_shepherd_setup,
 )
 
 STARFIGHTER_PILOT = make_creature(
@@ -2334,6 +2343,7 @@ STARFIGHTER_PILOT = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Pilot"},
     text="Whenever this creature becomes tapped, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=starfighter_pilot_setup,
 )
 
 STARPORT_SECURITY = make_artifact_creature(
@@ -2352,6 +2362,7 @@ SUNSTAR_CHAPLAIN = make_creature(
     colors={Color.WHITE},
     subtypes={"Cleric", "Human"},
     text="At the beginning of your end step, if you control two or more tapped creatures, put a +1/+1 counter on target creature you control.\n{2}, Remove a +1/+1 counter from a creature you control: Tap target artifact or creature.",
+    setup_interceptors=sunstar_chaplain_setup,
 )
 
 SUNSTAR_EXPANSIONIST = make_creature(
@@ -2370,6 +2381,7 @@ SUNSTAR_LIGHTSMITH = make_creature(
     colors={Color.WHITE},
     subtypes={"Artificer", "Human"},
     text="Whenever you cast your second spell each turn, put a +1/+1 counter on this creature and draw a card.",
+    setup_interceptors=sunstar_lightsmith_setup,
 )
 
 WEDGELIGHT_RAMMER = make_artifact(
@@ -2377,6 +2389,7 @@ WEDGELIGHT_RAMMER = make_artifact(
     mana_cost="{3}{W}",
     text="When this Spacecraft enters, create a 2/2 colorless Robot artifact creature token.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 9+.)\n9+ | Flying, first strike",
     subtypes={"Spacecraft"},
+    setup_interceptors=wedgelight_rammer_setup,
 )
 
 WEFTBLADE_ENHANCER = make_creature(
@@ -2386,6 +2399,7 @@ WEFTBLADE_ENHANCER = make_creature(
     colors={Color.WHITE},
     subtypes={"Artificer", "Drix"},
     text="When this creature enters, put a +1/+1 counter on each of up to two target creatures.\nWarp {2}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=weftblade_enhancer_setup,
 )
 
 ZEALOUS_DISPLAY = make_instant(
@@ -2423,6 +2437,7 @@ CLOUDSCULPT_TECHNICIAN = make_creature(
     colors={Color.BLUE},
     subtypes={"Artificer", "Jellyfish"},
     text="Flying\nAs long as you control an artifact, this creature gets +1/+0.",
+    setup_interceptors=cloudsculpt_technician_setup,
 )
 
 CODECRACKER_HOUND = make_creature(
@@ -2432,6 +2447,7 @@ CODECRACKER_HOUND = make_creature(
     colors={Color.BLUE},
     subtypes={"Dog"},
     text="When this creature enters, look at the top two cards of your library. Put one into your hand and the other into your graveyard.\nWarp {2}{U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=codecracker_hound_setup,
 )
 
 CONSULT_THE_STAR_CHARTS = make_instant(
@@ -2445,6 +2461,7 @@ CRYOGEN_RELIC = make_artifact(
     name="Cryogen Relic",
     mana_cost="{1}{U}",
     text="When this artifact enters or leaves the battlefield, draw a card.\n{1}{U}, Sacrifice this artifact: Put a stun counter on up to one target tapped creature. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
+    setup_interceptors=cryogen_relic_setup,
 )
 
 CRYOSHATTER = make_enchantment(
@@ -2476,6 +2493,7 @@ EMISSARY_ESCORT = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Robot", "Soldier"},
     text="This creature gets +X/+0, where X is the greatest mana value among other artifacts you control.",
+    setup_interceptors=emissary_escort_setup,
 )
 
 GIGASTORM_TITAN = make_creature(
@@ -2503,6 +2521,7 @@ ILLVOI_INFILTRATOR = make_creature(
     colors={Color.BLUE},
     subtypes={"Jellyfish", "Rogue"},
     text="This creature can't be blocked if you've cast two or more spells this turn.\nWhenever this creature deals combat damage to a player, draw a card.",
+    setup_interceptors=illvoi_infiltrator_setup,
 )
 
 ILLVOI_LIGHT_JAMMER = make_artifact(
@@ -2519,6 +2538,7 @@ ILLVOI_OPERATIVE = make_creature(
     colors={Color.BLUE},
     subtypes={"Jellyfish", "Rogue"},
     text="Whenever you cast your second spell each turn, put a +1/+1 counter on this creature.",
+    setup_interceptors=illvoi_operative_setup,
 )
 
 LOST_IN_SPACE = make_instant(
@@ -2535,6 +2555,7 @@ MECHAN_ASSEMBLER = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Artificer", "Robot"},
     text="Whenever another artifact you control enters, create a 2/2 colorless Robot artifact creature token. This ability triggers only once each turn.",
+    setup_interceptors=mechan_assembler_setup,
 )
 
 MECHAN_NAVIGATOR = make_artifact_creature(
@@ -2544,6 +2565,7 @@ MECHAN_NAVIGATOR = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Pilot", "Robot"},
     text="Whenever this creature becomes tapped, draw a card, then discard a card.",
+    setup_interceptors=mechan_navigator_setup,
 )
 
 MECHAN_SHIELDMATE = make_artifact_creature(
@@ -2562,6 +2584,7 @@ MECHANOZOA = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Jellyfish", "Robot"},
     text="When this creature enters, tap target artifact or creature an opponent controls and put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)\nWarp {2}{U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=mechanozoa_setup,
 )
 
 MENTAL_MODULATION = make_instant(
@@ -2596,6 +2619,7 @@ MOUTH_OF_THE_STORM = make_creature(
     colors={Color.BLUE},
     subtypes={"Elemental"},
     text="Flying\nWard {2} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.)\nWhen this creature enters, creatures your opponents control get -3/-0 until your next turn.",
+    setup_interceptors=mouth_of_the_storm_setup,
 )
 
 NANOFORM_SENTINEL = make_artifact_creature(
@@ -2605,6 +2629,7 @@ NANOFORM_SENTINEL = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Robot"},
     text="Whenever this creature becomes tapped, untap another target permanent. This ability triggers only once each turn.",
+    setup_interceptors=nanoform_sentinel_setup,
 )
 
 QUANTUM_RIDDLER = make_creature(
@@ -2614,6 +2639,7 @@ QUANTUM_RIDDLER = make_creature(
     colors={Color.BLUE},
     subtypes={"Sphinx"},
     text="Flying\nWhen this creature enters, draw a card.\nAs long as you have one or fewer cards in hand, if you would draw one or more cards, you draw that many cards plus one instead.\nWarp {1}{U}",
+    setup_interceptors=quantum_riddler_setup,
 )
 
 SCOUR_FOR_SCRAP = make_instant(
@@ -2630,6 +2656,7 @@ SELFCRAFT_MECHAN = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Artificer", "Robot"},
     text="When this creature enters, you may sacrifice an artifact. When you do, put a +1/+1 counter on target creature and draw a card.",
+    setup_interceptors=selfcraft_mechan_setup,
 )
 
 SINISTER_CRYOLOGIST = make_creature(
@@ -2639,6 +2666,7 @@ SINISTER_CRYOLOGIST = make_creature(
     colors={Color.BLUE},
     subtypes={"Jellyfish", "Wizard"},
     text="When this creature enters, target creature an opponent controls gets -3/-0 until end of turn.\nWarp {U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=sinister_cryologist_setup,
 )
 
 SPECIMEN_FREIGHTER = make_artifact(
@@ -2655,6 +2683,7 @@ STARBREACH_WHALE = make_creature(
     colors={Color.BLUE},
     subtypes={"Whale"},
     text="Flying\nWhen this creature enters, surveil 2. (Look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)\nWarp {1}{U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=starbreach_whale_setup,
 )
 
 STARFIELD_VOCALIST = make_creature(
@@ -2673,6 +2702,7 @@ STARWINDER = make_creature(
     colors={Color.BLUE},
     subtypes={"Leviathan"},
     text="Whenever a creature you control deals combat damage to a player, you may draw that many cards.\nWarp {2}{U}{U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=starwinder_setup,
 )
 
 STEELSWARM_OPERATOR = make_artifact_creature(
@@ -2720,6 +2750,7 @@ UTHROS_SCANSHIP = make_artifact(
     mana_cost="{3}{U}",
     text="When this Spacecraft enters, draw two cards, then discard a card.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 8+.)\n8+ | Flying",
     subtypes={"Spacecraft"},
+    setup_interceptors=uthros_scanship_setup,
 )
 
 WEFTWALKING = make_enchantment(
@@ -2753,6 +2784,7 @@ BEAMSAW_PROSPECTOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Artificer", "Human"},
     text="When this creature dies, create a Lander token. (It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")",
+    setup_interceptors=beamsaw_prospector_setup,
 )
 
 BLADE_OF_THE_SWARM = make_creature(
@@ -2779,6 +2811,7 @@ COMET_CRAWLER = make_creature(
     colors={Color.BLACK},
     subtypes={"Horror", "Insect"},
     text="Lifelink\nWhenever this creature attacks, you may sacrifice another creature or artifact. If you do, this creature gets +2/+0 until end of turn.",
+    setup_interceptors=comet_crawler_setup,
 )
 
 DARK_ENDURANCE = make_instant(
@@ -2816,6 +2849,7 @@ ELEGY_ACOLYTE = make_creature(
     colors={Color.BLACK},
     subtypes={"Cleric", "Human"},
     text="Lifelink\nWhenever one or more creatures you control deal combat damage to a player, you draw a card and lose 1 life.\nVoid — At the beginning of your end step, if a nonland permanent left the battlefield this turn or a spell was warped this turn, create a 2/2 colorless Robot artifact creature token.",
+    setup_interceptors=elegy_acolyte_setup,
 )
 
 EMBRACE_OBLIVION = make_sorcery(
@@ -2846,6 +2880,7 @@ FELL_GRAVSHIP = make_artifact(
     mana_cost="{2}{B}",
     text="When this Spacecraft enters, mill three cards, then return a creature or Spacecraft card from your graveyard to your hand.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 8+.)\n8+ | Flying, lifelink",
     subtypes={"Spacecraft"},
+    setup_interceptors=fell_gravship_setup,
 )
 
 GRAVBLADE_HEAVY = make_creature(
@@ -2855,6 +2890,7 @@ GRAVBLADE_HEAVY = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Soldier"},
     text="As long as you control an artifact, this creature gets +1/+0 and has deathtouch.",
+    setup_interceptors=gravblade_heavy_setup,
 )
 
 GRAVKILL = make_instant(
@@ -2871,6 +2907,7 @@ GRAVPACK_MONOIST = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Scout"},
     text="Flying\nWhen this creature dies, create a tapped 2/2 colorless Robot artifact creature token.",
+    setup_interceptors=gravpack_monoist_setup,
 )
 
 HULLCARVER = make_artifact_creature(
@@ -2912,6 +2949,7 @@ LIGHTLESS_EVANGEL = make_creature(
     colors={Color.BLACK},
     subtypes={"Cleric", "Vampire"},
     text="Whenever you sacrifice another creature or artifact, put a +1/+1 counter on this creature.",
+    setup_interceptors=lightless_evangel_setup,
 )
 
 MONOIST_CIRCUITFEEDER = make_artifact_creature(
@@ -2921,6 +2959,7 @@ MONOIST_CIRCUITFEEDER = make_artifact_creature(
     colors={Color.BLACK},
     subtypes={"Nautilus"},
     text="Flying\nWhen this creature enters, until end of turn, target creature you control gets +X/+0 and target creature an opponent controls gets -0/-X, where X is the number of artifacts you control.",
+    setup_interceptors=monoist_circuitfeeder_setup,
 )
 
 MONOIST_SENTRY = make_artifact_creature(
@@ -2960,6 +2999,7 @@ SOTHERA_THE_SUPERVOID = make_enchantment(
     colors={Color.BLACK},
     text="Whenever a creature you control dies, each opponent chooses a creature they control and exiles it.\nAt the beginning of your end step, if a player controls no creatures, sacrifice Sothera, then put a creature card exiled with it onto the battlefield under your control with two additional +1/+1 counters on it.",
     supertypes={"Legendary"},
+    setup_interceptors=sothera_the_supervoid_setup,
 )
 
 SUNSET_SABOTEUR = make_creature(
@@ -2976,6 +3016,7 @@ SUSURIAN_DIRGECRAFT = make_artifact(
     mana_cost="{4}{B}",
     text="When this Spacecraft enters, each opponent sacrifices a nontoken creature of their choice.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 7+.)\n7+ | Flying",
     subtypes={"Spacecraft"},
+    setup_interceptors=susurian_dirgecraft_setup,
 )
 
 SUSURIAN_VOIDBORN = make_creature(
@@ -2985,6 +3026,7 @@ SUSURIAN_VOIDBORN = make_creature(
     colors={Color.BLACK},
     subtypes={"Soldier", "Vampire"},
     text="Whenever this creature or another creature or artifact you control dies, target opponent loses 1 life and you gain 1 life.\nWarp {B} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=susurian_voidborn_setup,
 )
 
 SWARM_CULLER = make_creature(
@@ -2994,6 +3036,7 @@ SWARM_CULLER = make_creature(
     colors={Color.BLACK},
     subtypes={"Insect", "Warrior"},
     text="Flying\nWhenever this creature becomes tapped, you may sacrifice another creature or artifact. If you do, draw a card.",
+    setup_interceptors=swarm_culler_setup,
 )
 
 TEMPORAL_INTERVENTION = make_sorcery(
@@ -3035,6 +3078,7 @@ VIRUS_BEETLE = make_artifact_creature(
     colors={Color.BLACK},
     subtypes={"Insect"},
     text="When this creature enters, each opponent discards a card.",
+    setup_interceptors=virus_beetle_setup,
 )
 
 VOIDFORGED_TITAN = make_artifact_creature(
@@ -3089,6 +3133,7 @@ DEBRIS_FIELD_CRUSHER = make_artifact(
     mana_cost="{4}{R}",
     text="When this Spacecraft enters, it deals 3 damage to any target.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 8+.)\n8+ | Flying\n{1}{R}: This Spacecraft gets +2/+0 until end of turn.",
     subtypes={"Spacecraft"},
+    setup_interceptors=debris_field_crusher_setup,
 )
 
 DEVASTATING_ONSLAUGHT = make_sorcery(
@@ -3112,6 +3157,7 @@ FRONTLINE_WARRAGER = make_creature(
     colors={Color.RED},
     subtypes={"Kavu", "Soldier"},
     text="At the beginning of your end step, if you control two or more tapped creatures, put a +1/+1 counter on this creature.",
+    setup_interceptors=frontline_warrager_setup,
 )
 
 FULL_BORE = make_instant(
@@ -3142,6 +3188,7 @@ KAV_LANDSEEKER = make_creature(
     colors={Color.RED},
     subtypes={"Kavu", "Soldier"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nWhen this creature enters, create a Lander token. At the beginning of the end step on your next turn, sacrifice that token. (It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")",
+    setup_interceptors=kav_landseeker_setup,
 )
 
 KAVARON_HARRIER = make_artifact_creature(
@@ -3151,6 +3198,7 @@ KAVARON_HARRIER = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Robot", "Soldier"},
     text="Whenever this creature attacks, you may pay {2}. If you do, create a 2/2 colorless Robot artifact creature token that's tapped and attacking. Sacrifice that token at end of combat.",
+    setup_interceptors=kavaron_harrier_setup,
 )
 
 KAVARON_SKYWARDEN = make_creature(
@@ -3182,6 +3230,7 @@ MELDED_MOXITE = make_artifact(
     name="Melded Moxite",
     mana_cost="{1}{R}",
     text="When this artifact enters, you may discard a card. If you do, draw two cards.\n{3}, Sacrifice this artifact: Create a tapped 2/2 colorless Robot artifact creature token.",
+    setup_interceptors=melded_moxite_setup,
 )
 
 MEMORIAL_TEAM_LEADER = make_creature(
@@ -3191,6 +3240,7 @@ MEMORIAL_TEAM_LEADER = make_creature(
     colors={Color.RED},
     subtypes={"Kavu", "Soldier"},
     text="During your turn, other creatures you control get +1/+0.\nWarp {1}{R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=memorial_team_leader_setup,
 )
 
 MEMORIAL_VAULT = make_artifact(
@@ -3206,6 +3256,7 @@ MOLECULAR_MODIFIER = make_creature(
     colors={Color.RED},
     subtypes={"Artificer", "Kavu"},
     text="At the beginning of combat on your turn, target creature you control gets +1/+0 and gains first strike until end of turn.",
+    setup_interceptors=molecular_modifier_setup,
 )
 
 NEBULA_DRAGON = make_creature(
@@ -3215,6 +3266,7 @@ NEBULA_DRAGON = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Flying\nWhen this creature enters, it deals 3 damage to any target.",
+    setup_interceptors=nebula_dragon_setup,
 )
 
 NOVA_HELLKITE = make_creature(
@@ -3224,6 +3276,7 @@ NOVA_HELLKITE = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Flying, haste\nWhen this creature enters, it deals 1 damage to target creature an opponent controls.\nWarp {2}{R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=nova_hellkite_setup,
 )
 
 ORBITAL_PLUNGE = make_sorcery(
@@ -3240,6 +3293,7 @@ OREPLATE_PANGOLIN = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Pangolin", "Robot"},
     text="Whenever another artifact you control enters, you may pay {1}. If you do, put a +1/+1 counter on this creature.",
+    setup_interceptors=oreplate_pangolin_setup,
 )
 
 PAIN_FOR_ALL = make_enchantment(
@@ -3282,6 +3336,7 @@ REMNANT_ELEMENTAL = make_creature(
     colors={Color.RED},
     subtypes={"Elemental"},
     text="Reach\nLandfall — Whenever a land you control enters, this creature gets +2/+0 until end of turn.",
+    setup_interceptors=remnant_elemental_setup,
 )
 
 RIG_FOR_WAR = make_instant(
@@ -3340,6 +3395,7 @@ TANNUK_STEADFAST_SECOND = make_creature(
     subtypes={"Kavu", "Pilot"},
     supertypes={"Legendary"},
     text="Other creatures you control have haste.\nArtifact cards and red creature cards in your hand have warp {2}{R}. (You may cast a card from your hand for its warp cost. Exile that permanent at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=tannuk_steadfast_second_setup,
 )
 
 TERMINAL_VELOCITY = make_sorcery(
@@ -3374,6 +3430,7 @@ VAULTGUARD_TROOPER = make_creature(
     colors={Color.RED},
     subtypes={"Kavu", "Soldier"},
     text="At the beginning of your end step, if you control two or more tapped creatures, you may discard your hand. If you do, draw two cards.",
+    setup_interceptors=vaultguard_trooper_setup,
 )
 
 WARMAKER_GUNSHIP = make_artifact(
@@ -3381,6 +3438,7 @@ WARMAKER_GUNSHIP = make_artifact(
     mana_cost="{2}{R}",
     text="When this Spacecraft enters, it deals damage equal to the number of artifacts you control to target creature an opponent controls.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 6+.)\n6+ | Flying",
     subtypes={"Spacecraft"},
+    setup_interceptors=warmaker_gunship_setup,
 )
 
 WEAPONS_MANUFACTURING = make_enchantment(
@@ -3388,6 +3446,7 @@ WEAPONS_MANUFACTURING = make_enchantment(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Whenever a nontoken artifact you control enters, create a colorless artifact token named Munitions with \"When this token leaves the battlefield, it deals 2 damage to any target.\"",
+    setup_interceptors=weapons_manufacturing_setup,
 )
 
 WEFTSTALKER_ARDENT = make_creature(
@@ -3397,6 +3456,7 @@ WEFTSTALKER_ARDENT = make_creature(
     colors={Color.RED},
     subtypes={"Artificer", "Drix"},
     text="Whenever another creature or artifact you control enters, this creature deals 1 damage to each opponent.\nWarp {R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=weftstalker_ardent_setup,
 )
 
 ZOOKEEPER_MECHAN = make_artifact_creature(
@@ -3413,6 +3473,7 @@ ATMOSPHERIC_GREENHOUSE = make_artifact(
     mana_cost="{4}{G}",
     text="When this Spacecraft enters, put a +1/+1 counter on each creature you control.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 8+.)\n8+ | Flying, trample",
     subtypes={"Spacecraft"},
+    setup_interceptors=atmospheric_greenhouse_setup,
 )
 
 BIOENGINEERED_FUTURE = make_enchantment(
@@ -3436,6 +3497,7 @@ BLOOMING_STINGER = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant", "Scorpion"},
     text="Deathtouch\nWhen this creature enters, another target creature you control gains deathtouch until end of turn.",
+    setup_interceptors=blooming_stinger_setup,
 )
 
 BROODGUARD_ELITE = make_creature(
@@ -3468,6 +3530,7 @@ DRIX_FATEMAKER = make_creature(
     colors={Color.GREEN},
     subtypes={"Drix", "Wizard"},
     text="When this creature enters, put a +1/+1 counter on target creature.\nEach creature you control with a +1/+1 counter on it has trample.\nWarp {1}{G} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=drix_fatemaker_setup,
 )
 
 EDGE_ROVER = make_artifact_creature(
@@ -3477,6 +3540,7 @@ EDGE_ROVER = make_artifact_creature(
     colors={Color.GREEN},
     subtypes={"Robot", "Scout"},
     text="Reach\nWhen this creature dies, each player creates a Lander token. (It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")",
+    setup_interceptors=edge_rover_setup,
 )
 
 EUMIDIAN_TERRABOTANIST = make_creature(
@@ -3486,6 +3550,7 @@ EUMIDIAN_TERRABOTANIST = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Insect"},
     text="Landfall — Whenever a land you control enters, you gain 1 life.",
+    setup_interceptors=eumidian_terrabotanist_setup,
 )
 
 EUSOCIAL_ENGINEERING = make_enchantment(
@@ -3529,6 +3594,7 @@ GALACTIC_WAYFARER = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Scout"},
     text="When this creature enters, create a Lander token. (It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")",
+    setup_interceptors=galactic_wayfarer_setup,
 )
 
 GENE_POLLINATOR = make_artifact_creature(
@@ -3547,6 +3613,7 @@ GERMINATING_WURM = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant", "Wurm"},
     text="When this creature enters, you gain 2 life.\nWarp {1}{G} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=germinating_wurm_setup,
 )
 
 GLACIER_GODMAW = make_creature(
@@ -3556,6 +3623,7 @@ GLACIER_GODMAW = make_creature(
     colors={Color.GREEN},
     subtypes={"Leviathan"},
     text="Trample\nWhen this creature enters, create a Lander token. (It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")\nLandfall — Whenever a land you control enters, creatures you control get +1/+1 and gain vigilance and haste until end of turn.",
+    setup_interceptors=glacier_godmaw_setup,
 )
 
 HARMONIOUS_GROVESTRIDER = make_creature(
@@ -3565,6 +3633,7 @@ HARMONIOUS_GROVESTRIDER = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast"},
     text="Ward {2} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.)\nHarmonious Grovestrider's power and toughness are each equal to the number of lands you control.",
+    setup_interceptors=harmonious_grovestrider_setup,
 )
 
 HEMOSYMBIC_MITE = make_creature(
@@ -3574,6 +3643,7 @@ HEMOSYMBIC_MITE = make_creature(
     colors={Color.GREEN},
     subtypes={"Mite"},
     text="Whenever this creature becomes tapped, another target creature you control gets +X/+X until end of turn, where X is this creature's power.",
+    setup_interceptors=hemosymbic_mite_setup,
 )
 
 ICECAVE_CRASHER = make_creature(
@@ -3583,6 +3653,7 @@ ICECAVE_CRASHER = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast"},
     text="Trample\nLandfall — Whenever a land you control enters, this creature gets +1/+0 until end of turn.",
+    setup_interceptors=icecave_crasher_setup,
 )
 
 ICETILL_EXPLORER = make_creature(
@@ -3633,6 +3704,7 @@ MELTSTRIDER_EULOGIST = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect", "Soldier"},
     text="Whenever a creature you control with a +1/+1 counter on it dies, draw a card.",
+    setup_interceptors=meltstrider_eulogist_setup,
 )
 
 MELTSTRIDERS_GEAR = make_artifact(
@@ -3666,6 +3738,7 @@ OUROBOROID = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant", "Wurm"},
     text="At the beginning of combat on your turn, put X +1/+1 counters on each creature you control, where X is this creature's power.",
+    setup_interceptors=ouroboroid_setup,
 )
 
 PULL_THROUGH_THE_WEFT = make_sorcery(
@@ -3689,6 +3762,7 @@ SEEDSHIP_AGRARIAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect", "Scientist"},
     text="Whenever this creature becomes tapped, create a Lander token. (It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")\nLandfall — Whenever a land you control enters, put a +1/+1 counter on this creature.",
+    setup_interceptors=seedship_agrarian_setup,
 )
 
 SEEDSHIP_IMPACT = make_instant(
@@ -3712,6 +3786,7 @@ SKYSTINGER = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect", "Warrior"},
     text="Reach\nWhenever this creature blocks a creature with flying, this creature gets +5/+0 until end of turn.",
+    setup_interceptors=skystinger_setup,
 )
 
 SLEDGECLASS_SEEDSHIP = make_artifact(
@@ -3728,6 +3803,7 @@ TAPESTRY_WARDEN = make_artifact_creature(
     colors={Color.GREEN},
     subtypes={"Robot", "Soldier"},
     text="Vigilance\nEach creature you control with toughness greater than its power assigns combat damage equal to its toughness rather than its power.\nEach creature you control with toughness greater than its power stations permanents using its toughness rather than its power.",
+    setup_interceptors=tapestry_warden_setup,
 )
 
 TERRASYMBIOSIS = make_enchantment(
@@ -3744,6 +3820,7 @@ THAWBRINGER = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect", "Scout"},
     text="When this creature enters or dies, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=thawbringer_setup,
 )
 
 ALPHARAEL_DREAMING_ACOLYTE = make_creature(
@@ -3754,6 +3831,7 @@ ALPHARAEL_DREAMING_ACOLYTE = make_creature(
     subtypes={"Cleric", "Human"},
     supertypes={"Legendary"},
     text="When Alpharael enters, draw two cards. Then discard two cards unless you discard an artifact card.\nDuring your turn, Alpharael has deathtouch.",
+    setup_interceptors=alpharael_dreaming_acolyte_setup,
 )
 
 BIOMECHAN_ENGINEER = make_creature(
@@ -3763,6 +3841,7 @@ BIOMECHAN_ENGINEER = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Artificer", "Insect"},
     text="When this creature enters, create a Lander token. (It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")\n{8}: Draw two cards and create a 2/2 colorless Robot artifact creature token.",
+    setup_interceptors=biomechan_engineer_setup,
 )
 
 BIOTECH_SPECIALIST = make_creature(
@@ -3772,6 +3851,7 @@ BIOTECH_SPECIALIST = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Insect", "Scientist"},
     text="When this creature enters, create a Lander token. (It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")\nWhenever you sacrifice an artifact, this creature deals 2 damage to target opponent.",
+    setup_interceptors=biotech_specialist_setup,
 )
 
 COSMOGOYF = make_creature(
@@ -3781,6 +3861,7 @@ COSMOGOYF = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Elemental", "Lhurgoyf"},
     text="Cosmogoyf's power is equal to the number of cards you own in exile and its toughness is equal to that number plus 1.",
+    setup_interceptors=cosmogoyf_setup,
 )
 
 DYADRINE_SYNTHESIS_AMALGAM = make_artifact_creature(
@@ -3810,6 +3891,7 @@ HALIYA_ASCENDANT_CADET = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="Whenever Haliya enters or attacks, put a +1/+1 counter on target creature you control.\nWhenever one or more creatures you control with +1/+1 counters on them deal combat damage to a player, draw a card.",
+    setup_interceptors=haliya_ascendant_cadet_setup,
 )
 
 INFINITE_GUIDELINE_STATION = make_artifact(
@@ -3827,6 +3909,7 @@ INTERCEPTOR_MECHAN = make_artifact_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Robot"},
     text="Flying\nWhen this creature enters, return target artifact or creature card from your graveyard to your hand.\nVoid — At the beginning of your end step, if a nonland permanent left the battlefield this turn or a spell was warped this turn, put a +1/+1 counter on this creature.",
+    setup_interceptors=interceptor_mechan_setup,
 )
 
 MMMENON_UTHROS_EXILE = make_creature(
@@ -3837,6 +3920,7 @@ MMMENON_UTHROS_EXILE = make_creature(
     subtypes={"Advisor", "Jellyfish"},
     supertypes={"Legendary"},
     text="Flying\nWhenever an artifact you control enters, put a +1/+1 counter on target creature.",
+    setup_interceptors=mmmenon_uthros_exile_setup,
 )
 
 MUTINOUS_MASSACRE = make_sorcery(
@@ -3853,6 +3937,7 @@ PINNACLE_EMISSARY = make_artifact_creature(
     colors={Color.RED, Color.BLUE},
     subtypes={"Robot"},
     text="Whenever you cast an artifact spell, create a 1/1 colorless Drone artifact creature token with flying and \"This token can block only creatures with flying.\"\nWarp {U/R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=pinnacle_emissary_setup,
 )
 
 RAGOST_DEFT_GASTRONAUT = make_creature(
@@ -3873,6 +3958,7 @@ SAMI_SHIPS_ENGINEER = make_creature(
     subtypes={"Artificer", "Human"},
     supertypes={"Legendary"},
     text="At the beginning of your end step, if you control two or more tapped creatures, create a tapped 2/2 colorless Robot artifact creature token.",
+    setup_interceptors=sami_ships_engineer_setup,
 )
 
 SAMI_WILDCAT_CAPTAIN = make_creature(
@@ -3892,6 +3978,7 @@ SEEDSHIP_BROODTENDER = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Citizen", "Insect"},
     text="When this creature enters, mill three cards. (Put the top three cards of your library into your graveyard.)\n{3}{B}{G}, Sacrifice this creature: Return target creature or Spacecraft card from your graveyard to the battlefield. Activate only as a sorcery.",
+    setup_interceptors=seedship_broodtender_setup,
 )
 
 SINGULARITY_RUPTURE = make_sorcery(
@@ -3915,6 +4002,7 @@ STATION_MONITOR = make_creature(
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Artificer", "Lizard"},
     text="Whenever you cast your second spell each turn, create a 1/1 colorless Drone artifact creature token with flying and \"This token can block only creatures with flying.\"",
+    setup_interceptors=station_monitor_setup,
 )
 
 SYR_VONDAM_SUNSTAR_EXEMPLAR = make_creature(
@@ -3925,6 +4013,7 @@ SYR_VONDAM_SUNSTAR_EXEMPLAR = make_creature(
     subtypes={"Human", "Knight"},
     supertypes={"Legendary"},
     text="Vigilance, menace\nWhenever another creature you control dies or is put into exile, put a +1/+1 counter on Syr Vondam and you gain 1 life.\nWhen Syr Vondam dies or is put into exile while its power is 4 or greater, destroy up to one target nonland permanent.",
+    setup_interceptors=syr_vondam_sunstar_exemplar_setup,
 )
 
 SYR_VONDAM_THE_LUCENT = make_creature(
@@ -3935,6 +4024,7 @@ SYR_VONDAM_THE_LUCENT = make_creature(
     subtypes={"Human", "Knight"},
     supertypes={"Legendary"},
     text="Deathtouch, lifelink\nWhenever Syr Vondam enters or attacks, other creatures you control get +1/+0 and gain deathtouch until end of turn.",
+    setup_interceptors=syr_vondam_the_lucent_setup,
 )
 
 TANNUK_MEMORIAL_ENSIGN = make_creature(
@@ -3945,6 +4035,7 @@ TANNUK_MEMORIAL_ENSIGN = make_creature(
     subtypes={"Kavu", "Pilot"},
     supertypes={"Legendary"},
     text="Landfall — Whenever a land you control enters, Tannuk deals 1 damage to each opponent. If this is the second time this ability has resolved this turn, draw a card.",
+    setup_interceptors=tannuk_memorial_ensign_setup,
 )
 
 ALLFATES_SCROLL = make_artifact(
@@ -3969,6 +4060,7 @@ CHROME_COMPANION = make_artifact_creature(
     colors=set(),
     subtypes={"Dog"},
     text="Whenever this creature becomes tapped, you gain 1 life.\n{2}, {T}: Put target card from a graveyard on the bottom of its owner's library.",
+    setup_interceptors=chrome_companion_setup,
 )
 
 DAUNTLESS_SCRAPBOT = make_artifact_creature(
@@ -3978,6 +4070,7 @@ DAUNTLESS_SCRAPBOT = make_artifact_creature(
     colors=set(),
     subtypes={"Robot"},
     text="When this creature enters, exile each opponent's graveyard. Create a Lander token. (It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")",
+    setup_interceptors=dauntless_scrapbot_setup,
 )
 
 DAWNSIRE_SUNSTAR_DREADNOUGHT = make_artifact(
@@ -4016,6 +4109,7 @@ EXTINGUISHER_BATTLESHIP = make_artifact(
     mana_cost="{8}",
     text="When this Spacecraft enters, destroy target noncreature permanent. Then this Spacecraft deals 4 damage to each creature.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 5+.)\n5+ | Flying, trample",
     subtypes={"Spacecraft"},
+    setup_interceptors=extinguisher_battleship_setup,
 )
 
 NUTRIENT_BLOCK = make_artifact(
@@ -4023,6 +4117,7 @@ NUTRIENT_BLOCK = make_artifact(
     mana_cost="{1}",
     text="Indestructible (Effects that say \"destroy\" don't destroy this artifact.)\n{2}, {T}, Sacrifice this artifact: You gain 3 life.\nWhen this artifact is put into a graveyard from the battlefield, draw a card.",
     subtypes={"Food"},
+    setup_interceptors=nutrient_block_setup,
 )
 
 PINNACLE_KILLSHIP = make_artifact(
@@ -4030,6 +4125,7 @@ PINNACLE_KILLSHIP = make_artifact(
     mana_cost="{7}",
     text="When this Spacecraft enters, it deals 10 damage to up to one target creature.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 7+.)\n7+ | Flying",
     subtypes={"Spacecraft"},
+    setup_interceptors=pinnacle_killship_setup,
 )
 
 SURVEY_MECHAN = make_artifact_creature(
@@ -4051,6 +4147,7 @@ THRUMMING_HIVEPOOL = make_artifact(
     name="Thrumming Hivepool",
     mana_cost="{6}",
     text="Affinity for Slivers (This spell costs {1} less to cast for each Sliver you control.)\nSlivers you control have double strike and haste.\nAt the beginning of your upkeep, create two 1/1 colorless Sliver creature tokens.",
+    setup_interceptors=thrumming_hivepool_setup,
 )
 
 VIRULENT_SILENCER = make_artifact_creature(
@@ -4060,6 +4157,7 @@ VIRULENT_SILENCER = make_artifact_creature(
     colors=set(),
     subtypes={"Assassin", "Robot"},
     text="Whenever a nontoken artifact creature you control deals combat damage to a player, that player gets two poison counters. (A player with ten or more poison counters loses the game.)",
+    setup_interceptors=virulent_silencer_setup,
 )
 
 WURMWALL_SWEEPER = make_artifact(
@@ -4067,6 +4165,7 @@ WURMWALL_SWEEPER = make_artifact(
     mana_cost="{2}",
     text="When this Spacecraft enters, surveil 2.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 4+.)\n4+ | Flying",
     subtypes={"Spacecraft"},
+    setup_interceptors=wurmwall_sweeper_setup,
 )
 
 ADAGIA_WINDSWEPT_BASTION = make_land(

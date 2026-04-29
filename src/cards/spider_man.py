@@ -336,15 +336,17 @@ def j_jonah_jameson_setup(obj: GameObject, state: GameState) -> list[Interceptor
     interceptors.append(make_etb_trigger(obj, etb_effect))
 
     # Attack trigger for menace creatures
-    def menace_attack_filter(event: Event, state: GameState) -> bool:
+    def menace_attack_filter(event: Event, state: GameState, source: GameObject) -> bool:
         if event.type != EventType.ATTACK_DECLARED:
             return False
         attacker_id = event.payload.get('attacker_id')
         attacker = state.objects.get(attacker_id)
-        if not attacker or attacker.controller != obj.controller:
+        if not attacker or attacker.controller != source.controller:
             return False
-        # Check if attacker has menace (simplified - would check abilities)
-        return 'menace' in attacker.characteristics.subtypes or CardType.CREATURE in attacker.characteristics.types
+        if CardType.CREATURE not in attacker.characteristics.types:
+            return False
+        # Check if attacker has menace
+        return 'menace' in attacker.characteristics.keywords
 
     def menace_attack_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
@@ -357,6 +359,8 @@ def j_jonah_jameson_setup(obj: GameObject, state: GameState) -> list[Interceptor
             },
             source=obj.id
         )]
+
+    interceptors.append(make_attack_trigger(obj, menace_attack_effect, filter_fn=menace_attack_filter))
 
     return interceptors
 
@@ -1632,6 +1636,7 @@ SPIDERBYTE_WEB_WARDEN = make_creature(
     subtypes={"Avatar", "Hero", "Spider"},
     supertypes={"Legendary"},
     text="When Spider-Byte enters, return up to one target nonland permanent to its owner's hand.",
+    setup_interceptors=spiderbyte_setup,
 )
 
 SPIDERMAN_NO_MORE = make_enchantment(
@@ -1765,6 +1770,7 @@ MORLUN_DEVOURER_OF_SPIDERS = make_creature(
     subtypes={"Vampire", "Villain"},
     supertypes={"Legendary"},
     text="Lifelink\nMorlun enters with X +1/+1 counters on him.\nWhen Morlun enters, he deals X damage to target opponent.",
+    setup_interceptors=morlun_setup,
 )
 
 PARKER_LUCK = make_enchantment(
@@ -1857,6 +1863,7 @@ TOMBSTONE_CAREER_CRIMINAL = make_creature(
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
     text="When Tombstone enters, return target Villain card from your graveyard to your hand.\nVillain spells you cast cost {1} less to cast.",
+    setup_interceptors=tombstone_setup,
 )
 
 VENOM_EVIL_UNLEASHED = make_creature(
@@ -1956,6 +1963,7 @@ J_JONAH_JAMESON = make_creature(
     subtypes={"Citizen", "Human"},
     supertypes={"Legendary"},
     text="When J. Jonah Jameson enters, suspect up to one target creature. (A suspected creature has menace and can't block.)\nWhenever a creature you control with menace attacks, create a Treasure token.",
+    setup_interceptors=j_jonah_jameson_setup,
 )
 
 MASKED_MEOWER = make_creature(
@@ -2024,6 +2032,7 @@ SHOCKER_UNSHAKABLE = make_creature(
     subtypes={"Human", "Rogue", "Villain"},
     supertypes={"Legendary"},
     text="During your turn, Shocker has first strike.\nVibro-Shock Gauntlets — When Shocker enters, he deals 2 damage to target creature and 2 damage to that creature's controller.",
+    setup_interceptors=shocker_setup,
 )
 
 SPIDERGWEN_FREE_SPIRIT = make_creature(

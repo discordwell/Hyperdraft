@@ -4952,6 +4952,7 @@ AKAWALLI_THE_SEETHING_TOWER = make_creature(
     subtypes={"Fungus"},
     supertypes={"Legendary"},
     text="Descend 4 — As long as there are four or more permanent cards in your graveyard, Akawalli gets +2/+2 and has trample.\nDescend 8 — As long as there are eight or more permanent cards in your graveyard, Akawalli gets an additional +2/+2 and can't be blocked by more than one creature.",
+    setup_interceptors=akawalli_setup,
 )
 
 AMALIA_BENAVIDES_AGUIRRE = make_creature(
@@ -5031,6 +5032,7 @@ DEEPFATHOM_ECHO = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Merfolk", "Spirit"},
     text="At the beginning of combat on your turn, this creature explores. Then you may have it become a copy of another creature you control until end of turn. (To have this creature explore, reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on this creature, then put the card back or put it into your graveyard.)",
+    setup_interceptors=deepfathom_echo_setup,
 )
 
 GISHATH_SUNS_AVATAR = make_creature(
@@ -5172,6 +5174,7 @@ VITO_FANATIC_OF_ACLAZOTZ = make_creature(
     subtypes={"Demon", "Vampire"},
     supertypes={"Legendary"},
     text="Flying\nWhenever you sacrifice another permanent, you gain 2 life if this is the first time this ability has resolved this turn. If it's the second time, each opponent loses 2 life. If it's the third time, create a 4/3 white and black Vampire Demon creature token with flying.",
+    setup_interceptors=vito_fanatic_setup,
 )
 
 WAIL_OF_THE_FORGOTTEN = make_sorcery(
@@ -5189,6 +5192,7 @@ ZOYOWA_LAVATONGUE = make_creature(
     subtypes={"Goblin", "Warlock"},
     supertypes={"Legendary"},
     text="Deathtouch\nAt the beginning of your end step, if you descended this turn, each opponent may discard a card or sacrifice a permanent of their choice. Zoyowa deals 3 damage to each opponent who didn't. (You descended if a permanent card was put into your graveyard from anywhere.)",
+    setup_interceptors=zoyowa_lavatongue_setup,
 )
 
 BURIED_TREASURE = make_artifact(
@@ -5267,6 +5271,7 @@ HOVERSTONE_PILGRIM = make_artifact_creature(
     colors=set(),
     subtypes={"Golem"},
     text="Flying\nWard {2} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.)\n{2}: Put target card from a graveyard on the bottom of its owner's library.",
+    setup_interceptors=hoverstone_pilgrim_setup,
 )
 
 HUNTERS_BLOWGUN = make_artifact(
@@ -5297,6 +5302,7 @@ ROAMING_THRONE = make_artifact_creature(
     colors=set(),
     subtypes={"Golem"},
     text="Ward {2}\nAs this creature enters, choose a creature type.\nThis creature is the chosen type in addition to its other types.\nIf a triggered ability of another creature you control of the chosen type triggers, it triggers an additional time.",
+    setup_interceptors=roaming_throne_setup,
 )
 
 RUNAWAY_BOULDER = make_artifact(

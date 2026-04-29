@@ -1994,7 +1994,12 @@ def melek_reforged_researcher_setup(obj: GameObject, state: GameState) -> list[I
 
     def get_instant_sorcery_count(state: GameState) -> int:
         count = 0
-        # Would need to access graveyard
+        for oid, o in state.objects.items():
+            if (o.controller == obj.controller and
+                o.zone == ZoneType.GRAVEYARD and
+                (CardType.INSTANT in o.characteristics.types or
+                 CardType.SORCERY in o.characteristics.types)):
+                count += 1
         return count
 
     def power_handler(event: Event, state: GameState) -> InterceptorResult:
@@ -4323,6 +4328,7 @@ DELNEY_STREETWISE_LOOKOUT = make_creature(
     subtypes={"Human", "Scout"},
     supertypes={"Legendary"},
     text="Creatures you control with power 2 or less can't be blocked by creatures with power 3 or greater.\nIf an ability of a creature you control with power 2 or less triggers, that ability triggers an additional time.",
+    setup_interceptors=delney_streetwise_lookout_setup,
 )
 
 DOORKEEPER_THRULL = make_creature(
@@ -4332,6 +4338,7 @@ DOORKEEPER_THRULL = make_creature(
     colors={Color.WHITE},
     subtypes={"Thrull"},
     text="Flash\nFlying\nArtifacts and creatures entering don't cause abilities to trigger.",
+    setup_interceptors=doorkeeper_thrull_setup,
 )
 
 DUE_DILIGENCE = make_enchantment(
@@ -4760,6 +4767,7 @@ JADED_ANALYST = make_creature(
     colors={Color.BLUE},
     subtypes={"Detective", "Human"},
     text="Defender\nWhenever you draw your second card each turn, this creature loses defender and gains vigilance until end of turn.",
+    setup_interceptors=jaded_analyst_setup,
 )
 
 LIVING_CONUNDRUM = make_creature(
@@ -4878,6 +4886,7 @@ ALLEY_ASSAILANT = make_creature(
     colors={Color.BLACK},
     subtypes={"Rogue", "Vampire"},
     text="This creature enters tapped.\nDisguise {4}{B}{B} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, target opponent loses 3 life and you gain 3 life.",
+    setup_interceptors=alley_assailant_setup,
 )
 
 BARBED_SERVITOR = make_artifact_creature(
@@ -5134,6 +5143,7 @@ SOUL_ENERVATION = make_enchantment(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     text="Flash\nWhen this enchantment enters, target creature gets -4/-4 until end of turn.\nWhenever one or more creature cards leave your graveyard, each opponent loses 1 life and you gain 1 life.",
+    setup_interceptors=soul_enervation_setup,
 )
 
 TOXIN_ANALYSIS = make_instant(
@@ -5402,6 +5412,7 @@ LAMPLIGHT_PHOENIX = make_creature(
     colors={Color.RED},
     subtypes={"Phoenix"},
     text="Flying\nWhen this creature dies, you may exile it and collect evidence 4. If you do, return this card to the battlefield tapped. (To collect evidence 4, exile cards with total mana value 4 or greater from your graveyard.)",
+    setup_interceptors=lamplight_phoenix_setup,
 )
 
 OFFENDER_AT_LARGE = make_creature(
@@ -5430,6 +5441,7 @@ PYROTECHNIC_PERFORMER = make_creature(
     colors={Color.RED},
     subtypes={"Assassin", "Lizard"},
     text="Disguise {R} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhenever this creature or another creature you control is turned face up, that creature deals damage equal to its power to each opponent.",
+    setup_interceptors=pyrotechnic_performer_setup,
 )
 
 RECKLESS_DETECTIVE = make_creature(
@@ -5895,6 +5907,7 @@ TUNNEL_TIPSTER = make_creature(
     colors={Color.GREEN},
     subtypes={"Mole", "Scout"},
     text="At the beginning of your end step, if a face-down creature entered the battlefield under your control this turn, put a +1/+1 counter on this creature.\n{T}: Add {G}.",
+    setup_interceptors=tunnel_tipster_setup,
 )
 
 UNDERGROWTH_RECON = make_enchantment(
@@ -6043,6 +6056,7 @@ DOG_WALKER = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Citizen", "Human"},
     text="Vigilance\nDisguise {R/W}{R/W} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, create two tapped 1/1 white Dog creature tokens.",
+    setup_interceptors=dog_walker_setup,
 )
 
 DOPPELGANG = make_sorcery(
@@ -6076,6 +6090,7 @@ EVIDENCE_EXAMINER = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Detective", "Merfolk"},
     text="At the beginning of combat on your turn, you may collect evidence 4. (Exile cards with total mana value 4 or greater from your graveyard.)\nWhenever you collect evidence, investigate. (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
+    setup_interceptors=evidence_examiner_setup,
 )
 
 EZRIM_AGENCY_CHIEF = make_creature(
@@ -6150,6 +6165,7 @@ IZONI_CENTER_OF_THE_WEB = make_creature(
     subtypes={"Detective", "Elf"},
     supertypes={"Legendary"},
     text="Menace\nWhenever Izoni enters or attacks, you may collect evidence 4. If you do, create two 2/1 black and green Spider creature tokens with menace and reach.\nSacrifice four tokens: Surveil 2, then draw two cards. You gain 2 life.",
+    setup_interceptors=izoni_center_setup,
 )
 
 JUDITH_CARNAGE_CONNOISSEUR = make_creature(
@@ -6160,6 +6176,7 @@ JUDITH_CARNAGE_CONNOISSEUR = make_creature(
     subtypes={"Human", "Shaman"},
     supertypes={"Legendary"},
     text="Whenever you cast an instant or sorcery spell, choose one —\n• That spell gains deathtouch and lifelink.\n• Create a 2/2 red Imp creature token with \"When this token dies, it deals 2 damage to each opponent.\"",
+    setup_interceptors=judith_carnage_setup,
 )
 
 KAYA_SPIRITS_JUSTICE = make_planeswalker(
@@ -6217,6 +6234,7 @@ LAZAV_WEARER_OF_FACES = make_creature(
     subtypes={"Detective", "Shapeshifter"},
     supertypes={"Legendary"},
     text="Whenever Lazav attacks, exile target card from a graveyard, then investigate. (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")\nWhenever you sacrifice a Clue, you may have Lazav become a copy of a creature card exiled with it until end of turn.",
+    setup_interceptors=lazav_wearer_setup,
 )
 
 LEYLINE_OF_THE_GUILDPACT = make_enchantment(
@@ -6252,6 +6270,7 @@ NIVMIZZET_GUILDPACT = make_creature(
     subtypes={"Avatar", "Dragon"},
     supertypes={"Legendary"},
     text="Flying, hexproof from multicolored\nWhenever Niv-Mizzet deals combat damage to a player, it deals X damage to any target, target player draws X cards, and you gain X life, where X is the number of different color pairs among permanents you control that are exactly two colors.",
+    setup_interceptors=niv_mizzet_guildpact_setup,
 )
 
 NO_MORE_LIES = make_instant(
@@ -6287,6 +6306,7 @@ RAKDOS_PATRON_OF_CHAOS = make_creature(
     subtypes={"Demon"},
     supertypes={"Legendary"},
     text="Flying, trample\nAt the beginning of your end step, target opponent may sacrifice two nonland, nontoken permanents of their choice. If they don't, you draw two cards.",
+    setup_interceptors=rakdos_patron_setup,
 )
 
 RAKISH_SCOUNDREL = make_creature(
@@ -6364,6 +6384,7 @@ SUMALA_SENTRY = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Archer", "Elf"},
     text="Reach\nWhenever a face-down permanent you control is turned face up, put a +1/+1 counter on it and a +1/+1 counter on this creature.",
+    setup_interceptors=sumala_sentry_setup,
 )
 
 TEYSA_OPULENT_OLIGARCH = make_creature(
@@ -6421,6 +6442,7 @@ UNDERCOVER_CROCODELF = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Crocodile", "Detective", "Elf"},
     text="Whenever this creature deals combat damage to a player, investigate. (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")\nDisguise {3}{G/U}{G/U} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)",
+    setup_interceptors=undercover_crocodelf_setup,
 )
 
 URGENT_NECROPSY = make_instant(
@@ -6693,6 +6715,7 @@ MELEK_REFORGED_RESEARCHER = make_creature(
     subtypes={"Detective", "Weird"},
     supertypes={"Legendary"},
     text="Melek's power and toughness are each equal to twice the number of instant and sorcery cards in your graveyard.\nThe first instant or sorcery spell you cast each turn costs {3} less to cast.",
+    setup_interceptors=melek_reforged_researcher_setup,
 )
 
 TOMIK_WIELDER_OF_LAW = make_creature(
@@ -6703,6 +6726,7 @@ TOMIK_WIELDER_OF_LAW = make_creature(
     subtypes={"Advisor", "Human"},
     supertypes={"Legendary"},
     text="Affinity for planeswalkers (This spell costs {1} less to cast for each planeswalker you control.)\nFlying, vigilance\nWhenever an opponent attacks with creatures, if two or more of those creatures are attacking you and/or planeswalkers you control, that opponent loses 3 life and you draw a card.",
+    setup_interceptors=tomik_wielder_of_law_setup,
 )
 
 VOJA_JAWS_OF_THE_CONCLAVE = make_creature(
@@ -6713,6 +6737,7 @@ VOJA_JAWS_OF_THE_CONCLAVE = make_creature(
     subtypes={"Wolf"},
     supertypes={"Legendary"},
     text="Vigilance, trample, ward {3}\nWhenever Voja attacks, put X +1/+1 counters on each creature you control, where X is the number of Elves you control. Draw a card for each Wolf you control.",
+    setup_interceptors=voja_jaws_setup,
 )
 
 # =============================================================================

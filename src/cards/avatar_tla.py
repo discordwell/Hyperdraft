@@ -3268,6 +3268,7 @@ BADGERMOLE_CUB = make_creature(
     colors={Color.GREEN},
     subtypes={"Badger", "Mole"},
     text="When this creature enters, earthbend 1. (Target land you control becomes a 0/0 creature with haste that's still a land. Put a +1/+1 counter on it. When it dies or is exiled, return it to the battlefield tapped.)\nWhenever you tap a creature for mana, add an additional {G}.",
+    setup_interceptors=badgermole_cub_setup,
 )
 
 THE_BOULDER_READY_TO_RUMBLE = make_creature(
@@ -3854,6 +3855,7 @@ KATARA_THE_FEARLESS = make_creature(
     subtypes={"Ally", "Human", "Warrior"},
     supertypes={"Legendary"},
     text="If a triggered ability of an Ally you control triggers, that ability triggers an additional time.",
+    setup_interceptors=katara_the_fearless_setup,
 )
 
 KATARA_WATER_TRIBES_HOPE = make_creature(

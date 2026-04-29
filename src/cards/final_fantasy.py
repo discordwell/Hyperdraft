@@ -2436,6 +2436,7 @@ ASHE_PRINCESS_OF_DALMASCA = make_creature(
     subtypes={"Human", "Noble", "Rebel"},
     supertypes={"Legendary"},
     text="Whenever Ashe attacks, look at the top five cards of your library. You may reveal an artifact card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+    setup_interceptors=ashe_princess_of_dalmasca_setup,
 )
 
 AURONS_INSPIRATION = make_instant(
@@ -2504,6 +2505,7 @@ DELIVERY_MOOGLE = make_creature(
     colors={Color.WHITE},
     subtypes={"Moogle"},
     text="Flying\nWhen this creature enters, search your library and/or graveyard for an artifact card with mana value 2 or less, reveal it, and put it into your hand. If you search your library this way, shuffle.",
+    setup_interceptors=delivery_moogle_setup,
 )
 
 DION_BAHAMUTS_DOMINANT = make_creature(
@@ -2579,6 +2581,7 @@ MAGITEK_ARMOR = make_artifact(
     mana_cost="{3}{W}",
     text="When this Vehicle enters, create a 1/1 colorless Hero creature token.\nCrew 1 (Tap any number of creatures you control with total power 1 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
+    setup_interceptors=magitek_armor_setup,
 )
 
 MAGITEK_INFANTRY = make_artifact_creature(
@@ -3066,6 +3069,7 @@ ULTROS_OBNOXIOUS_OCTOPUS = make_creature(
     subtypes={"Octopus"},
     supertypes={"Legendary"},
     text="Whenever you cast a noncreature spell, if at least four mana was spent to cast it, tap target creature an opponent controls and put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)\nWhenever you cast a noncreature spell, if at least eight mana was spent to cast it, put eight +1/+1 counters on Ultros.",
+    setup_interceptors=ultros_obnoxious_octopus_setup,
 )
 
 VALKYRIE_AERIAL_UNIT = make_artifact_creature(
@@ -3102,6 +3106,7 @@ AHRIMAN = make_creature(
     colors={Color.BLACK},
     subtypes={"Eye", "Horror"},
     text="Flying, deathtouch\n{3}, Sacrifice another creature or artifact: Draw a card.",
+    setup_interceptors=ahriman_setup,
 )
 
 AL_BHED_SALVAGERS = make_creature(
@@ -3213,6 +3218,7 @@ RAGNAROK_DIVINE_DELIVERANCE = make_creature(
     subtypes={"Avatar", "Beast"},
     supertypes={"Legendary"},
     text="Vigilance, menace, trample, reach, haste\nWhen Ragnarok dies, destroy target permanent and return target nonlegendary permanent card from your graveyard to the battlefield.",
+    setup_interceptors=ragnarok_divine_deliverance_setup,
 )
 
 FIGHT_ON = make_instant(
@@ -3237,6 +3243,7 @@ GAIUS_VAN_BAELSAR = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="When Gaius van Baelsar enters, choose one —\n• Each player sacrifices a creature token of their choice.\n• Each player sacrifices a nontoken creature of their choice.\n• Each player sacrifices an enchantment of their choice.",
+    setup_interceptors=gaius_van_baelsar_setup,
 )
 
 HECTEYES = make_creature(
@@ -3334,6 +3341,7 @@ RENO_AND_RUDE = make_creature(
     subtypes={"Assassin", "Human"},
     supertypes={"Legendary"},
     text="Menace\nWhenever Reno and Rude deals combat damage to a player, exile the top card of that player's library. Then you may sacrifice another creature or artifact. If you do, you may play the exiled card this turn, and mana of any type can be spent to cast it.",
+    setup_interceptors=reno_and_rude_setup,
 )
 
 RESENTFUL_REVELATION = make_sorcery(
@@ -3520,6 +3528,7 @@ CORAL_SWORD = make_artifact(
     mana_cost="{R}",
     text="Flash\nWhen this Equipment enters, attach it to target creature you control. That creature gains first strike until end of turn.\nEquipped creature gets +1/+0.\nEquip {1}",
     subtypes={"Equipment"},
+    setup_interceptors=coral_sword_setup,
 )
 
 THE_FIRE_CRYSTAL = make_artifact(
@@ -3640,6 +3649,7 @@ PROMPTO_ARGENTUM = make_creature(
     subtypes={"Human", "Scout"},
     supertypes={"Legendary"},
     text="Haste\nSelfie Shot — Whenever you cast a noncreature spell, if at least four mana was spent to cast it, create a Treasure token.",
+    setup_interceptors=prompto_argentum_setup,
 )
 
 QUEEN_BRAHNE = make_creature(
@@ -3711,6 +3721,7 @@ SEIFER_ALMASY = make_creature(
     subtypes={"Human", "Knight"},
     supertypes={"Legendary"},
     text="Whenever a creature you control attacks alone, it gains double strike until end of turn.\nFire Cross — Whenever Seifer Almasy deals combat damage to a player, you may cast target instant or sorcery card with mana value 3 or less from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead.",
+    setup_interceptors=seifer_almasy_setup,
 )
 
 SELFDESTRUCT = make_instant(
@@ -3808,6 +3819,7 @@ VAAN_STREET_THIEF = make_creature(
     subtypes={"Human", "Scout"},
     supertypes={"Legendary"},
     text="Whenever one or more Scouts, Pirates, and/or Rogues you control deal combat damage to a player, exile the top card of that player's library. You may cast it. If you don't, create a Treasure token.\nWhenever you cast a spell you don't own, put a +1/+1 counter on each Scout, Pirate, and Rogue you control.",
+    setup_interceptors=vaan_street_thief_setup,
 )
 
 WARRIORS_SWORD = make_artifact(
@@ -4000,6 +4012,7 @@ JUMBO_CACTUAR = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant"},
     text="10,000 Needles — Whenever this creature attacks, it gets +9999/+0 until end of turn.",
+    setup_interceptors=jumbo_cactuar_setup,
 )
 
 LOPORRIT_SCOUT = make_creature(
@@ -4027,6 +4040,7 @@ QUINA_QU_GOURMET = make_creature(
     subtypes={"Qu"},
     supertypes={"Legendary"},
     text="If one or more tokens would be created under your control, those tokens plus a 1/1 green Frog creature token are created instead.\n{2}, Sacrifice a Frog: Put a +1/+1 counter on Quina.",
+    setup_interceptors=quina_qu_gourmet_setup,
 )
 
 REACH_THE_HORIZON = make_sorcery(
@@ -4074,6 +4088,7 @@ SAZHS_CHOCOBO = make_creature(
     colors={Color.GREEN},
     subtypes={"Bird"},
     text="Landfall — Whenever a land you control enters, put a +1/+1 counter on this creature.",
+    setup_interceptors=sazhs_chocobo_setup,
 )
 
 SIDEQUEST_RAISE_A_CHOCOBO = make_creature(
@@ -4164,6 +4179,7 @@ TRAVELING_CHOCOBO = make_creature(
     colors={Color.GREEN},
     subtypes={"Bird"},
     text="You may look at the top card of your library any time.\nYou may play lands and cast Bird spells from the top of your library.\nIf a land or Bird you control entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.",
+    setup_interceptors=traveling_chocobo_setup,
 )
 
 VANILLE_CHEERFUL_LCIE = make_creature(
@@ -4174,6 +4190,7 @@ VANILLE_CHEERFUL_LCIE = make_creature(
     subtypes={"Cleric", "Human"},
     supertypes={"Legendary"},
     text="When Vanille enters, mill two cards, then return a permanent card from your graveyard to your hand.\nAt the beginning of your first main phase, if you both own and control Vanille and a creature named Fang, Fearless l'Cie, you may pay {3}{B}{G}. If you do, exile them, then meld them into Ragnarok, Divine Deliverance.",
+    setup_interceptors=vanille_cheerful_lcie_setup,
 )
 
 ABSOLUTE_VIRTUE = make_creature(
@@ -4194,6 +4211,7 @@ BALTHIER_AND_FRAN = make_creature(
     subtypes={"Human", "Rabbit"},
     supertypes={"Legendary"},
     text="Reach\nVehicles you control get +1/+1 and have vigilance and reach.\nWhenever a Vehicle crewed by Balthier and Fran this turn attacks, if it's the first combat phase of the turn, you may pay {1}{R}{G}. If you do, after this phase, there is an additional combat phase.",
+    setup_interceptors=balthier_and_fran_setup,
 )
 
 BLACK_WALTZ_NO_3 = make_creature(
@@ -4204,6 +4222,7 @@ BLACK_WALTZ_NO_3 = make_creature(
     subtypes={"Wizard"},
     supertypes={"Legendary"},
     text="Flying, deathtouch\nWhenever you cast a noncreature spell, Black Waltz No. 3 deals 2 damage to each opponent.",
+    setup_interceptors=black_waltz_no_3_setup,
 )
 
 CHOCO_SEEKER_OF_PARADISE = make_creature(
@@ -4224,6 +4243,7 @@ CID_TIMELESS_ARTIFICER = make_creature(
     subtypes={"Artificer", "Human"},
     supertypes={"Legendary"},
     text="Artifact creatures and Heroes you control get +1/+1 for each Artificer you control and each Artificer card in your graveyard.\nA deck can have any number of cards named Cid, Timeless Artificer.\nCycling {W}{U} ({W}{U}, Discard this card: Draw a card.)",
+    setup_interceptors=cid_timeless_artificer_setup,
 )
 
 CLOUD_OF_DARKNESS = make_creature(
@@ -4234,6 +4254,7 @@ CLOUD_OF_DARKNESS = make_creature(
     subtypes={"Avatar"},
     supertypes={"Legendary"},
     text="Flying\nParticle Beam — When Cloud of Darkness enters, target creature an opponent controls gets -X/-X until end of turn, where X is the number of permanent cards in your graveyard.",
+    setup_interceptors=cloud_of_darkness_setup,
 )
 
 EMETSELCH_UNSUNDERED = make_creature(
@@ -4284,6 +4305,7 @@ GARNET_PRINCESS_OF_ALEXANDRIA = make_creature(
     subtypes={"Cleric", "Human", "Noble"},
     supertypes={"Legendary"},
     text="Lifelink\nWhenever Garnet attacks, you may remove a lore counter from each of any number of Sagas you control. Put a +1/+1 counter on Garnet for each lore counter removed this way.",
+    setup_interceptors=garnet_princess_of_alexandria_setup,
 )
 
 GIOTT_KING_OF_THE_DWARVES = make_creature(
@@ -4294,6 +4316,7 @@ GIOTT_KING_OF_THE_DWARVES = make_creature(
     subtypes={"Dwarf", "Noble"},
     supertypes={"Legendary"},
     text="Double strike\nWhenever Giott or another Dwarf you control enters and whenever an Equipment you control enters, you may discard a card. If you do, draw a card.",
+    setup_interceptors=giott_king_of_dwarves_setup,
 )
 
 GLADIOLUS_AMICITIA = make_creature(
@@ -4304,6 +4327,7 @@ GLADIOLUS_AMICITIA = make_creature(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     text="When Gladiolus Amicitia enters, search your library for a land card, put it onto the battlefield tapped, then shuffle.\nLandfall — Whenever a land you control enters, another target creature you control gets +2/+2 and gains trample until end of turn.",
+    setup_interceptors=gladiolus_amicitia_setup,
 )
 
 GOLBEZ_CRYSTAL_COLLECTOR = make_creature(
@@ -4314,6 +4338,7 @@ GOLBEZ_CRYSTAL_COLLECTOR = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="Whenever an artifact you control enters, surveil 1.\nAt the beginning of your end step, if you control four or more artifacts, return target creature card from your graveyard to your hand. Then if you control eight or more artifacts, each opponent loses life equal to that card's power.",
+    setup_interceptors=golbez_crystal_collector_setup,
 )
 
 HOPE_ESTHEIM = make_creature(
@@ -4344,6 +4369,7 @@ JENOVA_ANCIENT_CALAMITY = make_creature(
     subtypes={"Alien"},
     supertypes={"Legendary"},
     text="At the beginning of combat on your turn, put a number of +1/+1 counters equal to Jenova's power on up to one other target creature. That creature becomes a Mutant in addition to its other types.\nWhenever a Mutant you control dies during your turn, you draw cards equal to its power.",
+    setup_interceptors=jenova_ancient_calamity_setup,
 )
 
 JOSHUA_PHOENIXS_DOMINANT = make_creature(
@@ -4364,6 +4390,7 @@ JUDGE_MAGISTER_GABRANTH = make_creature(
     subtypes={"Advisor", "Human", "Knight"},
     supertypes={"Legendary"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nWhenever another creature or artifact you control dies, put a +1/+1 counter on Judge Magister Gabranth.",
+    setup_interceptors=judge_magister_gabranth_setup,
 )
 
 KEFKA_COURT_MAGE = make_creature(
@@ -4374,6 +4401,7 @@ KEFKA_COURT_MAGE = make_creature(
     subtypes={"//", "Creature", "Human", "Legendary", "Wizard"},
     supertypes={"Legendary"},
     text="",
+    setup_interceptors=kefka_court_mage_setup,
 )
 
 KUJA_GENOME_SORCERER = make_creature(
@@ -4384,6 +4412,7 @@ KUJA_GENOME_SORCERER = make_creature(
     subtypes={"//", "Creature", "Human", "Legendary", "Mutant", "Wizard"},
     supertypes={"Legendary"},
     text="",
+    setup_interceptors=kuja_genome_sorcerer_setup,
 )
 
 LIGHTNING_ARMY_OF_ONE = make_creature(
@@ -4394,6 +4423,7 @@ LIGHTNING_ARMY_OF_ONE = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="First strike, trample, lifelink\nStagger — Whenever Lightning deals combat damage to a player, until your next turn, if a source would deal damage to that player or a permanent that player controls, it deals double that damage instead.",
+    setup_interceptors=lightning_army_of_one_setup,
 )
 
 LOCKE_COLE = make_creature(
@@ -4404,6 +4434,7 @@ LOCKE_COLE = make_creature(
     subtypes={"Human", "Rogue"},
     supertypes={"Legendary"},
     text="Deathtouch, lifelink\nWhenever Locke Cole deals combat damage to a player, draw a card, then discard a card.",
+    setup_interceptors=locke_cole_setup,
 )
 
 NOCTIS_PRINCE_OF_LUCIS = make_creature(
@@ -4414,6 +4445,7 @@ NOCTIS_PRINCE_OF_LUCIS = make_creature(
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
     text="Lifelink\nYou may cast artifact spells from your graveyard by paying 3 life in addition to paying their other costs. If you cast a spell this way, that artifact enters with a finality counter on it.",
+    setup_interceptors=noctis_prince_of_lucis_setup,
 )
 
 OMEGA_HEARTLESS_EVOLUTION = make_artifact_creature(
@@ -4424,6 +4456,7 @@ OMEGA_HEARTLESS_EVOLUTION = make_artifact_creature(
     subtypes={"Robot"},
     supertypes={"Legendary"},
     text="Wave Cannon — When Omega enters, for each opponent, tap up to one target nonland permanent that opponent controls. Put X stun counters on each of those permanents and you gain X life, where X is the number of nonbasic lands you control. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
+    setup_interceptors=omega_heartless_evolution_setup,
 )
 
 RINOA_HEARTILLY = make_creature(
@@ -4434,6 +4467,7 @@ RINOA_HEARTILLY = make_creature(
     subtypes={"Human", "Rebel", "Warlock"},
     supertypes={"Legendary"},
     text="When Rinoa Heartilly enters, create Angelo, a legendary 1/1 green and white Dog creature token.\nAngelo Cannon — Whenever Rinoa Heartilly attacks, another target creature you control gets +1/+1 until end of turn for each creature you control.",
+    setup_interceptors=rinoa_heartilly_setup,
 )
 
 RUFUS_SHINRA = make_creature(
@@ -4444,6 +4478,7 @@ RUFUS_SHINRA = make_creature(
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
     text="Whenever Rufus Shinra attacks, if you don't control a creature named Darkstar, create Darkstar, a legendary 2/2 white and black Dog creature token.",
+    setup_interceptors=rufus_shinra_setup,
 )
 
 RYDIA_SUMMONER_OF_MIST = make_creature(
@@ -4454,6 +4489,7 @@ RYDIA_SUMMONER_OF_MIST = make_creature(
     subtypes={"Human", "Shaman"},
     supertypes={"Legendary"},
     text="Landfall — Whenever a land you control enters, you may discard a card. If you do, draw a card.\nSummon — {X}, {T}: Return target Saga card with mana value X from your graveyard to the battlefield with a finality counter on it. It gains haste until end of turn. Activate only as a sorcery.",
+    setup_interceptors=rydia_summoner_of_mist_setup,
 )
 
 SERAH_FARRON = make_artifact_creature(
@@ -4464,6 +4500,7 @@ SERAH_FARRON = make_artifact_creature(
     subtypes={"//", "Artifact", "Citizen", "Human", "Legendary"},
     supertypes={"Legendary"},
     text="",
+    setup_interceptors=serah_farron_setup,
 )
 
 SHANTOTTO_TACTICIAN_MAGICIAN = make_creature(
@@ -4474,6 +4511,7 @@ SHANTOTTO_TACTICIAN_MAGICIAN = make_creature(
     subtypes={"Dwarf", "Wizard"},
     supertypes={"Legendary"},
     text="Whenever you cast a noncreature spell, Shantotto gets +X/+0 until end of turn, where X is the amount of mana spent to cast that spell. If X is 4 or more, draw a card.",
+    setup_interceptors=shantotto_tactician_magician_setup,
 )
 
 SIN_SPIRAS_PUNISHMENT = make_creature(
@@ -4494,6 +4532,7 @@ SQUALL_SEED_MERCENARY = make_creature(
     subtypes={"Human", "Knight", "Mercenary"},
     supertypes={"Legendary"},
     text="Rough Divide — Whenever a creature you control attacks alone, it gains double strike until end of turn.\nWhenever Squall deals combat damage to a player, return target permanent card with mana value 3 or less from your graveyard to the battlefield.",
+    setup_interceptors=squall_seed_mercenary_setup,
 )
 
 TELLAH_GREAT_SAGE = make_creature(
@@ -4504,6 +4543,7 @@ TELLAH_GREAT_SAGE = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="Whenever you cast a noncreature spell, create a 1/1 colorless Hero creature token. If four or more mana was spent to cast that spell, draw two cards. If eight or more mana was spent to cast that spell, sacrifice Tellah and it deals that much damage to each opponent.",
+    setup_interceptors=tellah_great_sage_setup,
 )
 
 TERRA_MAGICAL_ADEPT = make_creature(
@@ -4514,6 +4554,7 @@ TERRA_MAGICAL_ADEPT = make_creature(
     subtypes={"//", "Creature", "Enchantment", "Human", "Legendary", "Warrior", "Wizard"},
     supertypes={"Legendary"},
     text="",
+    setup_interceptors=terra_magical_adept_setup,
 )
 
 TIDUS_BLITZBALL_STAR = make_creature(
@@ -4524,6 +4565,7 @@ TIDUS_BLITZBALL_STAR = make_creature(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     text="Whenever an artifact you control enters, put a +1/+1 counter on Tidus.\nWhenever Tidus attacks, tap target creature an opponent controls.",
+    setup_interceptors=tidus_blitzball_star_setup,
 )
 
 ULTIMECIA_TIME_SORCERESS = make_creature(
@@ -4544,6 +4586,7 @@ VIVI_ORNITIER = make_creature(
     subtypes={"Wizard"},
     supertypes={"Legendary"},
     text="{0}: Add X mana in any combination of {U} and/or {R}, where X is Vivi Ornitier's power. Activate only during your turn and only once each turn.\nWhenever you cast a noncreature spell, put a +1/+1 counter on Vivi Ornitier and it deals 1 damage to each opponent.",
+    setup_interceptors=vivi_ornitier_setup,
 )
 
 AVIVI_ORNITIER = make_creature(
@@ -4591,6 +4634,7 @@ ADVENTURERS_AIRSHIP = make_artifact(
     mana_cost="{3}",
     text="Flying\nWhenever this Vehicle attacks, draw a card, then discard a card.\nCrew 2 (Tap any number of creatures you control with total power 2 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
+    setup_interceptors=adventurers_airship_setup,
 )
 
 AETTIR_AND_PRIWEN = make_artifact(
@@ -4618,6 +4662,7 @@ ELIXIR = make_artifact(
     name="Elixir",
     mana_cost="{1}",
     text="This artifact enters tapped.\n{5}, {T}, Exile this artifact: Shuffle all nonland cards from your graveyard into your library. You gain life equal to the number of cards shuffled into your library this way.",
+    setup_interceptors=elixir_setup,
 )
 
 EXCALIBUR_II = make_artifact(
@@ -4640,6 +4685,7 @@ INSTANT_RAMEN = make_artifact(
     mana_cost="{2}",
     text="Flash\nWhen this artifact enters, draw a card.\n{2}, {T}, Sacrifice this artifact: You gain 3 life.",
     subtypes={"Food"},
+    setup_interceptors=instant_ramen_setup,
 )
 
 IRON_GIANT = make_artifact_creature(
@@ -4649,6 +4695,7 @@ IRON_GIANT = make_artifact_creature(
     colors=set(),
     subtypes={"Demon"},
     text="Vigilance, reach, trample",
+    setup_interceptors=iron_giant_setup,
 )
 
 LION_HEART = make_artifact(
@@ -4672,6 +4719,7 @@ MAGIC_POT = make_artifact_creature(
     colors=set(),
     subtypes={"Construct", "Goblin"},
     text="When this creature dies, create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")\n{2}, {T}: Exile target card from a graveyard.",
+    setup_interceptors=magic_pot_setup,
 )
 
 THE_MASAMUNE = make_artifact(
@@ -4696,6 +4744,7 @@ PUPU_UFO = make_artifact_creature(
     colors=set(),
     subtypes={"Alien", "Construct"},
     text="Flying\n{T}: You may put a land card from your hand onto the battlefield.\n{3}: Until end of turn, this creature's base power becomes equal to the number of Towns you control.",
+    setup_interceptors=pupu_ufo_setup,
 )
 
 THE_REGALIA = make_artifact(
@@ -4704,6 +4753,7 @@ THE_REGALIA = make_artifact(
     text="Haste\nWhenever The Regalia attacks, reveal cards from the top of your library until you reveal a land card. Put that card onto the battlefield tapped and the rest on the bottom of your library in a random order.\nCrew 1",
     subtypes={"Vehicle"},
     supertypes={"Legendary"},
+    setup_interceptors=the_regalia_setup,
 )
 
 RELENTLESS_XATM092 = make_artifact_creature(
@@ -4732,6 +4782,7 @@ ADVENTURERS_INN = make_land(
     name="Adventurer's Inn",
     text="When this land enters, you gain 2 life.\n{T}: Add {C}.",
     subtypes={"Town"},
+    setup_interceptors=adventurers_inn_setup,
 )
 
 BALAMB_GARDEN_SEED_ACADEMY = make_artifact(
@@ -4936,6 +4987,7 @@ SEPHIROTH_PLANETS_HEIR = make_creature(
     subtypes={"Avatar", "Human", "Soldier"},
     supertypes={"Legendary"},
     text="Vigilance (Attacking doesn't cause this creature to tap.)\nWhen Sephiroth enters, creatures your opponents control get -2/-2 until end of turn.\nWhenever a creature an opponent controls dies, put a +1/+1 counter on Sephiroth.",
+    setup_interceptors=sephiroth_planets_heir_setup,
 )
 
 BEATRIX_LOYAL_GENERAL = make_creature(
@@ -4956,6 +5008,7 @@ ROSA_RESOLUTE_WHITE_MAGE = make_creature(
     subtypes={"Cleric", "Human", "Noble"},
     supertypes={"Legendary"},
     text="Reach (This creature can block creatures with flying.)\nAt the beginning of combat on your turn, put a +1/+1 counter on target creature you control. It gains lifelink until end of turn. (Damage dealt by the creature also causes you to gain that much life.)",
+    setup_interceptors=rosa_resolute_white_mage_setup,
 )
 
 ULTIMECIA_TEMPORAL_THREAT = make_creature(
@@ -4966,6 +5019,7 @@ ULTIMECIA_TEMPORAL_THREAT = make_creature(
     subtypes={"Human", "Warlock"},
     supertypes={"Legendary"},
     text="When Ultimecia enters, tap all creatures your opponents control.\nWhenever a creature you control deals combat damage to a player, draw a card.",
+    setup_interceptors=ultimecia_temporal_threat_setup,
 )
 
 DEADLY_EMBRACE = make_sorcery(
@@ -4983,6 +5037,7 @@ SEYMOUR_FLUX = make_creature(
     subtypes={"Avatar", "Spirit"},
     supertypes={"Legendary"},
     text="At the beginning of your upkeep, you may pay 1 life. If you do, draw a card and put a +1/+1 counter on Seymour Flux.",
+    setup_interceptors=seymour_flux_setup,
 )
 
 JUDGMENT_BOLT = make_instant(
@@ -5017,6 +5072,7 @@ MAGITEK_SCYTHE = make_artifact(
     mana_cost="{4}",
     text="A Test of Your Reflexes! — When this Equipment enters, you may attach it to target creature you control. If you do, that creature gains first strike until end of turn and must be blocked this turn if able.\nEquipped creature gets +2/+1.\nEquip {2}",
     subtypes={"Equipment"},
+    setup_interceptors=magitek_scythe_setup,
 )
 
 ULTIMA_WEAPON = make_artifact(
@@ -5025,6 +5081,7 @@ ULTIMA_WEAPON = make_artifact(
     text="Whenever equipped creature attacks, destroy target creature an opponent controls.\nEquipped creature gets +7/+7.\nEquip {7}",
     subtypes={"Equipment"},
     supertypes={"Legendary"},
+    setup_interceptors=ultima_weapon_setup,
 )
 
 # =============================================================================

@@ -5614,6 +5614,7 @@ STORMCATCH_MENTOR = make_creature(
     colors={Color.RED, Color.BLUE},
     subtypes={"Otter", "Wizard"},
     text="Haste\nProwess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nInstant and sorcery spells you cast cost {1} less to cast.",
+    setup_interceptors=stormcatch_mentor_setup,
 )
 
 TEMPEST_ANGLER = make_creature(
