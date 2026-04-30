@@ -28,8 +28,14 @@ def make_instant(
     supertypes: set = None,
     abilities: list = None,
     resolve=None,
+    setup_interceptors=None,
 ):
-    """Create an Instant card definition."""
+    """Create an Instant card definition.
+
+    `setup_interceptors` is accepted so spells with alt-cast mechanics
+    (mayhem, web-slinging, flashback, etc.) can register the necessary
+    interceptors when the card object is created in graveyard/exile/etc.
+    """
     return CardDefinition(
         name=name,
         mana_cost=mana_cost,
@@ -44,6 +50,7 @@ def make_instant(
         rarity=rarity,
         abilities=abilities or [],
         resolve=resolve,
+        setup_interceptors=setup_interceptors,
     )
 
 
@@ -57,8 +64,13 @@ def make_sorcery(
     supertypes: set = None,
     abilities: list = None,
     resolve=None,
+    setup_interceptors=None,
 ):
-    """Create a Sorcery card definition."""
+    """Create a Sorcery card definition.
+
+    `setup_interceptors` lets spells with alt-cast mechanics (mayhem,
+    web-slinging, flashback, plot, etc.) wire up their card-side hooks.
+    """
     return CardDefinition(
         name=name,
         mana_cost=mana_cost,
@@ -73,6 +85,7 @@ def make_sorcery(
         rarity=rarity,
         abilities=abilities or [],
         resolve=resolve,
+        setup_interceptors=setup_interceptors,
     )
 
 
