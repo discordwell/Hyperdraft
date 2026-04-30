@@ -194,6 +194,213 @@ MERCURIAL_MAGELING = make_pokemon(
 
 
 # =============================================================================
+# Meklet evolution line — Melek, Izzet Paragon
+# =============================================================================
+
+MEKLET = make_pokemon(
+    name="Meklet",
+    hp=70,
+    pokemon_type=PokemonType.FIRE.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Tuft Spark",
+         "cost": [{"type": "R", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 30, "text": ""},
+    ],
+    weakness_type=PokemonType.WATER.value,
+    retreat_cost=1,
+    text=("A baby wizard-mouse whose ear-tufts crackle whenever it sneezes. "
+          "Apprentice mages adore them; their robes regret it."),
+    rarity="common",
+)
+
+
+def _melek_copyspell_effect(attacker, state):
+    """Draw 1 card and place 1 damage counter on opponent's Active."""
+    events = _draw_cards(state, attacker.controller, 1)
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return events
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return events
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if target:
+        target.state.damage_counters += 1
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': target_id, 'counters': 1, 'source': 'Melek, Izzet Paragon'},
+        ))
+    return events
+
+
+MELEK_IZZET_PARAGON = make_pokemon(
+    name="Melek, Izzet Paragon",
+    hp=120,
+    pokemon_type=PokemonType.FIRE.value,
+    evolution_stage="Stage 1",
+    evolves_from="Meklet",
+    attacks=[
+        {"name": "Spell Echo",
+         "cost": [{"type": "R", "count": 1}, {"type": "W", "count": 1}],
+         "damage": 80,
+         "text": "Draw a card. Place 1 damage counter on your opponent's Active Pokemon.",
+         "effect_fn": _melek_copyspell_effect},
+    ],
+    weakness_type=PokemonType.WATER.value,
+    retreat_cost=2,
+    text=("Two-headed weird-paragon. One head reads the spell, the other "
+          "casts it twice for good measure."),
+    rarity="rare",
+)
+
+
+# =============================================================================
+# Additional stand-alone Basics
+# =============================================================================
+
+def _crackling_drake_effect(attacker, state):
+    """+10 damage per Trainer in your discard, capped at +50."""
+    grave = state.zones.get(f"graveyard_{attacker.controller}")
+    if not grave:
+        return []
+    trainer_count = 0
+    for cid in grave.objects:
+        obj = state.objects.get(cid)
+        if obj and obj.characteristics and CardType.TRAINER in obj.characteristics.types:
+            trainer_count += 1
+    bonus = min(trainer_count, 5) * 10
+    if bonus <= 0:
+        return []
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    counters = bonus // 10
+    target.state.damage_counters += counters
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target_id, 'counters': counters, 'source': 'Crackling Drake'},
+    )]
+
+
+CRACKLING_DRAKE = make_pokemon(
+    name="Crackling Drake",
+    hp=80,
+    pokemon_type=PokemonType.FIRE.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Spell Surge",
+         "cost": [{"type": "R", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 40,
+         "text": "This attack does 10 more damage for each Trainer card in your discard pile (max +50).",
+         "effect_fn": _crackling_drake_effect},
+    ],
+    weakness_type=PokemonType.WATER.value,
+    retreat_cost=1,
+    text=("Drinks ambient spellfire and exhales it as crackling breath. "
+          "Wizards leave their failed scrolls out as snacks."),
+    rarity="uncommon",
+)
+
+
+def _steamcore_weird_effect(attacker, state):
+    return _draw_cards(state, attacker.controller, 1)
+
+
+STEAMCORE_WEIRD = make_pokemon(
+    name="Steamcore Weird",
+    hp=70,
+    pokemon_type=PokemonType.WATER.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Steam Jet",
+         "cost": [{"type": "W", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 40,
+         "text": "Draw a card.",
+         "effect_fn": _steamcore_weird_effect},
+    ],
+    weakness_type=PokemonType.LIGHTNING.value,
+    retreat_cost=1,
+    text=("A pressure-vessel weird with a habit of whistling when nervous. "
+          "Tea kettles in Izzet labs are often actually weirds in disguise."),
+    rarity="uncommon",
+)
+
+
+def _pteramander_effect(attacker, state):
+    return _draw_cards(state, attacker.controller, 1)
+
+
+PTERAMANDER = make_pokemon(
+    name="Pteramander",
+    hp=60,
+    pokemon_type=PokemonType.WATER.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Quickflight",
+         "cost": [{"type": "W", "count": 1}],
+         "damage": 20,
+         "text": "Draw a card.",
+         "effect_fn": _pteramander_effect},
+    ],
+    weakness_type=PokemonType.LIGHTNING.value,
+    retreat_cost=1,
+    text=("A leathery-winged salamander that darts through Izzet ductwork. "
+          "Catches scribbled notes mid-flight and delivers them, mostly."),
+    rarity="common",
+)
+
+
+def _beamsplitter_mage_effect(attacker, state):
+    """Place 2 damage counters on each of opponent's Benched Pokemon."""
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    bench = state.zones.get(f"bench_{opp_id}")
+    if not bench:
+        return []
+    events = []
+    for bid in bench.objects:
+        target = state.objects.get(bid)
+        if not target:
+            continue
+        target.state.damage_counters += 2
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': bid, 'counters': 2, 'source': 'Beamsplitter Mage'},
+        ))
+    return events
+
+
+BEAMSPLITTER_MAGE = make_pokemon(
+    name="Beamsplitter Mage",
+    hp=90,
+    pokemon_type=PokemonType.WATER.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Split Beam",
+         "cost": [{"type": "W", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 30,
+         "text": "Place 2 damage counters on each of your opponent's Benched Pokemon.",
+         "effect_fn": _beamsplitter_mage_effect},
+    ],
+    weakness_type=PokemonType.LIGHTNING.value,
+    retreat_cost=1,
+    text=("A prism-handed mage who refracts a single ray into many. "
+          "Spectacular for fireworks shows; less so for the audience."),
+    rarity="uncommon",
+)
+
+
+# =============================================================================
 # Trainer cards
 # =============================================================================
 
@@ -312,6 +519,60 @@ IZZET_SIGNET = make_trainer_item(
 )
 
 
+def _izzet_blend_energy_effect(event, state):
+    """Search deck for one Fire Energy and one Water Energy; attach BOTH to active."""
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    library = state.zones.get(f"library_{player_id}")
+    active_zone = state.zones.get(f"active_spot_{player_id}")
+    if not library or not active_zone or not active_zone.objects:
+        return []
+    active_id = active_zone.objects[0]
+    active = state.objects.get(active_id)
+    if not active:
+        return []
+    found_fire = None
+    found_water = None
+    for card_id in library.objects:
+        obj = state.objects.get(card_id)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.ENERGY not in obj.characteristics.types:
+            continue
+        ptype = getattr(obj.card_def, 'pokemon_type', None) if obj.card_def else None
+        if ptype == PokemonType.FIRE.value and not found_fire:
+            found_fire = card_id
+        elif ptype == PokemonType.WATER.value and not found_water:
+            found_water = card_id
+        if found_fire and found_water:
+            break
+    events = []
+    for cid in (found_fire, found_water):
+        if not cid:
+            continue
+        library.objects.remove(cid)
+        active.state.attached_energy.append(cid)
+        ev_obj = state.objects.get(cid)
+        if ev_obj:
+            ev_obj.zone = ZoneType.BATTLEFIELD
+        events.append(Event(
+            type=EventType.PKM_ATTACH_ENERGY,
+            payload={'pokemon_id': active_id, 'energy_id': cid, 'player': player_id},
+        ))
+    random.shuffle(library.objects)
+    return events
+
+
+IZZET_BLEND_ENERGY = make_trainer_item(
+    name="Izzet Blend Energy",
+    text=("Search your deck for a Fire Energy and a Water Energy and attach "
+          "both to your Active Pokemon. Then, shuffle your deck."),
+    rarity="uncommon",
+    resolve=_izzet_blend_energy_effect,
+)
+
+
 # =============================================================================
 # Set registry
 # =============================================================================
@@ -322,9 +583,16 @@ BEYOND_RAVNICA_IZZET = {
     "Niv-Mizzet, Parun ex": NIV_MIZZET_PARUN_EX,
     "Goblin Electromancer": GOBLIN_ELECTROMANCER,
     "Mercurial Mageling": MERCURIAL_MAGELING,
+    "Meklet": MEKLET,
+    "Melek, Izzet Paragon": MELEK_IZZET_PARAGON,
+    "Crackling Drake": CRACKLING_DRAKE,
+    "Steamcore Weird": STEAMCORE_WEIRD,
+    "Pteramander": PTERAMANDER,
+    "Beamsplitter Mage": BEAMSPLITTER_MAGE,
     "Niv-Mizzet's Tower": NIV_MIZZETS_TOWER,
     "Ral, Storm Conduit": RAL_STORM_CONDUIT,
     "Izzet Signet": IZZET_SIGNET,
+    "Izzet Blend Energy": IZZET_BLEND_ENERGY,
 }
 
 
@@ -333,28 +601,28 @@ def make_izzet_deck() -> list:
     from src.cards.pokemon.sv_starter import (
         FIRE_ENERGY, WATER_ENERGY,
         NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH, IONO, BOSS_ORDERS, JUDGE,
+        PROFESSOR_RESEARCH,
     )
     deck = []
     # Pokemon (16)
     deck.extend([NIVLET] * 4)
     deck.extend([MIZZLING] * 3)
     deck.extend([NIV_MIZZET_PARUN_EX] * 2)
-    deck.extend([GOBLIN_ELECTROMANCER] * 4)
-    deck.extend([MERCURIAL_MAGELING] * 3)
+    deck.extend([MEKLET] * 3)
+    deck.extend([MELEK_IZZET_PARAGON] * 2)
+    deck.extend([GOBLIN_ELECTROMANCER] * 2)
     # Trainers (22)
     deck.extend([NIV_MIZZETS_TOWER] * 2)
     deck.extend([RAL_STORM_CONDUIT] * 2)
     deck.extend([IZZET_SIGNET] * 3)
+    deck.extend([IZZET_BLEND_ENERGY] * 2)
     deck.extend([NEST_BALL] * 4)
     deck.extend([ULTRA_BALL] * 2)
     deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 1)
+    deck.extend([SWITCH] * 2)
     deck.extend([POTION] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 2)
-    deck.extend([IONO] * 1)
-    deck.extend([BOSS_ORDERS] * 1)
-    deck.extend([JUDGE] * 1)
+    deck.extend([SUPER_ROD] * 1)
+    deck.extend([PROFESSOR_RESEARCH] * 1)
     # Energy (22) — Izzet runs both Fire and Water
     deck.extend([FIRE_ENERGY] * 14)
     deck.extend([WATER_ENERGY] * 8)

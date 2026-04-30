@@ -368,6 +368,243 @@ AZORIUS_CLUESTONE = make_trainer_item(
 
 
 # =============================================================================
+# Tomik evolution line — Azorius advokist
+# =============================================================================
+
+def _legal_injunction_effect(attacker, state):
+    """Mill opponent's top card if it's a Trainer."""
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    library = state.zones.get(f"library_{opp_id}")
+    grave = state.zones.get(f"graveyard_{opp_id}")
+    if not library or not library.objects:
+        return []
+    top_id = library.objects[0]
+    top_obj = state.objects.get(top_id)
+    is_trainer = (
+        top_obj
+        and top_obj.characteristics
+        and CardType.TRAINER in top_obj.characteristics.types
+    )
+    if not is_trainer:
+        return []
+    library.objects.pop(0)
+    if grave:
+        grave.objects.append(top_id)
+    if top_obj:
+        top_obj.zone = ZoneType.GRAVEYARD
+    return []
+
+
+TOMLET = make_pokemon(
+    name="Tomlet",
+    hp=70,
+    pokemon_type=PokemonType.WATER.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Stamp Stamp",
+         "cost": [{"type": "W", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 30, "text": ""},
+    ],
+    weakness_type=PokemonType.LIGHTNING.value,
+    retreat_cost=1,
+    text=("A pint-sized clerk-sphinx with an ink-stained beak. "
+          "Carries a stamp twice its size and uses it on everything."),
+    rarity="common",
+)
+
+
+TOMIK_DISTINGUISHED_ADVOKIST = make_pokemon(
+    name="Tomik, Distinguished Advokist",
+    hp=120,
+    pokemon_type=PokemonType.WATER.value,
+    evolution_stage="Stage 1",
+    evolves_from="Tomlet",
+    attacks=[
+        {"name": "Legal Injunction",
+         "cost": [{"type": "W", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 80,
+         "text": ("Look at the top card of your opponent's deck. "
+                  "If it is a Trainer, discard it."),
+         "effect_fn": _legal_injunction_effect},
+    ],
+    weakness_type=PokemonType.LIGHTNING.value,
+    retreat_cost=1,
+    text=("Files cease-and-desist notices on rival mages mid-incantation. "
+          "Tomik never loses an appeal — he writes the precedent first."),
+    rarity="rare",
+)
+
+
+# =============================================================================
+# More stand-alone Basic Pokemon
+# =============================================================================
+
+def _sphinx_oracle_effect(attacker, state):
+    return _draw_cards(state, attacker.controller, 1)
+
+
+SPHINX_OF_MAGOSI = make_pokemon(
+    name="Sphinx of Magosi",
+    hp=80,
+    pokemon_type=PokemonType.WATER.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Oracle's Gaze",
+         "cost": [{"type": "W", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 40,
+         "text": "Draw a card.",
+         "effect_fn": _sphinx_oracle_effect},
+    ],
+    weakness_type=PokemonType.LIGHTNING.value,
+    retreat_cost=2,
+    text=("A scholar-sphinx that once memorized the Magosi library "
+          "in an afternoon and complained the books were too short."),
+    rarity="uncommon",
+)
+
+
+def _augury_owl_effect(attacker, state):
+    return _draw_cards(state, attacker.controller, 1)
+
+
+AUGURY_OWL = make_pokemon(
+    name="Augury Owl",
+    hp=70,
+    pokemon_type=PokemonType.WATER.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Foresight",
+         "cost": [{"type": "W", "count": 1}],
+         "damage": 20,
+         "text": "Draw a card.",
+         "effect_fn": _augury_owl_effect},
+    ],
+    weakness_type=PokemonType.LIGHTNING.value,
+    retreat_cost=1,
+    text=("Hoots the next-day weather a few hours ahead of schedule. "
+          "Reliably correct, except about umbrellas."),
+    rarity="common",
+)
+
+
+def _soulsworn_jury_effect(attacker, state):
+    """Place 1 damage counter on opponent's Active."""
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    target.state.damage_counters += 1
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target_id, 'counters': 1, 'source': 'Soulsworn Jury'},
+    )]
+
+
+SOULSWORN_JURY = make_pokemon(
+    name="Soulsworn Jury",
+    hp=90,
+    pokemon_type=PokemonType.FIGHTING.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Verdict Strike",
+         "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 70,
+         "text": "Place 1 damage counter on the opponent's Active Pokemon.",
+         "effect_fn": _soulsworn_jury_effect},
+    ],
+    weakness_type=PokemonType.PSYCHIC.value,
+    retreat_cost=2,
+    text=("Twelve oath-bound spirits speak as one. The verdict is "
+          "always unanimous, and always slightly unsettling."),
+    rarity="uncommon",
+)
+
+
+DOORKEEPER = make_pokemon(
+    name="Doorkeeper",
+    hp=60,
+    pokemon_type=PokemonType.FIGHTING.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Brick Wall",
+         "cost": [{"type": "F", "count": 1}],
+         "damage": 30, "text": ""},
+    ],
+    weakness_type=PokemonType.PSYCHIC.value,
+    retreat_cost=2,
+    text=("Stands in doorways. Has stood in this particular doorway "
+          "for forty years. The doorway remembers."),
+    rarity="common",
+)
+
+
+# =============================================================================
+# Special trainer — Azorius Blend Energy (item that attaches directly)
+# =============================================================================
+
+def _azorius_blend_energy_effect(event, state):
+    """Search deck for one Water Energy AND one Fighting Energy, attach BOTH
+    directly to the active Pokemon. Shuffle deck."""
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    library = state.zones.get(f"library_{player_id}")
+    active_zone = state.zones.get(f"active_spot_{player_id}")
+    if not library or not active_zone or not active_zone.objects:
+        return []
+    active_id = active_zone.objects[0]
+    active = state.objects.get(active_id)
+    if not active:
+        return []
+    found_water = None
+    found_fighting = None
+    for card_id in library.objects:
+        obj = state.objects.get(card_id)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.ENERGY not in obj.characteristics.types:
+            continue
+        ptype = getattr(obj.card_def, 'pokemon_type', None) if obj.card_def else None
+        if ptype == PokemonType.WATER.value and not found_water:
+            found_water = card_id
+        elif ptype == PokemonType.FIGHTING.value and not found_fighting:
+            found_fighting = card_id
+        if found_water and found_fighting:
+            break
+    events = []
+    for cid in (found_water, found_fighting):
+        if cid:
+            library.objects.remove(cid)
+            active.state.attached_energy.append(cid)
+            energy_obj = state.objects.get(cid)
+            if energy_obj:
+                energy_obj.zone = ZoneType.BATTLEFIELD
+            events.append(Event(
+                type=EventType.PKM_ATTACH_ENERGY,
+                payload={'pokemon_id': active_id, 'energy_id': cid, 'player': player_id},
+            ))
+    random.shuffle(library.objects)
+    return events
+
+
+AZORIUS_BLEND_ENERGY = make_trainer_item(
+    name="Azorius Blend Energy",
+    text=("Search your deck for a Water Energy and a Fighting Energy, and "
+          "attach both to your Active Pokemon. Then, shuffle your deck."),
+    rarity="rare",
+    resolve=_azorius_blend_energy_effect,
+)
+
+
+# =============================================================================
 # Set registry
 # =============================================================================
 
@@ -380,6 +617,13 @@ BEYOND_RAVNICA_AZORIUS = {
     "Prahv, Spires of Order": PRAHV_SPIRES_OF_ORDER,
     "Teferi, Hero of Dominaria": TEFERI_HERO_OF_DOMINARIA,
     "Azorius Cluestone": AZORIUS_CLUESTONE,
+    "Tomlet": TOMLET,
+    "Tomik, Distinguished Advokist": TOMIK_DISTINGUISHED_ADVOKIST,
+    "Sphinx of Magosi": SPHINX_OF_MAGOSI,
+    "Augury Owl": AUGURY_OWL,
+    "Soulsworn Jury": SOULSWORN_JURY,
+    "Doorkeeper": DOORKEEPER,
+    "Azorius Blend Energy": AZORIUS_BLEND_ENERGY,
 }
 
 
@@ -389,28 +633,28 @@ def make_azorius_deck() -> list:
     from src.cards.pokemon.sv_starter import (
         WATER_ENERGY, FIGHTING_ENERGY,
         NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH, IONO, BOSS_ORDERS, JUDGE,
+        PROFESSOR_RESEARCH,
     )
     deck = []
-    # Pokemon (16) — 4-3-2 line + 4 + 3
+    # Pokemon (16) — Isperia 4-3-2 + Tomik 3-2 + 2 utility
     deck.extend([ISPERILET] * 4)
     deck.extend([ISPERATRA] * 3)
     deck.extend([ISPERIA_SUPREME_JUDGE_EX] * 2)
-    deck.extend([LAVINIA_OF_THE_TENTH] * 4)
-    deck.extend([AETHERLING] * 3)
-    # Trainers (22)
+    deck.extend([TOMLET] * 3)
+    deck.extend([TOMIK_DISTINGUISHED_ADVOKIST] * 2)
+    deck.extend([LAVINIA_OF_THE_TENTH] * 2)
+    # Trainers (22) — 9 guild + 13 sv_starter
     deck.extend([PRAHV_SPIRES_OF_ORDER] * 2)
     deck.extend([TEFERI_HERO_OF_DOMINARIA] * 2)
     deck.extend([AZORIUS_CLUESTONE] * 3)
+    deck.extend([AZORIUS_BLEND_ENERGY] * 2)
     deck.extend([NEST_BALL] * 4)
     deck.extend([ULTRA_BALL] * 2)
     deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 1)
+    deck.extend([SWITCH] * 2)
     deck.extend([POTION] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 2)
-    deck.extend([IONO] * 1)
-    deck.extend([BOSS_ORDERS] * 1)
-    deck.extend([JUDGE] * 1)
+    deck.extend([SUPER_ROD] * 1)
+    deck.extend([PROFESSOR_RESEARCH] * 1)
     # Energy (22) — Azorius runs Water + Fighting (white substitute)
     deck.extend([WATER_ENERGY] * 14)
     deck.extend([FIGHTING_ENERGY] * 8)

@@ -185,13 +185,24 @@ def _populate_charge_effect(attacker, state):
     """+20 damage if you have any benched Pokemon — populate flavor."""
     bench_zone = state.zones.get(f"bench_{attacker.controller}")
     bench_count = len(bench_zone.objects) if bench_zone else 0
-    if bench_count > 0:
-        return [Event(
-            type=EventType.PKM_DAMAGE_BONUS,
-            payload={'pokemon_id': attacker.id, 'bonus': 20,
-                     'source': 'Conclave Cavalier'},
-        )]
-    return []
+    if bench_count <= 0:
+        return []
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    target.state.damage_counters += 2  # +20 dmg = 2 counters
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target_id, 'counters': 2,
+                 'source': 'Conclave Cavalier'},
+    )]
 
 
 CONCLAVE_CAVALIER = make_pokemon(
@@ -349,6 +360,292 @@ SELESNYA_CLUESTONE = make_trainer_item(
 
 
 # =============================================================================
+# Emmara evolution line — token-flavored Selesnya hero
+# =============================================================================
+
+EMMLET = make_pokemon(
+    name="Emmlet",
+    hp=70,
+    pokemon_type=PokemonType.GRASS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Petal Tap",
+         "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 30, "text": ""},
+    ],
+    weakness_type=PokemonType.FIRE.value,
+    retreat_cost=1,
+    text=("A cute baby elf with budding flowers in her hair. Hums to "
+          "herself, and the buds keep time by opening and closing."),
+    rarity="common",
+)
+
+
+def _soul_of_the_accord_effect(attacker, state):
+    """Search deck for a Grass Energy and attach it to a benched Pokemon."""
+    library = state.zones.get(f"library_{attacker.controller}")
+    bench = state.zones.get(f"bench_{attacker.controller}")
+    if not library or not bench or not bench.objects:
+        return []
+    found_energy = None
+    for card_id in library.objects:
+        obj = state.objects.get(card_id)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.ENERGY not in obj.characteristics.types:
+            continue
+        ptype = getattr(obj.card_def, 'pokemon_type', None) if obj.card_def else None
+        if ptype == PokemonType.GRASS.value:
+            found_energy = card_id
+            break
+    if not found_energy:
+        random.shuffle(library.objects)
+        return []
+    # Pick the first benched Pokemon (token-flavor: any ally)
+    target_id = bench.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        random.shuffle(library.objects)
+        return []
+    library.objects.remove(found_energy)
+    target.state.attached_energy.append(found_energy)
+    energy_obj = state.objects.get(found_energy)
+    if energy_obj:
+        energy_obj.zone = ZoneType.BATTLEFIELD
+    random.shuffle(library.objects)
+    return [Event(
+        type=EventType.PKM_ATTACH_ENERGY,
+        payload={'pokemon_id': target_id, 'energy_id': found_energy,
+                 'source': "Emmara, Soul of the Accord"},
+    )]
+
+
+EMMARA_SOUL_OF_THE_ACCORD = make_pokemon(
+    name="Emmara, Soul of the Accord",
+    hp=120,
+    pokemon_type=PokemonType.GRASS.value,
+    evolution_stage="Stage 1",
+    evolves_from="Emmlet",
+    attacks=[
+        {"name": "Token Bloom",
+         "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 70,
+         "text": ("Search your deck for a Grass Energy and attach it to "
+                  "1 of your Benched Pokemon. Then, shuffle your deck."),
+         "effect_fn": _soul_of_the_accord_effect},
+    ],
+    weakness_type=PokemonType.FIRE.value,
+    retreat_cost=1,
+    text=("Conclave-blessed elf cleric. Wherever she taps her staff, a "
+          "saproling token sprouts up to lend a hand."),
+    rarity="rare",
+)
+
+
+# =============================================================================
+# Additional stand-alone Basics
+# =============================================================================
+
+def _loxodon_hierarch_effect(attacker, state):
+    """Heal 40 damage (4 counters) from your Active Pokemon."""
+    active_zone = state.zones.get(f"active_spot_{attacker.controller}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target or target.state.damage_counters <= 0:
+        return []
+    target.state.damage_counters = max(0, target.state.damage_counters - 4)
+    return [Event(
+        type=EventType.PKM_HEAL,
+        payload={'pokemon_id': target_id, 'amount': 40,
+                 'source': 'Loxodon Hierarch'},
+    )]
+
+
+LOXODON_HIERARCH = make_pokemon(
+    name="Loxodon Hierarch",
+    hp=80,
+    pokemon_type=PokemonType.FIGHTING.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Benevolent Trumpet",
+         "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 40,
+         "text": "Heal 40 damage from your Active Pokemon.",
+         "effect_fn": _loxodon_hierarch_effect},
+    ],
+    weakness_type=PokemonType.PSYCHIC.value,
+    retreat_cost=2,
+    text=("An elephantine cleric whose trumpet-call mends bones and "
+          "morale alike. Walks with a slow, generous stride."),
+    rarity="uncommon",
+)
+
+
+WATCHWOLF = make_pokemon(
+    name="Watchwolf",
+    hp=70,
+    pokemon_type=PokemonType.GRASS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Pounce",
+         "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 50, "text": ""},
+    ],
+    weakness_type=PokemonType.FIRE.value,
+    retreat_cost=1,
+    text=("A loyal Selesnya guardhound bred for vigilance. Sleeps with "
+          "one ear up and one eye open, even on holidays."),
+    rarity="common",
+)
+
+
+def _saproling_sentinel_effect(attacker, state):
+    return _draw_cards(state, attacker.controller, 1)
+
+
+SAPROLING_SENTINEL = make_pokemon(
+    name="Saproling Sentinel",
+    hp=60,
+    pokemon_type=PokemonType.GRASS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Lookout Sprout",
+         "cost": [{"type": "G", "count": 1}],
+         "damage": 20,
+         "text": "Draw a card.",
+         "effect_fn": _saproling_sentinel_effect},
+    ],
+    weakness_type=PokemonType.FIRE.value,
+    retreat_cost=1,
+    text=("A tiny mossy sprout that stands very, very still until it "
+          "isn't. Conclave scouts give them little caps for morale."),
+    rarity="common",
+)
+
+
+def _selesnya_evangel_effect(attacker, state):
+    """Search deck for any Basic Pokemon, place on bench, shuffle deck."""
+    library = state.zones.get(f"library_{attacker.controller}")
+    bench = state.zones.get(f"bench_{attacker.controller}")
+    if not library or not bench:
+        return []
+    if len(bench.objects) >= 5:
+        random.shuffle(library.objects)
+        return []
+    found = None
+    for card_id in library.objects:
+        obj = state.objects.get(card_id)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.POKEMON not in obj.characteristics.types:
+            continue
+        stage = getattr(obj.card_def, 'evolution_stage', None) if obj.card_def else None
+        if stage == "Basic":
+            found = card_id
+            break
+    if not found:
+        random.shuffle(library.objects)
+        return []
+    library.objects.remove(found)
+    bench.objects.append(found)
+    obj = state.objects.get(found)
+    if obj:
+        obj.zone = ZoneType.BENCH
+        obj.state.damage_counters = 0
+        obj.state.turns_in_play = 0
+        obj.state.evolved_this_turn = False
+        obj.state.status_conditions = set()
+    random.shuffle(library.objects)
+    return [Event(
+        type=EventType.PKM_PLAY_BASIC,
+        payload={'player': attacker.controller, 'pokemon_id': found,
+                 'pokemon_name': obj.name if obj else '?',
+                 'source': 'Selesnya Evangel'},
+    )]
+
+
+SELESNYA_EVANGEL = make_pokemon(
+    name="Selesnya Evangel",
+    hp=90,
+    pokemon_type=PokemonType.FIGHTING.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Call to the Conclave",
+         "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 40,
+         "text": ("Search your deck for a Basic Pokemon and put it onto "
+                  "your Bench. Then, shuffle your deck."),
+         "effect_fn": _selesnya_evangel_effect},
+    ],
+    weakness_type=PokemonType.PSYCHIC.value,
+    retreat_cost=1,
+    text=("A wandering preacher whose every sermon ends with three new "
+          "recruits and a potluck. Carries a bell that never tarnishes."),
+    rarity="uncommon",
+)
+
+
+# =============================================================================
+# Special Energy / Item — Selesnya Blend
+# =============================================================================
+
+def _selesnya_blend_energy_effect(event, state):
+    """Search deck for one Grass Energy and one Fighting Energy, attach BOTH to active."""
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    library = state.zones.get(f"library_{player_id}")
+    active_zone = state.zones.get(f"active_spot_{player_id}")
+    if not library or not active_zone or not active_zone.objects:
+        return []
+    active_id = active_zone.objects[0]
+    active = state.objects.get(active_id)
+    if not active:
+        return []
+    found_grass = None
+    found_fighting = None
+    for card_id in library.objects:
+        obj = state.objects.get(card_id)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.ENERGY not in obj.characteristics.types:
+            continue
+        ptype = getattr(obj.card_def, 'pokemon_type', None) if obj.card_def else None
+        if ptype == PokemonType.GRASS.value and not found_grass:
+            found_grass = card_id
+        elif ptype == PokemonType.FIGHTING.value and not found_fighting:
+            found_fighting = card_id
+        if found_grass and found_fighting:
+            break
+    events = []
+    for cid in (found_grass, found_fighting):
+        if cid:
+            library.objects.remove(cid)
+            active.state.attached_energy.append(cid)
+            energy_obj = state.objects.get(cid)
+            if energy_obj:
+                energy_obj.zone = ZoneType.BATTLEFIELD
+            events.append(Event(
+                type=EventType.PKM_ATTACH_ENERGY,
+                payload={'pokemon_id': active_id, 'energy_id': cid,
+                         'source': 'Selesnya Blend Energy'},
+            ))
+    random.shuffle(library.objects)
+    return events
+
+
+SELESNYA_BLEND_ENERGY = make_trainer_item(
+    name="Selesnya Blend Energy",
+    text=("Search your deck for a Grass Energy and a Fighting Energy and "
+          "attach both to your Active Pokemon. Then, shuffle your deck."),
+    rarity="rare",
+    resolve=_selesnya_blend_energy_effect,
+)
+
+
+# =============================================================================
 # Set registry
 # =============================================================================
 
@@ -361,6 +658,13 @@ BEYOND_RAVNICA_SELESNYA = {
     "Vitu-Ghazi, the City-Tree": VITU_GHAZI_THE_CITY_TREE,
     "Captain Sisay": CAPTAIN_SISAY,
     "Selesnya Cluestone": SELESNYA_CLUESTONE,
+    "Emmlet": EMMLET,
+    "Emmara, Soul of the Accord": EMMARA_SOUL_OF_THE_ACCORD,
+    "Loxodon Hierarch": LOXODON_HIERARCH,
+    "Watchwolf": WATCHWOLF,
+    "Saproling Sentinel": SAPROLING_SENTINEL,
+    "Selesnya Evangel": SELESNYA_EVANGEL,
+    "Selesnya Blend Energy": SELESNYA_BLEND_ENERGY,
 }
 
 
@@ -376,17 +680,17 @@ def make_selesnya_deck() -> list:
     deck.extend([TROSTLING] * 4)
     deck.extend([TROSTAVIA] * 3)
     deck.extend([TROSTANI_SELESNYAS_VOICE_EX] * 2)
-    deck.extend([CENTAUR_HEALER] * 4)
-    deck.extend([CONCLAVE_CAVALIER] * 3)
-    # Trainers (22)
+    deck.extend([EMMLET] * 3)
+    deck.extend([EMMARA_SOUL_OF_THE_ACCORD] * 2)
+    deck.extend([CENTAUR_HEALER] * 2)
+    # Trainers (22) — 9 guild + 13 sv_starter
     deck.extend([VITU_GHAZI_THE_CITY_TREE] * 2)
     deck.extend([CAPTAIN_SISAY] * 2)
     deck.extend([SELESNYA_CLUESTONE] * 3)
+    deck.extend([SELESNYA_BLEND_ENERGY] * 2)
     deck.extend([NEST_BALL] * 4)
     deck.extend([ULTRA_BALL] * 2)
     deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 1)
-    deck.extend([POTION] * 1)
     deck.extend([PROFESSOR_RESEARCH] * 2)
     deck.extend([IONO] * 1)
     deck.extend([BOSS_ORDERS] * 1)
