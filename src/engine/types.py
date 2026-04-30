@@ -251,6 +251,11 @@ class EventType(Enum):
     YGO_LP_CHANGE = auto()            # Life Points changed
     YGO_DRAW = auto()                 # Draw Phase draw
 
+    # Edge of Eternities — Lander mechanic
+    LANDER_CREATED = auto()           # A Lander token was created
+    LANDER_SACRIFICED = auto()        # A Lander token was sacrificed (sets turn_data flag)
+    LANDER_SEARCH_LAND = auto()       # Resolve the search-for-basic-land step of Lander activation
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
