@@ -2725,3 +2725,181 @@ def make_cant_block(
         handler=cant_block_handler,
         duration='while_on_battlefield',
     )
+
+
+# === SAGA HELPERS ===
+# MTG Saga subsystem helpers. The engine-level event handling lives in
+# ``src/engine/saga.py``; this section provides the card-level helper that
+# wires up a Saga's ETB lore counter, draw-step lore counter, chapter
+# triggers, and final-chapter sacrifice.
+
+
+def make_saga_setup(
+    source_obj: GameObject,
+    chapter_handlers: dict[int, Callable[[GameObject, GameState], list[Event]]],
+    final_chapter: Optional[int] = None,
+) -> list[Interceptor]:
+    """
+    Build the interceptors for a Saga enchantment.
+
+    Args:
+        source_obj: The Saga ``GameObject``.
+        chapter_handlers: ``{chapter_number: effect_fn}``. Each ``effect_fn``
+            takes ``(saga_obj, state)`` and returns a list of follow-up events
+            to emit when that chapter triggers. Multiple chapters that share an
+            ability (e.g. "I, II — ...") should map to the same callable.
+        final_chapter: Optional explicit final-chapter number. If omitted, it
+            is inferred from the rules text (``"Sacrifice after <ROMAN>."``)
+            and falls back to ``max(chapter_handlers)``.
+
+    Returns:
+        A list of interceptors:
+
+        1. ``REACT`` on ZONE_CHANGE -> battlefield (this Saga): emits
+           ``SAGA_LORE_ADDED`` so chapter I fires immediately on entry.
+        2. ``REACT`` on PHASE_START phase ``'draw'`` while controller is the
+           active player: emits ``SAGA_LORE_ADDED`` for the next chapter.
+        3. ``REACT`` on ``SAGA_CHAPTER`` for this Saga: dispatches to the
+           registered chapter handler and queues a final-chapter SACRIFICE
+           event.
+
+    Notes:
+        * Chapter handlers may return ``[]`` for chapters whose effect is not
+          fully implementable yet (e.g. interactive targeting). The Saga still
+          ticks through every chapter and is sacrificed normally.
+        * ``source_obj.card_def._saga_final_chapter`` is set to ``final_chapter``
+          if provided; the engine reads that override when computing the final
+          chapter for this Saga.
+    """
+    saga_id = source_obj.id
+    controller_id = source_obj.controller
+
+    # Resolve the final chapter:
+    #   1. explicit argument
+    #   2. card_def._saga_final_chapter override (set by previous calls)
+    #   3. text parse via engine helper (fallback inside engine)
+    #   4. last fallback: max chapter in handlers
+    if final_chapter is None:
+        from src.engine.saga import _saga_final_chapter as _engine_final
+        final_chapter = _engine_final(source_obj)
+        if chapter_handlers:
+            final_chapter = max(final_chapter, max(chapter_handlers.keys()))
+    # Stash explicit override on the card_def so the engine handler honors it
+    # consistently across the Saga's lifetime.
+    if source_obj.card_def is not None:
+        try:
+            source_obj.card_def._saga_final_chapter = int(final_chapter)
+        except Exception:
+            pass
+
+    # ---------------------------------------------------------------- ETB lore
+    def etb_filter(event: Event, state: GameState) -> bool:
+        return (
+            event.type == EventType.ZONE_CHANGE
+            and event.payload.get('object_id') == saga_id
+            and event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD
+        )
+
+    def etb_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.SAGA_LORE_ADDED,
+                payload={'object_id': saga_id, 'amount': 1},
+                source=saga_id,
+                controller=controller_id,
+            )],
+        )
+
+    etb_interceptor = Interceptor(
+        id=new_id(),
+        source=saga_id,
+        controller=controller_id,
+        priority=InterceptorPriority.REACT,
+        filter=etb_filter,
+        handler=etb_handler,
+        duration='while_on_battlefield',
+    )
+
+    # --------------------------------------------- Draw-step lore (post-draw)
+    def draw_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        if event.payload.get('phase') != 'draw':
+            return False
+        # Only on this Saga's controller's turn.
+        saga = state.objects.get(saga_id)
+        if saga is None or saga.zone != ZoneType.BATTLEFIELD:
+            return False
+        if state.active_player != saga.controller:
+            return False
+        return True
+
+    def draw_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.SAGA_LORE_ADDED,
+                payload={'object_id': saga_id, 'amount': 1},
+                source=saga_id,
+                controller=controller_id,
+            )],
+        )
+
+    draw_interceptor = Interceptor(
+        id=new_id(),
+        source=saga_id,
+        controller=controller_id,
+        priority=InterceptorPriority.REACT,
+        filter=draw_filter,
+        handler=draw_handler,
+        duration='while_on_battlefield',
+    )
+
+    # ----------------------------------------- Chapter dispatcher + sacrifice
+    handlers_by_chapter = dict(chapter_handlers or {})
+
+    def chapter_filter(event: Event, state: GameState) -> bool:
+        return (
+            event.type == EventType.SAGA_CHAPTER
+            and event.payload.get('object_id') == saga_id
+        )
+
+    def chapter_handler(event: Event, state: GameState) -> InterceptorResult:
+        chapter = int(event.payload.get('chapter', 0) or 0)
+        # Use the live final_chapter — _saga_final_chapter() reads from card_def.
+        from src.engine.saga import _saga_final_chapter as _engine_final
+        live_final = _engine_final(source_obj) if source_obj else final_chapter
+        new_events: list[Event] = []
+        # Dispatch the chapter effect (if any).
+        cb = handlers_by_chapter.get(chapter)
+        if cb is not None:
+            try:
+                produced = cb(source_obj, state) or []
+            except Exception:
+                produced = []
+            new_events.extend(list(produced))
+        # Final chapter -> sacrifice the Saga.
+        if chapter >= int(live_final or 0):
+            new_events.append(Event(
+                type=EventType.SACRIFICE,
+                payload={'object_id': saga_id, 'player': controller_id},
+                source=saga_id,
+                controller=controller_id,
+            ))
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events,
+        )
+
+    chapter_interceptor = Interceptor(
+        id=new_id(),
+        source=saga_id,
+        controller=controller_id,
+        priority=InterceptorPriority.REACT,
+        filter=chapter_filter,
+        handler=chapter_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [etb_interceptor, draw_interceptor, chapter_interceptor]
