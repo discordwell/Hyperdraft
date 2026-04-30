@@ -34,6 +34,9 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, all_opponents,
     open_library_search,
+    make_void_end_step_trigger, make_void_attack_trigger, is_void_active,
+    make_lander_etb_trigger, make_lander_death_trigger,
+    make_station_creature_setup,
 )
 
 
@@ -519,15 +522,35 @@ def elegy_acolyte_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': -1}, source=obj.id)
         ]
 
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=damage_filter,
-        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
-        duration='while_on_battlefield'
-    )]
+    # Void EOT: create a 2/2 colorless Robot artifact creature token.
+    def void_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Robot Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT, CardType.CREATURE],
+                'subtypes': ['Robot'],
+                'colors': [],
+                'power': 2,
+                'toughness': 2,
+                'is_token': True,
+            },
+            source=obj.id,
+        )]
+
+    return [
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=damage_filter,
+            handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
+            duration='while_on_battlefield',
+        ),
+        make_void_end_step_trigger(obj, void_effect),
+    ]
 
 
 # -----------------------------------------------------------------------------
@@ -883,10 +906,22 @@ def seedship_broodtender_setup(obj: GameObject, state: GameState) -> list[Interc
 # -----------------------------------------------------------------------------
 
 def interceptor_mechan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When enters, return target artifact or creature card from graveyard to hand."""
+    """ETB: return target artifact/creature from GY (target gap).
+    Void EOT: +1/+1 counter on this creature."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Target selection required
-    return [make_etb_trigger(obj, etb_effect)]
+        return []  # engine gap: graveyard target selection
+
+    def void_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+        )]
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        make_void_end_step_trigger(obj, void_effect),
+    ]
 
 
 def mmmenon_uthros_exile_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2364,9 +2399,14 @@ def steelswarm_operator_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def synthesizer_labship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Station 2+/9+ activated abilities at combat."""
-    # engine gap: station-charge-counter gated abilities + temporary creature animation
-    return []
+    """Station 9+: becomes a creature with flying + vigilance.
+
+    The 2+ tier (combat-trigger to animate target artifact) is an engine gap —
+    it requires interactive targeting and a temporary become-creature effect.
+    """
+    return make_station_creature_setup(obj, [
+        (9, {'power': 5, 'toughness': 5, 'keywords': ['flying', 'vigilance']}),
+    ])
 
 
 def tractor_beam_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2498,14 +2538,13 @@ def hylderblade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def insatiable_skittermaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Menace; void EOT +1/+1 counter on self."""
-    def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: void-mechanic state tracking required
+    def void_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.COUNTER_ADDED,
             payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
             source=obj.id
         )]
-    return [make_end_step_trigger(obj, end_step_effect)]
+    return [make_void_end_step_trigger(obj, void_effect)]
 
 
 def perigee_beckoner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2544,13 +2583,12 @@ def umbral_collar_zealot_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def voidforged_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Void EOT: draw a card and lose 1 life."""
-    def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: void mechanic check (always-fires stub)
+    def void_effect(event: Event, state: GameState) -> list[Event]:
         return [
             Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
-            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': -1}, source=obj.id)
+            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': -1}, source=obj.id),
         ]
-    return [make_end_step_trigger(obj, end_step_effect)]
+    return [make_void_end_step_trigger(obj, void_effect)]
 
 
 def xuifit_osteoharmonist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2560,21 +2598,25 @@ def xuifit_osteoharmonist_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def galvanizing_sawship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Station 3+ flying haste."""
-    # engine gap: station-charge-counter gated keyword grant
-    return []
+    """Station 3+: becomes a creature with flying + haste.
+
+    The station charge mechanic is in src/engine/station.py; this setup wires
+    the threshold-gated stats/keywords via the QUERY_* interceptor pattern.
+    """
+    return make_station_creature_setup(obj, [
+        (3, {'power': 4, 'toughness': 4, 'keywords': ['flying', 'haste']}),
+    ])
 
 
 def kavaron_skywarden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Reach; void EOT: +1/+1 counter."""
-    def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: void mechanic check (always-fires stub)
+    def void_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.COUNTER_ADDED,
             payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
             source=obj.id
         )]
-    return [make_end_step_trigger(obj, end_step_effect)]
+    return [make_void_end_step_trigger(obj, void_effect)]
 
 
 def kavaron_turbodrone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
