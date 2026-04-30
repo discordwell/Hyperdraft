@@ -1656,8 +1656,17 @@ def icecave_crasher_setup(obj: GameObject, state: GameState) -> list[Interceptor
         return CardType.LAND in entering_obj.characteristics.types
 
     def landfall_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need temporary P/T boost
-        return []
+        # Self-targeted +1/+0 EOT (no choice needed)
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 1,
+                'toughness_mod': 0,
+                'duration': 'end_of_turn'
+            },
+            source=obj.id
+        )]
 
     return [make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter)]
 
@@ -1678,7 +1687,17 @@ def remnant_elemental_setup(obj: GameObject, state: GameState) -> list[Intercept
         return CardType.LAND in entering_obj.characteristics.types
 
     def landfall_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need temporary P/T boost
+        # Self-targeted +2/+0 EOT (no choice needed)
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 2,
+                'toughness_mod': 0,
+                'duration': 'end_of_turn'
+            },
+            source=obj.id
+        )]
 
     return [make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter)]
 
@@ -1775,7 +1794,17 @@ def skystinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         return 'flying' in abilities
 
     def block_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need temporary P/T boost
+        # Self-targeted +5/+0 EOT (no choice needed)
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 5,
+                'toughness_mod': 0,
+                'duration': 'end_of_turn'
+            },
+            source=obj.id
+        )]
 
     return [Interceptor(
         id=new_id(),

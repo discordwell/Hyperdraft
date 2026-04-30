@@ -1,0 +1,191 @@
+{
+  "set": "bloomburrow.py",
+  "results": [
+    {
+      "fn": "valley_questcaller_setup",
+      "card_var": "VALLEY_QUESTCALLER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Added tribal-ETB trigger: when another Rabbit/Bat/Bird/Mouse you control enters the battlefield, emits SCRY event with amount=1. Lord static_pt_boost remains. Original 'one or more enter' batching collapsed to per-creature trigger."
+    },
+    {
+      "fn": "camellia_the_seedmiser_setup",
+      "card_var": "CAMELLIA_THE_SEEDMISER",
+      "disposition": "left",
+      "engine_gap": "Food-sacrifice tracking + activated Forage cost",
+      "notes": "Static menace grant to other Squirrels works. 'Whenever you sacrifice one or more Foods' needs Food-token tracking and a sacrifice-batched trigger; Forage activated ability needs cost-and-choice subsystem."
+    },
+    {
+      "fn": "long_river_lurker_setup",
+      "card_var": "LONG_RIVER_LURKER",
+      "disposition": "left",
+      "engine_gap": "interactive targeting + unblockable + delayed exile-and-return",
+      "notes": "Static ward_1 grant to other Frogs works. ETB 'target you control can't be blocked this turn' + 'whenever that creature deals combat damage you may exile-and-return' needs targeting and a may-flicker delayed trigger."
+    },
+    {
+      "fn": "pileated_provisioner_setup",
+      "card_var": "PILEATED_PROVISIONER",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already wired via create_target_choice + _pileated_provisioner_execute callback. The inner etb_effect returns [] only after staging a pending_choice; effects flow from the callback handler, which emits COUNTER_ADDED (+1/+1) on the chosen non-flier."
+    },
+    {
+      "fn": "finch_formation_setup",
+      "card_var": "FINCH_FORMATION",
+      "disposition": "left",
+      "engine_gap": "Offspring",
+      "notes": "ETB-grant-flying already wired via create_target_choice + _finch_formation_execute callback (emits GRANT_KEYWORD flying EOT). Offspring (1/1 token copy when paid) remains an engine gap."
+    },
+    {
+      "fn": "plumecreed_escort_setup",
+      "card_var": "PLUMECREED_ESCORT",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "ETB-grant-hexproof-EOT already wired via create_target_choice + _plumecreed_escort_execute callback (emits GRANT_KEYWORD hexproof EOT)."
+    },
+    {
+      "fn": "driftgloom_coyote_setup",
+      "card_var": "DRIFTGLOOM_COYOTE",
+      "disposition": "left",
+      "engine_gap": "exile-until-leaves bookkeeping",
+      "notes": "Targeting wired via create_target_choice + _driftgloom_coyote_execute. Callback emits EXILE; the 'until this leaves the battlefield' return and the conditional +1/+1 counter when exiled creature had power<=2 still rely on engine support for leaves-battlefield-tied exiles."
+    },
+    {
+      "fn": "splash_lasher_setup",
+      "card_var": "SPLASH_LASHER",
+      "disposition": "left",
+      "engine_gap": "Offspring + stun counter mechanic",
+      "notes": "ETB tap-up-to-one + stun counter wired via create_target_choice + _splash_lasher_execute callback (emits TAP and COUNTER_ADDED stun). Offspring remains engine gap; stun-counter replacement of untap is engine-handled."
+    },
+    {
+      "fn": "eddymurk_crab_setup",
+      "card_var": "EDDYMURK_CRAB",
+      "disposition": "left",
+      "engine_gap": "cost reduction by GY count + ETB-tapped-if-not-your-turn",
+      "notes": "ETB tap-up-to-two wired via create_target_choice + _eddymurk_crab_execute callback. Cost reduction per instant/sorcery in your graveyard and conditional ETB-tapped need cost-modifier and replacement plumbing."
+    },
+    {
+      "fn": "intrepid_rabbit_setup",
+      "card_var": "INTREPID_RABBIT",
+      "disposition": "left",
+      "engine_gap": "Offspring",
+      "notes": "ETB +1/+1 EOT pump wired via create_target_choice + _intrepid_rabbit_execute callback (emits PT_MODIFICATION until end of turn). Offspring remains engine gap."
+    },
+    {
+      "fn": "bria_riptide_rogue_setup",
+      "card_var": "BRIA_RIPTIDE_ROGUE",
+      "disposition": "left",
+      "engine_gap": "interactive targeting + unblockable EOT",
+      "notes": "Static prowess grant to other creatures works. The 'whenever you cast a noncreature spell, target you control can't be blocked this turn' trigger needs spell-cast trigger + target choice + UEOT unblockable."
+    },
+    {
+      "fn": "valley_flamecaller_setup",
+      "card_var": "VALLEY_FLAMECALLER",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented as DAMAGE TRANSFORM interceptor: when a Lizard/Mouse/Otter/Raccoon you control deals damage, amount += 1. No empty trigger to fill."
+    },
+    {
+      "fn": "patchwork_banner_setup",
+      "card_var": "PATCHWORK_BANNER",
+      "disposition": "left",
+      "engine_gap": "as-enters chosen-creature-type",
+      "notes": "Already simplified to static +1/+1 on all controlled creatures (default fallback for chosen-type). Tap-for-mana ability remains engine gap."
+    },
+    {
+      "fn": "salvation_swan_setup",
+      "card_var": "SALVATION_SWAN",
+      "disposition": "left",
+      "engine_gap": "delayed return-with-flying-counter at next end step",
+      "notes": "Bird-ETB filter + create_target_choice + _salvation_swan_execute callback wired. Callback emits EXILE; the delayed 'return at next end step with a flying counter' needs DELAYED_TRIGGER scheduling."
+    },
+    {
+      "fn": "eluge_the_shoreless_sea_setup",
+      "card_var": "ELUGE_THE_SHORELESS_SEA",
+      "disposition": "left",
+      "engine_gap": "flood-counter creation + type-grant + first-spell cost reduction",
+      "notes": "P/T = number of Islands wired via QUERY_POWER/QUERY_TOUGHNESS handlers. The 'enters or attacks: flood counter on target land; that land becomes Island' trigger needs targeting + custom counter type + type-grant. Cost reduction needs a once-per-turn cost-modifier."
+    },
+    {
+      "fn": "maha_its_feathers_night_setup",
+      "card_var": "MAHA_ITS_FEATHERS_NIGHT",
+      "disposition": "left",
+      "engine_gap": "Ward—Discard a card",
+      "notes": "Already implemented as QUERY_TOUGHNESS handler that overrides opponent creatures' base toughness to 1. Ward—Discard requires alternative-cost ward variant."
+    },
+    {
+      "fn": "persistent_marshstalker_setup",
+      "card_var": "PERSISTENT_MARSHSTALKER",
+      "disposition": "left",
+      "engine_gap": "threshold-gated graveyard reanimation on Rat-attack",
+      "notes": "Already implemented as QUERY_POWER handler (+1 per other Rat). Threshold + may-pay {2}{B} + return-tapped-and-attacking from graveyard needs reanimation pipeline + cost choice."
+    },
+    {
+      "fn": "druid_of_the_spade_setup",
+      "card_var": "DRUID_OF_THE_SPADE",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented via QUERY_POWER (+2 if you control a token) and QUERY_ABILITIES (grant trample if you control a token). No empty trigger to fill."
+    },
+    {
+      "fn": "hunters_talent_setup",
+      "card_var": "HUNTERS_TALENT",
+      "disposition": "left",
+      "engine_gap": "Class levels + targeted fight-style damage",
+      "notes": "L1 ETB 'target you control deals damage = its power to target opponent's creature' needs dual-target + bite handler. L2 attack pump + trample EOT and L3 end-step draw-on-power-4 also remain engine gaps (Class subsystem)."
+    },
+    {
+      "fn": "burrowguard_mentor_setup",
+      "card_var": "BURROWGUARD_MENTOR",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented via QUERY_POWER and QUERY_TOUGHNESS handlers (P/T = number of creatures you control). No empty trigger to fill."
+    },
+    {
+      "fn": "clement_the_worrywort_setup",
+      "card_var": "CLEMENT_THE_WORRYWORT",
+      "disposition": "left",
+      "engine_gap": "interactive targeting with mana-value comparator + Frog mana-ability grant",
+      "notes": "ETB filter for self-or-other-creature wired. 'Return up to one target creature you control with lesser mana value' needs MV comparator on legal targets + bounce. Frog 'T: G or U for creature spells' grant needs activated-ability-grant subsystem."
+    },
+    {
+      "fn": "mind_drill_assailant_setup",
+      "card_var": "MIND_DRILL_ASSAILANT",
+      "disposition": "left",
+      "engine_gap": "activated surveil-1 ability",
+      "notes": "Threshold +3/+0 already implemented via QUERY_POWER conditional on graveyard size >= 7. The {2}{U/B}: Surveil 1 activated ability needs activated-ability registration."
+    },
+    {
+      "fn": "starforged_sword_setup",
+      "card_var": "STARFORGED_SWORD",
+      "disposition": "left",
+      "engine_gap": "Gift mechanic + conditional auto-attach + equipped P/T loses-flying",
+      "notes": "ETB 'if gift was promised, attach to target you control' needs gift tracking + auto-attach. The static +3/+3 and 'loses flying' on equipped creature needs equipment subsystem."
+    },
+    {
+      "fn": "banishing_light_setup",
+      "card_var": "BANISHING_LIGHT",
+      "disposition": "left",
+      "engine_gap": "exile-until-leaves bookkeeping",
+      "notes": "Targeting wired via create_target_choice + _banishing_light_execute callback (emits EXILE). The 'until this enchantment leaves' return relies on engine support for leaves-battlefield-tied exiles."
+    },
+    {
+      "fn": "downwind_ambusher_etb_setup",
+      "card_var": "DOWNWIND_AMBUSHER",
+      "disposition": "left",
+      "engine_gap": "modal callback resolution",
+      "notes": "Modal choice wired via create_modal_choice + _downwind_ambusher_mode_handler. Mode 0 (-1/-1 EOT) and Mode 1 (destroy damaged) flow through their respective execute callbacks emitting PT_MODIFICATION or OBJECT_DESTROYED."
+    },
+    {
+      "fn": "hivespine_wolverine_modal_setup",
+      "card_var": "HIVESPINE_WOLVERINE",
+      "disposition": "left",
+      "engine_gap": "modal callback resolution",
+      "notes": "Modal choice wired via create_modal_choice + _hivespine_wolverine_mode_handler. Modes flow through _hivespine_counter_execute (COUNTER_ADDED), _hivespine_fight_execute (FIGHT) and _hivespine_destroy_execute (OBJECT_DESTROYED) callbacks."
+    }
+  ],
+  "summary": {
+    "converted": 1,
+    "left": 25
+  }
+}

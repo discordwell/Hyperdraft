@@ -1,0 +1,303 @@
+{
+  "set": "spider_man.py",
+  "results": [
+    {
+      "fn": "silver_sable_setup",
+      "card_var": "SILVER_SABLE_MERCENARY_LEADER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB now uses make_targeted_etb_trigger (effect=counter_add, +1/+1, target_filter=other_creature_you_control). Card text 'another target creature' (any controller) is approximated to other-creature-you-control because there is no cross-controller 'other creature' filter; closest legal targeting via existing helpers. Attack-trigger 'modified creature gains lifelink' rider is left out (lifelink-while-modified detection + targeting on attack)."
+    },
+    {
+      "fn": "starling_setup",
+      "card_var": "STARLING_AERIAL_ALLY",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB uses make_targeted_etb_trigger (effect=grant_keyword, keyword=flying, duration=end_of_turn, target_filter=other_creature_you_control). Resolves through targeting handler which emits GRANT_KEYWORD."
+    },
+    {
+      "fn": "spiderbyte_setup",
+      "card_var": "SPIDERBYTE_WEB_WARDEN",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB uses make_targeted_etb_trigger (effect=bounce, target_filter=nonland_permanent, max_targets=1, optional=True). Targeting handler emits ZONE_CHANGE to owner's hand."
+    },
+    {
+      "fn": "tombstone_setup",
+      "card_var": "TOMBSTONE_CAREER_CRIMINAL",
+      "disposition": "converted",
+      "engine_gap": "Villain-spell cost reduction (QUERY_COST interceptor not wired here)",
+      "notes": "ETB now scans graveyard_<controller> for Villain cards and emits TARGET_REQUIRED with legal_targets_override + effect=graveyard_to_hand. Cost-reduction static remains unwired."
+    },
+    {
+      "fn": "shocker_setup",
+      "card_var": "SHOCKER_UNSHAKABLE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB uses create_target_choice + custom shocker_resolve callback. Callback emits two DAMAGE events: 2 to chosen creature and 2 to that creature's controller. 'During your turn first strike' rider is left to layered keyword system (separate from this trigger)."
+    },
+    {
+      "fn": "doctor_octopus_setup",
+      "card_var": "DOCTOR_OCTOPUS_MASTER_PLANNER",
+      "disposition": "left",
+      "engine_gap": "max-hand-size + end-step-draw-up-to-eight",
+      "notes": "Already correctly implemented as static lord effect (other Villains +2/+2). Hand-size cap and end-step refill-to-8 not wired (no max_hand_size machinery)."
+    },
+    {
+      "fn": "spdr_setup",
+      "card_var": "SPDR_PILOTED_BY_PENI",
+      "disposition": "converted",
+      "engine_gap": "modified-creature combat-damage draw rider",
+      "notes": "ETB uses make_targeted_etb_trigger (effect=counter_add, +1/+1). Static draw-on-modified-creature-combat-damage left out (would need 'is_modified' tracker on damage source)."
+    },
+    {
+      "fn": "vulture_setup",
+      "card_var": "VULTURE_SCHEMING_SCAVENGER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Attack trigger now scans for other Villains controlled and emits one GRANT_KEYWORD(flying, end_of_turn) per creature. No targeting needed; mass grant resolved via per-creature events."
+    },
+    {
+      "fn": "cosmic_spiderman_setup",
+      "card_var": "COSMIC_SPIDERMAN",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Beginning-of-combat trigger emits GRANT_KEYWORD(flying/first strike/trample/lifelink/haste, end_of_turn) for each other Spider you control. Five keywords x N creatures => 5N events."
+    },
+    {
+      "fn": "spider_bot_setup",
+      "card_var": "SPIDERBOT",
+      "disposition": "left",
+      "engine_gap": "library-search-with-choice (basic land tutor onto top)",
+      "notes": "Tutor mechanic (search library for basic land, reveal, shuffle, place on top) requires library-search choice subsystem; not wired."
+    },
+    {
+      "fn": "ezekiel_sims_setup",
+      "card_var": "EZEKIEL_SIMS_SPIDERTOTEM",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Beginning-of-combat trigger computes legal Spiders-you-control then emits TARGET_REQUIRED(effect=pump, +2/+2, legal_targets_override=spider list)."
+    },
+    {
+      "fn": "damage_control_crew_setup",
+      "card_var": "DAMAGE_CONTROL_CREW",
+      "disposition": "left",
+      "engine_gap": "modal targeting (Repair / Impound)",
+      "notes": "Modal ETB with two distinct target requirement modes (graveyard 4MV+ return vs exile artifact/enchantment) requires modal_etb_trigger with two different target sets per mode; not converted."
+    },
+    {
+      "fn": "spider_punk_setup",
+      "card_var": "SPIDERPUNK",
+      "disposition": "left",
+      "engine_gap": "no-counter (spell uncounterable) + damage-prevention-disable",
+      "notes": "Riot grant to other Spiders works via make_keyword_grant. 'Spells/abilities can't be countered' and 'Damage can't be prevented' static rules require pipeline-level counter-prevention and damage-prevention toggles."
+    },
+    {
+      "fn": "carnage_setup",
+      "card_var": "CARNAGE_CRIMSON_CHAOS",
+      "disposition": "converted",
+      "engine_gap": "Per-card 'attacks-each-combat + sac-on-combat-damage' rider on reanimated target",
+      "notes": "ETB now emits RETURN_FROM_GRAVEYARD with card_type=creature, max_mv=3 — graveyard handler creates a chooser among legal creatures and reanimates. Granting the must-attack/sac-on-damage triggers to the reanimated card is left unwired."
+    },
+    {
+      "fn": "mister_negative_setup",
+      "card_var": "MISTER_NEGATIVE",
+      "disposition": "left",
+      "engine_gap": "exchange-life-totals + draw-cards-equal-to-life-lost",
+      "notes": "Life-total exchange between two players is not an existing event; conditional draw based on life delta also not wired."
+    },
+    {
+      "fn": "the_spot_setup",
+      "card_var": "THE_SPOT_LIVING_PORTAL",
+      "disposition": "left",
+      "engine_gap": "exile-until-leaves with paired exiled-card return on death + simultaneous two-zone targeting",
+      "notes": "Two-target ETB across battlefield + graveyard plus tracking-set-of-exiled-cards-returned-on-death is beyond existing exile-until-leaves machinery."
+    },
+    {
+      "fn": "sun_spider_setup",
+      "card_var": "SUNSPIDER_NIMBLE_WEBBER",
+      "disposition": "left",
+      "engine_gap": "library-search-with-choice (Aura/Equipment tutor)",
+      "notes": "Library search by card-type with reveal-then-hand-then-shuffle requires library-search choice subsystem."
+    },
+    {
+      "fn": "lizard_connors_curse_setup",
+      "card_var": "LIZARD_CONNORSS_CURSE",
+      "disposition": "left",
+      "engine_gap": "type-rewriting + ability-strip layered effect",
+      "notes": "'Becomes a green Lizard creature with base P/T 4/4 and loses all abilities' requires type/ability-rewrite layer not exposed via simple events."
+    },
+    {
+      "fn": "molten_man_setup",
+      "card_var": "MOLTEN_MAN_INFERNO_INCARNATE",
+      "disposition": "left",
+      "engine_gap": "library-search-with-choice (basic Mountain tapped)",
+      "notes": "Basic-land tutor onto battlefield tapped requires library-search subsystem; static Mountain-count P/T scaling and LTB sac-a-land are also unwired."
+    },
+    {
+      "fn": "spiderman_brooklyn_visionary_setup",
+      "card_var": "SPIDERMAN_BROOKLYN_VISIONARY",
+      "disposition": "left",
+      "engine_gap": "web-slinging alt cost + library-search-with-choice",
+      "notes": "Web-slinging alt-cost mechanic and basic-land tutor onto battlefield tapped both require subsystems not present in pipeline."
+    },
+    {
+      "fn": "black_cat_setup",
+      "card_var": "BLACK_CAT_CUNNING_THIEF",
+      "disposition": "left",
+      "engine_gap": "look-at-top-N + exile-then-bottom-random + cast-from-exile-with-any-color",
+      "notes": "Multi-step library inspection plus exile-while-castable mechanic + any-color mana spending exceeds existing helpers."
+    },
+    {
+      "fn": "gwenom_setup",
+      "card_var": "GWENOM_REMORSELESS",
+      "disposition": "left",
+      "engine_gap": "play-from-top-of-library + life-as-cost cast",
+      "notes": "Top-of-library play access plus paying life equal to mana value rather than mana cost is not implemented."
+    },
+    {
+      "fn": "arachne_psionic_weaver_setup",
+      "card_var": "ARACHNE_PSIONIC_WEAVER",
+      "disposition": "left",
+      "engine_gap": "hand-reveal + cost-modifier-by-chosen-type",
+      "notes": "Replacement-style ETB with hand reveal and chosen-type cost modifier needs a card-type cost interceptor and a reveal choice flow."
+    },
+    {
+      "fn": "daily_bugle_reporters_setup",
+      "card_var": "DAILY_BUGLE_REPORTERS",
+      "disposition": "left",
+      "engine_gap": "modal targeting (counters vs graveyard return)",
+      "notes": "'Choose one' with two different target sets requires modal_etb_trigger; current targeting handler operates on a single target list per choice."
+    },
+    {
+      "fn": "flash_thompson_spiderfan_setup",
+      "card_var": "FLASH_THOMPSON_SPIDERFAN",
+      "disposition": "left",
+      "engine_gap": "modal targeting (one or both)",
+      "notes": "'Choose one or both' modal needs the multi-mode target chooser; existing helpers only support single mode."
+    },
+    {
+      "fn": "web_up_setup",
+      "card_var": "WEB_UP",
+      "disposition": "left",
+      "engine_gap": "targeted exile-until-leaves",
+      "notes": "Pairing an exile target with the enchantment's lifetime requires the exile-until-leaves replacement effect; targeting alone is not enough."
+    },
+    {
+      "fn": "wild_pack_squad_setup",
+      "card_var": "WILD_PACK_SQUAD",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Beginning-of-combat trigger now emits TARGET_REQUIRED with effects=[grant_keyword first_strike, grant_keyword vigilance], optional=True. Multi-effect support handles both keywords on single chosen creature."
+    },
+    {
+      "fn": "doc_ock_sinister_scientist_setup",
+      "card_var": "DOC_OCK_SINISTER_SCIENTIST",
+      "disposition": "left",
+      "engine_gap": "dynamic hexproof toggle",
+      "notes": "P/T 8/8 conditional already wired via QUERY_POWER/TOUGHNESS interceptors. Hexproof-while-controlling-Villain rider needs dynamic ability grant tied to a count predicate; not converted."
+    },
+    {
+      "fn": "parker_luck_setup",
+      "card_var": "PARKER_LUCK",
+      "disposition": "left",
+      "engine_gap": "simultaneous reveal + cross-MV life loss",
+      "notes": "Each player simultaneously reveals top, then loses life equal to the other's revealed MV, then both reveal cards go to hand. No simultaneous cross-player reveal flow."
+    },
+    {
+      "fn": "miles_morales_setup",
+      "card_var": "MILES_MORALES",
+      "disposition": "converted",
+      "engine_gap": "transform mechanic + attack-counter doubling rider",
+      "notes": "ETB uses make_targeted_etb_trigger with min_targets=0, max_targets=2, optional=True, effect=counter_add. Counter-doubling on attack and transform back-side are left out."
+    },
+    {
+      "fn": "pictures_of_spiderman_setup",
+      "card_var": "PICTURES_OF_SPIDERMAN",
+      "disposition": "left",
+      "engine_gap": "look-at-top-N + select-up-to-2-creatures-to-hand",
+      "notes": "Top-5 look + select-up-to-2-of-type-to-hand requires reveal-and-pick subsystem for filtered selection."
+    },
+    {
+      "fn": "sandman_shifting_scoundrel_setup",
+      "card_var": "SANDMAN_SHIFTING_SCOUNDREL",
+      "disposition": "left",
+      "engine_gap": "can't-be-blocked-by-power<=2 + activated graveyard reanimate self+land",
+      "notes": "P/T = land-count already wired via QUERY_POWER/TOUGHNESS. Block-restriction predicate and activated-from-graveyard self+land reanimate not wired."
+    },
+    {
+      "fn": "web_of_life_and_destiny_setup",
+      "card_var": "WEB_OF_LIFE_AND_DESTINY",
+      "disposition": "left",
+      "engine_gap": "look-at-top-5 + creature-onto-battlefield",
+      "notes": "Top-5 look + select-creature-to-battlefield (rest to bottom random) needs an impulsive-style reveal-pick handler with battlefield destination."
+    },
+    {
+      "fn": "cheering_crowd_setup",
+      "card_var": "CHEERING_CROWD",
+      "disposition": "left",
+      "engine_gap": "each-player-may-counter + mana-add per counter",
+      "notes": "Per-player upkeep choice that conditionally produces mana scaling with counters needs multi-player choice + dynamic mana production."
+    },
+    {
+      "fn": "kraven_proud_predator_setup",
+      "card_var": "KRAVEN_PROUD_PREDATOR",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already correctly implemented as QUERY_POWER override returning greatest mana value among permanents you control."
+    },
+    {
+      "fn": "scarlet_spider_ben_reilly_setup",
+      "card_var": "SCARLET_SPIDER_BEN_REILLY",
+      "disposition": "left",
+      "engine_gap": "web-slinging detection + X counters from returned creature MV",
+      "notes": "Sensational Save requires detecting which alt-cost was used and reading the returned-creature's MV. No alt-cost provenance tracker."
+    },
+    {
+      "fn": "skyward_spider_setup",
+      "card_var": "SKYWARD_SPIDER",
+      "disposition": "left",
+      "engine_gap": "Ward (separate keyword system)",
+      "notes": "Flying-while-modified already wired via QUERY_ABILITIES interceptor. Ward 2 keyword grant is handled by core ability system."
+    },
+    {
+      "fn": "spiderman_2099_setup",
+      "card_var": "SPIDERMAN_2099",
+      "disposition": "left",
+      "engine_gap": "tracking spell-from-non-hand or land-this-turn + targeted damage",
+      "notes": "Conditional end-step targeted damage requires per-turn 'cast-from-non-hand' tracker and a target chooser that runs only when condition met."
+    },
+    {
+      "fn": "living_brain_mechanical_marvel_setup",
+      "card_var": "LIVING_BRAIN_MECHANICAL_MARVEL",
+      "disposition": "left",
+      "engine_gap": "targeted artifact-becomes-3/3-creature + untap",
+      "notes": "Type-changing animation effect (non-Equipment artifact -> artifact creature 3/3) plus untap requires layered type/ability rewrite system."
+    },
+    {
+      "fn": "passenger_ferry_setup",
+      "card_var": "PASSENGER_FERRY",
+      "disposition": "left",
+      "engine_gap": "optional-cost gated trigger + targeted unblockable",
+      "notes": "Pay {U} optional cost gating a follow-up unblockable trigger needs optional-cost-then-trigger flow which is not wired generically."
+    },
+    {
+      "fn": "steel_wrecking_ball_setup",
+      "card_var": "STEEL_WRECKING_BALL",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB uses make_targeted_etb_trigger (effect=damage, amount=5, target_filter=creature). Activated discard-self destroy-artifact handled at activation site."
+    },
+    {
+      "fn": "subway_train_setup",
+      "card_var": "SUBWAY_TRAIN",
+      "disposition": "left",
+      "engine_gap": "optional cost + library-search-with-choice tutor",
+      "notes": "Optional pay {G} gating a basic-land tutor with reveal/hand/shuffle requires both optional-cost prompt and library-search subsystem."
+    }
+  ],
+  "summary": {
+    "converted": 13,
+    "left": 29
+  }
+}

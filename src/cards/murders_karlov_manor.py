@@ -60,24 +60,78 @@ def absolving_lammasu_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def griffnaut_tracker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When enters: exile up to two target cards from a single graveyard"""
-    # Simplified - just trigger placeholder
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting system
+        # Build set of all graveyard cards (simplification: any graveyard);
+        # the "single graveyard" constraint is approximated by allowing the
+        # player to choose up to 2 from the combined pool of graveyard cards.
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if o.zone == ZoneType.GRAVEYARD:
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_exile(choice, selected: list, gs: GameState) -> list[Event]:
+            return [
+                Event(type=EventType.EXILE, payload={'object_id': tid}, source=choice.source_id)
+                for tid in (selected or [])
+            ]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Griffnaut Tracker: Exile up to two target cards from a single graveyard",
+            min_targets=0,
+            max_targets=2
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_exile
+        return []
     return [make_etb_trigger(obj, etb_effect)]
 
 
 def haazda_vigilante_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When enters or attacks: put +1/+1 counter on target creature with power 2 or less"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need targeting - placeholder
-        return []
+    """When enters or attacks: put +1/+1 counter on target creature you control with power 2 or less"""
+    def make_pump_effect(source_obj: GameObject):
+        def effect(event: Event, state: GameState) -> list[Event]:
+            legal_targets = []
+            for oid, o in state.objects.items():
+                if (o.zone == ZoneType.BATTLEFIELD and
+                    o.controller == source_obj.controller and
+                    CardType.CREATURE in o.characteristics.types and
+                    (o.characteristics.power or 0) <= 2):
+                    legal_targets.append(oid)
 
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
+            if not legal_targets:
+                return []
+
+            def handle_counter(choice, selected: list, gs: GameState) -> list[Event]:
+                if not selected:
+                    return []
+                return [Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': selected[0], 'counter_type': '+1/+1', 'amount': 1},
+                    source=choice.source_id
+                )]
+
+            choice = create_target_choice(
+                state=state,
+                player_id=source_obj.controller,
+                source_id=source_obj.id,
+                legal_targets=legal_targets,
+                prompt="Haazda Vigilante: Put a +1/+1 counter on target creature you control with power 2 or less"
+            )
+            choice.choice_type = "target_with_callback"
+            choice.callback_data['handler'] = handle_counter
+            return []
+        return effect
 
     return [
-        make_etb_trigger(obj, etb_effect),
-        make_attack_trigger(obj, attack_effect)
+        make_etb_trigger(obj, make_pump_effect(obj)),
+        make_attack_trigger(obj, make_pump_effect(obj))
     ]
 
 
@@ -137,12 +191,17 @@ def novice_inspector_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def wojek_investigator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At beginning of upkeep: investigate for each opponent with more cards"""
+    """At beginning of upkeep: investigate for each opponent with more cards in hand than you"""
     def upkeep_effect(event: Event, state: GameState) -> list[Event]:
         events = []
-        my_hand_size = len(state.players[obj.controller].hand) if obj.controller in state.players else 0
-        for p_id, player in state.players.items():
-            if p_id != obj.controller and len(player.hand) > my_hand_size:
+        my_hand = state.zones.get(f"{obj.controller}_hand")
+        my_count = len(my_hand.objects) if my_hand else 0
+        for p_id in state.players.keys():
+            if p_id == obj.controller:
+                continue
+            opp_hand = state.zones.get(f"{p_id}_hand")
+            opp_count = len(opp_hand.objects) if opp_hand else 0
+            if opp_count > my_count:
                 events.append(Event(
                     type=EventType.OBJECT_CREATED,
                     payload={
@@ -532,9 +591,40 @@ def undercity_eliminator_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def unscrupulous_agent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When enters: opponent exiles a card from their hand"""
+    """When enters: target opponent exiles a card from their hand"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need opponent targeting
+        # Simplified: target first opponent and let them choose a card to exile.
+        opponents = [p_id for p_id in state.players.keys() if p_id != obj.controller]
+        if not opponents:
+            return []
+        target_opp = opponents[0]
+        hand_zone = state.zones.get(f"{target_opp}_hand")
+        if not hand_zone or not hand_zone.objects:
+            return []
+
+        def handle_exile(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            card_id = selected[0]
+            return [Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': card_id,
+                    'from_zone_type': ZoneType.HAND,
+                    'to_zone_type': ZoneType.EXILE
+                },
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=target_opp,
+            source_id=obj.id,
+            legal_targets=list(hand_zone.objects),
+            prompt="Unscrupulous Agent: Exile a card from your hand"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_exile
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -852,7 +942,36 @@ def aurelia_the_law_above_setup(obj: GameObject, state: GameState) -> list[Inter
 def blood_spatter_analysis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When enters: deal 3 damage to target opponent's creature"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.controller != obj.controller and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_damage(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': target_id, 'amount': 3, 'source': choice.source_id, 'is_combat': False},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Blood Spatter Analysis: Choose an opponent's creature to deal 3 damage"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_damage
+        return []
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1030,7 +1149,36 @@ def judith_carnage_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 def kraul_whipcracker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When enters: destroy target token an opponent controls"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.controller != obj.controller and
+                getattr(o, 'is_token', False)):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_destroy(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            return [Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': target_id},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Kraul Whipcracker: Choose a token an opponent controls to destroy"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_destroy
+        return []
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1088,7 +1236,40 @@ def rakdos_patron_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def shady_informant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When dies: deal 2 damage to any target"""
     def death_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
+        # "Any target" includes creatures, planeswalkers, and players.
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if o.zone == ZoneType.BATTLEFIELD and (
+                CardType.CREATURE in o.characteristics.types or
+                CardType.PLANESWALKER in o.characteristics.types
+            ):
+                legal_targets.append(oid)
+        for p_id in state.players.keys():
+            legal_targets.append(p_id)
+
+        if not legal_targets:
+            return []
+
+        def handle_damage(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': target_id, 'amount': 2, 'source': choice.source_id, 'is_combat': False},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Shady Informant: Choose any target to deal 2 damage"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_damage
+        return []
     return [make_death_trigger(obj, death_effect)]
 
 
@@ -1376,7 +1557,36 @@ def case_of_filched_falcon_setup(obj: GameObject, state: GameState) -> list[Inte
 def case_of_burning_masks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When enters: deal 3 damage to target opponent's creature"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.controller != obj.controller and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_damage(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': target_id, 'amount': 3, 'source': choice.source_id, 'is_combat': False},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Case of the Burning Masks: Choose an opponent's creature to deal 3 damage"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_damage
+        return []
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1492,8 +1702,12 @@ def marketwatch_phantom_setup(obj: GameObject, state: GameState) -> list[Interce
         return power <= 2
 
     def small_creature_etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Simplified - grants flying to self until end of turn
-        return []  # Placeholder for keyword granting
+        # Grant this creature flying until end of turn.
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': obj.id, 'keyword': 'flying', 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
 
     return [Interceptor(
         id=new_id(),
@@ -1507,7 +1721,7 @@ def marketwatch_phantom_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def neighborhood_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever another creature you control with power 2 or less enters: target creature gets +1/+1"""
+    """Whenever another creature you control with power 2 or less enters: target creature you control gets +1/+1 until EOT"""
     def small_creature_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
         if event.type != EventType.ZONE_CHANGE:
             return False
@@ -1525,7 +1739,34 @@ def neighborhood_guardian_setup(obj: GameObject, state: GameState) -> list[Inter
         return power <= 2
 
     def small_creature_etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need targeting - simplified
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_pump(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.PUMP,
+                payload={'object_id': selected[0], 'power': 1, 'toughness': 1, 'duration': 'end_of_turn'},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Neighborhood Guardian: Target creature you control gets +1/+1 until end of turn"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_pump
         return []
 
     return [Interceptor(
@@ -1554,8 +1795,12 @@ def perimeter_enforcer_setup(obj: GameObject, state: GameState) -> list[Intercep
                 'Detective' in entering.characteristics.subtypes)
 
     def detective_etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Temporary boost - simplified
-        return []
+        # +1/+1 to self until end of turn.
+        return [Event(
+            type=EventType.PUMP,
+            payload={'object_id': obj.id, 'power': 1, 'toughness': 1, 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
 
     return [Interceptor(
         id=new_id(),
@@ -1609,14 +1854,69 @@ def furtive_courier_setup(obj: GameObject, state: GameState) -> list[Interceptor
 def coveted_falcon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever attacks: gain control of target permanent you own but don't control"""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.owner == obj.controller and
+                o.controller != obj.controller):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_control(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.GAIN_CONTROL,
+                payload={'object_id': selected[0], 'new_controller': obj.controller},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Coveted Falcon: Gain control of target permanent you own but don't control"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_control
+        return []
     return [make_attack_trigger(obj, attack_effect)]
 
 
 def crimestopper_sprite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When enters: tap target creature"""
+    """When enters: tap target creature. (Stun counter rider needs collect-evidence-cost tracking — left.)"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_tap(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.TAP,
+                payload={'object_id': selected[0]},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Crimestopper Sprite: Tap target creature"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_tap
+        return []
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1653,8 +1953,24 @@ def rot_farm_mortipede_setup(obj: GameObject, state: GameState) -> list[Intercep
         return False
 
     def graveyard_leave_effect(event: Event, state: GameState) -> list[Event]:
-        # Temporary power boost - simplified
-        return []
+        # +1/+0 with menace and lifelink until end of turn.
+        return [
+            Event(
+                type=EventType.PUMP,
+                payload={'object_id': obj.id, 'power': 1, 'toughness': 0, 'duration': 'end_of_turn'},
+                source=obj.id
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': obj.id, 'keyword': 'menace', 'duration': 'end_of_turn'},
+                source=obj.id
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': obj.id, 'keyword': 'lifelink', 'duration': 'end_of_turn'},
+                source=obj.id
+            ),
+        ]
 
     return [Interceptor(
         id=new_id(),
@@ -1934,9 +2250,36 @@ def runebrand_juggler_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def rakish_scoundrel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When enters or turned face up: target creature gains indestructible"""
+    """When enters or turned face up: target creature gains indestructible until end of turn"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_grant(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': selected[0], 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Rakish Scoundrel: Target creature gains indestructible until end of turn"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_grant
+        return []
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -2043,17 +2386,72 @@ def melek_reforged_researcher_setup(obj: GameObject, state: GameState) -> list[I
 def griffnaut_tracker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When enters: exile up to two target cards from a single graveyard"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
+        legal_targets = [oid for oid, o in state.objects.items() if o.zone == ZoneType.GRAVEYARD]
+
+        if not legal_targets:
+            return []
+
+        def handle_exile(choice, selected: list, gs: GameState) -> list[Event]:
+            return [
+                Event(type=EventType.EXILE, payload={'object_id': tid}, source=choice.source_id)
+                for tid in (selected or [])
+            ]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Griffnaut Tracker: Exile up to two target cards from a single graveyard",
+            min_targets=0,
+            max_targets=2
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_exile
+        return []
     return [make_etb_trigger(obj, etb_effect)]
 
 
 def haazda_vigilante_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When enters or attacks: put +1/+1 counter on target creature with power 2 or less"""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
-    return [make_etb_trigger(obj, etb_effect), make_attack_trigger(obj, attack_effect)]
+    """When enters or attacks: put +1/+1 counter on target creature you control with power 2 or less"""
+    def make_pump_effect(source_obj: GameObject):
+        def effect(event: Event, state: GameState) -> list[Event]:
+            legal_targets = []
+            for oid, o in state.objects.items():
+                if (o.zone == ZoneType.BATTLEFIELD and
+                    o.controller == source_obj.controller and
+                    CardType.CREATURE in o.characteristics.types and
+                    (o.characteristics.power or 0) <= 2):
+                    legal_targets.append(oid)
+
+            if not legal_targets:
+                return []
+
+            def handle_counter(choice, selected: list, gs: GameState) -> list[Event]:
+                if not selected:
+                    return []
+                return [Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': selected[0], 'counter_type': '+1/+1', 'amount': 1},
+                    source=choice.source_id
+                )]
+
+            choice = create_target_choice(
+                state=state,
+                player_id=source_obj.controller,
+                source_id=source_obj.id,
+                legal_targets=legal_targets,
+                prompt="Haazda Vigilante: Put a +1/+1 counter on target creature you control with power 2 or less"
+            )
+            choice.choice_type = "target_with_callback"
+            choice.callback_data['handler'] = handle_counter
+            return []
+        return effect
+
+    return [
+        make_etb_trigger(obj, make_pump_effect(obj)),
+        make_attack_trigger(obj, make_pump_effect(obj))
+    ]
 
 
 def inside_source_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2106,8 +2504,30 @@ def novice_inspector_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def wojek_investigator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At upkeep: investigate for each opponent with more cards"""
-    return [make_upkeep_trigger(obj, lambda e, s: [])]  # Simplified
+    """At upkeep: investigate for each opponent with more cards in hand than you"""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        my_hand = state.zones.get(f"{obj.controller}_hand")
+        my_count = len(my_hand.objects) if my_hand else 0
+        for p_id in state.players.keys():
+            if p_id == obj.controller:
+                continue
+            opp_hand = state.zones.get(f"{p_id}_hand")
+            opp_count = len(opp_hand.objects) if opp_hand else 0
+            if opp_count > my_count:
+                events.append(Event(
+                    type=EventType.OBJECT_CREATED,
+                    payload={
+                        'name': 'Clue',
+                        'controller': obj.controller,
+                        'types': [CardType.ARTIFACT],
+                        'subtypes': ['Clue'],
+                        'colors': []
+                    },
+                    source=obj.id
+                ))
+        return events
+    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 
 def agency_outfitter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2178,9 +2598,60 @@ def forensic_gadgeteer_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def hotshot_investigators_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When enters: return target creature to hand, investigate if yours"""
+    """When enters: return up to one other target creature to its owner's hand. If you controlled it, investigate."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need targeting
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (oid != obj.id and
+                o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_bounce(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            target = gs.objects.get(target_id)
+            if not target or target.zone != ZoneType.BATTLEFIELD:
+                return []
+            events = [Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': target_id,
+                    'from_zone_type': ZoneType.BATTLEFIELD,
+                    'to_zone_type': ZoneType.HAND
+                },
+                source=choice.source_id
+            )]
+            if target.controller == obj.controller:
+                events.append(Event(
+                    type=EventType.OBJECT_CREATED,
+                    payload={
+                        'name': 'Clue',
+                        'controller': obj.controller,
+                        'types': [CardType.ARTIFACT],
+                        'subtypes': ['Clue'],
+                        'colors': []
+                    },
+                    source=choice.source_id
+                ))
+            return events
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Hotshot Investigators: Choose up to one other creature to return to hand",
+            min_targets=0,
+            max_targets=1
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_bounce
+        return []
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -2201,10 +2672,31 @@ def surveillance_monitor_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def barbed_servitor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When enters: suspect it. Deals combat damage: draw + lose 1. Dealt damage: opponent loses that much."""
+    """When enters: suspect (engine gap). Deals combat damage to player: draw + lose 1.
+    (Dealt-damage-redirect-to-opponent rider is an engine gap.)"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would need suspect mechanic
-    return [make_etb_trigger(obj, etb_effect)]
+        return []  # Suspect mechanic is an engine gap
+
+    def combat_damage_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('source') != source.id:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        target_id = event.payload.get('target')
+        return target_id in state.players
+
+    def combat_damage_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': -1}, source=obj.id)
+        ]
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        make_damage_trigger(obj, combat_damage_effect, combat_only=True, filter_fn=combat_damage_filter)
+    ]
 
 
 def case_of_stashed_skeleton_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4274,9 +4766,46 @@ def aurelias_vindicator_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def case_of_the_gateway_express_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: each creature you control deals 1 to target creature you don't control."""
+    """ETB: choose target creature you don't control. Each creature you control deals 1 to that creature."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: target opponent creature + multi-source damage
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.controller != obj.controller and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        # Capture controller in closure so the handler can find creatures.
+        controller = obj.controller
+
+        def handle_damage(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            events = []
+            for src_id, src in gs.objects.items():
+                if (src.zone == ZoneType.BATTLEFIELD and
+                    src.controller == controller and
+                    CardType.CREATURE in src.characteristics.types):
+                    events.append(Event(
+                        type=EventType.DAMAGE,
+                        payload={'target': target_id, 'amount': 1, 'source': src_id, 'is_combat': False},
+                        source=src_id
+                    ))
+            return events
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Case of the Gateway Express: Choose target creature you don't control"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_damage
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -4306,9 +4835,50 @@ def case_of_the_pilfered_proof_setup(obj: GameObject, state: GameState) -> list[
 
 
 def due_diligence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura ETB: pump another creature you control. Static: +2/+2 vigilance to enchanted."""
+    """Aura ETB: target another creature you control gets +2/+2 and gains vigilance until end of turn."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: aura attachment target; "another" filter
+        # The "another" filter excludes the enchanted creature, but we don't
+        # have a reliable enchanted-creature reference. Allow any creature you
+        # control as a best-effort — full "another than enchanted" check is an
+        # engine gap.
+        legal_targets = []
+        attached_to = obj.state.attached_to
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types and
+                oid != attached_to):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_pump(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            return [
+                Event(
+                    type=EventType.PUMP,
+                    payload={'object_id': target_id, 'power': 2, 'toughness': 2, 'duration': 'end_of_turn'},
+                    source=choice.source_id
+                ),
+                Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': target_id, 'keyword': 'vigilance', 'duration': 'end_of_turn'},
+                    source=choice.source_id
+                ),
+            ]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Due Diligence: Target another creature you control gets +2/+2 and vigilance until end of turn"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_pump
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -4463,17 +5033,70 @@ def conspiracy_unraveler_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def coveted_falcon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying; attacks: gain control of target permanent you own; turned face up: opponent gains control + draws."""
+    """Flying. Attacks: gain control of target permanent you own. (Turn-face-up rider is an engine gap.)"""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: target permanent you own but don't control
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.owner == obj.controller and
+                o.controller != obj.controller):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_control(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.GAIN_CONTROL,
+                payload={'object_id': selected[0], 'new_controller': obj.controller},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Coveted Falcon: Gain control of target permanent you own but don't control"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_control
         return []
     return [make_attack_trigger(obj, attack_effect)]
 
 
 def crimestopper_sprite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: tap target creature; stun counter if evidence collected."""
+    """ETB: tap target creature. (Stun counter rider needs collect-evidence-cost tracking — left.)"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: targeting + collect-evidence-cost-paid tracking
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_tap(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.TAP,
+                payload={'object_id': selected[0]},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Crimestopper Sprite: Tap target creature"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_tap
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -4676,7 +5299,43 @@ def slimy_dualleech_setup(obj: GameObject, state: GameState) -> list[Interceptor
         return event.payload.get('attacking_player') == obj.controller
 
     def combat_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: target a creature you control with power <= 2
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types and
+                (o.characteristics.power or 0) <= 2):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_pump(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            return [
+                Event(
+                    type=EventType.PUMP,
+                    payload={'object_id': target_id, 'power': 1, 'toughness': 0, 'duration': 'end_of_turn'},
+                    source=choice.source_id
+                ),
+                Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': target_id, 'keyword': 'deathtouch', 'duration': 'end_of_turn'},
+                    source=choice.source_id
+                ),
+            ]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Slimy Dualleech: Target creature you control with power 2 or less gets +1/+0 and deathtouch until end of turn"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_pump
         return []
 
     return [Interceptor(
@@ -4800,9 +5459,37 @@ def knife_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def offender_at_large_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Disguise. ETB or turn-face-up: target creature gets +2/+0 until EOT."""
+    """Disguise. ETB or turn-face-up: up to one target creature gets +2/+0 until EOT."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: targeting
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_pump(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.PUMP,
+                payload={'object_id': selected[0], 'power': 2, 'toughness': 0, 'duration': 'end_of_turn'},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Offender at Large: Up to one target creature gets +2/+0 until end of turn",
+            min_targets=0,
+            max_targets=1
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_pump
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -4968,9 +5655,50 @@ def topiary_panther_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def undergrowth_recon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: return target land card from your graveyard tapped."""
+    """Upkeep: return target land card from your graveyard to the battlefield tapped."""
     def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: target land in graveyard + return tapped
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.GRAVEYARD and
+                o.controller == obj.controller and
+                CardType.LAND in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_return(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            # Return tapped: zone change + tap.
+            return [
+                Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': target_id,
+                        'from_zone_type': ZoneType.GRAVEYARD,
+                        'to_zone_type': ZoneType.BATTLEFIELD,
+                        'enters_tapped': True,
+                    },
+                    source=choice.source_id
+                ),
+                Event(
+                    type=EventType.TAP,
+                    payload={'object_id': target_id},
+                    source=choice.source_id
+                ),
+            ]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Undergrowth Recon: Return target land card from your graveyard tapped"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_return
         return []
     return [make_upkeep_trigger(obj, upkeep_effect)]
 
@@ -5196,9 +5924,35 @@ def leyline_of_the_guildpact_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def rakish_scoundrel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Deathtouch. ETB or turn-face-up: indestructible to target until EOT."""
+    """Deathtouch. ETB or turn-face-up: target creature gains indestructible until end of turn."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: targeting
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return []
+
+        def handle_grant(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': selected[0], 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+                source=choice.source_id
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Rakish Scoundrel: Target creature gains indestructible until end of turn"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_grant
         return []
     return [make_etb_trigger(obj, etb_effect)]
 

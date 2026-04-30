@@ -1,0 +1,429 @@
+{
+  "set": "outlaws_thunder_junction.py",
+  "results": [
+    {
+      "fn": "sterling_supplier_setup",
+      "card_var": "STERLING_SUPPLIER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB: target another creature you control, +1/+1 counter via target_with_callback."
+    },
+    {
+      "fn": "claim_jumper_setup",
+      "card_var": "CLAIM_JUMPER",
+      "disposition": "left",
+      "engine_gap": "library search with Plains tutor (no zone-aware tutor with optional self-replay)",
+      "notes": "Vigilance kw stays. ETB conditional library search not engine-tracked."
+    },
+    {
+      "fn": "frontier_seeker_setup",
+      "card_var": "FRONTIER_SEEKER",
+      "disposition": "left",
+      "engine_gap": "look at top 5 + reveal-and-keep + bottom-rest in random order",
+      "notes": "Top-N reveal with selective hand insert + random bottom-shuffle not engine-tracked."
+    },
+    {
+      "fn": "shepherd_of_clouds_setup",
+      "card_var": "SHEPHERD_OF_THE_CLOUDS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB graveyard target (mv<=3), reanimate to BF if Mount controlled else return to hand."
+    },
+    {
+      "fn": "harrier_strix_setup",
+      "card_var": "HARRIER_STRIX",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB tap target (any untapped permanent) via target_with_callback."
+    },
+    {
+      "fn": "peerless_ropemaster_setup",
+      "card_var": "PEERLESS_ROPEMASTER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB up-to-1 tapped creature -> RETURN_TO_HAND via target_with_callback."
+    },
+    {
+      "fn": "spring_splasher_setup",
+      "card_var": "SPRING_SPLASHER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Attack trigger: target opponent creature gets -3/-0 EOT (defending player approximated as any opp)."
+    },
+    {
+      "fn": "ambush_gigapede_setup",
+      "card_var": "AMBUSH_GIGAPEDE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB target opponent creature -2/-2 EOT via target_with_callback."
+    },
+    {
+      "fn": "desperate_bloodseeker_setup",
+      "card_var": "DESPERATE_BLOODSEEKER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB target player mill 2 via target_with_callback."
+    },
+    {
+      "fn": "rooftop_assassin_setup",
+      "card_var": "ROOFTOP_ASSASSIN",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB destroy target opp creature with damage marked or taken this turn."
+    },
+    {
+      "fn": "gisa_the_hellraiser_setup",
+      "card_var": "GISA_THE_HELLRAISER",
+      "disposition": "left",
+      "engine_gap": "crime tracking",
+      "notes": "Static lord (+1/+1 menace to Skeletons/Zombies) already implemented. Crime trigger left."
+    },
+    {
+      "fn": "hollow_marauder_setup",
+      "card_var": "HOLLOW_MARAUDER",
+      "disposition": "converted",
+      "engine_gap": "conditional draw on mv-of-discarded-card",
+      "notes": "ETB any number of opponents discard a card. The mv>=4 conditional draw is left."
+    },
+    {
+      "fn": "tinybones_joins_up_setup",
+      "card_var": "TINYBONES_JOINS_UP",
+      "disposition": "converted",
+      "engine_gap": "legendary-creature-enters mill+drain trigger",
+      "notes": "Initial ETB discard of any number of target players converted; secondary trigger left."
+    },
+    {
+      "fn": "cunning_coyote_setup",
+      "card_var": "CUNNING_COYOTE",
+      "disposition": "converted",
+      "engine_gap": "plot mechanic",
+      "notes": "ETB another target creature +1/+1 + haste EOT via target_with_callback. Plot left."
+    },
+    {
+      "fn": "discerning_peddler_setup",
+      "card_var": "DISCERNING_PEDDLER",
+      "disposition": "converted",
+      "engine_gap": "may-discard-then-conditional-draw",
+      "notes": "Approximated as hard looting (discard+draw) when hand non-empty."
+    },
+    {
+      "fn": "irascible_wolverine_setup",
+      "card_var": "IRASCIBLE_WOLVERINE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Emits IMPULSE_DRAW with duration end_of_turn."
+    },
+    {
+      "fn": "terror_of_the_peaks_setup",
+      "card_var": "TERROR_OF_THE_PEAKS",
+      "disposition": "converted",
+      "engine_gap": "tax-attack opponent spell-targeting (3 life surcharge)",
+      "notes": "Creature ETB damage trigger now targets via target_with_callback (any creature/PW/player)."
+    },
+    {
+      "fn": "outcaster_greenblade_setup",
+      "card_var": "OUTCASTER_GREENBLADE",
+      "disposition": "left",
+      "engine_gap": "library search for basic land or Desert",
+      "notes": "Tutor not engine-tracked."
+    },
+    {
+      "fn": "annie_flash_the_veteran_setup",
+      "card_var": "ANNIE_FLASH_THE_VETERAN",
+      "disposition": "converted",
+      "engine_gap": "if-cast condition; becomes-tapped impulse",
+      "notes": "ETB graveyard reanimation (mv<=3) to BF tapped via target_with_callback. Tap trigger left."
+    },
+    {
+      "fn": "annie_joins_up_setup",
+      "card_var": "ANNIE_JOINS_UP",
+      "disposition": "converted",
+      "engine_gap": "trigger-doubling static",
+      "notes": "ETB 5 damage to target creature/PW opponent controls via target_with_callback."
+    },
+    {
+      "fn": "bruse_tarl_roving_rancher_setup",
+      "card_var": "BRUSE_TARL_ROVING_RANCHER",
+      "disposition": "left",
+      "engine_gap": "exile-top-then-create-Ox-or-cast-it",
+      "notes": "Oxen double_strike static already implemented. ETB/attack reveal-cast left."
+    },
+    {
+      "fn": "honest_rutstein_setup",
+      "card_var": "HONEST_RUTSTEIN",
+      "disposition": "converted",
+      "engine_gap": "creature-spell cost reduction static",
+      "notes": "ETB target creature card from graveyard -> hand via target_with_callback. Cost reduction static left."
+    },
+    {
+      "fn": "ruthless_lawbringer_setup",
+      "card_var": "RUTHLESS_LAWBRINGER",
+      "disposition": "left",
+      "engine_gap": "may-sacrifice-then-when-you-do destruction chain",
+      "notes": "Optional sac with conditional follow-up trigger not engine-tracked."
+    },
+    {
+      "fn": "silver_deputy_setup",
+      "card_var": "SILVER_DEPUTY",
+      "disposition": "left",
+      "engine_gap": "library search for basic land or Desert (then put on top)",
+      "notes": "Tutor + library top placement not engine-tracked."
+    },
+    {
+      "fn": "nurturing_pixie_setup",
+      "card_var": "NURTURING_PIXIE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB up-to-1 own non-Faerie nonland permanent bounce + +1/+1 counter via target_with_callback."
+    },
+    {
+      "fn": "aven_interrupter_setup",
+      "card_var": "AVEN_INTERRUPTER",
+      "disposition": "left",
+      "engine_gap": "exile-and-plot a spell on the stack; opponent zone-of-cast cost increase",
+      "notes": "Plot mechanic + cost-up static not engine-tracked."
+    },
+    {
+      "fn": "mystical_tether_setup",
+      "card_var": "MYSTICAL_TETHER",
+      "disposition": "left",
+      "engine_gap": "exile-until-leaves replacement effect",
+      "notes": "Exile-until-this-leaves not engine-tracked."
+    },
+    {
+      "fn": "thunder_lasso_setup",
+      "card_var": "THUNDER_LASSO",
+      "disposition": "left",
+      "engine_gap": "auto-equip + equipment statics + tap-on-equip-attack trigger",
+      "notes": "Equipment auto-attach + equipped-creature-attacks trigger not engine-tracked."
+    },
+    {
+      "fn": "archmages_newt_setup",
+      "card_var": "ARCHMAGES_NEWT",
+      "disposition": "left",
+      "engine_gap": "grant flashback to a graveyard card (cost-aware)",
+      "notes": "Flashback grant on graveyard card not engine-tracked."
+    },
+    {
+      "fn": "shackle_slinger_setup",
+      "card_var": "SHACKLE_SLINGER",
+      "disposition": "left",
+      "engine_gap": "second-spell-per-turn detection + stun counters",
+      "notes": "Per-turn Nth-spell counting not engine-tracked."
+    },
+    {
+      "fn": "slickshot_lockpicker_setup",
+      "card_var": "SLICKSHOT_LOCKPICKER",
+      "disposition": "left",
+      "engine_gap": "grant flashback to a graveyard card",
+      "notes": "Flashback grant on graveyard card not engine-tracked."
+    },
+    {
+      "fn": "stop_cold_setup",
+      "card_var": "STOP_COLD",
+      "disposition": "left",
+      "engine_gap": "aura attach + ability-stripping + no-untap",
+      "notes": "Aura targeting + ability strip + skip-untap not engine-tracked."
+    },
+    {
+      "fn": "visage_bandit_setup",
+      "card_var": "VISAGE_BANDIT",
+      "disposition": "left",
+      "engine_gap": "enter-as-a-copy choice",
+      "notes": "Optional ETB-as-copy not engine-tracked."
+    },
+    {
+      "fn": "servant_of_the_stinger_setup",
+      "card_var": "SERVANT_OF_THE_STINGER",
+      "disposition": "left",
+      "engine_gap": "crime tracking + library tutor",
+      "notes": "Crime mechanic not engine-tracked."
+    },
+    {
+      "fn": "tinybones_the_pickpocket_setup",
+      "card_var": "TINYBONES_THE_PICKPOCKET",
+      "disposition": "left",
+      "engine_gap": "cross-player-graveyard cast permission",
+      "notes": "Cast-from-opponent-GY with any-color mana not engine-tracked."
+    },
+    {
+      "fn": "unscrupulous_contractor_setup",
+      "card_var": "UNSCRUPULOUS_CONTRACTOR",
+      "disposition": "converted",
+      "engine_gap": "optional sacrifice prerequisite",
+      "notes": "Skipped optional sacrifice; ETB target player draws 2 + loses 2 via target_with_callback."
+    },
+    {
+      "fn": "brimstone_roundup_setup",
+      "card_var": "BRIMSTONE_ROUNDUP",
+      "disposition": "left",
+      "engine_gap": "second-spell-per-turn counting",
+      "notes": "Per-turn Nth-spell counting not engine-tracked."
+    },
+    {
+      "fn": "calamity_galloping_inferno_setup",
+      "card_var": "CALAMITY_GALLOPING_INFERNO",
+      "disposition": "left",
+      "engine_gap": "saddle creature tracking + copy-token-of-creature with delayed sacrifice",
+      "notes": "Saddle bookkeeping not engine-tracked."
+    },
+    {
+      "fn": "gila_courser_setup",
+      "card_var": "GILA_COURSER",
+      "disposition": "left",
+      "engine_gap": "saddle gating + impulse-extension across turns",
+      "notes": "Saddle bookkeeping + multi-turn impulse not engine-tracked."
+    },
+    {
+      "fn": "freestrider_commando_setup",
+      "card_var": "FREESTRIDER_COMMANDO",
+      "disposition": "left",
+      "engine_gap": "detection of 'wasn't cast' or 'no mana spent'",
+      "notes": "Plot/cast-state detection not engine-tracked."
+    },
+    {
+      "fn": "assimilation_aegis_setup",
+      "card_var": "ASSIMILATION_AEGIS",
+      "disposition": "left",
+      "engine_gap": "exile-until-leaves + copy-on-attach",
+      "notes": "Equipment exile + copy-of-exiled not engine-tracked."
+    },
+    {
+      "fn": "breeches_the_blastmaker_setup",
+      "card_var": "BREECHES_THE_BLASTMAKER",
+      "disposition": "left",
+      "engine_gap": "second-spell tracking + coin flip + spell copy",
+      "notes": "Second-spell counting + coin flip not engine-tracked."
+    },
+    {
+      "fn": "the_gitrog_ravenous_ride_setup",
+      "card_var": "THE_GITROG_RAVENOUS_RIDE",
+      "disposition": "left",
+      "engine_gap": "saddler tracking + draw-X-then-put-X-lands chain",
+      "notes": "Saddle bookkeeping + sacrificed-creature-power-X chain not engine-tracked."
+    },
+    {
+      "fn": "obeka_splitter_of_seconds_setup",
+      "card_var": "OBEKA_SPLITTER_OF_SECONDS",
+      "disposition": "left",
+      "engine_gap": "extra-upkeep insertion",
+      "notes": "Extra upkeep steps not engine-tracked."
+    },
+    {
+      "fn": "rakdos_joins_up_setup",
+      "card_var": "RAKDOS_JOINS_UP",
+      "disposition": "converted",
+      "engine_gap": "legendary-dies-deal-damage trigger",
+      "notes": "ETB reanimate target creature card from GY with two +1/+1 counters via target_with_callback. Secondary trigger left."
+    },
+    {
+      "fn": "roxanne_starfall_savant_setup",
+      "card_var": "ROXANNE_STARFALL_SAVANT",
+      "disposition": "converted",
+      "engine_gap": "Meteorite token's granted abilities (ETB damage; tap for mana of any color); tap-token-for-mana bonus",
+      "notes": "ETB and attack now create the Meteorite tokens (tapped colorless artifacts). Token internal abilities are an engine gap."
+    },
+    {
+      "fn": "satoru_the_infiltrator_setup",
+      "card_var": "SATORU_THE_INFILTRATOR",
+      "disposition": "left",
+      "engine_gap": "ETB-batch where none were cast",
+      "notes": "Plot/cast-state detection across creature batch not engine-tracked."
+    },
+    {
+      "fn": "vraska_the_silencer_setup",
+      "card_var": "VRASKA_THE_SILENCER",
+      "disposition": "left",
+      "engine_gap": "may-pay-to-reanimate-as-Treasure-with-type-strip",
+      "notes": "Optional reanimation with type-strip not engine-tracked."
+    },
+    {
+      "fn": "mobile_homestead_setup",
+      "card_var": "MOBILE_HOMESTEAD",
+      "disposition": "left",
+      "engine_gap": "top-of-library reveal-and-may-play-land + conditional haste",
+      "notes": "Top-card peek + may-play not engine-tracked."
+    },
+    {
+      "fn": "abraded_bluffs_setup",
+      "card_var": "ABRADED_BLUFFS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Already wired via _ping_land_etb_effect (deals 1 to first opponent)."
+    },
+    {
+      "fn": "arid_archway_setup",
+      "card_var": "ARID_ARCHWAY",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB target a land you control -> RETURN_TO_HAND; if returned card was Desert, surveil 1."
+    },
+    {
+      "fn": "bristling_backwoods_setup",
+      "card_var": "BRISTLING_BACKWOODS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Already wired via _ping_land_etb_effect."
+    },
+    {
+      "fn": "creosote_heath_setup",
+      "card_var": "CREOSOTE_HEATH",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Already wired via _ping_land_etb_effect."
+    },
+    {
+      "fn": "eroded_canyon_setup",
+      "card_var": "ERODED_CANYON",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Already wired via _ping_land_etb_effect."
+    },
+    {
+      "fn": "festering_gulch_setup",
+      "card_var": "FESTERING_GULCH",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Already wired via _ping_land_etb_effect."
+    },
+    {
+      "fn": "forlorn_flats_setup",
+      "card_var": "FORLORN_FLATS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Already wired via _ping_land_etb_effect."
+    },
+    {
+      "fn": "jagged_barrens_setup",
+      "card_var": "JAGGED_BARRENS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Already wired via _ping_land_etb_effect."
+    },
+    {
+      "fn": "lonely_arroyo_setup",
+      "card_var": "LONELY_ARROYO",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Already wired via _ping_land_etb_effect."
+    },
+    {
+      "fn": "lush_oasis_setup",
+      "card_var": "LUSH_OASIS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Already wired via _ping_land_etb_effect."
+    },
+    {
+      "fn": "soured_springs_setup",
+      "card_var": "SOURED_SPRINGS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Already wired via _ping_land_etb_effect."
+    }
+  ],
+  "summary": {
+    "converted": 32,
+    "left": 28
+  }
+}

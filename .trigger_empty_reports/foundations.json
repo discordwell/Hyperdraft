@@ -1,0 +1,982 @@
+{
+  "set": "foundations.py",
+  "results": [
+    {
+      "fn": "bigfin_bouncer_setup",
+      "card_var": "BIGFIN_BOUNCER",
+      "disposition": "left",
+      "engine_gap": "interactive targeting",
+      "notes": "'Return target creature' needs targeting subsystem."
+    },
+    {
+      "fn": "exclusion_mage_setup",
+      "card_var": "EXCLUSION_MAGE",
+      "disposition": "left",
+      "engine_gap": "interactive targeting",
+      "notes": "'Return target creature' needs targeting subsystem."
+    },
+    {
+      "fn": "vampire_soulcaller_setup",
+      "card_var": "VAMPIRE_SOULCALLER",
+      "disposition": "left",
+      "engine_gap": "graveyard-target return",
+      "notes": "Return target creature card from graveyard to hand needs targeting + GY card selection."
+    },
+    {
+      "fn": "gorehorn_raider_setup",
+      "card_var": "GOREHORN_RAIDER",
+      "disposition": "left",
+      "engine_gap": "raid + targeting",
+      "notes": "Raid condition tracking and damage targeting are both engine gaps."
+    },
+    {
+      "fn": "drakuseth_maw_of_flames_setup",
+      "card_var": "DRAKUSETH_MAW_OF_FLAMES",
+      "disposition": "left",
+      "engine_gap": "divided damage targeting",
+      "notes": "Damage divided among multiple targets needs targeting subsystem."
+    },
+    {
+      "fn": "elvish_regrower_setup",
+      "card_var": "ELVISH_REGROWER",
+      "disposition": "left",
+      "engine_gap": "graveyard-target return",
+      "notes": "Return target permanent card from graveyard to hand needs targeting."
+    },
+    {
+      "fn": "reclamation_sage_setup",
+      "card_var": "RECLAMATION_SAGE",
+      "disposition": "left",
+      "engine_gap": "interactive targeting",
+      "notes": "Destroy target artifact/enchantment needs targeting."
+    },
+    {
+      "fn": "dwynen_giltleaf_daen_setup",
+      "card_var": "DWYNEN_GILTLEAF_DAEN",
+      "disposition": "left",
+      "engine_gap": "attack-trigger lifegain not registered",
+      "notes": "Existing static_pt_boost for Elves works. Attack trigger ('gain 1 life per attacking Elf') would require adding a new attack interceptor \u2014 outside the scope of 'fill in empty effect bodies'."
+    },
+    {
+      "fn": "elvish_archdruid_setup",
+      "card_var": "ELVISH_ARCHDRUID",
+      "disposition": "left",
+      "engine_gap": "tap mana ability not registered",
+      "notes": "Static_pt_boost +1/+1 to other Elves already implemented. The {T}: Add {G} per Elf activated ability is not registered as an interceptor."
+    },
+    {
+      "fn": "anthem_of_champions_setup",
+      "card_var": "ANTHEM_OF_CHAMPIONS",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented as static_pt_boost +1/+1 to all controlled creatures."
+    },
+    {
+      "fn": "empyrean_eagle_setup",
+      "card_var": "EMPYREAN_EAGLE",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented with custom flying-filter static_pt_boost."
+    },
+    {
+      "fn": "meteor_golem_setup",
+      "card_var": "METEOR_GOLEM",
+      "disposition": "left",
+      "engine_gap": "interactive targeting",
+      "notes": "Destroy target nonland permanent needs targeting."
+    },
+    {
+      "fn": "imperious_perfect_setup",
+      "card_var": "IMPERIOUS_PERFECT",
+      "disposition": "left",
+      "engine_gap": "activated ability not registered",
+      "notes": "Static_pt_boost for Elves already done; the {G},{T}: token-creation activated ability is not registered."
+    },
+    {
+      "fn": "lyra_dawnbringer_setup",
+      "card_var": "LYRA_DAWNBRINGER",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented (static_pt_boost + keyword_grant for Angels)."
+    },
+    {
+      "fn": "wiltleaf_liege_setup",
+      "card_var": "WILTLEAF_LIEGE",
+      "disposition": "left",
+      "engine_gap": "discard-replacement effect",
+      "notes": "Static double pumps already work. The discard-replacement clause (put onto battlefield instead of graveyard) is engine gap."
+    },
+    {
+      "fn": "balmor_battlemage_captain_setup",
+      "card_var": "BALMOR_BATTLEMAGE_CAPTAIN",
+      "disposition": "left",
+      "engine_gap": "until-end-of-turn pump",
+      "notes": "+1/+0 trample UEOT to all creatures requires temporary effect system."
+    },
+    {
+      "fn": "extravagant_replication_setup",
+      "card_var": "EXTRAVAGANT_REPLICATION",
+      "disposition": "left",
+      "engine_gap": "copy-permanent + targeting",
+      "notes": "Copy a target permanent needs targeting plus copy-mechanic support."
+    },
+    {
+      "fn": "dauntless_veteran_setup",
+      "card_var": "DAUNTLESS_VETERAN",
+      "disposition": "left",
+      "engine_gap": "until-end-of-turn pump",
+      "notes": "+1/+1 UEOT to all creatures requires temporary effect system."
+    },
+    {
+      "fn": "felidar_savior_setup",
+      "card_var": "FELIDAR_SAVIOR",
+      "disposition": "left",
+      "engine_gap": "interactive targeting",
+      "notes": "Counters on up to two target creatures needs targeting."
+    },
+    {
+      "fn": "soulshackled_zombie_setup",
+      "card_var": "SOULSHACKLED_ZOMBIE",
+      "disposition": "left",
+      "engine_gap": "interactive targeting + conditional life",
+      "notes": "Exile-from-GY + conditional life-loss/gain needs targeting and GY selection."
+    },
+    {
+      "fn": "crackling_cyclops_setup",
+      "card_var": "CRACKLING_CYCLOPS",
+      "disposition": "left",
+      "engine_gap": "until-end-of-turn pump",
+      "notes": "+3/+0 UEOT requires temporary effect system."
+    },
+    {
+      "fn": "beastkin_ranger_setup",
+      "card_var": "BEASTKIN_RANGER",
+      "disposition": "left",
+      "engine_gap": "until-end-of-turn pump",
+      "notes": "+1/+0 UEOT requires temporary effect system."
+    },
+    {
+      "fn": "angel_of_finality_setup",
+      "card_var": "ANGEL_OF_FINALITY",
+      "disposition": "left",
+      "engine_gap": "exile-graveyard targeting",
+      "notes": "Exile target player's graveyard needs player selection."
+    },
+    {
+      "fn": "mischievous_pup_setup",
+      "card_var": "MISCHIEVOUS_PUP",
+      "disposition": "left",
+      "engine_gap": "interactive targeting",
+      "notes": "Return target permanent to owner's hand."
+    },
+    {
+      "fn": "syr_alin_the_lions_claw_setup",
+      "card_var": "SYR_ALIN_THE_LIONS_CLAW",
+      "disposition": "left",
+      "engine_gap": "until-end-of-turn pump",
+      "notes": "+1/+1 UEOT to other creatures."
+    },
+    {
+      "fn": "driver_of_the_dead_setup",
+      "card_var": "DRIVER_OF_THE_DEAD",
+      "disposition": "left",
+      "engine_gap": "graveyard-target return",
+      "notes": "Return target creature with MV<=2 from GY to battlefield needs targeting."
+    },
+    {
+      "fn": "fierce_empath_setup",
+      "card_var": "FIERCE_EMPATH",
+      "disposition": "left",
+      "engine_gap": "library search",
+      "notes": "Search library for creature with MV>=6 needs library search."
+    },
+    {
+      "fn": "springbloom_druid_setup",
+      "card_var": "SPRINGBLOOM_DRUID",
+      "disposition": "left",
+      "engine_gap": "sacrifice + library search",
+      "notes": "Sacrifice land + tutor up to 2 basics needs library search and sacrifice."
+    },
+    {
+      "fn": "adaptive_automaton_setup",
+      "card_var": "ADAPTIVE_AUTOMATON",
+      "disposition": "left",
+      "engine_gap": "as-enters chosen-type",
+      "notes": "Already simplified: boosts all other creatures (default fallback for chosen-type)."
+    },
+    {
+      "fn": "armasaur_guide_setup",
+      "card_var": "ARMASAUR_GUIDE",
+      "disposition": "left",
+      "engine_gap": "whenever-you-attack-with-N + targeting",
+      "notes": "'Attack with 3+' detection and target counter need attack-state aggregation + targeting."
+    },
+    {
+      "fn": "celestial_armor_setup",
+      "card_var": "CELESTIAL_ARMOR",
+      "disposition": "left",
+      "engine_gap": "equipment + UEOT",
+      "notes": "Auto-attach + hexproof/indestructible UEOT needs equipment subsystem."
+    },
+    {
+      "fn": "sunblessed_healer_setup",
+      "card_var": "SUNBLESSED_HEALER",
+      "disposition": "left",
+      "engine_gap": "kicker + GY return",
+      "notes": "Kicker tracking + targeted GY return needs kicker state and targeting."
+    },
+    {
+      "fn": "valkyries_call_setup",
+      "card_var": "VALKYRIES_CALL",
+      "disposition": "left",
+      "engine_gap": "death-replace return-with-counter + type-grant",
+      "notes": "Return-creature-on-death with +1/+1 counter and type modification."
+    },
+    {
+      "fn": "curator_of_destinies_setup",
+      "card_var": "CURATOR_OF_DESTINIES",
+      "disposition": "left",
+      "engine_gap": "complex pile choice",
+      "notes": "Look at top 5, opponent splits, pick a pile \u2014 modal interactive multi-step effect."
+    },
+    {
+      "fn": "drake_hatcher_setup",
+      "card_var": "DRAKE_HATCHER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Combat-damage-to-player trigger emits COUNTER_ADDED with counter_type='incubation' and amount = damage dealt."
+    },
+    {
+      "fn": "grappling_kraken_setup",
+      "card_var": "GRAPPLING_KRAKEN",
+      "disposition": "left",
+      "engine_gap": "landfall + targeting + stun counter",
+      "notes": "Land-ETB detection + tap-target + stun counter."
+    },
+    {
+      "fn": "kaito_cunning_infiltrator_setup",
+      "card_var": "KAITO_CUNNING_INFILTRATOR",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Filter tightened to require is_combat=True and target in state.players. Handler now emits COUNTER_ADDED with counter_type='loyalty' on Kaito."
+    },
+    {
+      "fn": "sphinx_of_forgotten_lore_setup",
+      "card_var": "SPHINX_OF_FORGOTTEN_LORE",
+      "disposition": "left",
+      "engine_gap": "flashback grant",
+      "notes": "Grant flashback to a card in graveyard UEOT \u2014 flashback subsystem."
+    },
+    {
+      "fn": "crypt_feaster_setup",
+      "card_var": "CRYPT_FEASTER",
+      "disposition": "left",
+      "engine_gap": "threshold + UEOT",
+      "notes": "Conditional self-pump UEOT requires temporary effect + GY count check at trigger."
+    },
+    {
+      "fn": "gutless_plunderer_setup",
+      "card_var": "GUTLESS_PLUNDERER",
+      "disposition": "left",
+      "engine_gap": "raid + look-at-top + reorder",
+      "notes": "Raid + library look + reorder needs raid tracking and library manipulation."
+    },
+    {
+      "fn": "midnight_snack_setup",
+      "card_var": "MIDNIGHT_SNACK",
+      "disposition": "left",
+      "engine_gap": "raid tracking",
+      "notes": "Conditional 'if you attacked this turn' needs raid state tracking."
+    },
+    {
+      "fn": "ninelives_familiar_setup",
+      "card_var": "NINELIVES_FAMILIAR",
+      "disposition": "left",
+      "engine_gap": "delayed trigger return-from-GY",
+      "notes": "Return-from-GY at next end step needs delayed trigger scheduling."
+    },
+    {
+      "fn": "tinybones_bauble_burglar_setup",
+      "card_var": "TINYBONES_BAUBLE_BURGLAR",
+      "disposition": "left",
+      "engine_gap": "exile-with-counter + cast-from-exile",
+      "notes": "Exile from GY with stash counter + ongoing 'play from exile' permission."
+    },
+    {
+      "fn": "tragic_banshee_setup",
+      "card_var": "TRAGIC_BANSHEE",
+      "disposition": "left",
+      "engine_gap": "morbid + UEOT pump",
+      "notes": "-1/-1 or -13/-13 UEOT depending on creature-died-this-turn condition."
+    },
+    {
+      "fn": "vampire_gourmand_setup",
+      "card_var": "VAMPIRE_GOURMAND",
+      "disposition": "left",
+      "engine_gap": "may-sacrifice + UEOT unblockable",
+      "notes": "Optional sacrifice replacement + can't-be-blocked UEOT."
+    },
+    {
+      "fn": "battlesong_berserker_setup",
+      "card_var": "BATTLESONG_BERSERKER",
+      "disposition": "left",
+      "engine_gap": "whenever-you-attack + targeting + UEOT",
+      "notes": "+1/+0 menace UEOT to target creature."
+    },
+    {
+      "fn": "chandra_flameshaper_setup",
+      "card_var": "CHANDRA_FLAMESHAPER",
+      "disposition": "left",
+      "engine_gap": "loyalty abilities + token end-step sacrifice",
+      "notes": "Planeswalker abilities + delayed sacrifice on a created token."
+    },
+    {
+      "fn": "courageous_goblin_setup",
+      "card_var": "COURAGEOUS_GOBLIN",
+      "disposition": "left",
+      "engine_gap": "conditional + UEOT pump",
+      "notes": "+1/+0 menace UEOT conditional on power-4 creature."
+    },
+    {
+      "fn": "slumbering_cerberus_setup",
+      "card_var": "SLUMBERING_CERBERUS",
+      "disposition": "left",
+      "engine_gap": "morbid (creature died this turn)",
+      "notes": "Untap conditional on creature-died-this-turn."
+    },
+    {
+      "fn": "strongbox_raider_setup",
+      "card_var": "STRONGBOX_RAIDER",
+      "disposition": "left",
+      "engine_gap": "raid + impulse exile + extended permission",
+      "notes": "Raid + exile-top + may-play this turn (and next)."
+    },
+    {
+      "fn": "ambush_wolf_setup",
+      "card_var": "AMBUSH_WOLF",
+      "disposition": "left",
+      "engine_gap": "graveyard-target exile",
+      "notes": "Exile up to one target card from a graveyard."
+    },
+    {
+      "fn": "cackling_prowler_setup",
+      "card_var": "CACKLING_PROWLER",
+      "disposition": "left",
+      "engine_gap": "morbid (creature died this turn)",
+      "notes": "Conditional +1/+1 on self end-step."
+    },
+    {
+      "fn": "needletooth_pack_setup",
+      "card_var": "NEEDLETOOTH_PACK",
+      "disposition": "left",
+      "engine_gap": "morbid + targeting",
+      "notes": "Two +1/+1 counters on target creature, conditional on death-this-turn."
+    },
+    {
+      "fn": "quilled_greatwurm_setup",
+      "card_var": "QUILLED_GREATWURM",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Filter tightened: is_combat, controller's turn only, source is creature. Handler emits +1/+1 COUNTER_ADDED on the damaging creature with amount = damage dealt."
+    },
+    {
+      "fn": "spinner_of_souls_setup",
+      "card_var": "SPINNER_OF_SOULS",
+      "disposition": "left",
+      "engine_gap": "reveal-until + library reorder",
+      "notes": "Reveal cards from library until creature, hand it, rest to library bottom random."
+    },
+    {
+      "fn": "sylvan_scavenging_setup",
+      "card_var": "SYLVAN_SCAVENGING",
+      "disposition": "left",
+      "engine_gap": "modal + targeting",
+      "notes": "Choose-one with target creature or token-creation conditional."
+    },
+    {
+      "fn": "alesha_who_laughs_at_fate_setup",
+      "card_var": "ALESHA_WHO_LAUGHS_AT_FATE",
+      "disposition": "left",
+      "engine_gap": "raid + GY return targeting",
+      "notes": "Conditional GY-return based on Alesha's power."
+    },
+    {
+      "fn": "ashroot_animist_setup",
+      "card_var": "ASHROOT_ANIMIST",
+      "disposition": "left",
+      "engine_gap": "X-power-pump + targeting + UEOT",
+      "notes": "Trample + X/+X UEOT to target creature, X = self power."
+    },
+    {
+      "fn": "perforating_artist_setup",
+      "card_var": "PERFORATING_ARTIST",
+      "disposition": "left",
+      "engine_gap": "raid + opponent choice",
+      "notes": "Lose 3 unless sacrifice or discard \u2014 interactive opponent choice."
+    },
+    {
+      "fn": "wardens_of_the_cycle_setup",
+      "card_var": "WARDENS_OF_THE_CYCLE",
+      "disposition": "left",
+      "engine_gap": "morbid + modal",
+      "notes": "Choose-one between life gain or draw-and-lose-1, conditional on death-this-turn."
+    },
+    {
+      "fn": "zimone_paradox_sculptor_setup",
+      "card_var": "ZIMONE_PARADOX_SCULPTOR",
+      "disposition": "left",
+      "engine_gap": "begin-of-combat trigger + targeting",
+      "notes": "+1/+1 counter on each of up to two target creatures."
+    },
+    {
+      "fn": "banishing_light_setup",
+      "card_var": "BANISHING_LIGHT",
+      "disposition": "left",
+      "engine_gap": "exile-until-leaves + targeting",
+      "notes": "Exile target permanent until this leaves the battlefield."
+    },
+    {
+      "fn": "micromancer_setup",
+      "card_var": "MICROMANCER",
+      "disposition": "left",
+      "engine_gap": "library search",
+      "notes": "Search library for I/S with MV=1."
+    },
+    {
+      "fn": "liliana_dreadhorde_general_setup",
+      "card_var": "LILIANA_DREADHORDE_GENERAL",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Static 'creature you control dies -> draw a card' trigger now emits DRAW. Loyalty abilities (+1/-4/-9) remain engine gaps."
+    },
+    {
+      "fn": "painful_quandary_setup",
+      "card_var": "PAINFUL_QUANDARY",
+      "disposition": "left",
+      "engine_gap": "opponent modal choice",
+      "notes": "Lose 5 unless discard \u2014 interactive opponent choice."
+    },
+    {
+      "fn": "runescarred_demon_setup",
+      "card_var": "RUNESCARRED_DEMON",
+      "disposition": "left",
+      "engine_gap": "library search",
+      "notes": "Search library for any card."
+    },
+    {
+      "fn": "stromkirk_bloodthief_setup",
+      "card_var": "STROMKIRK_BLOODTHIEF",
+      "disposition": "left",
+      "engine_gap": "lost-life-this-turn + targeting",
+      "notes": "Conditional +1/+1 on target Vampire."
+    },
+    {
+      "fn": "flamewake_phoenix_setup",
+      "card_var": "FLAMEWAKE_PHOENIX",
+      "disposition": "left",
+      "engine_gap": "begin-of-combat + may-pay + GY return",
+      "notes": "Ferocious + optional cost + GY return at begin of combat."
+    },
+    {
+      "fn": "frenzied_goblin_setup",
+      "card_var": "FRENZIED_GOBLIN",
+      "disposition": "left",
+      "engine_gap": "may-pay + UEOT cant-block",
+      "notes": "Pay {R} for target can't-block UEOT."
+    },
+    {
+      "fn": "heartfire_immolator_setup",
+      "card_var": "HEARTFIRE_IMMOLATOR",
+      "disposition": "left",
+      "engine_gap": "prowess UEOT",
+      "notes": "Prowess +1/+1 UEOT requires temporary effect system."
+    },
+    {
+      "fn": "affectionate_indrik_setup",
+      "card_var": "AFFECTIONATE_INDRIK",
+      "disposition": "left",
+      "engine_gap": "fight + targeting",
+      "notes": "Fight target creature requires fight handler and targeting."
+    },
+    {
+      "fn": "garruks_uprising_setup",
+      "card_var": "GARRUKS_UPRISING",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB trigger checks for any controlled creature with power>=4; if found, emits DRAW. The 'creature you control with power>=4 enters -> draw' recurring trigger and trample static remain engine gaps."
+    },
+    {
+      "fn": "nessian_hornbeetle_setup",
+      "card_var": "NESSIAN_HORNBEETLE",
+      "disposition": "left",
+      "engine_gap": "begin-of-combat trigger",
+      "notes": "Begin-of-combat trigger not implemented in pipeline."
+    },
+    {
+      "fn": "vivien_reid_setup",
+      "card_var": "VIVIEN_REID",
+      "disposition": "left",
+      "engine_gap": "loyalty abilities + emblem",
+      "notes": "Already implemented as +2/+2 static (approximating the -8 emblem). Loyalty abilities (+1/-3/-8) are engine gaps."
+    },
+    {
+      "fn": "consuming_aberration_setup",
+      "card_var": "CONSUMING_ABERRATION",
+      "disposition": "left",
+      "engine_gap": "reveal-until-land mill",
+      "notes": "Each opponent reveals until land, mills the rest \u2014 REVEAL_UNTIL_LAND has no handler."
+    },
+    {
+      "fn": "adventuring_gear_setup",
+      "card_var": "ADVENTURING_GEAR",
+      "disposition": "left",
+      "engine_gap": "landfall + equipment + UEOT",
+      "notes": "Equipped creature gets +2/+2 UEOT on landfall."
+    },
+    {
+      "fn": "campus_guide_setup",
+      "card_var": "CAMPUS_GUIDE",
+      "disposition": "left",
+      "engine_gap": "library search + reveal + reorder",
+      "notes": "Search library for basic land, reveal, shuffle, put on top."
+    },
+    {
+      "fn": "leonin_vanguard_setup",
+      "card_var": "LEONIN_VANGUARD",
+      "disposition": "left",
+      "engine_gap": "begin-of-combat + UEOT pump + life",
+      "notes": "+1/+1 UEOT and life gain conditional on three-creature count."
+    },
+    {
+      "fn": "prayer_of_binding_setup",
+      "card_var": "PRAYER_OF_BINDING",
+      "disposition": "left",
+      "engine_gap": "exile-until-leaves + targeting",
+      "notes": "Same as banishing light."
+    },
+    {
+      "fn": "burrog_befuddler_setup",
+      "card_var": "BURROG_BEFUDDLER",
+      "disposition": "left",
+      "engine_gap": "UEOT debuff + targeting",
+      "notes": "-1/-0 UEOT to target creature."
+    },
+    {
+      "fn": "starlight_snare_setup",
+      "card_var": "STARLIGHT_SNARE",
+      "disposition": "left",
+      "engine_gap": "aura attach + non-untap restriction",
+      "notes": "Aura mechanics not yet implemented."
+    },
+    {
+      "fn": "bloodtithe_collector_setup",
+      "card_var": "BLOODTITHE_COLLECTOR",
+      "disposition": "left",
+      "engine_gap": "lost-life-this-turn tracking + opponent discards",
+      "notes": "ETB conditional on opponent-lost-life-this-turn."
+    },
+    {
+      "fn": "death_baron_setup",
+      "card_var": "DEATH_BARON",
+      "disposition": "left",
+      "engine_gap": "deathtouch grant not registered",
+      "notes": "Static_pt_boost for Zombies already done. The 'have deathtouch' grant is not registered."
+    },
+    {
+      "fn": "maalfeld_twins_setup",
+      "card_var": "MAALFELD_TWINS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Death trigger now emits two OBJECT_CREATED events for 2/2 black Zombie tokens."
+    },
+    {
+      "fn": "skeleton_archer_setup",
+      "card_var": "SKELETON_ARCHER",
+      "disposition": "left",
+      "engine_gap": "any-target damage",
+      "notes": "Deal 1 damage to any target needs targeting."
+    },
+    {
+      "fn": "battlerattle_shaman_setup",
+      "card_var": "BATTLERATTLE_SHAMAN",
+      "disposition": "left",
+      "engine_gap": "begin-of-combat trigger + targeting + UEOT",
+      "notes": "+2/+0 UEOT to target creature at begin of combat."
+    },
+    {
+      "fn": "dropkick_bomber_setup",
+      "card_var": "DROPKICK_BOMBER",
+      "disposition": "left",
+      "engine_gap": "activated ability not registered",
+      "notes": "Static +1/+1 to other Goblins already done. The {R}: activated ability is engine gap."
+    },
+    {
+      "fn": "goblin_oriflamme_setup",
+      "card_var": "GOBLIN_ORIFLAMME",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented as static_pt_boost +1/+0 to all creatures (approximating attacking-creatures filter)."
+    },
+    {
+      "fn": "rapacious_dragon_setup",
+      "card_var": "RAPACIOUS_DRAGON",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB trigger now emits two OBJECT_CREATED events for Treasure tokens."
+    },
+    {
+      "fn": "terror_of_mount_velus_setup",
+      "card_var": "TERROR_OF_MOUNT_VELUS",
+      "disposition": "left",
+      "engine_gap": "until-end-of-turn double-strike grant",
+      "notes": "Grant double strike UEOT to all creatures."
+    },
+    {
+      "fn": "volley_veteran_setup",
+      "card_var": "VOLLEY_VETERAN",
+      "disposition": "left",
+      "engine_gap": "X-damage targeting",
+      "notes": "Damage = number of Goblins to target opponent's creature."
+    },
+    {
+      "fn": "aggressive_mammoth_setup",
+      "card_var": "AGGRESSIVE_MAMMOTH",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented as keyword_grant trample."
+    },
+    {
+      "fn": "new_horizons_setup",
+      "card_var": "NEW_HORIZONS",
+      "disposition": "left",
+      "engine_gap": "aura attach + targeting + ability grant",
+      "notes": "Aura attaching needs aura subsystem."
+    },
+    {
+      "fn": "pirates_cutlass_setup",
+      "card_var": "PIRATES_CUTLASS",
+      "disposition": "left",
+      "engine_gap": "auto-equip + targeting",
+      "notes": "Auto-attach to a target Pirate."
+    },
+    {
+      "fn": "dawnwing_marshal_setup",
+      "card_var": "DAWNWING_MARSHAL",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented as static_pt_boost +1/+1 to creatures (approximating the {4}{W}: activated UEOT pump)."
+    },
+    {
+      "fn": "stasis_snare_setup",
+      "card_var": "STASIS_SNARE",
+      "disposition": "left",
+      "engine_gap": "exile-until-leaves + targeting",
+      "notes": "Same as banishing light."
+    },
+    {
+      "fn": "gateway_sneak_setup",
+      "card_var": "GATEWAY_SNEAK",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Combat-damage-to-player trigger emits DRAW. Gate-ETB ability remains engine gap."
+    },
+    {
+      "fn": "harbinger_of_the_tides_setup",
+      "card_var": "HARBINGER_OF_THE_TIDES",
+      "disposition": "left",
+      "engine_gap": "interactive targeting (tapped only)",
+      "notes": "Bounce target tapped creature."
+    },
+    {
+      "fn": "shipwreck_dowser_setup",
+      "card_var": "SHIPWRECK_DOWSER",
+      "disposition": "left",
+      "engine_gap": "graveyard-target return",
+      "notes": "Return target I/S from GY to hand."
+    },
+    {
+      "fn": "voracious_greatshark_setup",
+      "card_var": "VORACIOUS_GREATSHARK",
+      "disposition": "left",
+      "engine_gap": "counter spell + targeting",
+      "notes": "Counter target spell needs targeting and stack manipulation."
+    },
+    {
+      "fn": "demonic_pact_setup",
+      "card_var": "DEMONIC_PACT",
+      "disposition": "left",
+      "engine_gap": "modal upkeep + lose-game option",
+      "notes": "Modal upkeep with sticky 'one each' choice tracking."
+    },
+    {
+      "fn": "nullpriest_of_oblivion_setup",
+      "card_var": "NULLPRIEST_OF_OBLIVION",
+      "disposition": "left",
+      "engine_gap": "kicker + GY return",
+      "notes": "Kicker condition + targeted GY return."
+    },
+    {
+      "fn": "vile_entomber_setup",
+      "card_var": "VILE_ENTOMBER",
+      "disposition": "left",
+      "engine_gap": "library search + GY put",
+      "notes": "Search library, put a card in graveyard."
+    },
+    {
+      "fn": "ball_lightning_setup",
+      "card_var": "BALL_LIGHTNING",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "End-step trigger emits SACRIFICE event for self; switched to fire on every player's end step (matches 'the end step' wording)."
+    },
+    {
+      "fn": "dragon_mage_setup",
+      "card_var": "DRAGON_MAGE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Combat-damage-to-player trigger emits per-player DISCARD (entire hand) and DRAW 7 events."
+    },
+    {
+      "fn": "dragonmaster_outcast_setup",
+      "card_var": "DRAGONMASTER_OUTCAST",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Upkeep trigger counts controller's lands; if >=6, emits OBJECT_CREATED for a 5/5 flying Dragon token."
+    },
+    {
+      "fn": "hoarding_dragon_setup",
+      "card_var": "HOARDING_DRAGON",
+      "disposition": "left",
+      "engine_gap": "library search + exile + delayed return",
+      "notes": "Search artifact, exile it, return on death."
+    },
+    {
+      "fn": "mindsparker_setup",
+      "card_var": "MINDSPARKER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Opponent W/U instant/sorcery cast trigger emits 2 DAMAGE to caster. Uses make_spell_cast_trigger spell_type_filter and color_filter."
+    },
+    {
+      "fn": "ravenous_giant_setup",
+      "card_var": "RAVENOUS_GIANT",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Upkeep trigger emits a 1-damage DAMAGE event targeting the controller."
+    },
+    {
+      "fn": "redcap_gutterdweller_setup",
+      "card_var": "REDCAP_GUTTERDWELLER",
+      "disposition": "left",
+      "engine_gap": "complex token creation with restrictions",
+      "notes": "Token has 'this can't block' clause; upkeep optional sacrifice with multiple effects."
+    },
+    {
+      "fn": "stromkirk_noble_setup",
+      "card_var": "STROMKIRK_NOBLE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Combat-damage-to-player trigger emits COUNTER_ADDED (+1/+1) on self. Filters by target in state.players and is_combat=True."
+    },
+    {
+      "fn": "taurean_mauler_setup",
+      "card_var": "TAUREAN_MAULER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Opponent any-spell cast trigger emits +1/+1 COUNTER_ADDED on self."
+    },
+    {
+      "fn": "gnarlback_rhino_setup",
+      "card_var": "GNARLBACK_RHINO",
+      "disposition": "left",
+      "engine_gap": "spell-targeted-this trigger",
+      "notes": "Trigger on spell that targets this creature requires spell targeting introspection."
+    },
+    {
+      "fn": "mold_adder_setup",
+      "card_var": "MOLD_ADDER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Opponent U/B spell cast trigger emits +1/+1 COUNTER_ADDED on self."
+    },
+    {
+      "fn": "predator_ooze_setup",
+      "card_var": "PREDATOR_OOZE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Attack trigger emits +1/+1 COUNTER_ADDED on self. The 'creature dealt damage by this dies' clause remains engine gap."
+    },
+    {
+      "fn": "surrak_the_hunt_caller_setup",
+      "card_var": "SURRAK_THE_HUNT_CALLER",
+      "disposition": "left",
+      "engine_gap": "begin-of-combat trigger + formidable + UEOT haste",
+      "notes": "Power total >= 8 + UEOT haste on target."
+    },
+    {
+      "fn": "venom_connoisseur_setup",
+      "card_var": "VENOM_CONNOISSEUR",
+      "disposition": "left",
+      "engine_gap": "alliance counter + UEOT deathtouch",
+      "notes": "Counter ability resolutions; UEOT keyword grant."
+    },
+    {
+      "fn": "wildborn_preserver_setup",
+      "card_var": "WILDBORN_PRESERVER",
+      "disposition": "left",
+      "engine_gap": "may-pay X + X counters",
+      "notes": "Optional X cost + X +1/+1 counters."
+    },
+    {
+      "fn": "drogskol_reaver_setup",
+      "card_var": "DROGSKOL_REAVER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Life-gain trigger now emits a DRAW event."
+    },
+    {
+      "fn": "halana_and_alena_partners_setup",
+      "card_var": "HALANA_AND_ALENA_PARTNERS",
+      "disposition": "left",
+      "engine_gap": "begin-of-combat + X-counters + UEOT haste + targeting",
+      "notes": "X +1/+1 counters on target with UEOT haste."
+    },
+    {
+      "fn": "ovika_enigma_goliath_setup",
+      "card_var": "OVIKA_ENIGMA_GOLIATH",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Noncreature spell-cast trigger emits N OBJECT_CREATED events for 1/1 red Phyrexian Goblin tokens (N = mana value). 'Haste UEOT' approximated by giving tokens haste keyword."
+    },
+    {
+      "fn": "savage_ventmaw_setup",
+      "card_var": "SAVAGE_VENTMAW",
+      "disposition": "left",
+      "engine_gap": "non-emptying mana",
+      "notes": "Add {R}{R}{R}{G}{G}{G} that does not empty between phases \u2014 requires special mana retention flag."
+    },
+    {
+      "fn": "trygon_predator_setup",
+      "card_var": "TRYGON_PREDATOR",
+      "disposition": "left",
+      "engine_gap": "may-destroy targeting",
+      "notes": "Destroy target artifact/enchantment of damaged player."
+    },
+    {
+      "fn": "diamond_mare_setup",
+      "card_var": "DIAMOND_MARE",
+      "disposition": "left",
+      "engine_gap": "as-enters color choice",
+      "notes": "Chosen-color tracking on ETB."
+    },
+    {
+      "fn": "gate_colossus_setup",
+      "card_var": "GATE_COLOSSUS",
+      "disposition": "left",
+      "engine_gap": "Gate-ETB + GY-to-library-top",
+      "notes": "Subtype-aware land-ETB trigger + GY manipulation."
+    },
+    {
+      "fn": "ramos_dragon_engine_setup",
+      "card_var": "RAMOS_DRAGON_ENGINE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Spell-cast trigger counts spell colors; emits a single COUNTER_ADDED event with amount = number of colors."
+    },
+    {
+      "fn": "soulguide_lantern_setup",
+      "card_var": "SOULGUIDE_LANTERN",
+      "disposition": "left",
+      "engine_gap": "graveyard-target exile + activated abilities",
+      "notes": "Exile target GY card; activated abilities."
+    },
+    {
+      "fn": "gatekeeper_of_malakir_setup",
+      "card_var": "GATEKEEPER_OF_MALAKIR",
+      "disposition": "left",
+      "engine_gap": "kicker + opponent sacrifice",
+      "notes": "Kicker tracking + opponent's-choice sacrifice."
+    },
+    {
+      "fn": "hinterland_sanctifier_setup",
+      "card_var": "HINTERLAND_SANCTIFIER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Filter rewritten to actually check 'another creature you control entering battlefield'; handler now emits LIFE_CHANGE +1."
+    },
+    {
+      "fn": "goblin_boarders_setup",
+      "card_var": "GOBLIN_BOARDERS",
+      "disposition": "left",
+      "engine_gap": "raid (enters-with-counters)",
+      "notes": "Conditional ETB-with-counter based on attacked-this-turn."
+    },
+    {
+      "fn": "etali_primal_storm_setup",
+      "card_var": "ETALI_PRIMAL_STORM",
+      "disposition": "left",
+      "engine_gap": "exile-from-each-library + cast-free",
+      "notes": "Exile top of each library + may-cast freely."
+    },
+    {
+      "fn": "ruby_daring_tracker_setup",
+      "card_var": "RUBY_DARING_TRACKER",
+      "disposition": "left",
+      "engine_gap": "conditional UEOT self-pump",
+      "notes": "+2/+2 UEOT conditional on power-4 creature."
+    },
+    {
+      "fn": "thousandyear_storm_setup",
+      "card_var": "THOUSANDYEAR_STORM",
+      "disposition": "left",
+      "engine_gap": "spell copy based on prior cast count",
+      "notes": "Copy-spell mechanic + storm count tracking."
+    },
+    {
+      "fn": "crossway_troublemakers_setup",
+      "card_var": "CROSSWAY_TROUBLEMAKERS",
+      "disposition": "left",
+      "engine_gap": "may-pay-life draw on death",
+      "notes": "Optional 2-life payment + draw on Vampire death."
+    },
+    {
+      "fn": "kargan_dragonrider_setup",
+      "card_var": "KARGAN_DRAGONRIDER",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented with conditional keyword_grant 'flying' on self if controller has a Dragon."
+    },
+    {
+      "fn": "knight_of_grace_setup",
+      "card_var": "KNIGHT_OF_GRACE",
+      "disposition": "left",
+      "engine_gap": "hexproof-from-black",
+      "notes": "Static +1/+0 query interceptor implemented. Hexproof-from-color remains engine gap."
+    },
+    {
+      "fn": "tempest_djinn_setup",
+      "card_var": "TEMPEST_DJINN",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented as +1/+0-per-basic-Island query interceptor."
+    },
+    {
+      "fn": "knight_of_malice_setup",
+      "card_var": "KNIGHT_OF_MALICE",
+      "disposition": "left",
+      "engine_gap": "hexproof-from-white",
+      "notes": "Static +1/+0 query interceptor implemented. Hexproof-from-color remains engine gap."
+    },
+    {
+      "fn": "prime_speaker_zegana_setup",
+      "card_var": "PRIME_SPEAKER_ZEGANA",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB trigger computes X (greatest power among other controlled creatures), emits +1/+1 COUNTER_ADDED with amount=X, then DRAW with amount = printed power + X."
+    }
+  ],
+  "summary": {
+    "converted": 22,
+    "left": 117
+  }
+}
