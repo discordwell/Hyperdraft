@@ -3678,3 +3678,191 @@ def make_station_creature_setup(obj, thresholds):
                     priority=InterceptorPriority.QUERY, filter=kw_filter,
                     handler=kw_handler, duration='while_on_battlefield'),
     ]
+
+
+# =============================================================================
+# === TURN STATE HELPERS ===
+# =============================================================================
+# Engine-side trackers live in src/engine/turn_state.py and are wired by
+# Game._setup_system_interceptors. These card-side re-exports give card
+# scripts a single import surface for "did X happen this turn" checks and
+# for the coin flip primitive.
+from src.engine.turn_state import (  # noqa: E402  (re-exports)
+    life_gained_this_turn,
+    life_lost_this_turn,
+    spells_cast_this_turn,
+    nth_spell_this_turn,
+    attacked_alone_this_turn,
+    creatures_died_this_turn,
+    cards_drawn_this_turn,
+    combat_damage_dealt_to_this_turn,
+    flip_coin,
+    emit_coin_flip,
+)
+
+
+def make_coin_flip_event(state, player_id=None, source=None):
+    """Build a COIN_FLIP marker event with a freshly-flipped result.
+
+    Convenience wrapper around :func:`emit_coin_flip` for card scripts.
+    """
+    return emit_coin_flip(state, player_id=player_id, source=source)
+
+
+def make_life_gain_threshold_trigger(obj, threshold, effect_fn,
+                                     who="controller"):
+    """Trigger when ``obj.controller`` (or "any" player) crosses a life-gained
+    threshold this turn.
+
+    Listens to LIFE_CHANGE; on the event that pushes the running total at or
+    above ``threshold``, fires ``effect_fn(event, state) -> list[Event]``.
+    Fires once per turn (uses turn_data flag).
+    """
+    flag_key = f"_life_gain_threshold_{obj.id}"
+
+    def filt(event, state):
+        if event.type != EventType.LIFE_CHANGE:
+            return False
+        amount = event.payload.get("amount", 0)
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            return False
+        if amount <= 0:
+            return False
+        target_player = event.payload.get("player")
+        if not target_player:
+            return False
+        if who == "controller" and target_player != obj.controller:
+            return False
+        td = getattr(state, "turn_data", None) or {}
+        if td.get(flag_key):
+            return False
+        return life_gained_this_turn(target_player, state) >= threshold
+
+    def handler(event, state):
+        td = getattr(state, "turn_data", None)
+        if td is not None:
+            td[flag_key] = True
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=list(effect_fn(event, state) or []),
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=filt,
+        handler=handler,
+        duration="while_on_battlefield",
+    )
+
+
+def make_nth_spell_cast_trigger(obj, n, effect_fn):
+    """Trigger when controller casts their Nth spell this turn (e.g. Celebration).
+
+    ``effect_fn(event, state) -> list[Event]``. Fires whenever a CAST/SPELL_CAST
+    event lifts ``spells_cast_<controller>`` to exactly ``n``. The trigger
+    re-fires each turn at the Nth spell.
+    """
+    def filt(event, state):
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = (
+            event.payload.get("caster")
+            or event.payload.get("controller")
+            or event.payload.get("player")
+            or event.controller
+        )
+        if caster != obj.controller:
+            return False
+        # Engine tracker increments BEFORE this REACT-priority observer runs
+        # because the system tracker is also REACT priority but registered
+        # earlier. Defensive: also accept off-by-one.
+        count = spells_cast_this_turn(caster, state)
+        return count == int(n)
+
+    def handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=list(effect_fn(event, state) or []),
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=filt,
+        handler=handler,
+        duration="while_on_battlefield",
+    )
+
+
+def make_morbid_etb_trigger(obj, effect_fn):
+    """Morbid ETB: fire effect_fn only if a creature died this turn.
+
+    ``effect_fn(event, state) -> list[Event]``.
+    """
+    def filt(event, state):
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get("object_id") != obj.id:
+            return False
+        if event.payload.get("to_zone_type") != ZoneType.BATTLEFIELD:
+            return False
+        return creatures_died_this_turn(state) >= 1
+
+    def handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=list(effect_fn(event, state) or []),
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=filt,
+        handler=handler,
+        duration="while_on_battlefield",
+    )
+
+
+def make_attacks_alone_trigger(obj, effect_fn):
+    """Trigger when ``obj`` attacks alone (and that's its controller's only
+    attacker this turn).
+
+    ``effect_fn(event, state) -> list[Event]``. Reads
+    ``attacked_alone_<controller>`` after COMBAT_DECLARED so the answer is
+    authoritative for the just-declared combat step.
+    """
+    def filt(event, state):
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        attacking_player = event.payload.get("attacking_player")
+        if attacking_player != obj.controller:
+            return False
+        attackers = event.payload.get("attackers") or []
+        if list(attackers) != [obj.id]:
+            return False
+        return True
+
+    def handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=list(effect_fn(event, state) or []),
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=filt,
+        handler=handler,
+        duration="while_on_battlefield",
+    )

@@ -313,6 +313,11 @@ class EventType(Enum):
     # Edge of Eternities — Void mechanic
     VOID_ACTIVATED = auto()           # Marker: Void condition became true this turn for a player
 
+    # Generic coin flip primitive (FIN, custom sets, legacy cards). The
+    # turn_state tracker emits/observes these. Payload typically includes
+    # 'result': bool (True=heads), 'player': str (optional caller).
+    COIN_FLIP = auto()
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
@@ -951,6 +956,12 @@ class GameState:
     # (e.g. "did this player gain life this turn", "did this player attack this turn")
     # Cleared by turn manager at turn boundaries.
     turn_data: dict[str, object] = field(default_factory=dict)
+
+    # Optional RNG seed for deterministic coin flips and other randomized
+    # primitives (used by tests). When set, ``flip_coin`` constructs a
+    # ``random.Random(state.rng_seed)`` lazily and stores it on
+    # ``state._rng`` so subsequent flips draw from the same stream.
+    rng_seed: Optional[int] = None
 
     # Player choice system - when set, game is paused waiting for input
     pending_choice: Optional['PendingChoice'] = None
