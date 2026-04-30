@@ -1,0 +1,129 @@
+{
+  "set": "wilds_of_eldraine.py",
+  "results": [
+    {
+      "var": "EERIE_INTERFERENCE",
+      "disposition": "left",
+      "engine_gap": "damage-prevention replacement effect (prevent damage from creatures to you/your creatures this turn); requires DAMAGE event prevention/replacement layer",
+      "notes": "No prevention infrastructure for source-type-conditional damage."
+    },
+    {
+      "var": "EXPEL_THE_INTERLOPERS",
+      "disposition": "left",
+      "engine_gap": "numeric choice (0-10) + sweep by power threshold; needs PendingChoice variant that returns an integer",
+      "notes": "Numeric-input choice subsystem missing."
+    },
+    {
+      "var": "ASININE_ANTICS",
+      "disposition": "left",
+      "engine_gap": "Role aura tokens (Cursed Role makes target 1/1 base) and {2}-more flash alt cost",
+      "notes": "Role tokens are an unimplemented enchantment-aura class with state-replacing P/T."
+    },
+    {
+      "var": "FARSIGHT_RITUAL",
+      "disposition": "left",
+      "engine_gap": "Bargain alt cost (sacrifice as you cast) is unimplemented; no detectable bargained flag in resolve context for top-N look + put-2-in-hand",
+      "notes": "Could partially wire the non-bargained branch, but the spell's branch is the entire effect."
+    },
+    {
+      "var": "INTO_THE_FAE_COURT",
+      "disposition": "resolved",
+      "engine_gap": "n/a",
+      "notes": "Bespoke chain: DRAW 3 + OBJECT_CREATED for 1/1 blue Faerie token with flying. Ignores 'can block only flyers' restriction (cosmetic for AI)."
+    },
+    {
+      "var": "QUICK_STUDY",
+      "disposition": "resolved",
+      "engine_gap": "n/a",
+      "notes": "Inline _phase2b_make_draw_resolve(2, ...) helper (worktree branch lacks spell_resolve module)."
+    },
+    {
+      "var": "SLEIGHT_OF_HAND",
+      "disposition": "resolved",
+      "engine_gap": "Look-top-N + reveal+keep-one is an engine gap; approximated as scry 1 + draw 1 (decision space is equivalent for AI/auto)",
+      "notes": "Bespoke SCRY 1 + DRAW 1 approximation."
+    },
+    {
+      "var": "BACK_FOR_SECONDS",
+      "disposition": "left",
+      "engine_gap": "Bargain alt cost; conditional 'put onto battlefield instead of hand' branch",
+      "notes": "Resolution depends entirely on the bargained flag."
+    },
+    {
+      "var": "BESEECH_THE_MIRROR",
+      "disposition": "left",
+      "engine_gap": "Bargain + tutor + cast-without-paying-from-exile (mv<=4) chain",
+      "notes": "Tutor is doable, but cast-without-paying free-cast subsystem is not generally available."
+    },
+    {
+      "var": "EGO_DRAIN",
+      "disposition": "resolved",
+      "engine_gap": "Reveal-then-choose-by-opponent UX is partially supported via DISCARD payload chosen_by/nonland_only flags; conditional self-exile maps to DISCARD with discard_to_exile flag",
+      "notes": "Bespoke: REVEAL_HAND + DISCARD with chosen_by=caster + nonland_only; if you don't control a Faerie, additionally DISCARD self with discard_to_exile=True. Engine handlers may treat these flags as best-effort hints."
+    },
+    {
+      "var": "LICHKNIGHTS_CONQUEST",
+      "disposition": "left",
+      "engine_gap": "Sacrifice variable number of artifact/enchantment/token permanents → reanimate the same number; requires interactive multi-sacrifice picker tied to subsequent reanimate count",
+      "notes": "No 'pick N sacrificeables, then return N from gy' subsystem."
+    },
+    {
+      "var": "SONG_OF_TOTENTANZ",
+      "disposition": "resolved",
+      "engine_gap": "X-spell handling depends on stack_manager.x_value lookup; cant_block on tokens is an informational payload key the engine may or may not enforce.",
+      "notes": "Bespoke: read X via state.stack_manager.items, emit X OBJECT_CREATED for 1/1 black Rat tokens, then GRANT_KEYWORD haste to all creatures the caster controls."
+    },
+    {
+      "var": "COMMUNE_WITH_NATURE",
+      "disposition": "left",
+      "engine_gap": "Look-top-5 + reveal-creature-and-take + bottom-rest pattern; impulse-look-and-reveal is unimplemented",
+      "notes": "Could approximate as scry-many but loses the reveal-only-creature semantics."
+    },
+    {
+      "var": "CURSE_OF_THE_WEREFOX",
+      "disposition": "left",
+      "engine_gap": "Monster Role aura tokens + delayed fight trigger 'when you do'",
+      "notes": "Role tokens not implemented."
+    },
+    {
+      "var": "FERAL_ENCOUNTER",
+      "disposition": "left",
+      "engine_gap": "Look-top-5 + exile + grant-cast-from-exile-this-turn + delayed combat-phase trigger to fight",
+      "notes": "Multiple gap layers: exile-look, cast-from-exile permission, delayed combat trigger."
+    },
+    {
+      "var": "GRACEFUL_TAKEDOWN",
+      "disposition": "left",
+      "engine_gap": "Multi-target fight (any-number-of enchanted creatures + 1 creature each fight one target)",
+      "notes": "Engine FIGHT pairs only two creatures; no group-fight resolution."
+    },
+    {
+      "var": "THUNDEROUS_DEBUT",
+      "disposition": "left",
+      "engine_gap": "Bargain + look-top-20 + reveal-up-to-2-creatures + (battlefield if bargained, hand otherwise)",
+      "notes": "Branches entirely on bargained; cheating into play is also a gap."
+    },
+    {
+      "var": "FAERIE_SLUMBER_PARTY",
+      "disposition": "left",
+      "engine_gap": "Per-opponent token creation tied to whether each opponent had a creature returned by the bounce; requires post-bounce introspection of which players' creatures moved",
+      "notes": "Could bounce all creatures, but the per-opponent rider requires tracking which opponents lost a creature."
+    },
+    {
+      "var": "ROWDY_RESEARCH",
+      "disposition": "resolved",
+      "engine_gap": "Cost-reduction (per attacker this turn) is a separate cost-time engine gap; the resolve itself is just draw 3.",
+      "notes": "Inline _phase2b_make_draw_resolve(3, ...) helper. Cost reduction is unimplemented but card resolves correctly at face cost."
+    },
+    {
+      "var": "BECOME_BRUTES",
+      "disposition": "left",
+      "engine_gap": "Monster Role aura tokens (engine gap) + 1-or-2 target multimodal targeting",
+      "notes": "Role tokens not implemented; haste grant alone is doable but the Role tokens dominate the card."
+    }
+  ],
+  "summary": {
+    "resolved": 6,
+    "left": 14
+  }
+}
