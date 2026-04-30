@@ -310,6 +310,8 @@ class EventType(Enum):
     STATION_ACTIVATE = auto()           # Player taps another creature to charge a Station
     STATION_CHARGE = auto()             # Charge counters being added to a Station
     STATION_THRESHOLD_REACHED = auto()  # Station reached a charge threshold
+    # Edge of Eternities — Void mechanic
+    VOID_ACTIVATED = auto()           # Marker: Void condition became true this turn for a player
 
 
 class EventStatus(Enum):
