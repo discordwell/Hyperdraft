@@ -31,7 +31,8 @@ from src.cards.interceptor_helpers import (
     make_spell_cast_trigger, make_damage_trigger,
     make_leaves_battlefield_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
-    creatures_you_control, all_opponents
+    creatures_you_control, all_opponents,
+    open_library_search,
 )
 
 
@@ -2174,9 +2175,23 @@ def the_seriema_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When enters, search for a legendary creature card. Station 7+ flying. Other tapped legendaries indestructible."""
     interceptors = []
 
+    def legendary_creature(card_obj, st):
+        return (
+            CardType.CREATURE in card_obj.characteristics.types
+            and "Legendary" in (card_obj.characteristics.supertypes or set())
+        )
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: library search + reveal
-        return []
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=legendary_creature,
+            destination="hand",
+            reveal=True,
+            shuffle_after=True,
+            optional=False,
+            min_count=1,
+            prompt="Search your library for a legendary creature card and put it into your hand.",
+        )
     interceptors.append(make_etb_trigger(obj, etb_effect))
 
     # Other tapped legendary creatures you control have indestructible.
