@@ -239,6 +239,11 @@ class EventType(Enum):
     SADDLE_BECOMES_SADDLED = auto()   # Mount becomes saddled until end of turn
     SADDLE_ATTACK_TRIGGER = auto()    # Marker for "attacks while saddled" effects
 
+    # Edge of Eternities — Warp mechanic
+    WARP_CAST = auto()                # A card is being cast for its warp cost (alternate cost)
+    WARP_EXILE_SCHEDULED = auto()     # End-step exile has been scheduled for a warp-cast permanent
+    WARP_EXILE = auto()               # End-step exile actually fires for a warp-cast permanent
+
     # Yu-Gi-Oh! mechanics
     YGO_NORMAL_SUMMON = auto()        # Normal Summon a monster
     YGO_TRIBUTE_SUMMON = auto()       # Tribute Summon (level 5+)
