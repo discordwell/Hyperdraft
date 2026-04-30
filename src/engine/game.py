@@ -1370,13 +1370,20 @@ class Game:
         # Clear the pending choice
         self.state.pending_choice = None
 
+        # OTJ: detect "you committed a crime" when targets resolve. Done
+        # before effect events so CRIME_COMMITTED is observed in turn order.
+        from .crime import check_targets_for_crime
+        crime_events = []
+        if choice.choice_type in {"target", "target_with_callback"}:
+            crime_events = check_targets_for_crime(choice, selected, self.state)
+
         # Process the choice based on type
         events = self._process_choice(choice, selected)
 
         # Emit all resulting events through the pipeline
         # This ensures effects like damage, destroy, etc. actually happen
         all_processed = []
-        for event in events:
+        for event in crime_events + events:
             processed = self.emit(event)
             all_processed.extend(processed)
 
