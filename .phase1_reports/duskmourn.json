@@ -1,0 +1,282 @@
+{
+  "set": "duskmourn.py",
+  "results": [
+    {
+      "fn": "sawblade_skinripper_setup",
+      "card_var": "SAWBLADE_SKINRIPPER",
+      "disposition": "left",
+      "engine_gap": "per-turn sacrifice count tracker; targeted variable damage at end step",
+      "notes": "Updated comment to engine-gap form."
+    },
+    {
+      "fn": "shrewd_storyteller_setup",
+      "card_var": "SHREWD_STORYTELLER",
+      "disposition": "left",
+      "engine_gap": "Survival keyword (second-main-phase tap check) not implemented",
+      "notes": "Updated comment to engine-gap form."
+    },
+    {
+      "fn": "undead_sprinter_setup",
+      "card_var": "UNDEAD_SPRINTER",
+      "disposition": "left",
+      "engine_gap": "cast-from-graveyard permission with per-turn condition; ETB-with-counter rider on alt-cast",
+      "notes": "Updated comment to engine-gap form."
+    },
+    {
+      "fn": "acrobatic_cheerleader_setup",
+      "card_var": "ACROBATIC_CHEERLEADER",
+      "disposition": "left",
+      "engine_gap": "Survival keyword + once-only flying-counter rider",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "grand_entryway_setup",
+      "card_var": "GRAND_ENTRYWAY",
+      "disposition": "left",
+      "engine_gap": "UNLOCK_DOOR per-door triggers not modeled",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "leyline_of_hope_setup",
+      "card_var": "LEYLINE_OF_HOPE",
+      "disposition": "wired",
+      "engine_gap": "opening-hand free play; dynamic +2/+2 by life threshold",
+      "notes": "Wired make_life_gain_replacer(obj, addend=1)."
+    },
+    {
+      "fn": "lionheart_glimmer_setup",
+      "card_var": "LIONHEART_GLIMMER",
+      "disposition": "wired",
+      "engine_gap": "Ward 2",
+      "notes": "Wired COMBAT_DECLARED reaction: PT_MODIFICATION (+1/+1, end_of_turn) for each controlled creature."
+    },
+    {
+      "fn": "reluctant_role_model_setup",
+      "card_var": "RELUCTANT_ROLE_MODEL",
+      "disposition": "left",
+      "engine_gap": "Survival; counter transfer on death",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "savior_of_the_small_setup",
+      "card_var": "SAVIOR_OF_THE_SMALL",
+      "disposition": "left",
+      "engine_gap": "Survival",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "surgical_suite_setup",
+      "card_var": "SURGICAL_SUITE",
+      "disposition": "left",
+      "engine_gap": "Room unlock trigger",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "veteran_survivor_setup",
+      "card_var": "VETERAN_SURVIVOR",
+      "disposition": "left",
+      "engine_gap": "Survival; exile-with-this tracking",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "bottomless_pool_setup",
+      "card_var": "BOTTOMLESS_POOL",
+      "disposition": "left",
+      "engine_gap": "Room unlock; team-combat-damage trigger",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "meat_locker_setup",
+      "card_var": "MEAT_LOCKER",
+      "disposition": "left",
+      "engine_gap": "Room unlock",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "mirror_room_setup",
+      "card_var": "MIRROR_ROOM",
+      "disposition": "left",
+      "engine_gap": "Room unlock; trigger-doubling effect",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "silent_hallcreeper_setup",
+      "card_var": "SILENT_HALLCREEPER",
+      "disposition": "left",
+      "engine_gap": "per-creature modal-no-repeat tracking",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "underwater_tunnel_setup",
+      "card_var": "UNDERWATER_TUNNEL",
+      "disposition": "left",
+      "engine_gap": "Room unlock",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "cackling_slasher_setup",
+      "card_var": "CACKLING_SLASHER",
+      "disposition": "left",
+      "engine_gap": "'creature died this turn' check at ETB-counter time",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "defiled_crypt_setup",
+      "card_var": "DEFILED_CRYPT",
+      "disposition": "left",
+      "engine_gap": "Room unlock; once-per-turn cards-leave-graveyard trigger",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "leyline_of_the_void_setup",
+      "card_var": "LEYLINE_OF_THE_VOID",
+      "disposition": "wired",
+      "engine_gap": "opening-hand free play",
+      "notes": "Wired make_graveyard_to_exile_replacer(obj, affects_controller=False, affects_opponents=True)."
+    },
+    {
+      "fn": "spectral_snatcher_setup",
+      "card_var": "SPECTRAL_SNATCHER",
+      "disposition": "left",
+      "engine_gap": "ward, typecycling",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "valgavoth_terror_eater_setup",
+      "card_var": "VALGAVOTH_TERROR_EATER",
+      "disposition": "wired",
+      "engine_gap": "cast-from-exile permission for cards exiled this way",
+      "notes": "Wired make_graveyard_to_exile_replacer; the rule's 'card you didn't control' qualifier is captured by 'opponent's graveyard' targeting."
+    },
+    {
+      "fn": "valgavoths_faithful_setup",
+      "card_var": "VALGAVOTHS_FAITHFUL",
+      "disposition": "left",
+      "engine_gap": "activated sacrifice ability",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "glassworks_setup",
+      "card_var": "GLASSWORKS",
+      "disposition": "left",
+      "engine_gap": "Room unlock",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "ragged_playmate_setup",
+      "card_var": "RAGGED_PLAYMATE",
+      "disposition": "left",
+      "engine_gap": "activated 'can't be blocked' grant",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "ticket_booth_setup",
+      "card_var": "TICKET_BOOTH",
+      "disposition": "left",
+      "engine_gap": "Room unlock",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "balustrade_wurm_setup",
+      "card_var": "BALUSTRADE_WURM",
+      "disposition": "left",
+      "engine_gap": "activated reanimation from graveyard with finality counter",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "insidious_fungus_setup",
+      "card_var": "INSIDIOUS_FUNGUS",
+      "disposition": "left",
+      "engine_gap": "activated abilities (sac for modal effect)",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "moldering_gym_setup",
+      "card_var": "MOLDERING_GYM",
+      "disposition": "left",
+      "engine_gap": "Room unlock",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "rootwise_survivor_setup",
+      "card_var": "ROOTWISE_SURVIVOR",
+      "disposition": "left",
+      "engine_gap": "Survival; land animation",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "walkin_closet_setup",
+      "card_var": "WALKIN_CLOSET",
+      "disposition": "left",
+      "engine_gap": "Room unlock; cast-from-GY permission; this-turn graveyard->exile replacement",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "the_jolly_balloon_man_setup",
+      "card_var": "THE_JOLLY_BALLOON_MAN",
+      "disposition": "left",
+      "engine_gap": "activated abilities (token copy w/ delayed sacrifice)",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "kaito_bane_of_nightmares_setup",
+      "card_var": "KAITO_BANE_OF_NIGHTMARES",
+      "disposition": "left",
+      "engine_gap": "planeswalker mechanics",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "roaring_furnace_setup",
+      "card_var": "ROARING_FURNACE",
+      "disposition": "left",
+      "engine_gap": "Room unlock",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "zimone_allquestioning_setup",
+      "card_var": "ZIMONE_ALLQUESTIONING",
+      "disposition": "left",
+      "engine_gap": "'land entered this turn' tracking + prime check",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "bear_trap_setup",
+      "card_var": "BEAR_TRAP",
+      "disposition": "left",
+      "engine_gap": "interactive target selection for activated abilities",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "ghost_vacuum_setup",
+      "card_var": "GHOST_VACUUM",
+      "disposition": "left",
+      "engine_gap": "activated abilities w/ exile-with-this tracking",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "keys_to_the_house_setup",
+      "card_var": "KEYS_TO_THE_HOUSE",
+      "disposition": "left",
+      "engine_gap": "activated sacrifice abilities; door state mutation",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "malevolent_chandelier_setup",
+      "card_var": "MALEVOLENT_CHANDELIER",
+      "disposition": "left",
+      "engine_gap": "activated abilities (graveyard hate)",
+      "notes": "Existing comment retained."
+    },
+    {
+      "fn": "saw_setup",
+      "card_var": "SAW",
+      "disposition": "left",
+      "engine_gap": "'equipped creature attacks' trigger",
+      "notes": "Existing comment retained."
+    }
+  ],
+  "summary": {
+    "wired": 4,
+    "left": 35
+  }
+}
