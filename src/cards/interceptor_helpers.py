@@ -3678,3 +3678,272 @@ def make_station_creature_setup(obj, thresholds):
                     priority=InterceptorPriority.QUERY, filter=kw_filter,
                     handler=kw_handler, duration='while_on_battlefield'),
     ]
+
+
+# =============================================================================
+# === FACE-DOWN HELPERS ===
+# =============================================================================
+# Manifest / Manifest Dread / Cloak / Disguise / Morph all share one mechanism:
+#
+#   1. Some game action turns a card into a face-down 2/2 colourless creature
+#      with no name, no abilities (and, for Disguise/Morph, ward {2}).
+#   2. The face-down permanent's *real* card_def is preserved on the GameObject;
+#      its real characteristics are masked by QUERY interceptors.
+#   3. The controller can pay a face-up cost at any time (instant speed for
+#      Manifest/Cloak's underlying creature card; specific cost for the others)
+#      to turn it face-up. The flip removes the masking interceptors and
+#      re-runs ``card_def.setup_interceptors`` so the card's real abilities
+#      come online (ETB triggers fire — see CR 707.4).
+#
+# Engine-side support lives in ``src/engine/face_down.py``. The helpers below
+# are the card-author-facing API.
+from src.engine.face_down import (  # noqa: E402  (re-export)
+    FACE_DOWN_TAG,
+    DEFAULT_FACE_DOWN_POWER,
+    DEFAULT_FACE_DOWN_TOUGHNESS,
+    is_face_down,
+    turn_face_up,
+    register_face_down_handler,
+    make_face_down_object,
+)
+
+
+def _face_down_query_interceptors(
+    obj: GameObject,
+    *,
+    face_down_power: int = DEFAULT_FACE_DOWN_POWER,
+    face_down_toughness: int = DEFAULT_FACE_DOWN_TOUGHNESS,
+    face_down_keywords: Optional[list[str]] = None,
+) -> list[Interceptor]:
+    """
+    Build the set of QUERY interceptors that mask a face-down permanent.
+
+    Each interceptor only fires while ``obj.state.face_down`` is True so flipping
+    the card face-up immediately reveals its real characteristics, even before
+    the masking interceptors get cleaned up.
+
+    The returned interceptors are tagged ``_face_down_tag = FACE_DOWN_TAG`` so
+    :func:`turn_face_up` can identify and remove them.
+    """
+    face_down_keywords = list(face_down_keywords or [])
+
+    def _active() -> bool:
+        return is_face_down(obj)
+
+    # --- POWER ---
+    def power_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_POWER
+                and event.payload.get('object_id') == obj.id
+                and _active())
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = face_down_power
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # --- TOUGHNESS ---
+    def tough_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_TOUGHNESS
+                and event.payload.get('object_id') == obj.id
+                and _active())
+
+    def tough_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = face_down_toughness
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # --- TYPES (face-down: just creature, no subtypes) ---
+    def types_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_TYPES
+                and event.payload.get('object_id') == obj.id
+                and _active())
+
+    def types_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = {CardType.CREATURE}
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # --- COLORS (face-down: colourless) ---
+    def colors_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_COLORS
+                and event.payload.get('object_id') == obj.id
+                and _active())
+
+    def colors_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = set()  # colourless
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # --- ABILITIES (face-down: only the granted keywords, if any) ---
+    def abilities_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_ABILITIES
+                and event.payload.get('object_id') == obj.id
+                and _active())
+
+    def abilities_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        # `value` may be either a list of ability dicts or a set/list of keyword
+        # strings depending on the caller. Normalize to a set of granted keyword
+        # names — this matches how `make_keyword_grant`-style helpers expose
+        # face-down-specific keywords like Disguise's ward {2}.
+        granted = set(face_down_keywords)
+        new_event.payload['value'] = granted
+        new_event.payload['granted'] = granted
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    interceptors = []
+    for filt, hand in (
+        (power_filter, power_handler),
+        (tough_filter, tough_handler),
+        (types_filter, types_handler),
+        (colors_filter, colors_handler),
+        (abilities_filter, abilities_handler),
+    ):
+        ic = Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=filt,
+            handler=hand,
+            duration='while_on_battlefield',
+        )
+        # Tag so turn_face_up() can identify and strip these specifically
+        # (rather than wiping every QUERY interceptor on the object, which
+        # would also nuke things like +1/+1 counter-derived abilities).
+        setattr(ic, '_face_down_tag', FACE_DOWN_TAG)
+        interceptors.append(ic)
+
+    return interceptors
+
+
+def make_face_down_setup(
+    obj: GameObject,
+    face_up_cost: Optional[str] = None,
+    face_up_handler: Optional[Callable[[GameObject, GameState], list[Event]]] = None,
+    *,
+    face_down_power: int = DEFAULT_FACE_DOWN_POWER,
+    face_down_toughness: int = DEFAULT_FACE_DOWN_TOUGHNESS,
+    face_down_keywords: Optional[list[str]] = None,
+) -> list[Interceptor]:
+    """
+    Mask a permanent so it acts as a face-down 2/2.
+
+    Sets ``obj.state.face_down = True`` and registers the QUERY-masking
+    interceptors. If ``face_up_cost`` is provided, also stores a callable on
+    ``obj.state`` (``pay_face_up_cost``) that the controller can invoke to flip
+    the card. ``face_up_handler(obj, state)`` runs *after* the flip and may
+    return any extra events (e.g. "manifest dread: search for a card").
+
+    Returns the new interceptors so the caller can prepend them to its own
+    list (or use this directly as a card's ``setup_interceptors``).
+
+    Example:
+        def my_card_setup(obj, state):
+            return make_face_down_setup(obj, face_up_cost="{2}")
+    """
+    obj.state.face_down = True
+
+    # Stash the face-up activation as a closure on obj.state. Activated abilities
+    # in this engine don't have a uniform action payload yet — exposing the
+    # closure here lets card-side helpers (or the server's ability dispatcher)
+    # invoke it without needing to know the card's specific cost.
+    def pay_face_up_cost(state: GameState) -> list[Event]:
+        if not is_face_down(obj):
+            return []  # Already face-up; activation does nothing.
+
+        # Best-effort cost payment. Card-script callers may have already paid
+        # the cost via the priority/casting subsystem; in that case face_up_cost
+        # is treated as informational.
+        if face_up_cost:
+            try:
+                from src.engine.mana import ManaSystem, parse_cost
+                if isinstance(state, GameState) and hasattr(state, 'objects'):
+                    # State may not have a mana system; we look for one if available.
+                    mana_sys = getattr(state, 'mana_system', None)
+                    if mana_sys is not None:
+                        cost = parse_cost(face_up_cost)
+                        if not mana_sys.pay_cost(obj.controller, cost):
+                            return []  # Could not pay; abort.
+            except Exception:
+                # Don't block flipping if mana plumbing isn't available in this
+                # context (e.g. a unit test). The TURN_FACE_UP event itself
+                # records the intended cost.
+                pass
+
+        events: list[Event] = [Event(
+            type=EventType.TURN_FACE_UP,
+            payload={
+                'object_id': obj.id,
+                'mana_paid_cost': face_up_cost,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+        if face_up_handler is not None:
+            try:
+                extra = face_up_handler(obj, state) or []
+                events.extend(extra)
+            except Exception:
+                # A misbehaving handler shouldn't strand the card face-down.
+                pass
+
+        return events
+
+    obj.state.pay_face_up_cost = pay_face_up_cost  # type: ignore[attr-defined]
+    obj.state.face_up_cost = face_up_cost          # type: ignore[attr-defined]
+
+    return _face_down_query_interceptors(
+        obj,
+        face_down_power=face_down_power,
+        face_down_toughness=face_down_toughness,
+        face_down_keywords=face_down_keywords,
+    )
+
+
+def make_manifest_etb_event(
+    controller: str,
+    source_id: Optional[str] = None,
+    *,
+    card_def=None,
+    face_down_power: int = DEFAULT_FACE_DOWN_POWER,
+    face_down_toughness: int = DEFAULT_FACE_DOWN_TOUGHNESS,
+) -> Event:
+    """
+    Build an OBJECT_CREATED event that summons a face-down 2/2 creature on the
+    battlefield.
+
+    The created object will be processed through the standard pipeline:
+    ``_handle_object_created`` runs first (creating the GameObject + zoning it),
+    then a separate ``ZONE_CHANGE`` follow-up — emitted by callers that need ETB
+    triggers — installs the masking interceptors. Most callers should follow
+    the simpler pattern:
+
+        events = [
+            make_manifest_etb_event(player_id, source_id=source.id, card_def=top),
+            Event(type=EventType.FACE_DOWN_ENTER, payload={'controller': player_id}),
+        ]
+
+    Pass ``card_def`` (the top of library card, etc.) to preserve the real card
+    underneath; ``turn_face_up`` will re-run its ``setup_interceptors`` on flip.
+    """
+    return Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'controller': controller,
+            'owner': controller,
+            'name': '',                      # face-down has no public name
+            'zone_type': ZoneType.BATTLEFIELD,
+            'types': {CardType.CREATURE},
+            'subtypes': set(),
+            'colors': set(),
+            'power': face_down_power,
+            'toughness': face_down_toughness,
+            'is_token': False,
+            'face_down': True,
+            'card_def': card_def,           # for pipeline.zone handler use (best-effort)
+        },
+        source=source_id,
+        controller=controller,
+    )

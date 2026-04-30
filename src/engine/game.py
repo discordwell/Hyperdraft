@@ -59,6 +59,10 @@ class Game:
             self.state.max_hand_size = max_hand
 
         self.pipeline = EventPipeline(self.state)
+        # Expose the pipeline on state so engine subsystems (e.g. face-down's
+        # turn_face_up flip) can re-emit synthetic events without holding a
+        # Game reference. Using a private attribute keeps it out of equality.
+        self.state._pipeline = self.pipeline  # type: ignore[attr-defined]
 
         # Initialize subsystems via adapter factories.
         self.mana_system = self.mode_adapter.create_mana_system(self.state)
