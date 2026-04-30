@@ -7453,8 +7453,22 @@ def ghalta_primal_hunger_setup(obj: GameObject, state: GameState) -> list[Interc
 # --- GNARLID COLONY ---
 # Kicker {2}{G} / If kicked enters with two +1/+1 counters / Each creature you control with +1/+1 counter has trample.
 def gnarlid_colony_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: kicker + conditional keyword grant
-    return []
+    """Each creature you control with a +1/+1 counter on it has trample.
+
+    The kicker / ETB-with-two-+1/+1-counters portion is still an engine gap
+    (no kicker tracking on cast).
+    """
+    def your_creatures_with_counter(target: GameObject, state: GameState) -> bool:
+        if target.controller != obj.controller:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        counters = getattr(target, 'counters', {}) or {}
+        return counters.get('+1/+1', 0) > 0
+
+    return [make_keyword_grant(obj, ['trample'], your_creatures_with_counter)]
 
 
 # --- LLANOWAR ELVES ---
@@ -8024,15 +8038,49 @@ def fynn_the_fangbearer_setup(obj: GameObject, state: GameState) -> list[Interce
 # --- HEROES' BANE ---
 # Enters with four +1/+1 counters / {2}{G}{G}: Put X +1/+1 counters on this creature, X = its power.
 def heroes_bane_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: ETB-with-counters + activated dynamic counter add
-    return []
+    """Enters with four +1/+1 counters on it.
+
+    The activated ability ({2}{G}{G}: Put X +1/+1 counters on this creature,
+    where X is its power) is still an engine gap (no activated-ability system).
+    """
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 4},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
 
 
 # --- ORDEAL OF NYLEA ---
 # Enchant creature / Whenever attacks: +1/+1 counter / If 3+, sacrifice / On sac: search basic lands.
 def ordeal_of_nylea_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: aura attack trigger + sacrifice trigger
-    return []
+    """Whenever enchanted creature attacks, put a +1/+1 counter on it.
+
+    The "If it has 3+ +1/+1 counters, sacrifice this Aura" auto-sac and the
+    "When sacrificed, search for two basic lands" trigger are still engine
+    gaps (no Aura sacrifice cleanup, no land search wiring on sac of self).
+    """
+    def attack_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        if not attacker_id:
+            return False
+        attached_to = getattr(source.state, 'attached_to', None)
+        return attached_to == attacker_id
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        attacker_id = event.payload.get('attacker_id')
+        if not attacker_id:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': attacker_id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_attack_trigger(obj, attack_effect, attack_filter)]
 
 
 # --- VIZIER OF THE MENAGERIE ---
