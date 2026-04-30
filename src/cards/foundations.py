@@ -52,10 +52,487 @@ from src.cards.interceptor_helpers import (
     instant_or_sorcery_with_mv,
 )
 
+from src.engine.spell_resolve import (
+    resolve_chain,
+    resolve_create_token,
+    resolve_draw,
+    resolve_pump,
+)
+
 
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+
+def _resolving_spell_obj(state: GameState) -> Optional[GameObject]:
+    """Return the topmost spell on the stack — the resolving spell."""
+    stack_zone = state.zones.get('stack') if state and state.zones else None
+    if stack_zone is None:
+        return None
+    for obj_id in reversed(list(stack_zone.objects or [])):
+        obj = state.objects.get(obj_id)
+        if obj is not None:
+            return obj
+    return None
+
+
+def _spell_caster_id(state: GameState) -> Optional[str]:
+    """Return the controller of the resolving spell (best-effort)."""
+    obj = _resolving_spell_obj(state)
+    if obj is not None and obj.controller:
+        return obj.controller
+    return getattr(state, 'priority_player', None) or getattr(state, 'active_player', None)
+
+
+def _spell_x_value(state: GameState) -> int:
+    """Return the X value chosen for the resolving spell, or 0."""
+    obj = _resolving_spell_obj(state)
+    if obj is None:
+        return 0
+    x = getattr(obj, 'x_value', None)
+    if x is None:
+        # StackItem may also carry x_value via additional_data
+        stack_zone = state.zones.get('stack') if state and state.zones else None
+        if stack_zone:
+            # The stack manager keeps StackItems separately; this is best-effort.
+            x = 0
+    try:
+        return int(x or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _grant_keyword_events(targets, keyword: str, source_id: Optional[str] = None) -> list[Event]:
+    """Emit GRANT_KEYWORD events for each chosen target (skipping players)."""
+    from src.engine.spell_resolve import _flatten_targets  # type: ignore
+    events: list[Event] = []
+    for t in _flatten_targets(targets):
+        if getattr(t, 'is_player', False):
+            continue
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': t.id, 'keyword': keyword, 'duration': 'end_of_turn'},
+            source=source_id,
+        ))
+    return events
+
+
+def _resolve_grant_keyword(keyword: str):
+    """Resolve helper that grants ``keyword`` until end of turn to each target."""
+    def _resolve(targets, state: GameState) -> list[Event]:
+        return _grant_keyword_events(targets, keyword)
+    return _resolve
+
+
+def _resolve_anthem_creatures_you_control(
+    power_mod: int,
+    toughness_mod: int,
+    keywords: tuple = (),
+):
+    """Pump every creature you control + grant optional keywords until EOT."""
+    keywords_list = tuple(keywords)
+
+    def _resolve(targets, state: GameState) -> list[Event]:
+        caster = _spell_caster_id(state)
+        if not caster:
+            return []
+        events: list[Event] = []
+        for obj_id, obj in list(state.objects.items()):
+            if obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            if obj.controller != caster:
+                continue
+            if CardType.CREATURE not in obj.characteristics.types:
+                continue
+            if power_mod or toughness_mod:
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': obj_id,
+                        'power_mod': power_mod,
+                        'toughness_mod': toughness_mod,
+                        'duration': 'end_of_turn',
+                    },
+                ))
+            for kw in keywords_list:
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': obj_id, 'keyword': kw, 'duration': 'end_of_turn'},
+                ))
+        return events
+
+    return _resolve
+
+
+# --- DAY OF JUDGMENT ---
+def day_of_judgment_resolve(targets, state: GameState) -> list[Event]:
+    """Destroy all creatures."""
+    events: list[Event] = []
+    for obj_id, obj in list(state.objects.items()):
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE in obj.characteristics.types:
+            events.append(Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': obj_id},
+            ))
+    return events
+
+
+# --- AETHERIZE ---
+def aetherize_resolve(targets, state: GameState) -> list[Event]:
+    """Return all attacking creatures to their owner's hand."""
+    events: list[Event] = []
+    for obj_id, obj in list(state.objects.items()):
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in obj.characteristics.types:
+            continue
+        if not getattr(obj.state, 'attacking', False):
+            continue
+        events.append(Event(
+            type=EventType.BOUNCE,
+            payload={'object_id': obj_id},
+        ))
+    return events
+
+
+# --- RUN AWAY TOGETHER ---
+def run_away_together_resolve(targets, state: GameState) -> list[Event]:
+    """Return chosen creatures to their owners' hands."""
+    from src.engine.spell_resolve import _flatten_targets  # type: ignore
+    events: list[Event] = []
+    for t in _flatten_targets(targets):
+        if t.is_player:
+            continue
+        events.append(Event(
+            type=EventType.BOUNCE,
+            payload={'object_id': t.id},
+        ))
+    return events
+
+
+# --- BITE DOWN ---
+def bite_down_resolve(targets, state: GameState) -> list[Event]:
+    """Your creature deals damage equal to its power to opponent's creature."""
+    from src.engine.spell_resolve import _flatten_targets  # type: ignore
+    flat = _flatten_targets(targets)
+    if len(flat) < 2:
+        return []
+    your_creature = state.objects.get(flat[0].id) if not flat[0].is_player else None
+    enemy_creature = flat[1]
+    if your_creature is None:
+        return []
+    power = get_power(your_creature, state)
+    if power <= 0:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={
+            'target': enemy_creature.id,
+            'amount': power,
+            'is_combat': False,
+            'is_player': enemy_creature.is_player,
+        },
+    )]
+
+
+# --- RAISE THE PAST ---
+def raise_the_past_resolve(targets, state: GameState) -> list[Event]:
+    """Return all creature cards with MV<=2 from your gy to the battlefield."""
+    caster = _spell_caster_id(state)
+    if not caster:
+        return []
+    gy = state.zones.get(f'graveyard_{caster}')
+    if gy is None:
+        return []
+    events: list[Event] = []
+    for cid in list(gy.objects):
+        obj = state.objects.get(cid)
+        if obj is None:
+            continue
+        if CardType.CREATURE not in obj.characteristics.types:
+            continue
+        # Mana value: count via card def or characteristics if present.
+        cdef = getattr(obj, 'card_def', None) or obj.characteristics
+        mv = 0
+        # Try mana_cost on characteristics or card_def.
+        cost_str = getattr(cdef, 'mana_cost', None) or getattr(obj.characteristics, 'mana_cost', None) or ''
+        if cost_str:
+            # Count generic + colored symbols.
+            import re as _re
+            generic = sum(int(g) for g in _re.findall(r'\{(\d+)\}', cost_str))
+            colored = len(_re.findall(r'\{[WUBRGCwubrgc/X]+\}', cost_str))
+            mv = generic + colored
+        if mv > 2:
+            continue
+        events.append(Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={'object_id': cid, 'controller': caster},
+        ))
+    return events
+
+
+# --- INSPIRATION FROM BEYOND ---
+def inspiration_from_beyond_resolve(targets, state: GameState) -> list[Event]:
+    """Mill 3, then return an instant or sorcery from gy to hand."""
+    caster = _spell_caster_id(state)
+    if not caster:
+        return []
+    return [
+        Event(
+            type=EventType.MILL,
+            payload={'player': caster, 'amount': 3},
+        ),
+        Event(
+            type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+            payload={'player': caster, 'card_type': 'instant', 'amount': 1},
+        ),
+        # Engine handler matches a single card_type; sorcery cards are handled
+        # in a follow-up choice if no instants are present.
+        Event(
+            type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+            payload={'player': caster, 'card_type': 'sorcery', 'amount': 1},
+        ),
+    ]
+
+
+# --- REVENGE OF THE RATS ---
+def revenge_of_the_rats_resolve(targets, state: GameState) -> list[Event]:
+    """Create a tapped 1/1 black Rat token for each creature card in your gy."""
+    caster = _spell_caster_id(state)
+    if not caster:
+        return []
+    gy = state.zones.get(f'graveyard_{caster}')
+    if gy is None:
+        return []
+    count = 0
+    for cid in gy.objects:
+        obj = state.objects.get(cid)
+        if obj is None:
+            continue
+        if CardType.CREATURE in obj.characteristics.types:
+            count += 1
+    if count <= 0:
+        return []
+    events: list[Event] = []
+    for _ in range(count):
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Rat Token',
+                'controller': caster,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Rat'],
+                'colors': [Color.BLACK],
+                'is_token': True,
+                'tapped': True,
+            },
+            controller=caster,
+        ))
+    return events
+
+
+# --- BULK UP ---
+def bulk_up_resolve(targets, state: GameState) -> list[Event]:
+    """Double target creature's power until end of turn."""
+    from src.engine.spell_resolve import _first_target  # type: ignore
+    t = _first_target(targets)
+    if t is None or t.is_player:
+        return []
+    obj = state.objects.get(t.id)
+    if obj is None:
+        return []
+    power = get_power(obj, state)
+    if power <= 0:
+        return []
+    return [Event(
+        type=EventType.PT_MODIFICATION,
+        payload={
+            'object_id': t.id,
+            'power_mod': power,  # +power doubles current power
+            'toughness_mod': 0,
+            'duration': 'end_of_turn',
+        },
+    )]
+
+
+# --- EXSANGUINATE ---
+def exsanguinate_resolve(targets, state: GameState) -> list[Event]:
+    """Each opponent loses X life. You gain that much life."""
+    caster = _spell_caster_id(state)
+    if not caster:
+        return []
+    x = _spell_x_value(state)
+    if x <= 0:
+        return []
+    opp_count = 0
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == caster:
+            continue
+        opp_count += 1
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': pid, 'amount': -x},
+        ))
+    if opp_count > 0:
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': caster, 'amount': x * opp_count},
+        ))
+    return events
+
+
+# --- RISE OF THE DARK REALMS ---
+def rise_of_the_dark_realms_resolve(targets, state: GameState) -> list[Event]:
+    """Put all creature cards from all graveyards onto the battlefield under your control."""
+    caster = _spell_caster_id(state)
+    if not caster:
+        return []
+    events: list[Event] = []
+    for zname, zone in list(state.zones.items()):
+        if not zname.startswith('graveyard_'):
+            continue
+        for cid in list(zone.objects):
+            obj = state.objects.get(cid)
+            if obj is None:
+                continue
+            if CardType.CREATURE not in obj.characteristics.types:
+                continue
+            # Reanimate under our control.
+            obj.controller = caster
+            events.append(Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={'object_id': cid, 'controller': caster},
+            ))
+    return events
+
+
+# --- ZOMBIFY ---
+def zombify_resolve(targets, state: GameState) -> list[Event]:
+    """Return target creature card from your gy to the battlefield."""
+    from src.engine.spell_resolve import _first_target  # type: ignore
+    t = _first_target(targets)
+    if t is None or t.is_player:
+        return []
+    caster = _spell_caster_id(state)
+    return [Event(
+        type=EventType.RETURN_FROM_GRAVEYARD,
+        payload={'object_id': t.id, 'controller': caster},
+    )]
+
+
+# --- RIVERS REBUKE ---
+def rivers_rebuke_resolve(targets, state: GameState) -> list[Event]:
+    """Return all nonland permanents target player controls to their owner's hand."""
+    from src.engine.spell_resolve import _first_target  # type: ignore
+    t = _first_target(targets)
+    target_player = t.id if (t and t.is_player) else None
+    if not target_player:
+        return []
+    events: list[Event] = []
+    for obj_id, obj in list(state.objects.items()):
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if obj.controller != target_player:
+            continue
+        if CardType.LAND in obj.characteristics.types:
+            continue
+        events.append(Event(
+            type=EventType.BOUNCE,
+            payload={'object_id': obj_id},
+        ))
+    return events
+
+
+# --- PILFER ---
+def pilfer_resolve(targets, state: GameState) -> list[Event]:
+    """Target opponent reveals hand. You choose a nonland card to discard."""
+    from src.engine.spell_resolve import _first_target  # type: ignore
+    t = _first_target(targets)
+    target_player = t.id if (t and t.is_player) else None
+    if not target_player:
+        return []
+    # Simplified: emit a generic DISCARD event; handler will pick a card.
+    return [Event(
+        type=EventType.DISCARD,
+        payload={'player': target_player, 'amount': 1, 'nonland': True},
+    )]
+
+
+# --- HEROIC REINFORCEMENTS ---
+def heroic_reinforcements_resolve(targets, state: GameState) -> list[Event]:
+    """Two 1/1 white Soldier tokens; creatures you control get +1/+1 and gain haste EOT."""
+    caster = _spell_caster_id(state)
+    if not caster:
+        return []
+    events: list[Event] = []
+    for _ in range(2):
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Soldier Token',
+                'controller': caster,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Soldier'],
+                'colors': [Color.WHITE],
+                'is_token': True,
+            },
+            controller=caster,
+        ))
+    # Anthem
+    events.extend(_resolve_anthem_creatures_you_control(1, 1, ('haste',))(targets, state))
+    return events
+
+
+# --- CIRCUITOUS ROUTE ---
+def circuitous_route_resolve(targets, state: GameState) -> list[Event]:
+    """Search library for up to two basic land cards and/or Gates, put tapped, then shuffle."""
+    caster = _spell_caster_id(state)
+    if not caster:
+        return []
+    spell_obj = _resolving_spell_obj(state)
+    source_id = spell_obj.id if spell_obj else ''
+
+    def _filter(card_obj, st) -> bool:
+        types_set = card_obj.characteristics.types
+        supertypes = card_obj.characteristics.supertypes
+        subtypes = card_obj.characteristics.subtypes
+        if CardType.LAND not in types_set:
+            return False
+        if 'Basic' in supertypes:
+            return True
+        if 'Gate' in subtypes:
+            return True
+        return False
+
+    from src.engine.library_search import create_library_search_choice
+    create_library_search_choice(
+        state, caster, source_id,
+        filter_fn=_filter,
+        max_count=2,
+        destination='battlefield_tapped',
+        shuffle_after=True,
+        prompt='Search for up to two basic lands and/or Gates',
+        optional=True,
+    )
+    return []
+
+
+# --- DIVINE RESILIENCE ---
+def divine_resilience_resolve(targets, state: GameState) -> list[Event]:
+    """Target creature you control gains indestructible until end of turn.
+
+    Engine gap: kicker check is approximated — we always grant to chosen targets.
+    """
+    return _grant_keyword_events(targets, 'indestructible')
+
 
 # =============================================================================
 # SETUP INTERCEPTOR FUNCTIONS
@@ -8485,6 +8962,8 @@ DIVINE_RESILIENCE = make_instant(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Kicker {2}{W} (You may pay an additional {2}{W} as you cast this spell.)\nTarget creature you control gains indestructible until end of turn. If this spell was kicked, instead any number of target creatures you control gain indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy them.)",
+    # engine gap: kicker mode (any-number targets when kicked) — simplified to always grant.
+    resolve=divine_resilience_resolve,
 )
 
 EXEMPLAR_OF_LIGHT = make_creature(
@@ -8593,6 +9072,7 @@ RAISE_THE_PAST = make_sorcery(
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     text="Return all creature cards with mana value 2 or less from your graveyard to the battlefield.",
+    resolve=raise_the_past_resolve,
 )
 
 SKYKNIGHT_SQUIRE = make_creature(
@@ -8657,6 +9137,8 @@ ARCANE_EPIPHANY = make_instant(
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     text="This spell costs {1} less to cast if you control a Wizard.\nDraw three cards.",
+    # engine gap: cost reduction is handled separately; the resolve is just draw 3.
+    resolve=resolve_draw(3),
 )
 
 ARCHMAGE_OF_RUNES = make_creature(
@@ -8790,6 +9272,8 @@ INSPIRATION_FROM_BEYOND = make_sorcery(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Mill three cards, then return an instant or sorcery card from your graveyard to your hand.\nFlashback {5}{U}{U} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+    # engine gap: flashback alt-cast not wired here; resolve = mill 3 + return.
+    resolve=inspiration_from_beyond_resolve,
 )
 
 KAITO_CUNNING_INFILTRATOR = make_planeswalker(
@@ -8919,6 +9403,7 @@ BLASPHEMOUS_EDICT = make_sorcery(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     text="You may pay {B} rather than pay this spell's mana cost if there are thirteen or more creatures on the battlefield.\nEach player sacrifices thirteen creatures of their choice.",
+    # engine gap: mass sacrifice with per-player choice and alt-cast condition.
 )
 
 BLOODTHIRSTY_CONQUEROR = make_creature(
@@ -9013,6 +9498,8 @@ REVENGE_OF_THE_RATS = make_sorcery(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     text="Create a tapped 1/1 black Rat creature token for each creature card in your graveyard.\nFlashback {2}{B}{B} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+    # engine gap: flashback alt-cast not wired here; resolve creates the tokens.
+    resolve=revenge_of_the_rats_resolve,
 )
 
 SANGUINE_SYPHONER = make_creature(
@@ -9133,6 +9620,8 @@ BULK_UP = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Double target creature's power until end of turn.\nFlashback {4}{R}{R} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+    # engine gap: flashback alt-cast not wired here.
+    resolve=bulk_up_resolve,
 )
 
 CHANDRA_FLAMESHAPER = make_planeswalker(
@@ -9205,6 +9694,7 @@ GOBLIN_NEGOTIATION = make_sorcery(
     mana_cost="{X}{R}{R}",
     colors={Color.RED},
     text="Goblin Negotiation deals X damage to target creature. Create a number of 1/1 red Goblin creature tokens equal to the amount of excess damage dealt to that creature this way.",
+    # engine gap: excess-damage tracking required to count token creation.
 )
 
 GOREHORN_RAIDER = make_creature(
@@ -9407,6 +9897,7 @@ PREPOSTEROUS_PROPORTIONS = make_sorcery(
     mana_cost="{5}{G}{G}",
     colors={Color.GREEN},
     text="Creatures you control get +10/+10 and gain vigilance until end of turn.",
+    resolve=_resolve_anthem_creatures_you_control(10, 10, ('vigilance',)),
 )
 
 QUAKESTRIDER_CERATOPS = make_creature(
@@ -9694,6 +10185,7 @@ DAY_OF_JUDGMENT = make_sorcery(
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     text="Destroy all creatures.",
+    resolve=day_of_judgment_resolve,
 )
 
 GIADA_FONT_OF_HOPE = make_creature(
@@ -9793,6 +10285,7 @@ AETHERIZE = make_instant(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     text="Return all attacking creatures to their owner's hand.",
+    resolve=aetherize_resolve,
 )
 
 BRINEBORN_CUTTHROAT = make_creature(
@@ -9889,6 +10382,7 @@ RUN_AWAY_TOGETHER = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Choose two target creatures controlled by different players. Return those creatures to their owners' hands.",
+    resolve=run_away_together_resolve,
 )
 
 SELFREFLECTION = make_sorcery(
@@ -9920,6 +10414,7 @@ TIME_STOP = make_instant(
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
     text="End the turn. (Exile all spells and abilities, including this spell. The player whose turn it is discards down to their maximum hand size. Damage heals and \"this turn\" and \"until end of turn\" effects end.)",
+    # engine gap: "end the turn" replacement effect not implemented.
 )
 
 TOLARIAN_TERROR = make_creature(
@@ -9981,6 +10476,7 @@ EXSANGUINATE = make_sorcery(
     mana_cost="{X}{B}{B}",
     colors={Color.BLACK},
     text="Each opponent loses X life. You gain life equal to the life lost this way.",
+    resolve=exsanguinate_resolve,
 )
 
 FAKE_YOUR_OWN_DEATH = make_instant(
@@ -10047,6 +10543,8 @@ PILFER = make_sorcery(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Target opponent reveals their hand. You choose a nonland card from it. That player discards that card.",
+    # engine gap: "you choose" requires hand-reveal UI; falls back to standard discard.
+    resolve=pilfer_resolve,
 )
 
 REASSEMBLING_SKELETON = make_creature(
@@ -10064,6 +10562,7 @@ RISE_OF_THE_DARK_REALMS = make_sorcery(
     mana_cost="{7}{B}{B}",
     colors={Color.BLACK},
     text="Put all creature cards from all graveyards onto the battlefield under your control.",
+    resolve=rise_of_the_dark_realms_resolve,
 )
 
 RUNESCARRED_DEMON = make_creature(
@@ -10100,6 +10599,7 @@ ZOMBIFY = make_sorcery(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     text="Return target creature card from your graveyard to the battlefield.",
+    resolve=zombify_resolve,
 )
 
 
@@ -10426,6 +10926,7 @@ SURE_STRIKE = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Target creature gets +3/+0 and gains first strike until end of turn. (It deals combat damage before creatures without first strike.)",
+    resolve=resolve_chain(resolve_pump(3, 0), _resolve_grant_keyword('first strike')),
 )
 
 THRILL_OF_POSSIBILITY = make_instant(
@@ -10450,6 +10951,7 @@ BITE_DOWN = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Target creature you control deals damage equal to its power to target creature or planeswalker you don't control.",
+    resolve=bite_down_resolve,
 )
 
 BLANCHWOOD_ARMOR = make_enchantment(
@@ -10527,6 +11029,7 @@ GENESIS_WAVE = make_sorcery(
     mana_cost="{X}{G}{G}{G}",
     colors={Color.GREEN},
     text="Reveal the top X cards of your library. You may put any number of permanent cards with mana value X or less from among them onto the battlefield. Then put all cards revealed this way that weren't put onto the battlefield into your graveyard.",
+    # engine gap: reveal-top-X with multi-target permanent selection and discard rest.
 )
 
 GHALTA_PRIMAL_HUNGER = make_creature(
@@ -10606,6 +11109,7 @@ OVERRUN = make_sorcery(
     mana_cost="{2}{G}{G}{G}",
     colors={Color.GREEN},
     text="Creatures you control get +3/+3 and gain trample until end of turn. (Each of those creatures can deal excess combat damage to the player or planeswalker it's attacking.)",
+    resolve=_resolve_anthem_creatures_you_control(3, 3, ('trample',)),
 )
 
 RECLAMATION_SAGE = make_creature(
@@ -10712,6 +11216,7 @@ HEROIC_REINFORCEMENTS = make_sorcery(
     mana_cost="{2}{R}{W}",
     colors={Color.RED, Color.WHITE},
     text="Create two 1/1 white Soldier creature tokens. Until end of turn, creatures you control get +1/+1 and gain haste. (They can attack and {T} this turn.)",
+    resolve=heroic_reinforcements_resolve,
 )
 
 LATHRIL_BLADE_OF_THE_ELVES = make_creature(
@@ -10992,6 +11497,7 @@ ADAMANT_WILL = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Target creature gets +2/+2 and gains indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)",
+    resolve=resolve_chain(resolve_pump(2, 2), _resolve_grant_keyword('indestructible')),
 )
 
 ANCESTOR_DRAGON = make_creature(
@@ -11219,6 +11725,7 @@ QUICK_STUDY = make_instant(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Draw two cards.",
+    resolve=resolve_draw(2),
 )
 
 STARLIGHT_SNARE = make_enchantment(
@@ -11326,6 +11833,7 @@ OFFER_IMMORTALITY = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Target creature gains deathtouch and indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)",
+    resolve=resolve_chain(_resolve_grant_keyword('deathtouch'), _resolve_grant_keyword('indestructible')),
 )
 
 SKELETON_ARCHER = make_creature(
@@ -11353,6 +11861,7 @@ UNDYING_MALICE = make_instant(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="Until end of turn, target creature gains \"When this creature dies, return it to the battlefield tapped under its owner's control with a +1/+1 counter on it.\"",
+    # engine gap: temporary granted-ability with custom-trigger replacement effect.
 )
 
 UNTAMED_HUNGER = make_enchantment(
@@ -11414,6 +11923,15 @@ DRAGON_FODDER = make_sorcery(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Create two 1/1 red Goblin creature tokens.",
+    resolve=resolve_create_token(
+        name='Goblin Token',
+        power=1,
+        toughness=1,
+        types=[CardType.CREATURE],
+        subtypes=['Goblin'],
+        colors=[Color.RED],
+        count=2,
+    ),
 )
 
 DRAGONLORDS_SERVANT = make_creature(
@@ -11478,6 +11996,7 @@ KINDLED_FURY = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Target creature gets +1/+0 and gains first strike until end of turn. (It deals combat damage before creatures without first strike.)",
+    resolve=resolve_chain(resolve_pump(1, 0), _resolve_grant_keyword('first strike')),
 )
 
 RAGING_REDCAP = make_creature(
@@ -11576,6 +12095,7 @@ BIOGENIC_UPGRADE = make_sorcery(
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     text="Distribute three +1/+1 counters among one, two, or three target creatures, then double the number of +1/+1 counters on each of those creatures.",
+    # engine gap: counter distribution UI + read-current-counters-and-double.
 )
 
 DRUID_OF_THE_COWL = make_creature(
@@ -11816,6 +12336,15 @@ RELEASE_THE_DOGS = make_sorcery(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     text="Create four 1/1 white Dog creature tokens.",
+    resolve=resolve_create_token(
+        name='Dog Token',
+        power=1,
+        toughness=1,
+        types=[CardType.CREATURE],
+        subtypes=['Dog'],
+        colors=[Color.WHITE],
+        count=4,
+    ),
 )
 
 STASIS_SNARE = make_enchantment(
@@ -11893,6 +12422,7 @@ FINALE_OF_REVELATION = make_sorcery(
     mana_cost="{X}{U}{U}",
     colors={Color.BLUE},
     text="Draw X cards. If X is 10 or more, instead shuffle your graveyard into your library, draw X cards, untap up to five lands, and you have no maximum hand size for the rest of the game.\nExile Finale of Revelation.",
+    # engine gap: X-cost spell with conditional graveyard-shuffle + untap-lands + handsize change.
 )
 
 FLASHFREEZE = make_instant(
@@ -11938,6 +12468,7 @@ MYSTICAL_TEACHINGS = make_instant(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     text="Search your library for an instant card or a card with flash, reveal it, put it into your hand, then shuffle.\nFlashback {5}{B} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+    # engine gap: tutor with "instant or has flash" filter; flashback alt-cast.
 )
 
 RIVERS_REBUKE = make_sorcery(
@@ -11945,6 +12476,7 @@ RIVERS_REBUKE = make_sorcery(
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
     text="Return all nonland permanents target player controls to their owner's hand.",
+    resolve=rivers_rebuke_resolve,
 )
 
 SHIPWRECK_DOWSER = make_creature(
@@ -12026,6 +12558,7 @@ DREAD_SUMMONS = make_sorcery(
     mana_cost="{X}{B}{B}",
     colors={Color.BLACK},
     text="Each player mills X cards. For each creature card put into a graveyard this way, you create a tapped 2/2 black Zombie creature token. (To mill a card, a player puts the top card of their library into their graveyard.)",
+    # engine gap: count creature cards milled by this specific spell to determine token count.
 )
 
 DRIVER_OF_THE_DEAD = make_creature(
@@ -12176,11 +12709,35 @@ PULSE_TRACKER = make_creature(
     setup_interceptors=pulse_tracker_setup
 )
 
+def sanguine_indulgence_resolve(targets, state: GameState) -> list[Event]:
+    """Return up to two target creature cards from your gy to your hand."""
+    from src.engine.spell_resolve import _flatten_targets  # type: ignore
+    caster = _spell_caster_id(state)
+    events: list[Event] = []
+    flat = _flatten_targets(targets)
+    if flat:
+        for t in flat[:2]:
+            if t.is_player:
+                continue
+            events.append(Event(
+                type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+                payload={'object_id': t.id, 'player': caster},
+            ))
+        return events
+    # No formal target chosen — let the engine pick up to 2 creature cards.
+    return [Event(
+        type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+        payload={'player': caster, 'card_type': 'creature', 'amount': 2},
+    )]
+
+
 SANGUINE_INDULGENCE = make_sorcery(
     name="Sanguine Indulgence",
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     text="This spell costs {3} less to cast if you've gained 3 or more life this turn.\nReturn up to two target creature cards from your graveyard to your hand.",
+    # engine gap: cost reduction is handled separately.
+    resolve=sanguine_indulgence_resolve,
 )
 
 TRIBUTE_TO_HUNGER = make_instant(
@@ -12231,6 +12788,7 @@ BOLT_BEND = make_instant(
     mana_cost="{3}{R}",
     colors={Color.RED},
     text="This spell costs {3} less to cast if you control a creature with power 4 or greater.\nChange the target of target spell or ability with a single target.",
+    # engine gap: target redirection on stack items.
 )
 
 CRASH_THROUGH = make_sorcery(
@@ -12285,6 +12843,7 @@ HARMLESS_OFFERING = make_sorcery(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Target opponent gains control of target permanent you control.",
+    # engine gap: permanent control transfer (no exists-CONTROL_CHANGE wiring).
 )
 
 HOARDING_DRAGON = make_creature(
@@ -12380,6 +12939,7 @@ CIRCUITOUS_ROUTE = make_sorcery(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="Search your library for up to two basic land cards and/or Gate cards, put them onto the battlefield tapped, then shuffle.",
+    resolve=circuitous_route_resolve,
 )
 
 FIERCE_EMPATH = make_creature(
@@ -12457,6 +13017,7 @@ PRIMAL_MIGHT = make_sorcery(
     mana_cost="{X}{G}",
     colors={Color.GREEN},
     text="Target creature you control gets +X/+X until end of turn. Then it fights up to one target creature you don't control. (Each deals damage equal to its power to the other.)",
+    # engine gap: X-value pump combined with optional fight.
 )
 
 PRIMEVAL_BOUNTY = make_enchantment(
@@ -12565,6 +13126,7 @@ DEADLY_BREW = make_sorcery(
     mana_cost="{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     text="Each player sacrifices a creature or planeswalker of their choice. If you sacrificed a permanent this way, you may return another permanent card from your graveyard to your hand.",
+    # engine gap: per-player sacrifice choice + conditional graveyard return.
 )
 
 DROGSKOL_REAVER = make_creature(
@@ -12680,6 +13242,7 @@ TEACH_BY_EXAMPLE = make_instant(
     mana_cost="{U/R}{U/R}",
     colors={Color.RED, Color.BLUE},
     text="({U/R} can be paid with either {U} or {R}.)\nWhen you next cast an instant or sorcery spell this turn, copy that spell. You may choose new targets for the copy.",
+    # engine gap: spell-copy mechanic with delayed trigger on next cast.
 )
 
 TRYGON_PREDATOR = make_creature(
@@ -12991,6 +13554,7 @@ MAKE_A_STAND = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Creatures you control get +1/+0 and gain indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy them.)",
+    resolve=_resolve_anthem_creatures_you_control(1, 0, ('indestructible',)),
 )
 
 CONFISCATE = make_enchantment(
