@@ -32,6 +32,7 @@ from src.cards.interceptor_helpers import (
     creatures_you_control, creatures_with_subtype,
     open_library_search,
     basic_land_filter, basic_subtype_filter, subtype_filter_lib,
+    make_saga_setup,
 )
 from src.engine.library_search import _shuffle_library
 
@@ -1584,7 +1585,33 @@ def friendly_neighborhood_setup(obj: GameObject, state: GameState) -> list[Inter
 # --- Origin of Spider-Man ---
 # Saga: I-Spider token, II-counter+type change, III-double strike grant
 def origin_of_spiderman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: Sagas not implemented (lore counters / chapter triggers)
+    """Saga I/II/III.
+
+    I — Create a 2/1 green Spider creature token with reach.
+    II — Put a +1/+1 counter on target creature you control; it becomes a legendary Spider Hero (engine gap: target+type-add).
+    III — Target creature you control gains double strike EOT (engine gap: target)."""
+    def i(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Spider',
+                    'power': 2, 'toughness': 1,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Spider'},
+                    'colors': {Color.GREEN},
+                    'abilities': [{'keyword': 'reach'}],
+                },
+            },
+            source=o.id,
+        )]
+
+    def ii(_o, _s): return []  # engine gap: target + type-add
+
+    def iii(_o, _s): return []  # engine gap: target + double strike grant
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 # --- Rent Is Due ---
@@ -1720,7 +1747,22 @@ def chameleon_master_of_disguise_setup(obj: GameObject, state: GameState) -> lis
 
 # --- The Clone Saga ---
 def the_clone_saga_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: Sagas not implemented
+    """Saga I/II/III.
+
+    I — Surveil 3.
+    II — When you next cast a creature spell this turn, copy it (engine gap: delayed copy trigger).
+    III — Choose a card name; draw a card whenever a creature with that name deals combat damage (engine gap: name choice + damage trigger)."""
+    def i(o, s):
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': o.controller, 'count': 3},
+            source=o.id,
+        )]
+
+    def ii(_o, _s): return []  # engine gap: delayed copy trigger
+    def iii(_o, _s): return []  # engine gap: name choice + damage trigger
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 # --- Doc Ock, Sinister Scientist ---
@@ -1923,7 +1965,16 @@ def alien_symbiosis_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 # --- The Death of Gwen Stacy ---
 def the_death_of_gwen_stacy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: Sagas not implemented
+    """Saga I/II/III.
+
+    I — Destroy target creature (engine gap: target).
+    II — Each player may discard a card; each who doesn't loses 3 life (engine gap: optional discard prompt).
+    III — Exile any number of target players' graveyards (engine gap: target)."""
+    def i(_o, _s): return []  # engine gap: target creature
+    def ii(_o, _s): return []  # engine gap: optional discard prompt
+    def iii(_o, _s): return []  # engine gap: target graveyards
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 # --- Inner Demons Gangsters ---
@@ -1998,7 +2049,34 @@ def masked_meower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 # --- Maximum Carnage ---
 def maximum_carnage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: Sagas not implemented
+    """Saga I/II/III.
+
+    I — Until your next turn, each creature attacks each combat if able and attacks a player other than you if able (engine gap: global goad).
+    II — Add {R}{R}{R}.
+    III — This Saga deals 5 damage to each opponent."""
+    def i(_o, _s): return []  # engine gap: global goad-like restriction
+
+    def ii(o, s):
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {Color.RED: 3}},
+            source=o.id,
+        )]
+
+    def iii(o, s):
+        events: list[Event] = []
+        for pid in s.players:
+            if pid == o.controller:
+                continue
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'source_id': o.id, 'target': pid,
+                         'target_id': pid, 'amount': 5},
+                source=o.id,
+            ))
+        return events
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 # --- Raging Goblinoids ---
@@ -2104,7 +2182,22 @@ def kravens_cats_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 # --- Kraven's Last Hunt ---
 def kravens_last_hunt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: Sagas not implemented
+    """Saga I/II/III.
+
+    I — Mill 5; conditional damage to target creature (engine gap: conditional damage from greatest power in graveyard).
+    II — Target creature you control gets +2/+2 EOT (engine gap: target).
+    III — Return target creature card from your graveyard to your hand (engine gap: target card in graveyard)."""
+    def i(o, s):
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': o.controller, 'count': 5},
+            source=o.id,
+        )]
+
+    def ii(_o, _s): return []  # engine gap: target + buff
+    def iii(_o, _s): return []  # engine gap: target card in graveyard
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 # --- Miles Morales ---

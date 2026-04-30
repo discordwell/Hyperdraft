@@ -64,6 +64,7 @@ from .misc import (
     _handle_silence_target,
     _handle_transform,
 )
+from ...saga import SAGA_EVENT_HANDLERS
 
 
 EVENT_HANDLERS = {
@@ -123,6 +124,9 @@ EVENT_HANDLERS = {
     EventType.ARMOR_GAIN: _handle_armor_gain,
     EventType.WEAPON_EQUIP: _handle_weapon_equip,
 }
+
+# Merge in saga handlers (defined in src/engine/saga.py).
+EVENT_HANDLERS.update(SAGA_EVENT_HANDLERS)
 
 
 __all__ = ["EVENT_HANDLERS"]
