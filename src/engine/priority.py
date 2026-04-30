@@ -207,14 +207,20 @@ class PrioritySystem:
 
         iteration_cap = 5000
         iterations = 0
+        # Diagnostic: track action sequence to identify what's looping when
+        # the cap fires. Logged only on cap hit.
+        action_log: list[tuple] = []
         while True:
             iterations += 1
             if iterations > iteration_cap:
                 import logging
+                from collections import Counter
+                action_counts = Counter(action_log)
+                top = action_counts.most_common(5)
+                summary = "; ".join(f"{a}:{s}={c}" for (a, s), c in top)
                 logging.getLogger(__name__).warning(
                     "PrioritySystem: priority loop hit iteration cap (%d); "
-                    "bailing out to advance game. Likely an infinite trigger "
-                    "or interceptor loop — investigate.", iteration_cap)
+                    "bailing out. Top actions: %s", iteration_cap, summary or "(none)")
                 return
             # Check SBAs before granting priority
             await self._check_state_based_actions()
@@ -229,6 +235,23 @@ class PrioritySystem:
 
             # Get player action
             action = await self._get_player_action(self.priority_player, legal_actions)
+            # Track for diagnostic on iter-cap fires
+            _atype = action.type.name if hasattr(action.type, 'name') else str(action.type)
+            _src_id = getattr(action, 'source_id', None) or getattr(action, 'card_id', None) or '_'
+            _src_obj = self.state.objects.get(_src_id) if _src_id and _src_id != '_' else None
+            _src_name = _src_obj.name if _src_obj else (_src_id or '_')
+            action_key = (_atype, _src_name)
+            action_log.append(action_key)
+            if len(action_log) > 100:
+                action_log = action_log[-100:]
+            # Hard-force PASS if same non-PASS action repeated 8+ times. This
+            # catches loops that the silent-fail and zone-snapshot detectors
+            # miss (e.g., cast that "succeeds" by emitting events but never
+            # actually advances state).
+            if (action.type != ActionType.PASS
+                and len(action_log) >= 8
+                and all(a == action_key for a in action_log[-8:])):
+                action = PlayerAction(type=ActionType.PASS, player_id=self.priority_player)
 
             if action.type == ActionType.PASS:
                 self.passed_players.add(self.priority_player)
@@ -254,13 +277,30 @@ class PrioritySystem:
             else:
                 # Player took an action - reset passes
                 self.passed_players.clear()
+                # Snapshot the card's zone before execution so we can detect
+                # "no-op casts" — actions that returned events but didn't
+                # actually move the card (a downstream silent failure).
+                pre_zone = None
+                if action.card_id and action.type == ActionType.CAST_SPELL:
+                    pre_card = self.state.objects.get(action.card_id)
+                    if pre_card:
+                        pre_zone = pre_card.zone
                 executed_events = await self._execute_action(action)
                 await self._notify_action_processed(action)
-                # If a non-PASS action returned no events AND set no pending choice,
-                # it failed silently (e.g. legal-actions said yes but the executor
-                # bailed on a downstream check). Treat as PASS so the loop doesn't
-                # spin on an action that can't actually advance state.
+                # Detect silent-fail or no-op:
+                # 1. No events emitted AND no pending choice → silent fail
+                # 2. CAST_SPELL but card didn't leave its source zone → no-op
+                no_op = False
                 if not executed_events and self.state.pending_choice is None:
+                    no_op = True
+                elif (action.type == ActionType.CAST_SPELL
+                      and action.card_id
+                      and pre_zone is not None
+                      and self.state.pending_choice is None):
+                    post_card = self.state.objects.get(action.card_id)
+                    if post_card and post_card.zone == pre_zone:
+                        no_op = True
+                if no_op:
                     self.passed_players.add(self.priority_player)
                     if self._all_players_passed():
                         if self.stack and self.stack.is_empty():
