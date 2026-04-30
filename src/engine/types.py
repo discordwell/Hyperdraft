@@ -243,6 +243,18 @@ class EventType(Enum):
     WARP_CAST = auto()                # A card is being cast for its warp cost (alternate cost)
     WARP_EXILE_SCHEDULED = auto()     # End-step exile has been scheduled for a warp-cast permanent
     WARP_EXILE = auto()               # End-step exile actually fires for a warp-cast permanent
+    # Marvel's Spider-Man (SPM) mechanics. See src/engine/spm_mechanics.py for helpers.
+    # Web-slinging: alternate cast cost from hand. Pay the web-slinging mana cost
+    # AND return a tapped creature you control to its owner's hand instead of
+    # paying the spell's regular mana cost. Sorcery speed unless the spell has flash.
+    WEBSLING_REGISTER = auto()        # Marker: a card with web-slinging entered a public zone (book-keeping)
+    WEBSLING_RETURN_CREATURE = auto() # Resolve "return tapped creature you control to its owner's hand" portion of the cost
+    WEBSLING_CAST = auto()            # Marker: spell was cast for its web-slinging cost (payload: spell_id, returned_card_id, returned_mv, controller)
+    # Mayhem: alternate cast cost from graveyard if the card was discarded this turn.
+    # Sorcery-speed timing applies. Discard tracking happens via state.turn_data['discarded_card_ids'].
+    MAYHEM_DISCARD_TRACK = auto()     # Marker: a card with mayhem was discarded; appended to turn_data['discarded_card_ids']
+    MAYHEM_REGISTER = auto()          # Marker: a card with mayhem entered a public zone (book-keeping)
+    MAYHEM_CAST = auto()              # Marker: spell was cast for its mayhem cost (payload: spell_id, controller)
 
     # Yu-Gi-Oh! mechanics
     YGO_NORMAL_SUMMON = auto()        # Normal Summon a monster
