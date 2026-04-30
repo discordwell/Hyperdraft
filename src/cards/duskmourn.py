@@ -32,6 +32,7 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, creatures_you_control, other_creatures_with_subtype,
     create_modal_choice, create_target_choice,
     make_saga_setup,
+    make_face_down_setup, make_manifest_etb_event,
 )
 
 
@@ -660,9 +661,48 @@ def spineseeker_centipede_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def threats_around_every_corner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this enchantment enters, manifest dread."""
+    """When this enchantment enters, manifest dread.
+
+    Manifest dread (CR-style): look at the top two cards of your library, put
+    one onto the battlefield face-down as a 2/2 creature and the other into
+    your graveyard. Here we approximate by manifesting the top card of the
+    library directly (a fully player-driven choice goes through the
+    LIBSEARCH_BEGIN choice system in a future pass).
+    """
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.MANIFEST_DREAD, payload={'player': obj.controller}, source=obj.id)]
+        # Find the top card of the controller's library (if any); promote it
+        # face-down onto the battlefield. We preserve its card_def so flipping
+        # the card face-up later re-runs its real setup_interceptors.
+        lib_key = f"library_{obj.controller}"
+        lib_zone = state.zones.get(lib_key)
+        top_card_def = None
+        top_obj_id = None
+        if lib_zone and lib_zone.objects:
+            top_obj_id = lib_zone.objects[-1]  # top of library
+            top_obj = state.objects.get(top_obj_id)
+            if top_obj is not None:
+                top_card_def = top_obj.card_def
+
+        events: list[Event] = [
+            # Marker event so other cards' triggers (e.g. Cryptid Inspector) can react.
+            Event(type=EventType.MANIFEST_DREAD,
+                  payload={'player': obj.controller},
+                  source=obj.id),
+            # Build the actual face-down 2/2 on the battlefield.
+            make_manifest_etb_event(obj.controller,
+                                    source_id=obj.id,
+                                    card_def=top_card_def),
+        ]
+
+        # Remove the chosen card from the library so it doesn't get drawn next.
+        # (Best-effort: if zones aren't available we just skip.)
+        if top_obj_id and lib_zone and top_obj_id in lib_zone.objects:
+            lib_zone.objects.remove(top_obj_id)
+            # Mark the original library object as consumed; in a fuller
+            # implementation we'd reuse it as the manifested object's card_def
+            # carrier (we already pulled card_def above).
+
+        return events
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -6505,11 +6545,33 @@ LEYLINE_OF_MUTATION = make_enchantment(
     setup_interceptors=leyline_of_mutation_setup,
 )
 
+def _manifest_dread_resolve(event: Event, state: GameState) -> list[Event]:
+    """Resolve Manifest Dread: top card of library becomes a face-down 2/2."""
+    controller = event.controller or event.payload.get('controller')
+    if not controller:
+        return []
+    lib_key = f"library_{controller}"
+    lib_zone = state.zones.get(lib_key)
+    top_card_def = None
+    if lib_zone and lib_zone.objects:
+        top_obj_id = lib_zone.objects[-1]
+        top_obj = state.objects.get(top_obj_id)
+        if top_obj is not None:
+            top_card_def = top_obj.card_def
+        # Remove from library — the chosen card becomes the manifested creature.
+        lib_zone.objects.remove(top_obj_id)
+    return [
+        Event(type=EventType.MANIFEST_DREAD, payload={'player': controller}, source=event.source),
+        make_manifest_etb_event(controller, source_id=event.source, card_def=top_card_def),
+    ]
+
+
 MANIFEST_DREAD = make_sorcery(
     name="Manifest Dread",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+    resolve=_manifest_dread_resolve,
 )
 
 MOLDERING_GYM = make_enchantment(
