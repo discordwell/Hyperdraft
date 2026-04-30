@@ -102,6 +102,15 @@ from .targeting import (
     target_creature, target_any, target_player, target_spell
 )
 
+from .plot_saddle import (
+    is_plotted, can_cast_plotted,
+    pay_plot_cost, cast_plotted_spell,
+    make_becomes_plotted_trigger,
+    is_saddled, pay_saddle_cost,
+    make_saddle_trigger, make_becomes_saddled_trigger,
+    set_saddle_threshold, reset_saddled_at_eot,
+)
+
 __all__ = [
     # IDs
     'new_id',
@@ -156,4 +165,12 @@ __all__ = [
     'creature_filter', 'permanent_filter', 'player_filter', 'any_target_filter',
     'spell_filter', 'card_in_graveyard_filter',
     'target_creature', 'target_any', 'target_player', 'target_spell',
+
+    # OTJ Plot / Saddle
+    'is_plotted', 'can_cast_plotted',
+    'pay_plot_cost', 'cast_plotted_spell',
+    'make_becomes_plotted_trigger',
+    'is_saddled', 'pay_saddle_cost',
+    'make_saddle_trigger', 'make_becomes_saddled_trigger',
+    'set_saddle_threshold', 'reset_saddled_at_eot',
 ]
