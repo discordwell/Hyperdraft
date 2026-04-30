@@ -39,6 +39,16 @@ from .casting_costs import (
     total_counters_on_creatures_you_control,
     describe_plan,
 )
+from .warp import (
+    parse_warp_cost,
+    card_has_warp,
+    has_warp_been_used,
+    mark_warp_used,
+    mark_warp_cast,
+    is_warp_pending,
+    schedule_warp_exile_for_object,
+    is_warp_castable_from_hand,
+)
 
 if TYPE_CHECKING:
     from .turn import TurnManager
@@ -344,6 +354,34 @@ class PrioritySystem:
                         requires_mana=not cost_for_cast.is_free(),
                         mana_cost=cost_for_cast
                     ))
+
+                # EOE Warp: alternate cast cost from hand. Each card may be
+                # warp-cast at most once; we add this as an additional cast
+                # option alongside the printed cost.
+                if is_warp_castable_from_hand(card, self.state, player_id):
+                    warp_cost = parse_warp_cost(
+                        getattr(getattr(card, "card_def", None), "text", None)
+                    )
+                    if warp_cost is not None:
+                        warp_ctx = CastCostContext(
+                            state=self.state,
+                            mana_system=self.mana_system,
+                            player_id=player_id,
+                            casting_card_id=card_id,
+                            casting_card_name=card.name,
+                            casting_zone=card.zone,
+                            base_mana_cost=warp_cost,
+                            x_value=0,
+                        )
+                        if self._can_cast(card, player_id, cost_override=warp_cost) and self._can_pay_cost_plan(std_plan, warp_ctx):
+                            actions.append(LegalAction(
+                                type=ActionType.CAST_SPELL,
+                                card_id=card_id,
+                                ability_id="hand:warp",
+                                description=f"Cast {card.name} (warp {warp_cost.to_string()})",
+                                requires_mana=not warp_cost.is_free(),
+                                mana_cost=warp_cost,
+                            ))
 
         # Casting from graveyard (Flashback/Harmonize/Mayhem/etc.).
         graveyard_key = f"graveyard_{player_id}"
@@ -1270,6 +1308,7 @@ class PrioritySystem:
         used_flashback = False
         used_harmonize = False
         used_mayhem = False
+        used_warp = False
         exile_on_leave_stack = False
         option_plan: Optional[CostPlan] = None
 
@@ -1297,6 +1336,15 @@ class PrioritySystem:
             exile_on_leave_stack = bool(chosen.metadata.get("exile_on_leave_stack"))
 
             paid_cost = chosen.alt_mana_cost or ManaCost.parse(card.characteristics.mana_cost or "")
+        elif action.ability_id == "hand:warp" and is_warp_castable_from_hand(card, self.state, action.player_id):
+            # EOE Warp: cast from hand for the warp cost. Mark this card as
+            # having used its warp; mark the in-flight object so the cast
+            # site can register the end-step exile after ETB.
+            warp_cost = parse_warp_cost(getattr(getattr(card, "card_def", None), "text", None))
+            if warp_cost is None:
+                return []
+            paid_cost = warp_cost
+            used_warp = True
         else:
             paid_cost = ManaCost.parse(card.characteristics.mana_cost or "")
 
@@ -1335,6 +1383,7 @@ class PrioritySystem:
             used_flashback=used_flashback,
             used_harmonize=used_harmonize,
             used_mayhem=used_mayhem,
+            used_warp=used_warp,
             exile_on_leave_stack=exile_on_leave_stack,
             delve_exile_count=delve_exile_count,
         )
@@ -1373,6 +1422,7 @@ class PrioritySystem:
         used_mayhem: bool,
         exile_on_leave_stack: bool,
         delve_exile_count: int = 0,
+        used_warp: bool = False,
     ) -> list[Event]:
         """
         Process (and pay) additional costs until either:
@@ -1455,10 +1505,45 @@ class PrioritySystem:
                         'flashback': used_flashback,
                         'harmonize': used_harmonize,
                         'mayhem': used_mayhem,
+                        'warp': used_warp,
                         'exile_on_leave_stack': exile_on_leave_stack,
                     }
                 )
                 self.stack.push(item)
+
+            # EOE Warp: mark the in-flight object so end-step exile is
+            # registered after ETB, and mark the card definition as having
+            # used its warp cast (one warp per card per game).
+            extra_events: list[Event] = []
+            if used_warp:
+                mark_warp_cast(card)
+                if getattr(card, "card_def", None) is not None:
+                    mark_warp_used(card.card_def)
+                # Schedule the end-step exile interceptor immediately. The
+                # interceptor itself only triggers an exile if the object is
+                # on the battlefield at the next end step, so it's safe to
+                # register now even though the spell is currently on the
+                # stack.
+                schedule_warp_exile_for_object(self.state, card, action.player_id)
+                extra_events.append(Event(
+                    type=EventType.WARP_CAST,
+                    payload={
+                        'card_id': action.card_id,
+                        'controller': action.player_id,
+                        'warp_cost': paid_cost.to_string(),
+                    },
+                    source=action.card_id,
+                    controller=action.player_id,
+                ))
+                extra_events.append(Event(
+                    type=EventType.WARP_EXILE_SCHEDULED,
+                    payload={
+                        'object_id': action.card_id,
+                        'controller': action.player_id,
+                    },
+                    source=action.card_id,
+                    controller=action.player_id,
+                ))
 
             return [Event(
                 type=EventType.CAST,
@@ -1475,10 +1560,11 @@ class PrioritySystem:
                     'flashback': used_flashback,
                     'harmonize': used_harmonize,
                     'mayhem': used_mayhem,
+                    'warp': used_warp,
                 },
                 source=action.card_id,
                 controller=action.player_id,
-            )]
+            )] + extra_events
 
         step = plan[0]
         rest = plan[1:]
@@ -1505,6 +1591,7 @@ class PrioritySystem:
                 used_mayhem=used_mayhem,
                 exile_on_leave_stack=exile_on_leave_stack,
                 delve_exile_count=delve_exile_count,
+                used_warp=used_warp,
             )
 
         if step.kind == "add_mana":
@@ -1520,6 +1607,7 @@ class PrioritySystem:
                 used_mayhem=used_mayhem,
                 exile_on_leave_stack=exile_on_leave_stack,
                 delve_exile_count=delve_exile_count,
+                used_warp=used_warp,
             )
 
         # OR choice: pick if forced, otherwise prompt.
@@ -1551,6 +1639,7 @@ class PrioritySystem:
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
                     delve_exile_count=delve_exile_count,
+                    used_warp=used_warp,
                 )
 
             # Prompt the player to choose which additional cost path to take.
@@ -1584,6 +1673,7 @@ class PrioritySystem:
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
                     delve_exile_count=delve_exile_count,
+                    used_warp=used_warp,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1629,6 +1719,7 @@ class PrioritySystem:
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
                     delve_exile_count=delve_exile_count,
+                    used_warp=used_warp,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1673,6 +1764,7 @@ class PrioritySystem:
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
                     delve_exile_count=delve_exile_count,
+                    used_warp=used_warp,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1717,6 +1809,7 @@ class PrioritySystem:
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
                     delve_exile_count=delve_exile_count,
+                    used_warp=used_warp,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1761,6 +1854,7 @@ class PrioritySystem:
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
                     delve_exile_count=delve_exile_count,
+                    used_warp=used_warp,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1805,6 +1899,7 @@ class PrioritySystem:
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
                     delve_exile_count=delve_exile_count,
+                    used_warp=used_warp,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1849,6 +1944,7 @@ class PrioritySystem:
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
                     delve_exile_count=delve_exile_count,
+                    used_warp=used_warp,
                 )
 
             self.state.pending_choice = PendingChoice(
@@ -1937,6 +2033,7 @@ class PrioritySystem:
                     used_mayhem=used_mayhem,
                     exile_on_leave_stack=exile_on_leave_stack,
                     delve_exile_count=delve_exile_count,
+                    used_warp=used_warp,
                 )
 
             self.state.pending_choice = PendingChoice(
