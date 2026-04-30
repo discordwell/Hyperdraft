@@ -1,0 +1,93 @@
+{
+  "set": "spider_man.py",
+  "results": [
+    {
+      "fn": "webshooters_setup",
+      "card_var": "WEBSHOOTERS",
+      "disposition": "wired",
+      "engine_gap": "Equip cost handling (manual {2} equip) is in the equipment subsystem; the static grant is now wired here",
+      "notes": "Wired make_static_pt_boost(+1/+1) + make_keyword_grant(['reach']) for the attached creature, plus an attack trigger that emits TARGET_REQUIRED to tap an opponent's creature."
+    },
+    {
+      "fn": "with_great_power_setup",
+      "card_var": "WITH_GREAT_POWER",
+      "disposition": "left",
+      "engine_gap": "Aura attach choice on cast resolution; dynamic +X/+X equal to count of attached Auras+Equipment; redirect-damage-from-you replacement",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "beetle_legacy_criminal_setup",
+      "card_var": "BEETLE_LEGACY_CRIMINAL",
+      "disposition": "left",
+      "engine_gap": "activated ability from graveyard ({1}{U}, exile self from graveyard) + sorcery-speed restriction not modular through setup_interceptors",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "the_soul_stone_setup",
+      "card_var": "THE_SOUL_STONE",
+      "disposition": "left",
+      "engine_gap": "Infinity Stone harness mechanic (one-time activation cost that flips on a permanent state flag) + upkeep reanimate gated on harnessed flag",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "venom_evil_unleashed_setup",
+      "card_var": "VENOM_EVIL_UNLEASHED",
+      "disposition": "left",
+      "engine_gap": "activated ability from graveyard ({2}{B}, exile self from graveyard) + sorcery-speed restriction; deathtouch is a printed keyword",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "stegron_the_dinosaur_man_setup",
+      "card_var": "STEGRON_THE_DINOSAUR_MAN",
+      "disposition": "left",
+      "engine_gap": "activated discard-self ability with temporary type-add-Dinosaur and +3/+1 grant; menace is a printed keyword",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "taxi_driver_setup",
+      "card_var": "TAXI_DRIVER",
+      "disposition": "left",
+      "engine_gap": "activated ability ({1},{T}: target gains haste EOT) not modular through setup_interceptors",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "guy_in_the_chair_setup",
+      "card_var": "GUY_IN_THE_CHAIR",
+      "disposition": "left",
+      "engine_gap": "activated mana ability ({T}: any color) and activated counter-on-Spider ability ({2}{G},{T}) not modular here",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "biorganic_carapace_setup",
+      "card_var": "BIORGANIC_CARAPACE",
+      "disposition": "left",
+      "engine_gap": "Equipment ETB self-attach choice; equipped-creature granted combat-damage trigger that draws a card per modified creature you control",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "bagel_and_schmear_setup",
+      "card_var": "BAGEL_AND_SCHMEAR",
+      "disposition": "left",
+      "engine_gap": "two activated tap-and-sacrifice abilities; sorcery-speed restriction; 'up to one target' optional targeting",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "spidersuit_setup",
+      "card_var": "SPIDERSUIT",
+      "disposition": "wired",
+      "engine_gap": "'is a Spider Hero in addition to its other types' subtype grant via QUERY_ABILITIES is not yet exposed",
+      "notes": "Wired make_static_pt_boost(+2/+2) for the equipped creature."
+    },
+    {
+      "fn": "daily_bugle_building_setup",
+      "card_var": "DAILY_BUGLE_BUILDING",
+      "disposition": "left",
+      "engine_gap": "Land activated abilities ({T}: {C}, {1},{T}: any color, {1},{T}: targeted menace grant on legendary creature) not modular through setup_interceptors",
+      "notes": "Existing engine-gap comment retained."
+    }
+  ],
+  "summary": {
+    "wired": 2,
+    "left": 10
+  }
+}

@@ -1863,7 +1863,12 @@ def careening_mine_cart_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def hoverstone_pilgrim_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ward 2 - placeholder static ability."""
+    """Flying + Ward {2} + activated graveyard-bottom ability.
+
+    Flying is on the printed card; engine gap: Ward {2} static replacement and
+    the {2} activated graveyard-shuffle ability cannot be wired through
+    setup_interceptors yet.
+    """
     return []
 
 

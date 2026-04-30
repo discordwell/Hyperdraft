@@ -2740,9 +2740,13 @@ def white_mages_staff_ff_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def the_wind_crystal_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """The Wind Crystal: cost reduction + life doubling (stub)."""
-    # engine gap: replacement effects (cost reduction by color, life-gain doubling) not modular
-    return []
+    """The Wind Crystal: cost reduction + life doubling.
+
+    Wired: life-gain doubling for controller via make_life_gain_replacer.
+    engine gap: white-spell cost reduction and the activated grant-flying-and-lifelink ability.
+    """
+    from src.engine.replacements import make_life_gain_replacer
+    return [make_life_gain_replacer(obj, multiplier=2)]
 
 
 def astrologians_planisphere_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2950,9 +2954,32 @@ def thiefs_knife_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def the_water_crystal_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """The Water Crystal: cost reduction + mill replacement (stub)."""
-    # engine gap: cost reduction by color + replacement effects on mills not modular
-    return []
+    """The Water Crystal: cost reduction + mill replacement.
+
+    Wired: when an opponent would mill 1+ cards, they mill that many plus 4 instead.
+    engine gap: blue-spell cost reduction and the activated 'each opponent mills X' ability.
+    """
+    from src.engine.replacements import make_replacement_interceptor
+    src_controller = obj.controller
+
+    def event_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.MILL:
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return False
+        target_player = event.payload.get('player')
+        if not target_player or target_player == src_controller:
+            return False
+        return True
+
+    def transform(event: Event, state: GameState) -> Optional[Event]:
+        amount = event.payload.get('amount', 0)
+        new_event = event.copy()
+        new_event.payload['amount'] = amount + 4
+        return new_event
+
+    return [make_replacement_interceptor(obj, event_filter, transform)]
 
 
 def yshtola_rhul_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3035,9 +3062,26 @@ def dark_knights_greatsword_ff_setup(obj: GameObject, state: GameState) -> list[
 
 
 def the_darkness_crystal_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """The Darkness Crystal: cost reduction + replacement effects (stub)."""
-    # engine gap: cost reduction by color + replacement effects on death not modular
-    return []
+    """The Darkness Crystal: cost reduction + dies-to-exile + life gain.
+
+    Wired: nontoken creatures opponents control are exiled instead of dying.
+    engine gap: black-spell cost reduction; '+ you gain 2 life' rider on the
+    death replacement; the activated reanimate-from-exiled-by-this ability.
+    """
+    from src.engine.replacements import make_dies_to_exile_replacer
+    src_controller = obj.controller
+
+    def opponent_nontoken_creature(target: GameObject, state: GameState) -> bool:
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        if target.controller == src_controller:
+            return False
+        # 'is_token' is set on tokens by the ETB pipeline.
+        if getattr(target.state, 'is_token', False):
+            return False
+        return True
+
+    return [make_dies_to_exile_replacer(obj, target_filter=opponent_nontoken_creature)]
 
 
 def demon_wall_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3472,9 +3516,20 @@ def diamond_weapon_ff_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def the_earth_crystal_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """The Earth Crystal: cost reduction + counter doubling (stub)."""
-    # engine gap: cost reduction by color + replacement of counters being placed not modular
-    return []
+    """The Earth Crystal: cost reduction + counter doubling.
+
+    Wired: +1/+1 counters on creatures you control are doubled.
+    engine gap: green-spell cost reduction and the activated distribute-counters ability.
+    """
+    from src.engine.replacements import make_counter_doubler
+    src_controller = obj.controller
+
+    def your_creature(target: GameObject, state: GameState) -> bool:
+        if target.controller != src_controller:
+            return False
+        return CardType.CREATURE in target.characteristics.types
+
+    return [make_counter_doubler(obj, counter_type='+1/+1', target_filter=your_creature)]
 
 
 def gigantoad_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
