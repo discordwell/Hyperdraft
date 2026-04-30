@@ -29,10 +29,14 @@ from src.cards.interceptor_helpers import (
     make_etb_trigger, make_death_trigger, make_attack_trigger, make_damage_trigger,
     make_static_pt_boost, make_keyword_grant, make_upkeep_trigger,
     make_life_gain_trigger, make_draw_trigger,
+    make_end_step_trigger, make_spell_cast_trigger,
+    make_targeted_etb_trigger, make_targeted_attack_trigger,
     other_creatures_you_control, creatures_you_control, other_creatures_with_subtype,
     create_modal_choice, create_target_choice,
     make_saga_setup,
     make_face_down_setup, make_manifest_etb_event,
+    make_life_gain_replacer, make_graveyard_to_exile_replacer,
+    make_replacement_interceptor,
 )
 
 
@@ -777,13 +781,13 @@ def marina_vendrell_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def sawblade_skinripper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """At the beginning of your end step, if you sacrificed one or more permanents this turn, deal that much damage."""
-    # This requires tracking sacrifices during the turn - simplified
+    # engine gap: per-turn sacrifice count tracker; targeted variable damage.
     return []
 
 
 def shrewd_storyteller_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Survival - At the beginning of your second main phase, if this creature is tapped, put a +1/+1 counter on target creature."""
-    # Survival is a complex ability - simplified
+    # engine gap: Survival keyword (second-main tap check) not implemented.
     return []
 
 
@@ -822,7 +826,8 @@ def the_swarmweaver_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def undead_sprinter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Can be cast from graveyard if a non-Zombie creature died this turn."""
-    # This is a casting condition, not an interceptor
+    # engine gap: cast-from-graveyard permission with per-turn condition;
+    # ETB-with-counter rider on alt-cast.
     return []
 
 
@@ -922,14 +927,41 @@ def hardened_escort_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def leyline_of_hope_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Life gains gain +1; +2/+2 to creatures while life >= start+7."""
-    # engine gap: opening-hand replacement, dynamic +2/+2 by life threshold
-    return []
+    # Wire the life-gain replacement (+1 to every life gain you have).
+    # engine gap: opening-hand free play; dynamic +2/+2 by life threshold.
+    return [make_life_gain_replacer(obj, addend=1)]
 
 
 def lionheart_glimmer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Ward 2; whenever you attack, creatures you control get +1/+1 until EOT."""
-    # engine gap: ward; dynamic team-pump on attack-step
-    return []
+    # Wire the attack-step team pump as a COMBAT_DECLARED reaction; Ward is
+    # left as an engine gap (handled elsewhere when ward becomes wirable).
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        return event.payload.get('attacking_player') == obj.controller
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        events: list[Event] = []
+        for target in list(state.objects.values()):
+            if (target.controller == obj.controller and
+                    CardType.CREATURE in target.characteristics.types and
+                    target.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={'object_id': target.id, 'power_mod': 1,
+                             'toughness_mod': 1, 'duration': 'end_of_turn'},
+                    source=obj.id,
+                ))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+    # engine gap: Ward 2.
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter, handler=handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def overlord_of_the_mistmoors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1343,8 +1375,10 @@ def killers_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def leyline_of_the_void_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Replacement: opp graveyard -> exile."""
-    # engine gap: 'replace put-into-graveyard with exile' for opponents
-    return []
+    # engine gap: opening-hand free play.
+    return [make_graveyard_to_exile_replacer(
+        obj, affects_controller=False, affects_opponents=True,
+    )]
 
 
 def meathook_massacre_ii_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1438,8 +1472,13 @@ def unholy_annex_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def valgavoth_terror_eater_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Replacement (cards-not-yours -> exile) + cast-from-exile permission."""
-    # engine gap: per-source replacement + cast-from-exile permission
-    return []
+    # Wire the opponents'-graveyard-to-exile replacement; the rule's
+    # "you didn't control" qualifier nearly always coincides with cards going
+    # to an opponent's graveyard, so this captures the intended effect.
+    # engine gap: cast-from-exile permission for cards exiled this way.
+    return [make_graveyard_to_exile_replacer(
+        obj, affects_controller=False, affects_opponents=True,
+    )]
 
 
 def valgavoths_faithful_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
