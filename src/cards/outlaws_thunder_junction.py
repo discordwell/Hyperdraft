@@ -20,7 +20,11 @@ from src.engine import (
     GameObject, GameState, ZoneType, CardType, Color,
     Characteristics, ObjectState, CardDefinition,
     make_creature, make_enchantment,
-    new_id, get_power, get_toughness
+    new_id, get_power, get_toughness,
+    # OTJ Plot / Saddle helpers (see src/engine/plot_saddle.py)
+    is_plotted, is_saddled,
+    make_becomes_plotted_trigger, make_saddle_trigger, make_becomes_saddled_trigger,
+    set_saddle_threshold,
 )
 from typing import Optional, Callable
 from src.cards.interceptor_helpers import (
@@ -1786,37 +1790,45 @@ def rodeo_pyromancers_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def trained_arynx_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks while saddled, it gains first strike until end of turn. Scry 1."""
+    """Saddle 2; whenever this creature attacks while saddled, it gains first strike until end of turn. Scry 1."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
+        return [
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': obj.id, 'keyword': 'first strike', 'duration': 'end_of_turn'},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            ),
+        ]
+    return [make_saddle_trigger(obj, threshold=2, effect_fn=attack_effect)]
 
 
 def bridled_bighorn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks while saddled, create a 1/1 white Sheep creature token."""
+    """Saddle 2; vigilance; whenever this creature attacks while saddled, create a 1/1 white Sheep creature token."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
-            type=EventType.OBJECT_CREATED,
+            type=EventType.CREATE_TOKEN,
             payload={
                 'name': 'Sheep Token',
                 'controller': obj.controller,
                 'power': 1,
                 'toughness': 1,
-                'types': [CardType.CREATURE],
-                'subtypes': ['Sheep'],
-                'colors': [Color.WHITE]
+                'types': {CardType.CREATURE},
+                'subtypes': {'Sheep'},
+                'colors': {Color.WHITE},
+                'is_token': True,
             },
             source=obj.id
         )]
-    return [make_attack_trigger(obj, attack_effect)]
+    return [make_saddle_trigger(obj, threshold=2, effect_fn=attack_effect)]
 
 
 def bounding_felidar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature attacks while saddled, put a +1/+1 counter on each other creature you control."""
+    """Saddle 2; whenever this creature attacks while saddled, put a +1/+1 counter on each other creature you control."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
         events = []
         for obj_id, target in state.objects.items():
@@ -1830,7 +1842,7 @@ def bounding_felidar_setup(obj: GameObject, state: GameState) -> list[Intercepto
                     source=obj.id
                 ))
         return events
-    return [make_attack_trigger(obj, attack_effect)]
+    return [make_saddle_trigger(obj, threshold=2, effect_fn=attack_effect)]
 
 
 def caustic_bronco_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2226,11 +2238,36 @@ def brimstone_roundup_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def calamity_galloping_inferno_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saddled-attack: copy a saddler twice."""
+    """Saddle 1; haste; saddled-attack: copy a creature that saddled it (best-effort: spawn a token copy of one saddler)."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: saddle creature tracking + copy-token-of-creature not engine-tracked
-        return []
-    return [make_attack_trigger(obj, attack_effect)]
+        # Pick the first nonlegendary saddler we can find and copy it twice.
+        events: list[Event] = []
+        for sid in (obj.state.saddled_by_this_turn or []):
+            saddler = state.objects.get(sid)
+            if not saddler or 'Legendary' in (saddler.characteristics.supertypes or set()):
+                continue
+            # Two attacking copies (per card text: "Repeat this process once.")
+            for _ in range(2):
+                events.append(Event(
+                    type=EventType.CREATE_TOKEN,
+                    payload={
+                        'controller': obj.controller,
+                        'name': f"{saddler.name} Copy",
+                        'power': saddler.characteristics.power or 0,
+                        'toughness': saddler.characteristics.toughness or 0,
+                        'types': set(saddler.characteristics.types),
+                        'subtypes': set(saddler.characteristics.subtypes or set()),
+                        'colors': set(saddler.characteristics.colors or set()),
+                        'tapped': True,
+                        'attacking': True,
+                        'is_token': True,
+                        'sacrifice_at_next_end_step': True,
+                    },
+                    source=obj.id,
+                ))
+            break
+        return events
+    return [make_saddle_trigger(obj, threshold=1, effect_fn=attack_effect)]
 
 
 def deadeye_duelist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2257,11 +2294,14 @@ def ferocification_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def gila_courser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saddled-attack: exile top + may play until end of next turn."""
+    """Saddle 1; saddled-attack: exile top of library; you may play it until end of (next) turn."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: saddle gating + impulse-extension across turns not engine-tracked
-        return []
-    return [make_attack_trigger(obj, attack_effect)]
+        return [Event(
+            type=EventType.IMPULSE_DRAW,
+            payload={'player': obj.controller, 'amount': 1, 'until': 'end_of_turn'},
+            source=obj.id,
+        )]
+    return [make_saddle_trigger(obj, threshold=1, effect_fn=attack_effect)]
 
 
 def hellspur_brute_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2271,9 +2311,18 @@ def hellspur_brute_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def longhorn_sharpshooter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Plot trigger -> 2 damage to any target."""
-    # engine gap: "becomes plotted" trigger not engine-tracked
-    return []
+    """Reach; when this card becomes plotted, it deals 2 damage to any target. Plot {3}{R}."""
+    def becomes_plotted_effect(event: Event, state: GameState) -> list[Event]:
+        # Best-effort: damage any opponent (caller may target a creature instead).
+        opponent = next((p for p in state.players if p != obj.controller), None)
+        if opponent is None:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': opponent, 'amount': 2, 'is_combat': False, 'is_player': True},
+            source=obj.id,
+        )]
+    return [make_becomes_plotted_trigger(obj, becomes_plotted_effect)]
 
 
 def magebane_lizard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2303,9 +2352,8 @@ def magebane_lizard_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def quilled_charger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saddled-attack: +1/+2 and menace until end of turn."""
+    """Saddle 2; whenever this creature attacks while saddled, +1/+2 and menace until end of turn."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: saddle gating; emit the pump as a best-effort
         return [
             Event(
                 type=EventType.PT_MODIFICATION,
@@ -2318,7 +2366,7 @@ def quilled_charger_setup(obj: GameObject, state: GameState) -> list[Interceptor
                 source=obj.id,
             ),
         ]
-    return [make_attack_trigger(obj, attack_effect)]
+    return [make_saddle_trigger(obj, threshold=2, effect_fn=attack_effect)]
 
 
 def reckless_lackey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2344,9 +2392,36 @@ def stingerback_terror_setup(obj: GameObject, state: GameState) -> list[Intercep
 # -----------------------------------------------------------------------------
 
 def aloe_alchemist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Trample (kw); plot trigger -> +3/+2 and trample to a creature."""
-    # engine gap: "becomes plotted" trigger not engine-tracked
-    return []
+    """Trample; when this card becomes plotted, target creature gets +3/+2 and gains trample
+    until end of turn. Plot {1}{G}.
+    (Best-effort: pump self if on battlefield, else first creature you control.)"""
+    def becomes_plotted_effect(event: Event, state: GameState) -> list[Event]:
+        # Find a creature to pump: prefer self if on battlefield, else any creature you control.
+        target_id = None
+        if obj.zone == ZoneType.BATTLEFIELD:
+            target_id = obj.id
+        else:
+            for o in state.objects.values():
+                if (o.controller == obj.controller and
+                        o.zone == ZoneType.BATTLEFIELD and
+                        CardType.CREATURE in o.characteristics.types):
+                    target_id = o.id
+                    break
+        if target_id is None:
+            return []
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': target_id, 'power_mod': 3, 'toughness_mod': 2, 'duration': 'end_of_turn'},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': target_id, 'keyword': 'trample', 'duration': 'end_of_turn'},
+                source=obj.id,
+            ),
+        ]
+    return [make_becomes_plotted_trigger(obj, becomes_plotted_effect)]
 
 
 def bristlepack_sentry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2412,11 +2487,19 @@ def drover_grizzly_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def freestrider_commando_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Enters with two +1/+1 counters if not cast / no mana spent (e.g., from plot)."""
+    """Enters with two +1/+1 counters if it wasn't cast or no mana was spent
+    (e.g. from plot). Plot {3}{G}."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: detection of "wasn't cast or no mana was spent" not engine-tracked.
-        # Conservative: do not place counters on a normal cast.
-        return []
+        # If `plot_cast_used` is set, the card was cast for free via plot; place
+        # the counters. The flag is set by cast_plotted_spell(); see
+        # src/engine/plot_saddle.py.
+        if not obj.state.plot_cast_used:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 2},
+            source=obj.id,
+        )]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -2427,15 +2510,19 @@ def freestrider_lookout_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def giant_beaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Vigilance; saddled-attack puts +1/+1 counter on saddler."""
+    """Saddle 3; vigilance; saddled-attack puts +1/+1 counter on a creature that saddled it this turn."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: saddle creature targeting; emit self-counter as best-effort
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
-            source=obj.id,
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
+        # Drop a counter on each creature that saddled this Mount this turn.
+        events: list[Event] = []
+        for sid in (obj.state.saddled_by_this_turn or []):
+            if sid in state.objects:
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': sid, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id,
+                ))
+        return events
+    return [make_saddle_trigger(obj, threshold=3, effect_fn=attack_effect)]
 
 
 def hardbristle_bandit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2457,14 +2544,14 @@ def ornery_tumblewagg_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def rambling_possum_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saddled-attack: +1/+2 and may bounce saddlers."""
+    """Saddle 1; saddled-attack: +1/+2 (the optional bounce of saddlers is left to player choice and not auto-wired)."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.PT_MODIFICATION,
             payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 2, 'duration': 'end_of_turn'},
             source=obj.id,
         )]
-    return [make_attack_trigger(obj, attack_effect)]
+    return [make_saddle_trigger(obj, threshold=1, effect_fn=attack_effect)]
 
 
 def raucous_entertainer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2491,9 +2578,36 @@ def spinewoods_armadillo_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def stubborn_burrowfiend_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Becomes-saddled-first-time trigger: mill 2, +X/+X."""
-    # engine gap: saddle event tracking not engine-tracked
-    return []
+    """Saddle 2; whenever this creature becomes saddled for the first time each turn,
+    mill two cards, then this creature gets +X/+X until end of turn, where X is the
+    number of creature cards in your graveyard."""
+    def becomes_saddled_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = [Event(
+            type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+        )]
+        # Count creature cards already in the GY (mill resolves separately).
+        gy_key = f"graveyard_{obj.controller}"
+        gy = state.zones.get(gy_key)
+        x = 0
+        if gy:
+            for cid in gy.objects:
+                co = state.objects.get(cid)
+                if co and CardType.CREATURE in (co.characteristics.types or set()):
+                    x += 1
+        if x > 0:
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': obj.id, 'power_mod': x, 'toughness_mod': x, 'duration': 'end_of_turn'},
+                source=obj.id,
+            ))
+        return events
+
+    # Stash threshold so pay_saddle_cost() validates correctly.
+    set_saddle_threshold(obj.card_def, 2) if obj.card_def else None
+    obj.state.saddle_threshold = 2
+    return [make_becomes_saddled_trigger(obj, becomes_saddled_effect, first_time_only=True)]
 
 
 def voracious_varmint_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2576,9 +2690,8 @@ def cactusfolk_sureshot_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def congregation_gryff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying, lifelink (kw); saddled-attack +X/+X by Mounts."""
+    """Saddle 3; flying, lifelink (kw); saddled-attack +X/+X where X is Mounts you control."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: saddle gating; emit Mount-count pump as best-effort
         x = 0
         for o in state.objects.values():
             if (o.controller == obj.controller and
@@ -2592,7 +2705,7 @@ def congregation_gryff_setup(obj: GameObject, state: GameState) -> list[Intercep
             payload={'object_id': obj.id, 'power_mod': x, 'toughness_mod': x, 'duration': 'end_of_turn'},
             source=obj.id,
         )]
-    return [make_attack_trigger(obj, attack_effect)]
+    return [make_saddle_trigger(obj, threshold=3, effect_fn=attack_effect)]
 
 
 def doc_aurlock_grizzled_genius_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
