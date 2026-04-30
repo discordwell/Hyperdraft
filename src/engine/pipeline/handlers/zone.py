@@ -103,11 +103,13 @@ def _handle_object_created(event: Event, state: GameState):
 
     is_token = bool(event.payload.get('is_token') or event.payload.get('token'))
     enters_tapped = bool(event.payload.get('tapped', False))
+    enters_face_down = bool(event.payload.get('face_down', False))
 
     obj_id = new_id()
     obj_state = ObjectState(
         is_token=is_token,
         tapped=enters_tapped,
+        face_down=enters_face_down,
         summoning_sickness=(zone_type == ZoneType.BATTLEFIELD)
     )
 
@@ -136,12 +138,31 @@ def _handle_object_created(event: Event, state: GameState):
         zone=zone_type,
         characteristics=characteristics,
         state=obj_state,
+        card_def=event.payload.get('card_def'),
         created_at=state.next_timestamp(),
         entered_zone_at=state.timestamp,
         _state_ref=state,
     )
 
     state.objects[obj_id] = created
+
+    # If the object enters face-down (Manifest / Manifest Dread / Cloak /
+    # Disguise / Morph), wire the masking QUERY interceptors *now* so observers
+    # see a vanilla 2/2 even on the same tick. We import lazily to avoid the
+    # interceptor-helpers -> pipeline.zone circular import.
+    if enters_face_down and zone_type == ZoneType.BATTLEFIELD:
+        try:
+            from src.cards.interceptor_helpers import _face_down_query_interceptors
+            face_down_interceptors = _face_down_query_interceptors(created)
+            for interceptor in face_down_interceptors:
+                interceptor.timestamp = state.next_timestamp()
+                state.interceptors[interceptor.id] = interceptor
+                created.interceptor_ids.append(interceptor.id)
+        except Exception:
+            # Don't break OBJECT_CREATED if helpers aren't loadable in this
+            # context (e.g. early bootstrapping). Card-side scripts can still
+            # call make_face_down_setup() directly.
+            pass
 
     # Add to zone list if we can resolve a key.
     zone_key = None
