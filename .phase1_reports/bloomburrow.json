@@ -1,0 +1,233 @@
+{
+  "set": "bloomburrow.py",
+  "results": [
+    {
+      "fn": "bravekin_duo_setup",
+      "card_var": "BRAVEKIN_DUO",
+      "disposition": "left",
+      "engine_gap": "activated {1}{T} sorcery-speed ability framework",
+      "notes": "Activated tap ability with sorcery-speed restriction (target +1/+1 UEOT)."
+    },
+    {
+      "fn": "flowerfoot_swordmaster_setup",
+      "card_var": "FLOWERFOOT_SWORDMASTER",
+      "disposition": "wired",
+      "engine_gap": "Offspring {2} (still simplified)",
+      "notes": "Valiant: Mice you control get +1/+0 UEOT via make_valiant_trigger."
+    },
+    {
+      "fn": "mouse_trapper_setup",
+      "card_var": "MOUSE_TRAPPER",
+      "disposition": "wired",
+      "engine_gap": null,
+      "notes": "Valiant: emits TARGET_REQUIRED to tap target opponent creature."
+    },
+    {
+      "fn": "nettle_guard_setup",
+      "card_var": "NETTLE_GUARD",
+      "disposition": "wired",
+      "engine_gap": "activated sacrifice ability ({1}, sac: destroy artifact/enchantment)",
+      "notes": "Valiant: +0/+2 UEOT via make_valiant_trigger."
+    },
+    {
+      "fn": "whiskervale_forerunner_setup",
+      "card_var": "WHISKERVALE_FORERUNNER",
+      "disposition": "wired",
+      "engine_gap": "full reveal-and-conditional-put-onto-bf",
+      "notes": "Valiant: simplified to scry 5 (full top-5-reveal-with-cast not in engine)."
+    },
+    {
+      "fn": "azure_beastbinder_setup",
+      "card_var": "AZURE_BEASTBINDER",
+      "disposition": "wired",
+      "engine_gap": "LOSE_ABILITIES / SET_BASE_PT events; can't-be-blocked-by-power-2+",
+      "notes": "Attack target_with_callback that applies -1/-1 UEOT (closest engine approximation of base-2/2-and-no-abilities lock)."
+    },
+    {
+      "fn": "daring_waverider_setup",
+      "card_var": "DARING_WAVERIDER",
+      "disposition": "wired",
+      "engine_gap": "cast-from-graveyard-without-paying + replace-graveyard-with-exile rider",
+      "notes": "ETB target_with_callback: chooses instant/sorcery (MV<=4) from gy and emits CAST event with from_graveyard/without_paying_cost/replace_graveyard_with_exile flags."
+    },
+    {
+      "fn": "kitnap_setup",
+      "card_var": "KITNAP",
+      "disposition": "wired",
+      "engine_gap": "gift-promised tracking",
+      "notes": "Aura ETB: taps enchanted creature, adds 3 stun counters, gain control. Skips conditional gift branch."
+    },
+    {
+      "fn": "kitsa_otterball_elite_setup",
+      "card_var": "KITSA_OTTERBALL_ELITE",
+      "disposition": "wired",
+      "engine_gap": "activated {T}-loot ability; activated copy-spell ability with power-3+ gate",
+      "notes": "Wired prowess (+1/+1 UEOT on noncreature cast). Activated abilities remain engine gaps."
+    },
+    {
+      "fn": "thought_shucker_setup",
+      "card_var": "THOUGHT_SHUCKER",
+      "disposition": "left",
+      "engine_gap": "activated ability framework with Threshold gate and once-per-game restriction",
+      "notes": "Pure activated ability — no trigger/replacement/static angle to wire."
+    },
+    {
+      "fn": "wishing_well_setup",
+      "card_var": "WISHING_WELL",
+      "disposition": "left",
+      "engine_gap": "activated {T} ability with chained 'when you do' graveyard cast",
+      "notes": "Whole card is a single tap-activated ability."
+    },
+    {
+      "fn": "bonebind_orator_setup",
+      "card_var": "BONEBIND_ORATOR",
+      "disposition": "left",
+      "engine_gap": "activated-from-graveyard ability ({3}{B}, exile this from gy)",
+      "notes": "Single activated ability that lives only in the graveyard."
+    },
+    {
+      "fn": "emberheart_challenger_setup",
+      "card_var": "EMBERHEART_CHALLENGER",
+      "disposition": "wired",
+      "engine_gap": "prowess static (printed as keyword text only)",
+      "notes": "Valiant: emits IMPULSE_DRAW for 1 card UEOT via make_valiant_trigger."
+    },
+    {
+      "fn": "festival_of_embers_setup",
+      "card_var": "FESTIVAL_OF_EMBERS",
+      "disposition": "wired",
+      "engine_gap": "cast-from-graveyard-with-life-cost permission; activated sac ability",
+      "notes": "Replacement: registered make_graveyard_to_exile_replacer affecting both controllers (Rest-in-Peace-style). Verified end-to-end: a card going BF -> GY now ends up in exile."
+    },
+    {
+      "fn": "raccoon_rallier_setup",
+      "card_var": "RACCOON_RALLIER",
+      "disposition": "left",
+      "engine_gap": "activated {T} sorcery-speed ability (haste grant)",
+      "notes": "Single tap-activated ability."
+    },
+    {
+      "fn": "roughshod_duo_setup",
+      "card_var": "ROUGHSHOD_DUO",
+      "disposition": "wired",
+      "engine_gap": "target selection (greedy first-creature)",
+      "notes": "Expend 4 trigger pumps first creature you control with +1/+1 + trample UEOT (skips full target prompt to avoid pending-choice during background trigger)."
+    },
+    {
+      "fn": "whiskerquill_scribe_setup",
+      "card_var": "WHISKERQUILL_SCRIBE",
+      "disposition": "wired",
+      "engine_gap": "'may' choice for the discard branch",
+      "notes": "Valiant: unconditional discard/draw (loot) via make_valiant_trigger."
+    },
+    {
+      "fn": "bushy_bodyguard_setup",
+      "card_var": "BUSHY_BODYGUARD",
+      "disposition": "wired",
+      "engine_gap": "Offspring {2}; 'may' choice on forage",
+      "notes": "ETB: greedy pay_forage_cost — if cost paid, +2 +1/+1 counters."
+    },
+    {
+      "fn": "curious_forager_setup",
+      "card_var": "CURIOUS_FORAGER",
+      "disposition": "wired",
+      "engine_gap": "'may' choice on forage",
+      "notes": "ETB greedily pays forage cost; on success opens target_with_callback over permanent cards in your graveyard and returns chosen card to hand."
+    },
+    {
+      "fn": "keeneyed_curator_setup",
+      "card_var": "KEENEYED_CURATOR",
+      "disposition": "left",
+      "engine_gap": "'exiled with this creature' provenance tracking; activated graveyard-exile ability",
+      "notes": "Both abilities depend on tracking which exiled cards belong to this creature — no engine support."
+    },
+    {
+      "fn": "tender_wildguide_setup",
+      "card_var": "TENDER_WILDGUIDE",
+      "disposition": "left",
+      "engine_gap": "two activated abilities (any-color mana; +1/+1 counter); Offspring {2}",
+      "notes": "Card is purely activated abilities."
+    },
+    {
+      "fn": "baylen_the_haymaker_setup",
+      "card_var": "BAYLEN_THE_HAYMAKER",
+      "disposition": "left",
+      "engine_gap": "tap-N-untapped-tokens activation costs",
+      "notes": "All three abilities use 'Tap N tokens' as their cost — no engine framework yet."
+    },
+    {
+      "fn": "corpseberry_cultivator_setup",
+      "card_var": "CORPSEBERRY_CULTIVATOR",
+      "disposition": "wired",
+      "engine_gap": "'may' choice on forage",
+      "notes": "Beginning of combat: greedily pays forage cost. Whenever you forage: +1/+1 counter on this via make_forage_trigger. Verified end-to-end: foraging adds counter."
+    },
+    {
+      "fn": "lilysplash_mentor_setup",
+      "card_var": "LILYSPLASH_MENTOR",
+      "disposition": "left",
+      "engine_gap": "activated {1}{G}{U} sorcery-speed flicker-with-+1/+1 ability",
+      "notes": "Single activated ability."
+    },
+    {
+      "fn": "seedglaive_mentor_setup",
+      "card_var": "SEEDGLAIVE_MENTOR",
+      "disposition": "wired",
+      "engine_gap": null,
+      "notes": "Valiant: +1/+1 counter on self via make_valiant_trigger. Verified end-to-end."
+    },
+    {
+      "fn": "veteran_guardmouse_setup",
+      "card_var": "VETERAN_GUARDMOUSE",
+      "disposition": "wired",
+      "engine_gap": null,
+      "notes": "Valiant: +1/+0 + first strike UEOT + scry 1 via make_valiant_trigger."
+    },
+    {
+      "fn": "wandertale_mentor_setup",
+      "card_var": "WANDERTALE_MENTOR",
+      "disposition": "wired",
+      "engine_gap": "activated {T} mana ability ({R} or {G})",
+      "notes": "Expend 4: +1/+1 counter on this via make_expend_trigger. Verified end-to-end."
+    },
+    {
+      "fn": "barkform_harvester_setup",
+      "card_var": "BARKFORM_HARVESTER",
+      "disposition": "left",
+      "engine_gap": "Changeling (every creature type); activated {2} graveyard-to-bottom-of-library",
+      "notes": "Both pieces require new engine support."
+    },
+    {
+      "fn": "short_bow_setup",
+      "card_var": "SHORT_BOW",
+      "disposition": "left",
+      "engine_gap": "Equipment attachment-bound bonuses + Equip cost",
+      "notes": "Pure equipment card."
+    },
+    {
+      "fn": "tangle_tumbler_setup",
+      "card_var": "TANGLE_TUMBLER",
+      "disposition": "left",
+      "engine_gap": "Vehicle (tap-tokens-to-crew); activated counter ability",
+      "notes": "Pure vehicle / activated abilities."
+    },
+    {
+      "fn": "mudflat_village_setup",
+      "card_var": "MUDFLAT_VILLAGE",
+      "disposition": "left",
+      "engine_gap": "restricted-purpose mana abilities; activated tribal gy-to-hand",
+      "notes": "Pure land activated abilities."
+    },
+    {
+      "fn": "rockface_village_setup",
+      "card_var": "ROCKFACE_VILLAGE",
+      "disposition": "left",
+      "engine_gap": "restricted-purpose mana abilities; activated sorcery-speed tribal pump",
+      "notes": "Pure land activated abilities."
+    }
+  ],
+  "summary": {
+    "wired": 18,
+    "left": 14
+  }
+}
