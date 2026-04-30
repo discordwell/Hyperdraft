@@ -34,6 +34,7 @@ from src.cards.interceptor_helpers import (
     create_modal_choice, create_target_choice,
     open_library_search, basic_land_filter,
     make_saga_setup,
+    make_replacement_interceptor,
 )
 
 from src.engine.bending import (
@@ -2050,9 +2051,57 @@ def rabaroo_troop_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def team_avatar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attacks alone -> +X/+X EOT (engine gap). Discard activated ability (engine gap)."""
-    # engine gap: "attacks alone" detection + variable PT pump + activated discard ability
-    return []
+    """Whenever a creature you control attacks alone, it gets +X/+X UEOT (X = creatures you control).
+    {2}{W}, Discard this card: damage activated ability (engine gap)."""
+    def attacks_alone_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        if event.payload.get('attacking_player') != obj.controller:
+            return False
+        attackers = list(event.payload.get('attackers') or [])
+        if len(attackers) != 1:
+            return False
+        attacker_id = attackers[0]
+        attacker = st.objects.get(attacker_id)
+        if not attacker or attacker.controller != obj.controller:
+            return False
+        return True
+
+    def pump_lone_attacker(event: Event, st: GameState) -> list[Event]:
+        attackers = list(event.payload.get('attackers') or [])
+        if len(attackers) != 1:
+            return []
+        attacker_id = attackers[0]
+        x = sum(1 for o in st.objects.values()
+                if o.controller == obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types)
+        if x <= 0:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': attacker_id,
+                'power_mod': x,
+                'toughness_mod': x,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attacks_alone_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=pump_lone_attacker(e, s),
+        ),
+        duration='while_on_battlefield',
+    )]
+    # engine gap: activated discard ability {2}{W}, Discard ~: damage = creatures you control
 
 
 def vengeful_villagers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2754,9 +2803,50 @@ def deserters_disciple_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def fated_firepower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Replacement effect: damage to opp/their permanent + fire counters (engine gap)."""
-    # engine gap: replacement effect on damage events with X-tracking
-    return []
+    """If a source you control would deal damage to an opponent or a permanent an
+    opponent controls, it deals that much damage plus the number of fire counters
+    on this enchantment instead.
+
+    Implemented as a TRANSFORM-priority replacement on DAMAGE events; the ETB
+    'with X fire counters' part is the engine gap (no X-cost tracking)."""
+    def damage_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return False
+        # Source must be controlled by us.
+        damage_source_id = event.payload.get('source') or event.source
+        damage_source = st.objects.get(damage_source_id) if damage_source_id else None
+        if not damage_source or damage_source.controller != obj.controller:
+            return False
+        # Target must be opponent or opponent-controlled permanent.
+        target_id = event.payload.get('target')
+        if not target_id:
+            return False
+        if target_id in st.players:
+            return target_id != obj.controller
+        target_obj = st.objects.get(target_id)
+        if not target_obj:
+            return False
+        return target_obj.controller != obj.controller
+
+    def transform(event: Event, st: GameState) -> Optional[Event]:
+        # Read live counter count; if no fire counters, no change.
+        src = st.objects.get(obj.id)
+        fire_counters = 0
+        if src is not None:
+            counters = getattr(src.state, 'counters', None) or getattr(src, 'counters', None) or {}
+            fire_counters = counters.get('fire', 0)
+        if fire_counters <= 0:
+            return None
+        amount = event.payload.get('amount', 0)
+        new_event = event.copy()
+        new_event.payload['amount'] = amount + fire_counters
+        return new_event
+
+    # engine gap: ETB 'with X fire counters' (X-cost tracking)
+    return [make_replacement_interceptor(obj, damage_filter, transform)]
 
 
 def fire_nation_cadets_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2814,9 +2904,30 @@ def jeong_jeong_the_deserter_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def mai_jaded_edge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Prowess (handled). Exhaust {3}: double strike counter (engine gap activated)."""
-    # engine gap: exhaust activated ability
-    return []
+    """Prowess: +1/+1 UEOT whenever you cast a noncreature spell.
+    Exhaust — {3}: Put a double strike counter on Mai (engine gap activated)."""
+    def noncreature_filter(event: Event, st: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        if caster != source.controller:
+            return False
+        types = set(event.payload.get('types', []))
+        return CardType.CREATURE not in types
+
+    def prowess_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 1,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+        )]
+    # engine gap: exhaust activated ability for double-strike counter
+    return [make_spell_cast_trigger(obj, prowess_effect, filter_fn=noncreature_filter)]
 
 
 def ran_and_shaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
