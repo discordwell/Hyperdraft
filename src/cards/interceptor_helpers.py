@@ -2725,3 +2725,196 @@ def make_cant_block(
         handler=cant_block_handler,
         duration='while_on_battlefield',
     )
+
+
+# =============================================================================
+# === SPM MECHANICS HELPERS ===
+# =============================================================================
+# Helpers for the Marvel's Spider-Man set's two alt-cast mechanics:
+#   * Web-slinging — alt cost from hand: pay {alt_cost} AND return a tapped
+#     creature you control to its owner's hand instead of the spell's mana cost.
+#   * Mayhem — alt cost from graveyard if the card was discarded this turn
+#     (sorcery-speed timing).
+#
+# The engine's priority/cast layer already understands the printed Mayhem cost
+# (see ``priority._get_mayhem_cost``) and tags resulting cast events with
+# ``payload['mayhem']=True``. These helpers add the *card-side* book-keeping:
+# they (a) stamp the alt cost onto the card definition so it survives the
+# engine's cast-cost lookups, and (b) register a DISCARD interceptor so we
+# can populate ``state.turn_data['discarded_card_ids']`` for downstream
+# triggers that don't go through the priority layer.
+# =============================================================================
+
+
+def make_web_slinging_setup(
+    alt_cost,
+    *,
+    on_websling_cast: Optional[Callable] = None,
+):
+    """Build a ``setup_interceptors`` function that wires Web-slinging.
+
+    ``alt_cost`` is the web-slinging mana cost (a string like ``"{W}"`` or a
+    pre-parsed ``ManaCost``). It is stamped onto ``obj.card_def.web_slinging_cost``
+    so the priority/cast layer (and any hand-cast option logic) can see it
+    without re-parsing the rules text.
+
+    ``on_websling_cast`` is an optional callback invoked when *this card* is
+    cast via web-slinging. It receives ``(event, state, obj)`` and returns a
+    list of follow-up events. Use it for Sensational Save and similar
+    "if cast for its web-slinging cost, ..." triggers.
+    """
+    from src.engine.spm_mechanics import register_web_slinging, track_web_slinging_cast
+
+    def setup(obj, state):
+        # Stamp the alt cost on the CardDefinition so other systems can see it.
+        if getattr(obj, "card_def", None) is not None:
+            register_web_slinging(obj.card_def, alt_cost)
+
+        source_id = obj.id
+
+        # React to the moment *this card* is cast for its web-slinging cost.
+        # Convention: the cast event sets payload['web_slinging']=True when the
+        # alt cost is paid (mirrors the existing payload['mayhem'] flag).
+        # We always install the tracking interceptor so downstream "if this was
+        # cast via web-slinging" ETB triggers can ask state.turn_data.
+        def cast_filter(event: Event, state: GameState) -> bool:
+            if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+                return False
+            payload = event.payload or {}
+            if not payload.get('web_slinging'):
+                return False
+            return payload.get('spell_id') == source_id or payload.get('card_id') == source_id
+
+        def cast_handler(event: Event, state: GameState) -> InterceptorResult:
+            payload = event.payload or {}
+            try:
+                returned_mv = int(payload.get('web_slinging_returned_mv', 0) or 0)
+            except (TypeError, ValueError):
+                returned_mv = 0
+            track_web_slinging_cast(state, source_id, returned_mv)
+
+            new_events: list = []
+            if on_websling_cast is not None:
+                new_events = list(on_websling_cast(event, state, obj) or [])
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=new_events,
+            )
+
+        return [Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=cast_filter,
+            handler=cast_handler,
+            duration='forever',
+        )]
+
+    return setup
+
+
+def make_mayhem_setup(
+    mayhem_cost,
+    *,
+    on_mayhem_cast: Optional[Callable] = None,
+):
+    """Build a ``setup_interceptors`` function that wires Mayhem.
+
+    ``mayhem_cost`` is the alt cast cost (string or ``ManaCost``) and is
+    stamped onto ``obj.card_def.mayhem_cost`` so it survives lookup and is
+    visible to the engine's graveyard-cast option list.
+
+    The returned setup also installs a DISCARD interceptor that records this
+    card's id in ``state.turn_data['discarded_card_ids']`` whenever it is
+    discarded, so downstream cards can ask "was this discarded this turn?"
+    without consulting ``ObjectState.last_discarded_turn`` directly.
+
+    ``on_mayhem_cast`` is an optional callback invoked when this card is
+    cast via mayhem (mirrors ``make_web_slinging_setup``).
+    """
+    from src.engine.spm_mechanics import register_mayhem, track_discard
+
+    def setup(obj, state):
+        if getattr(obj, "card_def", None) is not None:
+            register_mayhem(obj.card_def, mayhem_cost)
+
+        interceptors: list = []
+
+        source_id = obj.id
+
+        # Discard tracker: record this object's id in turn_data when it's
+        # discarded. Active forever so it works in any zone (hand at the moment
+        # of discard, graveyard afterwards).
+        def discard_filter(event: Event, state: GameState) -> bool:
+            if event.type != EventType.DISCARD:
+                return False
+            payload = event.payload or {}
+            return payload.get('object_id') == source_id
+
+        def discard_handler(event: Event, state: GameState) -> InterceptorResult:
+            track_discard(state, source_id)
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=discard_filter,
+            handler=discard_handler,
+            duration='forever',
+        ))
+
+        if on_mayhem_cast is not None:
+            def cast_filter(event: Event, state: GameState) -> bool:
+                if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+                    return False
+                payload = event.payload or {}
+                if not payload.get('mayhem'):
+                    return False
+                return payload.get('spell_id') == source_id or payload.get('card_id') == source_id
+
+            def cast_handler(event: Event, state: GameState) -> InterceptorResult:
+                new_events = on_mayhem_cast(event, state, obj) or []
+                return InterceptorResult(
+                    action=InterceptorAction.REACT,
+                    new_events=list(new_events),
+                )
+
+            interceptors.append(Interceptor(
+                id=new_id(),
+                source=obj.id,
+                controller=obj.controller,
+                priority=InterceptorPriority.REACT,
+                filter=cast_filter,
+                handler=cast_handler,
+                duration='forever',
+            ))
+
+        return interceptors
+
+    return setup
+
+
+def combine_setups(*setup_fns):
+    """Combine multiple ``setup_interceptors`` callables into one.
+
+    Convenience helper for cards whose setup is "wire web-slinging AND wire
+    an ETB trigger AND wire a static effect". Each returned setup runs in
+    order; their interceptor lists are concatenated. ``None`` entries are
+    skipped.
+    """
+    fns = tuple(fn for fn in setup_fns if fn is not None)
+
+    def combined(obj, state):
+        out: list = []
+        for fn in fns:
+            try:
+                got = fn(obj, state) or []
+            except Exception:
+                got = []
+            out.extend(got)
+        return out
+
+    return combined
