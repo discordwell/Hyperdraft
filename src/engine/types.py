@@ -251,6 +251,11 @@ class EventType(Enum):
     YGO_LP_CHANGE = auto()            # Life Points changed
     YGO_DRAW = auto()                 # Draw Phase draw
 
+    # Edge of Eternities — Station mechanic
+    STATION_ACTIVATE = auto()           # Player taps another creature to charge a Station
+    STATION_CHARGE = auto()             # Charge counters being added to a Station
+    STATION_THRESHOLD_REACHED = auto()  # Station reached a charge threshold
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
