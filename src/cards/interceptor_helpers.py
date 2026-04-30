@@ -2725,3 +2725,23 @@ def make_cant_block(
         handler=cant_block_handler,
         duration='while_on_battlefield',
     )
+
+
+# =============================================================================
+# REPLACEMENT HELPERS
+# =============================================================================
+# Thin re-exports of the framework defined in src/engine/replacements.py so
+# card files can import everything they need from interceptor_helpers in the
+# usual way.
+
+from src.engine.replacements import (  # noqa: E402  (re-export below)
+    make_replacement_interceptor,
+    make_life_gain_replacer,
+    make_life_gain_prevention,
+    make_draw_replacer,
+    make_counter_doubler,
+    make_dies_to_exile_replacer,
+    make_damage_doubler,
+    make_skip_to_graveyard_replacer,
+    make_graveyard_to_exile_replacer,
+)

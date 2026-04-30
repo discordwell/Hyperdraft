@@ -2822,8 +2822,20 @@ def lashwhip_predator_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def loading_zone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Doubles counters put on creature/Spacecraft/Planet you control. Warp."""
-    # engine gap: replacement effect doubling counter additions
-    return []
+    from src.engine.replacements import make_counter_doubler
+    src_controller = obj.controller
+
+    def your_eligible_permanent(target: GameObject, state: GameState) -> bool:
+        if target.controller != src_controller:
+            return False
+        types = target.characteristics.types
+        if CardType.CREATURE in types:
+            return True
+        # Spacecraft / Planet are subtypes in the Edge of Eternities space.
+        subtypes = target.characteristics.subtypes
+        return 'Spacecraft' in subtypes or 'Planet' in subtypes
+
+    return [make_counter_doubler(obj, target_filter=your_eligible_permanent)]
 
 
 def meltstriders_gear_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
