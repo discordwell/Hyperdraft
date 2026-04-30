@@ -1,0 +1,117 @@
+{
+  "set": "edge_of_eternities.py",
+  "results": [
+    {
+      "var": "BEYOND_THE_QUIET",
+      "disposition": "resolved",
+      "engine_gap": "n/a",
+      "notes": "Bespoke: enumerate battlefield, emit ZONE_CHANGE→exile for each creature or Spacecraft."
+    },
+    {
+      "var": "FOCUS_FIRE",
+      "disposition": "resolved",
+      "engine_gap": "n/a",
+      "notes": "Bespoke: count creatures+Spacecraft you control, deal X=2+count damage to each chosen target."
+    },
+    {
+      "var": "ANNUL",
+      "disposition": "resolved",
+      "engine_gap": "Type-restricted counterspell; auto-pattern only matches 'counter target spell' (not 'counter target artifact or enchantment spell')",
+      "notes": "Bespoke counter resolve emitting ZONE_CHANGE→graveyard with reason=countered. Type-restriction enforcement is targeting-time; we just resolve."
+    },
+    {
+      "var": "CEREBRAL_DOWNLOAD",
+      "disposition": "resolved",
+      "engine_gap": "Surveil X with X dynamically computed; auto-matcher only handles literal 'surveil N'",
+      "notes": "Bespoke: count caster's artifacts and emit SURVEIL with that amount + DRAW 3."
+    },
+    {
+      "var": "CONSULT_THE_STAR_CHARTS",
+      "disposition": "left",
+      "engine_gap": "Kicker alt cost + look-top-X-pick-1-or-2 with X dynamic by lands",
+      "notes": "Kicker is unimplemented; the dynamic X look + reveal+keep is also a separate gap."
+    },
+    {
+      "var": "DARK_ENDURANCE",
+      "disposition": "resolved",
+      "engine_gap": "Cost reduction 'if it targets a blocking creature' is a separate cost-side gap; resolve effect itself wires cleanly",
+      "notes": "Bespoke: PT_MODIFICATION +2/+0 + GRANT_KEYWORD indestructible (both end_of_turn) for each chosen target."
+    },
+    {
+      "var": "TEMPORAL_INTERVENTION",
+      "disposition": "resolved",
+      "engine_gap": "Void cost-reduction is a separate cost-side gap; resolve effect (reveal hand, choose nonland, discard) wires cleanly",
+      "notes": "Bespoke: REVEAL_HAND + DISCARD with chosen_by=caster + nonland_only. Void cost-reduction unimplemented."
+    },
+    {
+      "var": "ZERO_POINT_BALLAD",
+      "disposition": "resolved",
+      "engine_gap": "Reanimation rider 'return a creature card put into a graveyard this way' (X>=6) requires this-way tracking which is a gap; X-cost lookup uses stack_manager.x_value",
+      "notes": "Bespoke: sweep creatures with toughness<=X (via get_toughness) + LIFE_CHANGE -X. Reanimation rider omitted."
+    },
+    {
+      "var": "CUT_PROPULSION",
+      "disposition": "resolved",
+      "engine_gap": "n/a",
+      "notes": "Bespoke: emit DAMAGE to target = its power; doubled if it has flying. Damage source set to target itself."
+    },
+    {
+      "var": "RIG_FOR_WAR",
+      "disposition": "resolved",
+      "engine_gap": "Auto-matcher's pump regex requires '+N/+M until end of turn' adjacent; the 'and gains first strike and reach until end of turn' wording breaks the regex",
+      "notes": "Bespoke: PT_MODIFICATION +3/+0 + GRANT_KEYWORD first_strike + GRANT_KEYWORD reach (all end_of_turn)."
+    },
+    {
+      "var": "SYSTEMS_OVERRIDE",
+      "disposition": "left",
+      "engine_gap": "Gain-control-until-end-of-turn (no general control-change mechanic) + Spacecraft charge-counter add-then-remove",
+      "notes": "Control-change is a major gap; charge counters on Spacecraft also need add/remove timing."
+    },
+    {
+      "var": "TERMINAL_VELOCITY",
+      "disposition": "left",
+      "engine_gap": "Cheat-into-play from hand + grant 3 abilities (haste, ETB-like leaves trigger, end-step sacrifice) on the entered permanent",
+      "notes": "Cheat-into-play with custom abilities granted post-entry is multi-step; granted ETB+sac stays attached."
+    },
+    {
+      "var": "CLOSE_ENCOUNTER",
+      "disposition": "left",
+      "engine_gap": "Additional cost choice (creature you control OR warped creature card you own in exile) + dynamic damage = chosen card's power",
+      "notes": "Mixed-zone target picker for additional cost is unimplemented; warped-card concept available via warp subsystem but not for spell additional costs."
+    },
+    {
+      "var": "DIPLOMATIC_RELATIONS",
+      "disposition": "resolved",
+      "engine_gap": "Multi-target spell where second target receives damage equal to first target's (post-pump) power; ordered target groups",
+      "notes": "Bespoke: PT_MODIFICATION +1/+0 + GRANT_KEYWORD vigilance on first non-player target; emit DAMAGE to second non-player target with amount = power+1 (since pump is simultaneous)."
+    },
+    {
+      "var": "PULL_THROUGH_THE_WEFT",
+      "disposition": "resolved",
+      "engine_gap": "Multi-zone-source target group ordering: group 0 = nonland permanents in graveyard → hand; group 1 = lands in graveyard → battlefield tapped",
+      "notes": "Bespoke: ZONE_CHANGE for group 0 (gy→hand) + ZONE_CHANGE for group 1 (gy→battlefield, tapped=True). Type filtering is targeting-time."
+    },
+    {
+      "var": "MUTINOUS_MASSACRE",
+      "disposition": "left",
+      "engine_gap": "Choose odd-or-even (binary modal); destroy all by parity; gain control of all creatures EOT (control-change is a major gap)",
+      "notes": "Engine has no general control-change-until-end-of-turn primitive."
+    },
+    {
+      "var": "SINGULARITY_RUPTURE",
+      "disposition": "resolved",
+      "engine_gap": "Multi-target 'any number of target players each' ordering; mill half-library is computed live",
+      "notes": "Bespoke: sweep all creatures + for each chosen player target, MILL with amount = library_size//2."
+    },
+    {
+      "var": "SPACETIME_ANOMALY",
+      "disposition": "resolved",
+      "engine_gap": "n/a",
+      "notes": "Bespoke: MILL target player with amount = caster's current life total."
+    }
+  ],
+  "summary": {
+    "resolved": 12,
+    "left": 6
+  }
+}
