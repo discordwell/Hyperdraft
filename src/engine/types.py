@@ -251,6 +251,13 @@ class EventType(Enum):
     YGO_LP_CHANGE = auto()            # Life Points changed
     YGO_DRAW = auto()                 # Draw Phase draw
 
+    # Bloomburrow (BLB) set mechanics. See src/engine/blb_mechanics.py for helpers.
+    OFFSPRING_TRIGGERED = auto()      # Marker: offspring resolved -> 1/1 token copy was created
+    FORAGE_PAID = auto()              # Marker: forage cost was paid (3 GY exiled OR Food sacrificed)
+    EXPEND_4_REACHED = auto()         # Player crossed 4 total mana spent this turn
+    EXPEND_8_REACHED = auto()         # Player crossed 8 total mana spent this turn
+    VALIANT_TARGETED = auto()         # Permanent became target of an ally spell/ability
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to

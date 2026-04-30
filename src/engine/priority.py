@@ -1441,6 +1441,18 @@ class PrioritySystem:
             if self.mana_system and not total_cost.is_free():
                 self.mana_system.pay_cost(action.player_id, total_cost, action.x_value)
 
+            # BLB Expend tracking: record total mana spent on this cast and
+            # fire EXPEND_4/EXPEND_8 threshold events if crossed.
+            mv_spent = int(total_cost.mana_value or 0) + int(action.x_value or 0)
+            if mv_spent > 0:
+                from .blb_mechanics import record_mana_spent_for_expend
+                expend_events = record_mana_spent_for_expend(
+                    self.state, action.player_id, mv_spent, source_id=action.card_id,
+                )
+                if expend_events and self.pipeline:
+                    for ev in expend_events:
+                        self.pipeline.emit(ev)
+
             if self.stack:
                 from .stack import SpellBuilder
                 builder = SpellBuilder(self.state, self.stack)
