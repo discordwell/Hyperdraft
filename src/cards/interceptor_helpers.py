@@ -2725,3 +2725,100 @@ def make_cant_block(
         handler=cant_block_handler,
         duration='while_on_battlefield',
     )
+
+
+# =============================================================================
+# WARP HELPERS
+# =============================================================================
+#
+# Edge of Eternities (EOE) Warp mechanic.
+#
+# Warp lets a card be cast from your hand for an alternate (warp) cost. The
+# resulting permanent is exiled at the beginning of the next end step, and
+# may then be cast again from exile on a later turn (paying its printed mana
+# cost). Each card may only be warp-cast once per game.
+#
+# The actual cast wiring (alternate cost, end-step exile registration) lives
+# in ``src/engine/warp.py`` and ``src/engine/priority.py``. The helper below
+# is for card scripts that want to attach a Warp ability to a card.
+#
+# Usage:
+#
+#     CARD = make_creature(
+#         name="Nova Hellkite",
+#         power=4, toughness=4,
+#         mana_cost="{4}{R}{R}",
+#         text="Flying, haste\nWhen this creature enters, it deals 1 damage "
+#              "to target creature an opponent controls.\nWarp {2}{R} (...)",
+#         setup_interceptors=make_warp_setup(
+#             "{2}{R}",
+#             inner_setup=nova_hellkite_etb_setup,  # optional
+#         ),
+#     )
+#
+# The ``inner_setup`` argument lets you compose Warp with the card's
+# existing ETB/death/etc. setup function. If None, only Warp's bookkeeping
+# is set up (rare — most warp cards have other abilities).
+
+
+def make_warp_setup(
+    warp_cost: str,
+    inner_setup: Optional[Callable[[GameObject, GameState], list[Interceptor]]] = None,
+) -> Callable[[GameObject, GameState], list[Interceptor]]:
+    """Wrap a card's setup_interceptors with Warp end-step-exile bookkeeping.
+
+    The returned function:
+      1. Calls ``inner_setup`` if provided, collecting its interceptors.
+      2. If the object is currently warp-pending (was cast for its warp
+         cost), schedules the one-shot end-step exile interceptor.
+
+    The ``warp_cost`` argument is currently informational; the engine
+    parses the cost from the card's rules text. Passing it explicitly keeps
+    card definitions self-documenting.
+
+    Args:
+        warp_cost: The warp cost string (e.g. "{2}{R}{R}"). Informational.
+        inner_setup: Optional existing setup_interceptors function to compose.
+
+    Returns:
+        A new setup_interceptors function suitable for ``CardDefinition``.
+    """
+    # Imported lazily to avoid a circular import at module load time.
+    from src.engine.warp import (
+        is_warp_pending,
+        schedule_warp_exile_for_object,
+    )
+
+    def _warp_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        interceptors: list[Interceptor] = []
+        if inner_setup is not None:
+            try:
+                inner = inner_setup(obj, state) or []
+                interceptors.extend(inner)
+            except Exception as e:
+                # Don't crash the cast pipeline if the inner setup raises;
+                # log and continue. Matches existing engine resilience.
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Warp inner_setup for %s raised: %s", obj.name, e
+                )
+
+        if is_warp_pending(obj):
+            interceptor = schedule_warp_exile_for_object(state, obj, obj.controller)
+            if interceptor is not None and interceptor.id in state.interceptors:
+                # Already registered against obj.interceptor_ids by
+                # schedule_warp_exile_for_object; do not duplicate here.
+                pass
+
+        return interceptors
+
+    # Annotate so `make_warp_setup` results are easy to spot in debugging.
+    _warp_setup.__name__ = (
+        f"warp_setup({warp_cost})"
+        if inner_setup is None
+        else f"warp_setup({warp_cost})+{getattr(inner_setup, '__name__', 'inner')}"
+    )
+    setattr(_warp_setup, "_warp_cost", warp_cost)
+    setattr(_warp_setup, "_warp_inner", inner_setup)
+    return _warp_setup
+

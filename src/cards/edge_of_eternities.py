@@ -30,6 +30,7 @@ from src.cards.interceptor_helpers import (
     make_end_step_trigger, make_life_gain_trigger, make_tap_trigger,
     make_spell_cast_trigger, make_damage_trigger,
     make_leaves_battlefield_trigger,
+    make_warp_setup,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, all_opponents
 )
@@ -3185,7 +3186,7 @@ ANTICAUSAL_VESTIGE = make_creature(
     colors=set(),
     subtypes={"Eldrazi"},
     text="When this creature leaves the battlefield, draw a card, then you may put a permanent card with mana value less than or equal to the number of lands you control from your hand onto the battlefield tapped.\nWarp {4} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=anticausal_vestige_setup,
+    setup_interceptors=make_warp_setup("{4}", inner_setup=anticausal_vestige_setup),
 )
 
 TEZZERET_CRUEL_CAPTAIN = make_planeswalker(
@@ -3206,7 +3207,7 @@ ALLFATES_STALKER = make_creature(
     colors={Color.WHITE},
     subtypes={"Assassin", "Drix"},
     text="When this creature enters, exile up to one target non-Assassin creature until this creature leaves the battlefield.\nWarp {1}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=allfates_stalker_setup,
+    setup_interceptors=make_warp_setup("{1}{W}", inner_setup=allfates_stalker_setup),
 )
 
 ASTELLI_RECLAIMER = make_creature(
@@ -3216,7 +3217,7 @@ ASTELLI_RECLAIMER = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel", "Warrior"},
     text="Flying\nWhen this creature enters, return target noncreature, nonland permanent card with mana value X or less from your graveyard to the battlefield, where X is the amount of mana spent to cast this creature.\nWarp {2}{W}",
-    setup_interceptors=astelli_reclaimer_setup,
+    setup_interceptors=make_warp_setup("{2}{W}", inner_setup=astelli_reclaimer_setup),
 )
 
 AUXILIARY_BOOSTERS = make_artifact(
@@ -3312,7 +3313,7 @@ EXALTED_SUNBORN = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel", "Wizard"},
     text="Flying, lifelink\nIf one or more tokens would be created under your control, twice that many of those tokens are created instead.\nWarp {1}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=exalted_sunborn_setup,
+    setup_interceptors=make_warp_setup("{1}{W}", inner_setup=exalted_sunborn_setup),
 )
 
 EXOSUIT_SAVIOR = make_creature(
@@ -3350,7 +3351,7 @@ HALIYA_GUIDED_BY_LIGHT = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="Whenever Haliya or another creature or artifact you control enters, you gain 1 life.\nAt the beginning of your end step, draw a card if you've gained 3 or more life this turn.\nWarp {W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=haliya_guided_by_light_setup
+    setup_interceptors=make_warp_setup("{W}", inner_setup=haliya_guided_by_light_setup),
 )
 
 HARDLIGHT_CONTAINMENT = make_enchantment(
@@ -3386,7 +3387,7 @@ KNIGHT_LUMINARY = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
     text="When this creature enters, create a 1/1 white Human Soldier creature token.\nWarp {1}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=knight_luminary_setup,
+    setup_interceptors=make_warp_setup("{1}{W}", inner_setup=knight_luminary_setup),
 )
 
 LIGHTSTALL_INQUISITOR = make_creature(
@@ -3448,7 +3449,7 @@ RAYBLADE_TROOPER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="When this creature enters, put a +1/+1 counter on target creature you control.\nWhenever a nontoken creature you control with a +1/+1 counter on it dies, create a 1/1 white Human Soldier creature token.\nWarp {1}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=rayblade_trooper_setup,
+    setup_interceptors=make_warp_setup("{1}{W}", inner_setup=rayblade_trooper_setup),
 )
 
 REROUTE_SYSTEMS = make_instant(
@@ -3505,7 +3506,7 @@ STARFIELD_SHEPHERD = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel"},
     text="Flying\nWhen this creature enters, search your library for a basic Plains card or a creature card with mana value 1 or less, reveal it, put it into your hand, then shuffle.\nWarp {1}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=starfield_shepherd_setup,
+    setup_interceptors=make_warp_setup("{1}{W}", inner_setup=starfield_shepherd_setup),
 )
 
 STARFIGHTER_PILOT = make_creature(
@@ -3573,7 +3574,7 @@ WEFTBLADE_ENHANCER = make_creature(
     colors={Color.WHITE},
     subtypes={"Artificer", "Drix"},
     text="When this creature enters, put a +1/+1 counter on each of up to two target creatures.\nWarp {2}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=weftblade_enhancer_setup,
+    setup_interceptors=make_warp_setup("{2}{W}", inner_setup=weftblade_enhancer_setup),
 )
 
 ZEALOUS_DISPLAY = make_instant(
@@ -3622,7 +3623,7 @@ CODECRACKER_HOUND = make_creature(
     colors={Color.BLUE},
     subtypes={"Dog"},
     text="When this creature enters, look at the top two cards of your library. Put one into your hand and the other into your graveyard.\nWarp {2}{U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=codecracker_hound_setup,
+    setup_interceptors=make_warp_setup("{2}{U}", inner_setup=codecracker_hound_setup),
 )
 
 CONSULT_THE_STAR_CHARTS = make_instant(
@@ -3763,7 +3764,7 @@ MECHANOZOA = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Jellyfish", "Robot"},
     text="When this creature enters, tap target artifact or creature an opponent controls and put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)\nWarp {2}{U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=mechanozoa_setup,
+    setup_interceptors=make_warp_setup("{2}{U}", inner_setup=mechanozoa_setup),
 )
 
 MENTAL_MODULATION = make_instant(
@@ -3820,7 +3821,7 @@ QUANTUM_RIDDLER = make_creature(
     colors={Color.BLUE},
     subtypes={"Sphinx"},
     text="Flying\nWhen this creature enters, draw a card.\nAs long as you have one or fewer cards in hand, if you would draw one or more cards, you draw that many cards plus one instead.\nWarp {1}{U}",
-    setup_interceptors=quantum_riddler_setup,
+    setup_interceptors=make_warp_setup("{1}{U}", inner_setup=quantum_riddler_setup),
 )
 
 SCOUR_FOR_SCRAP = make_instant(
@@ -3847,7 +3848,7 @@ SINISTER_CRYOLOGIST = make_creature(
     colors={Color.BLUE},
     subtypes={"Jellyfish", "Wizard"},
     text="When this creature enters, target creature an opponent controls gets -3/-0 until end of turn.\nWarp {U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=sinister_cryologist_setup,
+    setup_interceptors=make_warp_setup("{U}", inner_setup=sinister_cryologist_setup),
 )
 
 SPECIMEN_FREIGHTER = make_artifact(
@@ -3865,7 +3866,7 @@ STARBREACH_WHALE = make_creature(
     colors={Color.BLUE},
     subtypes={"Whale"},
     text="Flying\nWhen this creature enters, surveil 2. (Look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)\nWarp {1}{U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=starbreach_whale_setup,
+    setup_interceptors=make_warp_setup("{1}{U}", inner_setup=starbreach_whale_setup),
 )
 
 STARFIELD_VOCALIST = make_creature(
@@ -3875,7 +3876,7 @@ STARFIELD_VOCALIST = make_creature(
     colors={Color.BLUE},
     subtypes={"Bard", "Human"},
     text="If a permanent entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.\nWarp {1}{U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=starfield_vocalist_setup,
+    setup_interceptors=make_warp_setup("{1}{U}", inner_setup=starfield_vocalist_setup),
 )
 
 STARWINDER = make_creature(
@@ -3885,7 +3886,7 @@ STARWINDER = make_creature(
     colors={Color.BLUE},
     subtypes={"Leviathan"},
     text="Whenever a creature you control deals combat damage to a player, you may draw that many cards.\nWarp {2}{U}{U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=starwinder_setup,
+    setup_interceptors=make_warp_setup("{2}{U}{U}", inner_setup=starwinder_setup),
 )
 
 STEELSWARM_OPERATOR = make_artifact_creature(
@@ -4173,7 +4174,7 @@ PERIGEE_BECKONER = make_creature(
     colors={Color.BLACK},
     subtypes={"Horror"},
     text="When this creature enters, until end of turn, another target creature you control gets +2/+0 and gains \"When this creature dies, return it to the battlefield tapped under its owner's control.\"\nWarp {1}{B} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=perigee_beckoner_setup,
+    setup_interceptors=make_warp_setup("{1}{B}", inner_setup=perigee_beckoner_setup),
 )
 
 REQUIEM_MONOLITH = make_artifact(
@@ -4224,7 +4225,7 @@ SUSURIAN_VOIDBORN = make_creature(
     colors={Color.BLACK},
     subtypes={"Soldier", "Vampire"},
     text="Whenever this creature or another creature or artifact you control dies, target opponent loses 1 life and you gain 1 life.\nWarp {B} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=susurian_voidborn_setup,
+    setup_interceptors=make_warp_setup("{B}", inner_setup=susurian_voidborn_setup),
 )
 
 SWARM_CULLER = make_creature(
@@ -4445,7 +4446,7 @@ MEMORIAL_TEAM_LEADER = make_creature(
     colors={Color.RED},
     subtypes={"Kavu", "Soldier"},
     text="During your turn, other creatures you control get +1/+0.\nWarp {1}{R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=memorial_team_leader_setup,
+    setup_interceptors=make_warp_setup("{1}{R}", inner_setup=memorial_team_leader_setup),
 )
 
 MEMORIAL_VAULT = make_artifact(
@@ -4481,7 +4482,7 @@ NOVA_HELLKITE = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Flying, haste\nWhen this creature enters, it deals 1 damage to target creature an opponent controls.\nWarp {2}{R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=nova_hellkite_setup,
+    setup_interceptors=make_warp_setup("{2}{R}", inner_setup=nova_hellkite_setup),
 )
 
 ORBITAL_PLUNGE = make_sorcery(
@@ -4524,7 +4525,7 @@ POSSIBILITY_TECHNICIAN = make_creature(
     colors={Color.RED},
     subtypes={"Artificer", "Kavu"},
     text="Whenever this creature or another Kavu you control enters, exile the top card of your library. For as long as that card remains exiled, you may play it if you control a Kavu.\nWarp {1}{R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=possibility_technician_setup,
+    setup_interceptors=make_warp_setup("{1}{R}", inner_setup=possibility_technician_setup),
 )
 
 RED_TIGER_MECHAN = make_artifact_creature(
@@ -4534,7 +4535,7 @@ RED_TIGER_MECHAN = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Cat", "Robot"},
     text="Haste\nWarp {1}{R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=red_tiger_mechan_setup,
+    setup_interceptors=make_warp_setup("{1}{R}", inner_setup=red_tiger_mechan_setup),
 )
 
 REMNANT_ELEMENTAL = make_creature(
@@ -4667,7 +4668,7 @@ WEFTSTALKER_ARDENT = make_creature(
     colors={Color.RED},
     subtypes={"Artificer", "Drix"},
     text="Whenever another creature or artifact you control enters, this creature deals 1 damage to each opponent.\nWarp {R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=weftstalker_ardent_setup,
+    setup_interceptors=make_warp_setup("{R}", inner_setup=weftstalker_ardent_setup),
 )
 
 ZOOKEEPER_MECHAN = make_artifact_creature(
@@ -4720,7 +4721,7 @@ BROODGUARD_ELITE = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect", "Knight"},
     text="This creature enters with X +1/+1 counters on it.\nWhen this creature leaves the battlefield, put its counters on target creature you control.\nWarp {X}{G} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=broodguard_elite_setup,
+    setup_interceptors=make_warp_setup("{X}{G}", inner_setup=broodguard_elite_setup),
 )
 
 CLOSE_ENCOUNTER = make_instant(
@@ -4744,7 +4745,7 @@ DRIX_FATEMAKER = make_creature(
     colors={Color.GREEN},
     subtypes={"Drix", "Wizard"},
     text="When this creature enters, put a +1/+1 counter on target creature.\nEach creature you control with a +1/+1 counter on it has trample.\nWarp {1}{G} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=drix_fatemaker_setup,
+    setup_interceptors=make_warp_setup("{1}{G}", inner_setup=drix_fatemaker_setup),
 )
 
 EDGE_ROVER = make_artifact_creature(
@@ -4772,7 +4773,7 @@ EUSOCIAL_ENGINEERING = make_enchantment(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     text="Landfall — Whenever a land you control enters, create a 2/2 colorless Robot artifact creature token.\nWarp {1}{G} (You may cast this card from your hand for its warp cost. Exile this enchantment at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=eusocial_engineering_setup,
+    setup_interceptors=make_warp_setup("{1}{G}", inner_setup=eusocial_engineering_setup),
 )
 
 FAMISHED_WORLDSIRE = make_creature(
@@ -4831,7 +4832,7 @@ GERMINATING_WURM = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant", "Wurm"},
     text="When this creature enters, you gain 2 life.\nWarp {1}{G} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=germinating_wurm_setup,
+    setup_interceptors=make_warp_setup("{1}{G}", inner_setup=germinating_wurm_setup),
 )
 
 GLACIER_GODMAW = make_creature(
@@ -4916,7 +4917,7 @@ LOADING_ZONE = make_enchantment(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="If one or more counters would be put on a creature, Spacecraft, or Planet you control, twice that many of each of those kinds of counters are put on it instead.\nWarp {G} (You may cast this card from your hand for its warp cost. Exile this enchantment at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=loading_zone_setup,
+    setup_interceptors=make_warp_setup("{G}", inner_setup=loading_zone_setup),
 )
 
 MELTSTRIDER_EULOGIST = make_creature(
@@ -4953,7 +4954,7 @@ MIGHTFORM_HARMONIZER = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Insect"},
     text="Landfall — Whenever a land you control enters, double the power of target creature you control until end of turn.\nWarp {2}{G} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=mightform_harmonizer_setup,
+    setup_interceptors=make_warp_setup("{2}{G}", inner_setup=mightform_harmonizer_setup),
 )
 
 OUROBOROID = make_creature(
@@ -5167,7 +5168,7 @@ PINNACLE_EMISSARY = make_artifact_creature(
     colors={Color.RED, Color.BLUE},
     subtypes={"Robot"},
     text="Whenever you cast an artifact spell, create a 1/1 colorless Drone artifact creature token with flying and \"This token can block only creatures with flying.\"\nWarp {U/R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=pinnacle_emissary_setup,
+    setup_interceptors=make_warp_setup("{U/R}", inner_setup=pinnacle_emissary_setup),
 )
 
 RAGOST_DEFT_GASTRONAUT = make_creature(
@@ -5283,7 +5284,7 @@ BYGONE_COLOSSUS = make_artifact_creature(
     colors=set(),
     subtypes={"Giant", "Robot"},
     text="Warp {3} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
-    setup_interceptors=bygone_colossus_setup,
+    setup_interceptors=make_warp_setup("{3}", inner_setup=bygone_colossus_setup),
 )
 
 CHROME_COMPANION = make_artifact_creature(
