@@ -1,0 +1,668 @@
+{
+  "set": "murders_karlov_manor.py",
+  "results": [
+    {
+      "fn": "bubble_smuggler_setup",
+      "card_var": "BUBBLE_SMUGGLER",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up trigger",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "burden_of_proof_setup",
+      "card_var": "BURDEN_OF_PROOF",
+      "disposition": "wired_stub",
+      "engine_gap": "aura with conditional base P/T overwrite + can't-block restriction",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "candlestick_setup",
+      "card_var": "CANDLESTICK",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment-granted triggered ability",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "case_of_the_ransacked_lab_setup",
+      "card_var": "CASE_OF_THE_RANSACKED_LAB",
+      "disposition": "wired_stub",
+      "engine_gap": "spell cost reduction + state-based solve tracking",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "conspiracy_unraveler_setup",
+      "card_var": "CONSPIRACY_UNRAVELER",
+      "disposition": "wired_stub",
+      "engine_gap": "alternative casting costs",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "coveted_falcon_setup",
+      "card_var": "COVETED_FALCON",
+      "disposition": "wired_stub",
+      "engine_gap": "target permanent you own but don't control",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "crimestopper_sprite_setup",
+      "card_var": "CRIMESTOPPER_SPRITE",
+      "disposition": "wired_stub",
+      "engine_gap": "targeting + collect-evidence-cost-paid tracking",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "cryptic_coat_setup",
+      "card_var": "CRYPTIC_COAT",
+      "disposition": "wired_stub",
+      "engine_gap": "cloak mechanic + auto-attach + activated bounce",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "curious_inquiry_setup",
+      "card_var": "CURIOUS_INQUIRY",
+      "disposition": "wired_stub",
+      "engine_gap": "aura-granted damage trigger",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "dramatic_accusation_setup",
+      "card_var": "DRAMATIC_ACCUSATION",
+      "disposition": "wired_stub",
+      "engine_gap": "enchanted-creature tracking; shuffle activated ability",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "exit_specialist_setup",
+      "card_var": "EXIT_SPECIALIST",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up trigger + targeting",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "fae_flight_setup",
+      "card_var": "FAE_FLIGHT",
+      "disposition": "wired_stub",
+      "engine_gap": "enchanted-creature reference",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "forensic_researcher_setup",
+      "card_var": "FORENSIC_RESEARCHER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities with cost+target",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "living_conundrum_setup",
+      "card_var": "LIVING_CONUNDRUM",
+      "disposition": "wired_stub",
+      "engine_gap": "replacement on empty-library draw + conditional base P/T",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "lost_in_the_maze_setup",
+      "card_var": "LOST_IN_THE_MAZE",
+      "disposition": "wired_stub",
+      "engine_gap": "X-target selection + conditional stun",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "mistway_spy_setup",
+      "card_var": "MISTWAY_SPY",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up trigger + delayed temporary trigger",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "profts_eidetic_memory_setup",
+      "card_var": "PROFTS_EIDETIC_MEMORY",
+      "disposition": "wired_full",
+      "engine_gap": "cards-drawn-this-turn tracking + targeting",
+      "notes": "Partial logic with engine gap remaining"
+    },
+    {
+      "fn": "agency_coroner_setup",
+      "card_var": "AGENCY_CORONER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with sacrifice cost + suspected check",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "case_of_the_gorgons_kiss_setup",
+      "card_var": "CASE_OF_THE_GORGONS_KISS",
+      "disposition": "wired_stub",
+      "engine_gap": "damaged-this-turn tracking + targeting",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "illicit_masquerade_setup",
+      "card_var": "ILLICIT_MASQUERADE",
+      "disposition": "wired_full",
+      "engine_gap": "exile + return-from-graveyard target choice",
+      "notes": "Partial logic with engine gap remaining"
+    },
+    {
+      "fn": "lead_pipe_setup",
+      "card_var": "LEAD_PIPE",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment-granted death trigger",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "leering_onlooker_setup",
+      "card_var": "LEERING_ONLOOKER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated graveyard abilities",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "polygraph_orb_setup",
+      "card_var": "POLYGRAPH_ORB",
+      "disposition": "wired_full",
+      "engine_gap": "look-top-4 ordered placement",
+      "notes": "Partial logic with engine gap remaining"
+    },
+    {
+      "fn": "repeat_offender_setup",
+      "card_var": "REPEAT_OFFENDER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability + suspect mechanic",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "slimy_dualleech_setup",
+      "card_var": "SLIMY_DUALLEECH",
+      "disposition": "wired_stub",
+      "engine_gap": "target a creature you control with power <= 2",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "case_of_the_crimson_pulse_setup",
+      "card_var": "CASE_OF_THE_CRIMSON_PULSE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "concealed_weapon_setup",
+      "card_var": "CONCEALED_WEAPON",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up trigger + auto-attach",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "connecting_the_dots_setup",
+      "card_var": "CONNECTING_THE_DOTS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "convenient_target_setup",
+      "card_var": "CONVENIENT_TARGET",
+      "disposition": "wired_stub",
+      "engine_gap": "aura attachment target tracking + suspect mechanic",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "expedited_inheritance_setup",
+      "card_var": "EXPEDITED_INHERITANCE",
+      "disposition": "wired_stub",
+      "engine_gap": "optional impulse-draw with may-play permission",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "fugitive_codebreaker_setup",
+      "card_var": "FUGITIVE_CODEBREAKER",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up trigger + dynamic disguise cost",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "goblin_maskmaker_setup",
+      "card_var": "GOBLIN_MASKMAKER",
+      "disposition": "wired_stub",
+      "engine_gap": "cost reduction for face-down spells until end of turn",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "incinerator_of_the_guilty_setup",
+      "card_var": "INCINERATOR_OF_THE_GUILTY",
+      "disposition": "wired_stub",
+      "engine_gap": "collect-evidence variable + AoE to player's permanents",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "knife_setup",
+      "card_var": "KNIFE",
+      "disposition": "wired_stub",
+      "engine_gap": "conditional equipment grant (during your turn)",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "offender_at_large_setup",
+      "card_var": "OFFENDER_AT_LARGE",
+      "disposition": "wired_stub",
+      "engine_gap": "targeting",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "reckless_detective_setup",
+      "card_var": "RECKLESS_DETECTIVE",
+      "disposition": "wired_stub",
+      "engine_gap": "may-sacrifice-or-discard composite cost",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "red_herring_setup",
+      "card_var": "RED_HERRING",
+      "disposition": "wired_stub",
+      "engine_gap": "must-attack restriction + sacrifice activation",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "rubblebelt_braggart_setup",
+      "card_var": "RUBBLEBELT_BRAGGART",
+      "disposition": "wired_stub",
+      "engine_gap": "suspect mechanic",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "airtight_alibi_setup",
+      "card_var": "AIRTIGHT_ALIBI",
+      "disposition": "wired_stub",
+      "engine_gap": "aura attachment target reference + remove-suspect",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "axebane_ferox_setup",
+      "card_var": "AXEBANE_FEROX",
+      "disposition": "wired_stub",
+      "engine_gap": "ward-by-collect-evidence",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "case_of_the_locked_hothouse_setup",
+      "card_var": "CASE_OF_THE_LOCKED_HOTHOUSE",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "case_of_the_trampled_garden_setup",
+      "card_var": "CASE_OF_THE_TRAMPLED_GARDEN",
+      "disposition": "wired_stub",
+      "engine_gap": "distribute counters among up to 2 targets",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "culvert_ambusher_setup",
+      "card_var": "CULVERT_AMBUSHER",
+      "disposition": "wired_stub",
+      "engine_gap": "must-block-if-able restriction + targeting",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "flourishing_bloomkin_setup",
+      "card_var": "FLOURISHING_BLOOMKIN",
+      "disposition": "wired_stub",
+      "engine_gap": "dynamic P/T (count Forests) + library search; turn-face-up trigger",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "greenbelt_radical_setup",
+      "card_var": "GREENBELT_RADICAL",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up trigger",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "hedge_whisperer_setup",
+      "card_var": "HEDGE_WHISPERER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with collect-evidence cost + animate-land",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "a_killer_among_us_setup",
+      "card_var": "A_KILLER_AMONG_US",
+      "disposition": "wired_full",
+      "engine_gap": "secret choice tracking + activated reveal-and-pump",
+      "notes": "Partial logic with engine gap remaining"
+    },
+    {
+      "fn": "nervous_gardener_setup",
+      "card_var": "NERVOUS_GARDENER",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up trigger + library search",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "pompous_gadabout_setup",
+      "card_var": "POMPOUS_GADABOUT",
+      "disposition": "wired_stub",
+      "engine_gap": "conditional hexproof + can't-be-blocked-by-no-name",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "the_pride_of_hull_clade_setup",
+      "card_var": "THE_PRIDE_OF_HULL_CLADE",
+      "disposition": "wired_stub",
+      "engine_gap": "cost reduction + activated grant attack-ignoring-defender",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "rope_setup",
+      "card_var": "ROPE",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment-granted reach + block restriction",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "sample_collector_setup",
+      "card_var": "SAMPLE_COLLECTOR",
+      "disposition": "wired_stub",
+      "engine_gap": "collect-evidence cost + targeting",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "topiary_panther_setup",
+      "card_var": "TOPIARY_PANTHER",
+      "disposition": "wired_stub",
+      "engine_gap": "cycling activated abilities",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "undergrowth_recon_setup",
+      "card_var": "UNDERGROWTH_RECON",
+      "disposition": "wired_stub",
+      "engine_gap": "target land in graveyard + return tapped",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "vengeful_creeper_setup",
+      "card_var": "VENGEFUL_CREEPER",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up trigger + targeting",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "vituughazi_inspector_setup",
+      "card_var": "VITUGHAZI_INSPECTOR",
+      "disposition": "wired_stub",
+      "engine_gap": "collect-evidence-cost-paid tracking + targeting",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "anzrag_the_quakemole_setup",
+      "card_var": "ANZRAG_THE_QUAKEMOLE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "aurelia_the_law_above_setup",
+      "card_var": "AURELIA_THE_LAW_ABOVE",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "buried_in_the_garden_setup",
+      "card_var": "BURIED_IN_THE_GARDEN",
+      "disposition": "wired_stub",
+      "engine_gap": "exile-until-leaves + extra-mana-on-tap",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "coerced_to_kill_setup",
+      "card_var": "COERCED_TO_KILL",
+      "disposition": "wired_stub",
+      "engine_gap": "control-change static + base P/T overwrite + type addition",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "crowdcontrol_warden_setup",
+      "card_var": "CROWDCONTROL_WARDEN",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "curious_cadaver_setup",
+      "card_var": "CURIOUS_CADAVER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "etrata_deadly_fugitive_setup",
+      "card_var": "ETRATA_DEADLY_FUGITIVE",
+      "disposition": "wired_stub",
+      "engine_gap": "cloak-top-of-library mechanic",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "faerie_snoop_setup",
+      "card_var": "FAERIE_SNOOP",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up trigger + ordered placement",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "granite_witness_setup",
+      "card_var": "GRANITE_WITNESS",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up trigger + modal targeting",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "kaya_spirits_justice_setup",
+      "card_var": "KAYA_SPIRITS_JUSTICE",
+      "disposition": "wired_stub",
+      "engine_gap": "planeswalker loyalty abilities + token-becomes-copy",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "kylox_visionary_inventor_setup",
+      "card_var": "KYLOX_VISIONARY_INVENTOR",
+      "disposition": "wired_stub",
+      "engine_gap": "variable sacrifice + exile-X + free-cast",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "kyloxs_voltstrider_setup",
+      "card_var": "KYLOXS_VOLTSTRIDER",
+      "disposition": "wired_stub",
+      "engine_gap": "cast-exiled-with-this + bottom-instead-of-graveyard",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "leyline_of_the_guildpact_setup",
+      "card_var": "LEYLINE_OF_THE_GUILDPACT",
+      "disposition": "wired_stub",
+      "engine_gap": "opening-hand mechanic + all-colors and all-basic-types pervasive query",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "rakish_scoundrel_setup",
+      "card_var": "RAKISH_SCOUNDREL",
+      "disposition": "wired_stub",
+      "engine_gap": "targeting",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "runebrand_juggler_setup",
+      "card_var": "RUNEBRAND_JUGGLER",
+      "disposition": "wired_stub",
+      "engine_gap": "suspect mechanic + targeting",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "sanguine_savior_setup",
+      "card_var": "SANGUINE_SAVIOR",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up trigger + targeting",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "tin_street_gossip_setup",
+      "card_var": "TIN_STREET_GOSSIP",
+      "disposition": "wired_stub",
+      "engine_gap": "restricted mana from tap ability",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "trostani_three_whispers_setup",
+      "card_var": "TROSTANI_THREE_WHISPERS",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities with target + temporary keyword grant",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "vannifar_evolved_enigma_setup",
+      "card_var": "VANNIFAR_EVOLVED_ENIGMA",
+      "disposition": "wired_stub",
+      "engine_gap": "modal choice (cloak vs counters) on combat",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "cryptex_setup",
+      "card_var": "CRYPTEX",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities with collect-evidence cost + counter conditional sacrifice",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "gravestone_strider_setup",
+      "card_var": "GRAVESTONE_STRIDER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities w/ once-per-turn restriction + graveyard activation",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "lumbering_laundry_setup",
+      "card_var": "LUMBERING_LAUNDRY",
+      "disposition": "wired_stub",
+      "engine_gap": "activated information ability",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "magnifying_glass_setup",
+      "card_var": "MAGNIFYING_GLASS",
+      "disposition": "wired_stub",
+      "engine_gap": "activated mana ability + costed investigate",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "thinking_cap_setup",
+      "card_var": "THINKING_CAP",
+      "disposition": "wired_full",
+      "engine_gap": "discounted equip costs by subtype",
+      "notes": "Partial logic with engine gap remaining"
+    },
+    {
+      "fn": "branch_of_vituughazi_setup",
+      "card_var": "BRANCH_OF_VITUGHAZI",
+      "disposition": "wired_stub",
+      "engine_gap": "turn-face-up land trigger + persistent mana",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "commercial_district_setup",
+      "card_var": "COMMERCIAL_DISTRICT",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "elegant_parlor_setup",
+      "card_var": "ELEGANT_PARLOR",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "escape_tunnel_setup",
+      "card_var": "ESCAPE_TUNNEL",
+      "disposition": "wired_stub",
+      "engine_gap": "activated land abilities",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "hedge_maze_setup",
+      "card_var": "HEDGE_MAZE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "lush_portico_setup",
+      "card_var": "LUSH_PORTICO",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "meticulous_archive_setup",
+      "card_var": "METICULOUS_ARCHIVE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "public_thoroughfare_setup",
+      "card_var": "PUBLIC_THOROUGHFARE",
+      "disposition": "wired_stub",
+      "engine_gap": "sacrifice-unless-pay alternative cost on ETB",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "raucous_theater_setup",
+      "card_var": "RAUCOUS_THEATER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "scene_of_the_crime_setup",
+      "card_var": "SCENE_OF_THE_CRIME",
+      "disposition": "wired_stub",
+      "engine_gap": "complex activated abilities + sacrifice draw",
+      "notes": "Stub returns [] due to engine gap"
+    },
+    {
+      "fn": "shadowy_backstreet_setup",
+      "card_var": "SHADOWY_BACKSTREET",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "thundering_falls_setup",
+      "card_var": "THUNDERING_FALLS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "undercity_sewers_setup",
+      "card_var": "UNDERCITY_SEWERS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "underground_mortuary_setup",
+      "card_var": "UNDERGROUND_MORTUARY",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    }
+  ],
+  "summary": {
+    "wired_full": 20,
+    "wired_stub": 74,
+    "skipped": 0
+  }
+}

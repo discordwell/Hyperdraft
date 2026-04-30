@@ -195,7 +195,17 @@ class PrioritySystem:
         if not self.priority_player:
             return
 
+        iteration_cap = 5000
+        iterations = 0
         while True:
+            iterations += 1
+            if iterations > iteration_cap:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "PrioritySystem: priority loop hit iteration cap (%d); "
+                    "bailing out to advance game. Likely an infinite trigger "
+                    "or interceptor loop — investigate.", iteration_cap)
+                return
             # Check SBAs before granting priority
             await self._check_state_based_actions()
             await self._put_triggers_on_stack()
@@ -2392,8 +2402,18 @@ class PrioritySystem:
         """Check and process state-based actions."""
         from .queries import get_toughness, is_creature
 
-        # Loop until no more SBAs
+        # Loop until no more SBAs (with safety cap to prevent infinite loops).
+        # 500 is generous: even a chained-deaths board state shouldn't need
+        # more than a few dozen passes.
+        sba_iter = 0
         while True:
+            sba_iter += 1
+            if sba_iter > 500:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "PrioritySystem: SBA loop hit iteration cap (500); "
+                    "bailing out. Likely a self-perpetuating SBA — investigate.")
+                return
             found_sba = False
 
             # Check player life totals

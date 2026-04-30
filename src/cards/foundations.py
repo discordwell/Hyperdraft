@@ -5311,6 +5311,2528 @@ def _reckless_rage_execute(choice, selected, state: GameState) -> list[Event]:
     return events
 
 
+# --- ARMASAUR GUIDE ---
+# Vigilance (Attacking doesn't cause this creature to tap.) / Whenever you attack with three or more creatures, put a +1/+1 counter on target creature you control.
+def armasaur_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id) if attacker_id else None
+        if not attacker:
+            return False
+        return attacker.controller == obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: whenever-you-attack trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- CELESTIAL ARMOR ---
+# Flash (You may cast this spell any time you could cast an instant.) / When this Equipment enters, attach it to target creature you control. That creature gains hexproof and indestructible until end of turn. / Equipped creature gets +2/+0 and has flying. / Equip {3}{W} ({3}{W}: Attach to target creature you control. Equip only as a sorcery.)
+def celestial_armor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- SUN-BLESSED HEALER ---
+# Kicker {1}{W} (You may pay an additional {1}{W} as you cast this spell.) / Lifelink (Damage dealt by this creature also causes you to gain that much life.) / When this creature enters, if it was kicked, return target nonland permanent card with mana value 2 or less from your graveyard to the battlefield.
+def sunblessed_healer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- VALKYRIE'S CALL ---
+# Whenever a nontoken, non-Angel creature you control dies, return that card to the battlefield under its owner's control with a +1/+1 counter on it. It has flying and is an Angel in addition to its other types.
+def valkyries_call_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED and event.type != EventType.SACRIFICE:
+            return False
+        target_id = event.payload.get('object_id')
+        if target_id == obj.id:
+            return False
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        if target.controller != obj.controller:
+            return False
+        return CardType.CREATURE in target.characteristics.types
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: complex follow-up effect
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- CURATOR OF DESTINIES ---
+# This spell can't be countered. / Flying / When this creature enters, look at the top five cards of your library and separate them into a face-down pile and a face-up pile. An opponent chooses one of those piles. Put that pile into your hand and the other into your graveyard.
+def curator_of_destinies_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- DRAKE HATCHER ---
+# Vigilance, prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.) / Whenever this creature deals combat damage to a player, put that many incubation counters on it. / Remove three incubation counters from this creature: Create a 2/2 blue Drake creature token with flying.
+def drake_hatcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: damage trigger
+        return []
+    return [make_damage_trigger(obj, effect_fn)]
+
+
+# --- GRAPPLING KRAKEN ---
+# Landfall — Whenever a land you control enters, tap target creature an opponent controls and put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)
+def grappling_kraken_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        # Engine-gap: actual subtype/condition matching not implemented.
+        return False
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- KAITO, CUNNING INFILTRATOR ---
+# Whenever a creature you control deals combat damage to a player, put a loyalty counter on Kaito. / +1: Up to one target creature you control can't be blocked this turn. Draw a card, then discard a card. / −2: Create a 2/1 blue Ninja creature token. / −9: You get an emblem with "Whenever a player casts a spell, you create a 2/1 blue Ninja creature token."
+def kaito_cunning_infiltrator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        source_id = event.payload.get('source')
+        source_obj = state.objects.get(source_id) if source_id else None
+        if not source_obj:
+            return False
+        return source_obj.controller == obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: creature-you-control-deals-damage trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- SKYSHIP BUCCANEER ---
+# Flying / Raid — When this creature enters, if you attacked this turn, draw a card.
+def skyship_buccaneer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.DRAW, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- SPHINX OF FORGOTTEN LORE ---
+# Flash (You may cast this spell any time you could cast an instant.) / Flying / Whenever this creature attacks, target instant or sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to that card's mana cost. (You may cast that card from your graveyard for its flashback cost. Then exile it.)
+def sphinx_of_forgotten_lore_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex attack trigger
+        return []
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# --- CRYPT FEASTER ---
+# Menace (This creature can't be blocked except by two or more creatures.) / Threshold — Whenever this creature attacks, if there are seven or more cards in your graveyard, this creature gets +2/+0 until end of turn.
+def crypt_feaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex attack trigger
+        return []
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# --- GUTLESS PLUNDERER ---
+# Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.) / Raid — When this creature enters, if you attacked this turn, look at the top three cards of your library. You may put one of those cards back on top of your library. Put the rest into your graveyard.
+def gutless_plunderer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- MIDNIGHT SNACK ---
+# Raid — At the beginning of your end step, if you attacked this turn, create a Food token. (It's an artifact with "{2}, {T}, Sacrifice this token: You gain 3 life.") / {2}{B}, Sacrifice this enchantment: Target opponent loses X life, where X is the amount of life you gained this turn.
+def midnight_snack_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: end-step trigger
+        return []
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- NINE-LIVES FAMILIAR ---
+# This creature enters with eight revival counters on it if you cast it. / When this creature dies, if it had a revival counter on it, return it to the battlefield with one fewer revival counter on it at the beginning of the next end step.
+def ninelives_familiar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex death effect
+        return []
+    return [make_death_trigger(obj, effect_fn)]
+
+
+# --- TINYBONES, BAUBLE BURGLAR ---
+# Whenever an opponent discards a card, exile it from their graveyard with a stash counter on it. / During your turn, you may play cards you don't own with stash counters on them from exile, and mana of any type can be spent to cast those spells. / {3}{B}, {T}: Each opponent discards a card. Activate only as a sorcery.
+def tinybones_bauble_burglar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DISCARD:
+            return False
+        return event.payload.get('player') != obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: opponent-discards trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- TRAGIC BANSHEE ---
+# Morbid — When this creature enters, target creature an opponent controls gets -1/-1 until end of turn. If a creature died this turn, that creature gets -13/-13 until end of turn instead.
+def tragic_banshee_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- VAMPIRE GOURMAND ---
+# Whenever this creature attacks, you may sacrifice another creature. If you do, draw a card and this creature can't be blocked this turn.
+def vampire_gourmand_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex attack trigger
+        return []
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# --- BATTLESONG BERSERKER ---
+# Whenever you attack, target creature you control gets +1/+0 and gains menace until end of turn. (It can't be blocked except by two or more creatures.)
+def battlesong_berserker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id) if attacker_id else None
+        if not attacker:
+            return False
+        return attacker.controller == obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: whenever-you-attack trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- CHANDRA, FLAMESHAPER ---
+# +2: Add {R}{R}{R}. Exile the top three cards of your library. Choose one. You may play that card this turn. / +1: Create a token that's a copy of target creature you control, except it has haste and "At the beginning of the end step, sacrifice this token." / −4: Chandra deals 8 damage divided as you choose among any number of target creatures and/or planeswalkers.
+def chandra_flameshaper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: end-step trigger
+        return []
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- COURAGEOUS GOBLIN ---
+# Whenever this creature attacks while you control a creature with power 4 or greater, this creature gets +1/+0 and gains menace until end of turn. (It can't be blocked except by two or more creatures.)
+def courageous_goblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex attack trigger
+        return []
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# --- SLUMBERING CERBERUS ---
+# This creature doesn't untap during your untap step. / Morbid — At the beginning of each end step, if a creature died this turn, untap this creature.
+def slumbering_cerberus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: end-step trigger
+        return []
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- STRONGBOX RAIDER ---
+# Raid — When this creature enters, if you attacked this turn, exile the top two cards of your library. Choose one of them. Until the end of your next turn, you may play that card.
+def strongbox_raider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- AMBUSH WOLF ---
+# Flash (You may cast this spell any time you could cast an instant.) / When this creature enters, exile up to one target card from a graveyard.
+def ambush_wolf_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- CACKLING PROWLER ---
+# Ward {2} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.) / Morbid — At the beginning of your end step, if a creature died this turn, put a +1/+1 counter on this creature.
+def cackling_prowler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: end-step trigger
+        return []
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- NEEDLETOOTH PACK ---
+# Morbid — At the beginning of your end step, if a creature died this turn, put two +1/+1 counters on target creature you control.
+def needletooth_pack_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: end-step trigger
+        return []
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- QUILLED GREATWURM ---
+# Trample / Whenever a creature you control deals combat damage during your turn, put that many +1/+1 counters on it. (It must survive to get the counters.) / You may cast this card from your graveyard by removing six counters from among creatures you control in addition to paying its other costs.
+def quilled_greatwurm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        source_id = event.payload.get('source')
+        source_obj = state.objects.get(source_id) if source_id else None
+        if not source_obj:
+            return False
+        return source_obj.controller == obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: creature-you-control-deals-damage trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- SPINNER OF SOULS ---
+# Reach / Whenever another nontoken creature you control dies, you may reveal cards from the top of your library until you reveal a creature card. Put that card into your hand and the rest on the bottom of your library in a random order.
+def spinner_of_souls_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED and event.type != EventType.SACRIFICE:
+            return False
+        target_id = event.payload.get('object_id')
+        if target_id == obj.id:
+            return False
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        if target.controller != obj.controller:
+            return False
+        return CardType.CREATURE in target.characteristics.types
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: complex follow-up effect
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- SYLVAN SCAVENGING ---
+# At the beginning of your end step, choose one — / • Put a +1/+1 counter on target creature you control. / • Create a 3/3 green Raccoon creature token if you control a creature with power 4 or greater.
+def sylvan_scavenging_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: end-step trigger
+        return []
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- ALESHA, WHO LAUGHS AT FATE ---
+# First strike / Whenever Alesha attacks, put a +1/+1 counter on it. / Raid — At the beginning of your end step, if you attacked this turn, return target creature card with mana value less than or equal to Alesha's power from your graveyard to the battlefield.
+def alesha_who_laughs_at_fate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: end-step trigger
+        return []
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- ASHROOT ANIMIST ---
+# Trample / Whenever this creature attacks, another target creature you control gains trample and gets +X/+X until end of turn, where X is this creature's power.
+def ashroot_animist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex attack trigger
+        return []
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# --- PERFORATING ARTIST ---
+# Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.) / Raid — At the beginning of your end step, if you attacked this turn, each opponent loses 3 life unless that player sacrifices a nonland permanent of their choice or discards a card.
+def perforating_artist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: end-step trigger
+        return []
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- WARDENS OF THE CYCLE ---
+# Morbid — At the beginning of your end step, if a creature died this turn, choose one — / • You gain 2 life. / • You draw a card and you lose 1 life.
+def wardens_of_the_cycle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: end-step trigger
+        return []
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- ZIMONE, PARADOX SCULPTOR ---
+# At the beginning of combat on your turn, put a +1/+1 counter on each of up to two target creatures you control. / {G}{U}, {T}: Double the number of each kind of counter on up to two target creatures and/or artifacts you control.
+def zimone_paradox_sculptor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        phase = event.payload.get('phase', '')
+        if phase not in ('combat', 'begin_combat', 'beginning_of_combat'):
+            return False
+        return state.active_player == obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: beginning-of-combat trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- BANISHING LIGHT ---
+# When this enchantment enters, exile target nonland permanent an opponent controls until this enchantment leaves the battlefield.
+def banishing_light_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- MICROMANCER ---
+# When this creature enters, you may search your library for an instant or sorcery card with mana value 1, reveal it, put it into your hand, then shuffle.
+def micromancer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- LILIANA, DREADHORDE GENERAL ---
+# Whenever a creature you control dies, draw a card. / +1: Create a 2/2 black Zombie creature token. / −4: Each player sacrifices two creatures of their choice. / −9: Each opponent chooses a permanent they control of each permanent type and sacrifices the rest.
+def liliana_dreadhorde_general_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED and event.type != EventType.SACRIFICE:
+            return False
+        target_id = event.payload.get('object_id')
+        if target_id == obj.id:
+            return False
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        if target.controller != obj.controller:
+            return False
+        return CardType.CREATURE in target.characteristics.types
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: complex follow-up effect
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- PAINFUL QUANDARY ---
+# Whenever an opponent casts a spell, that player loses 5 life unless they discard a card.
+def painful_quandary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: opponent-cast trigger
+        return []
+    return [make_spell_cast_trigger(obj, effect_fn, controller_only=False)]
+
+
+# --- RUNE-SCARRED DEMON ---
+# Flying / When this creature enters, search your library for a card, put it into your hand, then shuffle.
+def runescarred_demon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- STROMKIRK BLOODTHIEF ---
+# At the beginning of your end step, if an opponent lost life this turn, put a +1/+1 counter on target Vampire you control.
+def stromkirk_bloodthief_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: end-step trigger
+        return []
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- FLAMEWAKE PHOENIX ---
+# Flying, haste / This creature attacks each combat if able. / Ferocious — At the beginning of combat on your turn, if you control a creature with power 4 or greater, you may pay {R}. If you do, return this card from your graveyard to the battlefield.
+def flamewake_phoenix_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        phase = event.payload.get('phase', '')
+        if phase not in ('combat', 'begin_combat', 'beginning_of_combat'):
+            return False
+        return state.active_player == obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: beginning-of-combat trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- FRENZIED GOBLIN ---
+# Whenever this creature attacks, you may pay {R}. If you do, target creature can't block this turn.
+def frenzied_goblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex attack trigger
+        return []
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# --- HEARTFIRE IMMOLATOR ---
+# Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.) / {R}, Sacrifice this creature: It deals damage equal to its power to target creature or planeswalker.
+def heartfire_immolator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: spell-cast trigger
+        return []
+    return [make_spell_cast_trigger(obj, effect_fn)]
+
+
+# --- AFFECTIONATE INDRIK ---
+# When this creature enters, you may have it fight target creature you don't control. (Each deals damage equal to its power to the other.)
+def affectionate_indrik_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- GARRUK'S UPRISING ---
+# When this enchantment enters, if you control a creature with power 4 or greater, draw a card. / Creatures you control have trample. (Each of those creatures can deal excess combat damage to the player or planeswalker it's attacking.) / Whenever a creature you control with power 4 or greater enters, draw a card.
+def garruks_uprising_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- NESSIAN HORNBEETLE ---
+# At the beginning of combat on your turn, if you control another creature with power 4 or greater, put a +1/+1 counter on this creature.
+def nessian_hornbeetle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        phase = event.payload.get('phase', '')
+        if phase not in ('combat', 'begin_combat', 'beginning_of_combat'):
+            return False
+        return state.active_player == obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: beginning-of-combat trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- VIVIEN REID ---
+# +1: Look at the top four cards of your library. You may reveal a creature or land card from among them and put it into your hand. Put the rest on the bottom of your library in a random order. / −3: Destroy target artifact, enchantment, or creature with flying. / −8: You get an emblem with "Creatures you control get +2/+2 and have vigilance, trample, and indestructible."
+def vivien_reid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return make_static_pt_boost(
+        obj, 2, 2,
+        creatures_you_control(obj)
+    )
+
+
+# --- WARY THESPIAN ---
+# When this creature enters or dies, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)
+def wary_thespian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SURVEIL, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- CONSUMING ABERRATION ---
+# Consuming Aberration's power and toughness are each equal to the number of cards in your opponents' graveyards. / Whenever you cast a spell, each opponent reveals cards from the top of their library until they reveal a land card, then puts those cards into their graveyard.
+def consuming_aberration_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: spell-cast trigger
+        return []
+    return [make_spell_cast_trigger(obj, effect_fn)]
+
+
+# --- ADVENTURING GEAR ---
+# Landfall — Whenever a land you control enters, equipped creature gets +2/+2 until end of turn. / Equip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)
+def adventuring_gear_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        # Engine-gap: actual subtype/condition matching not implemented.
+        return False
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- CAMPUS GUIDE ---
+# When this creature enters, you may search your library for a basic land card, reveal it, then shuffle and put that card on top.
+def campus_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- BLOODFELL CAVES ---
+# This land enters tapped. / When this land enters, you gain 1 life. / {T}: Add {B} or {R}.
+def bloodfell_caves_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- BLOSSOMING SANDS ---
+# This land enters tapped. / When this land enters, you gain 1 life. / {T}: Add {G} or {W}.
+def blossoming_sands_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- DISMAL BACKWATER ---
+# This land enters tapped. / When this land enters, you gain 1 life. / {T}: Add {U} or {B}.
+def dismal_backwater_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- JUNGLE HOLLOW ---
+# This land enters tapped. / When this land enters, you gain 1 life. / {T}: Add {B} or {G}.
+def jungle_hollow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- RUGGED HIGHLANDS ---
+# This land enters tapped. / When this land enters, you gain 1 life. / {T}: Add {R} or {G}.
+def rugged_highlands_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- SCOURED BARRENS ---
+# This land enters tapped. / When this land enters, you gain 1 life. / {T}: Add {W} or {B}.
+def scoured_barrens_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- SWIFTWATER CLIFFS ---
+# This land enters tapped. / When this land enters, you gain 1 life. / {T}: Add {U} or {R}.
+def swiftwater_cliffs_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- THORNWOOD FALLS ---
+# This land enters tapped. / When this land enters, you gain 1 life. / {T}: Add {G} or {U}.
+def thornwood_falls_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TRANQUIL COVE ---
+# This land enters tapped. / When this land enters, you gain 1 life. / {T}: Add {W} or {U}.
+def tranquil_cove_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- WIND-SCARRED CRAG ---
+# This land enters tapped. / When this land enters, you gain 1 life. / {T}: Add {R} or {W}.
+def windscarred_crag_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- LEONIN VANGUARD ---
+# At the beginning of combat on your turn, if you control three or more creatures, this creature gets +1/+1 until end of turn and you gain 1 life.
+def leonin_vanguard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        phase = event.payload.get('phase', '')
+        if phase not in ('combat', 'begin_combat', 'beginning_of_combat'):
+            return False
+        return state.active_player == obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: beginning-of-combat trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- PRAYER OF BINDING ---
+# Flash / When this enchantment enters, exile up to one target nonland permanent an opponent controls until this enchantment leaves the battlefield. You gain 2 life.
+def prayer_of_binding_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- BURROG BEFUDDLER ---
+# Flash (You may cast this spell any time you could cast an instant.) / When this creature enters, target creature an opponent controls gets -1/-0 until end of turn.
+def burrog_befuddler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- STARLIGHT SNARE ---
+# Enchant creature / When this Aura enters, tap enchanted creature. / Enchanted creature doesn't untap during its controller's untap step.
+def starlight_snare_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- STORM FLEET SPY ---
+# Raid — When this creature enters, if you attacked this turn, draw a card.
+def storm_fleet_spy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.DRAW, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- BLOODTITHE COLLECTOR ---
+# Flying / When this creature enters, if an opponent lost life this turn, each opponent discards a card.
+def bloodtithe_collector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- CROW OF DARK TIDINGS ---
+# Flying / When this creature enters or dies, mill two cards. (Put the top two cards of your library into your graveyard.)
+def crow_of_dark_tidings_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.MILL, {'player': obj.controller, 'amount': 2}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- DEATH BARON ---
+# Skeletons you control and other Zombies you control get +1/+1 and have deathtouch. (Any amount of damage they deal to a creature is enough to destroy it.)
+def death_baron_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return make_static_pt_boost(
+        obj, 1, 1,
+        other_creatures_with_subtype(obj, "Zombie")
+    )
+
+
+# --- MAALFELD TWINS ---
+# When this creature dies, create two 2/2 black Zombie creature tokens.
+def maalfeld_twins_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex death effect
+        return []
+    return [make_death_trigger(obj, effect_fn)]
+
+
+# --- SKELETON ARCHER ---
+# When this creature enters, it deals 1 damage to any target.
+def skeleton_archer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- VAMPIRE SPAWN ---
+# When this creature enters, each opponent loses 2 life and you gain 2 life.
+def vampire_spawn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 2}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- BATTLE-RATTLE SHAMAN ---
+# At the beginning of combat on your turn, you may have target creature get +2/+0 until end of turn.
+def battlerattle_shaman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        phase = event.payload.get('phase', '')
+        if phase not in ('combat', 'begin_combat', 'beginning_of_combat'):
+            return False
+        return state.active_player == obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: beginning-of-combat trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- DROPKICK BOMBER ---
+# Other Goblins you control get +1/+1. / {R}: Until end of turn, another target Goblin you control gains flying and "When this creature deals combat damage, sacrifice it."
+def dropkick_bomber_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return make_static_pt_boost(
+        obj, 1, 1,
+        other_creatures_with_subtype(obj, "Goblin")
+    )
+
+
+# --- GOBLIN ORIFLAMME ---
+# Attacking creatures you control get +1/+0.
+def goblin_oriflamme_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return make_static_pt_boost(
+        obj, 1, 0,
+        creatures_you_control(obj)
+    )
+
+
+# --- RAPACIOUS DRAGON ---
+# Flying / When this creature enters, create two Treasure tokens. (They're artifacts with "{T}, Sacrifice this token: Add one mana of any color.")
+def rapacious_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TERROR OF MOUNT VELUS ---
+# Flying / Double strike (This creature deals both first-strike and regular combat damage.) / When this creature enters, creatures you control gain double strike until end of turn.
+def terror_of_mount_velus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- VOLLEY VETERAN ---
+# When this creature enters, it deals damage to target creature an opponent controls equal to the number of Goblins you control.
+def volley_veteran_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- AGGRESSIVE MAMMOTH ---
+# Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.) / Other creatures you control have trample.
+def aggressive_mammoth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_keyword_grant(
+        obj, ['trample'],
+        creatures_you_control(obj)
+    )]
+
+
+# --- NEW HORIZONS ---
+# Enchant land / When this Aura enters, put a +1/+1 counter on target creature you control. / Enchanted land has "{T}: Add two mana of any one color."
+def new_horizons_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- PIRATE'S CUTLASS ---
+# When this Equipment enters, attach it to target Pirate you control. / Equipped creature gets +2/+1. / Equip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)
+def pirates_cutlass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- ARCHWAY ANGEL ---
+# Flying / When this creature enters, you gain 2 life for each Gate you control.
+def archway_angel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.LIFE_CHANGE, {'player': obj.controller, 'amount': 2}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- CHARMING PRINCE ---
+# When this creature enters, choose one — / • Scry 2. / • You gain 3 life. / • Exile another target creature you own. Return it to the battlefield under your control at the beginning of the next end step.
+def charming_prince_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SCRY, {'player': obj.controller, 'amount': 2}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- DAWNWING MARSHAL ---
+# Flying / {4}{W}: Creatures you control get +1/+1 until end of turn.
+def dawnwing_marshal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return make_static_pt_boost(
+        obj, 1, 1,
+        creatures_you_control(obj)
+    )
+
+
+# --- STASIS SNARE ---
+# Flash (You may cast this spell any time you could cast an instant.) / When this enchantment enters, exile target creature an opponent controls until this enchantment leaves the battlefield.
+def stasis_snare_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- GATEWAY SNEAK ---
+# Whenever a Gate you control enters, this creature can't be blocked this turn. / Whenever this creature deals combat damage to a player, draw a card.
+def gateway_sneak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: damage trigger
+        return []
+    return [make_damage_trigger(obj, effect_fn)]
+
+
+# --- HARBINGER OF THE TIDES ---
+# You may cast this spell as though it had flash if you pay {2} more to cast it. (You may cast it any time you could cast an instant.) / When this creature enters, you may return target tapped creature an opponent controls to its owner's hand.
+def harbinger_of_the_tides_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- SHIPWRECK DOWSER ---
+# Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.) / When this creature enters, return target instant or sorcery card from your graveyard to your hand.
+def shipwreck_dowser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- VORACIOUS GREATSHARK ---
+# Flash (You may cast this spell any time you could cast an instant.) / When this creature enters, counter target artifact or creature spell.
+def voracious_greatshark_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- DEMONIC PACT ---
+# At the beginning of your upkeep, choose one that hasn't been chosen — / • This enchantment deals 4 damage to any target and you gain 4 life. / • Target opponent discards two cards. / • Draw two cards. / • You lose the game.
+def demonic_pact_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: upkeep trigger
+        return []
+    return [make_upkeep_trigger(obj, effect_fn)]
+
+
+# --- NULLPRIEST OF OBLIVION ---
+# Kicker {3}{B} (You may pay an additional {3}{B} as you cast this spell.) / Lifelink / Menace (This creature can't be blocked except by two or more creatures.) / When this creature enters, if it was kicked, return target creature card from your graveyard to the battlefield.
+def nullpriest_of_oblivion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- VILE ENTOMBER ---
+# Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.) / When this creature enters, search your library for a card, put that card into your graveyard, then shuffle.
+def vile_entomber_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- BALL LIGHTNING ---
+# Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.) / Haste (This creature can attack and {T} as soon as it comes under your control.) / At the beginning of the end step, sacrifice this creature.
+def ball_lightning_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: end-step trigger
+        return []
+    return [make_end_step_trigger(obj, effect_fn)]
+
+
+# --- DRAGON MAGE ---
+# Flying / Whenever this creature deals combat damage to a player, each player discards their hand, then draws seven cards.
+def dragon_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: damage trigger
+        return []
+    return [make_damage_trigger(obj, effect_fn)]
+
+
+# --- DRAGONMASTER OUTCAST ---
+# At the beginning of your upkeep, if you control six or more lands, create a 5/5 red Dragon creature token with flying.
+def dragonmaster_outcast_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: upkeep trigger
+        return []
+    return [make_upkeep_trigger(obj, effect_fn)]
+
+
+# --- HOARDING DRAGON ---
+# Flying / When this creature enters, you may search your library for an artifact card, exile it, then shuffle. / When this creature dies, you may put the exiled card into its owner's hand.
+def hoarding_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- MINDSPARKER ---
+# First strike (This creature deals combat damage before creatures without first strike.) / Whenever an opponent casts a white or blue instant or sorcery spell, this creature deals 2 damage to that player.
+def mindsparker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: opponent-cast trigger
+        return []
+    return [make_spell_cast_trigger(obj, effect_fn, controller_only=False)]
+
+
+# --- RAVENOUS GIANT ---
+# At the beginning of your upkeep, this creature deals 1 damage to you.
+def ravenous_giant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: upkeep trigger
+        return []
+    return [make_upkeep_trigger(obj, effect_fn)]
+
+
+# --- REDCAP GUTTER-DWELLER ---
+# Menace / When this creature enters, create two 1/1 black Rat creature tokens with "This token can't block." / At the beginning of your upkeep, you may sacrifice another creature. If you do, put a +1/+1 counter on this creature and exile the top card of your library. You may play that card this turn.
+def redcap_gutterdweller_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- STROMKIRK NOBLE ---
+# This creature can't be blocked by Humans. / Whenever this creature deals combat damage to a player, put a +1/+1 counter on it.
+def stromkirk_noble_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: damage trigger
+        return []
+    return [make_damage_trigger(obj, effect_fn)]
+
+
+# --- TAUREAN MAULER ---
+# Changeling (This card is every creature type.) / Whenever an opponent casts a spell, you may put a +1/+1 counter on this creature.
+def taurean_mauler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: opponent-cast trigger
+        return []
+    return [make_spell_cast_trigger(obj, effect_fn, controller_only=False)]
+
+
+# --- GNARLBACK RHINO ---
+# Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.) / Whenever you cast a spell that targets this creature, draw a card.
+def gnarlback_rhino_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: spell-cast trigger
+        return []
+    return [make_spell_cast_trigger(obj, effect_fn)]
+
+
+# --- MOLD ADDER ---
+# Whenever an opponent casts a blue or black spell, you may put a +1/+1 counter on this creature.
+def mold_adder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: opponent-cast trigger
+        return []
+    return [make_spell_cast_trigger(obj, effect_fn, controller_only=False)]
+
+
+# --- PREDATOR OOZE ---
+# Indestructible (Damage and effects that say "destroy" don't destroy this creature.) / Whenever this creature attacks, put a +1/+1 counter on it. / Whenever a creature dealt damage by this creature this turn dies, put a +1/+1 counter on this creature.
+def predator_ooze_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex attack trigger
+        return []
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# --- SURRAK, THE HUNT CALLER ---
+# Formidable — At the beginning of combat on your turn, if creatures you control have total power 8 or greater, target creature you control gains haste until end of turn. (It can attack and {T} no matter when it came under your control.)
+def surrak_the_hunt_caller_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        phase = event.payload.get('phase', '')
+        if phase not in ('combat', 'begin_combat', 'beginning_of_combat'):
+            return False
+        return state.active_player == obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: beginning-of-combat trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- VENOM CONNOISSEUR ---
+# Alliance — Whenever another creature you control enters, this creature gains deathtouch until end of turn. If this is the second time this ability has resolved this turn, all creatures you control gain deathtouch until end of turn.
+def venom_connoisseur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        # Engine-gap: actual subtype/condition matching not implemented.
+        return False
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- WILDBORN PRESERVER ---
+# Flash (You may cast this spell any time you could cast an instant.) / Reach (This creature can block creatures with flying.) / Whenever another non-Human creature you control enters, you may pay {X}. When you do, put X +1/+1 counters on this creature.
+def wildborn_preserver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        # Engine-gap: actual subtype/condition matching not implemented.
+        return False
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- DROGSKOL REAVER ---
+# Flying / Double strike (This creature deals both first-strike and regular combat damage.) / Lifelink (Damage dealt by this creature also causes you to gain that much life.) / Whenever you gain life, draw a card.
+def drogskol_reaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: life-gain trigger
+        return []
+    return [make_life_gain_trigger(obj, effect_fn)]
+
+
+# --- HALANA AND ALENA, PARTNERS ---
+# First strike (This creature deals combat damage before creatures without first strike.) / Reach (This creature can block creatures with flying.) / At the beginning of combat on your turn, put X +1/+1 counters on another target creature you control, where X is Halana and Alena's power. That creature gains haste until end of turn.
+def halana_and_alena_partners_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        phase = event.payload.get('phase', '')
+        if phase not in ('combat', 'begin_combat', 'beginning_of_combat'):
+            return False
+        return state.active_player == obj.controller
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: beginning-of-combat trigger
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- OVIKA, ENIGMA GOLIATH ---
+# Flying / Ward—{3}, Pay 3 life. / Whenever you cast a noncreature spell, create X 1/1 red Phyrexian Goblin creature tokens, where X is the mana value of that spell. They gain haste until end of turn.
+def ovika_enigma_goliath_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: spell-cast trigger
+        return []
+    return [make_spell_cast_trigger(obj, effect_fn)]
+
+
+# --- SAVAGE VENTMAW ---
+# Flying / Whenever this creature attacks, add {R}{R}{R}{G}{G}{G}. Until end of turn, you don't lose this mana as steps and phases end.
+def savage_ventmaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex attack trigger
+        return []
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# --- TRYGON PREDATOR ---
+# Flying / Whenever this creature deals combat damage to a player, you may destroy target artifact or enchantment that player controls.
+def trygon_predator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: damage trigger
+        return []
+    return [make_damage_trigger(obj, effect_fn)]
+
+
+# --- DIAMOND MARE ---
+# As this creature enters, choose a color. / Whenever you cast a spell of the chosen color, you gain 1 life.
+def diamond_mare_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: spell-cast trigger
+        return []
+    return [make_spell_cast_trigger(obj, effect_fn)]
+
+
+# --- GATE COLOSSUS ---
+# Affinity for Gates (This spell costs {1} less to cast for each Gate you control.) / This creature can't be blocked by creatures with power 2 or less. / Whenever a Gate you control enters, you may put this card from your graveyard on top of your library.
+def gate_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        # Engine-gap: actual subtype/condition matching not implemented.
+        return False
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- RAMOS, DRAGON ENGINE ---
+# Flying / Whenever you cast a spell, put a +1/+1 counter on Ramos for each of that spell's colors. / Remove five +1/+1 counters from Ramos: Add {W}{W}{U}{U}{B}{B}{R}{R}{G}{G}. Activate only once each turn.
+def ramos_dragon_engine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: spell-cast trigger
+        return []
+    return [make_spell_cast_trigger(obj, effect_fn)]
+
+
+# --- SOUL-GUIDE LANTERN ---
+# When this artifact enters, exile target card from a graveyard. / {T}, Sacrifice this artifact: Exile each opponent's graveyard. / {1}, {T}, Sacrifice this artifact: Draw a card.
+def soulguide_lantern_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TEMPLE OF ABANDON ---
+# This land enters tapped. / When this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.) / {T}: Add {R} or {G}.
+def temple_of_abandon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SCRY, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TEMPLE OF DECEIT ---
+# This land enters tapped. / When this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.) / {T}: Add {U} or {B}.
+def temple_of_deceit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SCRY, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TEMPLE OF ENLIGHTENMENT ---
+# This land enters tapped. / When this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.) / {T}: Add {W} or {U}.
+def temple_of_enlightenment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SCRY, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TEMPLE OF EPIPHANY ---
+# This land enters tapped. / When this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.) / {T}: Add {U} or {R}.
+def temple_of_epiphany_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SCRY, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TEMPLE OF MALADY ---
+# This land enters tapped. / When this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.) / {T}: Add {B} or {G}.
+def temple_of_malady_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SCRY, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TEMPLE OF MALICE ---
+# This land enters tapped. / When this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.) / {T}: Add {B} or {R}.
+def temple_of_malice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SCRY, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TEMPLE OF MYSTERY ---
+# This land enters tapped. / When this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.) / {T}: Add {G} or {U}.
+def temple_of_mystery_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SCRY, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TEMPLE OF PLENTY ---
+# This land enters tapped. / When this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.) / {T}: Add {G} or {W}.
+def temple_of_plenty_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SCRY, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TEMPLE OF SILENCE ---
+# This land enters tapped. / When this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.) / {T}: Add {W} or {B}.
+def temple_of_silence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SCRY, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- TEMPLE OF TRIUMPH ---
+# This land enters tapped. / When this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.) / {T}: Add {R} or {W}.
+def temple_of_triumph_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.SCRY, {'player': obj.controller, 'amount': 1}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- GATEKEEPER OF MALAKIR ---
+# Kicker {B} (You may pay an additional {B} as you cast this spell.) / When this creature enters, if it was kicked, target player sacrifices a creature of their choice.
+def gatekeeper_of_malakir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: complex ETB effect (targeting/modal/conditional)
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- HINTERLAND SANCTIFIER ---
+# Whenever another creature you control enters, you gain 1 life.
+def hinterland_sanctifier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        # Engine-gap: actual subtype/condition matching not implemented.
+        return False
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# =============================================================================
+# SETUP FUNCTIONS - ROUND 2 (Missing-interceptor sweep)
+# =============================================================================
+
+
+# --- SIRE OF SEVEN DEATHS ---
+# First strike, vigilance, menace, trample, reach, lifelink, ward—Pay 7 life.
+def sire_of_seven_deaths_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # All keywords are static; ward is engine-gapped.
+    # engine gap: ward keyword
+    return []
+
+
+# --- CRYSTAL BARRICADE ---
+# Defender / You have hexproof / Prevent all noncombat damage to other creatures you control.
+def crystal_barricade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: hexproof for player + noncombat damage prevention
+    return []
+
+
+# --- HERALD OF ETERNAL DAWN ---
+# Flash, Flying / You can't lose the game and your opponents can't win the game.
+def herald_of_eternal_dawn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: can't-lose / opponents-can't-win replacement effect
+    return []
+
+
+# --- INSPIRING PALADIN ---
+# During your turn, this creature has first strike. / During your turn, creatures you control with +1/+1 counters have first strike.
+def inspiring_paladin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: conditional keyword grant (during your turn, with counters)
+    return []
+
+
+# --- SQUAD RALLIER ---
+# {2}{W}: Look at the top four cards of your library. You may reveal a creature card with power 2 or less...
+def squad_rallier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated ability with library look
+    return []
+
+
+# --- TWINBLADE BLESSING ---
+# Enchant creature; enchanted creature has double strike.
+def twinblade_blessing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: aura double strike grant
+    return []
+
+
+# --- HIGH FAE TRICKSTER ---
+# Flash, Flying / You may cast spells as though they had flash.
+def high_fae_trickster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: cast-as-flash replacement
+    return []
+
+
+# --- RUNE-SEALED WALL ---
+# Defender / {T}: Surveil 1.
+def runesealed_wall_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap-activated surveil ability
+    return []
+
+
+# --- STRIX LOOKOUT ---
+# Flying, vigilance / {1}{U}, {T}: Draw a card, then discard a card.
+def strix_lookout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated rummage ability
+    return []
+
+
+# --- ABYSSAL HARVESTER ---
+# {T}: Exile target creature card from a graveyard...
+def abyssal_harvester_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap activated copy/exile ability
+    return []
+
+
+# --- HUNGRY GHOUL ---
+# {1}, Sacrifice another creature: Put a +1/+1 counter on this creature.
+def hungry_ghoul_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated sacrifice ability
+    return []
+
+
+# --- ZUL ASHUR, LICH LORD ---
+# Ward—Pay 2 life. / {T}: You may cast target Zombie creature card from your graveyard this turn.
+def zul_ashur_lich_lord_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated cast-from-graveyard
+    return []
+
+
+# --- GOBLIN BOARDERS ---
+# Raid — This creature enters with a +1/+1 counter on it if you attacked this turn.
+def goblin_boarders_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: raid condition tracking
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- KELLAN, PLANAR TRAILBLAZER ---
+# {1}{R}: If Kellan is a Scout, becomes Detective... / {2}{R}: If Detective, becomes 3/2 Rogue with double strike.
+def kellan_planar_trailblazer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: type-transform activated abilities
+    return []
+
+
+# --- SOWER OF CHAOS ---
+# {2}{R}: Target creature can't block this turn.
+def sower_of_chaos_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated cant-block effect
+    return []
+
+
+# --- TWINFLAME TYRANT ---
+# Flying / If a source you control would deal damage to an opponent or permanent an opponent controls, it deals double that damage instead.
+def twinflame_tyrant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: damage doubling replacement effect
+    return []
+
+
+# --- LOOT, EXUBERANT EXPLORER ---
+# You may play an additional land each turn. / {4}{G}{G}, {T}: Library look creature ability.
+def loot_exuberant_explorer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: additional land + activated library search
+    return []
+
+
+# --- TREETOP SNARESPINNER ---
+# Reach, deathtouch / {2}{G}: Put a +1/+1 counter on target creature you control.
+def treetop_snarespinner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated counter-add (sorcery speed)
+    return []
+
+
+# --- ELENDA, SAINT OF DUSK ---
+# Lifelink, hexproof from instants / Conditional +1/+1 / +5/+5 based on life total.
+def elenda_saint_of_dusk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: conditional self-pump based on life total
+    return []
+
+
+# --- BANNER OF KINSHIP ---
+# Choose creature type / counters / +1/+1 per fellowship counter.
+def banner_of_kinship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: choose-type ETB + counter-based static boost
+    return []
+
+
+# --- FISHING POLE ---
+# Equipment - bait counters & untap creates fish token.
+def fishing_pole_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: equipment with granted ability and untap trigger
+    return []
+
+
+# --- LEYLINE AXE ---
+# Opening hand free play / Equipped creature gets +1/+1 has double strike & trample / Equip {3}.
+def leyline_axe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: equipment static buff + opening hand replacement
+    return []
+
+
+# --- QUICK-DRAW KATANA ---
+# During your turn, equipped creature gets +2/+0 and has first strike. / Equip {2}.
+def quickdraw_katana_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: equipment conditional boost + first strike grant
+    return []
+
+
+# --- RAVENOUS AMULET ---
+# {1},{T}, Sac creature: Draw card + soul counter / {4},{T}, Sac amulet: Each opponent loses life.
+def ravenous_amulet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: sacrifice-based activated abilities
+    return []
+
+
+# --- SOULSTONE SANCTUARY ---
+# {T}: Add {C}. / {4}: Becomes 3/3 creature with vigilance and all creature types.
+def soulstone_sanctuary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: land-becomes-creature animation
+    return []
+
+
+# --- AJANI, CALLER OF THE PRIDE ---
+# +1: +1/+1 counter / -3: flying + double strike / -8: X 2/2 cat tokens.
+def ajani_caller_of_the_pride_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: planeswalker loyalty abilities
+    return []
+
+
+# --- CATHAR COMMANDO ---
+# Flash / {1}, Sacrifice this creature: Destroy target artifact or enchantment.
+def cathar_commando_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: sacrifice activated destroy
+    return []
+
+
+# --- GIADA, FONT OF HOPE ---
+# Flying, vigilance / Other Angels enter with extra +1/+1 counters / {T}: Add {W} for Angel spells.
+def giada_font_of_hope_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: ETB-with-extra-counters replacement + restricted mana
+    return []
+
+
+# --- IMPRISONED IN THE MOON ---
+# Enchant creature, land, or planeswalker / Enchanted permanent becomes colorless land with {T}: Add {C}.
+def imprisoned_in_the_moon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: type-overwriting aura
+    return []
+
+
+# --- MOCKING SPRITE ---
+# Flying / Instant and sorcery spells you cast cost {1} less.
+def mocking_sprite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: cost reduction static
+    return []
+
+
+# --- OMNISCIENCE ---
+# You may cast spells from your hand without paying their mana costs.
+def omniscience_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: free-cast replacement for owner
+    return []
+
+
+# --- SPECTRAL SAILOR ---
+# Flash, Flying / {3}{U}: Draw a card.
+def spectral_sailor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated draw
+    return []
+
+
+# --- TOLARIAN TERROR ---
+# Costs {1} less for each instant/sorcery in graveyard / Ward {2}.
+def tolarian_terror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: dynamic cost reduction + ward
+    return []
+
+
+# --- WITNESS PROTECTION ---
+# Enchant creature / Enchanted creature loses abilities, becomes 1/1 Citizen.
+def witness_protection_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: type/ability overwrite aura
+    return []
+
+
+# --- DIREGRAF GHOUL ---
+# This creature enters tapped.
+def diregraf_ghoul_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- REASSEMBLING SKELETON ---
+# {1}{B}: Return this card from your graveyard to the battlefield tapped.
+def reassembling_skeleton_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: graveyard activated recursion
+    return []
+
+
+# --- AXGARD CAVALRY ---
+# {T}: Target creature gains haste until end of turn.
+def axgard_cavalry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap activated keyword grant
+    return []
+
+
+# --- ETALI, PRIMAL STORM ---
+# Whenever Etali attacks, exile top card of each library, may cast any of those spells free.
+def etali_primal_storm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: exile-top-of-each-library + may-cast-free
+        return []
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# --- FANATICAL FIREBRAND ---
+# Haste / {T}, Sacrifice this creature: It deals 1 damage to any target.
+def fanatical_firebrand_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap-and-sacrifice activated burn
+    return []
+
+
+# --- KRENKO, MOB BOSS ---
+# {T}: Create X 1/1 red Goblin tokens, where X is the number of Goblins you control.
+def krenko_mob_boss_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap activated dynamic token creation
+    return []
+
+
+# --- SHIVAN DRAGON ---
+# Flying / {R}: This creature gets +1/+0 until end of turn.
+def shivan_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated self-pump
+    return []
+
+
+# --- BLANCHWOOD ARMOR ---
+# Enchant creature / Enchanted creature gets +1/+1 for each Forest you control.
+def blanchwood_armor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: aura with dynamic boost based on permanent count
+    return []
+
+
+# --- DOUBLING SEASON ---
+# Doubles tokens and counters for you.
+def doubling_season_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: doubling replacement effect for tokens and counters
+    return []
+
+
+# --- GHALTA, PRIMAL HUNGER ---
+# Costs {X} less to cast where X is total power of creatures you control. / Trample.
+def ghalta_primal_hunger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: dynamic cost reduction
+    return []
+
+
+# --- GNARLID COLONY ---
+# Kicker {2}{G} / If kicked enters with two +1/+1 counters / Each creature you control with +1/+1 counter has trample.
+def gnarlid_colony_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: kicker + conditional keyword grant
+    return []
+
+
+# --- LLANOWAR ELVES ---
+# {T}: Add {G}.
+def llanowar_elves_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap for mana ability is intrinsic
+    return []
+
+
+# --- MILD-MANNERED LIBRARIAN ---
+# {3}{G}: Becomes Werewolf with two +1/+1 counters and you draw a card. Activate only once.
+def mildmannered_librarian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: one-shot activated transform
+    return []
+
+
+# --- SCAVENGING OOZE ---
+# {G}: Exile target card from a graveyard. If creature, +1/+1 counter and gain 1 life.
+def scavenging_ooze_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: graveyard exile activated ability
+    return []
+
+
+# --- MULDROTHA, THE GRAVETIDE ---
+# Each turn may play a land and cast a permanent spell of each permanent type from graveyard.
+def muldrotha_the_gravetide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: cast-from-graveyard with type tracking
+    return []
+
+
+# --- PROGENITUS ---
+# Protection from everything / If put into a graveyard, shuffle into library instead.
+def progenitus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: protection-from-everything + graveyard replacement
+    return []
+
+
+# --- RUBY, DARING TRACKER ---
+# Haste / Whenever Ruby attacks while you control creature with power 4+, +2/+2 / {T}: Add {R} or {G}.
+def ruby_daring_tracker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: conditional self-pump on attack
+        return []
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# --- THOUSAND-YEAR STORM ---
+# Whenever you cast an instant or sorcery, copy it for each previously cast.
+def thousandyear_storm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: spell-copy-on-cast based on prior cast count
+        return []
+    return [make_spell_cast_trigger(
+        obj, effect_fn,
+        controller_only=True,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY}
+    )]
+
+
+# --- BURNISHED HART ---
+# {3}, Sacrifice this creature: Search your library for up to two basic land cards, put them onto the battlefield tapped.
+def burnished_hart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: sacrifice activated land search
+    return []
+
+
+# --- GOLDVEIN PICK ---
+# Equipped creature gets +1/+1 / Whenever equipped creature deals combat damage to a player, create a Treasure / Equip {1}.
+def goldvein_pick_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: equipment +1/+1 + damage trigger
+    return []
+
+
+# --- HERALDIC BANNER ---
+# As enters, choose a color / Creatures of chosen color get +1/+0 / {T}: Add chosen color.
+def heraldic_banner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: choose-color ETB + dynamic pump
+    return []
+
+
+# --- JUGGERNAUT ---
+# Attacks each combat if able / Can't be blocked by Walls.
+def juggernaut_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: must-attack restriction + cant-be-blocked-by-walls
+    return []
+
+
+# --- SWIFTFOOT BOOTS ---
+# Equipped creature has hexproof and haste / Equip {1}.
+def swiftfoot_boots_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: equipment static keyword grant
+    return []
+
+
+# --- EVOLVING WILDS ---
+# {T}, Sacrifice: Search your library for a basic land, put it onto the battlefield tapped.
+def evolving_wilds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: sacrifice land for land search
+    return []
+
+
+# --- ROGUE'S PASSAGE ---
+# {T}: Add {C}. / {4}, {T}: Target creature can't be blocked this turn.
+def rogues_passage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated unblockable
+    return []
+
+
+# --- SECLUDED COURTYARD ---
+# As enters, choose a creature type / {T}: Add {C} / {T}: Add any color for chosen-type creature spells.
+def secluded_courtyard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: choose-type ETB + restricted color mana
+    return []
+
+
+# --- ANCESTOR DRAGON ---
+# Flying / Whenever creatures you control attack, you gain 1 life for each.
+def ancestor_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id) if attacker_id else None
+        if not attacker:
+            return False
+        return attacker.controller == obj.controller
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id
+            )]
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- INGENIOUS LEONIN ---
+# {3}{W}: Put a +1/+1 counter on another target attacking creature you control. If Cat, first strike.
+def ingenious_leonin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated targeted counter + conditional keyword
+    return []
+
+
+# --- JAZAL GOLDMANE ---
+# First strike / {3}{W}{W}: Attacking creatures get +X/+X where X is number of attackers.
+def jazal_goldmane_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated dynamic anthem
+    return []
+
+
+# --- PACIFISM ---
+# Enchant creature / Enchanted creature can't attack or block.
+def pacifism_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: aura cant-attack/cant-block
+    return []
+
+
+# --- EATEN BY PIRANHAS ---
+# Flash / Enchant creature / Loses abilities, becomes 1/1 black Skeleton.
+def eaten_by_piranhas_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: aura type/ability overwrite
+    return []
+
+
+# --- KITESAIL CORSAIR ---
+# Has flying as long as it's attacking.
+def kitesail_corsair_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: conditional flying while attacking
+    return []
+
+
+# --- MYSTIC ARCHAEOLOGIST ---
+# {3}{U}{U}: Draw two cards.
+def mystic_archaeologist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated draw
+    return []
+
+
+# --- CROSSWAY TROUBLEMAKERS ---
+# Attacking Vampires you control have deathtouch and lifelink. / Vampire dies, may pay 2 life: draw a card.
+def crossway_troublemakers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        target_id = event.payload.get('object_id')
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if "Vampire" not in target.characteristics.subtypes:
+            return False
+        return True
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # engine gap: may-pay-2-life-draw on Vampire death
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- SUSPICIOUS SHAMBLER ---
+# {4}{B}{B}, Exile this card from your graveyard: Create two 2/2 black Zombie tokens.
+def suspicious_shambler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: graveyard activated token creation
+    return []
+
+
+# --- UNTAMED HUNGER ---
+# Enchant creature / Enchanted creature gets +2/+1 and has menace.
+def untamed_hunger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: aura +2/+1 + keyword grant
+    return []
+
+
+# --- VAMPIRE INTERLOPER ---
+# Flying / This creature can't block.
+def vampire_interloper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: cant-block static
+    return []
+
+
+# --- VAMPIRE NEONATE ---
+# {2}, {T}: Each opponent loses 1 life and you gain 1 life.
+def vampire_neonate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated drain
+    return []
+
+
+# --- CARNELIAN ORB OF DRAGONKIND ---
+# {T}: Add {R}. If spent on Dragon, gains haste.
+def carnelian_orb_of_dragonkind_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap for restricted mana with conditional haste grant
+    return []
+
+
+# --- DRAGONLORD'S SERVANT ---
+# Dragon spells you cast cost {1} less to cast.
+def dragonlords_servant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: cost reduction by subtype
+    return []
+
+
+# --- GOBLIN SMUGGLER ---
+# Haste / {T}: Another target creature with power 2 or less can't be blocked this turn.
+def goblin_smuggler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated unblockable for target
+    return []
+
+
+# --- KARGAN DRAGONRIDER ---
+# As long as you control a Dragon, this creature has flying.
+def kargan_dragonrider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def affects_self(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        # Check controller has a Dragon
+        for o in state.objects.values():
+            if (o.controller == obj.controller and
+                    o.zone == ZoneType.BATTLEFIELD and
+                    "Dragon" in o.characteristics.subtypes):
+                return True
+        return False
+
+    return [make_keyword_grant(obj, ['flying'], affects_self)]
+
+
+# --- DRUID OF THE COWL ---
+# {T}: Add {G}.
+def druid_of_the_cowl_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap for mana is intrinsic
+    return []
+
+
+# --- THRASHING BRONTODON ---
+# {1}, Sacrifice this creature: Destroy target artifact or enchantment.
+def thrashing_brontodon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: sacrifice activated destroy
+    return []
+
+
+# --- WILDHEART INVOKER ---
+# {8}: Target creature gets +5/+5 and gains trample.
+def wildheart_invoker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated pump + keyword grant
+    return []
+
+
+# --- GOBLIN FIREBOMB ---
+# Flash / {7}, {T}, Sacrifice: Destroy target permanent.
+def goblin_firebomb_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated destroy
+    return []
+
+
+# --- UNCHARTED HAVEN ---
+# Enters tapped / Choose color / {T}: Add chosen color.
+def uncharted_haven_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: choose-color ETB + restricted mana
+    return []
+
+
+# --- ANGELIC DESTINY ---
+# Enchant creature / +4/+4, flying, first strike, Angel / Returns to hand on dies.
+def angelic_destiny_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: aura with multiple effects + dies trigger
+    return []
+
+
+# --- BALLYRUSH BANNERET ---
+# Kithkin spells and Soldier spells you cast cost {1} less.
+def ballyrush_banneret_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: cost reduction by multiple subtypes
+    return []
+
+
+# --- CRUSADER OF ODRIC ---
+# Power and toughness equal to number of creatures you control.
+def crusader_of_odric_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: dynamic P/T from creature count
+    return []
+
+
+# --- FELIDAR CUB ---
+# Sacrifice this creature: Destroy target enchantment.
+def felidar_cub_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: sacrifice activated destroy
+    return []
+
+
+# --- KNIGHT OF GRACE ---
+# First strike / Hexproof from black / +1/+0 as long as any player controls a black permanent.
+def knight_of_grace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: hexproof from color + conditional pump
+    return []
+
+
+# --- ARCANIS THE OMNIPOTENT ---
+# {T}: Draw three cards. / {2}{U}{U}: Return to hand.
+def arcanis_the_omnipotent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap activated draw 3
+    return []
+
+
+# --- DICTATE OF KRUPHIX ---
+# Flash / At the beginning of each player's draw step, that player draws an additional card.
+def dictate_of_kruphix_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        return event.payload.get('phase') == 'draw'
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        # Each player draws additional card during their own draw step
+        active_player = state.active_player
+        if not active_player:
+            return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.DRAW,
+                payload={'player': active_player, 'amount': 1},
+                source=obj.id
+            )]
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- FOG BANK ---
+# Defender, Flying / Prevent all combat damage to and dealt by this creature.
+def fog_bank_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: damage prevention to and from self
+    return []
+
+
+# --- SPHINX OF THE FINAL WORD ---
+# Uncounterable / Flying, hexproof / Instant and sorcery spells you control can't be countered.
+def sphinx_of_the_final_word_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: counter prevention for owner's spells
+    return []
+
+
+# --- TEMPEST DJINN ---
+# Flying / +1/+0 for each basic Island you control.
+def tempest_djinn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: dynamic pump from land count
+    return []
+
+
+# --- DESECRATION DEMON ---
+# Flying / At each combat any opponent may sac creature; if so, tap and +1/+1 counter.
+def desecration_demon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: combat-step opponent may sacrifice
+    return []
+
+
+# --- KNIGHT OF MALICE ---
+# First strike / Hexproof from white / +1/+0 as long as any player controls a white permanent.
+def knight_of_malice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: hexproof from color + conditional pump
+    return []
+
+
+# --- MYOJIN OF NIGHT'S REACH ---
+# Enters with divinity counter if cast / Indestructible while it has counter / Remove counter: opponents discard hand.
+def myojin_of_nights_reach_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: ETB-with-conditional-counter + counter-removal activated
+    return []
+
+
+# --- VAMPIRIC RITES ---
+# {1}{B}, Sacrifice a creature: You gain 1 life and draw a card.
+def vampiric_rites_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: sacrifice activated drain+draw
+    return []
+
+
+# --- WISHCLAW TALISMAN ---
+# Enters with three wish counters / {1}, {T}, Remove counter: Tutor, opponent gains control.
+def wishclaw_talisman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: counter ETB + control-change tutor
+    return []
+
+
+# --- GHITU LAVARUNNER ---
+# As long as 2+ instant/sorcery in graveyard, gets +1/+0 and has haste.
+def ghitu_lavarunner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: conditional self-pump + haste from graveyard count
+    return []
+
+
+# --- GIANT CINDERMAW ---
+# Trample / Players can't gain life.
+def giant_cindermaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: prevent-all-life-gain replacement
+    return []
+
+
+# --- FYNN, THE FANGBEARER ---
+# Deathtouch / Whenever creature you control with deathtouch deals combat damage to player, that player gets two poison counters.
+def fynn_the_fangbearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: poison counter mechanic
+    return []
+
+
+# --- HEROES' BANE ---
+# Enters with four +1/+1 counters / {2}{G}{G}: Put X +1/+1 counters on this creature, X = its power.
+def heroes_bane_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: ETB-with-counters + activated dynamic counter add
+    return []
+
+
+# --- ORDEAL OF NYLEA ---
+# Enchant creature / Whenever attacks: +1/+1 counter / If 3+, sacrifice / On sac: search basic lands.
+def ordeal_of_nylea_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: aura attack trigger + sacrifice trigger
+    return []
+
+
+# --- VIZIER OF THE MENAGERIE ---
+# Look at top card any time / May cast creatures from top / Spend any mana to cast creatures.
+def vizier_of_the_menagerie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: cast-from-top + any-mana for creatures
+    return []
+
+
+# --- AYLI, ETERNAL PILGRIM ---
+# Deathtouch / {1}, Sac creature: gain life equal to toughness / {1}{W}{B}, Sac: exile target nonland (10+ over starting).
+def ayli_eternal_pilgrim_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: sacrifice activated abilities
+    return []
+
+
+# --- DRYAD MILITANT ---
+# Hybrid {G/W} / Instant or sorcery cards exiled instead of going to graveyard.
+def dryad_militant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: replacement effect graveyard->exile
+    return []
+
+
+# --- ENIGMA DRAKE ---
+# Flying / Power equal to number of instant and sorcery cards in your graveyard.
+def enigma_drake_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: dynamic power based on graveyard count
+    return []
+
+
+# --- IMMERSTURM PREDATOR ---
+# Flying / Tapped: exile graveyard card + counter / Sacrifice creature: indestructible + tap.
+def immersturm_predator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap trigger + sacrifice activated
+    return []
+
+
+# --- PRIME SPEAKER ZEGANA ---
+# Enters with X +1/+1 counters where X = greatest power among other creatures / Draw cards equal to its power.
+def prime_speaker_zegana_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: ETB-with-conditional-counters + draw-equal-to-power
+        return []
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- BASILISK COLLAR ---
+# Equipped creature has deathtouch and lifelink / Equip {2}.
+def basilisk_collar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: equipment keyword grant
+    return []
+
+
+# --- CULTIVATOR'S CARAVAN ---
+# {T}: Add one mana of any color / Crew 3.
+def cultivators_caravan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: vehicle crew + tap for any-color mana
+    return []
+
+
+# --- DARKSTEEL COLOSSUS ---
+# Trample, indestructible / Shuffles into library if would go to graveyard.
+def darksteel_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: graveyard replacement to library
+    return []
+
+
+# --- FELDON'S CANE ---
+# {T}, Exile this artifact: Shuffle your graveyard into your library.
+def feldons_cane_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap-and-exile activated
+    return []
+
+
+# --- FIRESHRIEKER ---
+# Equipped creature has double strike / Equip {2}.
+def fireshrieker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: equipment keyword grant
+    return []
+
+
+# --- MAZEMIND TOME ---
+# {T}, page counter: Scry 1 / {2},{T}, page counter: Draw card / 4 counters: exile, gain 4 life.
+def mazemind_tome_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: counter-tracking activated abilities
+    return []
+
+
+# --- PYROMANCER'S GOGGLES ---
+# {T}: Add {R}. If spent on red instant/sorcery, copy that spell.
+def pyromancers_goggles_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap mana with conditional copy
+    return []
+
+
+# --- SORCEROUS SPYGLASS ---
+# As enters, look at opponent's hand and choose a name / Activated abilities of sources with that name can't be activated.
+def sorcerous_spyglass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: choose-name + activation prohibition
+    return []
+
+
+# --- STEEL HELLKITE ---
+# Flying / {2}: +1/+0 / {X}: Destroy nonland permanents with mana value X whose controller took combat damage from this.
+def steel_hellkite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: combat damage tracking + activated mass destroy
+    return []
+
+
+# --- THREE TREE MASCOT ---
+# Changeling / {1}: Add one mana of any color. Activate only once each turn.
+def three_tree_mascot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated mana ability with use-limit
+    return []
+
+
+# --- AZORIUS GUILDGATE ---
+# Enters tapped / {T}: Add {W} or {U}.
+def azorius_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- BOROS GUILDGATE ---
+# Enters tapped / {T}: Add {R} or {W}.
+def boros_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- CRAWLING BARRENS ---
+# {T}: Add {C}. / {4}: Two +1/+1 counters; may become 0/0 Elemental.
+def crawling_barrens_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: land animation with counter buildup
+    return []
+
+
+# --- CRYPTIC CAVES ---
+# {T}: Add {C}. / {1},{T}, Sac: Draw a card if 5+ lands.
+def cryptic_caves_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: conditional sacrifice for draw
+    return []
+
+
+# --- DEMOLITION FIELD ---
+# {T}: Add {C}. / {2},{T}, Sac: Destroy nonbasic land; both players may search for basic.
+def demolition_field_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: sacrifice activated land-destroy
+    return []
+
+
+# --- DIMIR GUILDGATE ---
+# Enters tapped / {T}: Add {U} or {B}.
+def dimir_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- GOLGARI GUILDGATE ---
+# Enters tapped / {T}: Add {B} or {G}.
+def golgari_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- GRUUL GUILDGATE ---
+# Enters tapped / {T}: Add {R} or {G}.
+def gruul_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- IZZET GUILDGATE ---
+# Enters tapped / {T}: Add {U} or {R}.
+def izzet_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- ORZHOV GUILDGATE ---
+# Enters tapped / {T}: Add {W} or {B}.
+def orzhov_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- RAKDOS GUILDGATE ---
+# Enters tapped / {T}: Add {B} or {R}.
+def rakdos_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- SELESNYA GUILDGATE ---
+# Enters tapped / {T}: Add {G} or {W}.
+def selesnya_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- SIMIC GUILDGATE ---
+# Enters tapped / {T}: Add {G} or {U}.
+def simic_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- CONFISCATE ---
+# Enchant permanent / You control enchanted permanent.
+def confiscate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: aura control-change
+    return []
+
+
+# --- GRATUITOUS VIOLENCE ---
+# If a creature you control would deal damage, it deals double instead.
+def gratuitous_violence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: damage doubling replacement
+    return []
+
+
+# --- UNFLINCHING COURAGE ---
+# Enchant creature / +2/+2, trample, lifelink.
+def unflinching_courage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: aura pump + multiple keyword grants
+    return []
+
+
+# --- EXPEDITION MAP ---
+# {2}, {T}, Sacrifice this artifact: Search your library for a land card.
+def expedition_map_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: sacrifice activated tutor
+    return []
+
+
+# --- GILDED LOTUS ---
+# {T}: Add three mana of any one color.
+def gilded_lotus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap for any-color mana (activated)
+    return []
+
+
+# --- HEDRON ARCHIVE ---
+# {T}: Add {C}{C}. / {2},{T}, Sac: Draw two cards.
+def hedron_archive_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap for mana + sacrifice for draw
+    return []
+
+
+# --- MAZE'S END ---
+# Enters tapped / {T}: Add {C}. / {3},{T}, Return to hand: Search for a Gate; if 10 different gates, win the game.
+def mazes_end_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(EventType.TAP, {'object_id': obj.id}, obj.id)]
+    return [make_etb_trigger(obj, effect_fn)]
+
+
 # =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
@@ -5322,6 +7844,7 @@ SIRE_OF_SEVEN_DEATHS = make_creature(
     colors=set(),
     subtypes={"Eldrazi"},
     text="First strike, vigilance\nMenace, trample\nReach, lifelink\nWard—Pay 7 life.",
+    setup_interceptors=sire_of_seven_deaths_setup,
 )
 
 ARAHBO_THE_FIRST_FANG = make_creature(
@@ -5342,6 +7865,7 @@ ARMASAUR_GUIDE = make_creature(
     colors={Color.WHITE},
     subtypes={"Dinosaur"},
     text="Vigilance (Attacking doesn't cause this creature to tap.)\nWhenever you attack with three or more creatures, put a +1/+1 counter on target creature you control.",
+    setup_interceptors=armasaur_guide_setup,
 )
 
 CAT_COLLECTOR = make_creature(
@@ -5359,6 +7883,7 @@ CELESTIAL_ARMOR = make_artifact(
     mana_cost="{2}{W}",
     text="Flash (You may cast this spell any time you could cast an instant.)\nWhen this Equipment enters, attach it to target creature you control. That creature gains hexproof and indestructible until end of turn.\nEquipped creature gets +2/+0 and has flying.\nEquip {3}{W} ({3}{W}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=celestial_armor_setup,
 )
 
 CLAWS_OUT = make_instant(
@@ -5375,6 +7900,7 @@ CRYSTAL_BARRICADE = make_artifact_creature(
     colors={Color.WHITE},
     subtypes={"Wall"},
     text="Defender (This creature can't attack.)\nYou have hexproof. (You can't be the target of spells or abilities your opponents control.)\nPrevent all noncombat damage that would be dealt to other creatures you control.",
+    setup_interceptors=crystal_barricade_setup,
 )
 
 DAUNTLESS_VETERAN = make_creature(
@@ -5468,6 +7994,7 @@ HERALD_OF_ETERNAL_DAWN = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel"},
     text="Flash (You may cast this spell any time you could cast an instant.)\nFlying\nYou can't lose the game and your opponents can't win the game.",
+    setup_interceptors=herald_of_eternal_dawn_setup,
 )
 
 INSPIRING_PALADIN = make_creature(
@@ -5477,6 +8004,7 @@ INSPIRING_PALADIN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
     text="During your turn, this creature has first strike. (It deals combat damage before creatures without first strike.)\nDuring your turn, creatures you control with +1/+1 counters on them have first strike.",
+    setup_interceptors=inspiring_paladin_setup,
 )
 
 JOUST_THROUGH = make_instant(
@@ -5527,6 +8055,7 @@ SQUAD_RALLIER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout"},
     text="{2}{W}: Look at the top four cards of your library. You may reveal a creature card with power 2 or less from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+    setup_interceptors=squad_rallier_setup,
 )
 
 SUNBLESSED_HEALER = make_creature(
@@ -5536,6 +8065,7 @@ SUNBLESSED_HEALER = make_creature(
     colors={Color.WHITE},
     subtypes={"Cleric", "Human"},
     text="Kicker {1}{W} (You may pay an additional {1}{W} as you cast this spell.)\nLifelink (Damage dealt by this creature also causes you to gain that much life.)\nWhen this creature enters, if it was kicked, return target nonland permanent card with mana value 2 or less from your graveyard to the battlefield.",
+    setup_interceptors=sunblessed_healer_setup,
 )
 
 TWINBLADE_BLESSING = make_enchantment(
@@ -5544,6 +8074,7 @@ TWINBLADE_BLESSING = make_enchantment(
     colors={Color.WHITE},
     text="Flash (You may cast this spell any time you could cast an instant.)\nEnchant creature\nEnchanted creature has double strike. (It deals both first-strike and regular combat damage.)",
     subtypes={"Aura"},
+    setup_interceptors=twinblade_blessing_setup,
 )
 
 VALKYRIES_CALL = make_enchantment(
@@ -5551,6 +8082,7 @@ VALKYRIES_CALL = make_enchantment(
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     text="Whenever a nontoken, non-Angel creature you control dies, return that card to the battlefield under its owner's control with a +1/+1 counter on it. It has flying and is an Angel in addition to its other types.",
+    setup_interceptors=valkyries_call_setup,
 )
 
 VANGUARD_SERAPH = make_creature(
@@ -5617,6 +8149,7 @@ CURATOR_OF_DESTINIES = make_creature(
     colors={Color.BLUE},
     subtypes={"Sphinx"},
     text="This spell can't be countered.\nFlying\nWhen this creature enters, look at the top five cards of your library and separate them into a face-down pile and a face-up pile. An opponent chooses one of those piles. Put that pile into your hand and the other into your graveyard.",
+    setup_interceptors=curator_of_destinies_setup,
 )
 
 DRAKE_HATCHER = make_creature(
@@ -5626,6 +8159,7 @@ DRAKE_HATCHER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     text="Vigilance, prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nWhenever this creature deals combat damage to a player, put that many incubation counters on it.\nRemove three incubation counters from this creature: Create a 2/2 blue Drake creature token with flying.",
+    setup_interceptors=drake_hatcher_setup,
 )
 
 ELEMENTALIST_ADEPT = make_creature(
@@ -5661,6 +8195,7 @@ GRAPPLING_KRAKEN = make_creature(
     colors={Color.BLUE},
     subtypes={"Kraken"},
     text="Landfall — Whenever a land you control enters, tap target creature an opponent controls and put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
+    setup_interceptors=grappling_kraken_setup,
 )
 
 HIGH_FAE_TRICKSTER = make_creature(
@@ -5670,6 +8205,7 @@ HIGH_FAE_TRICKSTER = make_creature(
     colors={Color.BLUE},
     subtypes={"Faerie", "Wizard"},
     text="Flash (You may cast this spell any time you could cast an instant.)\nFlying\nYou may cast spells as though they had flash.",
+    setup_interceptors=high_fae_trickster_setup,
 )
 
 HOMUNCULUS_HORDE = make_creature(
@@ -5707,6 +8243,7 @@ KAITO_CUNNING_INFILTRATOR = make_planeswalker(
     subtypes={"Kaito"},
     supertypes={"Legendary"},
     text="Whenever a creature you control deals combat damage to a player, put a loyalty counter on Kaito.\n+1: Up to one target creature you control can't be blocked this turn. Draw a card, then discard a card.\n−2: Create a 2/1 blue Ninja creature token.\n−9: You get an emblem with \"Whenever a player casts a spell, you create a 2/1 blue Ninja creature token.\"",
+    setup_interceptors=kaito_cunning_infiltrator_setup,
 )
 
 KIORA_THE_RISING_TIDE = make_creature(
@@ -5751,6 +8288,7 @@ RUNESEALED_WALL = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Wall"},
     text="Defender\n{T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=runesealed_wall_setup,
 )
 
 SKYSHIP_BUCCANEER = make_creature(
@@ -5760,6 +8298,7 @@ SKYSHIP_BUCCANEER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Pirate"},
     text="Flying\nRaid — When this creature enters, if you attacked this turn, draw a card.",
+    setup_interceptors=skyship_buccaneer_setup,
 )
 
 SPHINX_OF_FORGOTTEN_LORE = make_creature(
@@ -5769,6 +8308,7 @@ SPHINX_OF_FORGOTTEN_LORE = make_creature(
     colors={Color.BLUE},
     subtypes={"Sphinx"},
     text="Flash (You may cast this spell any time you could cast an instant.)\nFlying\nWhenever this creature attacks, target instant or sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to that card's mana cost. (You may cast that card from your graveyard for its flashback cost. Then exile it.)",
+    setup_interceptors=sphinx_of_forgotten_lore_setup,
 )
 
 STRIX_LOOKOUT = make_creature(
@@ -5778,6 +8318,7 @@ STRIX_LOOKOUT = make_creature(
     colors={Color.BLUE},
     subtypes={"Bird"},
     text="Flying, vigilance (Attacking doesn't cause this creature to tap.)\n{1}{U}, {T}: Draw a card, then discard a card.",
+    setup_interceptors=strix_lookout_setup,
 )
 
 UNCHARTED_VOYAGE = make_instant(
@@ -5794,6 +8335,7 @@ ABYSSAL_HARVESTER = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon", "Warlock"},
     text="{T}: Exile target creature card from a graveyard that was put there this turn. Create a token that's a copy of it, except it's a Nightmare in addition to its other types. Then exile all other Nightmare tokens you control.",
+    setup_interceptors=abyssal_harvester_setup,
 )
 
 ARBITER_OF_WOE = make_creature(
@@ -5840,6 +8382,7 @@ CRYPT_FEASTER = make_creature(
     colors={Color.BLACK},
     subtypes={"Zombie"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nThreshold — Whenever this creature attacks, if there are seven or more cards in your graveyard, this creature gets +2/+0 until end of turn.",
+    setup_interceptors=crypt_feaster_setup,
 )
 
 GUTLESS_PLUNDERER = make_creature(
@@ -5849,6 +8392,7 @@ GUTLESS_PLUNDERER = make_creature(
     colors={Color.BLACK},
     subtypes={"Pirate", "Skeleton"},
     text="Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\nRaid — When this creature enters, if you attacked this turn, look at the top three cards of your library. You may put one of those cards back on top of your library. Put the rest into your graveyard.",
+    setup_interceptors=gutless_plunderer_setup,
 )
 
 HIGHSOCIETY_HUNTER = make_creature(
@@ -5868,6 +8412,7 @@ HUNGRY_GHOUL = make_creature(
     colors={Color.BLACK},
     subtypes={"Zombie"},
     text="{1}, Sacrifice another creature: Put a +1/+1 counter on this creature.",
+    setup_interceptors=hungry_ghoul_setup,
 )
 
 INFERNAL_VESSEL = make_creature(
@@ -5895,6 +8440,7 @@ MIDNIGHT_SNACK = make_enchantment(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Raid — At the beginning of your end step, if you attacked this turn, create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")\n{2}{B}, Sacrifice this enchantment: Target opponent loses X life, where X is the amount of life you gained this turn.",
+    setup_interceptors=midnight_snack_setup,
 )
 
 NINELIVES_FAMILIAR = make_creature(
@@ -5904,6 +8450,7 @@ NINELIVES_FAMILIAR = make_creature(
     colors={Color.BLACK},
     subtypes={"Cat"},
     text="This creature enters with eight revival counters on it if you cast it.\nWhen this creature dies, if it had a revival counter on it, return it to the battlefield with one fewer revival counter on it at the beginning of the next end step.",
+    setup_interceptors=ninelives_familiar_setup,
 )
 
 REVENGE_OF_THE_RATS = make_sorcery(
@@ -5955,6 +8502,7 @@ TINYBONES_BAUBLE_BURGLAR = make_creature(
     subtypes={"Rogue", "Skeleton"},
     supertypes={"Legendary"},
     text="Whenever an opponent discards a card, exile it from their graveyard with a stash counter on it.\nDuring your turn, you may play cards you don't own with stash counters on them from exile, and mana of any type can be spent to cast those spells.\n{3}{B}, {T}: Each opponent discards a card. Activate only as a sorcery.",
+    setup_interceptors=tinybones_bauble_burglar_setup,
 )
 
 TRAGIC_BANSHEE = make_creature(
@@ -5964,6 +8512,7 @@ TRAGIC_BANSHEE = make_creature(
     colors={Color.BLACK},
     subtypes={"Spirit"},
     text="Morbid — When this creature enters, target creature an opponent controls gets -1/-1 until end of turn. If a creature died this turn, that creature gets -13/-13 until end of turn instead.",
+    setup_interceptors=tragic_banshee_setup,
 )
 
 VAMPIRE_GOURMAND = make_creature(
@@ -5973,6 +8522,7 @@ VAMPIRE_GOURMAND = make_creature(
     colors={Color.BLACK},
     subtypes={"Vampire"},
     text="Whenever this creature attacks, you may sacrifice another creature. If you do, draw a card and this creature can't be blocked this turn.",
+    setup_interceptors=vampire_gourmand_setup,
 )
 
 VAMPIRE_SOULCALLER = make_creature(
@@ -6003,6 +8553,7 @@ ZUL_ASHUR_LICH_LORD = make_creature(
     subtypes={"Warlock", "Zombie"},
     supertypes={"Legendary"},
     text="Ward—Pay 2 life. (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays 2 life.)\n{T}: You may cast target Zombie creature card from your graveyard this turn.",
+    setup_interceptors=zul_ashur_lich_lord_setup,
 )
 
 BATTLESONG_BERSERKER = make_creature(
@@ -6012,6 +8563,7 @@ BATTLESONG_BERSERKER = make_creature(
     colors={Color.RED},
     subtypes={"Berserker", "Human"},
     text="Whenever you attack, target creature you control gets +1/+0 and gains menace until end of turn. (It can't be blocked except by two or more creatures.)",
+    setup_interceptors=battlesong_berserker_setup,
 )
 
 BOLTWAVE = make_sorcery(
@@ -6036,6 +8588,7 @@ CHANDRA_FLAMESHAPER = make_planeswalker(
     subtypes={"Chandra"},
     supertypes={"Legendary"},
     text="+2: Add {R}{R}{R}. Exile the top three cards of your library. Choose one. You may play that card this turn.\n+1: Create a token that's a copy of target creature you control, except it has haste and \"At the beginning of the end step, sacrifice this token.\"\n−4: Chandra deals 8 damage divided as you choose among any number of target creatures and/or planeswalkers.",
+    setup_interceptors=chandra_flameshaper_setup,
 )
 
 COURAGEOUS_GOBLIN = make_creature(
@@ -6045,6 +8598,7 @@ COURAGEOUS_GOBLIN = make_creature(
     colors={Color.RED},
     subtypes={"Goblin"},
     text="Whenever this creature attacks while you control a creature with power 4 or greater, this creature gets +1/+0 and gains menace until end of turn. (It can't be blocked except by two or more creatures.)",
+    setup_interceptors=courageous_goblin_setup,
 )
 
 CRACKLING_CYCLOPS = make_creature(
@@ -6088,6 +8642,7 @@ GOBLIN_BOARDERS = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Pirate"},
     text="Raid — This creature enters with a +1/+1 counter on it if you attacked this turn.",
+    setup_interceptors=goblin_boarders_setup,
 )
 
 GOBLIN_NEGOTIATION = make_sorcery(
@@ -6123,6 +8678,7 @@ KELLAN_PLANAR_TRAILBLAZER = make_creature(
     subtypes={"Faerie", "Human", "Scout"},
     supertypes={"Legendary"},
     text="{1}{R}: If Kellan is a Scout, it becomes a Human Faerie Detective and gains \"Whenever Kellan deals combat damage to a player, exile the top card of your library. You may play that card this turn.\"\n{2}{R}: If Kellan is a Detective, it becomes a 3/2 Human Faerie Rogue and gains double strike.",
+    setup_interceptors=kellan_planar_trailblazer_setup,
 )
 
 RITE_OF_THE_DRAGONCALLER = make_enchantment(
@@ -6150,6 +8706,7 @@ SLUMBERING_CERBERUS = make_creature(
     colors={Color.RED},
     subtypes={"Dog"},
     text="This creature doesn't untap during your untap step.\nMorbid — At the beginning of each end step, if a creature died this turn, untap this creature.",
+    setup_interceptors=slumbering_cerberus_setup,
 )
 
 SOWER_OF_CHAOS = make_creature(
@@ -6159,6 +8716,7 @@ SOWER_OF_CHAOS = make_creature(
     colors={Color.RED},
     subtypes={"Devil"},
     text="{2}{R}: Target creature can't block this turn.",
+    setup_interceptors=sower_of_chaos_setup,
 )
 
 STRONGBOX_RAIDER = make_creature(
@@ -6168,6 +8726,7 @@ STRONGBOX_RAIDER = make_creature(
     colors={Color.RED},
     subtypes={"Orc", "Pirate"},
     text="Raid — When this creature enters, if you attacked this turn, exile the top two cards of your library. Choose one of them. Until the end of your next turn, you may play that card.",
+    setup_interceptors=strongbox_raider_setup,
 )
 
 TWINFLAME_TYRANT = make_creature(
@@ -6177,6 +8736,7 @@ TWINFLAME_TYRANT = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Flying\nIf a source you control would deal damage to an opponent or a permanent an opponent controls, it deals double that damage instead.",
+    setup_interceptors=twinflame_tyrant_setup,
 )
 
 AMBUSH_WOLF = make_creature(
@@ -6186,6 +8746,7 @@ AMBUSH_WOLF = make_creature(
     colors={Color.GREEN},
     subtypes={"Wolf"},
     text="Flash (You may cast this spell any time you could cast an instant.)\nWhen this creature enters, exile up to one target card from a graveyard.",
+    setup_interceptors=ambush_wolf_setup,
 )
 
 APOTHECARY_STOMPER = make_creature(
@@ -6215,6 +8776,7 @@ CACKLING_PROWLER = make_creature(
     colors={Color.GREEN},
     subtypes={"Hyena", "Rogue"},
     text="Ward {2} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.)\nMorbid — At the beginning of your end step, if a creature died this turn, put a +1/+1 counter on this creature.",
+    setup_interceptors=cackling_prowler_setup,
 )
 
 EAGER_TRUFFLESNOUT = make_creature(
@@ -6262,6 +8824,7 @@ LOOT_EXUBERANT_EXPLORER = make_creature(
     subtypes={"Beast", "Noble"},
     supertypes={"Legendary"},
     text="You may play an additional land on each of your turns.\n{4}{G}{G}, {T}: Look at the top six cards of your library. You may reveal a creature card with mana value less than or equal to the number of lands you control from among them and put it onto the battlefield. Put the rest on the bottom in a random order.",
+    setup_interceptors=loot_exuberant_explorer_setup,
 )
 
 MOSSBORN_HYDRA = make_creature(
@@ -6281,6 +8844,7 @@ NEEDLETOOTH_PACK = make_creature(
     colors={Color.GREEN},
     subtypes={"Dinosaur"},
     text="Morbid — At the beginning of your end step, if a creature died this turn, put two +1/+1 counters on target creature you control.",
+    setup_interceptors=needletooth_pack_setup,
 )
 
 PREPOSTEROUS_PROPORTIONS = make_sorcery(
@@ -6306,6 +8870,7 @@ QUILLED_GREATWURM = make_creature(
     colors={Color.GREEN},
     subtypes={"Wurm"},
     text="Trample\nWhenever a creature you control deals combat damage during your turn, put that many +1/+1 counters on it. (It must survive to get the counters.)\nYou may cast this card from your graveyard by removing six counters from among creatures you control in addition to paying its other costs.",
+    setup_interceptors=quilled_greatwurm_setup,
 )
 
 SPINNER_OF_SOULS = make_creature(
@@ -6315,6 +8880,7 @@ SPINNER_OF_SOULS = make_creature(
     colors={Color.GREEN},
     subtypes={"Spider", "Spirit"},
     text="Reach\nWhenever another nontoken creature you control dies, you may reveal cards from the top of your library until you reveal a creature card. Put that card into your hand and the rest on the bottom of your library in a random order.",
+    setup_interceptors=spinner_of_souls_setup,
 )
 
 SYLVAN_SCAVENGING = make_enchantment(
@@ -6322,6 +8888,7 @@ SYLVAN_SCAVENGING = make_enchantment(
     mana_cost="{1}{G}{G}",
     colors={Color.GREEN},
     text="At the beginning of your end step, choose one —\n• Put a +1/+1 counter on target creature you control.\n• Create a 3/3 green Raccoon creature token if you control a creature with power 4 or greater.",
+    setup_interceptors=sylvan_scavenging_setup,
 )
 
 TREETOP_SNARESPINNER = make_creature(
@@ -6331,6 +8898,7 @@ TREETOP_SNARESPINNER = make_creature(
     colors={Color.GREEN},
     subtypes={"Spider"},
     text="Reach (This creature can block creatures with flying.)\nDeathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\n{2}{G}: Put a +1/+1 counter on target creature you control. Activate only as a sorcery.",
+    setup_interceptors=treetop_snarespinner_setup,
 )
 
 ALESHA_WHO_LAUGHS_AT_FATE = make_creature(
@@ -6341,6 +8909,7 @@ ALESHA_WHO_LAUGHS_AT_FATE = make_creature(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     text="First strike\nWhenever Alesha attacks, put a +1/+1 counter on it.\nRaid — At the beginning of your end step, if you attacked this turn, return target creature card with mana value less than or equal to Alesha's power from your graveyard to the battlefield.",
+    setup_interceptors=alesha_who_laughs_at_fate_setup,
 )
 
 ANTHEM_OF_CHAMPIONS = make_enchantment(
@@ -6358,6 +8927,7 @@ ASHROOT_ANIMIST = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Druid", "Lizard"},
     text="Trample\nWhenever this creature attacks, another target creature you control gains trample and gets +X/+X until end of turn, where X is this creature's power.",
+    setup_interceptors=ashroot_animist_setup,
 )
 
 DREADWING_SCAVENGER = make_creature(
@@ -6378,6 +8948,7 @@ ELENDA_SAINT_OF_DUSK = make_creature(
     subtypes={"Knight", "Vampire"},
     supertypes={"Legendary"},
     text="Lifelink, hexproof from instants\nAs long as your life total is greater than your starting life total, Elenda gets +1/+1 and has menace. Elenda gets an additional +5/+5 as long as your life total is at least 10 greater than your starting life total.",
+    setup_interceptors=elenda_saint_of_dusk_setup,
 )
 
 FIENDISH_PANDA = make_creature(
@@ -6430,6 +9001,7 @@ PERFORATING_ARTIST = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Devil"},
     text="Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\nRaid — At the beginning of your end step, if you attacked this turn, each opponent loses 3 life unless that player sacrifices a nonland permanent of their choice or discards a card.",
+    setup_interceptors=perforating_artist_setup,
 )
 
 WARDENS_OF_THE_CYCLE = make_creature(
@@ -6439,6 +9011,7 @@ WARDENS_OF_THE_CYCLE = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Elf", "Warlock"},
     text="Morbid — At the beginning of your end step, if a creature died this turn, choose one —\n• You gain 2 life.\n• You draw a card and you lose 1 life.",
+    setup_interceptors=wardens_of_the_cycle_setup,
 )
 
 ZIMONE_PARADOX_SCULPTOR = make_creature(
@@ -6449,12 +9022,14 @@ ZIMONE_PARADOX_SCULPTOR = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="At the beginning of combat on your turn, put a +1/+1 counter on each of up to two target creatures you control.\n{G}{U}, {T}: Double the number of each kind of counter on up to two target creatures and/or artifacts you control.",
+    setup_interceptors=zimone_paradox_sculptor_setup,
 )
 
 BANNER_OF_KINSHIP = make_artifact(
     name="Banner of Kinship",
     mana_cost="{5}",
     text="As this artifact enters, choose a creature type. This artifact enters with a fellowship counter on it for each creature you control of the chosen type.\nCreatures you control of the chosen type get +1/+1 for each fellowship counter on this artifact.",
+    setup_interceptors=banner_of_kinship_setup,
 )
 
 FISHING_POLE = make_artifact(
@@ -6462,6 +9037,7 @@ FISHING_POLE = make_artifact(
     mana_cost="{1}",
     text="Equipped creature has \"{1}, {T}, Tap Fishing Pole: Put a bait counter on Fishing Pole.\"\nWhenever equipped creature becomes untapped, remove a bait counter from this Equipment. If you do, create a 1/1 blue Fish creature token.\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=fishing_pole_setup,
 )
 
 LEYLINE_AXE = make_artifact(
@@ -6469,6 +9045,7 @@ LEYLINE_AXE = make_artifact(
     mana_cost="{4}",
     text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nEquipped creature gets +1/+1 and has double strike and trample.\nEquip {3} ({3}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=leyline_axe_setup,
 )
 
 QUICKDRAW_KATANA = make_artifact(
@@ -6476,12 +9053,14 @@ QUICKDRAW_KATANA = make_artifact(
     mana_cost="{2}",
     text="During your turn, equipped creature gets +2/+0 and has first strike. (It deals combat damage before creatures without first strike.)\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=quickdraw_katana_setup,
 )
 
 RAVENOUS_AMULET = make_artifact(
     name="Ravenous Amulet",
     mana_cost="{2}",
     text="{1}, {T}, Sacrifice a creature: Draw a card and put a soul counter on this artifact. Activate only as a sorcery.\n{4}, {T}, Sacrifice this artifact: Each opponent loses life equal to the number of soul counters on this artifact.",
+    setup_interceptors=ravenous_amulet_setup,
 )
 
 SCRAWLING_CRAWLER = make_artifact_creature(
@@ -6497,6 +9076,7 @@ SCRAWLING_CRAWLER = make_artifact_creature(
 SOULSTONE_SANCTUARY = make_land(
     name="Soulstone Sanctuary",
     text="{T}: Add {C}.\n{4}: This land becomes a 3/3 creature with vigilance and all creature types. It's still a land.",
+    setup_interceptors=soulstone_sanctuary_setup,
 )
 
 AJANI_CALLER_OF_THE_PRIDE = make_planeswalker(
@@ -6507,6 +9087,7 @@ AJANI_CALLER_OF_THE_PRIDE = make_planeswalker(
     subtypes={"Ajani"},
     supertypes={"Legendary"},
     text="+1: Put a +1/+1 counter on up to one target creature.\n−3: Target creature gains flying and double strike until end of turn.\n−8: Create X 2/2 white Cat creature tokens, where X is your life total.",
+    setup_interceptors=ajani_caller_of_the_pride_setup,
 )
 
 AJANIS_PRIDEMATE = make_creature(
@@ -6542,6 +9123,7 @@ BANISHING_LIGHT = make_enchantment(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="When this enchantment enters, exile target nonland permanent an opponent controls until this enchantment leaves the battlefield.",
+    setup_interceptors=banishing_light_setup,
 )
 
 CATHAR_COMMANDO = make_creature(
@@ -6551,6 +9133,7 @@ CATHAR_COMMANDO = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Flash\n{1}, Sacrifice this creature: Destroy target artifact or enchantment.",
+    setup_interceptors=cathar_commando_setup,
 )
 
 DAY_OF_JUDGMENT = make_sorcery(
@@ -6568,6 +9151,7 @@ GIADA_FONT_OF_HOPE = make_creature(
     subtypes={"Angel"},
     supertypes={"Legendary"},
     text="Flying, vigilance\nEach other Angel you control enters with an additional +1/+1 counter on it for each Angel you already control.\n{T}: Add {W}. Spend this mana only to cast an Angel spell.",
+    setup_interceptors=giada_font_of_hope_setup,
 )
 
 HEALERS_HAWK = make_creature(
@@ -6699,6 +9283,7 @@ IMPRISONED_IN_THE_MOON = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature, land, or planeswalker\nEnchanted permanent is a colorless land with \"{T}: Add {C}\" and loses all other card types and abilities.",
     subtypes={"Aura"},
+    setup_interceptors=imprisoned_in_the_moon_setup,
 )
 
 LIGHTSHELL_DUO = make_creature(
@@ -6718,6 +9303,7 @@ MICROMANCER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     text="When this creature enters, you may search your library for an instant or sorcery card with mana value 1, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=micromancer_setup,
 )
 
 MOCKING_SPRITE = make_creature(
@@ -6727,6 +9313,7 @@ MOCKING_SPRITE = make_creature(
     colors={Color.BLUE},
     subtypes={"Faerie", "Rogue"},
     text="Flying\nInstant and sorcery spells you cast cost {1} less to cast.",
+    setup_interceptors=mocking_sprite_setup,
 )
 
 AN_OFFER_YOU_CANT_REFUSE = make_instant(
@@ -6742,6 +9329,7 @@ OMNISCIENCE = make_enchantment(
     mana_cost="{7}{U}{U}{U}",
     colors={Color.BLUE},
     text="You may cast spells from your hand without paying their mana costs.",
+    setup_interceptors=omniscience_setup,
 )
 
 RUN_AWAY_TOGETHER = make_instant(
@@ -6765,6 +9353,7 @@ SPECTRAL_SAILOR = make_creature(
     colors={Color.BLUE},
     subtypes={"Pirate", "Spirit"},
     text="Flash (You may cast this spell any time you could cast an instant.)\nFlying\n{3}{U}: Draw a card.",
+    setup_interceptors=spectral_sailor_setup,
 )
 
 THINK_TWICE = make_instant(
@@ -6788,6 +9377,7 @@ TOLARIAN_TERROR = make_creature(
     colors={Color.BLUE},
     subtypes={"Serpent"},
     text="This spell costs {1} less to cast for each instant and sorcery card in your graveyard.\nWard {2} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.)",
+    setup_interceptors=tolarian_terror_setup,
 )
 
 WITNESS_PROTECTION = make_enchantment(
@@ -6796,6 +9386,7 @@ WITNESS_PROTECTION = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature\nEnchanted creature loses all abilities and is a green and white Citizen creature with base power and toughness 1/1 named Legitimate Businessperson. (It loses all other colors, card types, creature types, and names.)",
     subtypes={"Aura"},
+    setup_interceptors=witness_protection_setup,
 )
 
 BAKE_INTO_A_PIE = make_instant(
@@ -6823,6 +9414,7 @@ DIREGRAF_GHOUL = make_creature(
     colors={Color.BLACK},
     subtypes={"Zombie"},
     text="This creature enters tapped.",
+    setup_interceptors=diregraf_ghoul_setup,
 )
 
 EATEN_ALIVE = make_sorcery(
@@ -6862,6 +9454,7 @@ LILIANA_DREADHORDE_GENERAL = make_planeswalker(
     subtypes={"Liliana"},
     supertypes={"Legendary"},
     text="Whenever a creature you control dies, draw a card.\n+1: Create a 2/2 black Zombie creature token.\n−4: Each player sacrifices two creatures of their choice.\n−9: Each opponent chooses a permanent they control of each permanent type and sacrifices the rest.",
+    setup_interceptors=liliana_dreadhorde_general_setup,
 )
 
 MACABRE_WALTZ = make_sorcery(
@@ -6886,6 +9479,7 @@ PAINFUL_QUANDARY = make_enchantment(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     text="Whenever an opponent casts a spell, that player loses 5 life unless they discard a card.",
+    setup_interceptors=painful_quandary_setup,
 )
 
 PHYREXIAN_ARENA = make_enchantment(
@@ -6910,6 +9504,7 @@ REASSEMBLING_SKELETON = make_creature(
     colors={Color.BLACK},
     subtypes={"Skeleton", "Warrior"},
     text="{1}{B}: Return this card from your graveyard to the battlefield tapped.",
+    setup_interceptors=reassembling_skeleton_setup,
 )
 
 RISE_OF_THE_DARK_REALMS = make_sorcery(
@@ -6926,6 +9521,7 @@ RUNESCARRED_DEMON = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon"},
     text="Flying\nWhen this creature enters, search your library for a card, put it into your hand, then shuffle.",
+    setup_interceptors=runescarred_demon_setup,
 )
 
 STROMKIRK_BLOODTHIEF = make_creature(
@@ -6935,6 +9531,7 @@ STROMKIRK_BLOODTHIEF = make_creature(
     colors={Color.BLACK},
     subtypes={"Rogue", "Vampire"},
     text="At the beginning of your end step, if an opponent lost life this turn, put a +1/+1 counter on target Vampire you control.",
+    setup_interceptors=stromkirk_bloodthief_setup,
 )
 
 VAMPIRE_NIGHTHAWK = make_creature(
@@ -7092,6 +9689,7 @@ AXGARD_CAVALRY = make_creature(
     colors={Color.RED},
     subtypes={"Berserker", "Dwarf"},
     text="{T}: Target creature gains haste until end of turn. (It can attack and {T} this turn.)",
+    setup_interceptors=axgard_cavalry_setup,
 )
 
 BRASSS_BOUNTY = make_sorcery(
@@ -7145,6 +9743,7 @@ ETALI_PRIMAL_STORM = make_creature(
     subtypes={"Dinosaur", "Elder"},
     supertypes={"Legendary"},
     text="Whenever Etali attacks, exile the top card of each player's library, then you may cast any number of spells from among those cards without paying their mana costs.",
+    setup_interceptors=etali_primal_storm_setup,
 )
 
 FANATICAL_FIREBRAND = make_creature(
@@ -7154,6 +9753,7 @@ FANATICAL_FIREBRAND = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Pirate"},
     text="Haste (This creature can attack and {T} as soon as it comes under your control.)\n{T}, Sacrifice this creature: It deals 1 damage to any target.",
+    setup_interceptors=fanatical_firebrand_setup,
 )
 
 FIREBRAND_ARCHER = make_creature(
@@ -7183,6 +9783,7 @@ FLAMEWAKE_PHOENIX = make_creature(
     colors={Color.RED},
     subtypes={"Phoenix"},
     text="Flying, haste\nThis creature attacks each combat if able.\nFerocious — At the beginning of combat on your turn, if you control a creature with power 4 or greater, you may pay {R}. If you do, return this card from your graveyard to the battlefield.",
+    setup_interceptors=flamewake_phoenix_setup,
 )
 
 FRENZIED_GOBLIN = make_creature(
@@ -7192,6 +9793,7 @@ FRENZIED_GOBLIN = make_creature(
     colors={Color.RED},
     subtypes={"Berserker", "Goblin"},
     text="Whenever this creature attacks, you may pay {R}. If you do, target creature can't block this turn.",
+    setup_interceptors=frenzied_goblin_setup,
 )
 
 GOBLIN_SURPRISE = make_instant(
@@ -7208,6 +9810,7 @@ HEARTFIRE_IMMOLATOR = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Wizard"},
     text="Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\n{R}, Sacrifice this creature: It deals damage equal to its power to target creature or planeswalker.",
+    setup_interceptors=heartfire_immolator_setup,
 )
 
 HIDETSUGUS_SECOND_RITE = make_instant(
@@ -7232,6 +9835,7 @@ KRENKO_MOB_BOSS = make_creature(
     subtypes={"Goblin", "Warrior"},
     supertypes={"Legendary"},
     text="{T}: Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control.",
+    setup_interceptors=krenko_mob_boss_setup,
 )
 
 SEISMIC_RUPTURE = make_sorcery(
@@ -7248,6 +9852,7 @@ SHIVAN_DRAGON = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Flying\n{R}: This creature gets +1/+0 until end of turn.",
+    setup_interceptors=shivan_dragon_setup,
 )
 
 SLAGSTORM = make_sorcery(
@@ -7288,6 +9893,7 @@ AFFECTIONATE_INDRIK = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast"},
     text="When this creature enters, you may have it fight target creature you don't control. (Each deals damage equal to its power to the other.)",
+    setup_interceptors=affectionate_indrik_setup,
 )
 
 BITE_DOWN = make_instant(
@@ -7303,6 +9909,7 @@ BLANCHWOOD_ARMOR = make_enchantment(
     colors={Color.GREEN},
     text="Enchant creature\nEnchanted creature gets +1/+1 for each Forest you control.",
     subtypes={"Aura"},
+    setup_interceptors=blanchwood_armor_setup,
 )
 
 BROKEN_WINGS = make_instant(
@@ -7324,6 +9931,7 @@ DOUBLING_SEASON = make_enchantment(
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     text="If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.\nIf an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead.",
+    setup_interceptors=doubling_season_setup,
 )
 
 DWYNEN_GILTLEAF_DAEN = make_creature(
@@ -7362,6 +9970,7 @@ GARRUKS_UPRISING = make_enchantment(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="When this enchantment enters, if you control a creature with power 4 or greater, draw a card.\nCreatures you control have trample. (Each of those creatures can deal excess combat damage to the player or planeswalker it's attacking.)\nWhenever a creature you control with power 4 or greater enters, draw a card.",
+    setup_interceptors=garruks_uprising_setup,
 )
 
 GENESIS_WAVE = make_sorcery(
@@ -7379,6 +9988,7 @@ GHALTA_PRIMAL_HUNGER = make_creature(
     subtypes={"Dinosaur", "Elder"},
     supertypes={"Legendary"},
     text="This spell costs {X} less to cast, where X is the total power of creatures you control.\nTrample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)",
+    setup_interceptors=ghalta_primal_hunger_setup,
 )
 
 GIANT_GROWTH = make_instant(
@@ -7396,6 +10006,7 @@ GNARLID_COLONY = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast"},
     text="Kicker {2}{G} (You may pay an additional {2}{G} as you cast this spell.)\nIf this creature was kicked, it enters with two +1/+1 counters on it.\nEach creature you control with a +1/+1 counter on it has trample. (It can deal excess combat damage to the player or planeswalker it's attacking.)",
+    setup_interceptors=gnarlid_colony_setup,
 )
 
 GROW_FROM_THE_ASHES = make_sorcery(
@@ -7419,6 +10030,7 @@ LLANOWAR_ELVES = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Elf"},
     text="{T}: Add {G}.",
+    setup_interceptors=llanowar_elves_setup,
 )
 
 MILDMANNERED_LIBRARIAN = make_creature(
@@ -7428,6 +10040,7 @@ MILDMANNERED_LIBRARIAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Human"},
     text="{3}{G}: This creature becomes a Werewolf. Put two +1/+1 counters on it and you draw a card. Activate only once.",
+    setup_interceptors=mildmannered_librarian_setup,
 )
 
 NESSIAN_HORNBEETLE = make_creature(
@@ -7437,6 +10050,7 @@ NESSIAN_HORNBEETLE = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect"},
     text="At the beginning of combat on your turn, if you control another creature with power 4 or greater, put a +1/+1 counter on this creature.",
+    setup_interceptors=nessian_hornbeetle_setup,
 )
 
 OVERRUN = make_sorcery(
@@ -7463,6 +10077,7 @@ SCAVENGING_OOZE = make_creature(
     colors={Color.GREEN},
     subtypes={"Ooze"},
     text="{G}: Exile target card from a graveyard. If it was a creature card, put a +1/+1 counter on this creature and you gain 1 life.",
+    setup_interceptors=scavenging_ooze_setup,
 )
 
 SNAKESKIN_VEIL = make_instant(
@@ -7480,6 +10095,7 @@ VIVIEN_REID = make_planeswalker(
     subtypes={"Vivien"},
     supertypes={"Legendary"},
     text="+1: Look at the top four cards of your library. You may reveal a creature or land card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.\n−3: Destroy target artifact, enchantment, or creature with flying.\n−8: You get an emblem with \"Creatures you control get +2/+2 and have vigilance, trample, and indestructible.\"",
+    setup_interceptors=vivien_reid_setup,
 )
 
 WARY_THESPIAN = make_creature(
@@ -7489,6 +10105,7 @@ WARY_THESPIAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Cat", "Druid"},
     text="When this creature enters or dies, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=wary_thespian_setup,
 )
 
 WILDWOOD_SCOURGE = make_creature(
@@ -7519,6 +10136,7 @@ CONSUMING_ABERRATION = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Horror"},
     text="Consuming Aberration's power and toughness are each equal to the number of cards in your opponents' graveyards.\nWhenever you cast a spell, each opponent reveals cards from the top of their library until they reveal a land card, then puts those cards into their graveyard.",
+    setup_interceptors=consuming_aberration_setup,
 )
 
 EMPYREAN_EAGLE = make_creature(
@@ -7567,6 +10185,7 @@ MULDROTHA_THE_GRAVETIDE = make_creature(
     subtypes={"Avatar", "Elemental"},
     supertypes={"Legendary"},
     text="During each of your turns, you may play a land and cast a permanent spell of each permanent type from your graveyard. (If a card has multiple permanent types, choose one as you play it.)",
+    setup_interceptors=muldrotha_the_gravetide_setup,
 )
 
 PROGENITUS = make_creature(
@@ -7577,6 +10196,7 @@ PROGENITUS = make_creature(
     subtypes={"Avatar", "Hydra"},
     supertypes={"Legendary"},
     text="Protection from everything\nIf Progenitus would be put into a graveyard from anywhere, reveal Progenitus and shuffle it into its owner's library instead.",
+    setup_interceptors=progenitus_setup,
 )
 
 RUBY_DARING_TRACKER = make_creature(
@@ -7587,6 +10207,7 @@ RUBY_DARING_TRACKER = make_creature(
     subtypes={"Human", "Scout"},
     supertypes={"Legendary"},
     text="Haste (This creature can attack and {T} as soon as it comes under your control.)\nWhenever Ruby attacks while you control a creature with power 4 or greater, Ruby gets +2/+2 until end of turn.\n{T}: Add {R} or {G}.",
+    setup_interceptors=ruby_daring_tracker_setup,
 )
 
 SWIFTBLADE_VINDICATOR = make_creature(
@@ -7614,6 +10235,7 @@ THOUSANDYEAR_STORM = make_enchantment(
     mana_cost="{4}{U}{R}",
     colors={Color.RED, Color.BLUE},
     text="Whenever you cast an instant or sorcery spell, copy it for each other instant and sorcery spell you've cast before it this turn. You may choose new targets for the copies.",
+    setup_interceptors=thousandyear_storm_setup,
 )
 
 ADVENTURING_GEAR = make_artifact(
@@ -7621,6 +10243,7 @@ ADVENTURING_GEAR = make_artifact(
     mana_cost="{1}",
     text="Landfall — Whenever a land you control enters, equipped creature gets +2/+2 until end of turn.\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=adventuring_gear_setup,
 )
 
 BURNISHED_HART = make_artifact_creature(
@@ -7630,6 +10253,7 @@ BURNISHED_HART = make_artifact_creature(
     colors=set(),
     subtypes={"Elk"},
     text="{3}, Sacrifice this creature: Search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle.",
+    setup_interceptors=burnished_hart_setup,
 )
 
 CAMPUS_GUIDE = make_artifact_creature(
@@ -7639,6 +10263,7 @@ CAMPUS_GUIDE = make_artifact_creature(
     colors=set(),
     subtypes={"Golem"},
     text="When this creature enters, you may search your library for a basic land card, reveal it, then shuffle and put that card on top.",
+    setup_interceptors=campus_guide_setup,
 )
 
 GLEAMING_BARRIER = make_artifact_creature(
@@ -7656,12 +10281,14 @@ GOLDVEIN_PICK = make_artifact(
     mana_cost="{2}",
     text="Equipped creature gets +1/+1.\nWhenever equipped creature deals combat damage to a player, create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=goldvein_pick_setup,
 )
 
 HERALDIC_BANNER = make_artifact(
     name="Heraldic Banner",
     mana_cost="{3}",
     text="As this artifact enters, choose a color.\nCreatures you control of the chosen color get +1/+0.\n{T}: Add one mana of the chosen color.",
+    setup_interceptors=heraldic_banner_setup,
 )
 
 JUGGERNAUT = make_artifact_creature(
@@ -7671,6 +10298,7 @@ JUGGERNAUT = make_artifact_creature(
     colors=set(),
     subtypes={"Juggernaut"},
     text="This creature attacks each combat if able.\nThis creature can't be blocked by Walls.",
+    setup_interceptors=juggernaut_setup,
 )
 
 METEOR_GOLEM = make_artifact_creature(
@@ -7698,71 +10326,85 @@ SWIFTFOOT_BOOTS = make_artifact(
     mana_cost="{2}",
     text="Equipped creature has hexproof and haste. (It can't be the target of spells or abilities your opponents control. It can attack and {T} no matter when it came under your control.)\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=swiftfoot_boots_setup,
 )
 
 BLOODFELL_CAVES = make_land(
     name="Bloodfell Caves",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {B} or {R}.",
+    setup_interceptors=bloodfell_caves_setup,
 )
 
 BLOSSOMING_SANDS = make_land(
     name="Blossoming Sands",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {G} or {W}.",
+    setup_interceptors=blossoming_sands_setup,
 )
 
 DISMAL_BACKWATER = make_land(
     name="Dismal Backwater",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {U} or {B}.",
+    setup_interceptors=dismal_backwater_setup,
 )
 
 EVOLVING_WILDS = make_land(
     name="Evolving Wilds",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=evolving_wilds_setup,
 )
 
 JUNGLE_HOLLOW = make_land(
     name="Jungle Hollow",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {B} or {G}.",
+    setup_interceptors=jungle_hollow_setup,
 )
 
 ROGUES_PASSAGE = make_land(
     name="Rogue's Passage",
     text="{T}: Add {C}.\n{4}, {T}: Target creature can't be blocked this turn.",
+    setup_interceptors=rogues_passage_setup,
 )
 
 RUGGED_HIGHLANDS = make_land(
     name="Rugged Highlands",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {R} or {G}.",
+    setup_interceptors=rugged_highlands_setup,
 )
 
 SCOURED_BARRENS = make_land(
     name="Scoured Barrens",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {W} or {B}.",
+    setup_interceptors=scoured_barrens_setup,
 )
 
 SECLUDED_COURTYARD = make_land(
     name="Secluded Courtyard",
     text="As this land enters, choose a creature type.\n{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type or activate an ability of a creature source of the chosen type.",
+    setup_interceptors=secluded_courtyard_setup,
 )
 
 SWIFTWATER_CLIFFS = make_land(
     name="Swiftwater Cliffs",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {U} or {R}.",
+    setup_interceptors=swiftwater_cliffs_setup,
 )
 
 THORNWOOD_FALLS = make_land(
     name="Thornwood Falls",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {G} or {U}.",
+    setup_interceptors=thornwood_falls_setup,
 )
 
 TRANQUIL_COVE = make_land(
     name="Tranquil Cove",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {W} or {U}.",
+    setup_interceptors=tranquil_cove_setup,
 )
 
 WINDSCARRED_CRAG = make_land(
     name="Wind-Scarred Crag",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {R} or {W}.",
+    setup_interceptors=windscarred_crag_setup,
 )
 
 PLAINS = make_land(
@@ -7814,6 +10456,7 @@ ANCESTOR_DRAGON = make_creature(
     colors={Color.WHITE},
     subtypes={"Dragon"},
     text="Flying\nWhenever one or more creatures you control attack, you gain 1 life for each attacking creature.",
+    setup_interceptors=ancestor_dragon_setup,
 )
 
 ANGELIC_EDICT = make_sorcery(
@@ -7866,6 +10509,7 @@ INGENIOUS_LEONIN = make_creature(
     colors={Color.WHITE},
     subtypes={"Cat", "Soldier"},
     text="{3}{W}: Put a +1/+1 counter on another target attacking creature you control. If that creature is a Cat, it gains first strike until end of turn. (It deals combat damage before creatures without first strike.)",
+    setup_interceptors=ingenious_leonin_setup,
 )
 
 INSPIRING_OVERSEER = make_creature(
@@ -7886,6 +10530,7 @@ JAZAL_GOLDMANE = make_creature(
     subtypes={"Cat", "Warrior"},
     supertypes={"Legendary"},
     text="First strike (This creature deals combat damage before creatures without first strike.)\n{3}{W}{W}: Attacking creatures you control get +X/+X until end of turn, where X is the number of attacking creatures.",
+    setup_interceptors=jazal_goldmane_setup,
 )
 
 LEONIN_SKYHUNTER = make_creature(
@@ -7904,6 +10549,7 @@ LEONIN_VANGUARD = make_creature(
     colors={Color.WHITE},
     subtypes={"Cat", "Soldier"},
     text="At the beginning of combat on your turn, if you control three or more creatures, this creature gets +1/+1 until end of turn and you gain 1 life.",
+    setup_interceptors=leonin_vanguard_setup,
 )
 
 MOMENT_OF_TRIUMPH = make_instant(
@@ -7920,6 +10566,7 @@ PACIFISM = make_enchantment(
     colors={Color.WHITE},
     text="Enchant creature\nEnchanted creature can't attack or block.",
     subtypes={"Aura"},
+    setup_interceptors=pacifism_setup,
 )
 
 PRAYER_OF_BINDING = make_enchantment(
@@ -7927,6 +10574,7 @@ PRAYER_OF_BINDING = make_enchantment(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     text="Flash\nWhen this enchantment enters, exile up to one target nonland permanent an opponent controls until this enchantment leaves the battlefield. You gain 2 life.",
+    setup_interceptors=prayer_of_binding_setup,
 )
 
 TWINBLADE_PALADIN = make_creature(
@@ -7946,6 +10594,7 @@ BURROG_BEFUDDLER = make_creature(
     colors={Color.BLUE},
     subtypes={"Frog", "Wizard"},
     text="Flash (You may cast this spell any time you could cast an instant.)\nWhen this creature enters, target creature an opponent controls gets -1/-0 until end of turn.",
+    setup_interceptors=burrog_befuddler_setup,
 )
 
 CANCEL = make_instant(
@@ -7972,6 +10621,7 @@ EATEN_BY_PIRANHAS = make_enchantment(
     colors={Color.BLUE},
     text="Flash (You may cast this spell any time you could cast an instant.)\nEnchant creature\nEnchanted creature loses all abilities and is a black Skeleton creature with base power and toughness 1/1. (It loses all other colors, card types, and creature types.)",
     subtypes={"Aura"},
+    setup_interceptors=eaten_by_piranhas_setup,
 )
 
 EXCLUSION_MAGE = make_creature(
@@ -7999,6 +10649,7 @@ KITESAIL_CORSAIR = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Pirate"},
     text="This creature has flying as long as it's attacking.",
+    setup_interceptors=kitesail_corsair_setup,
 )
 
 MYSTIC_ARCHAEOLOGIST = make_creature(
@@ -8008,6 +10659,7 @@ MYSTIC_ARCHAEOLOGIST = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     text="{3}{U}{U}: Draw two cards.",
+    setup_interceptors=mystic_archaeologist_setup,
 )
 
 OPT = make_instant(
@@ -8030,6 +10682,7 @@ STARLIGHT_SNARE = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature\nWhen this Aura enters, tap enchanted creature.\nEnchanted creature doesn't untap during its controller's untap step.",
     subtypes={"Aura"},
+    setup_interceptors=starlight_snare_setup,
 )
 
 STORM_FLEET_SPY = make_creature(
@@ -8039,6 +10692,7 @@ STORM_FLEET_SPY = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Pirate"},
     text="Raid — When this creature enters, if you attacked this turn, draw a card.",
+    setup_interceptors=storm_fleet_spy_setup,
 )
 
 BLOODTITHE_COLLECTOR = make_creature(
@@ -8048,6 +10702,7 @@ BLOODTITHE_COLLECTOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Noble", "Vampire"},
     text="Flying\nWhen this creature enters, if an opponent lost life this turn, each opponent discards a card.",
+    setup_interceptors=bloodtithe_collector_setup,
 )
 
 CEMETERY_RECRUITMENT = make_sorcery(
@@ -8064,6 +10719,7 @@ CROSSWAY_TROUBLEMAKERS = make_creature(
     colors={Color.BLACK},
     subtypes={"Vampire"},
     text="Attacking Vampires you control have deathtouch and lifelink. (Any amount of damage they deal to a creature is enough to destroy it. Damage dealt by those creatures also causes their controller to gain that much life.)\nWhenever a Vampire you control dies, you may pay 2 life. If you do, draw a card.",
+    setup_interceptors=crossway_troublemakers_setup,
 )
 
 CROW_OF_DARK_TIDINGS = make_creature(
@@ -8073,6 +10729,7 @@ CROW_OF_DARK_TIDINGS = make_creature(
     colors={Color.BLACK},
     subtypes={"Bird", "Zombie"},
     text="Flying\nWhen this creature enters or dies, mill two cards. (Put the top two cards of your library into your graveyard.)",
+    setup_interceptors=crow_of_dark_tidings_setup,
 )
 
 DEADLY_PLOT = make_instant(
@@ -8090,6 +10747,7 @@ DEATH_BARON = make_creature(
     colors={Color.BLACK},
     subtypes={"Wizard", "Zombie"},
     text="Skeletons you control and other Zombies you control get +1/+1 and have deathtouch. (Any amount of damage they deal to a creature is enough to destroy it.)",
+    setup_interceptors=death_baron_setup,
 )
 
 HIGHBORN_VAMPIRE = make_creature(
@@ -8108,6 +10766,7 @@ MAALFELD_TWINS = make_creature(
     colors={Color.BLACK},
     subtypes={"Zombie"},
     text="When this creature dies, create two 2/2 black Zombie creature tokens.",
+    setup_interceptors=maalfeld_twins_setup,
 )
 
 MOMENT_OF_CRAVING = make_instant(
@@ -8131,6 +10790,7 @@ SKELETON_ARCHER = make_creature(
     colors={Color.BLACK},
     subtypes={"Archer", "Skeleton"},
     text="When this creature enters, it deals 1 damage to any target.",
+    setup_interceptors=skeleton_archer_setup,
 )
 
 SUSPICIOUS_SHAMBLER = make_creature(
@@ -8140,6 +10800,7 @@ SUSPICIOUS_SHAMBLER = make_creature(
     colors={Color.BLACK},
     subtypes={"Zombie"},
     text="{4}{B}{B}, Exile this card from your graveyard: Create two 2/2 black Zombie creature tokens. Activate only as a sorcery.",
+    setup_interceptors=suspicious_shambler_setup,
 )
 
 UNDYING_MALICE = make_instant(
@@ -8155,6 +10816,7 @@ UNTAMED_HUNGER = make_enchantment(
     colors={Color.BLACK},
     text="Enchant creature\nEnchanted creature gets +2/+1 and has menace. (It can't be blocked except by two or more creatures.)",
     subtypes={"Aura"},
+    setup_interceptors=untamed_hunger_setup,
 )
 
 VAMPIRE_INTERLOPER = make_creature(
@@ -8164,6 +10826,7 @@ VAMPIRE_INTERLOPER = make_creature(
     colors={Color.BLACK},
     subtypes={"Scout", "Vampire"},
     text="Flying\nThis creature can't block.",
+    setup_interceptors=vampire_interloper_setup,
 )
 
 VAMPIRE_NEONATE = make_creature(
@@ -8173,6 +10836,7 @@ VAMPIRE_NEONATE = make_creature(
     colors={Color.BLACK},
     subtypes={"Vampire"},
     text="{2}, {T}: Each opponent loses 1 life and you gain 1 life.",
+    setup_interceptors=vampire_neonate_setup,
 )
 
 VAMPIRE_SPAWN = make_creature(
@@ -8182,6 +10846,7 @@ VAMPIRE_SPAWN = make_creature(
     colors={Color.BLACK},
     subtypes={"Vampire"},
     text="When this creature enters, each opponent loses 2 life and you gain 2 life.",
+    setup_interceptors=vampire_spawn_setup,
 )
 
 BATTLERATTLE_SHAMAN = make_creature(
@@ -8191,12 +10856,14 @@ BATTLERATTLE_SHAMAN = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Shaman"},
     text="At the beginning of combat on your turn, you may have target creature get +2/+0 until end of turn.",
+    setup_interceptors=battlerattle_shaman_setup,
 )
 
 CARNELIAN_ORB_OF_DRAGONKIND = make_artifact(
     name="Carnelian Orb of Dragonkind",
     mana_cost="{2}{R}",
     text="{T}: Add {R}. If that mana is spent on a Dragon creature spell, it gains haste until end of turn.",
+    setup_interceptors=carnelian_orb_of_dragonkind_setup,
 )
 
 DRAGON_FODDER = make_sorcery(
@@ -8213,6 +10880,7 @@ DRAGONLORDS_SERVANT = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Shaman"},
     text="Dragon spells you cast cost {1} less to cast.",
+    setup_interceptors=dragonlords_servant_setup,
 )
 
 DROPKICK_BOMBER = make_creature(
@@ -8222,6 +10890,7 @@ DROPKICK_BOMBER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Warrior"},
     text="Other Goblins you control get +1/+1.\n{R}: Until end of turn, another target Goblin you control gains flying and \"When this creature deals combat damage, sacrifice it.\"",
+    setup_interceptors=dropkick_bomber_setup,
 )
 
 FIRE_ELEMENTAL = make_creature(
@@ -8238,6 +10907,7 @@ GOBLIN_ORIFLAMME = make_enchantment(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Attacking creatures you control get +1/+0.",
+    setup_interceptors=goblin_oriflamme_setup,
 )
 
 GOBLIN_SMUGGLER = make_creature(
@@ -8247,6 +10917,7 @@ GOBLIN_SMUGGLER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Rogue"},
     text="Haste (This creature can attack and {T} as soon as it comes under your control.)\n{T}: Another target creature with power 2 or less can't be blocked this turn.",
+    setup_interceptors=goblin_smuggler_setup,
 )
 
 KARGAN_DRAGONRIDER = make_creature(
@@ -8256,6 +10927,7 @@ KARGAN_DRAGONRIDER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
     text="As long as you control a Dragon, this creature has flying.",
+    setup_interceptors=kargan_dragonrider_setup,
 )
 
 KINDLED_FURY = make_instant(
@@ -8281,6 +10953,7 @@ RAPACIOUS_DRAGON = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Flying\nWhen this creature enters, create two Treasure tokens. (They're artifacts with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+    setup_interceptors=rapacious_dragon_setup,
 )
 
 SCORCHING_DRAGONFIRE = make_instant(
@@ -8323,6 +10996,7 @@ TERROR_OF_MOUNT_VELUS = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Flying\nDouble strike (This creature deals both first-strike and regular combat damage.)\nWhen this creature enters, creatures you control gain double strike until end of turn.",
+    setup_interceptors=terror_of_mount_velus_setup,
 )
 
 VOLLEY_VETERAN = make_creature(
@@ -8332,6 +11006,7 @@ VOLLEY_VETERAN = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Warrior"},
     text="When this creature enters, it deals damage to target creature an opponent controls equal to the number of Goblins you control.",
+    setup_interceptors=volley_veteran_setup,
 )
 
 AGGRESSIVE_MAMMOTH = make_creature(
@@ -8341,6 +11016,7 @@ AGGRESSIVE_MAMMOTH = make_creature(
     colors={Color.GREEN},
     subtypes={"Elephant"},
     text="Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)\nOther creatures you control have trample.",
+    setup_interceptors=aggressive_mammoth_setup,
 )
 
 BEAR_CUB = make_creature(
@@ -8366,6 +11042,7 @@ DRUID_OF_THE_COWL = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Elf"},
     text="{T}: Add {G}.",
+    setup_interceptors=druid_of_the_cowl_setup,
 )
 
 JORAGA_INVOCATION = make_sorcery(
@@ -8390,6 +11067,7 @@ NEW_HORIZONS = make_enchantment(
     colors={Color.GREEN},
     text="Enchant land\nWhen this Aura enters, put a +1/+1 counter on target creature you control.\nEnchanted land has \"{T}: Add two mana of any one color.\"",
     subtypes={"Aura"},
+    setup_interceptors=new_horizons_setup,
 )
 
 TAJURU_PATHWARDEN = make_creature(
@@ -8417,6 +11095,7 @@ THRASHING_BRONTODON = make_creature(
     colors={Color.GREEN},
     subtypes={"Dinosaur"},
     text="{1}, Sacrifice this creature: Destroy target artifact or enchantment.",
+    setup_interceptors=thrashing_brontodon_setup,
 )
 
 WILDHEART_INVOKER = make_creature(
@@ -8426,12 +11105,14 @@ WILDHEART_INVOKER = make_creature(
     colors={Color.GREEN},
     subtypes={"Elf", "Shaman"},
     text="{8}: Target creature gets +5/+5 and gains trample until end of turn. (It can deal excess combat damage to the player or planeswalker it's attacking.)",
+    setup_interceptors=wildheart_invoker_setup,
 )
 
 GOBLIN_FIREBOMB = make_artifact(
     name="Goblin Firebomb",
     mana_cost="{1}",
     text="Flash\n{7}, {T}, Sacrifice this artifact: Destroy target permanent.",
+    setup_interceptors=goblin_firebomb_setup,
 )
 
 PIRATES_CUTLASS = make_artifact(
@@ -8439,11 +11120,13 @@ PIRATES_CUTLASS = make_artifact(
     mana_cost="{3}",
     text="When this Equipment enters, attach it to target Pirate you control.\nEquipped creature gets +2/+1.\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=pirates_cutlass_setup,
 )
 
 UNCHARTED_HAVEN = make_land(
     name="Uncharted Haven",
     text="This land enters tapped. As it enters, choose a color.\n{T}: Add one mana of the chosen color.",
+    setup_interceptors=uncharted_haven_setup,
 )
 
 ANGELIC_DESTINY = make_enchantment(
@@ -8452,6 +11135,7 @@ ANGELIC_DESTINY = make_enchantment(
     colors={Color.WHITE},
     text="Enchant creature\nEnchanted creature gets +4/+4, has flying and first strike, and is an Angel in addition to its other types.\nWhen enchanted creature dies, return this card to its owner's hand.",
     subtypes={"Aura"},
+    setup_interceptors=angelic_destiny_setup,
 )
 
 ARCHWAY_ANGEL = make_creature(
@@ -8461,6 +11145,7 @@ ARCHWAY_ANGEL = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel"},
     text="Flying\nWhen this creature enters, you gain 2 life for each Gate you control.",
+    setup_interceptors=archway_angel_setup,
 )
 
 BALLYRUSH_BANNERET = make_creature(
@@ -8470,6 +11155,7 @@ BALLYRUSH_BANNERET = make_creature(
     colors={Color.WHITE},
     subtypes={"Kithkin", "Soldier"},
     text="Kithkin spells and Soldier spells you cast cost {1} less to cast.",
+    setup_interceptors=ballyrush_banneret_setup,
 )
 
 CHARMING_PRINCE = make_creature(
@@ -8479,6 +11165,7 @@ CHARMING_PRINCE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Noble"},
     text="When this creature enters, choose one —\n• Scry 2.\n• You gain 3 life.\n• Exile another target creature you own. Return it to the battlefield under your control at the beginning of the next end step.",
+    setup_interceptors=charming_prince_setup,
 )
 
 CRUSADER_OF_ODRIC = make_creature(
@@ -8488,6 +11175,7 @@ CRUSADER_OF_ODRIC = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Crusader of Odric's power and toughness are each equal to the number of creatures you control.",
+    setup_interceptors=crusader_of_odric_setup,
 )
 
 DAWNWING_MARSHAL = make_creature(
@@ -8497,6 +11185,7 @@ DAWNWING_MARSHAL = make_creature(
     colors={Color.WHITE},
     subtypes={"Cat", "Soldier"},
     text="Flying\n{4}{W}: Creatures you control get +1/+1 until end of turn.",
+    setup_interceptors=dawnwing_marshal_setup,
 )
 
 DEVOUT_DECREE = make_sorcery(
@@ -8522,6 +11211,7 @@ FELIDAR_CUB = make_creature(
     colors={Color.WHITE},
     subtypes={"Beast", "Cat"},
     text="Sacrifice this creature: Destroy target enchantment.",
+    setup_interceptors=felidar_cub_setup,
 )
 
 FELIDAR_RETREAT = make_enchantment(
@@ -8546,6 +11236,7 @@ KNIGHT_OF_GRACE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
     text="First strike (This creature deals combat damage before creatures without first strike.)\nHexproof from black (This creature can't be the target of black spells or abilities your opponents control.)\nThis creature gets +1/+0 as long as any player controls a black permanent.",
+    setup_interceptors=knight_of_grace_setup,
 )
 
 LINDEN_THE_STEADFAST_QUEEN = make_creature(
@@ -8591,6 +11282,7 @@ STASIS_SNARE = make_enchantment(
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     text="Flash (You may cast this spell any time you could cast an instant.)\nWhen this enchantment enters, exile target creature an opponent controls until this enchantment leaves the battlefield.",
+    setup_interceptors=stasis_snare_setup,
 )
 
 SYR_ALIN_THE_LIONS_CLAW = make_creature(
@@ -8630,6 +11322,7 @@ ARCANIS_THE_OMNIPOTENT = make_creature(
     subtypes={"Wizard"},
     supertypes={"Legendary"},
     text="{T}: Draw three cards.\n{2}{U}{U}: Return Arcanis to its owner's hand.",
+    setup_interceptors=arcanis_the_omnipotent_setup,
 )
 
 CHART_A_COURSE = make_sorcery(
@@ -8644,6 +11337,7 @@ DICTATE_OF_KRUPHIX = make_enchantment(
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     text="Flash (You may cast this spell any time you could cast an instant.)\nAt the beginning of each player's draw step, that player draws an additional card.",
+    setup_interceptors=dictate_of_kruphix_setup,
 )
 
 DIVE_DOWN = make_instant(
@@ -8676,6 +11370,7 @@ FOG_BANK = make_creature(
     colors={Color.BLUE},
     subtypes={"Wall"},
     text="Defender (This creature can't attack.)\nFlying\nPrevent all combat damage that would be dealt to and dealt by this creature.",
+    setup_interceptors=fog_bank_setup,
 )
 
 GATEWAY_SNEAK = make_creature(
@@ -8685,6 +11380,7 @@ GATEWAY_SNEAK = make_creature(
     colors={Color.BLUE},
     subtypes={"Rogue", "Vedalken"},
     text="Whenever a Gate you control enters, this creature can't be blocked this turn.\nWhenever this creature deals combat damage to a player, draw a card.",
+    setup_interceptors=gateway_sneak_setup,
 )
 
 HARBINGER_OF_THE_TIDES = make_creature(
@@ -8694,6 +11390,7 @@ HARBINGER_OF_THE_TIDES = make_creature(
     colors={Color.BLUE},
     subtypes={"Merfolk", "Wizard"},
     text="You may cast this spell as though it had flash if you pay {2} more to cast it. (You may cast it any time you could cast an instant.)\nWhen this creature enters, you may return target tapped creature an opponent controls to its owner's hand.",
+    setup_interceptors=harbinger_of_the_tides_setup,
 )
 
 MYSTICAL_TEACHINGS = make_instant(
@@ -8717,6 +11414,7 @@ SHIPWRECK_DOWSER = make_creature(
     colors={Color.BLUE},
     subtypes={"Merfolk", "Wizard"},
     text="Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nWhen this creature enters, return target instant or sorcery card from your graveyard to your hand.",
+    setup_interceptors=shipwreck_dowser_setup,
 )
 
 SPHINX_OF_THE_FINAL_WORD = make_creature(
@@ -8726,6 +11424,7 @@ SPHINX_OF_THE_FINAL_WORD = make_creature(
     colors={Color.BLUE},
     subtypes={"Sphinx"},
     text="This spell can't be countered.\nFlying\nHexproof (This creature can't be the target of spells or abilities your opponents control.)\nInstant and sorcery spells you control can't be countered.",
+    setup_interceptors=sphinx_of_the_final_word_setup,
 )
 
 TEMPEST_DJINN = make_creature(
@@ -8735,6 +11434,7 @@ TEMPEST_DJINN = make_creature(
     colors={Color.BLUE},
     subtypes={"Djinn"},
     text="Flying\nThis creature gets +1/+0 for each basic Island you control.",
+    setup_interceptors=tempest_djinn_setup,
 )
 
 UNSUMMON = make_instant(
@@ -8752,6 +11452,7 @@ VORACIOUS_GREATSHARK = make_creature(
     colors={Color.BLUE},
     subtypes={"Shark"},
     text="Flash (You may cast this spell any time you could cast an instant.)\nWhen this creature enters, counter target artifact or creature spell.",
+    setup_interceptors=voracious_greatshark_setup,
 )
 
 DEATHMARK = make_sorcery(
@@ -8767,6 +11468,7 @@ DEMONIC_PACT = make_enchantment(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     text="At the beginning of your upkeep, choose one that hasn't been chosen —\n• This enchantment deals 4 damage to any target and you gain 4 life.\n• Target opponent discards two cards.\n• Draw two cards.\n• You lose the game.",
+    setup_interceptors=demonic_pact_setup,
 )
 
 DESECRATION_DEMON = make_creature(
@@ -8776,6 +11478,7 @@ DESECRATION_DEMON = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon"},
     text="Flying\nAt the beginning of each combat, any opponent may sacrifice a creature of their choice. If a player does, tap this creature and put a +1/+1 counter on it.",
+    setup_interceptors=desecration_demon_setup,
 )
 
 DREAD_SUMMONS = make_sorcery(
@@ -8889,6 +11592,7 @@ KNIGHT_OF_MALICE = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Knight"},
     text="First strike (This creature deals combat damage before creatures without first strike.)\nHexproof from white (This creature can't be the target of white spells or abilities your opponents control.)\nThis creature gets +1/+0 as long as any player controls a white permanent.",
+    setup_interceptors=knight_of_malice_setup,
 )
 
 MIDNIGHT_REAPER = make_creature(
@@ -8909,6 +11613,7 @@ MYOJIN_OF_NIGHTS_REACH = make_creature(
     subtypes={"Spirit"},
     supertypes={"Legendary"},
     text="Myojin of Night's Reach enters with a divinity counter on it if you cast it from your hand.\nMyojin of Night's Reach has indestructible as long as it has a divinity counter on it.\nRemove a divinity counter from Myojin of Night's Reach: Each opponent discards their hand.",
+    setup_interceptors=myojin_of_nights_reach_setup,
 )
 
 NULLPRIEST_OF_OBLIVION = make_creature(
@@ -8918,6 +11623,7 @@ NULLPRIEST_OF_OBLIVION = make_creature(
     colors={Color.BLACK},
     subtypes={"Cleric", "Vampire"},
     text="Kicker {3}{B} (You may pay an additional {3}{B} as you cast this spell.)\nLifelink\nMenace (This creature can't be blocked except by two or more creatures.)\nWhen this creature enters, if it was kicked, return target creature card from your graveyard to the battlefield.",
+    setup_interceptors=nullpriest_of_oblivion_setup,
 )
 
 PULSE_TRACKER = make_creature(
@@ -8950,6 +11656,7 @@ VAMPIRIC_RITES = make_enchantment(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="{1}{B}, Sacrifice a creature: You gain 1 life and draw a card.",
+    setup_interceptors=vampiric_rites_setup,
 )
 
 VILE_ENTOMBER = make_creature(
@@ -8959,12 +11666,14 @@ VILE_ENTOMBER = make_creature(
     colors={Color.BLACK},
     subtypes={"Warlock", "Zombie"},
     text="Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\nWhen this creature enters, search your library for a card, put that card into your graveyard, then shuffle.",
+    setup_interceptors=vile_entomber_setup,
 )
 
 WISHCLAW_TALISMAN = make_artifact(
     name="Wishclaw Talisman",
     mana_cost="{1}{B}",
     text="This artifact enters with three wish counters on it.\n{1}, {T}, Remove a wish counter from this artifact: Search your library for a card, put it into your hand, then shuffle. An opponent gains control of this artifact. Activate only during your turn.",
+    setup_interceptors=wishclaw_talisman_setup,
 )
 
 BALL_LIGHTNING = make_creature(
@@ -8974,6 +11683,7 @@ BALL_LIGHTNING = make_creature(
     colors={Color.RED},
     subtypes={"Elemental"},
     text="Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)\nHaste (This creature can attack and {T} as soon as it comes under your control.)\nAt the beginning of the end step, sacrifice this creature.",
+    setup_interceptors=ball_lightning_setup,
 )
 
 BOLT_BEND = make_instant(
@@ -8997,6 +11707,7 @@ DRAGON_MAGE = make_creature(
     colors={Color.RED},
     subtypes={"Dragon", "Wizard"},
     text="Flying\nWhenever this creature deals combat damage to a player, each player discards their hand, then draws seven cards.",
+    setup_interceptors=dragon_mage_setup,
 )
 
 DRAGONMASTER_OUTCAST = make_creature(
@@ -9006,6 +11717,7 @@ DRAGONMASTER_OUTCAST = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Shaman"},
     text="At the beginning of your upkeep, if you control six or more lands, create a 5/5 red Dragon creature token with flying.",
+    setup_interceptors=dragonmaster_outcast_setup,
 )
 
 GHITU_LAVARUNNER = make_creature(
@@ -9015,6 +11727,7 @@ GHITU_LAVARUNNER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Wizard"},
     text="As long as there are two or more instant and/or sorcery cards in your graveyard, this creature gets +1/+0 and has haste. (It can attack and {T} as soon as it comes under your control.)",
+    setup_interceptors=ghitu_lavarunner_setup,
 )
 
 GIANT_CINDERMAW = make_creature(
@@ -9024,6 +11737,7 @@ GIANT_CINDERMAW = make_creature(
     colors={Color.RED},
     subtypes={"Beast", "Dinosaur"},
     text="Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)\nPlayers can't gain life.",
+    setup_interceptors=giant_cindermaw_setup,
 )
 
 HARMLESS_OFFERING = make_sorcery(
@@ -9040,6 +11754,7 @@ HOARDING_DRAGON = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Flying\nWhen this creature enters, you may search your library for an artifact card, exile it, then shuffle.\nWhen this creature dies, you may put the exiled card into its owner's hand.",
+    setup_interceptors=hoarding_dragon_setup,
 )
 
 LATHLISS_DRAGON_QUEEN = make_creature(
@@ -9060,6 +11775,7 @@ MINDSPARKER = make_creature(
     colors={Color.RED},
     subtypes={"Elemental"},
     text="First strike (This creature deals combat damage before creatures without first strike.)\nWhenever an opponent casts a white or blue instant or sorcery spell, this creature deals 2 damage to that player.",
+    setup_interceptors=mindsparker_setup,
 )
 
 OBLITERATING_BOLT = make_sorcery(
@@ -9076,6 +11792,7 @@ RAVENOUS_GIANT = make_creature(
     colors={Color.RED},
     subtypes={"Giant"},
     text="At the beginning of your upkeep, this creature deals 1 damage to you.",
+    setup_interceptors=ravenous_giant_setup,
 )
 
 REDCAP_GUTTERDWELLER = make_creature(
@@ -9085,6 +11802,7 @@ REDCAP_GUTTERDWELLER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Warrior"},
     text="Menace\nWhen this creature enters, create two 1/1 black Rat creature tokens with \"This token can't block.\"\nAt the beginning of your upkeep, you may sacrifice another creature. If you do, put a +1/+1 counter on this creature and exile the top card of your library. You may play that card this turn.",
+    setup_interceptors=redcap_gutterdweller_setup,
 )
 
 STROMKIRK_NOBLE = make_creature(
@@ -9094,6 +11812,7 @@ STROMKIRK_NOBLE = make_creature(
     colors={Color.RED},
     subtypes={"Noble", "Vampire"},
     text="This creature can't be blocked by Humans.\nWhenever this creature deals combat damage to a player, put a +1/+1 counter on it.",
+    setup_interceptors=stromkirk_noble_setup,
 )
 
 TAUREAN_MAULER = make_creature(
@@ -9103,6 +11822,7 @@ TAUREAN_MAULER = make_creature(
     colors={Color.RED},
     subtypes={"Shapeshifter"},
     text="Changeling (This card is every creature type.)\nWhenever an opponent casts a spell, you may put a +1/+1 counter on this creature.",
+    setup_interceptors=taurean_mauler_setup,
 )
 
 VIASHINO_PYROMANCER = make_creature(
@@ -9140,6 +11860,7 @@ FYNN_THE_FANGBEARER = make_creature(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     text="Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\nWhenever a creature you control with deathtouch deals combat damage to a player, that player gets two poison counters. (A player with ten or more poison counters loses the game.)",
+    setup_interceptors=fynn_the_fangbearer_setup,
 )
 
 GNARLBACK_RHINO = make_creature(
@@ -9149,6 +11870,7 @@ GNARLBACK_RHINO = make_creature(
     colors={Color.GREEN},
     subtypes={"Rhino"},
     text="Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)\nWhenever you cast a spell that targets this creature, draw a card.",
+    setup_interceptors=gnarlback_rhino_setup,
 )
 
 HEROES_BANE = make_creature(
@@ -9158,6 +11880,7 @@ HEROES_BANE = make_creature(
     colors={Color.GREEN},
     subtypes={"Hydra"},
     text="This creature enters with four +1/+1 counters on it.\n{2}{G}{G}: Put X +1/+1 counters on this creature, where X is its power.",
+    setup_interceptors=heroes_bane_setup,
 )
 
 MOLD_ADDER = make_creature(
@@ -9167,6 +11890,7 @@ MOLD_ADDER = make_creature(
     colors={Color.GREEN},
     subtypes={"Fungus", "Snake"},
     text="Whenever an opponent casts a blue or black spell, you may put a +1/+1 counter on this creature.",
+    setup_interceptors=mold_adder_setup,
 )
 
 ORDEAL_OF_NYLEA = make_enchantment(
@@ -9175,6 +11899,7 @@ ORDEAL_OF_NYLEA = make_enchantment(
     colors={Color.GREEN},
     text="Enchant creature\nWhenever enchanted creature attacks, put a +1/+1 counter on it. Then if it has three or more +1/+1 counters on it, sacrifice this Aura.\nWhen you sacrifice this Aura, search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle.",
     subtypes={"Aura"},
+    setup_interceptors=ordeal_of_nylea_setup,
 )
 
 PREDATOR_OOZE = make_creature(
@@ -9184,6 +11909,7 @@ PREDATOR_OOZE = make_creature(
     colors={Color.GREEN},
     subtypes={"Ooze"},
     text="Indestructible (Damage and effects that say \"destroy\" don't destroy this creature.)\nWhenever this creature attacks, put a +1/+1 counter on it.\nWhenever a creature dealt damage by this creature this turn dies, put a +1/+1 counter on this creature.",
+    setup_interceptors=predator_ooze_setup,
 )
 
 PRIMAL_MIGHT = make_sorcery(
@@ -9229,6 +11955,7 @@ SURRAK_THE_HUNT_CALLER = make_creature(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     text="Formidable — At the beginning of combat on your turn, if creatures you control have total power 8 or greater, target creature you control gains haste until end of turn. (It can attack and {T} no matter when it came under your control.)",
+    setup_interceptors=surrak_the_hunt_caller_setup,
 )
 
 VENOM_CONNOISSEUR = make_creature(
@@ -9238,6 +11965,7 @@ VENOM_CONNOISSEUR = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Human"},
     text="Alliance — Whenever another creature you control enters, this creature gains deathtouch until end of turn. If this is the second time this ability has resolved this turn, all creatures you control gain deathtouch until end of turn.",
+    setup_interceptors=venom_connoisseur_setup,
 )
 
 VIZIER_OF_THE_MENAGERIE = make_creature(
@@ -9247,6 +11975,7 @@ VIZIER_OF_THE_MENAGERIE = make_creature(
     colors={Color.GREEN},
     subtypes={"Cleric", "Snake"},
     text="You may look at the top card of your library any time.\nYou may cast creature spells from the top of your library.\nYou can spend mana of any type to cast creature spells.",
+    setup_interceptors=vizier_of_the_menagerie_setup,
 )
 
 WILDBORN_PRESERVER = make_creature(
@@ -9256,6 +11985,7 @@ WILDBORN_PRESERVER = make_creature(
     colors={Color.GREEN},
     subtypes={"Archer", "Elf"},
     text="Flash (You may cast this spell any time you could cast an instant.)\nReach (This creature can block creatures with flying.)\nWhenever another non-Human creature you control enters, you may pay {X}. When you do, put X +1/+1 counters on this creature.",
+    setup_interceptors=wildborn_preserver_setup,
 )
 
 AURELIA_THE_WARLEADER = make_creature(
@@ -9277,6 +12007,7 @@ AYLI_ETERNAL_PILGRIM = make_creature(
     subtypes={"Cleric", "Kor"},
     supertypes={"Legendary"},
     text="Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\n{1}, Sacrifice another creature: You gain life equal to the sacrificed creature's toughness.\n{1}{W}{B}, Sacrifice another creature: Exile target nonland permanent. Activate only if you have at least 10 life more than your starting life total.",
+    setup_interceptors=ayli_eternal_pilgrim_setup,
 )
 
 CLOUDBLAZER = make_creature(
@@ -9303,6 +12034,7 @@ DROGSKOL_REAVER = make_creature(
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Spirit"},
     text="Flying\nDouble strike (This creature deals both first-strike and regular combat damage.)\nLifelink (Damage dealt by this creature also causes you to gain that much life.)\nWhenever you gain life, draw a card.",
+    setup_interceptors=drogskol_reaver_setup,
 )
 
 DRYAD_MILITANT = make_creature(
@@ -9312,6 +12044,7 @@ DRYAD_MILITANT = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Dryad", "Soldier"},
     text="({G/W} can be paid with either {G} or {W}.)\nIf an instant or sorcery card would be put into a graveyard from anywhere, exile it instead.",
+    setup_interceptors=dryad_militant_setup,
 )
 
 ENIGMA_DRAKE = make_creature(
@@ -9321,6 +12054,7 @@ ENIGMA_DRAKE = make_creature(
     colors={Color.RED, Color.BLUE},
     subtypes={"Drake"},
     text="Flying\nEnigma Drake's power is equal to the number of instant and sorcery cards in your graveyard.",
+    setup_interceptors=enigma_drake_setup,
 )
 
 GARNA_BLOODFIST_OF_KELD = make_creature(
@@ -9342,6 +12076,7 @@ HALANA_AND_ALENA_PARTNERS = make_creature(
     subtypes={"Human", "Ranger"},
     supertypes={"Legendary"},
     text="First strike (This creature deals combat damage before creatures without first strike.)\nReach (This creature can block creatures with flying.)\nAt the beginning of combat on your turn, put X +1/+1 counters on another target creature you control, where X is Halana and Alena's power. That creature gains haste until end of turn.",
+    setup_interceptors=halana_and_alena_partners_setup,
 )
 
 IMMERSTURM_PREDATOR = make_creature(
@@ -9351,6 +12086,7 @@ IMMERSTURM_PREDATOR = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Dragon", "Vampire"},
     text="Flying\nWhenever this creature becomes tapped, exile up to one target card from a graveyard and put a +1/+1 counter on this creature.\nSacrifice another creature: This creature gains indestructible until end of turn. Tap it.",
+    setup_interceptors=immersturm_predator_setup,
 )
 
 MAELSTROM_PULSE = make_sorcery(
@@ -9375,6 +12111,7 @@ OVIKA_ENIGMA_GOLIATH = make_creature(
     subtypes={"Nightmare", "Phyrexian"},
     supertypes={"Legendary"},
     text="Flying\nWard—{3}, Pay 3 life.\nWhenever you cast a noncreature spell, create X 1/1 red Phyrexian Goblin creature tokens, where X is the mana value of that spell. They gain haste until end of turn.",
+    setup_interceptors=ovika_enigma_goliath_setup,
 )
 
 PRIME_SPEAKER_ZEGANA = make_creature(
@@ -9385,6 +12122,7 @@ PRIME_SPEAKER_ZEGANA = make_creature(
     subtypes={"Merfolk", "Wizard"},
     supertypes={"Legendary"},
     text="Prime Speaker Zegana enters with X +1/+1 counters on it, where X is the greatest power among other creatures you control.\nWhen Prime Speaker Zegana enters, draw cards equal to its power.",
+    setup_interceptors=prime_speaker_zegana_setup,
 )
 
 SAVAGE_VENTMAW = make_creature(
@@ -9394,6 +12132,7 @@ SAVAGE_VENTMAW = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Dragon"},
     text="Flying\nWhenever this creature attacks, add {R}{R}{R}{G}{G}{G}. Until end of turn, you don't lose this mana as steps and phases end.",
+    setup_interceptors=savage_ventmaw_setup,
 )
 
 TEACH_BY_EXAMPLE = make_instant(
@@ -9410,6 +12149,7 @@ TRYGON_PREDATOR = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Beast"},
     text="Flying\nWhenever this creature deals combat damage to a player, you may destroy target artifact or enchantment that player controls.",
+    setup_interceptors=trygon_predator_setup,
 )
 
 WILTLEAF_LIEGE = make_creature(
@@ -9427,6 +12167,7 @@ BASILISK_COLLAR = make_artifact(
     mana_cost="{1}",
     text="Equipped creature has deathtouch and lifelink. (Any amount of damage it deals to a creature is enough to destroy it. Damage dealt by this creature also causes you to gain that much life.)\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=basilisk_collar_setup,
 )
 
 CULTIVATORS_CARAVAN = make_artifact(
@@ -9434,6 +12175,7 @@ CULTIVATORS_CARAVAN = make_artifact(
     mana_cost="{3}",
     text="{T}: Add one mana of any color.\nCrew 3 (Tap any number of creatures you control with total power 3 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
+    setup_interceptors=cultivators_caravan_setup,
 )
 
 DARKSTEEL_COLOSSUS = make_artifact_creature(
@@ -9443,6 +12185,7 @@ DARKSTEEL_COLOSSUS = make_artifact_creature(
     colors=set(),
     subtypes={"Golem"},
     text="Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)\nIndestructible (Damage and effects that say \"destroy\" don't destroy this creature.)\nIf Darksteel Colossus would be put into a graveyard from anywhere, reveal Darksteel Colossus and shuffle it into its owner's library instead.",
+    setup_interceptors=darksteel_colossus_setup,
 )
 
 DIAMOND_MARE = make_artifact_creature(
@@ -9452,12 +12195,14 @@ DIAMOND_MARE = make_artifact_creature(
     colors=set(),
     subtypes={"Horse"},
     text="As this creature enters, choose a color.\nWhenever you cast a spell of the chosen color, you gain 1 life.",
+    setup_interceptors=diamond_mare_setup,
 )
 
 FELDONS_CANE = make_artifact(
     name="Feldon's Cane",
     mana_cost="{1}",
     text="{T}, Exile this artifact: Shuffle your graveyard into your library.",
+    setup_interceptors=feldons_cane_setup,
 )
 
 FIRESHRIEKER = make_artifact(
@@ -9465,6 +12210,7 @@ FIRESHRIEKER = make_artifact(
     mana_cost="{3}",
     text="Equipped creature has double strike. (It deals both first-strike and regular combat damage.)\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=fireshrieker_setup,
 )
 
 GATE_COLOSSUS = make_artifact_creature(
@@ -9474,12 +12220,14 @@ GATE_COLOSSUS = make_artifact_creature(
     colors=set(),
     subtypes={"Construct"},
     text="Affinity for Gates (This spell costs {1} less to cast for each Gate you control.)\nThis creature can't be blocked by creatures with power 2 or less.\nWhenever a Gate you control enters, you may put this card from your graveyard on top of your library.",
+    setup_interceptors=gate_colossus_setup,
 )
 
 MAZEMIND_TOME = make_artifact(
     name="Mazemind Tome",
     mana_cost="{2}",
     text="{T}, Put a page counter on this artifact: Scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{2}, {T}, Put a page counter on this artifact: Draw a card.\nWhen there are four or more page counters on this artifact, exile it. If you do, you gain 4 life.",
+    setup_interceptors=mazemind_tome_setup,
 )
 
 PYROMANCERS_GOGGLES = make_artifact(
@@ -9487,6 +12235,7 @@ PYROMANCERS_GOGGLES = make_artifact(
     mana_cost="{5}",
     text="{T}: Add {R}. When that mana is spent to cast a red instant or sorcery spell, copy that spell and you may choose new targets for the copy.",
     supertypes={"Legendary"},
+    setup_interceptors=pyromancers_goggles_setup,
 )
 
 RAMOS_DRAGON_ENGINE = make_artifact_creature(
@@ -9497,18 +12246,21 @@ RAMOS_DRAGON_ENGINE = make_artifact_creature(
     subtypes={"Dragon"},
     supertypes={"Legendary"},
     text="Flying\nWhenever you cast a spell, put a +1/+1 counter on Ramos for each of that spell's colors.\nRemove five +1/+1 counters from Ramos: Add {W}{W}{U}{U}{B}{B}{R}{R}{G}{G}. Activate only once each turn.",
+    setup_interceptors=ramos_dragon_engine_setup,
 )
 
 SORCEROUS_SPYGLASS = make_artifact(
     name="Sorcerous Spyglass",
     mana_cost="{2}",
     text="As this artifact enters, look at an opponent's hand, then choose any card name.\nActivated abilities of sources with the chosen name can't be activated unless they're mana abilities.",
+    setup_interceptors=sorcerous_spyglass_setup,
 )
 
 SOULGUIDE_LANTERN = make_artifact(
     name="Soul-Guide Lantern",
     mana_cost="{1}",
     text="When this artifact enters, exile target card from a graveyard.\n{T}, Sacrifice this artifact: Exile each opponent's graveyard.\n{1}, {T}, Sacrifice this artifact: Draw a card.",
+    setup_interceptors=soulguide_lantern_setup,
 )
 
 STEEL_HELLKITE = make_artifact_creature(
@@ -9518,6 +12270,7 @@ STEEL_HELLKITE = make_artifact_creature(
     colors=set(),
     subtypes={"Dragon"},
     text="Flying\n{2}: This creature gets +1/+0 until end of turn.\n{X}: Destroy each nonland permanent with mana value X whose controller was dealt combat damage by this creature this turn. Activate only once each turn.",
+    setup_interceptors=steel_hellkite_setup,
 )
 
 THREE_TREE_MASCOT = make_artifact_creature(
@@ -9527,131 +12280,155 @@ THREE_TREE_MASCOT = make_artifact_creature(
     colors=set(),
     subtypes={"Shapeshifter"},
     text="Changeling (This card is every creature type.)\n{1}: Add one mana of any color. Activate only once each turn.",
+    setup_interceptors=three_tree_mascot_setup,
 )
 
 AZORIUS_GUILDGATE = make_land(
     name="Azorius Guildgate",
     text="This land enters tapped.\n{T}: Add {W} or {U}.",
     subtypes={"Gate"},
+    setup_interceptors=azorius_guildgate_setup,
 )
 
 BOROS_GUILDGATE = make_land(
     name="Boros Guildgate",
     text="This land enters tapped.\n{T}: Add {R} or {W}.",
     subtypes={"Gate"},
+    setup_interceptors=boros_guildgate_setup,
 )
 
 CRAWLING_BARRENS = make_land(
     name="Crawling Barrens",
     text="{T}: Add {C}.\n{4}: Put two +1/+1 counters on this land. Then you may have it become a 0/0 Elemental creature until end of turn. It's still a land.",
+    setup_interceptors=crawling_barrens_setup,
 )
 
 CRYPTIC_CAVES = make_land(
     name="Cryptic Caves",
     text="{T}: Add {C}.\n{1}, {T}, Sacrifice this land: Draw a card. Activate only if you control five or more lands.",
+    setup_interceptors=cryptic_caves_setup,
 )
 
 DEMOLITION_FIELD = make_land(
     name="Demolition Field",
     text="{T}: Add {C}.\n{2}, {T}, Sacrifice this land: Destroy target nonbasic land an opponent controls. That land's controller may search their library for a basic land card, put it onto the battlefield, then shuffle. You may search your library for a basic land card, put it onto the battlefield, then shuffle.",
+    setup_interceptors=demolition_field_setup,
 )
 
 DIMIR_GUILDGATE = make_land(
     name="Dimir Guildgate",
     text="This land enters tapped.\n{T}: Add {U} or {B}.",
     subtypes={"Gate"},
+    setup_interceptors=dimir_guildgate_setup,
 )
 
 GOLGARI_GUILDGATE = make_land(
     name="Golgari Guildgate",
     text="This land enters tapped.\n{T}: Add {B} or {G}.",
     subtypes={"Gate"},
+    setup_interceptors=golgari_guildgate_setup,
 )
 
 GRUUL_GUILDGATE = make_land(
     name="Gruul Guildgate",
     text="This land enters tapped.\n{T}: Add {R} or {G}.",
     subtypes={"Gate"},
+    setup_interceptors=gruul_guildgate_setup,
 )
 
 IZZET_GUILDGATE = make_land(
     name="Izzet Guildgate",
     text="This land enters tapped.\n{T}: Add {U} or {R}.",
     subtypes={"Gate"},
+    setup_interceptors=izzet_guildgate_setup,
 )
 
 ORZHOV_GUILDGATE = make_land(
     name="Orzhov Guildgate",
     text="This land enters tapped.\n{T}: Add {W} or {B}.",
     subtypes={"Gate"},
+    setup_interceptors=orzhov_guildgate_setup,
 )
 
 RAKDOS_GUILDGATE = make_land(
     name="Rakdos Guildgate",
     text="This land enters tapped.\n{T}: Add {B} or {R}.",
     subtypes={"Gate"},
+    setup_interceptors=rakdos_guildgate_setup,
 )
 
 SELESNYA_GUILDGATE = make_land(
     name="Selesnya Guildgate",
     text="This land enters tapped.\n{T}: Add {G} or {W}.",
     subtypes={"Gate"},
+    setup_interceptors=selesnya_guildgate_setup,
 )
 
 SIMIC_GUILDGATE = make_land(
     name="Simic Guildgate",
     text="This land enters tapped.\n{T}: Add {G} or {U}.",
     subtypes={"Gate"},
+    setup_interceptors=simic_guildgate_setup,
 )
 
 TEMPLE_OF_ABANDON = make_land(
     name="Temple of Abandon",
     text="This land enters tapped.\nWhen this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{T}: Add {R} or {G}.",
+    setup_interceptors=temple_of_abandon_setup,
 )
 
 TEMPLE_OF_DECEIT = make_land(
     name="Temple of Deceit",
     text="This land enters tapped.\nWhen this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{T}: Add {U} or {B}.",
+    setup_interceptors=temple_of_deceit_setup,
 )
 
 TEMPLE_OF_ENLIGHTENMENT = make_land(
     name="Temple of Enlightenment",
     text="This land enters tapped.\nWhen this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{T}: Add {W} or {U}.",
+    setup_interceptors=temple_of_enlightenment_setup,
 )
 
 TEMPLE_OF_EPIPHANY = make_land(
     name="Temple of Epiphany",
     text="This land enters tapped.\nWhen this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{T}: Add {U} or {R}.",
+    setup_interceptors=temple_of_epiphany_setup,
 )
 
 TEMPLE_OF_MALADY = make_land(
     name="Temple of Malady",
     text="This land enters tapped.\nWhen this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{T}: Add {B} or {G}.",
+    setup_interceptors=temple_of_malady_setup,
 )
 
 TEMPLE_OF_MALICE = make_land(
     name="Temple of Malice",
     text="This land enters tapped.\nWhen this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{T}: Add {B} or {R}.",
+    setup_interceptors=temple_of_malice_setup,
 )
 
 TEMPLE_OF_MYSTERY = make_land(
     name="Temple of Mystery",
     text="This land enters tapped.\nWhen this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{T}: Add {G} or {U}.",
+    setup_interceptors=temple_of_mystery_setup,
 )
 
 TEMPLE_OF_PLENTY = make_land(
     name="Temple of Plenty",
     text="This land enters tapped.\nWhen this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{T}: Add {G} or {W}.",
+    setup_interceptors=temple_of_plenty_setup,
 )
 
 TEMPLE_OF_SILENCE = make_land(
     name="Temple of Silence",
     text="This land enters tapped.\nWhen this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{T}: Add {W} or {B}.",
+    setup_interceptors=temple_of_silence_setup,
 )
 
 TEMPLE_OF_TRIUMPH = make_land(
     name="Temple of Triumph",
     text="This land enters tapped.\nWhen this land enters, scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{T}: Add {R} or {W}.",
+    setup_interceptors=temple_of_triumph_setup,
 )
 
 ANGEL_OF_VITALITY = make_creature(
@@ -9688,6 +12465,7 @@ CONFISCATE = make_enchantment(
     colors={Color.BLUE},
     text="Enchant permanent\nYou control enchanted permanent.",
     subtypes={"Aura"},
+    setup_interceptors=confiscate_setup,
 )
 
 NEGATE = make_instant(
@@ -9719,6 +12497,7 @@ GATEKEEPER_OF_MALAKIR = make_creature(
     colors={Color.BLACK},
     subtypes={"Vampire", "Warrior"},
     text="Kicker {B} (You may pay an additional {B} as you cast this spell.)\nWhen this creature enters, if it was kicked, target player sacrifices a creature of their choice.",
+    setup_interceptors=gatekeeper_of_malakir_setup,
 )
 
 MASSACRE_WURM = make_creature(
@@ -9736,6 +12515,7 @@ GRATUITOUS_VIOLENCE = make_enchantment(
     mana_cost="{2}{R}{R}{R}",
     colors={Color.RED},
     text="If a creature you control would deal damage to a permanent or player, it deals double that damage instead.",
+    setup_interceptors=gratuitous_violence_setup,
 )
 
 GUTTERSNIPE = make_creature(
@@ -9798,6 +12578,7 @@ UNFLINCHING_COURAGE = make_enchantment(
     colors={Color.GREEN, Color.WHITE},
     text="Enchant creature\nEnchanted creature gets +2/+2 and has trample and lifelink. (Damage dealt by the creature also causes its controller to gain that much life.)",
     subtypes={"Aura"},
+    setup_interceptors=unflinching_courage_setup,
 )
 
 ADAPTIVE_AUTOMATON = make_artifact_creature(
@@ -9814,23 +12595,27 @@ EXPEDITION_MAP = make_artifact(
     name="Expedition Map",
     mana_cost="{1}",
     text="{2}, {T}, Sacrifice this artifact: Search your library for a land card, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=expedition_map_setup,
 )
 
 GILDED_LOTUS = make_artifact(
     name="Gilded Lotus",
     mana_cost="{5}",
     text="{T}: Add three mana of any one color.",
+    setup_interceptors=gilded_lotus_setup,
 )
 
 HEDRON_ARCHIVE = make_artifact(
     name="Hedron Archive",
     mana_cost="{4}",
     text="{T}: Add {C}{C}.\n{2}, {T}, Sacrifice this artifact: Draw two cards.",
+    setup_interceptors=hedron_archive_setup,
 )
 
 MAZES_END = make_land(
     name="Maze's End",
     text="This land enters tapped.\n{T}: Add {C}.\n{3}, {T}, Return this land to its owner's hand: Search your library for a Gate card, put it onto the battlefield, then shuffle. If you control ten or more Gates with different names, you win the game.",
+    setup_interceptors=mazes_end_setup,
 )
 
 HINTERLAND_SANCTIFIER = make_creature(
@@ -9840,6 +12625,7 @@ HINTERLAND_SANCTIFIER = make_creature(
     colors={Color.WHITE},
     subtypes={"Cleric", "Rabbit"},
     text="Whenever another creature you control enters, you gain 1 life.",
+    setup_interceptors=hinterland_sanctifier_setup,
 )
 
 # =============================================================================

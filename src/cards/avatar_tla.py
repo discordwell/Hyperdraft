@@ -1666,6 +1666,1602 @@ def toph_first_metalbender_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 # =============================================================================
+# NEWLY ADDED SETUP FUNCTIONS (avatar_tla missing-briefing batch)
+# =============================================================================
+
+# --- WHITE ---
+
+def aang_the_last_airbender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. ETB airbend (engine gap). Lesson cast -> lifelink EOT (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: airbend (exile target nonland; owner may cast for {2})
+        return []
+
+    def lesson_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != source.controller:
+            return False
+        return "Lesson" in set(event.payload.get('subtypes', []))
+
+    def lifelink_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: temporary keyword grant to self until end of turn
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': obj.id, 'keyword': 'lifelink', 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        make_spell_cast_trigger(obj, lifelink_effect, filter_fn=lesson_filter),
+    ]
+
+
+def aangs_iceberg_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB exile up to one other nonland permanent until this leaves (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: temporary exile until this leaves the battlefield
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def airbender_ascension_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB airbend. Quest counters on creature ETB. EOT exile/return at 4 counters."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: airbend target creature
+        return []
+
+    def creature_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        return (entering_obj.controller == source.controller and
+                CardType.CREATURE in entering_obj.characteristics.types)
+
+    def quest_counter_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'quest', 'amount': 1},
+            source=obj.id
+        )]
+
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: condition + targeted blink (exile then return)
+        return []
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        make_etb_trigger(obj, quest_counter_effect, creature_etb_filter),
+        make_end_step_trigger(obj, end_step_effect),
+    ]
+
+
+def appa_loyal_sky_bison_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB or attack: choose one (flying EOT or airbend) - engine gap modal."""
+    def etb_or_attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: modal choice (flying EOT vs airbend)
+        return []
+    return [
+        make_etb_trigger(obj, etb_or_attack_effect),
+        make_attack_trigger(obj, etb_or_attack_effect),
+    ]
+
+
+def appa_steadfast_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB airbend (engine gap). Cast spell from exile -> Ally token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: airbend any number of permanents
+        return []
+
+    def cast_from_exile_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != source.controller:
+            return False
+        # engine gap: distinguishing "from exile" vs other zones
+        return event.payload.get('from_zone') == ZoneType.EXILE
+
+    def token_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Ally Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Ally'],
+                'colors': [Color.WHITE],
+            },
+            source=obj.id
+        )]
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        make_spell_cast_trigger(obj, token_effect, filter_fn=cast_from_exile_filter),
+    ]
+
+
+def compassionate_healer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this creature becomes tapped, gain 1 life and scry 1."""
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+        ]
+    return [make_tap_trigger(obj, tap_effect)]
+
+
+def earth_kingdom_jailer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB exile up to one target opponent permanent with MV>=3 until this leaves."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: temporary exile until this leaves the battlefield
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def earth_kingdom_protectors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sacrifice this creature: another Ally gains indestructible EOT (activated, engine gap)."""
+    # engine gap: activated abilities require activation system
+    return []
+
+
+def glider_staff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment ETB airbend (engine gap). Equip and aura modifiers via equipment system."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: airbend target creature; equipped +1/+1, flying via equip system
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def hakoda_selfless_commander_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Vigilance, look at top, cast Allies from top, sac for +0/+5 + indestructible (engine gap)."""
+    # engine gap: peek at top, cast from library, modal sacrifice activated ability
+    return []
+
+
+def master_piandao_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever Master Piandao attacks, look at top 4, may reveal Ally/Equipment/Lesson."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: filtered tutor-from-top
+        return [Event(
+            type=EventType.LOOK_AT_TOP,
+            payload={'player': obj.controller, 'amount': 4},
+            source=obj.id
+        )]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def momo_friendly_flier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """First non-Lemur flying creature each turn costs {1} less (engine gap).
+    Whenever another flying creature you control enters, +1/+1 EOT."""
+    def other_flying_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source.controller:
+            return False
+        if CardType.CREATURE not in entering_obj.characteristics.types:
+            return False
+        return 'flying' in entering_obj.characteristics.keywords
+
+    def pump_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
+    # engine gap: per-turn cost reduction for first non-Lemur flying spell
+    return [make_etb_trigger(obj, pump_effect, other_flying_etb_filter)]
+
+
+def momo_playful_pet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Momo leaves, modal: Food token, +1/+1 counter, or scry 2 (engine gap modal)."""
+    def leave_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: leaves-the-battlefield modal choice
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_death_trigger(obj, leave_effect)]
+
+
+def path_to_redemption_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: enchanted creature can't attack/block (engine gap restriction).
+    Activated sacrifice ability creates token (engine gap)."""
+    # engine gap: aura attack/block restriction + activated sacrifice ability
+    return []
+
+
+def rabaroo_troop_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Landfall - flying EOT and gain 1 life when a land you control enters."""
+    def land_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': obj.id, 'keyword': 'flying', 'duration': 'end_of_turn'},
+                  source=obj.id),
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+        ]
+
+    return [make_etb_trigger(obj, landfall_effect, land_etb_filter)]
+
+
+def team_avatar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attacks alone -> +X/+X EOT (engine gap). Discard activated ability (engine gap)."""
+    # engine gap: "attacks alone" detection + variable PT pump + activated discard ability
+    return []
+
+
+def vengeful_villagers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this attacks, choose target creature opp controls. Tap, may sac for stun counter."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: optional sacrifice for stun counter on chosen target
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def water_tribe_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{5}: Creatures you control get +1/+1 EOT (activated, engine gap)."""
+    # engine gap: activated abilities require activation system
+    return []
+
+
+def water_tribe_rallier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Waterbend {5}: tutor from top 4 (engine gap activated + waterbend)."""
+    # engine gap: waterbend activated ability
+    return []
+
+
+# --- BLUE ---
+
+def firsttime_flyer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """+1/+1 as long as there's a Lesson card in your graveyard."""
+    def lesson_in_gy(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        controller = obj.controller
+        for o in state.objects.values():
+            if o.owner == controller and o.zone == ZoneType.GRAVEYARD and \
+                    "Lesson" in o.characteristics.subtypes:
+                return True
+        return False
+
+    return make_static_pt_boost(obj, 1, 1, lesson_in_gy)
+
+
+def flexible_waterbender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Waterbend {3}: base power/toughness 5/2 EOT (engine gap activated + base stat swap)."""
+    # engine gap: waterbend activated ability + base PT change
+    return []
+
+
+def geyser_leaper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Waterbend {4}: loot. Engine gap (activated + waterbend)."""
+    # engine gap: waterbend activated ability
+    return []
+
+
+def giant_koi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Waterbend {3}: unblockable EOT (engine gap). Islandcycling {2} (engine gap)."""
+    # engine gap: waterbend + cycling activated abilities
+    return []
+
+
+def grangran_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever Gran-Gran becomes tapped, draw then discard.
+    Noncreature spells cost {1} less if 3+ Lessons in GY (engine gap)."""
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+            Event(type=EventType.DISCARD,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+        ]
+    # engine gap: conditional cost reduction
+    return [make_tap_trigger(obj, tap_effect)]
+
+
+def honest_work_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: ETB tap and remove counters; enchanted creature becomes 1/1 Citizen with {T}: Add {C}."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aura attachment, removing all counters, type/PT/ability rewrite
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def invasion_submersible_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB return up to one other nonland permanent (engine gap targeted bounce).
+    Exhaust waterbend {3}: become 3/3 (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeted bounce (return target permanent to hand)
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def katara_bending_prodigy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """End step: if Katara is tapped, +1/+1 counter on her.
+    Waterbend {6}: Draw a card (engine gap activated)."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        if obj.state.tapped:
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id
+            )]
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def master_pakku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Prowess (engine handles via keyword).
+    Whenever Master Pakku becomes tapped, target player mills X (X = Lessons in GY)."""
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        lesson_count = sum(
+            1 for o in state.objects.values()
+            if o.owner == obj.controller and o.zone == ZoneType.GRAVEYARD
+            and "Lesson" in o.characteristics.subtypes
+        )
+        if lesson_count <= 0:
+            return []
+        opponents = [p for p in state.players.keys() if p != obj.controller]
+        if not opponents:
+            return []
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': opponents[0], 'amount': lesson_count},
+            source=obj.id
+        )]
+    return [make_tap_trigger(obj, tap_effect)]
+
+
+def north_pole_patrol_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: Untap another permanent. Waterbend {3}, {T}: Tap target opp creature.
+    Both activated, engine gap."""
+    # engine gap: activated + waterbend abilities
+    return []
+
+
+def otterpenguin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you draw your second card each turn, +1/+2 EOT and unblockable (engine gap)."""
+    # engine gap: "second card each turn" tracker + temporary PT + temporary unblockable
+    return []
+
+
+def serpent_of_the_pass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Conditional flash and conditional cost reduction (engine gap, casting-time effect)."""
+    # engine gap: dynamic flash + per-graveyard-card cost reduction
+    return []
+
+
+def teo_spirited_glider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever 1+ creatures with flying you control attack, loot. Discarding nonland -> +1/+1 counter."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aggregate "creatures with flying attacked" detection + conditional pump on discard
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+            Event(type=EventType.DISCARD,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+        ]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def tigerseal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Vigilance. Upkeep: tap this. Whenever you draw 2nd card each turn, untap this."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TAP,
+            payload={'object_id': obj.id},
+            source=obj.id
+        )]
+    # engine gap: "second card each turn" tracker for the untap trigger
+    return [make_upkeep_trigger(obj, upkeep_effect)]
+
+
+def ty_lee_chi_blocker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tap up to one creature; doesn't untap during its controller's untap step (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: persistent untap-skip while you control Ty Lee
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def the_unagi_of_kyoshi_island_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ward-Waterbend {4} (engine gap). Whenever opp draws second card, draw two."""
+    # engine gap: waterbend ward + per-turn second-draw tracker
+    return []
+
+
+def wan_shi_tong_librarian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB X +1/+1 counters and draw X/2.
+    Whenever opp searches their library, +1/+1 and draw a card (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: X-cost spell value not tracked
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def waterbender_ascension_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Combat damage to player by your creature -> quest counter; at 4+ draw a card.
+    Waterbend {4}: target creature unblockable EOT (engine gap activated)."""
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat', False):
+            return False
+        target = event.payload.get('target')
+        if target not in state.players:
+            return False
+        source_id = event.payload.get('source')
+        source_obj = state.objects.get(source_id)
+        if not source_obj:
+            return False
+        return (source_obj.controller == obj.controller and
+                CardType.CREATURE in source_obj.characteristics.types)
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        events = [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'quest', 'amount': 1},
+            source=obj.id
+        )]
+        # Threshold draw if four or more after this trigger
+        current = obj.state.counters.get('quest', 0)
+        if current + 1 >= 4:
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id
+            ))
+        return events
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=damage_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def waterbending_scroll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{6}, {T}: Draw a card; cost reduces by Islands you control (activated, engine gap)."""
+    # engine gap: dynamic activation cost
+    return []
+
+
+def watery_grasp_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: enchanted creature doesn't untap (engine gap). Waterbend {5}: shuffle (engine gap)."""
+    # engine gap: aura untap-skip + waterbend activated ability
+    return []
+
+
+def yue_the_moon_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Waterbend {5}, {T}: cast a noncreature spell free (engine gap activated + waterbend)."""
+    # engine gap: waterbend + free-cast activated ability
+    return []
+
+
+# --- BLACK ---
+
+def beetleheaded_merchants_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this attacks, may sac creature/artifact -> draw + +1/+1 counter (engine gap optional sac)."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: optional sacrifice cost for triggered ability
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def boiling_rock_rioter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Firebending 1 (mana on attack - engine gap). Tap Ally: exile (engine gap activated).
+    Whenever this attacks, may cast Ally exiled with this (engine gap)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 1}},
+            source=obj.id
+        )]
+    # engine gap: cast-from-exile, activated abilities
+    return [make_attack_trigger(obj, firebending_attack)]
+
+
+def the_fire_nation_drill_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB may tap; when you do, destroy creature with power 4 or less (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: "may tap, when you do" reflexive trigger
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def fire_nation_engineer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Raid - end step, if attacked this turn, +1/+1 counter on another creature/Vehicle."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        if not state.turn_data.get(f"{obj.controller}_attacked_this_turn"):
+            return []
+        # Pick another creature/Vehicle you control
+        candidates = [
+            o for o in state.objects.values()
+            if o.controller == obj.controller and o.id != obj.id
+            and o.zone == ZoneType.BATTLEFIELD
+            and (CardType.CREATURE in o.characteristics.types
+                 or "Vehicle" in o.characteristics.subtypes)
+        ]
+        if not candidates:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': candidates[0].id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def fire_navy_trebuchet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you attack, create a 2/1 colorless Construct flying token, tapped/attacking; sac at next end step."""
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return False
+        return attacker.controller == obj.controller
+
+    def token_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: delayed sacrifice at next end step
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Ballistic Boulder',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 1,
+                'types': [CardType.ARTIFACT, CardType.CREATURE],
+                'subtypes': ['Construct'],
+                'colors': [],
+                'keywords': ['flying'],
+                'tapped': True,
+                'attacking': True,
+            },
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=token_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def foggy_swamp_hunters_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """As long as you've drawn 2+ cards this turn, has lifelink and menace."""
+    def drew_two_cards(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return state.turn_data.get(f"{obj.controller}_cards_drawn_this_turn", 0) >= 2
+
+    return [make_keyword_grant(obj, ['lifelink', 'menace'], drew_two_cards)]
+
+
+def hogmonkey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Beg of combat: target creature with +1/+1 counter gains menace EOT.
+    Exhaust {5}: two +1/+1 counters (engine gap activated)."""
+    def combat_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        if event.payload.get('phase') not in ('combat', 'beginning_of_combat'):
+            return False
+        return state.active_player == obj.controller
+
+    def menace_effect(event: Event, state: GameState) -> list[Event]:
+        candidates = [
+            o for o in state.objects.values()
+            if o.controller == obj.controller and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.state.counters.get('+1/+1', 0) > 0
+        ]
+        if not candidates:
+            return []
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': candidates[0].id, 'keyword': 'menace', 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=menace_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def joo_dee_one_of_many_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{B}, {T}: Surveil 1, create copy, sac (engine gap activated)."""
+    # engine gap: activated ability with cost+sac+token-copy
+    return []
+
+
+def june_bounty_hunter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Unblockable as long as drew 2+ cards (engine gap conditional unblockable).
+    Activated sac for Clue (engine gap)."""
+    # engine gap: conditional unblockable + activated sac ability
+    return []
+
+
+def koh_the_face_stealer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB exile up to one creature. Optional exile dying nontoken creatures.
+    Pay 1 life: choose exile - copy abilities (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: optional targeted exile + persistent ability copy
+        return []
+
+    def creature_death_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        dying = state.objects.get(dying_id)
+        if not dying:
+            return False
+        if dying.id == obj.id:
+            return False
+        if dying.state.is_token:
+            return False
+        return CardType.CREATURE in dying.characteristics.types
+
+    def exile_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: optional exile replacement
+        return []
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=creature_death_filter,
+            handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=exile_effect(e, s)),
+            duration='while_on_battlefield'
+        ),
+    ]
+
+
+def lo_and_li_twin_tutors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tutor for Lesson/Noble (engine gap library search). Lifelink to Noble/Lesson controlled."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: filtered library search
+        return []
+
+    def nobles_and_lessons(target: GameObject, state: GameState) -> bool:
+        if target.controller != obj.controller:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        if "Noble" in target.characteristics.subtypes and CardType.CREATURE in target.characteristics.types:
+            return True
+        if "Lesson" in target.characteristics.subtypes:
+            return True
+        return False
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        make_keyword_grant(obj, ['lifelink'], nobles_and_lessons),
+    ]
+
+
+def merchant_of_many_hats_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{B}: Return this from your graveyard to your hand (activated, engine gap)."""
+    # engine gap: graveyard-zone activated ability
+    return []
+
+
+def obsessive_pursuit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB and upkeep: lose 1 life and create a Clue token.
+    Whenever you attack: +X/+X counter on attacking creature (engine gap dynamic)."""
+    def life_and_clue(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': obj.controller, 'amount': -1},
+                  source=obj.id),
+            Event(type=EventType.OBJECT_CREATED,
+                  payload={
+                      'name': 'Clue',
+                      'controller': obj.controller,
+                      'types': [CardType.ARTIFACT],
+                      'subtypes': ['Clue'],
+                  },
+                  source=obj.id),
+        ]
+
+    # engine gap: per-turn sacrifice counter + variable counter put on attacker
+    return [
+        make_etb_trigger(obj, life_and_clue),
+        make_upkeep_trigger(obj, life_and_clue),
+    ]
+
+
+def phoenix_fleet_airship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """End step if sacrificed permanent this turn, copy this Vehicle (engine gap)."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: sacrificed-this-turn tracker + token-copy of self
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def swampsnare_trap_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura -5/-3 to enchanted creature (engine gap aura attachment)."""
+    # engine gap: aura attachment system
+    return []
+
+
+def tundra_tank_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Firebending 1 attacks add {R}. ETB target creature gains indestructible EOT (engine gap)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 1}},
+            source=obj.id
+        )]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeted indestructible EOT
+        return []
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        make_attack_trigger(obj, firebending_attack),
+    ]
+
+
+def wolfbat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you draw second card each turn, may pay {B} to return this from GY (engine gap)."""
+    # engine gap: graveyard-zone ability + per-turn second-draw tracker + finality counter
+    return []
+
+
+# --- RED ---
+
+def the_cave_of_two_lovers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Saga (engine gap lore counters and chapter triggers)."""
+    # engine gap: Saga chapter triggers
+    return []
+
+
+def combustion_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever attacks, destroy target permanent unless controller takes power damage."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: optional damage-or-destroy choice
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def deserters_disciple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: Another creature with power 2 or less can't be blocked this turn (engine gap activated)."""
+    # engine gap: activated ability
+    return []
+
+
+def fated_firepower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Replacement effect: damage to opp/their permanent + fire counters (engine gap)."""
+    # engine gap: replacement effect on damage events with X-tracking
+    return []
+
+
+def fire_nation_cadets_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Firebending 2 if Lesson in GY. {2}: +1/+0 EOT (activated, engine gap)."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        has_lesson = any(
+            o.owner == obj.controller and o.zone == ZoneType.GRAVEYARD
+            and "Lesson" in o.characteristics.subtypes
+            for o in state.objects.values()
+        )
+        if not has_lesson:
+            return []
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 2}},
+            source=obj.id
+        )]
+    # engine gap: activated +1/+0 ability
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def fire_sages_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Firebending 1 (mana on attack). {1}{R}{R}: +1/+1 counter (activated, engine gap)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 1}},
+            source=obj.id
+        )]
+    # engine gap: activated counter ability
+    return [make_attack_trigger(obj, firebending_attack)]
+
+
+def firebender_ascension_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB create 2/2 red Soldier with firebending 1.
+    Triggered-on-attack copying (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Soldier Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Soldier'],
+                'colors': [Color.RED],
+                'keywords': ['firebending'],
+            },
+            source=obj.id
+        )]
+    # engine gap: detecting-and-copying triggered abilities
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def firebending_student_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Prowess (engine handles). Firebending X = power on attack."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # Read current power
+        current = obj.characteristics.power or 0
+        if current <= 0:
+            return []
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': current}},
+            source=obj.id
+        )]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def jeong_jeong_the_deserter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Firebending 1. Exhaust {3}: +1/+1 counter and copy next Lesson cast this turn (engine gap)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 1}},
+            source=obj.id
+        )]
+    # engine gap: exhaust + delayed-trigger spell-copy
+    return [make_attack_trigger(obj, firebending_attack)]
+
+
+def mai_jaded_edge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Prowess (handled). Exhaust {3}: double strike counter (engine gap activated)."""
+    # engine gap: exhaust activated ability
+    return []
+
+
+def ran_and_shaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, firebending 2. ETB if cast and 3+ Dragon/Lesson in GY -> token copy (engine gap).
+    {3}{R}: Dragons +2/+0 EOT (activated, engine gap)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 2}},
+            source=obj.id
+        )]
+    # engine gap: token-copy of self + activated lord pump
+    return [make_attack_trigger(obj, firebending_attack)]
+
+
+def rough_rhino_cavalry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Firebending 2. Exhaust {8}: two +1/+1 counters and trample EOT (engine gap)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 2}},
+            source=obj.id
+        )]
+    # engine gap: exhaust activated ability
+    return [make_attack_trigger(obj, firebending_attack)]
+
+
+def tigerdillo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Can't attack/block unless you control another creature with power 4+ (engine gap)."""
+    # engine gap: conditional attack/block restriction
+    return []
+
+
+def twin_blades_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment ETB attach to creature you control + double strike EOT (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: equipment auto-attach + double strike EOT
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def ty_lee_artful_acrobat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Prowess (handled). Whenever attacks, may pay {1} -> target creature can't block (engine gap)."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: optional cost trigger + targeted block restriction
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def war_balloon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. {1}: fire counter (engine gap activated). 3+ counters -> artifact creature (engine gap)."""
+    # engine gap: counter accumulation activated + conditional creature-type
+    return []
+
+
+def zhao_the_moon_slayer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace. Nonbasic lands enter tapped (engine gap replacement).
+    {7}: conqueror counter (engine gap). With counter, nonbasics are Mountains."""
+    # engine gap: replacement on land ETB + activated counter ability + type-changing static
+    return []
+
+
+def zuko_exiled_prince_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Firebending 3 (mana on attack). {3}: impulse draw (engine gap activated)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 3}},
+            source=obj.id
+        )]
+    # engine gap: activated impulse draw
+    return [make_attack_trigger(obj, firebending_attack)]
+
+
+# --- GREEN ---
+
+def avatar_destiny_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: enchanted creature gets +1/+1 per creature card in graveyard, is also Avatar.
+    On death: mill X, return this and 1 milled creature."""
+    # engine gap: aura attachment + dynamic +X/+X + reanimator
+    return []
+
+
+def the_boulder_ready_to_rumble_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever attacks, earthbend X (engine gap dynamic earthbend)."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: variable earthbend
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def bumi_king_of_three_trials_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: choose up to X modes (engine gap modal multi-choose)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: choose up to X different modes from list
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def earthbender_ascension_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB earthbend 2 + tutor basic (engine gap).
+    Landfall -> quest counter. At 4+, +1/+1 + trample EOT on creature."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: earthbend + library search
+        return []
+
+    def land_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        events = [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'quest', 'amount': 1},
+            source=obj.id
+        )]
+        # If at threshold, also pump a target creature
+        current = obj.state.counters.get('quest', 0)
+        if current + 1 >= 4:
+            # engine gap: targeted +1/+1 with trample EOT
+            pass
+        return events
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        make_etb_trigger(obj, landfall_effect, land_etb_filter),
+    ]
+
+
+def earthen_ally_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """+1/+0 for each color among Allies you control."""
+    # Static query: count distinct colors among allies, give that many +1/+0
+    def is_self(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        # Compute power bonus dynamically: count colors among controlled Allies
+        return True
+
+    # engine gap: dynamic +X/+0 based on changing board state would need a query interceptor.
+    # Apply a static +1/+0 boost as a placeholder approximation when at least one Ally is in play.
+    def has_any_ally(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return any(
+            o.controller == obj.controller and o.zone == ZoneType.BATTLEFIELD
+            and "Ally" in o.characteristics.subtypes
+            for o in state.objects.values()
+        )
+
+    # engine gap: per-color count needs query handler with custom value
+    return make_static_pt_boost(obj, 1, 0, has_any_ally)
+
+
+def foggy_swamp_vinebender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Can't be blocked by power 2 or less (engine gap).
+    Waterbend {5}: +1/+1 counter (engine gap activated)."""
+    # engine gap: block restriction by attacker query + waterbend activated ability
+    return []
+
+
+def great_divide_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Each land and Ally has '{T}: Add one mana of any color' (engine gap)."""
+    # engine gap: granting activated mana abilities to a class of permanents
+    return []
+
+
+def haru_hidden_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another Ally enters, earthbend 1 (engine gap)."""
+    def other_ally_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        return (entering_obj.controller == source.controller and
+                "Ally" in entering_obj.characteristics.subtypes)
+
+    def earthbend_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: earthbend (turn target land into creature)
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': 'LAND_TARGET', 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    return [make_etb_trigger(obj, earthbend_effect, other_ally_filter)]
+
+
+def leaves_from_the_vine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Saga (engine gap chapter triggers)."""
+    # engine gap: Saga chapter triggers
+    return []
+
+
+def raucous_audience_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: Add {G}; if you control a power-4+ creature, add {G}{G} instead (engine gap)."""
+    # engine gap: conditional mana ability
+    return []
+
+
+def rebellious_captives_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust {6}: two +1/+1 counters and earthbend 2 (engine gap activated)."""
+    # engine gap: exhaust activated ability + earthbend
+    return []
+
+
+def sabertooth_mooselion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reach. Forestcycling {2} (engine gap cycling activated ability)."""
+    # engine gap: cycling activated ability
+    return []
+
+
+def sparring_dummy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Defender. {T}: Mill a card, may put land into hand, +2 life if Lesson milled (engine gap activated)."""
+    # engine gap: activated ability
+    return []
+
+
+def toph_the_blind_bandit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB earthbend 2 (engine gap). Power = +1/+1 counters on lands you control (engine gap dynamic)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: earthbend (turn land into creature)
+        return []
+    # engine gap: dynamic power query based on land counters
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def turtleduck_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{3}: base power 4 + trample EOT (engine gap activated + base PT change)."""
+    # engine gap: activated ability with base PT swap
+    return []
+
+
+# --- MULTICOLOR ---
+
+def azula_cunning_usurper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Firebending 2 (mana on attack).
+    ETB target opp exiles a nontoken creature, then exiles a nonland card from GY (engine gap).
+    May cast cards exiled with Azula at flash, any mana (engine gap)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 2}},
+            source=obj.id
+        )]
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: opponent-chooses targeted exile + GY exile
+        return []
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        make_attack_trigger(obj, firebending_attack),
+    ]
+
+
+def bitter_work_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you attack a player with creature(s) of power 4+, draw a card.
+    Exhaust {4}: earthbend 4 (engine gap activated)."""
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return False
+        if attacker.controller != obj.controller:
+            return False
+        power = attacker.characteristics.power or 0
+        return power >= 4
+
+    def draw_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def bumi_unleashed_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample. ETB earthbend 4 (engine gap).
+    Combat damage to player -> untap lands + extra combat (engine gap extra phase)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: earthbend
+        return []
+
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat', False):
+            return False
+        if event.payload.get('source') != obj.id:
+            return False
+        return event.payload.get('target') in state.players
+
+    def untap_extra_combat(event: Event, state: GameState) -> list[Event]:
+        # engine gap: untap-all + extra combat phase
+        return []
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=damage_filter,
+            handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=untap_extra_combat(e, s)),
+            duration='while_on_battlefield'
+        ),
+    ]
+
+
+def dragonfly_swarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, ward {1}. Power = noncreature/nonland cards in GY (engine gap dynamic).
+    Death: if Lesson in GY, draw a card."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        has_lesson = any(
+            o.owner == obj.controller and o.zone == ZoneType.GRAVEYARD
+            and "Lesson" in o.characteristics.subtypes
+            for o in state.objects.values()
+        )
+        if not has_lesson:
+            return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    # engine gap: dynamic power based on GY contents
+    return [make_death_trigger(obj, death_effect)]
+
+
+def earth_rumble_wrestlers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reach. +1/+0 trample as long as you control a land creature or had land enter this turn (engine gap)."""
+    # engine gap: conditional pump based on land creature/land-this-turn detection
+    return []
+
+
+def fire_lord_azula_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Firebending 2 (mana on attack).
+    Whenever you cast a spell while attacking, copy that spell (engine gap)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 2}},
+            source=obj.id
+        )]
+    # engine gap: spell-copy on cast while attacking
+    return [make_attack_trigger(obj, firebending_attack)]
+
+
+def hama_the_bloodbender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB target opp mills 3, may exile a noncreature/nonland card.
+    May cast it via waterbend (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        opponents = [p for p in state.players.keys() if p != obj.controller]
+        if not opponents:
+            return []
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': opponents[0], 'amount': 3},
+            source=obj.id
+        )]
+    # engine gap: optional GY-exile + cast-with-waterbend
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def hermitic_herbalist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Two activated mana abilities (engine gap)."""
+    # engine gap: activated mana abilities
+    return []
+
+
+def iroh_grand_lotus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Firebending 2 (mana on attack).
+    During your turn, instants/sorceries in GY have flashback (engine gap),
+    Lessons have flashback {1} (engine gap)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 2}},
+            source=obj.id
+        )]
+    # engine gap: flashback grant
+    return [make_attack_trigger(obj, firebending_attack)]
+
+
+def ozai_the_phoenix_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample, firebending 4, haste. Mana floats as red (engine gap).
+    Flying + indestructible if 6+ unspent mana (engine gap)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 4}},
+            source=obj.id
+        )]
+    # engine gap: replacement on mana clearance + conditional keywords
+    return [make_attack_trigger(obj, firebending_attack)]
+
+
+def platypusbear_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Defender. ETB mill 2.
+    With Lesson in GY, attack as if no defender (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    # engine gap: conditional defender override
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def professor_zei_anthropologist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated ability {T}, Discard: draw (engine gap).
+    {1}, {T}, Sac: return instant/sorcery from GY (engine gap)."""
+    # engine gap: activated abilities
+    return []
+
+
+def uncle_iroh_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Firebending 1 (mana on attack). Lesson spells cost {1} less (engine gap cost reduction)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 1}},
+            source=obj.id
+        )]
+    # engine gap: cost reduction by subtype
+    return [make_attack_trigger(obj, firebending_attack)]
+
+
+def vindictive_warden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace, firebending 1 (mana on attack). {3}: 1 damage to each opponent (engine gap activated)."""
+    def firebending_attack(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': obj.controller, 'mana': {'R': 1}},
+            source=obj.id
+        )]
+    # engine gap: activated AOE damage
+    return [make_attack_trigger(obj, firebending_attack)]
+
+
+def zuko_conflicted_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Beg of first main: choose unchosen mode and lose 2 life (engine gap)."""
+    # engine gap: tracked-modal choose-a-different-mode-each-turn
+    return []
+
+
+# --- ARTIFACTS ---
+
+def barrels_of_blasting_jelly_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Two activated abilities (engine gap)."""
+    # engine gap: activated abilities
+    return []
+
+
+def benders_waterskin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Untap during each other player's untap step (engine gap).
+    {T}: Add one mana of any color (engine gap activated)."""
+    # engine gap: replacement on opponent untap step + activated mana
+    return []
+
+
+def fire_nation_warship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reach. Death -> create Clue token. Crew 2."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Clue',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Clue'],
+            },
+            source=obj.id
+        )]
+    return [make_death_trigger(obj, death_effect)]
+
+
+def kyoshi_battle_fan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment ETB: create 1/1 Ally token, attach this to it (engine gap auto-attach)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: auto-attach Equipment to created token
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Ally Token',
+                'controller': obj.controller,
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Ally'],
+                'colors': [Color.WHITE],
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def meteor_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment ETB: destroy target permanent (engine gap targeted destruction)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target permanent destruction
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def planetarium_of_wan_shi_tong_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}, {T}: Scry 2 (engine gap activated).
+    Whenever you scry/surveil: may cast top free (engine gap)."""
+    # engine gap: activated scry + once-per-turn cast-from-top
+    return []
+
+
+def trusty_boomerang_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipped creature has {1}, {T}: tap creature, return Boomerang (engine gap granted activated)."""
+    # engine gap: granting activated abilities to equipped creature
+    return []
+
+
+def white_lotus_tile_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enters tapped (engine gap). {T}: Add X mana of one color where X is greatest creature-type tribe (engine gap)."""
+    # engine gap: enters-tapped + dynamic mana production
+    return []
+
+
+# --- LANDS ---
+
+def abandoned_air_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped unless you control basic (engine gap).
+    {T}: Add {W}, {3}{W}, {T}: +1/+1 counter on each creature (engine gap activated)."""
+    # engine gap: conditional ETB-tapped + activated counter ability
+    return []
+
+
+def agna_qela_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Same shape as above; activated draw-discard ability (engine gap)."""
+    # engine gap: activated abilities
+    return []
+
+
+def airship_engine_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped (engine gap). {4}, {T}, sac: draw a card (engine gap)."""
+    # engine gap: activated abilities
+    return []
+
+
+def ba_sing_se_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped unless basic. Earthbend activated (engine gap)."""
+    # engine gap: activated abilities + earthbend
+    return []
+
+
+def boiling_rock_prison_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped. Sac for draw (engine gap)."""
+    # engine gap: activated sacrifice ability
+    return []
+
+
+def fire_nation_palace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped unless basic. Activated firebending 4 grant (engine gap)."""
+    # engine gap: activated keyword grant
+    return []
+
+
+def foggy_bottom_swamp_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped. Sac for draw (engine gap)."""
+    # engine gap: activated sacrifice ability
+    return []
+
+
+def jasmine_dragon_tea_shop_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Conditional mana abilities + activated token creation (engine gap)."""
+    # engine gap: restricted mana + activated abilities
+    return []
+
+
+def kyoshi_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped. Sac for draw (engine gap)."""
+    # engine gap: activated sacrifice ability
+    return []
+
+
+def meditation_pools_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped. Sac for draw (engine gap)."""
+    # engine gap: activated sacrifice ability
+    return []
+
+
+def misty_palms_oasis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped. Sac for draw (engine gap)."""
+    # engine gap: activated sacrifice ability
+    return []
+
+
+def north_pole_gates_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped. Sac for draw (engine gap)."""
+    # engine gap: activated sacrifice ability
+    return []
+
+
+def omashu_city_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped. Sac for draw (engine gap)."""
+    # engine gap: activated sacrifice ability
+    return []
+
+
+def realm_of_koh_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped unless basic. Activated Spirit token (engine gap)."""
+    # engine gap: activated token creation
+    return []
+
+
+def rumble_arena_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB scry 1. Activated mana (engine gap)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def secret_tunnel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Land can't be blocked (engine gap; lands don't normally attack).
+    Activated unblockable for two creatures (engine gap)."""
+    # engine gap: activated unblockable
+    return []
+
+
+def serpents_pass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped. Sac for draw (engine gap)."""
+    # engine gap: activated sacrifice ability
+    return []
+
+
+def sunblessed_peak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB tapped. Sac for draw (engine gap)."""
+    # engine gap: activated sacrifice ability
+    return []
+
+
+def white_lotus_hideout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Conditional mana to cast Lesson/Shrine (engine gap)."""
+    # engine gap: spell-restricted mana
+    return []
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -1701,6 +3297,7 @@ AANG_THE_LAST_AIRBENDER = make_creature(
     subtypes={"Ally", "Avatar", "Human"},
     supertypes={"Legendary"},
     text="Flying\nWhen Aang enters, airbend up to one other target nonland permanent. (Exile it. While it's exiled, its owner may cast it for {2} rather than its mana cost.)\nWhenever you cast a Lesson spell, Aang gains lifelink until end of turn.",
+    setup_interceptors=aang_the_last_airbender_setup,
 )
 
 AANGS_ICEBERG = make_enchantment(
@@ -1708,6 +3305,7 @@ AANGS_ICEBERG = make_enchantment(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Flash\nWhen this enchantment enters, exile up to one other target nonland permanent until this enchantment leaves the battlefield.\nWaterbend {3}: Sacrifice this enchantment. If you do, scry 2. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)",
+    setup_interceptors=aangs_iceberg_setup,
 )
 
 AIRBENDER_ASCENSION = make_enchantment(
@@ -1715,6 +3313,7 @@ AIRBENDER_ASCENSION = make_enchantment(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="When this enchantment enters, airbend up to one target creature.\nWhenever a creature you control enters, put a quest counter on this enchantment.\nAt the beginning of your end step, if this enchantment has four or more quest counters on it, exile up to one target creature you control, then return it to the battlefield under its owner's control.",
+    setup_interceptors=airbender_ascension_setup,
 )
 
 AIRBENDERS_REVERSAL = make_instant(
@@ -1741,6 +3340,7 @@ APPA_LOYAL_SKY_BISON = make_creature(
     subtypes={"Ally", "Bison"},
     supertypes={"Legendary"},
     text="Flying\nWhenever Appa enters or attacks, choose one —\n• Target creature you control gains flying until end of turn.\n• Airbend another target nonland permanent you control. (Exile it. While it's exiled, its owner may cast it for {2} rather than its mana cost.)",
+    setup_interceptors=appa_loyal_sky_bison_setup,
 )
 
 APPA_STEADFAST_GUARDIAN = make_creature(
@@ -1751,6 +3351,7 @@ APPA_STEADFAST_GUARDIAN = make_creature(
     subtypes={"Ally", "Bison"},
     supertypes={"Legendary"},
     text="Flash\nFlying\nWhen Appa enters, airbend any number of other target nonland permanents you control. (Exile them. While each one is exiled, its owner may cast it for {2} rather than its mana cost.)\nWhenever you cast a spell from exile, create a 1/1 white Ally creature token.",
+    setup_interceptors=appa_steadfast_guardian_setup,
 )
 
 AVATAR_ENTHUSIASTS = make_creature(
@@ -1777,6 +3378,7 @@ COMPASSIONATE_HEALER = make_creature(
     colors={Color.WHITE},
     subtypes={"Ally", "Cleric", "Human"},
     text="Whenever this creature becomes tapped, you gain 1 life and scry 1. (Look at the top card of your library. You may put it on the bottom.)",
+    setup_interceptors=compassionate_healer_setup,
 )
 
 CURIOUS_FARM_ANIMALS = make_creature(
@@ -1803,6 +3405,7 @@ EARTH_KINGDOM_JAILER = make_creature(
     colors={Color.WHITE},
     subtypes={"Ally", "Human", "Soldier"},
     text="When this creature enters, exile up to one target artifact, creature, or enchantment an opponent controls with mana value 3 or greater until this creature leaves the battlefield.",
+    setup_interceptors=earth_kingdom_jailer_setup,
 )
 
 EARTH_KINGDOM_PROTECTORS = make_creature(
@@ -1812,6 +3415,7 @@ EARTH_KINGDOM_PROTECTORS = make_creature(
     colors={Color.WHITE},
     subtypes={"Ally", "Human", "Soldier"},
     text="Vigilance\nSacrifice this creature: Another target Ally you control gains indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)",
+    setup_interceptors=earth_kingdom_protectors_setup,
 )
 
 ENTER_THE_AVATAR_STATE = make_instant(
@@ -1852,6 +3456,7 @@ GLIDER_STAFF = make_artifact(
     mana_cost="{2}{W}",
     text="When this Equipment enters, airbend up to one target creature. (Exile it. While it's exiled, its owner may cast it for {2} rather than its mana cost.)\nEquipped creature gets +1/+1 and has flying.\nEquip {2}",
     subtypes={"Equipment"},
+    setup_interceptors=glider_staff_setup,
 )
 
 HAKODA_SELFLESS_COMMANDER = make_creature(
@@ -1862,6 +3467,7 @@ HAKODA_SELFLESS_COMMANDER = make_creature(
     subtypes={"Ally", "Human", "Warrior"},
     supertypes={"Legendary"},
     text="Vigilance\nYou may look at the top card of your library any time.\nYou may cast Ally spells from the top of your library.\nSacrifice Hakoda: Creatures you control get +0/+5 and gain indestructible until end of turn.",
+    setup_interceptors=hakoda_selfless_commander_setup,
 )
 
 INVASION_REINFORCEMENTS = make_creature(
@@ -1911,6 +3517,7 @@ MASTER_PIANDAO = make_creature(
     subtypes={"Ally", "Human", "Warrior"},
     supertypes={"Legendary"},
     text="First strike\nWhenever Master Piandao attacks, look at the top four cards of your library. You may reveal an Ally, Equipment, or Lesson card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+    setup_interceptors=master_piandao_setup,
 )
 
 MOMO_FRIENDLY_FLIER = make_creature(
@@ -1921,6 +3528,7 @@ MOMO_FRIENDLY_FLIER = make_creature(
     subtypes={"Ally", "Bat", "Lemur"},
     supertypes={"Legendary"},
     text="Flying\nThe first non-Lemur creature spell with flying you cast during each of your turns costs {1} less to cast.\nWhenever another creature you control with flying enters, Momo gets +1/+1 until end of turn.",
+    setup_interceptors=momo_friendly_flier_setup,
 )
 
 MOMO_PLAYFUL_PET = make_creature(
@@ -1931,6 +3539,7 @@ MOMO_PLAYFUL_PET = make_creature(
     subtypes={"Ally", "Bat", "Lemur"},
     supertypes={"Legendary"},
     text="Flying, vigilance\nWhen Momo leaves the battlefield, choose one —\n• Create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")\n• Put a +1/+1 counter on target creature you control.\n• Scry 2.",
+    setup_interceptors=momo_playful_pet_setup,
 )
 
 PATH_TO_REDEMPTION = make_enchantment(
@@ -1939,6 +3548,7 @@ PATH_TO_REDEMPTION = make_enchantment(
     colors={Color.WHITE},
     text="Enchant creature\nEnchanted creature can't attack or block.\n{5}, Sacrifice this Aura: Exile enchanted creature. Create a 1/1 white Ally creature token. Activate only during your turn.",
     subtypes={"Aura"},
+    setup_interceptors=path_to_redemption_setup,
 )
 
 RABAROO_TROOP = make_creature(
@@ -1948,6 +3558,7 @@ RABAROO_TROOP = make_creature(
     colors={Color.WHITE},
     subtypes={"Kangaroo", "Rabbit"},
     text="Landfall — Whenever a land you control enters, this creature gains flying until end of turn and you gain 1 life.\nPlainscycling {2} ({2}, Discard this card: Search your library for a Plains card, reveal it, put it into your hand, then shuffle.)",
+    setup_interceptors=rabaroo_troop_setup,
 )
 
 RAZOR_RINGS = make_instant(
@@ -2000,6 +3611,7 @@ TEAM_AVATAR = make_enchantment(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Whenever a creature you control attacks alone, it gets +X/+X until end of turn, where X is the number of creatures you control.\n{2}{W}, Discard this card: It deals damage equal to the number of creatures you control to target creature.",
+    setup_interceptors=team_avatar_setup,
 )
 
 UNITED_FRONT = make_sorcery(
@@ -2016,6 +3628,7 @@ VENGEFUL_VILLAGERS = make_creature(
     colors={Color.WHITE},
     subtypes={"Citizen", "Human"},
     text="Whenever this creature attacks, choose target creature an opponent controls. Tap it, then you may sacrifice an artifact or creature. If you do, put a stun counter on the chosen creature. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
+    setup_interceptors=vengeful_villagers_setup,
 )
 
 WATER_TRIBE_CAPTAIN = make_creature(
@@ -2025,6 +3638,7 @@ WATER_TRIBE_CAPTAIN = make_creature(
     colors={Color.WHITE},
     subtypes={"Ally", "Human", "Soldier"},
     text="{5}: Creatures you control get +1/+1 until end of turn.",
+    setup_interceptors=water_tribe_captain_setup,
 )
 
 WATER_TRIBE_RALLIER = make_creature(
@@ -2034,6 +3648,7 @@ WATER_TRIBE_RALLIER = make_creature(
     colors={Color.WHITE},
     subtypes={"Ally", "Human", "Soldier"},
     text="Waterbend {5}: Look at the top four cards of your library. You may reveal a creature card with power 3 or less from among them and put it into your hand. Put the rest on the bottom of your library in a random order. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)",
+    setup_interceptors=water_tribe_rallier_setup,
 )
 
 YIP_YIP = make_instant(
@@ -2091,6 +3706,7 @@ FIRSTTIME_FLYER = make_creature(
     colors={Color.BLUE},
     subtypes={"Ally", "Human", "Pilot"},
     text="Flying\nThis creature gets +1/+1 as long as there's a Lesson card in your graveyard.",
+    setup_interceptors=firsttime_flyer_setup,
 )
 
 FLEXIBLE_WATERBENDER = make_creature(
@@ -2100,6 +3716,7 @@ FLEXIBLE_WATERBENDER = make_creature(
     colors={Color.BLUE},
     subtypes={"Ally", "Human", "Warrior"},
     text="Vigilance\nWaterbend {3}: This creature has base power and toughness 5/2 until end of turn. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)",
+    setup_interceptors=flexible_waterbender_setup,
 )
 
 FORECASTING_FORTUNE_TELLER = make_creature(
@@ -2119,6 +3736,7 @@ GEYSER_LEAPER = make_creature(
     colors={Color.BLUE},
     subtypes={"Ally", "Human", "Warrior"},
     text="Flying\nWaterbend {4}: Draw a card, then discard a card. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)",
+    setup_interceptors=geyser_leaper_setup,
 )
 
 GIANT_KOI = make_creature(
@@ -2128,6 +3746,7 @@ GIANT_KOI = make_creature(
     colors={Color.BLUE},
     subtypes={"Fish"},
     text="Waterbend {3}: This creature can't be blocked this turn. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)\nIslandcycling {2} ({2}, Discard this card: Search your library for an Island card, reveal it, put it into your hand, then shuffle.)",
+    setup_interceptors=giant_koi_setup,
 )
 
 GRANGRAN = make_creature(
@@ -2138,6 +3757,7 @@ GRANGRAN = make_creature(
     subtypes={"Ally", "Human", "Peasant"},
     supertypes={"Legendary"},
     text="Whenever Gran-Gran becomes tapped, draw a card, then discard a card.\nNoncreature spells you cast cost {1} less to cast as long as there are three or more Lesson cards in your graveyard.",
+    setup_interceptors=grangran_setup,
 )
 
 HONEST_WORK = make_enchantment(
@@ -2146,6 +3766,7 @@ HONEST_WORK = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature an opponent controls\nWhen this Aura enters, tap enchanted creature and remove all counters from it.\nEnchanted creature loses all abilities and is a Citizen with base power and toughness 1/1 and \"{T}: Add {C}\" named Humble Merchant. (It loses all other creature types and names.)",
     subtypes={"Aura"},
+    setup_interceptors=honest_work_setup,
 )
 
 IGUANA_PARROT = make_creature(
@@ -2162,6 +3783,7 @@ INVASION_SUBMERSIBLE = make_artifact(
     mana_cost="{2}{U}",
     text="When this Vehicle enters, return up to one other target nonland permanent to its owner's hand.\nExhaust — Waterbend {3}: This Vehicle becomes an artifact creature. Put three +1/+1 counters on it. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}. Activate each exhaust ability only once.)",
     subtypes={"Vehicle"},
+    setup_interceptors=invasion_submersible_setup,
 )
 
 ITLL_QUENCH_YA = make_instant(
@@ -2180,6 +3802,7 @@ KATARA_BENDING_PRODIGY = make_creature(
     subtypes={"Ally", "Human", "Warrior"},
     supertypes={"Legendary"},
     text="At the beginning of your end step, if Katara is tapped, put a +1/+1 counter on her.\nWaterbend {6}: Draw a card. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)",
+    setup_interceptors=katara_bending_prodigy_setup,
 )
 
 KNOWLEDGE_SEEKER = make_creature(
@@ -2217,6 +3840,7 @@ MASTER_PAKKU = make_creature(
     subtypes={"Advisor", "Ally", "Human"},
     supertypes={"Legendary"},
     text="Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nWhenever Master Pakku becomes tapped, target player mills X cards, where X is the number of Lesson cards in your graveyard. (They put the top X cards of their library into their graveyard.)",
+    setup_interceptors=master_pakku_setup,
 )
 
 THE_MECHANIST_AERIAL_ARTISAN = make_creature(
@@ -2237,6 +3861,7 @@ NORTH_POLE_PATROL = make_creature(
     colors={Color.BLUE},
     subtypes={"Ally", "Human", "Soldier"},
     text="{T}: Untap another target permanent you control.\nWaterbend {3}, {T}: Tap target creature an opponent controls. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)",
+    setup_interceptors=north_pole_patrol_setup,
 )
 
 OCTOPUS_FORM = make_instant(
@@ -2254,6 +3879,7 @@ OTTERPENGUIN = make_creature(
     colors={Color.BLUE},
     subtypes={"Bird", "Otter"},
     text="Whenever you draw your second card each turn, this creature gets +1/+2 until end of turn and can't be blocked this turn.",
+    setup_interceptors=otterpenguin_setup,
 )
 
 ROWDY_SNOWBALLERS = make_creature(
@@ -2281,6 +3907,7 @@ SERPENT_OF_THE_PASS = make_creature(
     colors={Color.BLUE},
     subtypes={"Serpent"},
     text="If there are three or more Lesson cards in your graveyard, you may cast this spell as though it had flash.\nThis spell costs {1} less to cast for each noncreature, nonland card in your graveyard.",
+    setup_interceptors=serpent_of_the_pass_setup,
 )
 
 SOKKAS_HAIKU = make_instant(
@@ -2316,6 +3943,7 @@ TEO_SPIRITED_GLIDER = make_creature(
     subtypes={"Ally", "Human", "Pilot"},
     supertypes={"Legendary"},
     text="Flying\nWhenever one or more creatures you control with flying attack, draw a card, then discard a card. When you discard a nonland card this way, put a +1/+1 counter on target creature you control.",
+    setup_interceptors=teo_spirited_glider_setup,
 )
 
 TIGERSEAL = make_creature(
@@ -2325,6 +3953,7 @@ TIGERSEAL = make_creature(
     colors={Color.BLUE},
     subtypes={"Cat", "Seal"},
     text="Vigilance\nAt the beginning of your upkeep, tap this creature.\nWhenever you draw your second card each turn, untap this creature.",
+    setup_interceptors=tigerseal_setup,
 )
 
 TY_LEE_CHI_BLOCKER = make_creature(
@@ -2335,6 +3964,7 @@ TY_LEE_CHI_BLOCKER = make_creature(
     subtypes={"Ally", "Human", "Performer"},
     supertypes={"Legendary"},
     text="Flash\nProwess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nWhen Ty Lee enters, tap up to one target creature. It doesn't untap during its controller's untap step for as long as you control Ty Lee.",
+    setup_interceptors=ty_lee_chi_blocker_setup,
 )
 
 THE_UNAGI_OF_KYOSHI_ISLAND = make_creature(
@@ -2345,6 +3975,7 @@ THE_UNAGI_OF_KYOSHI_ISLAND = make_creature(
     subtypes={"Serpent"},
     supertypes={"Legendary"},
     text="Flash\nWard—Waterbend {4}. (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {4}. They can tap their artifacts and creatures to help. Each one pays for {1}.)\nWhenever an opponent draws their second card each turn, you draw two cards.",
+    setup_interceptors=the_unagi_of_kyoshi_island_setup,
 )
 
 WAN_SHI_TONG_LIBRARIAN = make_creature(
@@ -2355,6 +3986,7 @@ WAN_SHI_TONG_LIBRARIAN = make_creature(
     subtypes={"Bird", "Spirit"},
     supertypes={"Legendary"},
     text="Flash\nFlying, vigilance\nWhen Wan Shi Tong enters, put X +1/+1 counters on him. Then draw half X cards, rounded down.\nWhenever an opponent searches their library, put a +1/+1 counter on Wan Shi Tong and draw a card.",
+    setup_interceptors=wan_shi_tong_librarian_setup,
 )
 
 WATERBENDER_ASCENSION = make_enchantment(
@@ -2362,6 +3994,7 @@ WATERBENDER_ASCENSION = make_enchantment(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Whenever a creature you control deals combat damage to a player, put a quest counter on this enchantment. Then if it has four or more quest counters on it, draw a card.\nWaterbend {4}: Target creature can't be blocked this turn. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)",
+    setup_interceptors=waterbender_ascension_setup,
 )
 
 WATERBENDING_LESSON = make_sorcery(
@@ -2376,6 +4009,7 @@ WATERBENDING_SCROLL = make_artifact(
     name="Waterbending Scroll",
     mana_cost="{1}{U}",
     text="{6}, {T}: Draw a card. This ability costs {1} less to activate for each Island you control.",
+    setup_interceptors=waterbending_scroll_setup,
 )
 
 WATERY_GRASP = make_enchantment(
@@ -2384,6 +4018,7 @@ WATERY_GRASP = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature\nEnchanted creature doesn't untap during its controller's untap step.\nWaterbend {5}: Enchanted creature's owner shuffles it into their library. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)",
     subtypes={"Aura"},
+    setup_interceptors=watery_grasp_setup,
 )
 
 YUE_THE_MOON_SPIRIT = make_creature(
@@ -2394,6 +4029,7 @@ YUE_THE_MOON_SPIRIT = make_creature(
     subtypes={"Ally", "Spirit"},
     supertypes={"Legendary"},
     text="Flying, vigilance\nWaterbend {5}, {T}: You may cast a noncreature spell from your hand without paying its mana cost. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)",
+    setup_interceptors=yue_the_moon_spirit_setup,
 )
 
 AZULA_ALWAYS_LIES = make_instant(
@@ -2422,6 +4058,7 @@ BEETLEHEADED_MERCHANTS = make_creature(
     colors={Color.BLACK},
     subtypes={"Citizen", "Human"},
     text="Whenever this creature attacks, you may sacrifice another creature or artifact. If you do, draw a card and put a +1/+1 counter on this creature.",
+    setup_interceptors=beetleheaded_merchants_setup,
 )
 
 BOILING_ROCK_RIOTER = make_creature(
@@ -2431,6 +4068,7 @@ BOILING_ROCK_RIOTER = make_creature(
     colors={Color.BLACK},
     subtypes={"Ally", "Human", "Rogue"},
     text="Firebending 1 (Whenever this creature attacks, add {R}. This mana lasts until end of combat.)\nTap an untapped Ally you control: Exile target card from a graveyard.\nWhenever this creature attacks, you may cast an Ally spell from among cards you own exiled with this creature.",
+    setup_interceptors=boiling_rock_rioter_setup,
 )
 
 BUZZARDWASP_COLONY = make_creature(
@@ -2525,6 +4163,7 @@ THE_FIRE_NATION_DRILL = make_artifact(
     text="Trample\nWhen The Fire Nation Drill enters, you may tap it. When you do, destroy target creature with power 4 or less.\n{1}: Permanents your opponents control lose hexproof and indestructible until end of turn.\nCrew 2",
     subtypes={"Vehicle"},
     supertypes={"Legendary"},
+    setup_interceptors=the_fire_nation_drill_setup,
 )
 
 FIRE_NATION_ENGINEER = make_creature(
@@ -2534,6 +4173,7 @@ FIRE_NATION_ENGINEER = make_creature(
     colors={Color.BLACK},
     subtypes={"Artificer", "Human"},
     text="Raid — At the beginning of your end step, if you attacked this turn, put a +1/+1 counter on another target creature or Vehicle you control.",
+    setup_interceptors=fire_nation_engineer_setup,
 )
 
 FIRE_NAVY_TREBUCHET = make_artifact_creature(
@@ -2543,6 +4183,7 @@ FIRE_NAVY_TREBUCHET = make_artifact_creature(
     colors={Color.BLACK},
     subtypes={"Wall"},
     text="Defender, reach\nWhenever you attack, create a 2/1 colorless Construct artifact creature token with flying named Ballistic Boulder that's tapped and attacking. Sacrifice that token at the beginning of the next end step.",
+    setup_interceptors=fire_navy_trebuchet_setup,
 )
 
 FOGGY_SWAMP_HUNTERS = make_creature(
@@ -2552,6 +4193,7 @@ FOGGY_SWAMP_HUNTERS = make_creature(
     colors={Color.BLACK},
     subtypes={"Ally", "Human", "Ranger"},
     text="As long as you've drawn two or more cards this turn, this creature has lifelink and menace. (It can't be blocked except by two or more creatures.)",
+    setup_interceptors=foggy_swamp_hunters_setup,
 )
 
 FOGGY_SWAMP_VISIONS = make_sorcery(
@@ -2724,6 +4366,7 @@ HOGMONKEY = make_creature(
     colors={Color.BLACK},
     subtypes={"Boar", "Monkey"},
     text="At the beginning of combat on your turn, target creature you control with a +1/+1 counter on it gains menace until end of turn. (It can't be blocked except by two or more creatures.)\nExhaust — {5}: Put two +1/+1 counters on this creature. (Activate each exhaust ability only once.)",
+    setup_interceptors=hogmonkey_setup,
 )
 
 JOO_DEE_ONE_OF_MANY = make_creature(
@@ -2733,6 +4376,7 @@ JOO_DEE_ONE_OF_MANY = make_creature(
     colors={Color.BLACK},
     subtypes={"Advisor", "Human"},
     text="{B}, {T}: Surveil 1. Create a token that's a copy of this creature, then sacrifice an artifact or creature. Activate only as a sorcery. (To surveil 1, look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=joo_dee_one_of_many_setup,
 )
 
 JUNE_BOUNTY_HUNTER = make_creature(
@@ -2743,6 +4387,7 @@ JUNE_BOUNTY_HUNTER = make_creature(
     subtypes={"Human", "Mercenary"},
     supertypes={"Legendary"},
     text="June can't be blocked as long as you've drawn two or more cards this turn.\n{1}, Sacrifice another creature: Create a Clue token. Activate only during your turn. (It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
+    setup_interceptors=june_bounty_hunter_setup,
 )
 
 KOH_THE_FACE_STEALER = make_creature(
@@ -2753,6 +4398,7 @@ KOH_THE_FACE_STEALER = make_creature(
     subtypes={"Shapeshifter", "Spirit"},
     supertypes={"Legendary"},
     text="When Koh enters, exile up to one other target creature.\nWhenever another nontoken creature dies, you may exile it.\nPay 1 life: Choose a creature card exiled with Koh.\nKoh has all activated and triggered abilities of the last chosen card.",
+    setup_interceptors=koh_the_face_stealer_setup,
 )
 
 LO_AND_LI_TWIN_TUTORS = make_creature(
@@ -2763,6 +4409,7 @@ LO_AND_LI_TWIN_TUTORS = make_creature(
     subtypes={"Advisor", "Human"},
     supertypes={"Legendary"},
     text="When Lo and Li enter, search your library for a Lesson or Noble card, reveal it, put it into your hand, then shuffle.\nNoble creatures you control and Lesson spells you control have lifelink.",
+    setup_interceptors=lo_and_li_twin_tutors_setup,
 )
 
 MAI_SCORNFUL_STRIKER = make_creature(
@@ -2783,6 +4430,7 @@ MERCHANT_OF_MANY_HATS = make_creature(
     colors={Color.BLACK},
     subtypes={"Ally", "Human", "Peasant"},
     text="{2}{B}: Return this card from your graveyard to your hand.",
+    setup_interceptors=merchant_of_many_hats_setup,
 )
 
 NORTHERN_AIR_TEMPLE = make_enchantment(
@@ -2800,6 +4448,7 @@ OBSESSIVE_PURSUIT = make_enchantment(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="When this enchantment enters and at the beginning of your upkeep, you lose 1 life and create a Clue token. (It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")\nWhenever you attack, put X +1/+1 counters on target attacking creature, where X is the number of permanents you've sacrificed this turn. If X is three or greater, that creature gains lifelink until end of turn.",
+    setup_interceptors=obsessive_pursuit_setup,
 )
 
 OZAIS_CRUELTY = make_sorcery(
@@ -2815,6 +4464,7 @@ PHOENIX_FLEET_AIRSHIP = make_artifact(
     mana_cost="{2}{B}{B}",
     text="Flying\nAt the beginning of your end step, if you sacrificed a permanent this turn, create a token that's a copy of this Vehicle.\nAs long as you control eight or more permanents named Phoenix Fleet Airship, this Vehicle is an artifact creature.\nCrew 1",
     subtypes={"Vehicle"},
+    setup_interceptors=phoenix_fleet_airship_setup,
 )
 
 PIRATE_PEDDLERS = make_creature(
@@ -2867,6 +4517,7 @@ SWAMPSNARE_TRAP = make_enchantment(
     colors={Color.BLACK},
     text="This spell costs {1} less to cast if it targets a creature with flying.\nEnchant creature\nEnchanted creature gets -5/-3.",
     subtypes={"Aura"},
+    setup_interceptors=swampsnare_trap_setup,
 )
 
 TUNDRA_TANK = make_artifact(
@@ -2874,6 +4525,7 @@ TUNDRA_TANK = make_artifact(
     mana_cost="{2}{B}",
     text="Firebending 1 (Whenever this creature attacks, add {R}. This mana lasts until end of combat.)\nWhen this Vehicle enters, target creature you control gains indestructible until end of turn.\nCrew 1 (Tap any number of creatures you control with total power 1 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
+    setup_interceptors=tundra_tank_setup,
 )
 
 WOLFBAT = make_creature(
@@ -2883,6 +4535,7 @@ WOLFBAT = make_creature(
     colors={Color.BLACK},
     subtypes={"Bat", "Wolf"},
     text="Flying\nWhenever you draw your second card each turn, you may pay {B}. If you do, return this card from your graveyard to the battlefield with a finality counter on it. (If a creature with a finality counter on it would die, exile it instead.)",
+    setup_interceptors=wolfbat_setup,
 )
 
 ZUKOS_CONVICTION = make_instant(
@@ -2915,6 +4568,7 @@ THE_CAVE_OF_TWO_LOVERS = make_enchantment(
     colors={Color.RED},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Create two 1/1 white Ally creature tokens.\nII — Search your library for a Mountain or Cave card, reveal it, put it into your hand, then shuffle.\nIII — Earthbend 3. (Target land you control becomes a 0/0 creature with haste that's still a land. Put three +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)",
     subtypes={"Saga"},
+    setup_interceptors=the_cave_of_two_lovers_setup,
 )
 
 COMBUSTION_MAN = make_creature(
@@ -2925,6 +4579,7 @@ COMBUSTION_MAN = make_creature(
     subtypes={"Assassin", "Human"},
     supertypes={"Legendary"},
     text="Whenever Combustion Man attacks, destroy target permanent unless its controller has Combustion Man deal damage to them equal to his power.",
+    setup_interceptors=combustion_man_setup,
 )
 
 COMBUSTION_TECHNIQUE = make_instant(
@@ -2959,6 +4614,7 @@ DESERTERS_DISCIPLE = make_creature(
     colors={Color.RED},
     subtypes={"Ally", "Human", "Rebel"},
     text="{T}: Another target creature you control with power 2 or less can't be blocked this turn.",
+    setup_interceptors=deserters_disciple_setup,
 )
 
 FATED_FIREPOWER = make_enchantment(
@@ -2966,6 +4622,7 @@ FATED_FIREPOWER = make_enchantment(
     mana_cost="{X}{R}{R}{R}",
     colors={Color.RED},
     text="Flash\nThis enchantment enters with X fire counters on it.\nIf a source you control would deal damage to an opponent or a permanent an opponent controls, it deals that much damage plus an amount of damage equal to the number of fire counters on this enchantment instead.",
+    setup_interceptors=fated_firepower_setup,
 )
 
 FIRE_NATION_ATTACKS = make_instant(
@@ -2982,6 +4639,7 @@ FIRE_NATION_CADETS = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Soldier"},
     text="This creature has firebending 2 as long as there's a Lesson card in your graveyard. (Whenever this creature attacks, add {R}{R}. This mana lasts until end of combat.)\n{2}: This creature gets +1/+0 until end of turn.",
+    setup_interceptors=fire_nation_cadets_setup,
 )
 
 FIRE_NATION_RAIDER = make_creature(
@@ -3001,6 +4659,7 @@ FIRE_SAGES = make_creature(
     colors={Color.RED},
     subtypes={"Cleric", "Human"},
     text="Firebending 1 (Whenever this creature attacks, add {R}. This mana lasts until end of combat.)\n{1}{R}{R}: Put a +1/+1 counter on this creature.",
+    setup_interceptors=fire_sages_setup,
 )
 
 FIREBENDER_ASCENSION = make_enchantment(
@@ -3008,6 +4667,7 @@ FIREBENDER_ASCENSION = make_enchantment(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="When this enchantment enters, create a 2/2 red Soldier creature token with firebending 1.\nWhenever a creature you control attacking causes a triggered ability of that creature to trigger, put a quest counter on this enchantment. Then if it has four or more quest counters on it, you may copy that ability. You may choose new targets for the copy.",
+    setup_interceptors=firebender_ascension_setup,
 )
 
 FIREBENDING_LESSON = make_instant(
@@ -3025,6 +4685,7 @@ FIREBENDING_STUDENT = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Monk"},
     text="Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nFirebending X, where X is this creature's power. (Whenever this creature attacks, add X {R}. This mana lasts until end of combat.)",
+    setup_interceptors=firebending_student_setup,
 )
 
 HOW_TO_START_A_RIOT = make_instant(
@@ -3051,6 +4712,7 @@ JEONG_JEONG_THE_DESERTER = make_creature(
     subtypes={"Ally", "Human", "Rebel"},
     supertypes={"Legendary"},
     text="Firebending 1 (Whenever this creature attacks, add {R}. This mana lasts until end of combat.)\nExhaust — {3}: Put a +1/+1 counter on Jeong Jeong. When you next cast a Lesson spell this turn, copy it and you may choose new targets for the copy. (Activate each exhaust ability only once.)",
+    setup_interceptors=jeong_jeong_the_deserter_setup,
 )
 
 JETS_BRAINWASHING = make_sorcery(
@@ -3091,6 +4753,7 @@ MAI_JADED_EDGE = make_creature(
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
     text="Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nExhaust — {3}: Put a double strike counter on Mai. (Activate each exhaust ability only once.)",
+    setup_interceptors=mai_jaded_edge_setup,
 )
 
 MONGOOSE_LIZARD = make_creature(
@@ -3119,6 +4782,7 @@ RAN_AND_SHAW = make_creature(
     subtypes={"Dragon"},
     supertypes={"Legendary"},
     text="Flying, firebending 2\nWhen Ran and Shaw enter, if you cast them and there are three or more Dragon and/or Lesson cards in your graveyard, create a token that's a copy of Ran and Shaw, except it's not legendary.\n{3}{R}: Dragons you control get +2/+0 until end of turn.",
+    setup_interceptors=ran_and_shaw_setup,
 )
 
 REDIRECT_LIGHTNING = make_instant(
@@ -3136,6 +4800,7 @@ ROUGH_RHINO_CAVALRY = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Mercenary"},
     text="Firebending 2 (Whenever this creature attacks, add {R}{R}. This mana lasts until end of combat.)\nExhaust — {8}: Put two +1/+1 counters on this creature. It gains trample until end of turn. (Activate each exhaust ability only once.)",
+    setup_interceptors=rough_rhino_cavalry_setup,
 )
 
 SOLSTICE_REVELATIONS = make_instant(
@@ -3160,6 +4825,7 @@ TIGERDILLO = make_creature(
     colors={Color.RED},
     subtypes={"Armadillo", "Cat"},
     text="This creature can't attack or block unless you control another creature with power 4 or greater.",
+    setup_interceptors=tigerdillo_setup,
 )
 
 TREETOP_FREEDOM_FIGHTERS = make_creature(
@@ -3177,6 +4843,7 @@ TWIN_BLADES = make_artifact(
     mana_cost="{2}{R}",
     text="Flash\nWhen this Equipment enters, attach it to target creature you control. That creature gains double strike until end of turn.\nEquipped creature gets +1/+1.\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=twin_blades_setup,
 )
 
 TY_LEE_ARTFUL_ACROBAT = make_creature(
@@ -3187,6 +4854,7 @@ TY_LEE_ARTFUL_ACROBAT = make_creature(
     subtypes={"Human", "Performer"},
     supertypes={"Legendary"},
     text="Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nWhenever Ty Lee attacks, you may pay {1}. When you do, target creature can't block this turn.",
+    setup_interceptors=ty_lee_artful_acrobat_setup,
 )
 
 WAR_BALLOON = make_artifact(
@@ -3194,6 +4862,7 @@ WAR_BALLOON = make_artifact(
     mana_cost="{2}{R}",
     text="Flying\n{1}: Put a fire counter on this Vehicle.\nAs long as this Vehicle has three or more fire counters on it, it's an artifact creature.\nCrew 3 (Tap any number of creatures you control with total power 3 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
+    setup_interceptors=war_balloon_setup,
 )
 
 WARTIME_PROTESTORS = make_creature(
@@ -3224,6 +4893,7 @@ ZHAO_THE_MOON_SLAYER = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="Menace\nNonbasic lands enter tapped.\n{7}: Put a conqueror counter on Zhao.\nAs long as Zhao has a conqueror counter on him, nonbasic lands are Mountains. (They lose all other land types and abilities and have \"{T}: Add {R}.\")",
+    setup_interceptors=zhao_the_moon_slayer_setup,
 )
 
 ZUKO_EXILED_PRINCE = make_creature(
@@ -3234,6 +4904,7 @@ ZUKO_EXILED_PRINCE = make_creature(
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
     text="Firebending 3 (Whenever this creature attacks, add {R}{R}{R}. This mana lasts until end of combat.)\n{3}: Exile the top card of your library. You may play that card this turn.",
+    setup_interceptors=zuko_exiled_prince_setup,
 )
 
 ALLIES_AT_LAST = make_instant(
@@ -3249,6 +4920,7 @@ AVATAR_DESTINY = make_enchantment(
     colors={Color.GREEN},
     text="Enchant creature you control\nEnchanted creature gets +1/+1 for each creature card in your graveyard and is an Avatar in addition to its other types.\nWhen enchanted creature dies, mill cards equal to its power. Return this card to its owner's hand and up to one creature card milled this way to the battlefield under your control.",
     subtypes={"Aura"},
+    setup_interceptors=avatar_destiny_setup,
 )
 
 BADGERMOLE = make_creature(
@@ -3279,6 +4951,7 @@ THE_BOULDER_READY_TO_RUMBLE = make_creature(
     subtypes={"Human", "Performer", "Warrior"},
     supertypes={"Legendary"},
     text="Whenever The Boulder attacks, earthbend X, where X is the number of creatures you control with power 4 or greater. (Target land you control becomes a 0/0 creature with haste that's still a land. Put X +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)",
+    setup_interceptors=the_boulder_ready_to_rumble_setup,
 )
 
 BUMI_KING_OF_THREE_TRIALS = make_creature(
@@ -3289,6 +4962,7 @@ BUMI_KING_OF_THREE_TRIALS = make_creature(
     subtypes={"Ally", "Human", "Noble"},
     supertypes={"Legendary"},
     text="When Bumi enters, choose up to X, where X is the number of Lesson cards in your graveyard —\n• Put three +1/+1 counters on Bumi.\n• Target player scries 3.\n• Earthbend 3. (Target land you control becomes a 0/0 creature with haste that's still a land. Put three +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)",
+    setup_interceptors=bumi_king_of_three_trials_setup,
 )
 
 CYCLE_OF_RENEWAL = make_instant(
@@ -3342,6 +5016,7 @@ EARTHBENDER_ASCENSION = make_enchantment(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="When this enchantment enters, earthbend 2. Then search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\nLandfall — Whenever a land you control enters, put a quest counter on this enchantment. When you do, if it has four or more quest counters on it, put a +1/+1 counter on target creature you control. It gains trample until end of turn.",
+    setup_interceptors=earthbender_ascension_setup,
 )
 
 EARTHBENDING_LESSON = make_sorcery(
@@ -3359,6 +5034,7 @@ EARTHEN_ALLY = make_creature(
     colors={Color.GREEN},
     subtypes={"Ally", "Human", "Soldier"},
     text="This creature gets +1/+0 for each color among Allies you control.\n{2}{W}{U}{B}{R}{G}: Earthbend 5. (Target land you control becomes a 0/0 creature with haste that's still a land. Put five +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)",
+    setup_interceptors=earthen_ally_setup,
 )
 
 ELEMENTAL_TEACHINGS = make_instant(
@@ -3387,6 +5063,7 @@ FOGGY_SWAMP_VINEBENDER = make_creature(
     colors={Color.GREEN},
     subtypes={"Ally", "Human", "Plant"},
     text="This creature can't be blocked by creatures with power 2 or less.\nWaterbend {5}: Put a +1/+1 counter on this creature. Activate only during your turn. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)",
+    setup_interceptors=foggy_swamp_vinebender_setup,
 )
 
 GREAT_DIVIDE_GUIDE = make_creature(
@@ -3396,6 +5073,7 @@ GREAT_DIVIDE_GUIDE = make_creature(
     colors={Color.GREEN},
     subtypes={"Ally", "Human", "Scout"},
     text="Each land and Ally you control has \"{T}: Add one mana of any color.\"",
+    setup_interceptors=great_divide_guide_setup,
 )
 
 HARU_HIDDEN_TALENT = make_creature(
@@ -3406,6 +5084,7 @@ HARU_HIDDEN_TALENT = make_creature(
     subtypes={"Ally", "Human", "Peasant"},
     supertypes={"Legendary"},
     text="Whenever another Ally you control enters, earthbend 1. (Target land you control becomes a 0/0 creature with haste that's still a land. Put a +1/+1 counter on it. When it dies or is exiled, return it to the battlefield tapped.)",
+    setup_interceptors=haru_hidden_talent_setup,
 )
 
 INVASION_TACTICS = make_enchantment(
@@ -3432,6 +5111,7 @@ LEAVES_FROM_THE_VINE = make_enchantment(
     colors={Color.GREEN},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Mill three cards, then create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")\nII — Put a +1/+1 counter on each of up to two target creatures you control.\nIII — Draw a card if there's a creature or Lesson card in your graveyard.",
     subtypes={"Saga"},
+    setup_interceptors=leaves_from_the_vine_setup,
 )
 
 THE_LEGEND_OF_KYOSHI = make_creature(
@@ -3475,6 +5155,7 @@ RAUCOUS_AUDIENCE = make_creature(
     colors={Color.GREEN},
     subtypes={"Citizen", "Human"},
     text="{T}: Add {G}. If you control a creature with power 4 or greater, add {G}{G} instead.",
+    setup_interceptors=raucous_audience_setup,
 )
 
 REBELLIOUS_CAPTIVES = make_creature(
@@ -3484,6 +5165,7 @@ REBELLIOUS_CAPTIVES = make_creature(
     colors={Color.GREEN},
     subtypes={"Ally", "Human", "Peasant"},
     text="Exhaust — {6}: Put two +1/+1 counters on this creature, then earthbend 2. (Target land you control becomes a 0/0 creature with haste that's still a land. Put two +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped. Activate each exhaust ability only once.)",
+    setup_interceptors=rebellious_captives_setup,
 )
 
 ROCKALANCHE = make_sorcery(
@@ -3508,6 +5190,7 @@ SABERTOOTH_MOOSELION = make_creature(
     colors={Color.GREEN},
     subtypes={"Cat", "Elk"},
     text="Reach\nForestcycling {2} ({2}, Discard this card: Search your library for a Forest card, reveal it, put it into your hand, then shuffle.)",
+    setup_interceptors=sabertooth_mooselion_setup,
 )
 
 SEISMIC_SENSE = make_sorcery(
@@ -3533,6 +5216,7 @@ SPARRING_DUMMY = make_artifact_creature(
     colors={Color.GREEN},
     subtypes={"Scarecrow"},
     text="Defender\n{T}: Mill a card. You may put a land card milled this way into your hand. You gain 2 life if a Lesson card is milled this way. (To mill a card, put the top card of your library into your graveyard.)",
+    setup_interceptors=sparring_dummy_setup,
 )
 
 TOPH_THE_BLIND_BANDIT = make_creature(
@@ -3543,6 +5227,7 @@ TOPH_THE_BLIND_BANDIT = make_creature(
     subtypes={"Ally", "Human", "Warrior"},
     supertypes={"Legendary"},
     text="When Toph enters, earthbend 2. (Target land you control becomes a 0/0 creature with haste that's still a land. Put two +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)\nToph's power is equal to the number of +1/+1 counters on lands you control.",
+    setup_interceptors=toph_the_blind_bandit_setup,
 )
 
 TRUE_ANCESTRY = make_sorcery(
@@ -3560,6 +5245,7 @@ TURTLEDUCK = make_creature(
     colors={Color.GREEN},
     subtypes={"Bird", "Turtle"},
     text="{3}: Until end of turn, this creature has base power 4 and gains trample.",
+    setup_interceptors=turtleduck_setup,
 )
 
 UNLUCKY_CABBAGE_MERCHANT = make_creature(
@@ -3636,6 +5322,7 @@ AZULA_CUNNING_USURPER = make_creature(
     subtypes={"Human", "Noble", "Rogue"},
     supertypes={"Legendary"},
     text="Firebending 2 (Whenever this creature attacks, add {R}{R}. This mana lasts until end of combat.)\nWhen Azula enters, target opponent exiles a nontoken creature they control, then they exile a nonland card from their graveyard.\nDuring your turn, you may cast cards exiled with Azula and you may cast them as though they had flash. Mana of any type can be spent to cast those spells.",
+    setup_interceptors=azula_cunning_usurper_setup,
 )
 
 BEIFONGS_BOUNTY_HUNTERS = make_creature(
@@ -3653,6 +5340,7 @@ BITTER_WORK = make_enchantment(
     mana_cost="{1}{R}{G}",
     colors={Color.GREEN, Color.RED},
     text="Whenever you attack a player with one or more creatures with power 4 or greater, draw a card.\nExhaust — {4}: Earthbend 4. Activate only during your turn. (Target land you control becomes a 0/0 creature with haste that's still a land. Put four +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped. Activate each exhaust ability only once.)",
+    setup_interceptors=bitter_work_setup,
 )
 
 BUMI_UNLEASHED = make_creature(
@@ -3663,6 +5351,7 @@ BUMI_UNLEASHED = make_creature(
     subtypes={"Ally", "Human", "Noble"},
     supertypes={"Legendary"},
     text="Trample\nWhen Bumi enters, earthbend 4.\nWhenever Bumi deals combat damage to a player, untap all lands you control. After this phase, there is an additional combat phase. Only land creatures can attack during that combat phase.",
+    setup_interceptors=bumi_unleashed_setup,
 )
 
 CATOWL = make_creature(
@@ -3702,6 +5391,7 @@ DRAGONFLY_SWARM = make_creature(
     colors={Color.RED, Color.BLUE},
     subtypes={"Dragon", "Insect"},
     text="Flying, ward {1} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {1}.)\nThis creature's power is equal to the number of noncreature, nonland cards in your graveyard.\nWhen this creature dies, if there's a Lesson card in your graveyard, draw a card.",
+    setup_interceptors=dragonfly_swarm_setup,
 )
 
 EARTH_KINGDOM_SOLDIER = make_creature(
@@ -3731,6 +5421,7 @@ EARTH_RUMBLE_WRESTLERS = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Human", "Performer", "Warrior"},
     text="Reach\nThis creature gets +1/+0 and has trample as long as you control a land creature or a land entered the battlefield under your control this turn.",
+    setup_interceptors=earth_rumble_wrestlers_setup,
 )
 
 EARTH_VILLAGE_RUFFIANS = make_creature(
@@ -3751,6 +5442,7 @@ FIRE_LORD_AZULA = make_creature(
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
     text="Firebending 2 (Whenever this creature attacks, add {R}{R}. This mana lasts until end of combat.)\nWhenever you cast a spell while Fire Lord Azula is attacking, copy that spell. You may choose new targets for the copy. (A copy of a permanent spell becomes a token.)",
+    setup_interceptors=fire_lord_azula_setup,
 )
 
 FIRE_LORD_ZUKO = make_creature(
@@ -3793,6 +5485,7 @@ HAMA_THE_BLOODBENDER = make_creature(
     subtypes={"Human", "Warlock"},
     supertypes={"Legendary"},
     text="When Hama enters, target opponent mills three cards. Exile up to one noncreature, nonland card from that player's graveyard. For as long as you control Hama, you may cast the exiled card during your turn by waterbending {X} rather than paying its mana cost, where X is its mana value. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)",
+    setup_interceptors=hama_the_bloodbender_setup,
 )
 
 HEI_BAI_SPIRIT_OF_BALANCE = make_creature(
@@ -3813,6 +5506,7 @@ HERMITIC_HERBALIST = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Ally", "Druid", "Human"},
     text="{T}: Add one mana of any color.\n{T}: Add two mana in any combination of colors. Spend this mana only to cast Lesson spells.",
+    setup_interceptors=hermitic_herbalist_setup,
 )
 
 IROH_GRAND_LOTUS = make_creature(
@@ -3823,6 +5517,7 @@ IROH_GRAND_LOTUS = make_creature(
     subtypes={"Ally", "Human", "Noble"},
     supertypes={"Legendary"},
     text="Firebending 2\nDuring your turn, each non-Lesson instant and sorcery card in your graveyard has flashback. The flashback cost is equal to that card's mana cost. (You may cast a card from your graveyard for its flashback cost. Then exile it.)\nDuring your turn, each Lesson card in your graveyard has flashback {1}.",
+    setup_interceptors=iroh_grand_lotus_setup,
 )
 
 IROH_TEA_MASTER = make_creature(
@@ -3909,6 +5604,7 @@ OZAI_THE_PHOENIX_KING = make_creature(
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
     text="Trample, firebending 4, haste\nIf you would lose unspent mana, that mana becomes red instead.\nOzai has flying and indestructible as long as you have six or more unspent mana.",
+    setup_interceptors=ozai_the_phoenix_king_setup,
 )
 
 PLATYPUSBEAR = make_creature(
@@ -3918,6 +5614,7 @@ PLATYPUSBEAR = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Bear", "Platypus"},
     text="Defender\nWhen this creature enters, mill two cards. (Put the top two cards of your library into your graveyard.)\nAs long as there is a Lesson card in your graveyard, this creature can attack as though it didn't have defender.",
+    setup_interceptors=platypusbear_setup,
 )
 
 PRETENDING_POXBEARERS = make_creature(
@@ -3938,6 +5635,7 @@ PROFESSOR_ZEI_ANTHROPOLOGIST = make_creature(
     subtypes={"Advisor", "Ally", "Human"},
     supertypes={"Legendary"},
     text="{T}, Discard a card: Draw a card.\n{1}, {T}, Sacrifice Professor Zei: Return target instant or sorcery card from your graveyard to your hand. Activate only during your turn.",
+    setup_interceptors=professor_zei_anthropologist_setup,
 )
 
 SANDBENDER_SCAVENGERS = make_creature(
@@ -4042,6 +5740,7 @@ UNCLE_IROH = make_creature(
     subtypes={"Ally", "Human", "Noble"},
     supertypes={"Legendary"},
     text="Firebending 1 (Whenever this creature attacks, add {R}. This mana lasts until end of combat.)\nLesson spells you cast cost {1} less to cast.",
+    setup_interceptors=uncle_iroh_setup,
 )
 
 VINDICTIVE_WARDEN = make_creature(
@@ -4051,6 +5750,7 @@ VINDICTIVE_WARDEN = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Soldier"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nFirebending 1 (Whenever this creature attacks, add {R}. This mana lasts until end of combat.)\n{3}: This creature deals 1 damage to each opponent.",
+    setup_interceptors=vindictive_warden_setup,
 )
 
 WANDERING_MUSICIANS = make_creature(
@@ -4092,18 +5792,21 @@ ZUKO_CONFLICTED = make_creature(
     subtypes={"Human", "Rogue"},
     supertypes={"Legendary"},
     text="At the beginning of your first main phase, choose one that hasn't been chosen and you lose 2 life —\n• Draw a card.\n• Put a +1/+1 counter on Zuko.\n• Add {R}.\n• Exile Zuko, then return him to the battlefield under an opponent's control.",
+    setup_interceptors=zuko_conflicted_setup,
 )
 
 BARRELS_OF_BLASTING_JELLY = make_artifact(
     name="Barrels of Blasting Jelly",
     mana_cost="{1}",
     text="{1}: Add one mana of any color. Activate only once each turn.\n{5}, {T}, Sacrifice this artifact: It deals 5 damage to target creature.",
+    setup_interceptors=barrels_of_blasting_jelly_setup,
 )
 
 BENDERS_WATERSKIN = make_artifact(
     name="Bender's Waterskin",
     mana_cost="{3}",
     text="Untap this artifact during each other player's untap step.\n{T}: Add one mana of any color.",
+    setup_interceptors=benders_waterskin_setup,
 )
 
 FIRE_NATION_WARSHIP = make_artifact(
@@ -4111,6 +5814,7 @@ FIRE_NATION_WARSHIP = make_artifact(
     mana_cost="{3}",
     text="Reach\nWhen this Vehicle dies, create a Clue token. (It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")\nCrew 2 (Tap any number of creatures you control with total power 2 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
+    setup_interceptors=fire_nation_warship_setup,
 )
 
 KYOSHI_BATTLE_FAN = make_artifact(
@@ -4118,6 +5822,7 @@ KYOSHI_BATTLE_FAN = make_artifact(
     mana_cost="{2}",
     text="When this Equipment enters, create a 1/1 white Ally creature token, then attach this Equipment to it.\nEquipped creature gets +1/+0.\nEquip {2} ({2}:Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=kyoshi_battle_fan_setup,
 )
 
 METEOR_SWORD = make_artifact(
@@ -4125,6 +5830,7 @@ METEOR_SWORD = make_artifact(
     mana_cost="{7}",
     text="When this Equipment enters, destroy target permanent.\nEquipped creature gets +3/+3.\nEquip {3} ({3}:Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=meteor_sword_setup,
 )
 
 PLANETARIUM_OF_WAN_SHI_TONG = make_artifact(
@@ -4132,6 +5838,7 @@ PLANETARIUM_OF_WAN_SHI_TONG = make_artifact(
     mana_cost="{6}",
     text="{1}, {T}: Scry 2.\nWhenever you scry or surveil, look at the top card of your library. You may cast that card without paying its mana cost. Do this only once each turn. (Look at the card after you scry or surveil.)",
     supertypes={"Legendary"},
+    setup_interceptors=planetarium_of_wan_shi_tong_setup,
 )
 
 TRUSTY_BOOMERANG = make_artifact(
@@ -4139,6 +5846,7 @@ TRUSTY_BOOMERANG = make_artifact(
     mana_cost="{1}",
     text="Equipped creature has \"{1}, {T}: Tap target creature. Return Trusty Boomerang to its owner's hand.\"\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=trusty_boomerang_setup,
 )
 
 THE_WALLS_OF_BA_SING_SE = make_artifact_creature(
@@ -4156,102 +5864,122 @@ WHITE_LOTUS_TILE = make_artifact(
     name="White Lotus Tile",
     mana_cost="{4}",
     text="This artifact enters tapped.\n{T}: Add X mana of any one color, where X is the greatest number of creatures you control that have a creature type in common.",
+    setup_interceptors=white_lotus_tile_setup,
 )
 
 ABANDONED_AIR_TEMPLE = make_land(
     name="Abandoned Air Temple",
     text="This land enters tapped unless you control a basic land.\n{T}: Add {W}.\n{3}{W}, {T}: Put a +1/+1 counter on each creature you control.",
+    setup_interceptors=abandoned_air_temple_setup,
 )
 
 AGNA_QELA = make_land(
     name="Agna Qel'a",
     text="This land enters tapped unless you control a basic land.\n{T}: Add {U}.\n{2}{U}, {T}: Draw a card, then discard a card.",
+    setup_interceptors=agna_qela_setup,
 )
 
 AIRSHIP_ENGINE_ROOM = make_land(
     name="Airship Engine Room",
     text="This land enters tapped.\n{T}: Add {U} or {R}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=airship_engine_room_setup,
 )
 
 BA_SING_SE = make_land(
     name="Ba Sing Se",
     text="This land enters tapped unless you control a basic land.\n{T}: Add {G}.\n{2}{G}, {T}: Earthbend 2. Activate only as a sorcery. (Target land you control becomes a 0/0 creature with haste that's still a land. Put two +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)",
+    setup_interceptors=ba_sing_se_setup,
 )
 
 BOILING_ROCK_PRISON = make_land(
     name="Boiling Rock Prison",
     text="This land enters tapped.\n{T}: Add {B} or {R}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=boiling_rock_prison_setup,
 )
 
 FIRE_NATION_PALACE = make_land(
     name="Fire Nation Palace",
     text="This land enters tapped unless you control a basic land.\n{T}: Add {R}.\n{1}{R}, {T}: Target creature you control gains firebending 4 until end of turn. (Whenever it attacks, add {R}{R}{R}{R}. This mana lasts until end of combat.)",
+    setup_interceptors=fire_nation_palace_setup,
 )
 
 FOGGY_BOTTOM_SWAMP = make_land(
     name="Foggy Bottom Swamp",
     text="This land enters tapped.\n{T}: Add {B} or {G}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=foggy_bottom_swamp_setup,
 )
 
 JASMINE_DRAGON_TEA_SHOP = make_land(
     name="Jasmine Dragon Tea Shop",
     text="{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast an Ally spell or activate an ability of an Ally source.\n{5}, {T}: Create a 1/1 white Ally creature token.",
+    setup_interceptors=jasmine_dragon_tea_shop_setup,
 )
 
 KYOSHI_VILLAGE = make_land(
     name="Kyoshi Village",
     text="This land enters tapped.\n{T}: Add {G} or {W}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=kyoshi_village_setup,
 )
 
 MEDITATION_POOLS = make_land(
     name="Meditation Pools",
     text="This land enters tapped.\n{T}: Add {G} or {U}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=meditation_pools_setup,
 )
 
 MISTY_PALMS_OASIS = make_land(
     name="Misty Palms Oasis",
     text="This land enters tapped.\n{T}: Add {W} or {B}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=misty_palms_oasis_setup,
 )
 
 NORTH_POLE_GATES = make_land(
     name="North Pole Gates",
     text="This land enters tapped.\n{T}: Add {W} or {U}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=north_pole_gates_setup,
 )
 
 OMASHU_CITY = make_land(
     name="Omashu City",
     text="This land enters tapped.\n{T}: Add {R} or {G}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=omashu_city_setup,
 )
 
 REALM_OF_KOH = make_land(
     name="Realm of Koh",
     text="This land enters tapped unless you control a basic land.\n{T}: Add {B}.\n{3}{B}, {T}: Create a 1/1 colorless Spirit creature token with \"This token can't block or be blocked by non-Spirit creatures.\"",
+    setup_interceptors=realm_of_koh_setup,
 )
 
 RUMBLE_ARENA = make_land(
     name="Rumble Arena",
     text="Vigilance\nWhen this land enters, scry 1. (Look at the top card of your library. You may put it on the bottom.)\n{T}: Add {C}.\n{1}, {T}: Add one mana of any color.",
+    setup_interceptors=rumble_arena_setup,
 )
 
 SECRET_TUNNEL = make_land(
     name="Secret Tunnel",
     text="This land can't be blocked.\n{T}: Add {C}.\n{4}, {T}: Two target creatures you control that share a creature type can't be blocked this turn.",
     subtypes={"Cave"},
+    setup_interceptors=secret_tunnel_setup,
 )
 
 SERPENTS_PASS = make_land(
     name="Serpent's Pass",
     text="This land enters tapped.\n{T}: Add {U} or {B}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=serpents_pass_setup,
 )
 
 SUNBLESSED_PEAK = make_land(
     name="Sun-Blessed Peak",
     text="This land enters tapped.\n{T}: Add {R} or {W}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=sunblessed_peak_setup,
 )
 
 WHITE_LOTUS_HIDEOUT = make_land(
     name="White Lotus Hideout",
     text="{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a Lesson or Shrine spell.\n{1}, {T}: Add one mana of any color.",
+    setup_interceptors=white_lotus_hideout_setup,
 )
 
 PLAINS = make_land(

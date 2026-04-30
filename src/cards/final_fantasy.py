@@ -2367,6 +2367,1464 @@ def tifa_lockhart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 # =============================================================================
+# FF MISSING-CARD INTERCEPTOR SETUPS (suffix _ff to avoid duplicate-name collisions)
+# =============================================================================
+
+def summon_bahamut_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Bahamut Saga - chapter abilities (placeholder, needs Saga engine support)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga lore counters and chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def ultima_origin_of_oblivion_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ultima: Attack -> blight counter on land. Tap land for {C} -> add additional {C}."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: blight counter mechanics + land type/ability suppression not implemented
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def adelbert_steiner_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Adelbert Steiner: +1/+1 for each Equipment you control."""
+    def equipment_count_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        source = state.objects.get(obj.id)
+        return bool(source and source.zone == ZoneType.BATTLEFIELD)
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        eq_count = sum(1 for o in state.objects.values()
+                       if o.controller == obj.controller and
+                       'Equipment' in o.characteristics.subtypes and
+                       o.zone == ZoneType.BATTLEFIELD)
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + eq_count
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    def toughness_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_TOUGHNESS:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        source = state.objects.get(obj.id)
+        return bool(source and source.zone == ZoneType.BATTLEFIELD)
+
+    def toughness_handler(event: Event, state: GameState) -> InterceptorResult:
+        eq_count = sum(1 for o in state.objects.values()
+                       if o.controller == obj.controller and
+                       'Equipment' in o.characteristics.subtypes and
+                       o.zone == ZoneType.BATTLEFIELD)
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + eq_count
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY, filter=power_filter, handler=power_handler,
+                    duration='while_on_battlefield'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY, filter=toughness_filter, handler=toughness_handler,
+                    duration='while_on_battlefield'),
+    ]
+
+
+def cloud_midgar_mercenary_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cloud, Midgar Mercenary: ETB -> search for Equipment (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: library search for specific card type not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def coeurl_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Coeurl: {1}{W},{T}: Tap target nonenchantment creature - activated ability stub."""
+    # engine gap: activated abilities aren't registered through setup_interceptors
+    return []
+
+
+def dragoons_lance_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Dragoon's Lance Equipment: Job select + during your turn equipped flying."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Job select: create 1/1 Hero token and attach
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def gaelicat_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Gaelicat: +2/+0 if you control 2+ artifacts."""
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        source = state.objects.get(obj.id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        artifact_count = sum(1 for o in state.objects.values()
+                             if o.controller == obj.controller and
+                             CardType.ARTIFACT in o.characteristics.types and
+                             o.zone == ZoneType.BATTLEFIELD)
+        return artifact_count >= 2
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + 2
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY, filter=power_filter, handler=power_handler,
+                        duration='while_on_battlefield')]
+
+
+def machinists_arsenal_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Machinist's Arsenal Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def magitek_infantry_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Magitek Infantry: +1/+0 if you control another artifact."""
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        source = state.objects.get(obj.id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        # Need another artifact
+        for o in state.objects.values():
+            if (o.id != obj.id and o.controller == obj.controller and
+                    CardType.ARTIFACT in o.characteristics.types and
+                    o.zone == ZoneType.BATTLEFIELD):
+                return True
+        return False
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + 1
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY, filter=power_filter, handler=power_handler,
+                        duration='while_on_battlefield')]
+
+
+def paladins_arms_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Paladin's Arms Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def phoenix_down_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Phoenix Down: activated ability with modal choice (stub)."""
+    # engine gap: activated abilities + modal choices via setup_interceptors not supported
+    return []
+
+
+def snow_villiers_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Snow Villiers: Power = number of creatures you control."""
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        source = state.objects.get(obj.id)
+        return bool(source and source.zone == ZoneType.BATTLEFIELD)
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        creature_count = sum(1 for o in state.objects.values()
+                             if o.controller == obj.controller and
+                             CardType.CREATURE in o.characteristics.types and
+                             o.zone == ZoneType.BATTLEFIELD)
+        new_event = event.copy()
+        # Set power directly to creature count (text says "is equal to")
+        new_event.payload['value'] = creature_count
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY, filter=power_filter, handler=power_handler,
+                        duration='while_on_battlefield')]
+
+
+def stiltzkin_moogle_merchant_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Stiltzkin: lifelink + activated control transfer (stub)."""
+    # engine gap: activated control transfer ability not registered through setup_interceptors
+    return []
+
+
+def summon_chocomog_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Choco/Mog Saga - chapter abilities (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga lore counters and chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summon_knights_of_round_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Knights of Round Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summon_primal_garuda_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Primal Garuda Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def white_mages_staff_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """White Mage's Staff Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def the_wind_crystal_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """The Wind Crystal: cost reduction + life doubling (stub)."""
+    # engine gap: replacement effects (cost reduction by color, life-gain doubling) not modular
+    return []
+
+
+def astrologians_planisphere_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Astrologian's Planisphere Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def cargo_ship_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cargo Ship Vehicle: flying/vigilance, restricted mana, crew (stub)."""
+    # engine gap: Vehicle crewing + restricted mana not yet implemented
+    return []
+
+
+def ether_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ether: activated ability with delayed copy trigger (stub)."""
+    # engine gap: activated abilities + delayed spell copy not modular
+    return []
+
+
+def gogo_master_of_mimicry_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Gogo: copy activated/triggered abilities (stub)."""
+    # engine gap: copy ability not implemented
+    return []
+
+
+def the_lunar_whale_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """The Lunar Whale Vehicle: stub (top of library / play, crew)."""
+    # engine gap: play from top of library / crew mechanic not modular
+    return []
+
+
+def the_prima_vista_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """The Prima Vista: noncreature spell w/ MV>=4 -> become creature."""
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: temporary "becomes a creature" not implemented for Vehicles via interceptors
+        return []
+    return [make_spell_cast_trigger(obj, spell_effect, controller_only=True, mana_value_min=4,
+                                    spell_type_filter={CardType.INSTANT, CardType.SORCERY,
+                                                       CardType.ENCHANTMENT, CardType.ARTIFACT})]
+
+
+def qiqirn_merchant_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Qiqirn Merchant: activated abilities (stub)."""
+    # engine gap: activated abilities not registered through setup_interceptors
+    return []
+
+
+def sages_nouliths_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sage's Nouliths Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def sahagin_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sahagin: noncreature spell MV>=4 -> +1/+1 counter, unblockable this turn."""
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.COUNTER_ADDED,
+                  payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                  source=obj.id),
+            # engine gap: "can't be blocked this turn" via setup_interceptors not modular
+        ]
+    return [make_spell_cast_trigger(obj, spell_effect, controller_only=True, mana_value_min=4,
+                                    spell_type_filter={CardType.INSTANT, CardType.SORCERY,
+                                                       CardType.ENCHANTMENT, CardType.ARTIFACT})]
+
+
+def scorpion_sentinel_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Scorpion Sentinel: +3/+0 if you control 7+ lands."""
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        source = state.objects.get(obj.id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        land_count = sum(1 for o in state.objects.values()
+                         if o.controller == obj.controller and
+                         CardType.LAND in o.characteristics.types and
+                         o.zone == ZoneType.BATTLEFIELD)
+        return land_count >= 7
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + 3
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY, filter=power_filter, handler=power_handler,
+                        duration='while_on_battlefield')]
+
+
+def sleep_magic_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sleep Magic Aura: enchanted creature stays tapped (stub)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aura targeting + permanent doesn't-untap effect not modular
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def stuck_in_summoners_sanctum_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Stuck in Summoner's Sanctum Aura: similar tapped lock (stub)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aura targeting + don't-untap + ability suppression not modular
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summon_leviathan_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Leviathan Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summon_shiva_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Shiva Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def thiefs_knife_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Thief's Knife Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def the_water_crystal_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """The Water Crystal: cost reduction + mill replacement (stub)."""
+    # engine gap: cost reduction by color + replacement effects on mills not modular
+    return []
+
+
+def yshtola_rhul_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Y'shtola Rhul: end step -> blink target creature (stub)."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeting + flicker + extra-end-step phase loop not modular
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def ardyn_the_usurper_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ardyn: Demons get menace/lifelink/haste; combat -> reanimate (stub)."""
+    interceptors = []
+
+    # Static keyword grant for Demons
+    def is_demon(target: GameObject, state: GameState) -> bool:
+        return (target.controller == obj.controller and
+                CardType.CREATURE in target.characteristics.types and
+                'Demon' in target.characteristics.subtypes and
+                target.zone == ZoneType.BATTLEFIELD)
+
+    interceptors.append(make_keyword_grant(obj, ['menace', 'lifelink', 'haste'], is_demon))
+
+    # Combat trigger: reanimate from graveyard (stub)
+    def combat_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.PHASE_START and
+                event.payload.get('phase') == 'combat' and
+                state.active_player == obj.controller)
+
+    def combat_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: graveyard targeting + token-copy of card not modular
+        return []
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
+        duration='while_on_battlefield'
+    ))
+    return interceptors
+
+
+def black_mages_rod_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Black Mage's Rod Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def dark_knights_greatsword_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Dark Knight's Greatsword Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def the_darkness_crystal_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """The Darkness Crystal: cost reduction + replacement effects (stub)."""
+    # engine gap: cost reduction by color + replacement effects on death not modular
+    return []
+
+
+def demon_wall_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Demon Wall: defender + can attack if has counter (stub)."""
+    # engine gap: 'can attack as though without defender' conditional not modular
+    return []
+
+
+def fang_fearless_lcie_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Fang: cards leave graveyard -> draw + lose 1 (once per turn)."""
+    triggered_turn = {'turn': -1}
+
+    def gy_leave_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        # Card must be from controller's graveyard
+        moving_id = event.payload.get('object_id')
+        moving = state.objects.get(moving_id)
+        if not moving or moving.owner != obj.controller:
+            return False
+        # Once per turn limit
+        if triggered_turn['turn'] == state.turn_number:
+            return False
+        return True
+
+    def gy_leave_effect(event: Event, state: GameState) -> list[Event]:
+        triggered_turn['turn'] = state.turn_number
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': -1}, source=obj.id),
+        ]
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=gy_leave_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=gy_leave_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def kain_traitorous_dragoon_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Kain: Jump (during your turn -> flying) + combat damage swap (stub)."""
+    # engine gap: conditional flying during your turn + control transfer on combat damage not modular
+    return []
+
+
+def ninjas_blades_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ninja's Blades Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def phantom_train_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Phantom Train Vehicle: sacrifice -> +1/+1 counter (stub)."""
+    # engine gap: activated sacrifice cost ability not registered through setup_interceptors
+    return []
+
+
+def qutrub_forayer_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Qutrub Forayer: ETB -> modal choice (stub)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: modal targeting choice in ETB not modular
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def shambling_cieth_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Shambling Cie'th: enters tapped + spell cast -> may pay {B} to return from graveyard."""
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: 'may pay X' from graveyard + return-to-hand from graveyard not modular
+        return []
+    return [make_spell_cast_trigger(obj, spell_effect, controller_only=True,
+                                    spell_type_filter={CardType.INSTANT, CardType.SORCERY,
+                                                       CardType.ENCHANTMENT, CardType.ARTIFACT})]
+
+
+def summon_anima_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Anima Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summon_primal_odin_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Primal Odin Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def tonberry_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Tonberry: enters tapped+stunned, conditional first strike/deathtouch."""
+    # engine gap: enters with stun counter + conditional 'during your turn' keywords not modular
+    return []
+
+
+def blazing_bomb_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Blazing Bomb: noncreature spell MV>=4 -> +1/+1 counter."""
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_spell_cast_trigger(obj, spell_effect, controller_only=True, mana_value_min=4,
+                                    spell_type_filter={CardType.INSTANT, CardType.SORCERY,
+                                                       CardType.ENCHANTMENT, CardType.ARTIFACT})]
+
+
+def freya_crescent_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Freya Crescent: Jump (flying during your turn) + activated mana (stub)."""
+    # engine gap: conditional 'during your turn' keyword + restricted-use mana not modular
+    return []
+
+
+def hill_gigas_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Hill Gigas: trample/haste keywords already on stat; cycling stub."""
+    # No setup needed for keywords; cycling is engine-handled via text. Return empty.
+    return []
+
+
+def item_shopkeep_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Item Shopkeep: attack -> target attacking equipped creature gets menace (stub)."""
+    def attack_filter(event: Event, state: GameState) -> bool:
+        # Trigger on any attack from controller
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        return bool(attacker and attacker.controller == obj.controller)
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeting attacking equipped creature for menace grant not modular
+        return []
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=attack_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def raubahn_bull_of_ala_mhigo_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Raubahn: ward(life=power) + attack -> attach Equipment (stub)."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: dynamic ward cost + targeting Equipment auto-attach not modular
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def red_mages_rapier_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Red Mage's Rapier Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def samurais_katana_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Samurai's Katana Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def sandworm_red_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sandworm (red): ETB -> destroy target land; controller may search basic (stub)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeting + library search effect not modular
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summon_brynhildr_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Brynhildr Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summon_esper_ramuh_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Esper Ramuh Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summon_gf_cerberus_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: G.F. Cerberus Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summon_gf_ifrit_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: G.F. Ifrit Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def triple_triad_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Triple Triad: upkeep -> exile cards from libraries (stub)."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: cross-player exile + may-cast-without-paying mechanic not modular
+        return []
+    return [make_upkeep_trigger(obj, upkeep_effect)]
+
+
+def warriors_sword_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Warrior's Sword Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def zell_dincht_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Zell Dincht: extra land play + power = land count + end step bounce."""
+    interceptors = []
+
+    # Additional land play (already a helper)
+    from src.cards.interceptor_helpers import make_additional_land_play
+    interceptors.append(make_additional_land_play(obj, 1))
+
+    # Power boost: +1/+0 for each land you control
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        source = state.objects.get(obj.id)
+        return bool(source and source.zone == ZoneType.BATTLEFIELD)
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        land_count = sum(1 for o in state.objects.values()
+                         if o.controller == obj.controller and
+                         CardType.LAND in o.characteristics.types and
+                         o.zone == ZoneType.BATTLEFIELD)
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + land_count
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.QUERY, filter=power_filter, handler=power_handler,
+        duration='while_on_battlefield'
+    ))
+
+    # End step: return a land to hand (stub - needs targeting)
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeted land bounce not modular
+        return []
+    interceptors.append(make_end_step_trigger(obj, end_step_effect))
+
+    return interceptors
+
+
+def bards_bow_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Bard's Bow Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def cactuar_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cactuar: end step -> bounce self (if didn't enter this turn)."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: 'didn't enter this turn' check + self-bounce not modular here
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def diamond_weapon_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Diamond Weapon: prevent combat damage to self + cost reduction (stub)."""
+    # engine gap: combat damage prevention to specific creature + cost reduction by graveyard count not modular
+    return []
+
+
+def the_earth_crystal_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """The Earth Crystal: cost reduction + counter doubling (stub)."""
+    # engine gap: cost reduction by color + replacement of counters being placed not modular
+    return []
+
+
+def gigantoad_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Gigantoad: +2/+2 if you control 7+ lands."""
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.QUERY_POWER, EventType.QUERY_TOUGHNESS):
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        source = state.objects.get(obj.id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        land_count = sum(1 for o in state.objects.values()
+                         if o.controller == obj.controller and
+                         CardType.LAND in o.characteristics.types and
+                         o.zone == ZoneType.BATTLEFIELD)
+        return land_count >= 7
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + 2
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.QUERY, filter=power_filter, handler=power_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+def goobbue_gardener_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Goobbue Gardener: {T}: Add {G} - mana ability (stub)."""
+    # engine gap: creature mana abilities not registered through setup_interceptors here
+    return []
+
+
+def gran_pulse_ochu_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Gran Pulse Ochu: deathtouch + activated power boost (stub)."""
+    # engine gap: activated abilities not registered through setup_interceptors
+    return []
+
+
+def a_realm_reborn_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """A Realm Reborn: Other permanents you control have {T}: Add any color (stub)."""
+    # engine gap: granting mana abilities to permanents you control not modular here
+    return []
+
+
+def ride_the_shoopuf_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ride the Shoopuf: Landfall -> +1/+1 counter on target (stub)."""
+    def landfall_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering = state.objects.get(entering_id)
+        if not entering:
+            return False
+        return (entering.controller == source.controller and
+                CardType.LAND in entering.characteristics.types)
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeting target creature for counter not modular here
+        return []
+
+    return [make_etb_trigger(obj, landfall_effect, landfall_filter)]
+
+
+def sazh_katzroy_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sazh Katzroy: ETB search Bird/land + attack -> +1/+1 then double counters."""
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: library search for Bird/basic land not modular
+        return []
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target + double counters not modular
+        return []
+    interceptors.append(make_attack_trigger(obj, attack_effect))
+
+    return interceptors
+
+
+def summon_fat_chocobo_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Fat Chocobo Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summon_fenrir_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Fenrir Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summon_titan_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon: Titan Saga (placeholder)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Saga chapter abilities not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def summoners_grimoire_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summoner's Grimoire Equipment: Job select (no token text but include hero token to match other Equipment)."""
+    # Note: this Equipment text doesn't include 'create Hero token' explicitly so just stub
+    # engine gap: Job select implicit on Equipment not modular here
+    return []
+
+
+def torgal_a_fine_hound_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Torgal: First Human creature spell each turn -> bonus +1/+1 counters (stub)."""
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: first-of-turn tracking + entering-with-counters modification not modular
+        return []
+    return [make_spell_cast_trigger(obj, spell_effect, controller_only=True,
+                                    spell_type_filter={CardType.CREATURE})]
+
+
+def absolute_virtue_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Absolute Virtue: protection from each opponent (stub)."""
+    # engine gap: 'you have protection' player-level effect not modular
+    return []
+
+
+def choco_seeker_of_paradise_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Choco: Birds attack -> look + Landfall +1/+0 (stub)."""
+    interceptors = []
+
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        if not attacker or attacker.controller != obj.controller:
+            return False
+        return 'Bird' in attacker.characteristics.subtypes
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: scry + selective lands-to-battlefield not modular
+        return []
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=attack_effect(e, s)),
+        duration='while_on_battlefield'
+    ))
+
+    # Landfall +1/+0
+    def landfall_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering = state.objects.get(entering_id)
+        if not entering:
+            return False
+        return (entering.controller == source.controller and
+                CardType.LAND in entering.characteristics.types)
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
+    interceptors.append(make_etb_trigger(obj, landfall_effect, landfall_filter))
+    return interceptors
+
+
+def hope_estheim_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Hope Estheim: end step -> opponents mill X (life gained this turn)."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: per-turn life-gained tracking not implemented; stub
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def ignis_scientia_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ignis Scientia: ETB -> look at top 6, may put land into play (stub)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: library look + selective put-onto-battlefield not modular
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def sin_spiras_punishment_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sin: ETB/attack -> exile from graveyard at random + create copy token (stub)."""
+    interceptors = []
+
+    def trigger_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: random graveyard pick + token copy of card not modular
+        return []
+
+    interceptors.append(make_etb_trigger(obj, trigger_effect))
+    interceptors.append(make_attack_trigger(obj, trigger_effect))
+    return interceptors
+
+
+def avivi_ornitier_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """A-Vivi Ornitier: noncreature spell -> +1/+1 counter + 1 dmg to each opponent."""
+    def spell_effect(event: Event, state: GameState) -> list[Event]:
+        events = [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+        for opp in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp, 'amount': 1, 'source': obj.id, 'is_combat': False},
+                source=obj.id
+            ))
+        return events
+
+    return [make_spell_cast_trigger(obj, spell_effect, controller_only=True,
+                                    spell_type_filter={CardType.INSTANT, CardType.SORCERY,
+                                                       CardType.ENCHANTMENT, CardType.ARTIFACT})]
+
+
+def the_wandering_minstrel_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """The Wandering Minstrel: lands enter untapped + combat trigger if 5+ Towns + activated boost (stub)."""
+    # engine gap: lands enter untapped replacement + Town counting + activated +X/+X not modular
+    return []
+
+
+def yuna_hope_of_spira_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Yuna: trample/lifelink/ward2 keyword grant + end step graveyard return."""
+    interceptors = []
+
+    # Static keyword grant for Yuna and enchantment creatures during your turn
+    def is_yuna_or_enchantment_creature(target: GameObject, state: GameState) -> bool:
+        if state.active_player != obj.controller:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        if target.id == obj.id:
+            return True
+        return CardType.ENCHANTMENT in target.characteristics.types
+
+    interceptors.append(make_keyword_grant(obj, ['trample', 'lifelink'], is_yuna_or_enchantment_creature))
+
+    # End step: return enchantment from graveyard (stub)
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeted enchantment return-from-graveyard with finality counter not modular
+        return []
+    interceptors.append(make_end_step_trigger(obj, end_step_effect))
+
+    return interceptors
+
+
+def zidane_tantalus_thief_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Zidane: ETB -> gain control + opponent steals -> Treasure (stub)."""
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: control transfer with untap + keyword grant in single ETB not modular
+        return []
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    # Whenever opponent gains control of a permanent from you -> Treasure
+    def control_change_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.GAIN_CONTROL, EventType.CONTROL_CHANGE):
+            return False
+        # The permanent was previously under our control
+        from_controller = event.payload.get('from_controller') or event.payload.get('previous_controller')
+        return from_controller == obj.controller
+
+    def control_change_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Treasure',
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Treasure'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=control_change_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=control_change_effect(e, s)),
+        duration='while_on_battlefield'
+    ))
+    return interceptors
+
+
+def aettir_and_priwen_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aettir and Priwen Equipment: equipped creature has base P/T = your life total (stub)."""
+    # engine gap: setting base P/T to a dynamic value via attached Equipment not modular
+    return []
+
+
+def blitzball_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Blitzball: mana ability + sacrifice draw two (conditional) (stub)."""
+    # engine gap: activated abilities + 'opponent dealt damage by legendary creature this turn' tracking not modular
+    return []
+
+
+def buster_sword_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Buster Sword Equipment: equipped creature combat damage -> draw + may cast free (stub)."""
+    # engine gap: combat damage trigger on equipped creature + cast-from-hand-free not modular here
+    return []
+
+
+def excalibur_ii_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Excalibur II: gain life -> charge counter."""
+    def life_gain_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'charge', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_life_gain_trigger(obj, life_gain_effect)]
+
+
+def genji_glove_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Genji Glove Equipment: equipped creature double strike + extra combat (stub)."""
+    # engine gap: double strike grant via attached + extra combat phase logic not modular
+    return []
+
+
+def lion_heart_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Lion Heart Equipment: ETB -> 2 damage to any target (stub)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeting any-target for damage from an Equipment ETB not modular
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def lunatic_pandora_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Lunatic Pandora: activated abilities (stub)."""
+    # engine gap: activated abilities not modular here
+    return []
+
+
+def the_masamune_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """The Masamune Equipment: extra combat damage triggers if equipped attacking (stub)."""
+    # engine gap: 'must be blocked' + double-trigger emblem effect via Equipment not modular
+    return []
+
+
+def monks_fist_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Monk's Fist Equipment: Job select."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Hero',
+                'power': 1,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Hero'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def relentless_xatm092_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Relentless X-ATM092: can't be blocked except by 3+ + activated graveyard return (stub)."""
+    # engine gap: 'must be blocked by 3+' modifier + reanimation activated ability not modular
+    return []
+
+
+def ring_of_the_lucii_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ring of the Lucii: activated mana + tap target nonland (stub)."""
+    # engine gap: activated abilities not modular here
+    return []
+
+
+def world_map_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """World Map: activated abilities (stub)."""
+    # engine gap: activated abilities not modular here
+    return []
+
+
+def capital_city_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Capital City: mana abilities + cycling (stub)."""
+    # engine gap: activated mana abilities + cycling not modular here
+    return []
+
+
+def clives_hideaway_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Clive's Hideaway: Hideaway + activated ability (stub)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Hideaway mechanic (look at top 4, exile face down) not implemented
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def crossroads_village_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Crossroads Village: choose color on enter (stub)."""
+    # engine gap: choose-a-color on enter + restricted-color mana production not modular
+    return []
+
+
+def eden_seat_of_the_sanctum_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Eden, Seat of the Sanctum: activated mill + sacrifice (stub)."""
+    # engine gap: activated abilities + delayed reanimation trigger not modular
+    return []
+
+
+def the_gold_saucer_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """The Gold Saucer: activated abilities incl. coin flip (stub)."""
+    # engine gap: activated abilities + coin flip not modular here
+    return []
+
+
+def starting_town_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Starting Town: enters tapped unless turn 1-3 (stub)."""
+    # engine gap: 'enters tapped unless' conditional based on turn count not modular
+    return []
+
+
+def cloud_planets_champion_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cloud, Planet's Champion: when equipped, double strike + indestructible during your turn (stub)."""
+    # engine gap: 'while equipped' + 'during your turn' conjunction grant not modular
+    return []
+
+
+def beatrix_loyal_general_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Beatrix: combat -> may attach Equipment (stub)."""
+    def combat_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.PHASE_START and
+                event.payload.get('phase') == 'combat' and
+                state.active_player == obj.controller)
+
+    def combat_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: voluntary multi-Equipment attach to single target not modular
+        return []
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def lightning_security_sergeant_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Lightning, Security Sergeant: combat damage to player -> exile top, may play (stub)."""
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: exile-top + may-play-while-controlled not modular
+        return []
+    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+
+
+def xande_dark_mage_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Xande, Dark Mage: +1/+1 for each noncreature, nonland card in your graveyard."""
+    def stat_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.QUERY_POWER, EventType.QUERY_TOUGHNESS):
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        source = state.objects.get(obj.id)
+        return bool(source and source.zone == ZoneType.BATTLEFIELD)
+
+    def stat_handler(event: Event, state: GameState) -> InterceptorResult:
+        gy_key = f"graveyard_{obj.controller}"
+        gy = state.zones.get(gy_key)
+        count = 0
+        if gy:
+            for cid in gy.objects:
+                card = state.objects.get(cid)
+                if card and CardType.CREATURE not in card.characteristics.types and CardType.LAND not in card.characteristics.types:
+                    count += 1
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + count
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.QUERY, filter=stat_filter, handler=stat_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+def baron_airship_kingdom_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Baron, Airship Kingdom: ETB tapped + dual-color mana ability (stub)."""
+    # engine gap: ETB-tapped state and activated dual mana abilities not modular
+    return []
+
+
+def gohn_town_of_ruin_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Gohn, Town of Ruin: ETB tapped + dual {B}/{G} mana (stub)."""
+    # engine gap: ETB-tapped state and activated dual mana abilities not modular
+    return []
+
+
+def gongaga_reactor_town_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Gongaga, Reactor Town: ETB tapped + dual {R}/{G} mana (stub)."""
+    # engine gap: ETB-tapped state and activated dual mana abilities not modular
+    return []
+
+
+def guadosalam_farplane_gateway_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Guadosalam, Farplane Gateway: ETB tapped + dual {G}/{U} mana (stub)."""
+    # engine gap: ETB-tapped state and activated dual mana abilities not modular
+    return []
+
+
+def insomnia_crown_city_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Insomnia, Crown City: ETB tapped + dual {W}/{B} mana (stub)."""
+    # engine gap: ETB-tapped state and activated dual mana abilities not modular
+    return []
+
+
+def rabanastre_royal_city_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Rabanastre, Royal City: ETB tapped + dual {R}/{W} mana (stub)."""
+    # engine gap: ETB-tapped state and activated dual mana abilities not modular
+    return []
+
+
+def sharlayan_nation_of_scholars_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sharlayan, Nation of Scholars: ETB tapped + dual {W}/{U} mana (stub)."""
+    # engine gap: ETB-tapped state and activated dual mana abilities not modular
+    return []
+
+
+def treno_dark_city_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Treno, Dark City: ETB tapped + dual {U}/{B} mana (stub)."""
+    # engine gap: ETB-tapped state and activated dual mana abilities not modular
+    return []
+
+
+def vector_imperial_capital_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Vector, Imperial Capital: ETB tapped + dual {B}/{R} mana (stub)."""
+    # engine gap: ETB-tapped state and activated dual mana abilities not modular
+    return []
+
+
+def windurst_federation_center_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Windurst, Federation Center: ETB tapped + dual {G}/{W} mana (stub)."""
+    # engine gap: ETB-tapped state and activated dual mana abilities not modular
+    return []
+
+
+def wastes_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wastes (basic): {T}: Add {C} (stub)."""
+    # engine gap: activated tap-for-mana abilities for basic lands not registered here
+    return []
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -2377,6 +3835,7 @@ SUMMON_BAHAMUT = make_creature(
     colors=set(),
     subtypes={"Dragon", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after IV.)\nI, II — Destroy up to one target nonland permanent.\nIII — Draw two cards.\nIV — Mega Flare — This creature deals damage equal to the total mana value of other permanents you control to each opponent.\nFlying",
+    setup_interceptors=summon_bahamut_ff_setup,
 )
 
 ULTIMA_ORIGIN_OF_OBLIVION = make_creature(
@@ -2387,6 +3846,7 @@ ULTIMA_ORIGIN_OF_OBLIVION = make_creature(
     subtypes={"God"},
     supertypes={"Legendary"},
     text="Flying\nWhenever Ultima attacks, put a blight counter on target land. For as long as that land has a blight counter on it, it loses all land types and abilities and has \"{T}: Add {C}.\"\nWhenever you tap a land for {C}, add an additional {C}.",
+    setup_interceptors=ultima_origin_of_oblivion_ff_setup,
 )
 
 ADELBERT_STEINER = make_creature(
@@ -2397,6 +3857,7 @@ ADELBERT_STEINER = make_creature(
     subtypes={"Human", "Knight"},
     supertypes={"Legendary"},
     text="Lifelink\nAdelbert Steiner gets +1/+1 for each Equipment you control.",
+    setup_interceptors=adelbert_steiner_ff_setup,
 )
 
 AERITH_GAINSBOROUGH = make_creature(
@@ -2461,6 +3922,7 @@ CLOUD_MIDGAR_MERCENARY = make_creature(
     subtypes={"Human", "Mercenary", "Soldier"},
     supertypes={"Legendary"},
     text="When Cloud enters, search your library for an Equipment card, reveal it, put it into your hand, then shuffle.\nAs long as Cloud is equipped, if an ability of Cloud or an Equipment attached to it triggers, that ability triggers an additional time.",
+    setup_interceptors=cloud_midgar_mercenary_ff_setup,
 )
 
 CLOUDBOUND_MOOGLE = make_creature(
@@ -2480,6 +3942,7 @@ COEURL = make_creature(
     colors={Color.WHITE},
     subtypes={"Beast", "Cat"},
     text="{1}{W}, {T}: Tap target nonenchantment creature.",
+    setup_interceptors=coeurl_ff_setup,
 )
 
 CRYSTAL_FRAGMENTS = make_artifact_creature(
@@ -2523,6 +3986,7 @@ DRAGOONS_LANCE = make_artifact(
     mana_cost="{1}{W}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +1/+0 and is a Knight in addition to its other types.\nDuring your turn, equipped creature has flying.\nGae Bolg — Equip {4}",
     subtypes={"Equipment"},
+    setup_interceptors=dragoons_lance_ff_setup,
 )
 
 DWARVEN_CASTLE_GUARD = make_creature(
@@ -2567,6 +4031,7 @@ GAELICAT = make_creature(
     colors={Color.WHITE},
     subtypes={"Cat"},
     text="Flying, vigilance\nAs long as you control two or more artifacts, this creature gets +2/+0.",
+    setup_interceptors=gaelicat_ff_setup,
 )
 
 MACHINISTS_ARSENAL = make_artifact(
@@ -2574,6 +4039,7 @@ MACHINISTS_ARSENAL = make_artifact(
     mana_cost="{4}{W}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +2/+2 for each artifact you control and is an Artificer in addition to its other types.\nMachina — Equip {4} ({4}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=machinists_arsenal_ff_setup,
 )
 
 MAGITEK_ARMOR = make_artifact(
@@ -2591,6 +4057,7 @@ MAGITEK_INFANTRY = make_artifact_creature(
     colors={Color.WHITE},
     subtypes={"Robot", "Soldier"},
     text="This creature gets +1/+0 as long as you control another artifact.\n{2}{W}: Search your library for a card named Magitek Infantry, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=magitek_infantry_ff_setup,
 )
 
 MINWU_WHITE_MAGE = make_creature(
@@ -2616,12 +4083,14 @@ PALADINS_ARMS = make_artifact(
     mana_cost="{2}{W}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +2/+1, has ward {1}, and is a Knight in addition to its other types.\nLightbringer and Hero's Shield — Equip {4} ({4}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=paladins_arms_ff_setup,
 )
 
 PHOENIX_DOWN = make_artifact(
     name="Phoenix Down",
     mana_cost="{W}",
     text="{1}{W}, {T}, Exile this artifact: Choose one —\n• Return target creature card with mana value 4 or less from your graveyard to the battlefield tapped.\n• Exile target Skeleton, Spirit, or Zombie.",
+    setup_interceptors=phoenix_down_ff_setup,
 )
 
 RESTORATION_MAGIC = make_instant(
@@ -2653,6 +4122,7 @@ SNOW_VILLIERS = make_creature(
     subtypes={"Human", "Monk", "Rebel"},
     supertypes={"Legendary"},
     text="Vigilance\nSnow Villiers's power is equal to the number of creatures you control.",
+    setup_interceptors=snow_villiers_ff_setup,
 )
 
 STILTZKIN_MOOGLE_MERCHANT = make_creature(
@@ -2663,6 +4133,7 @@ STILTZKIN_MOOGLE_MERCHANT = make_creature(
     subtypes={"Moogle"},
     supertypes={"Legendary"},
     text="Lifelink\n{2}, {T}: Target opponent gains control of another target permanent you control. If they do, you draw a card.",
+    setup_interceptors=stiltzkin_moogle_merchant_ff_setup,
 )
 
 SUMMON_CHOCOMOG = make_creature(
@@ -2672,6 +4143,7 @@ SUMMON_CHOCOMOG = make_creature(
     colors={Color.WHITE},
     subtypes={"Bird", "Moogle", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after IV.)\nI, II, III, IV — Stampede! — Other creatures you control get +1/+0 until end of turn.",
+    setup_interceptors=summon_chocomog_ff_setup,
 )
 
 SUMMON_KNIGHTS_OF_ROUND = make_creature(
@@ -2681,6 +4153,7 @@ SUMMON_KNIGHTS_OF_ROUND = make_creature(
     colors={Color.WHITE},
     subtypes={"Knight", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after V.)\nI, II, III, IV — Create three 2/2 white Knight creature tokens.\nV — Ultimate End — Other creatures you control get +2/+2 until end of turn. Put an indestructible counter on each of them.\nIndestructible",
+    setup_interceptors=summon_knights_of_round_ff_setup,
 )
 
 SUMMON_PRIMAL_GARUDA = make_creature(
@@ -2690,6 +4163,7 @@ SUMMON_PRIMAL_GARUDA = make_creature(
     colors={Color.WHITE},
     subtypes={"Harpy", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Aerial Blast — This creature deals 4 damage to target tapped creature an opponent controls.\nII, III — Slipstream — Another target creature you control gets +1/+0 and gains flying until end of turn.\nFlying",
+    setup_interceptors=summon_primal_garuda_ff_setup,
 )
 
 ULTIMA = make_sorcery(
@@ -2731,6 +4205,7 @@ WHITE_MAGES_STAFF = make_artifact(
     mana_cost="{1}{W}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +1/+1, has \"Whenever this creature attacks, you gain 1 life,\" and is a Cleric in addition to its other types.\nEquip {3} ({3}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=white_mages_staff_ff_setup,
 )
 
 THE_WIND_CRYSTAL = make_artifact(
@@ -2738,6 +4213,7 @@ THE_WIND_CRYSTAL = make_artifact(
     mana_cost="{2}{W}{W}",
     text="White spells you cast cost {1} less to cast.\nIf you would gain life, you gain twice that much life instead.\n{4}{W}{W}, {T}: Creatures you control gain flying and lifelink until end of turn.",
     supertypes={"Legendary"},
+    setup_interceptors=the_wind_crystal_ff_setup,
 )
 
 YOURE_NOT_ALONE = make_instant(
@@ -2763,6 +4239,7 @@ ASTROLOGIANS_PLANISPHERE = make_artifact(
     mana_cost="{1}{U}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature is a Wizard in addition to its other types and has \"Whenever you cast a noncreature spell and whenever you draw your third card each turn, put a +1/+1 counter on this creature.\"\nDiana — Equip {2}",
     subtypes={"Equipment"},
+    setup_interceptors=astrologians_planisphere_ff_setup,
 )
 
 CARGO_SHIP = make_artifact(
@@ -2770,6 +4247,7 @@ CARGO_SHIP = make_artifact(
     mana_cost="{1}{U}",
     text="Flying, vigilance\n{T}: Add {C}. Spend this mana only to cast an artifact spell or activate an ability of an artifact source.\nCrew 1 (Tap any number of creatures you control with total power 1 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
+    setup_interceptors=cargo_ship_ff_setup,
 )
 
 COMBAT_TUTORIAL = make_sorcery(
@@ -2818,6 +4296,7 @@ ETHER = make_artifact(
     name="Ether",
     mana_cost="{3}{U}",
     text="{T}, Exile this artifact: Add {U}. When you next cast an instant or sorcery spell this turn, copy that spell. You may choose new targets for the copy.",
+    setup_interceptors=ether_ff_setup,
 )
 
 GOGO_MASTER_OF_MIMICRY = make_creature(
@@ -2828,6 +4307,7 @@ GOGO_MASTER_OF_MIMICRY = make_creature(
     subtypes={"Wizard"},
     supertypes={"Legendary"},
     text="{X}{X}, {T}: Copy target activated or triggered ability you control X times. You may choose new targets for the copies. This ability can't be copied and X can't be 0. (Mana abilities can't be targeted.)",
+    setup_interceptors=gogo_master_of_mimicry_ff_setup,
 )
 
 ICE_FLAN = make_creature(
@@ -2880,6 +4360,7 @@ THE_LUNAR_WHALE = make_artifact(
     text="Flying\nYou may look at the top card of your library any time.\nAs long as The Lunar Whale attacked this turn, you may play the top card of your library.\nCrew 1",
     subtypes={"Vehicle"},
     supertypes={"Legendary"},
+    setup_interceptors=the_lunar_whale_ff_setup,
 )
 
 MAGIC_DAMPER = make_instant(
@@ -2913,6 +4394,7 @@ THE_PRIMA_VISTA = make_artifact(
     text="Flying\nWhenever you cast a noncreature spell, if at least four mana was spent to cast it, The Prima Vista becomes an artifact creature until end of turn.\nCrew 2 (Tap any number of creatures you control with total power 2 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
     supertypes={"Legendary"},
+    setup_interceptors=the_prima_vista_ff_setup,
 )
 
 QIQIRN_MERCHANT = make_creature(
@@ -2922,6 +4404,7 @@ QIQIRN_MERCHANT = make_creature(
     colors={Color.BLUE},
     subtypes={"Beast", "Citizen"},
     text="{1}, {T}: Draw a card, then discard a card.\n{7}, {T}, Sacrifice this creature: Draw three cards. This ability costs {1} less to activate for each Town you control.",
+    setup_interceptors=qiqirn_merchant_ff_setup,
 )
 
 QUISTIS_TREPE = make_creature(
@@ -2964,6 +4447,7 @@ SAGES_NOULITHS = make_artifact(
     mana_cost="{1}{U}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +1/+0, has \"Whenever this creature attacks, untap target attacking creature,\" and is a Cleric in addition to its other types.\nHagneia — Equip {3}",
     subtypes={"Equipment"},
+    setup_interceptors=sages_nouliths_ff_setup,
 )
 
 SAHAGIN = make_creature(
@@ -2973,6 +4457,7 @@ SAHAGIN = make_creature(
     colors={Color.BLUE},
     subtypes={"Merfolk", "Warrior"},
     text="Whenever you cast a noncreature spell, if at least four mana was spent to cast it, put a +1/+1 counter on this creature and it can't be blocked this turn.",
+    setup_interceptors=sahagin_ff_setup,
 )
 
 SCORPION_SENTINEL = make_artifact_creature(
@@ -2982,6 +4467,7 @@ SCORPION_SENTINEL = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Robot", "Scorpion"},
     text="As long as you control seven or more lands, this creature gets +3/+0.",
+    setup_interceptors=scorpion_sentinel_ff_setup,
 )
 
 SIDEQUEST_CARD_COLLECTION = make_enchantment(
@@ -2998,6 +4484,7 @@ SLEEP_MAGIC = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature\nWhen this Aura enters, tap enchanted creature.\nEnchanted creature doesn't untap during its controller's untap step.\nWhen enchanted creature is dealt damage, sacrifice this Aura.",
     subtypes={"Aura"},
+    setup_interceptors=sleep_magic_ff_setup,
 )
 
 STOLEN_UNIFORM = make_instant(
@@ -3013,6 +4500,7 @@ STUCK_IN_SUMMONERS_SANCTUM = make_enchantment(
     colors={Color.BLUE},
     text="Flash\nEnchant artifact or creature\nWhen this Aura enters, tap enchanted permanent.\nEnchanted permanent doesn't untap during its controller's untap step and its activated abilities can't be activated.",
     subtypes={"Aura"},
+    setup_interceptors=stuck_in_summoners_sanctum_ff_setup,
 )
 
 SUMMON_LEVIATHAN = make_creature(
@@ -3022,6 +4510,7 @@ SUMMON_LEVIATHAN = make_creature(
     colors={Color.BLUE},
     subtypes={"Leviathan", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Return each creature that isn't a Kraken, Leviathan, Merfolk, Octopus, or Serpent to its owner's hand.\nII, III — Until end of turn, whenever a Kraken, Leviathan, Merfolk, Octopus, or Serpent attacks, draw a card.\nWard {2}",
+    setup_interceptors=summon_leviathan_ff_setup,
 )
 
 SUMMON_SHIVA = make_creature(
@@ -3031,6 +4520,7 @@ SUMMON_SHIVA = make_creature(
     colors={Color.BLUE},
     subtypes={"Elemental", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI, II — Heavenly Strike — Tap target creature an opponent controls. Put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)\nIII — Diamond Dust — Draw a card for each tapped creature your opponents control.",
+    setup_interceptors=summon_shiva_ff_setup,
 )
 
 SWALLOWED_BY_LEVIATHAN = make_instant(
@@ -3052,6 +4542,7 @@ THIEFS_KNIFE = make_artifact(
     mana_cost="{2}{U}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +1/+1, has \"Whenever this creature deals combat damage to a player, draw a card,\" and is a Rogue in addition to its other types.\nEquip {4}",
     subtypes={"Equipment"},
+    setup_interceptors=thiefs_knife_ff_setup,
 )
 
 TRAVEL_THE_OVERWORLD = make_sorcery(
@@ -3087,6 +4578,7 @@ THE_WATER_CRYSTAL = make_artifact(
     mana_cost="{2}{U}{U}",
     text="Blue spells you cast cost {1} less to cast.\nIf an opponent would mill one or more cards, they mill that many cards plus four instead.\n{4}{U}{U}, {T}: Each opponent mills cards equal to the number of cards in your hand.",
     supertypes={"Legendary"},
+    setup_interceptors=the_water_crystal_ff_setup,
 )
 
 YSHTOLA_RHUL = make_creature(
@@ -3097,6 +4589,7 @@ YSHTOLA_RHUL = make_creature(
     subtypes={"Cat", "Druid"},
     supertypes={"Legendary"},
     text="At the beginning of your end step, exile target creature you control, then return it to the battlefield under its owner's control. Then if it's the first end step of the turn, there is an additional end step after this step.",
+    setup_interceptors=yshtola_rhul_ff_setup,
 )
 
 AHRIMAN = make_creature(
@@ -3127,6 +4620,7 @@ ARDYN_THE_USURPER = make_creature(
     subtypes={"Elder", "Human", "Noble"},
     supertypes={"Legendary"},
     text="Demons you control have menace, lifelink, and haste.\nStarscourge — At the beginning of combat on your turn, exile up to one target creature card from a graveyard. If you exiled a card this way, create a token that's a copy of that card, except it's a 5/5 black Demon.",
+    setup_interceptors=ardyn_the_usurper_ff_setup,
 )
 
 BLACK_MAGES_ROD = make_artifact(
@@ -3134,6 +4628,7 @@ BLACK_MAGES_ROD = make_artifact(
     mana_cost="{1}{B}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +1/+0, has \"Whenever you cast a noncreature spell, this creature deals 1 damage to each opponent,\" and is a Wizard in addition to its other types.\nEquip {3}",
     subtypes={"Equipment"},
+    setup_interceptors=black_mages_rod_ff_setup,
 )
 
 CECIL_DARK_KNIGHT = make_creature(
@@ -3175,6 +4670,7 @@ DARK_KNIGHTS_GREATSWORD = make_artifact(
     mana_cost="{2}{B}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +3/+0 and is a Knight in addition to its other types.\nChaosbringer — Equip—Pay 3 life. Activate only once each turn.",
     subtypes={"Equipment"},
+    setup_interceptors=dark_knights_greatsword_ff_setup,
 )
 
 THE_DARKNESS_CRYSTAL = make_artifact(
@@ -3182,6 +4678,7 @@ THE_DARKNESS_CRYSTAL = make_artifact(
     mana_cost="{2}{B}{B}",
     text="Black spells you cast cost {1} less to cast.\nIf a nontoken creature an opponent controls would die, instead exile it and you gain 2 life.\n{4}{B}{B}, {T}: Put target creature card exiled with The Darkness Crystal onto the battlefield tapped under your control with two additional +1/+1 counters on it.",
     supertypes={"Legendary"},
+    setup_interceptors=the_darkness_crystal_ff_setup,
 )
 
 DEMON_WALL = make_artifact_creature(
@@ -3191,6 +4688,7 @@ DEMON_WALL = make_artifact_creature(
     colors={Color.BLACK},
     subtypes={"Demon", "Wall"},
     text="Defender\nMenace (This creature can't be blocked except by two or more creatures.)\nAs long as this creature has a counter on it, it can attack as though it didn't have defender.\n{5}{B}: Put two +1/+1 counters on this creature.",
+    setup_interceptors=demon_wall_ff_setup,
 )
 
 EVIL_REAWAKENED = make_sorcery(
@@ -3208,6 +4706,7 @@ FANG_FEARLESS_LCIE = make_creature(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     text="Whenever one or more cards leave your graveyard, you draw a card and you lose 1 life. This ability triggers only once each turn.\n(Melds with Vanille, Cheerful l'Cie.)",
+    setup_interceptors=fang_fearless_lcie_ff_setup,
 )
 
 RAGNAROK_DIVINE_DELIVERANCE = make_creature(
@@ -3274,6 +4773,7 @@ KAIN_TRAITOROUS_DRAGOON = make_creature(
     subtypes={"Human", "Knight"},
     supertypes={"Legendary"},
     text="Jump — During your turn, Kain has flying.\nWhenever Kain deals combat damage to a player, that player gains control of Kain. If they do, you draw that many cards, create that many tapped Treasure tokens, then lose that much life.",
+    setup_interceptors=kain_traitorous_dragoon_ff_setup,
 )
 
 MALBORO = make_creature(
@@ -3301,6 +4801,7 @@ NINJAS_BLADES = make_artifact(
     mana_cost="{2}{B}",
     text="Job select\nEquipped creature gets +1/+1, is a Ninja in addition to its other types, and has \"Whenever this creature deals combat damage to a player, draw a card, then discard a card. That player loses life equal to the discarded card's mana value.\"\nMutsunokami — Equip {2}",
     subtypes={"Equipment"},
+    setup_interceptors=ninjas_blades_ff_setup,
 )
 
 OVERKILL = make_instant(
@@ -3315,6 +4816,7 @@ PHANTOM_TRAIN = make_artifact(
     mana_cost="{3}{B}",
     text="Trample\nSacrifice another artifact or creature: Put a +1/+1 counter on this Vehicle. It becomes a Spirit artifact creature in addition to its other types until end of turn.",
     subtypes={"Vehicle"},
+    setup_interceptors=phantom_train_ff_setup,
 )
 
 POISON_THE_WATERS = make_sorcery(
@@ -3331,6 +4833,7 @@ QUTRUB_FORAYER = make_creature(
     colors={Color.BLACK},
     subtypes={"Horror", "Zombie"},
     text="When this creature enters, choose one —\n• Destroy target creature that was dealt damage this turn.\n• Exile up to two target cards from a single graveyard.",
+    setup_interceptors=qutrub_forayer_ff_setup,
 )
 
 RENO_AND_RUDE = make_creature(
@@ -3375,6 +4878,7 @@ SHAMBLING_CIETH = make_creature(
     colors={Color.BLACK},
     subtypes={"Horror", "Mutant"},
     text="This creature enters tapped.\nWhenever you cast a noncreature spell, you may pay {B}. If you do, return this card from your graveyard to your hand.",
+    setup_interceptors=shambling_cieth_ff_setup,
 )
 
 SHINRA_REINFORCEMENTS = make_creature(
@@ -3404,6 +4908,7 @@ SUMMON_ANIMA = make_creature(
     colors={Color.BLACK},
     subtypes={"Horror", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after IV.)\nI, II, III — Pain — You draw a card and you lose 1 life.\nIV — Oblivion — Each opponent sacrifices a creature of their choice and loses 3 life.\nMenace",
+    setup_interceptors=summon_anima_ff_setup,
 )
 
 SUMMON_PRIMAL_ODIN = make_creature(
@@ -3413,6 +4918,7 @@ SUMMON_PRIMAL_ODIN = make_creature(
     colors={Color.BLACK},
     subtypes={"Knight", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Gungnir — Destroy target creature an opponent controls.\nII — Zantetsuken — This creature gains \"Whenever this creature deals combat damage to a player, that player loses the game.\"\nIII — Hall of Sorrow — Draw two cards. Each player loses 2 life.",
+    setup_interceptors=summon_primal_odin_ff_setup,
 )
 
 TONBERRY = make_creature(
@@ -3422,6 +4928,7 @@ TONBERRY = make_creature(
     colors={Color.BLACK},
     subtypes={"Horror", "Salamander"},
     text="This creature enters tapped with a stun counter on it. (If it would become untapped, remove a stun counter from it instead.)\nChef's Knife — During your turn, this creature has first strike and deathtouch.",
+    setup_interceptors=tonberry_ff_setup,
 )
 
 UNDERCITY_DIRE_RAT = make_creature(
@@ -3497,6 +5004,7 @@ BLAZING_BOMB = make_creature(
     colors={Color.RED},
     subtypes={"Elemental"},
     text="Whenever you cast a noncreature spell, if at least four mana was spent to cast it, put a +1/+1 counter on this creature.\nBlow Up — {T}, Sacrifice this creature: It deals damage equal to its power to target creature. Activate only as a sorcery.",
+    setup_interceptors=blazing_bomb_ff_setup,
 )
 
 CALL_THE_MOUNTAIN_CHOCOBO = make_sorcery(
@@ -3565,6 +5073,7 @@ FREYA_CRESCENT = make_creature(
     subtypes={"Knight", "Rat"},
     supertypes={"Legendary"},
     text="Jump — During your turn, Freya Crescent has flying.\n{T}: Add {R}. Spend this mana only to cast an Equipment spell or activate an equip ability.",
+    setup_interceptors=freya_crescent_ff_setup,
 )
 
 GILGAMESH_MASTERATARMS = make_creature(
@@ -3592,6 +5101,7 @@ HILL_GIGAS = make_creature(
     colors={Color.RED},
     subtypes={"Giant"},
     text="Trample, haste\nMountaincycling {2} ({2}, Discard this card: Search your library for a Mountain card, reveal it, put it into your hand, then shuffle.)",
+    setup_interceptors=hill_gigas_ff_setup,
 )
 
 ITEM_SHOPKEEP = make_creature(
@@ -3601,6 +5111,7 @@ ITEM_SHOPKEEP = make_creature(
     colors={Color.RED},
     subtypes={"Citizen", "Human"},
     text="Whenever you attack, target attacking equipped creature gains menace until end of turn. (It can't be blocked except by two or more creatures.)",
+    setup_interceptors=item_shopkeep_ff_setup,
 )
 
 LAUGHING_MAD = make_instant(
@@ -3678,6 +5189,7 @@ RAUBAHN_BULL_OF_ALA_MHIGO = make_creature(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     text="Ward—Pay life equal to Raubahn's power.\nWhenever Raubahn attacks, attach up to one target Equipment you control to target attacking creature.",
+    setup_interceptors=raubahn_bull_of_ala_mhigo_ff_setup,
 )
 
 RED_MAGES_RAPIER = make_artifact(
@@ -3685,6 +5197,7 @@ RED_MAGES_RAPIER = make_artifact(
     mana_cost="{1}{R}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature has \"Whenever you cast a noncreature spell, this creature gets +2/+0 until end of turn\" and is a Wizard in addition to its other types.\nEquip {3}",
     subtypes={"Equipment"},
+    setup_interceptors=red_mages_rapier_ff_setup,
 )
 
 SABOTENDER = make_creature(
@@ -3702,6 +5215,7 @@ SAMURAIS_KATANA = make_artifact(
     mana_cost="{2}{R}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +2/+2, has trample and haste, and is a Samurai in addition to its other types.\nMurasame — Equip {5}",
     subtypes={"Equipment"},
+    setup_interceptors=samurais_katana_ff_setup,
 )
 
 SANDWORM = make_creature(
@@ -3711,6 +5225,7 @@ SANDWORM = make_creature(
     colors={Color.RED},
     subtypes={"Worm"},
     text="Haste\nWhen this creature enters, destroy target land. Its controller may search their library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=sandworm_red_ff_setup,
 )
 
 SEIFER_ALMASY = make_creature(
@@ -3754,6 +5269,7 @@ SUMMON_BRYNHILDR = make_creature(
     colors={Color.RED},
     subtypes={"Knight", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Chain — Exile the top card of your library. During any turn you put a lore counter on this Saga, you may play that card.\nII, III — Gestalt Mode — When you next cast a creature spell this turn, it gains haste until end of turn.",
+    setup_interceptors=summon_brynhildr_ff_setup,
 )
 
 SUMMON_ESPER_RAMUH = make_creature(
@@ -3763,6 +5279,7 @@ SUMMON_ESPER_RAMUH = make_creature(
     colors={Color.RED},
     subtypes={"Saga", "Wizard"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Judgment Bolt — This creature deals damage equal to the number of noncreature, nonland cards in your graveyard to target creature an opponent controls.\nII, III — Wizards you control get +1/+0 until end of turn.",
+    setup_interceptors=summon_esper_ramuh_ff_setup,
 )
 
 SUMMON_GF_CERBERUS = make_creature(
@@ -3772,6 +5289,7 @@ SUMMON_GF_CERBERUS = make_creature(
     colors={Color.RED},
     subtypes={"Dog", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)\nII — Double — When you next cast an instant or sorcery spell this turn, copy it. You may choose new targets for the copy.\nIII — Triple — When you next cast an instant or sorcery spell this turn, copy it twice. You may choose new targets for the copies.",
+    setup_interceptors=summon_gf_cerberus_ff_setup,
 )
 
 SUMMON_GF_IFRIT = make_creature(
@@ -3781,6 +5299,7 @@ SUMMON_GF_IFRIT = make_creature(
     colors={Color.RED},
     subtypes={"Demon", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after IV.)\nI, II — You may discard a card. If you do, draw a card.\nIII, IV — Add {R}.",
+    setup_interceptors=summon_gf_ifrit_ff_setup,
 )
 
 SUPLEX = make_sorcery(
@@ -3802,6 +5321,7 @@ TRIPLE_TRIAD = make_enchantment(
     mana_cost="{3}{R}{R}{R}",
     colors={Color.RED},
     text="At the beginning of your upkeep, each player exiles the top card of their library. Until end of turn, you may play the card you own exiled this way and each other card exiled this way with lesser mana value than it without paying their mana costs.",
+    setup_interceptors=triple_triad_ff_setup,
 )
 
 UNEXPECTED_REQUEST = make_sorcery(
@@ -3827,6 +5347,7 @@ WARRIORS_SWORD = make_artifact(
     mana_cost="{3}{R}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +3/+2 and is a Warrior in addition to its other types.\nEquip {5} ({5}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=warriors_sword_ff_setup,
 )
 
 ZELL_DINCHT = make_creature(
@@ -3837,6 +5358,7 @@ ZELL_DINCHT = make_creature(
     subtypes={"Human", "Monk"},
     supertypes={"Legendary"},
     text="You may play an additional land on each of your turns.\nZell Dincht gets +1/+0 for each land you control.\nAt the beginning of your end step, return a land you control to its owner's hand.",
+    setup_interceptors=zell_dincht_ff_setup,
 )
 
 AIRSHIP_CRASH = make_instant(
@@ -3871,6 +5393,7 @@ BARDS_BOW = make_artifact(
     mana_cost="{2}{G}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +2/+2, has reach, and is a Bard in addition to its other types.\nPerseus's Bow — Equip {6} ({6}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=bards_bow_ff_setup,
 )
 
 BARTZ_AND_BOKO = make_creature(
@@ -3898,6 +5421,7 @@ CACTUAR = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant"},
     text="Trample\nAt the beginning of your end step, if this creature didn't enter the battlefield this turn, return it to its owner's hand.",
+    setup_interceptors=cactuar_ff_setup,
 )
 
 CHOCOBO_KICK = make_sorcery(
@@ -3946,6 +5470,7 @@ DIAMOND_WEAPON = make_artifact_creature(
     subtypes={"Elemental"},
     supertypes={"Legendary"},
     text="This spell costs {1} less to cast for each permanent card in your graveyard.\nReach\nImmune — Prevent all combat damage that would be dealt to Diamond Weapon.",
+    setup_interceptors=diamond_weapon_ff_setup,
 )
 
 THE_EARTH_CRYSTAL = make_artifact(
@@ -3953,6 +5478,7 @@ THE_EARTH_CRYSTAL = make_artifact(
     mana_cost="{2}{G}{G}",
     text="Green spells you cast cost {1} less to cast.\nIf one or more +1/+1 counters would be put on a creature you control, twice that many +1/+1 counters are put on that creature instead.\n{4}{G}{G}, {T}: Distribute two +1/+1 counters among one or two target creatures you control.",
     supertypes={"Legendary"},
+    setup_interceptors=the_earth_crystal_ff_setup,
 )
 
 ESPER_ORIGINS = make_creature(
@@ -3978,6 +5504,7 @@ GIGANTOAD = make_creature(
     colors={Color.GREEN},
     subtypes={"Frog"},
     text="As long as you control seven or more lands, this creature gets +2/+2.",
+    setup_interceptors=gigantoad_ff_setup,
 )
 
 GOOBBUE_GARDENER = make_creature(
@@ -3987,6 +5514,7 @@ GOOBBUE_GARDENER = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast", "Plant"},
     text="{T}: Add {G}.",
+    setup_interceptors=goobbue_gardener_ff_setup,
 )
 
 GRAN_PULSE_OCHU = make_creature(
@@ -3996,6 +5524,7 @@ GRAN_PULSE_OCHU = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast", "Plant"},
     text="Deathtouch\n{8}: Until end of turn, this creature gets +1/+1 for each permanent card in your graveyard.",
+    setup_interceptors=gran_pulse_ochu_ff_setup,
 )
 
 GYSAHL_GREENS = make_sorcery(
@@ -4055,6 +5584,7 @@ A_REALM_REBORN = make_enchantment(
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     text="Other permanents you control have \"{T}: Add one mana of any color.\"",
+    setup_interceptors=a_realm_reborn_ff_setup,
 )
 
 RIDE_THE_SHOOPUF = make_enchantment(
@@ -4062,6 +5592,7 @@ RIDE_THE_SHOOPUF = make_enchantment(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Landfall — Whenever a land you control enters, put a +1/+1 counter on target creature you control.\n{5}{G}{G}: This enchantment becomes a 7/7 Beast creature in addition to its other types.",
+    setup_interceptors=ride_the_shoopuf_ff_setup,
 )
 
 RYDIAS_RETURN = make_sorcery(
@@ -4079,6 +5610,7 @@ SAZH_KATZROY = make_creature(
     subtypes={"Human", "Pilot"},
     supertypes={"Legendary"},
     text="When Sazh Katzroy enters, you may search your library for a Bird or basic land card, reveal it, put it into your hand, then shuffle.\nWhenever Sazh Katzroy attacks, put a +1/+1 counter on target creature, then double the number of +1/+1 counters on that creature.",
+    setup_interceptors=sazh_katzroy_ff_setup,
 )
 
 SAZHS_CHOCOBO = make_creature(
@@ -4107,6 +5639,7 @@ SUMMON_FAT_CHOCOBO = make_creature(
     colors={Color.GREEN},
     subtypes={"Bird", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after IV.)\nI — Wark — Create a 2/2 green Bird creature token with \"Whenever a land you control enters, this token gets +1/+0 until end of turn.\"\nII, III, IV — Kerplunk — Creatures you control gain trample until end of turn.",
+    setup_interceptors=summon_fat_chocobo_ff_setup,
 )
 
 SUMMON_FENRIR = make_creature(
@@ -4116,6 +5649,7 @@ SUMMON_FENRIR = make_creature(
     colors={Color.GREEN},
     subtypes={"Saga", "Wolf"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Crescent Fang — Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\nII — Heavenward Howl — When you next cast a creature spell this turn, that creature enters with an additional +1/+1 counter on it.\nIII — Ecliptic Growl — Draw a card if you control the creature with the greatest power or tied for the greatest power.",
+    setup_interceptors=summon_fenrir_ff_setup,
 )
 
 SUMMON_TITAN = make_creature(
@@ -4125,6 +5659,7 @@ SUMMON_TITAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Giant", "Saga"},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Mill five cards.\nII — Return all land cards from your graveyard to the battlefield tapped.\nIII — Until end of turn, another target creature you control gains trample and gets +X/+X, where X is the number of lands you control.\nReach, trample",
+    setup_interceptors=summon_titan_ff_setup,
 )
 
 SUMMONERS_GRIMOIRE = make_artifact(
@@ -4132,6 +5667,7 @@ SUMMONERS_GRIMOIRE = make_artifact(
     mana_cost="{3}{G}",
     text="Job select\nEquipped creature is a Shaman in addition to its other types and has \"Whenever this creature attacks, you may put a creature card from your hand onto the battlefield. If that card is an enchantment card, it enters tapped and attacking.\"\nAbraxas — Equip {3}",
     subtypes={"Equipment"},
+    setup_interceptors=summoners_grimoire_ff_setup,
 )
 
 TIFA_LOCKHART = make_creature(
@@ -4160,6 +5696,7 @@ TORGAL_A_FINE_HOUND = make_creature(
     subtypes={"Wolf"},
     supertypes={"Legendary"},
     text="Whenever you cast your first Human creature spell each turn, that creature enters with an additional +1/+1 counter on it for each Dog and/or Wolf you control.\n{T}: Add one mana of any color.",
+    setup_interceptors=torgal_a_fine_hound_ff_setup,
 )
 
 TOWN_GREETER = make_creature(
@@ -4201,6 +5738,7 @@ ABSOLUTE_VIRTUE = make_creature(
     subtypes={"Avatar", "Warrior"},
     supertypes={"Legendary"},
     text="This spell can't be countered.\nFlying\nYou have protection from each of your opponents. (You can't be dealt damage, enchanted, or targeted by anything controlled by your opponents.)",
+    setup_interceptors=absolute_virtue_ff_setup,
 )
 
 BALTHIER_AND_FRAN = make_creature(
@@ -4233,6 +5771,7 @@ CHOCO_SEEKER_OF_PARADISE = make_creature(
     subtypes={"Bird"},
     supertypes={"Legendary"},
     text="Whenever one or more Birds you control attack, look at that many cards from the top of your library. You may put one of them into your hand. Then put any number of land cards from among them onto the battlefield tapped and the rest into your graveyard.\nLandfall — Whenever a land you control enters, Choco gets +1/+0 until end of turn.",
+    setup_interceptors=choco_seeker_of_paradise_ff_setup,
 )
 
 CID_TIMELESS_ARTIFICER = make_creature(
@@ -4349,6 +5888,7 @@ HOPE_ESTHEIM = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="Lifelink\nAt the beginning of your end step, each opponent mills X cards, where X is the amount of life you gained this turn.",
+    setup_interceptors=hope_estheim_ff_setup,
 )
 
 IGNIS_SCIENTIA = make_creature(
@@ -4359,6 +5899,7 @@ IGNIS_SCIENTIA = make_creature(
     subtypes={"Advisor", "Human"},
     supertypes={"Legendary"},
     text="When Ignis Scientia enters, look at the top six cards of your library. You may put a land card from among them onto the battlefield tapped. Put the rest on the bottom of your library in a random order.\nI've Come Up with a New Recipe! — {1}{G}{U}, {T}: Exile target card from a graveyard. If a creature card was exiled this way, create a Food token.",
+    setup_interceptors=ignis_scientia_ff_setup,
 )
 
 JENOVA_ANCIENT_CALAMITY = make_creature(
@@ -4522,6 +6063,7 @@ SIN_SPIRAS_PUNISHMENT = make_creature(
     subtypes={"Avatar", "Leviathan"},
     supertypes={"Legendary"},
     text="Flying\nWhenever Sin enters or attacks, exile a permanent card from your graveyard at random, then create a tapped token that's a copy of that card. If the exiled card is a land card, repeat this process.",
+    setup_interceptors=sin_spiras_punishment_ff_setup,
 )
 
 SQUALL_SEED_MERCENARY = make_creature(
@@ -4597,6 +6139,7 @@ AVIVI_ORNITIER = make_creature(
     subtypes={"Wizard"},
     supertypes={"Legendary"},
     text="{T}: Add X mana in any combination of {U} and/or {R}, where X is Vivi Ornitier's power.\nWhenever you cast a noncreature spell, put a +1/+1 counter on Vivi Ornitier and it deals 1 damage to each opponent.",
+    setup_interceptors=avivi_ornitier_ff_setup,
 )
 
 THE_WANDERING_MINSTREL = make_creature(
@@ -4607,6 +6150,7 @@ THE_WANDERING_MINSTREL = make_creature(
     subtypes={"Bard", "Human"},
     supertypes={"Legendary"},
     text="Lands you control enter untapped.\nThe Minstrel's Ballad — At the beginning of combat on your turn, if you control five or more Towns, create a 2/2 Elemental creature token that's all colors.\n{3}{W}{U}{B}{R}{G}: Other creatures you control get +X/+X until end of turn, where X is the number of Towns you control.",
+    setup_interceptors=the_wandering_minstrel_ff_setup,
 )
 
 YUNA_HOPE_OF_SPIRA = make_creature(
@@ -4617,6 +6161,7 @@ YUNA_HOPE_OF_SPIRA = make_creature(
     subtypes={"Cleric", "Human"},
     supertypes={"Legendary"},
     text="During your turn, Yuna and enchantment creatures you control have trample, lifelink, and ward {2}.\nAt the beginning of your end step, return up to one target enchantment card from your graveyard to the battlefield with a finality counter on it. (If a permanent with a finality counter on it would be put into a graveyard from the battlefield, exile it instead.)",
+    setup_interceptors=yuna_hope_of_spira_ff_setup,
 )
 
 ZIDANE_TANTALUS_THIEF = make_creature(
@@ -4627,6 +6172,7 @@ ZIDANE_TANTALUS_THIEF = make_creature(
     subtypes={"Human", "Mutant", "Scout"},
     supertypes={"Legendary"},
     text="When Zidane enters, gain control of target creature an opponent controls until end of turn. Untap it. It gains lifelink and haste until end of turn.\nWhenever an opponent gains control of a permanent from you, you create a Treasure token.",
+    setup_interceptors=zidane_tantalus_thief_ff_setup,
 )
 
 ADVENTURERS_AIRSHIP = make_artifact(
@@ -4643,12 +6189,14 @@ AETTIR_AND_PRIWEN = make_artifact(
     text="Equipped creature has base power and toughness X/X, where X is your life total.\nEquip {5}",
     subtypes={"Equipment"},
     supertypes={"Legendary"},
+    setup_interceptors=aettir_and_priwen_ff_setup,
 )
 
 BLITZBALL = make_artifact(
     name="Blitzball",
     mana_cost="{3}",
     text="{T}: Add one mana of any color.\nGOOOOAAAALLL! — {T}, Sacrifice this artifact: Draw two cards. Activate only if an opponent was dealt combat damage by a legendary creature this turn.",
+    setup_interceptors=blitzball_ff_setup,
 )
 
 BUSTER_SWORD = make_artifact(
@@ -4656,6 +6204,7 @@ BUSTER_SWORD = make_artifact(
     mana_cost="{3}",
     text="Equipped creature gets +3/+2.\nWhenever equipped creature deals combat damage to a player, draw a card, then you may cast a spell from your hand with mana value less than or equal to that damage without paying its mana cost.\nEquip {2}",
     subtypes={"Equipment"},
+    setup_interceptors=buster_sword_ff_setup,
 )
 
 ELIXIR = make_artifact(
@@ -4671,6 +6220,7 @@ EXCALIBUR_II = make_artifact(
     text="Whenever you gain life, put a charge counter on Excalibur II.\nEquipped creature gets +1/+1 for each charge counter on Excalibur II.\nEquip {3}",
     subtypes={"Equipment"},
     supertypes={"Legendary"},
+    setup_interceptors=excalibur_ii_ff_setup,
 )
 
 GENJI_GLOVE = make_artifact(
@@ -4678,6 +6228,7 @@ GENJI_GLOVE = make_artifact(
     mana_cost="{5}",
     text="Equipped creature has double strike.\nWhenever equipped creature attacks, if it's the first combat phase of the turn, untap it. After this phase, there is an additional combat phase.\nEquip {3}",
     subtypes={"Equipment"},
+    setup_interceptors=genji_glove_ff_setup,
 )
 
 INSTANT_RAMEN = make_artifact(
@@ -4703,6 +6254,7 @@ LION_HEART = make_artifact(
     mana_cost="{4}",
     text="When this Equipment enters, it deals 2 damage to any target.\nEquipped creature gets +2/+1.\nEquip {2}",
     subtypes={"Equipment"},
+    setup_interceptors=lion_heart_ff_setup,
 )
 
 LUNATIC_PANDORA = make_artifact(
@@ -4710,6 +6262,7 @@ LUNATIC_PANDORA = make_artifact(
     mana_cost="{1}",
     text="{2}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)\n{6}, {T}, Sacrifice Lunatic Pandora: Destroy target nonland permanent.",
     supertypes={"Legendary"},
+    setup_interceptors=lunatic_pandora_ff_setup,
 )
 
 MAGIC_POT = make_artifact_creature(
@@ -4728,6 +6281,7 @@ THE_MASAMUNE = make_artifact(
     text="As long as equipped creature is attacking, it has first strike and must be blocked if able.\nEquipped creature has \"If a creature dying causes a triggered ability of this creature or an emblem you own to trigger, that ability triggers an additional time.\"\nEquip {2}",
     subtypes={"Equipment"},
     supertypes={"Legendary"},
+    setup_interceptors=the_masamune_ff_setup,
 )
 
 MONKS_FIST = make_artifact(
@@ -4735,6 +6289,7 @@ MONKS_FIST = make_artifact(
     mana_cost="{2}",
     text="Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +1/+0 and is a Monk in addition to its other types.\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=monks_fist_ff_setup,
 )
 
 PUPU_UFO = make_artifact_creature(
@@ -4763,6 +6318,7 @@ RELENTLESS_XATM092 = make_artifact_creature(
     colors=set(),
     subtypes={"Robot", "Spider"},
     text="This creature can't be blocked except by three or more creatures.\n{8}: Return this card from your graveyard to the battlefield tapped with a finality counter on it. (If a creature with a finality counter on it would die, exile it instead.)",
+    setup_interceptors=relentless_xatm092_ff_setup,
 )
 
 RING_OF_THE_LUCII = make_artifact(
@@ -4770,12 +6326,14 @@ RING_OF_THE_LUCII = make_artifact(
     mana_cost="{4}",
     text="{T}: Add {C}{C}.\n{2}, {T}, Pay 1 life: Tap target nonland permanent.",
     supertypes={"Legendary"},
+    setup_interceptors=ring_of_the_lucii_ff_setup,
 )
 
 WORLD_MAP = make_artifact(
     name="World Map",
     mana_cost="{1}",
     text="{1}, {T}, Sacrifice this artifact: Search your library for a basic land card, reveal it, put it into your hand, then shuffle.\n{3}, {T}, Sacrifice this artifact: Search your library for a land card, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=world_map_ff_setup,
 )
 
 ADVENTURERS_INN = make_land(
@@ -4796,60 +6354,70 @@ BARON_AIRSHIP_KINGDOM = make_land(
     name="Baron, Airship Kingdom",
     text="This land enters tapped.\n{T}: Add {U} or {R}.",
     subtypes={"Town"},
+    setup_interceptors=baron_airship_kingdom_ff_setup,
 )
 
 CAPITAL_CITY = make_land(
     name="Capital City",
     text="{T}: Add {C}.\n{1}, {T}: Add one mana of any color.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     subtypes={"Town"},
+    setup_interceptors=capital_city_ff_setup,
 )
 
 CLIVES_HIDEAWAY = make_land(
     name="Clive's Hideaway",
     text="Hideaway 4 (When this land enters, look at the top four cards of your library, exile one face down, then put the rest on the bottom in a random order.)\n{T}: Add {C}.\n{2}, {T}: You may play the exiled card without paying its mana cost if you control four or more legendary creatures.",
     subtypes={"Town"},
+    setup_interceptors=clives_hideaway_ff_setup,
 )
 
 CROSSROADS_VILLAGE = make_land(
     name="Crossroads Village",
     text="This land enters tapped. As it enters, choose a color.\n{T}: Add one mana of the chosen color.",
     subtypes={"Town"},
+    setup_interceptors=crossroads_village_ff_setup,
 )
 
 EDEN_SEAT_OF_THE_SANCTUM = make_land(
     name="Eden, Seat of the Sanctum",
     text="{T}: Add {C}.\n{5}, {T}: Mill two cards. Then you may sacrifice this land. When you do, return another target permanent card from your graveyard to your hand.",
     subtypes={"Town"},
+    setup_interceptors=eden_seat_of_the_sanctum_ff_setup,
 )
 
 GOHN_TOWN_OF_RUIN = make_land(
     name="Gohn, Town of Ruin",
     text="This land enters tapped.\n{T}: Add {B} or {G}.",
     subtypes={"Town"},
+    setup_interceptors=gohn_town_of_ruin_ff_setup,
 )
 
 THE_GOLD_SAUCER = make_land(
     name="The Gold Saucer",
     text="{T}: Add {C}.\n{2}, {T}: Flip a coin. If you win the flip, create a Treasure token.\n{3}, {T}, Sacrifice two artifacts: Draw a card.",
     subtypes={"Town"},
+    setup_interceptors=the_gold_saucer_ff_setup,
 )
 
 GONGAGA_REACTOR_TOWN = make_land(
     name="Gongaga, Reactor Town",
     text="This land enters tapped.\n{T}: Add {R} or {G}.",
     subtypes={"Town"},
+    setup_interceptors=gongaga_reactor_town_ff_setup,
 )
 
 GUADOSALAM_FARPLANE_GATEWAY = make_land(
     name="Guadosalam, Farplane Gateway",
     text="This land enters tapped.\n{T}: Add {G} or {U}.",
     subtypes={"Town"},
+    setup_interceptors=guadosalam_farplane_gateway_ff_setup,
 )
 
 INSOMNIA_CROWN_CITY = make_land(
     name="Insomnia, Crown City",
     text="This land enters tapped.\n{T}: Add {W} or {B}.",
     subtypes={"Town"},
+    setup_interceptors=insomnia_crown_city_ff_setup,
 )
 
 ISHGARD_THE_HOLY_SEE = make_sorcery(
@@ -4888,36 +6456,42 @@ RABANASTRE_ROYAL_CITY = make_land(
     name="Rabanastre, Royal City",
     text="This land enters tapped.\n{T}: Add {R} or {W}.",
     subtypes={"Town"},
+    setup_interceptors=rabanastre_royal_city_ff_setup,
 )
 
 SHARLAYAN_NATION_OF_SCHOLARS = make_land(
     name="Sharlayan, Nation of Scholars",
     text="This land enters tapped.\n{T}: Add {W} or {U}.",
     subtypes={"Town"},
+    setup_interceptors=sharlayan_nation_of_scholars_ff_setup,
 )
 
 STARTING_TOWN = make_land(
     name="Starting Town",
     text="This land enters tapped unless it's your first, second, or third turn of the game.\n{T}: Add {C}.\n{T}, Pay 1 life: Add one mana of any color.",
     subtypes={"Town"},
+    setup_interceptors=starting_town_ff_setup,
 )
 
 TRENO_DARK_CITY = make_land(
     name="Treno, Dark City",
     text="This land enters tapped.\n{T}: Add {U} or {B}.",
     subtypes={"Town"},
+    setup_interceptors=treno_dark_city_ff_setup,
 )
 
 VECTOR_IMPERIAL_CAPITAL = make_land(
     name="Vector, Imperial Capital",
     text="This land enters tapped.\n{T}: Add {B} or {R}.",
     subtypes={"Town"},
+    setup_interceptors=vector_imperial_capital_ff_setup,
 )
 
 WINDURST_FEDERATION_CENTER = make_land(
     name="Windurst, Federation Center",
     text="This land enters tapped.\n{T}: Add {G} or {W}.",
     subtypes={"Town"},
+    setup_interceptors=windurst_federation_center_ff_setup,
 )
 
 ZANARKAND_ANCIENT_METROPOLIS = make_sorcery(
@@ -4967,6 +6541,7 @@ WASTES = make_land(
     name="Wastes",
     text="{T}: Add {C}.",
     supertypes={"Basic"},
+    setup_interceptors=wastes_ff_setup,
 )
 
 CLOUD_PLANETS_CHAMPION = make_creature(
@@ -4977,6 +6552,7 @@ CLOUD_PLANETS_CHAMPION = make_creature(
     subtypes={"Human", "Mercenary", "Soldier"},
     supertypes={"Legendary"},
     text="During your turn, as long as Cloud is equipped, it has double strike and indestructible. (This creature deals both first-strike and regular combat damage. Damage and effects that say \"destroy\" don't destroy this creature.)\nEquip abilities you activate that target Cloud cost {2} less to activate.",
+    setup_interceptors=cloud_planets_champion_ff_setup,
 )
 
 SEPHIROTH_PLANETS_HEIR = make_creature(
@@ -4998,6 +6574,7 @@ BEATRIX_LOYAL_GENERAL = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="Vigilance (Attacking doesn't cause this creature to tap.)\nAt the beginning of combat on your turn, you may attach any number of Equipment you control to target creature you control.",
+    setup_interceptors=beatrix_loyal_general_ff_setup,
 )
 
 ROSA_RESOLUTE_WHITE_MAGE = make_creature(
@@ -5055,6 +6632,7 @@ LIGHTNING_SECURITY_SERGEANT = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nWhenever Lightning deals combat damage to a player, exile the top card of your library. You may play that card for as long as you control Lightning.",
+    setup_interceptors=lightning_security_sergeant_ff_setup,
 )
 
 XANDE_DARK_MAGE = make_creature(
@@ -5065,6 +6643,7 @@ XANDE_DARK_MAGE = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nXande gets +1/+1 for each noncreature, nonland card in your graveyard.",
+    setup_interceptors=xande_dark_mage_ff_setup,
 )
 
 MAGITEK_SCYTHE = make_artifact(

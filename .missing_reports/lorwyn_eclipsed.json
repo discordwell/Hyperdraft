@@ -1,0 +1,493 @@
+{
+  "set": "lorwyn_eclipsed.py",
+  "results": [
+    {
+      "fn": "champion_of_the_path_setup",
+      "card_var": "CHAMPION_OF_THE_PATH",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Other Elemental ETB: deal damage equal to its power to each opponent."
+    },
+    {
+      "fn": "collective_inferno_setup",
+      "card_var": "COLLECTIVE_INFERNO",
+      "disposition": "wired_stub",
+      "engine_gap": "as-enters type choice + damage replacement effect",
+      "notes": "Choose-a-type then double damage (engine gap)."
+    },
+    {
+      "fn": "flamechain_mauler_setup",
+      "card_var": "FLAMECHAIN_MAULER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated +1/+0 menace EOT",
+      "notes": "Activated +1/+0 and menace EOT (engine gap)."
+    },
+    {
+      "fn": "flamebraider_setup",
+      "card_var": "FLAMEBRAIDER",
+      "disposition": "wired_stub",
+      "engine_gap": "restricted mana).\"\"\"",
+      "notes": "Tap-add-2-mana, Elemental-only (engine gap: restricted mana)."
+    },
+    {
+      "fn": "goliath_daydreamer_setup",
+      "card_var": "GOLIATH_DAYDREAMER",
+      "disposition": "wired_stub",
+      "engine_gap": "dream-counter exile zone & free-cast linkage",
+      "notes": "Cast + attack triggers around dream-counter exile (engine gap)."
+    },
+    {
+      "fn": "gristle_glutton_setup",
+      "card_var": "GRISTLE_GLUTTON",
+      "disposition": "wired_stub",
+      "engine_gap": "tap+blight cost + conditional discard/draw",
+      "notes": "Activated ability with discard/draw cycle (engine gap)."
+    },
+    {
+      "fn": "hexing_squelcher_setup",
+      "card_var": "HEXING_SQUELCHER",
+      "disposition": "wired_full",
+      "engine_gap": "counter-prevention static; ward grant requires keyword.",
+      "notes": "Static: spells you control can't be countered; ward grant."
+    },
+    {
+      "fn": "lasting_tarfire_setup",
+      "card_var": "LASTING_TARFIRE",
+      "disposition": "wired_full",
+      "engine_gap": "'put a counter this turn' tracking \u2014 wire end step trigger only.",
+      "notes": "End step trigger: if counter put on creature, deal 2 damage to each opponent."
+    },
+    {
+      "fn": "lavaleaper_setup",
+      "card_var": "LAVALEAPER",
+      "disposition": "wired_full",
+      "engine_gap": "extra mana on basic-tap not wired",
+      "notes": "All creatures have haste."
+    },
+    {
+      "fn": "meek_attack_setup",
+      "card_var": "MEEK_ATTACK",
+      "disposition": "wired_stub",
+      "engine_gap": "activated cheat-into-play + delayed sacrifice",
+      "notes": "Activated cheat creature into play and sacrifice EOT (engine gap)."
+    },
+    {
+      "fn": "scuzzback_scrounger_setup",
+      "card_var": "SCUZZBACK_SCROUNGER",
+      "disposition": "wired_full",
+      "engine_gap": "blight 1 cost is optional and skipped \u2014 generate Treasure",
+      "notes": "First main: optional blight 1 to create Treasure (default to creating)."
+    },
+    {
+      "fn": "soulbright_seeker_setup",
+      "card_var": "SOULBRIGHT_SEEKER",
+      "disposition": "wired_stub",
+      "engine_gap": "behold cost + activated trample EOT + counter mana",
+      "notes": "Behold-on-cast and {R} activated ability (engine gap)."
+    },
+    {
+      "fn": "spinerock_tyrant_setup",
+      "card_var": "SPINEROCK_TYRANT",
+      "disposition": "wired_full",
+      "engine_gap": "spell copy with new target choice + wither grant",
+      "notes": "Spell cast trigger: copy single-target spell (engine gap)."
+    },
+    {
+      "fn": "squawkroaster_setup",
+      "card_var": "SQUAWKROASTER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Vivid: power equal to colors among permanents."
+    },
+    {
+      "fn": "stingslinger_setup",
+      "card_var": "STINGSLINGER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated tap+blight ability",
+      "notes": "Activated 2 damage to each opponent (engine gap)."
+    },
+    {
+      "fn": "warren_torchmaster_setup",
+      "card_var": "WARREN_TORCHMASTER",
+      "disposition": "wired_full",
+      "engine_gap": "targeted haste-EOT + optional blight cost",
+      "notes": "Combat-begin: optional blight 1 to grant haste (engine gap)."
+    },
+    {
+      "fn": "bloom_tender_setup",
+      "card_var": "BLOOM_TENDER",
+      "disposition": "wired_stub",
+      "engine_gap": "tap producing variable colored mana per permanent colors",
+      "notes": "Vivid tap-for-mana: produce one of each color (engine gap)."
+    },
+    {
+      "fn": "bristlebane_outrider_setup",
+      "card_var": "BRISTLEBANE_OUTRIDER",
+      "disposition": "wired_stub",
+      "engine_gap": "'creature entered this turn' tracking and unblockable",
+      "notes": "+2/+0 if another creature entered this turn; can't be blocked by power<=2."
+    },
+    {
+      "fn": "champions_of_the_perfect_setup",
+      "card_var": "CHAMPIONS_OF_THE_PERFECT",
+      "disposition": "wired_full",
+      "engine_gap": "behold cost + LtB return not wired",
+      "notes": "Cast-creature trigger: draw a card."
+    },
+    {
+      "fn": "giltleafs_embrace_setup",
+      "card_var": "GILTLEAFS_EMBRACE",
+      "disposition": "wired_full",
+      "engine_gap": "ETB until-EOT keyword grant",
+      "notes": "Aura: enchanted creature gets +2/+0; ETB grants trample/indestructible EOT (engine gap)."
+    },
+    {
+      "fn": "great_forest_druid_setup",
+      "card_var": "GREAT_FOREST_DRUID",
+      "disposition": "wired_stub",
+      "engine_gap": "mana abilities).\"\"\"",
+      "notes": "{T}: add one mana of any color (engine gap: mana abilities)."
+    },
+    {
+      "fn": "lys_alana_dignitary_setup",
+      "card_var": "LYS_ALANA_DIGNITARY",
+      "disposition": "wired_stub",
+      "engine_gap": "behold + conditional mana ability",
+      "notes": "Behold cost + activated GG mana (engine gap)."
+    },
+    {
+      "fn": "moonvigil_adherents_setup",
+      "card_var": "MOONVIGIL_ADHERENTS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Static +X/+X where X = creatures you control + creature cards in graveyard."
+    },
+    {
+      "fn": "morcants_eyes_setup",
+      "card_var": "MORCANTS_EYES",
+      "disposition": "wired_full",
+      "engine_gap": "surveil 1 needs library manipulation",
+      "notes": "Upkeep surveil 1 + activated sac for tokens (engine gap)."
+    },
+    {
+      "fn": "pitiless_fists_setup",
+      "card_var": "PITILESS_FISTS",
+      "disposition": "wired_full",
+      "engine_gap": "ETB fight target",
+      "notes": "Aura: +2/+2; ETB fight (engine gap)."
+    },
+    {
+      "fn": "prismatic_undercurrents_setup",
+      "card_var": "PRISMATIC_UNDERCURRENTS",
+      "disposition": "wired_full",
+      "engine_gap": "search-library-for-basics not wired; we install the",
+      "notes": "Vivid ETB: search basics; additional land play."
+    },
+    {
+      "fn": "safewright_cavalry_setup",
+      "card_var": "SAFEWRIGHT_CAVALRY",
+      "disposition": "wired_stub",
+      "engine_gap": "can't-be-blocked-by-more-than-one + activated",
+      "notes": "Can't be blocked by more than one + activated +2/+2 EOT (engine gap)."
+    },
+    {
+      "fn": "sapling_nursery_setup",
+      "card_var": "SAPLING_NURSERY",
+      "disposition": "wired_full",
+      "engine_gap": "activated mass-indestructible-EOT not wired",
+      "notes": "Landfall: create a 3/4 Treefolk token; activated indestructible (engine gap)."
+    },
+    {
+      "fn": "selfless_safewright_setup",
+      "card_var": "SELFLESS_SAFEWRIGHT",
+      "disposition": "wired_full",
+      "engine_gap": "as-resolves type choice",
+      "notes": "ETB: choose type, grant hexproof+indestructible to that type (engine gap)."
+    },
+    {
+      "fn": "shimmerwilds_growth_setup",
+      "card_var": "SHIMMERWILDS_GROWTH",
+      "disposition": "wired_stub",
+      "engine_gap": "enchanted-land color/mana modification",
+      "notes": "Aura on a land: grants color and extra mana (engine gap)."
+    },
+    {
+      "fn": "surly_farrier_setup",
+      "card_var": "SURLY_FARRIER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated tap +1/+1 vigilance EOT",
+      "notes": "Activated tap pump (engine gap)."
+    },
+    {
+      "fn": "wildvine_pummeler_setup",
+      "card_var": "WILDVINE_PUMMELER",
+      "disposition": "wired_stub",
+      "engine_gap": "dynamic cost), reach + trample static.",
+      "notes": "Vivid cost reduction (engine gap: dynamic cost), reach + trample static."
+    },
+    {
+      "fn": "bre_of_clan_stoutarm_setup",
+      "card_var": "BRE_OF_CLAN_STOUTARM",
+      "disposition": "wired_stub",
+      "engine_gap": "tap-cost activated + life-gain conditional cascade",
+      "notes": "Activated flying+lifelink + life-gain end step (engine gap)."
+    },
+    {
+      "fn": "catharsis_setup",
+      "card_var": "CATHARSIS",
+      "disposition": "wired_full",
+      "engine_gap": "'WW spent' or 'RR spent' detection",
+      "notes": "ETB conditional on color paid; mana_paid not tracked (engine gap)."
+    },
+    {
+      "fn": "chitinous_graspling_setup",
+      "card_var": "CHITINOUS_GRASPLING",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Static: reach (granted via baseline keyword); changeling already a keyword."
+    },
+    {
+      "fn": "deceit_setup",
+      "card_var": "DECEIT",
+      "disposition": "wired_full",
+      "engine_gap": "'UU/BB spent' detection",
+      "notes": "Evoke: ETB conditional on color paid (engine gap)."
+    },
+    {
+      "fn": "doran_besieged_by_time_setup",
+      "card_var": "DORAN_BESIEGED_BY_TIME",
+      "disposition": "wired_stub",
+      "engine_gap": "dynamic spell-cost reduction + attack/block delta boost",
+      "notes": "Toughness > power: cost reduction; attack/block bonus (engine gap)."
+    },
+    {
+      "fn": "emptiness_setup",
+      "card_var": "EMPTINESS",
+      "disposition": "wired_full",
+      "engine_gap": "'WW/BB spent' detection + reanimation/-1/-1 counters",
+      "notes": "Evoke: ETB conditional on color paid (engine gap)."
+    },
+    {
+      "fn": "feisty_spikeling_setup",
+      "card_var": "FEISTY_SPIKELING",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Static: first strike during your turn."
+    },
+    {
+      "fn": "figure_of_fable_setup",
+      "card_var": "FIGURE_OF_FABLE",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities that change subtype/P-T",
+      "notes": "Activated transformation chain (engine gap)."
+    },
+    {
+      "fn": "gangly_stompling_setup",
+      "card_var": "GANGLY_STOMPLING",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Trample + changeling \u2014 both already on card text (no extra interceptors)."
+    },
+    {
+      "fn": "glister_bairn_setup",
+      "card_var": "GLISTER_BAIRN",
+      "disposition": "wired_full",
+      "engine_gap": "targeted +X/+X EOT",
+      "notes": "Vivid combat begin: another creature gets +X/+X EOT (engine gap)."
+    },
+    {
+      "fn": "kirol_attentive_firstyear_setup",
+      "card_var": "KIROL_ATTENTIVE_FIRSTYEAR",
+      "disposition": "wired_stub",
+      "engine_gap": "activated triggered-ability copy",
+      "notes": "Tap-two-creatures activated copy ability (engine gap)."
+    },
+    {
+      "fn": "lluwen_imperfect_naturalist_setup",
+      "card_var": "LLUWEN_IMPERFECT_NATURALIST",
+      "disposition": "wired_full",
+      "engine_gap": "choose-among-milled-cards interaction; activated token gen",
+      "notes": "ETB mill 4; activated worm-token cost (engine gap)."
+    },
+    {
+      "fn": "maralen_fae_ascendant_setup",
+      "card_var": "MARALEN_FAE_ASCENDANT",
+      "disposition": "wired_full",
+      "engine_gap": "targeted opponent-library exile",
+      "notes": "Elf/Faerie ETB: exile top 2 of opponent's library (engine gap)."
+    },
+    {
+      "fn": "mischievous_sneakling_setup",
+      "card_var": "MISCHIEVOUS_SNEAKLING",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Flash + changeling \u2014 already on card text."
+    },
+    {
+      "fn": "prideful_feastling_setup",
+      "card_var": "PRIDEFUL_FEASTLING",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Lifelink + changeling \u2014 already on card text."
+    },
+    {
+      "fn": "raiding_schemes_setup",
+      "card_var": "RAIDING_SCHEMES",
+      "disposition": "wired_stub",
+      "engine_gap": "conspire mechanic",
+      "notes": "Conspire on each noncreature spell (engine gap)."
+    },
+    {
+      "fn": "sanar_innovative_firstyear_setup",
+      "card_var": "SANAR_INNOVATIVE_FIRSTYEAR",
+      "disposition": "wired_full",
+      "engine_gap": "reveal-until-X-nonland + per-color exile + free cast",
+      "notes": "Vivid first main: reveal cards equal to colors (engine gap)."
+    },
+    {
+      "fn": "shadow_urchin_setup",
+      "card_var": "SHADOW_URCHIN",
+      "disposition": "wired_full",
+      "engine_gap": "targeted blight 1 from controller's creatures",
+      "notes": "Attack: blight 1; counter-creature death exiles cards (engine gap)."
+    },
+    {
+      "fn": "stoic_groveguide_setup",
+      "card_var": "STOIC_GROVEGUIDE",
+      "disposition": "wired_stub",
+      "engine_gap": "graveyard-activated token creation",
+      "notes": "Activated graveyard ability: create Elf token (engine gap)."
+    },
+    {
+      "fn": "tam_mindful_firstyear_setup",
+      "card_var": "TAM_MINDFUL_FIRSTYEAR",
+      "disposition": "wired_stub",
+      "engine_gap": "hexproof-from-each-color + activated color change",
+      "notes": "Static hexproof from each color; activated all-colors (engine gap)."
+    },
+    {
+      "fn": "vibrance_setup",
+      "card_var": "VIBRANCE",
+      "disposition": "wired_full",
+      "engine_gap": "'RR/GG spent' detection",
+      "notes": "Evoke: ETB conditional on color paid (engine gap)."
+    },
+    {
+      "fn": "wistfulness_setup",
+      "card_var": "WISTFULNESS",
+      "disposition": "wired_full",
+      "engine_gap": "'GG/UU spent' detection",
+      "notes": "Evoke: ETB conditional on color paid (engine gap)."
+    },
+    {
+      "fn": "chronicle_of_victory_setup",
+      "card_var": "CHRONICLE_OF_VICTORY",
+      "disposition": "wired_stub",
+      "engine_gap": "as-enters chosen-type tracking; nothing wired.",
+      "notes": "As-enters type choice; static +2/+2 + first strike + trample to type."
+    },
+    {
+      "fn": "dawnblessed_pennant_setup",
+      "card_var": "DAWNBLESSED_PENNANT",
+      "disposition": "wired_stub",
+      "engine_gap": "chosen-type tracking",
+      "notes": "As-enters type choice; type ETB life gain (engine gap)."
+    },
+    {
+      "fn": "firdoch_core_setup",
+      "card_var": "FIRDOCH_CORE",
+      "disposition": "wired_stub",
+      "engine_gap": "activated 'become creature' + any-color mana",
+      "notes": "Mana ability + activated 4/4 (engine gap)."
+    },
+    {
+      "fn": "gathering_stone_setup",
+      "card_var": "GATHERING_STONE",
+      "disposition": "wired_stub",
+      "engine_gap": "chosen-type tracking + spell cost reduction",
+      "notes": "As-enters type choice + cost reduction + library look (engine gap)."
+    },
+    {
+      "fn": "mirrormind_crown_setup",
+      "card_var": "MIRRORMIND_CROWN",
+      "disposition": "wired_stub",
+      "engine_gap": "token-creation replacement effect",
+      "notes": "Token replacement (engine gap)."
+    },
+    {
+      "fn": "pucas_eye_setup",
+      "card_var": "PUCAS_EYE",
+      "disposition": "wired_full",
+      "engine_gap": "chosen-color persistence + 5-color activated draw",
+      "notes": "ETB: draw a card and choose color."
+    },
+    {
+      "fn": "springleaf_drum_setup",
+      "card_var": "SPRINGLEAF_DRUM",
+      "disposition": "wired_stub",
+      "engine_gap": "activated mana with creature-tap cost",
+      "notes": "Tap-a-creature mana ability (engine gap)."
+    },
+    {
+      "fn": "stalactite_dagger_setup",
+      "card_var": "STALACTITE_DAGGER",
+      "disposition": "wired_full",
+      "engine_gap": "'is all creature types' grant",
+      "notes": "Equipment ETB token creation; +1/+1 to equipped."
+    },
+    {
+      "fn": "blood_crypt_setup",
+      "card_var": "BLOOD_CRYPT",
+      "disposition": "wired_stub",
+      "engine_gap": "as-enters shockland choice",
+      "notes": "Shockland: pay 2 life or enter tapped (engine gap)."
+    },
+    {
+      "fn": "eclipsed_realms_setup",
+      "card_var": "ECLIPSED_REALMS",
+      "disposition": "wired_stub",
+      "engine_gap": "chosen-type land mana restriction",
+      "notes": "As-enters type choice + restricted mana (engine gap)."
+    },
+    {
+      "fn": "evolving_wilds_setup",
+      "card_var": "EVOLVING_WILDS",
+      "disposition": "wired_stub",
+      "engine_gap": "tap+sac fetch ability",
+      "notes": "Tap+sac to fetch a basic (engine gap)."
+    },
+    {
+      "fn": "hallowed_fountain_setup",
+      "card_var": "HALLOWED_FOUNTAIN",
+      "disposition": "wired_stub",
+      "engine_gap": "as-enters shockland choice",
+      "notes": "Shockland (engine gap)."
+    },
+    {
+      "fn": "overgrown_tomb_setup",
+      "card_var": "OVERGROWN_TOMB",
+      "disposition": "wired_stub",
+      "engine_gap": "as-enters shockland choice",
+      "notes": "Shockland (engine gap)."
+    },
+    {
+      "fn": "steam_vents_setup",
+      "card_var": "STEAM_VENTS",
+      "disposition": "wired_stub",
+      "engine_gap": "as-enters shockland choice",
+      "notes": "Shockland (engine gap)."
+    },
+    {
+      "fn": "temple_garden_setup",
+      "card_var": "TEMPLE_GARDEN",
+      "disposition": "wired_stub",
+      "engine_gap": "as-enters shockland choice",
+      "notes": "Shockland (engine gap)."
+    }
+  ],
+  "summary": {
+    "wired_full": 29,
+    "wired_stub": 40,
+    "skipped": 0
+  }
+}

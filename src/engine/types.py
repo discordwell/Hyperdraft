@@ -878,6 +878,11 @@ class GameState:
     # Event history
     event_log: list[Event] = field(default_factory=list)
 
+    # Per-turn scratchpad for interceptors that need to remember "did X happen this turn"
+    # (e.g. "did this player gain life this turn", "did this player attack this turn")
+    # Cleared by turn manager at turn boundaries.
+    turn_data: dict[str, object] = field(default_factory=dict)
+
     # Player choice system - when set, game is paused waiting for input
     pending_choice: Optional['PendingChoice'] = None
 
