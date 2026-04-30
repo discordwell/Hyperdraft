@@ -1,0 +1,16 @@
+{
+  "set": "lost_caverns_ixalan.py",
+  "results": [
+    {
+      "fn": "hoverstone_pilgrim_setup",
+      "card_var": "HOVERSTONE_PILGRIM",
+      "disposition": "left",
+      "engine_gap": "Ward {2} static replacement (counter target unless pay {2}); activated ability ({2}: bottom of library from any graveyard) not modular through setup_interceptors",
+      "notes": "Updated docstring to spell out the gaps. Flying is on the printed card characteristics."
+    }
+  ],
+  "summary": {
+    "wired": 0,
+    "left": 1
+  }
+}
