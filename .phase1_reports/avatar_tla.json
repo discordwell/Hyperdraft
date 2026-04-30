@@ -1,0 +1,135 @@
+{
+  "set": "avatar_tla.py",
+  "results": [
+    {
+      "fn": "badgermole_cub_setup",
+      "card_var": "BADGERMOLE_CUB",
+      "disposition": "left",
+      "engine_gap": "no 'tap creature for mana' event — TAP carries no for_mana flag and MANA_ADDED has no source-tap binding",
+      "notes": "Trigger requires distinguishing tap-for-mana from any other tap; not detectable today."
+    },
+    {
+      "fn": "earth_kingdom_protectors_setup",
+      "card_var": "EARTH_KINGDOM_PROTECTORS",
+      "disposition": "left",
+      "engine_gap": "activated sacrifice ability framework",
+      "notes": "Pure activated ability: 'Sacrifice this: another target Ally gains indestructible UEOT'."
+    },
+    {
+      "fn": "team_avatar_setup",
+      "card_var": "TEAM_AVATAR",
+      "disposition": "wired",
+      "engine_gap": "activated discard ability ({2}{W}, Discard ~: damage = creatures you control)",
+      "notes": "Wired the attacks-alone trigger via a custom COMBAT_DECLARED interceptor (broader than make_attacks_alone_trigger which is self-only). Pumps the lone attacker by +X/+X UEOT where X is creatures you control. Verified end-to-end: solo attacker grows by count, multi-attacker triggers nothing."
+    },
+    {
+      "fn": "north_pole_patrol_setup",
+      "card_var": "NORTH_POLE_PATROL",
+      "disposition": "left",
+      "engine_gap": "activated abilities + waterbend activated cost",
+      "notes": "Both abilities are activated ({T}: untap, Waterbend {3} {T}: tap target opp creature)."
+    },
+    {
+      "fn": "the_unagi_of_kyoshi_island_setup",
+      "card_var": "THE_UNAGI_OF_KYOSHI_ISLAND",
+      "disposition": "left",
+      "engine_gap": "Ward-Waterbend (waterbend cost on protection check) + per-turn second-draw tracker",
+      "notes": "Both faces of the card depend on engine features absent today."
+    },
+    {
+      "fn": "wolfbat_setup",
+      "card_var": "WOLFBAT",
+      "disposition": "left",
+      "engine_gap": "graveyard-zone trigger + per-turn second-draw tracker + finality-counter ETB rider",
+      "notes": "Trigger lives in the graveyard and pays optional cost to return with finality counter."
+    },
+    {
+      "fn": "deserters_disciple_setup",
+      "card_var": "DESERTERS_DISCIPLE",
+      "disposition": "left",
+      "engine_gap": "activated ability framework",
+      "notes": "Single tap-activated ability."
+    },
+    {
+      "fn": "fated_firepower_setup",
+      "card_var": "FATED_FIREPOWER",
+      "disposition": "wired",
+      "engine_gap": "ETB 'with X fire counters' (X-cost tracking)",
+      "notes": "Wired the damage-amplification replacement: TRANSFORM-priority interceptor reads live fire counters from obj.state.counters and adds that to DAMAGE events from sources we control to opponents/their permanents. Verified end-to-end: 2 base damage + 3 fire counters -> 5 damage; 0 counters -> no change; correctly skips damage to own creatures."
+    },
+    {
+      "fn": "mai_jaded_edge_setup",
+      "card_var": "MAI_JADED_EDGE",
+      "disposition": "wired",
+      "engine_gap": "exhaust activated ability for double-strike counter",
+      "notes": "Wired prowess explicitly via make_spell_cast_trigger (engine has no automatic prowess handler — same pattern as kitsa_otterball_elite in bloomburrow). Emits PT_MODIFICATION +1/+1 UEOT on noncreature CAST/SPELL_CAST. Verified end-to-end: 1/3 -> 2/4 after a noncreature spell."
+    },
+    {
+      "fn": "foggy_swamp_vinebender_setup",
+      "card_var": "FOGGY_SWAMP_VINEBENDER",
+      "disposition": "left",
+      "engine_gap": "block restriction by attacker context (make_cant_block filter sees only blocker_id) + waterbend activated ability",
+      "notes": "'Can't be blocked by power 2 or less' would require a custom interceptor with attacker-context awareness (not the existing make_cant_block helper). The {5}+counter ability is pure activated."
+    },
+    {
+      "fn": "raucous_audience_setup",
+      "card_var": "RAUCOUS_AUDIENCE",
+      "disposition": "left",
+      "engine_gap": "conditional mana ability framework",
+      "notes": "{T}: Add {G}; with power-4+ creature, add {G}{G} instead — pure activated mana ability."
+    },
+    {
+      "fn": "rebellious_captives_setup",
+      "card_var": "REBELLIOUS_CAPTIVES",
+      "disposition": "left",
+      "engine_gap": "exhaust activated ability + earthbend cost",
+      "notes": "Pure activated: Exhaust {6}: counters + earthbend 2."
+    },
+    {
+      "fn": "professor_zei_anthropologist_setup",
+      "card_var": "PROFESSOR_ZEI_ANTHROPOLOGIST",
+      "disposition": "left",
+      "engine_gap": "activated abilities ({T}/discard for draw and {1}{T}+sac for graveyard return)",
+      "notes": "Both abilities are activated — no static or trigger angle."
+    },
+    {
+      "fn": "zuko_conflicted_setup",
+      "card_var": "ZUKO_CONFLICTED",
+      "disposition": "left",
+      "engine_gap": "tracked-modal 'choose one that hasn't been chosen' across turns",
+      "notes": "Beg of first-main modal whose available modes shrink as they're picked. No mode-history tracker today."
+    },
+    {
+      "fn": "barrels_of_blasting_jelly_setup",
+      "card_var": "BARRELS_OF_BLASTING_JELLY",
+      "disposition": "left",
+      "engine_gap": "activated abilities (mana-any-color once-per-turn; {5}{T}+sac damage)",
+      "notes": "Both faces are activated abilities."
+    },
+    {
+      "fn": "trusty_boomerang_setup",
+      "card_var": "TRUSTY_BOOMERANG",
+      "disposition": "left",
+      "engine_gap": "Equipment attachment-bound granted activated ability + Equip cost",
+      "notes": "Pure equipment that grants an activated ability to the equipped creature."
+    },
+    {
+      "fn": "fire_nation_palace_setup",
+      "card_var": "FIRE_NATION_PALACE",
+      "disposition": "left",
+      "engine_gap": "conditional ETB-tapped + mana ability + activated keyword grant",
+      "notes": "Land's only non-mana ability is the activated firebending grant."
+    },
+    {
+      "fn": "secret_tunnel_setup",
+      "card_var": "SECRET_TUNNEL",
+      "disposition": "left",
+      "engine_gap": "land-as-attacker handling + activated unblockable for two creatures sharing a type",
+      "notes": "'This land can't be blocked' is a no-op since lands don't attack. The other ability is purely activated."
+    }
+  ],
+  "summary": {
+    "wired": 3,
+    "left": 15
+  }
+}
