@@ -388,7 +388,7 @@ _ART_FILE_MAP = {
 
 
 def _smoke():
-    from src.cards.pokemon.beyond.ravnica import BEYOND_RAVNICA_IZZET
+    from src.cards.pokemon.beyond.ravnica.izzet import BEYOND_RAVNICA_IZZET
 
     art_dir = PROJECT_ROOT / "assets" / "card_art" / "beyond" / "ravnica"
     out_dir = art_dir / "composed"

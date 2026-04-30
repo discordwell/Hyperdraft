@@ -26,7 +26,7 @@ from src.engine.game import Game
 from src.engine.types import (
     CardType, ZoneType, PokemonType, EventType, Event,
 )
-from src.cards.pokemon.beyond.ravnica import (
+from src.cards.pokemon.beyond.ravnica.izzet import (
     NIVLET, MIZZLING, NIV_MIZZET_PARUN_EX,
     GOBLIN_ELECTROMANCER, MERCURIAL_MAGELING,
     NIV_MIZZETS_TOWER, RAL_STORM_CONDUIT, IZZET_SIGNET,
