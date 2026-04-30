@@ -65,6 +65,7 @@ from .misc import (
     _handle_transform,
 )
 from ...saga import SAGA_EVENT_HANDLERS
+from ...face_down import _handle_turn_face_up
 
 
 EVENT_HANDLERS = {
@@ -123,6 +124,7 @@ EVENT_HANDLERS = {
     EventType.BOUNCE: _handle_return_to_hand,
     EventType.ARMOR_GAIN: _handle_armor_gain,
     EventType.WEAPON_EQUIP: _handle_weapon_equip,
+    EventType.TURN_FACE_UP: _handle_turn_face_up,
 }
 
 # Merge in saga handlers (defined in src/engine/saga.py).

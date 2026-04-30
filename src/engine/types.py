@@ -317,6 +317,16 @@ class EventType(Enum):
     # turn_state tracker emits/observes these. Payload typically includes
     # 'result': bool (True=heads), 'player': str (optional caller).
     COIN_FLIP = auto()
+    # ------------------------------------------------------------------
+    # Face-down mechanic (Manifest, Manifest Dread, Cloak, Disguise, Morph).
+    # Implementation lives in src/engine/face_down.py and the helpers in
+    # src/cards/interceptor_helpers.py (FACE-DOWN HELPERS section).
+    # NOTE: TURN_FACE_UP is declared earlier in this enum (line ~185) and is
+    # the canonical event used to flip a face-down permanent face up.
+    # ------------------------------------------------------------------
+    FACE_DOWN_ENTER = auto()          # Marker: a permanent has entered the battlefield face-down
+    FACE_DOWN_TURNED_UP = auto()      # Marker: a permanent was turned face-up (post-flip)
+    FACE_DOWN_QUERY_MASK = auto()     # Internal marker (reserved for future overrides)
 
 
 class EventStatus(Enum):
