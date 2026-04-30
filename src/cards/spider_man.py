@@ -1718,7 +1718,51 @@ def web_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- Web-Shooters ---
 # Equipment - static enchant ability; +1/+1, reach, attack trigger to tap.
 def webshooters_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: equipment passive grants/triggers not auto-wired here
+    """Equipped creature gets +1/+1, reach, and on attack taps an opponent's creature.
+
+    Wired statics: +1/+1 boost and reach grant on the attached creature.
+    Wired trigger: when the equipped creature attacks, request a target tap on
+    a creature an opponent controls.
+    """
+    def is_equipped_target(target: GameObject, state: GameState) -> bool:
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        return target.state.attached_to == obj.id
+
+    interceptors: list[Interceptor] = []
+    interceptors.extend(make_static_pt_boost(obj, 1, 1, is_equipped_target))
+    interceptors.append(make_keyword_grant(obj, ['reach'], is_equipped_target))
+
+    def attacker_is_equipped(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return False
+        return attacker.state.attached_to == source_obj.id
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effect': 'tap',
+                'effect_params': {},
+                'target_filter': 'opponent_creature',
+                'min_targets': 1,
+                'max_targets': 1,
+                'optional': False,
+                'prompt': "Choose a creature an opponent controls to tap",
+            },
+            source=obj.id,
+        )]
+
+    interceptors.append(make_attack_trigger(obj, attack_effect, filter_fn=attacker_is_equipped))
+    return interceptors
 
 
 # --- Wild Pack Squad ---
@@ -2802,7 +2846,19 @@ def spiderslayer_hatred_honed_setup(obj: GameObject, state: GameState) -> list[I
 # --- Spider-Suit ---
 # Equipment static; no triggers.
 def spidersuit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: equipment passive grants handled by attach layer
+    """Equipped creature gets +2/+2 and is a Spider Hero in addition to its other types.
+
+    Wired: +2/+2 boost on the attached creature.
+    engine gap: 'is a Spider Hero in addition to its other types' subtype grant
+    is not yet exposed via QUERY_ABILITIES/keyword_grant.
+    """
+    def is_equipped_target(target: GameObject, state: GameState) -> bool:
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        return target.state.attached_to == obj.id
+    return make_static_pt_boost(obj, 2, 2, is_equipped_target)
 
 
 # --- Steel Wrecking Ball ---

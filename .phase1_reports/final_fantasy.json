@@ -1,0 +1,114 @@
+{
+  "set": "final_fantasy.py",
+  "results": [
+    {
+      "fn": "coeurl_ff_setup",
+      "card_var": "COEURL",
+      "disposition": "left",
+      "engine_gap": "activated tap-ability ({1}{W},{T}: tap nonenchantment creature) not registered through setup_interceptors",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "phoenix_down_ff_setup",
+      "card_var": "PHOENIX_DOWN",
+      "disposition": "left",
+      "engine_gap": "activated modal ability ({1}{W},{T},Exile self: choose mode) not modular through setup_interceptors",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "stiltzkin_moogle_merchant_ff_setup",
+      "card_var": "STILTZKIN_MOOGLE_MERCHANT",
+      "disposition": "left",
+      "engine_gap": "activated control transfer ({2},{T}: opponent gains control of permanent + you draw) + lifelink static",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "the_wind_crystal_ff_setup",
+      "card_var": "THE_WIND_CRYSTAL",
+      "disposition": "wired",
+      "engine_gap": "white-spell cost reduction by {1}; activated grant-flying-and-lifelink ability",
+      "notes": "Wired make_life_gain_replacer(obj, multiplier=2) for the 'gain twice that much life' replacement."
+    },
+    {
+      "fn": "gogo_master_of_mimicry_ff_setup",
+      "card_var": "GOGO_MASTER_OF_MIMICRY",
+      "disposition": "left",
+      "engine_gap": "X-cost activated ability that copies activated/triggered abilities X times with new targets",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "the_water_crystal_ff_setup",
+      "card_var": "THE_WATER_CRYSTAL",
+      "disposition": "wired",
+      "engine_gap": "blue-spell cost reduction by {1}; activated 'each opponent mills cards equal to cards in hand' ability",
+      "notes": "Wired make_replacement_interceptor on EventType.MILL: opponent mill amount + 4."
+    },
+    {
+      "fn": "the_darkness_crystal_ff_setup",
+      "card_var": "THE_DARKNESS_CRYSTAL",
+      "disposition": "wired",
+      "engine_gap": "black-spell cost reduction by {1}; '+ you gain 2 life' rider on the dies-to-exile replacement; activated reanimate-from-exiled-by-this ability",
+      "notes": "Wired make_dies_to_exile_replacer with target_filter for opponent-controlled nontoken creatures."
+    },
+    {
+      "fn": "demon_wall_ff_setup",
+      "card_var": "DEMON_WALL",
+      "disposition": "left",
+      "engine_gap": "'as long as it has a counter, can attack as though it didn't have defender' conditional defender override; activated counter-pump",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "phantom_train_ff_setup",
+      "card_var": "PHANTOM_TRAIN",
+      "disposition": "left",
+      "engine_gap": "activated sacrifice cost ('Sacrifice another artifact or creature: ...') + temporary type-add-Spirit grant",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "tonberry_ff_setup",
+      "card_var": "TONBERRY",
+      "disposition": "left",
+      "engine_gap": "enters tapped + with stun counter at ETB; conditional 'during your turn' first strike + deathtouch grant via QUERY_ABILITIES",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "the_earth_crystal_ff_setup",
+      "card_var": "THE_EARTH_CRYSTAL",
+      "disposition": "wired",
+      "engine_gap": "green-spell cost reduction by {1}; activated 'distribute two +1/+1 counters' ability",
+      "notes": "Wired make_counter_doubler with counter_type='+1/+1' and target_filter for creatures you control."
+    },
+    {
+      "fn": "lunatic_pandora_ff_setup",
+      "card_var": "LUNATIC_PANDORA",
+      "disposition": "left",
+      "engine_gap": "activated abilities ({2},{T}: surveil 1) and ({6},{T},Sac: destroy nonland) not modular through setup_interceptors",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "ring_of_the_lucii_ff_setup",
+      "card_var": "RING_OF_THE_LUCII",
+      "disposition": "left",
+      "engine_gap": "activated mana ability ({T}: add {C}{C}) and activated tap-target-nonland ability not modular here",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "eden_seat_of_the_sanctum_ff_setup",
+      "card_var": "EDEN_SEAT_OF_THE_SANCTUM",
+      "disposition": "left",
+      "engine_gap": "activated mill+sac ability with delayed reflexive trigger that returns a graveyard card on sacrifice",
+      "notes": "Existing engine-gap comment retained."
+    },
+    {
+      "fn": "cloud_planets_champion_ff_setup",
+      "card_var": "CLOUD_PLANETS_CHAMPION",
+      "disposition": "left",
+      "engine_gap": "'while equipped' AND 'during your turn' conjunction grant of double strike + indestructible; cost reduction on equip abilities targeting Cloud",
+      "notes": "Existing engine-gap comment retained."
+    }
+  ],
+  "summary": {
+    "wired": 4,
+    "left": 11
+  }
+}
