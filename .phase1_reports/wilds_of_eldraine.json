@@ -1,0 +1,128 @@
+{
+  "set": "wilds_of_eldraine.py",
+  "results": [
+    {
+      "fn": "frostbridge_guard_setup",
+      "card_var": "FROSTBRIDGE_GUARD",
+      "disposition": "left",
+      "engine_gap": "activated ability framework ({2}{W}, {T}: tap target)",
+      "notes": "Pure activated tap-target ability — no trigger/replacement angle."
+    },
+    {
+      "fn": "living_lectern_setup",
+      "card_var": "LIVING_LECTERN",
+      "disposition": "left",
+      "engine_gap": "activated ability ({1}, sac: draw + role token), sorcery-speed restriction",
+      "notes": "Single activated draw + Role-token attach ability — no static angle."
+    },
+    {
+      "fn": "sleep_cursed_faerie_setup",
+      "card_var": "SLEEPCURSED_FAERIE",
+      "disposition": "wired",
+      "engine_gap": "activated {1}{U}: untap; stun-counter as-it-untaps replacer (handled engine-side)",
+      "notes": "ETB self-tap and add three stun counters via make_etb_trigger emitting TAP + COUNTER_ADDED. Activated untap remains engine gap."
+    },
+    {
+      "fn": "virtue_of_knowledge_setup",
+      "card_var": "VIRTUE_OF_KNOWLEDGE",
+      "disposition": "left",
+      "engine_gap": "ETB-trigger doubling replacement (Panharmonicon-style); Adventure mechanic",
+      "notes": "Replacement effect that doubles other triggered abilities caused by ETB — no engine support. Adventure side also gap."
+    },
+    {
+      "fn": "ashiok_wicked_manipulator_setup",
+      "card_var": "ASHIOK_WICKED_MANIPULATOR",
+      "disposition": "left",
+      "engine_gap": "planeswalker loyalty abilities; pay-life-as-mill replacement (no LIFE_PAYMENT event)",
+      "notes": "Static replaces life-payment with library exile — life payment is cost-time, not event-time. Loyalty abilities not yet target-aware."
+    },
+    {
+      "fn": "bespoke_battlegarb_setup",
+      "card_var": "BESPOKE_BATTLEGARB",
+      "disposition": "left",
+      "engine_gap": "Equipment attach + Celebration mechanic; +2/+0 to equipped",
+      "notes": "Celebration explicitly listed as engine gap in briefing; Equipment auto-attach also unmodelled."
+    },
+    {
+      "fn": "embereth_veteran_setup",
+      "card_var": "EMBERETH_VETERAN",
+      "disposition": "left",
+      "engine_gap": "activated ability ({1}, sac: target + Role token attach)",
+      "notes": "Pure activated ability."
+    },
+    {
+      "fn": "food_fight_setup",
+      "card_var": "FOOD_FIGHT",
+      "disposition": "left",
+      "engine_gap": "ability-grant aura over filter set ({2}, sac artifact: damage)",
+      "notes": "Grants activated abilities to all artifacts you control — no engine support for ability-granting."
+    },
+    {
+      "fn": "raging_battle_mouse_setup",
+      "card_var": "RAGING_BATTLE_MOUSE",
+      "disposition": "left",
+      "engine_gap": "Celebration mechanic; second-spell-each-turn cost reduction",
+      "notes": "Celebration is engine gap per briefing; nth-spell cost-reduction also gap."
+    },
+    {
+      "fn": "toadstool_admirer_setup",
+      "card_var": "TOADSTOOL_ADMIRER",
+      "disposition": "left",
+      "engine_gap": "activated ability ({3}{G}: +1/+1 counter on self); ward as keyword text only",
+      "notes": "Pure activated counter ability. Ward {2} is keyword text on the card factory."
+    },
+    {
+      "fn": "virtue_of_strength_setup",
+      "card_var": "VIRTUE_OF_STRENGTH",
+      "disposition": "left",
+      "engine_gap": "mana-production multiplier on basic-land tap; Adventure mechanic",
+      "notes": "Mana is added directly via mana_system.produce_mana before MANA_PRODUCED is emitted, so a TRANSFORM cannot scale the actual pool. Adventure side also gap."
+    },
+    {
+      "fn": "likeness_looter_setup",
+      "card_var": "LIKENESS_LOOTER",
+      "disposition": "left",
+      "engine_gap": "activated copy-from-graveyard ability with X-cost; activated {T} loot",
+      "notes": "Both abilities are activated — no trigger angle."
+    },
+    {
+      "fn": "yenna_redtooth_regent_setup",
+      "card_var": "YENNA_REDTOOTH_REGENT",
+      "disposition": "left",
+      "engine_gap": "activated copy-enchantment ability; name-uniqueness target predicate; Aura untap-and-scry rider",
+      "notes": "Whole card is one activated ability."
+    },
+    {
+      "fn": "agathas_soul_cauldron_setup",
+      "card_var": "AGATHAS_SOUL_CAULDRON",
+      "disposition": "left",
+      "engine_gap": "spend-mana-as-any-color static; activated-ability grant from exiled cards; activated {T}: exile from gy",
+      "notes": "Three layered effects, none expressible without activated-ability framework or ability-grant infrastructure."
+    },
+    {
+      "fn": "hyldas_crown_of_winter_setup",
+      "card_var": "HYLDAS_CROWN_OF_WINTER",
+      "disposition": "left",
+      "engine_gap": "activated tap-target with conditional cost reduction; activated sac-draw",
+      "notes": "Both abilities are activated."
+    },
+    {
+      "fn": "three_bowls_of_porridge_setup",
+      "card_var": "THREE_BOWLS_OF_PORRIDGE",
+      "disposition": "left",
+      "engine_gap": "modal activated ability with once-each-mode tracking",
+      "notes": "Pure activated modal ability."
+    },
+    {
+      "fn": "edgewall_inn_setup",
+      "card_var": "EDGEWALL_INN",
+      "disposition": "left",
+      "engine_gap": "as-enters color choice + chosen-color mana ability; activated sac-to-return-Adventure-card",
+      "notes": "Choose-a-color ETB choice that drives a downstream mana ability — no engine support. Activated sac/return also gap."
+    }
+  ],
+  "summary": {
+    "wired": 1,
+    "left": 16
+  }
+}
