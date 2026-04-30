@@ -2623,7 +2623,6 @@ SPECTACULAR_SPIDERMAN = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Flash\n{1}: Spectacular Spider-Man gains flying until end of turn.\n{1}, Sacrifice Spectacular Spider-Man: Creatures you control gain hexproof and indestructible until end of turn.",
-    setup_interceptors=spectacular_spiderman_setup,
 )
 
 SPECTACULAR_TACTICS = make_instant(
@@ -4075,7 +4074,6 @@ IRON_SPIDER_STARK_UPGRADE = make_artifact_creature(
     subtypes={"Hero", "Spider"},
     supertypes={"Legendary"},
     text="Vigilance\n{T}: Put a +1/+1 counter on each artifact creature and/or Vehicle you control.\n{2}, Remove two +1/+1 counters from among artifacts you control: Draw a card.",
-    setup_interceptors=iron_spider_stark_upgrade_setup,
 )
 
 LIVING_BRAIN_MECHANICAL_MARVEL = make_artifact_creature(
@@ -4199,7 +4197,6 @@ MULTIVERSAL_PASSAGE = make_land(
 OMINOUS_ASYLUM = make_land(
     name="Ominous Asylum",
     text="This land enters tapped.\n{T}: Add {B} or {R}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
-    setup_interceptors=ominous_asylum_setup,
 )
 
 OSCORP_INDUSTRIES = make_land(
@@ -4211,37 +4208,31 @@ OSCORP_INDUSTRIES = make_land(
 SAVAGE_MANSION = make_land(
     name="Savage Mansion",
     text="This land enters tapped.\n{T}: Add {R} or {G}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
-    setup_interceptors=savage_mansion_setup,
 )
 
 SINISTER_HIDEOUT = make_land(
     name="Sinister Hideout",
     text="This land enters tapped.\n{T}: Add {U} or {B}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
-    setup_interceptors=sinister_hideout_setup,
 )
 
 SUBURBAN_SANCTUARY = make_land(
     name="Suburban Sanctuary",
     text="This land enters tapped.\n{T}: Add {G} or {W}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
-    setup_interceptors=suburban_sanctuary_setup,
 )
 
 UNIVERSITY_CAMPUS = make_land(
     name="University Campus",
     text="This land enters tapped.\n{T}: Add {W} or {U}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
-    setup_interceptors=university_campus_setup,
 )
 
 URBAN_RETREAT = make_land(
     name="Urban Retreat",
     text="This land enters tapped.\n{T}: Add {G}, {W}, or {U}.\n{2}, Return a tapped creature you control to its owner's hand: Put this card from your hand onto the battlefield. Activate only as a sorcery.",
-    setup_interceptors=urban_retreat_setup,
 )
 
 VIBRANT_CITYSCAPE = make_land(
     name="Vibrant Cityscape",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
-    setup_interceptors=vibrant_cityscape_setup,
 )
 
 PLAINS = make_land(

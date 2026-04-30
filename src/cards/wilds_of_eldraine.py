@@ -6489,7 +6489,6 @@ ROOTRIDER_FAUN = make_creature(
     colors={Color.GREEN},
     subtypes={"Satyr", "Scout"},
     text="{T}: Add {G}.\n{1}, {T}: Add one mana of any color.",
-    setup_interceptors=rootrider_faun_setup,
 )
 
 ROYAL_TREATMENT = make_instant(
@@ -6772,7 +6771,6 @@ ROWAN_SCION_OF_WAR = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="Menace\n{T}: Spells you cast this turn that are black and/or red cost {X} less to cast, where X is the amount of life you lost this turn. Activate only as a sorcery.",
-    setup_interceptors=rowan_scion_of_war_setup,
 )
 
 RUBY_DARING_TRACKER = make_creature(
@@ -6838,7 +6836,6 @@ TROYAN_GUTSY_EXPLORER = make_creature(
     subtypes={"Scout", "Vedalken"},
     supertypes={"Legendary"},
     text="{T}: Add {G}{U}. Spend this mana only to cast spells with mana value 5 or greater or spells with {X} in their mana costs.\n{U}, {T}: Draw a card, then discard a card.",
-    setup_interceptors=troyan_gutsy_explorer_setup,
 )
 
 WILL_SCION_OF_PEACE = make_creature(
@@ -6849,7 +6846,6 @@ WILL_SCION_OF_PEACE = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="Vigilance\n{T}: Spells you cast this turn that are white and/or blue cost {X} less to cast, where X is the amount of life you gained this turn. Activate only as a sorcery.",
-    setup_interceptors=will_scion_of_peace_setup,
 )
 
 YENNA_REDTOOTH_REGENT = make_creature(
@@ -7083,7 +7079,6 @@ COLLECTORS_VAULT = make_artifact(
     name="Collector's Vault",
     mana_cost="{2}",
     text="{2}, {T}: Draw a card, then discard a card. Create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
-    setup_interceptors=collectors_vault_setup,
 )
 
 ERIETTES_TEMPTING_APPLE = make_artifact(
@@ -7102,7 +7097,6 @@ GINGERBRUTE = make_artifact_creature(
     colors=set(),
     subtypes={"Food", "Golem"},
     text="Haste (This creature can attack and {T} as soon as it comes under your control.)\n{1}: This creature can't be blocked this turn except by creatures with haste.\n{2}, {T}, Sacrifice this creature: You gain 3 life.",
-    setup_interceptors=gingerbrute_setup,
 )
 
 HYLDAS_CROWN_OF_WINTER = make_artifact(
@@ -7135,7 +7129,6 @@ SCARECROW_GUIDE = make_artifact_creature(
     colors=set(),
     subtypes={"Scarecrow"},
     text="Reach\n{1}: Add one mana of any color. Activate only once each turn.",
-    setup_interceptors=scarecrow_guide_setup,
 )
 
 SOULGUIDE_LANTERN = make_artifact(
@@ -7179,7 +7172,6 @@ EDGEWALL_INN = make_land(
 EVOLVING_WILDS = make_land(
     name="Evolving Wilds",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
-    setup_interceptors=evolving_wilds_setup,
 )
 
 RESTLESS_BIVOUAC = make_land(

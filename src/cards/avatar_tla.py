@@ -3638,7 +3638,6 @@ WATER_TRIBE_CAPTAIN = make_creature(
     colors={Color.WHITE},
     subtypes={"Ally", "Human", "Soldier"},
     text="{5}: Creatures you control get +1/+1 until end of turn.",
-    setup_interceptors=water_tribe_captain_setup,
 )
 
 WATER_TRIBE_RALLIER = make_creature(
@@ -4009,7 +4008,6 @@ WATERBENDING_SCROLL = make_artifact(
     name="Waterbending Scroll",
     mana_cost="{1}{U}",
     text="{6}, {T}: Draw a card. This ability costs {1} less to activate for each Island you control.",
-    setup_interceptors=waterbending_scroll_setup,
 )
 
 WATERY_GRASP = make_enchantment(
@@ -4376,7 +4374,6 @@ JOO_DEE_ONE_OF_MANY = make_creature(
     colors={Color.BLACK},
     subtypes={"Advisor", "Human"},
     text="{B}, {T}: Surveil 1. Create a token that's a copy of this creature, then sacrifice an artifact or creature. Activate only as a sorcery. (To surveil 1, look at the top card of your library. You may put it into your graveyard.)",
-    setup_interceptors=joo_dee_one_of_many_setup,
 )
 
 JUNE_BOUNTY_HUNTER = make_creature(
@@ -4387,7 +4384,6 @@ JUNE_BOUNTY_HUNTER = make_creature(
     subtypes={"Human", "Mercenary"},
     supertypes={"Legendary"},
     text="June can't be blocked as long as you've drawn two or more cards this turn.\n{1}, Sacrifice another creature: Create a Clue token. Activate only during your turn. (It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
-    setup_interceptors=june_bounty_hunter_setup,
 )
 
 KOH_THE_FACE_STEALER = make_creature(
@@ -4862,7 +4858,6 @@ WAR_BALLOON = make_artifact(
     mana_cost="{2}{R}",
     text="Flying\n{1}: Put a fire counter on this Vehicle.\nAs long as this Vehicle has three or more fire counters on it, it's an artifact creature.\nCrew 3 (Tap any number of creatures you control with total power 3 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
-    setup_interceptors=war_balloon_setup,
 )
 
 WARTIME_PROTESTORS = make_creature(
@@ -4893,7 +4888,6 @@ ZHAO_THE_MOON_SLAYER = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="Menace\nNonbasic lands enter tapped.\n{7}: Put a conqueror counter on Zhao.\nAs long as Zhao has a conqueror counter on him, nonbasic lands are Mountains. (They lose all other land types and abilities and have \"{T}: Add {R}.\")",
-    setup_interceptors=zhao_the_moon_slayer_setup,
 )
 
 ZUKO_EXILED_PRINCE = make_creature(
@@ -5216,7 +5210,6 @@ SPARRING_DUMMY = make_artifact_creature(
     colors={Color.GREEN},
     subtypes={"Scarecrow"},
     text="Defender\n{T}: Mill a card. You may put a land card milled this way into your hand. You gain 2 life if a Lesson card is milled this way. (To mill a card, put the top card of your library into your graveyard.)",
-    setup_interceptors=sparring_dummy_setup,
 )
 
 TOPH_THE_BLIND_BANDIT = make_creature(
@@ -5245,7 +5238,6 @@ TURTLEDUCK = make_creature(
     colors={Color.GREEN},
     subtypes={"Bird", "Turtle"},
     text="{3}: Until end of turn, this creature has base power 4 and gains trample.",
-    setup_interceptors=turtleduck_setup,
 )
 
 UNLUCKY_CABBAGE_MERCHANT = make_creature(
@@ -5506,7 +5498,6 @@ HERMITIC_HERBALIST = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Ally", "Druid", "Human"},
     text="{T}: Add one mana of any color.\n{T}: Add two mana in any combination of colors. Spend this mana only to cast Lesson spells.",
-    setup_interceptors=hermitic_herbalist_setup,
 )
 
 IROH_GRAND_LOTUS = make_creature(
@@ -5806,7 +5797,6 @@ BENDERS_WATERSKIN = make_artifact(
     name="Bender's Waterskin",
     mana_cost="{3}",
     text="Untap this artifact during each other player's untap step.\n{T}: Add one mana of any color.",
-    setup_interceptors=benders_waterskin_setup,
 )
 
 FIRE_NATION_WARSHIP = make_artifact(
@@ -5864,37 +5854,31 @@ WHITE_LOTUS_TILE = make_artifact(
     name="White Lotus Tile",
     mana_cost="{4}",
     text="This artifact enters tapped.\n{T}: Add X mana of any one color, where X is the greatest number of creatures you control that have a creature type in common.",
-    setup_interceptors=white_lotus_tile_setup,
 )
 
 ABANDONED_AIR_TEMPLE = make_land(
     name="Abandoned Air Temple",
     text="This land enters tapped unless you control a basic land.\n{T}: Add {W}.\n{3}{W}, {T}: Put a +1/+1 counter on each creature you control.",
-    setup_interceptors=abandoned_air_temple_setup,
 )
 
 AGNA_QELA = make_land(
     name="Agna Qel'a",
     text="This land enters tapped unless you control a basic land.\n{T}: Add {U}.\n{2}{U}, {T}: Draw a card, then discard a card.",
-    setup_interceptors=agna_qela_setup,
 )
 
 AIRSHIP_ENGINE_ROOM = make_land(
     name="Airship Engine Room",
     text="This land enters tapped.\n{T}: Add {U} or {R}.\n{4}, {T}, Sacrifice this land: Draw a card.",
-    setup_interceptors=airship_engine_room_setup,
 )
 
 BA_SING_SE = make_land(
     name="Ba Sing Se",
     text="This land enters tapped unless you control a basic land.\n{T}: Add {G}.\n{2}{G}, {T}: Earthbend 2. Activate only as a sorcery. (Target land you control becomes a 0/0 creature with haste that's still a land. Put two +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)",
-    setup_interceptors=ba_sing_se_setup,
 )
 
 BOILING_ROCK_PRISON = make_land(
     name="Boiling Rock Prison",
     text="This land enters tapped.\n{T}: Add {B} or {R}.\n{4}, {T}, Sacrifice this land: Draw a card.",
-    setup_interceptors=boiling_rock_prison_setup,
 )
 
 FIRE_NATION_PALACE = make_land(
@@ -5906,49 +5890,41 @@ FIRE_NATION_PALACE = make_land(
 FOGGY_BOTTOM_SWAMP = make_land(
     name="Foggy Bottom Swamp",
     text="This land enters tapped.\n{T}: Add {B} or {G}.\n{4}, {T}, Sacrifice this land: Draw a card.",
-    setup_interceptors=foggy_bottom_swamp_setup,
 )
 
 JASMINE_DRAGON_TEA_SHOP = make_land(
     name="Jasmine Dragon Tea Shop",
     text="{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast an Ally spell or activate an ability of an Ally source.\n{5}, {T}: Create a 1/1 white Ally creature token.",
-    setup_interceptors=jasmine_dragon_tea_shop_setup,
 )
 
 KYOSHI_VILLAGE = make_land(
     name="Kyoshi Village",
     text="This land enters tapped.\n{T}: Add {G} or {W}.\n{4}, {T}, Sacrifice this land: Draw a card.",
-    setup_interceptors=kyoshi_village_setup,
 )
 
 MEDITATION_POOLS = make_land(
     name="Meditation Pools",
     text="This land enters tapped.\n{T}: Add {G} or {U}.\n{4}, {T}, Sacrifice this land: Draw a card.",
-    setup_interceptors=meditation_pools_setup,
 )
 
 MISTY_PALMS_OASIS = make_land(
     name="Misty Palms Oasis",
     text="This land enters tapped.\n{T}: Add {W} or {B}.\n{4}, {T}, Sacrifice this land: Draw a card.",
-    setup_interceptors=misty_palms_oasis_setup,
 )
 
 NORTH_POLE_GATES = make_land(
     name="North Pole Gates",
     text="This land enters tapped.\n{T}: Add {W} or {U}.\n{4}, {T}, Sacrifice this land: Draw a card.",
-    setup_interceptors=north_pole_gates_setup,
 )
 
 OMASHU_CITY = make_land(
     name="Omashu City",
     text="This land enters tapped.\n{T}: Add {R} or {G}.\n{4}, {T}, Sacrifice this land: Draw a card.",
-    setup_interceptors=omashu_city_setup,
 )
 
 REALM_OF_KOH = make_land(
     name="Realm of Koh",
     text="This land enters tapped unless you control a basic land.\n{T}: Add {B}.\n{3}{B}, {T}: Create a 1/1 colorless Spirit creature token with \"This token can't block or be blocked by non-Spirit creatures.\"",
-    setup_interceptors=realm_of_koh_setup,
 )
 
 RUMBLE_ARENA = make_land(
@@ -5967,19 +5943,16 @@ SECRET_TUNNEL = make_land(
 SERPENTS_PASS = make_land(
     name="Serpent's Pass",
     text="This land enters tapped.\n{T}: Add {U} or {B}.\n{4}, {T}, Sacrifice this land: Draw a card.",
-    setup_interceptors=serpents_pass_setup,
 )
 
 SUNBLESSED_PEAK = make_land(
     name="Sun-Blessed Peak",
     text="This land enters tapped.\n{T}: Add {R} or {W}.\n{4}, {T}, Sacrifice this land: Draw a card.",
-    setup_interceptors=sunblessed_peak_setup,
 )
 
 WHITE_LOTUS_HIDEOUT = make_land(
     name="White Lotus Hideout",
     text="{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a Lesson or Shrine spell.\n{1}, {T}: Add one mana of any color.",
-    setup_interceptors=white_lotus_hideout_setup,
 )
 
 PLAINS = make_land(

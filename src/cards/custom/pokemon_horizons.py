@@ -464,7 +464,7 @@ KYOGRE = make_creature(
 )
 
 def blastoise_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return make_type_advantage(obj, 2, {"Fire"})
+    return [make_type_advantage(obj, 2, {"Fire"})]
 
 BLASTOISE = make_creature(
     name="Blastoise, Shellfish Pokemon",
@@ -1004,7 +1004,7 @@ PERISH_SONG = make_sorcery(
 # --- Legendary Pokemon ---
 
 def charizard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return make_type_advantage(obj, 2, {"Grass", "Bug", "Ice"})
+    return [make_type_advantage(obj, 2, {"Grass", "Bug", "Ice"})]
 
 CHARIZARD = make_creature(
     name="Charizard, Flame Pokemon",
@@ -1018,7 +1018,7 @@ CHARIZARD = make_creature(
 )
 
 def pikachu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return make_type_advantage(obj, 2, {"Water", "Flying"})
+    return [make_type_advantage(obj, 2, {"Water", "Flying"})]
 
 PIKACHU = make_creature(
     name="Pikachu, Mouse Pokemon",

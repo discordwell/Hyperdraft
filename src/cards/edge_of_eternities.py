@@ -3260,7 +3260,6 @@ DUALSUN_ADEPTS = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Double strike\n{5}: Creatures you control get +1/+1 until end of turn.",
-    setup_interceptors=dualsun_adepts_setup,
 )
 
 DUALSUN_TECHNIQUE = make_instant(
@@ -3661,7 +3660,6 @@ ILLVOI_GALEBLADE = make_creature(
     colors={Color.BLUE},
     subtypes={"Jellyfish", "Warrior"},
     text="Flash\nFlying\n{2}, Sacrifice this creature: Draw a card.",
-    setup_interceptors=illvoi_galeblade_setup,
 )
 
 ILLVOI_INFILTRATOR = make_creature(
@@ -3868,7 +3866,6 @@ STEELSWARM_OPERATOR = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Robot", "Soldier"},
     text="Flying\n{T}: Add {U}. Spend this mana only to cast an artifact spell.\n{T}: Add {U}{U}. Spend this mana only to activate abilities of artifact sources.",
-    setup_interceptors=steelswarm_operator_setup,
 )
 
 SYNTHESIZER_LABSHIP = make_artifact(
@@ -4426,7 +4423,6 @@ MEMORIAL_VAULT = make_artifact(
     name="Memorial Vault",
     mana_cost="{3}{R}",
     text="{T}, Sacrifice another artifact: Exile the top X cards of your library, where X is one plus the mana value of the sacrificed artifact. You may play those cards this turn.",
-    setup_interceptors=memorial_vault_setup,
 )
 
 MOLECULAR_MODIFIER = make_creature(
@@ -4553,7 +4549,6 @@ RUST_HARVESTER = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Robot"},
     text="Menace\n{2}, {T}, Exile an artifact card from your graveyard: Put a +1/+1 counter on this creature, then it deals damage equal to its power to any target.",
-    setup_interceptors=rust_harvester_setup,
 )
 
 SLAGDRILL_SCRAPPER = make_artifact_creature(
@@ -4563,7 +4558,6 @@ SLAGDRILL_SCRAPPER = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Robot", "Scout"},
     text="{2}, {T}, Sacrifice another artifact or land: Draw a card.",
-    setup_interceptors=slagdrill_scrapper_setup,
 )
 
 SYSTEMS_OVERRIDE = make_sorcery(
@@ -4799,7 +4793,6 @@ GENE_POLLINATOR = make_artifact_creature(
     colors={Color.GREEN},
     subtypes={"Insect", "Robot"},
     text="{T}, Tap an untapped permanent you control: Add one mana of any color.",
-    setup_interceptors=gene_pollinator_setup,
 )
 
 GERMINATING_WURM = make_creature(
@@ -4869,7 +4862,6 @@ INTREPID_TENDERFOOT = make_creature(
     colors={Color.GREEN},
     subtypes={"Citizen", "Insect"},
     text="{3}: Put a +1/+1 counter on this creature. Activate only as a sorcery.",
-    setup_interceptors=intrepid_tenderfoot_setup,
 )
 
 LARVAL_SCOUTLANDER = make_artifact(
@@ -5253,7 +5245,6 @@ ALLFATES_SCROLL = make_artifact(
     name="All-Fates Scroll",
     mana_cost="{3}",
     text="{T}: Add one mana of any color.\n{7}, {T}, Sacrifice this artifact: Draw X cards, where X is the number of differently named lands you control.",
-    setup_interceptors=allfates_scroll_setup,
 )
 
 BYGONE_COLOSSUS = make_artifact_creature(

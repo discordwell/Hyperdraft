@@ -7433,8 +7433,34 @@ def felidar_cub_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- KNIGHT OF GRACE ---
 # First strike / Hexproof from black / +1/+0 as long as any player controls a black permanent.
 def knight_of_grace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: hexproof from color + conditional pump
-    return []
+    """Static: +1/+0 as long as any player controls a black permanent.
+    (Hexproof from black is still an engine gap — left unimplemented.)"""
+    def any_black_permanent(state: GameState) -> bool:
+        for perm in state.objects.values():
+            if perm.zone == ZoneType.BATTLEFIELD and Color.BLACK in perm.characteristics.colors:
+                return True
+        return False
+
+    def power_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_POWER
+                and event.payload.get('object_id') == obj.id)
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        if not any_black_permanent(state):
+            return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + 1
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=power_filter,
+        handler=power_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 # --- ARCANIS THE OMNIPOTENT ---
@@ -7494,8 +7520,38 @@ def sphinx_of_the_final_word_setup(obj: GameObject, state: GameState) -> list[In
 # --- TEMPEST DJINN ---
 # Flying / +1/+0 for each basic Island you control.
 def tempest_djinn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: dynamic pump from land count
-    return []
+    """Static: +1/+0 for each basic Island you control."""
+    def count_basic_islands(state: GameState) -> int:
+        count = 0
+        for perm in state.objects.values():
+            if (perm.controller == obj.controller
+                    and perm.zone == ZoneType.BATTLEFIELD
+                    and 'Island' in perm.characteristics.subtypes
+                    and 'Basic' in perm.characteristics.supertypes):
+                count += 1
+        return count
+
+    def power_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_POWER
+                and event.payload.get('object_id') == obj.id)
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        bonus = count_basic_islands(state)
+        if bonus == 0:
+            return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + bonus
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=power_filter,
+        handler=power_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 # --- DESECRATION DEMON ---
@@ -7508,8 +7564,34 @@ def desecration_demon_setup(obj: GameObject, state: GameState) -> list[Intercept
 # --- KNIGHT OF MALICE ---
 # First strike / Hexproof from white / +1/+0 as long as any player controls a white permanent.
 def knight_of_malice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: hexproof from color + conditional pump
-    return []
+    """Static: +1/+0 as long as any player controls a white permanent.
+    (Hexproof from white still engine gap.)"""
+    def any_white_permanent(state: GameState) -> bool:
+        for perm in state.objects.values():
+            if perm.zone == ZoneType.BATTLEFIELD and Color.WHITE in perm.characteristics.colors:
+                return True
+        return False
+
+    def power_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_POWER
+                and event.payload.get('object_id') == obj.id)
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        if not any_white_permanent(state):
+            return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+        new_event = event.copy()
+        new_event.payload['value'] = event.payload.get('value', 0) + 1
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=power_filter,
+        handler=power_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 # --- MYOJIN OF NIGHT'S REACH ---
@@ -8288,7 +8370,6 @@ RUNESEALED_WALL = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Wall"},
     text="Defender\n{T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
-    setup_interceptors=runesealed_wall_setup,
 )
 
 SKYSHIP_BUCCANEER = make_creature(
@@ -8412,7 +8493,6 @@ HUNGRY_GHOUL = make_creature(
     colors={Color.BLACK},
     subtypes={"Zombie"},
     text="{1}, Sacrifice another creature: Put a +1/+1 counter on this creature.",
-    setup_interceptors=hungry_ghoul_setup,
 )
 
 INFERNAL_VESSEL = make_creature(
@@ -9060,7 +9140,6 @@ RAVENOUS_AMULET = make_artifact(
     name="Ravenous Amulet",
     mana_cost="{2}",
     text="{1}, {T}, Sacrifice a creature: Draw a card and put a soul counter on this artifact. Activate only as a sorcery.\n{4}, {T}, Sacrifice this artifact: Each opponent loses life equal to the number of soul counters on this artifact.",
-    setup_interceptors=ravenous_amulet_setup,
 )
 
 SCRAWLING_CRAWLER = make_artifact_creature(
@@ -9076,7 +9155,6 @@ SCRAWLING_CRAWLER = make_artifact_creature(
 SOULSTONE_SANCTUARY = make_land(
     name="Soulstone Sanctuary",
     text="{T}: Add {C}.\n{4}: This land becomes a 3/3 creature with vigilance and all creature types. It's still a land.",
-    setup_interceptors=soulstone_sanctuary_setup,
 )
 
 AJANI_CALLER_OF_THE_PRIDE = make_planeswalker(
@@ -9151,7 +9229,6 @@ GIADA_FONT_OF_HOPE = make_creature(
     subtypes={"Angel"},
     supertypes={"Legendary"},
     text="Flying, vigilance\nEach other Angel you control enters with an additional +1/+1 counter on it for each Angel you already control.\n{T}: Add {W}. Spend this mana only to cast an Angel spell.",
-    setup_interceptors=giada_font_of_hope_setup,
 )
 
 HEALERS_HAWK = make_creature(
@@ -9753,7 +9830,6 @@ FANATICAL_FIREBRAND = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Pirate"},
     text="Haste (This creature can attack and {T} as soon as it comes under your control.)\n{T}, Sacrifice this creature: It deals 1 damage to any target.",
-    setup_interceptors=fanatical_firebrand_setup,
 )
 
 FIREBRAND_ARCHER = make_creature(
@@ -9835,7 +9911,6 @@ KRENKO_MOB_BOSS = make_creature(
     subtypes={"Goblin", "Warrior"},
     supertypes={"Legendary"},
     text="{T}: Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control.",
-    setup_interceptors=krenko_mob_boss_setup,
 )
 
 SEISMIC_RUPTURE = make_sorcery(
@@ -9852,7 +9927,6 @@ SHIVAN_DRAGON = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Flying\n{R}: This creature gets +1/+0 until end of turn.",
-    setup_interceptors=shivan_dragon_setup,
 )
 
 SLAGSTORM = make_sorcery(
@@ -10030,7 +10104,6 @@ LLANOWAR_ELVES = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Elf"},
     text="{T}: Add {G}.",
-    setup_interceptors=llanowar_elves_setup,
 )
 
 MILDMANNERED_LIBRARIAN = make_creature(
@@ -10253,7 +10326,6 @@ BURNISHED_HART = make_artifact_creature(
     colors=set(),
     subtypes={"Elk"},
     text="{3}, Sacrifice this creature: Search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle.",
-    setup_interceptors=burnished_hart_setup,
 )
 
 CAMPUS_GUIDE = make_artifact_creature(
@@ -10350,7 +10422,6 @@ DISMAL_BACKWATER = make_land(
 EVOLVING_WILDS = make_land(
     name="Evolving Wilds",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
-    setup_interceptors=evolving_wilds_setup,
 )
 
 JUNGLE_HOLLOW = make_land(
@@ -10380,7 +10451,6 @@ SCOURED_BARRENS = make_land(
 SECLUDED_COURTYARD = make_land(
     name="Secluded Courtyard",
     text="As this land enters, choose a creature type.\n{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type or activate an ability of a creature source of the chosen type.",
-    setup_interceptors=secluded_courtyard_setup,
 )
 
 SWIFTWATER_CLIFFS = make_land(
@@ -10836,7 +10906,6 @@ VAMPIRE_NEONATE = make_creature(
     colors={Color.BLACK},
     subtypes={"Vampire"},
     text="{2}, {T}: Each opponent loses 1 life and you gain 1 life.",
-    setup_interceptors=vampire_neonate_setup,
 )
 
 VAMPIRE_SPAWN = make_creature(
@@ -10863,7 +10932,6 @@ CARNELIAN_ORB_OF_DRAGONKIND = make_artifact(
     name="Carnelian Orb of Dragonkind",
     mana_cost="{2}{R}",
     text="{T}: Add {R}. If that mana is spent on a Dragon creature spell, it gains haste until end of turn.",
-    setup_interceptors=carnelian_orb_of_dragonkind_setup,
 )
 
 DRAGON_FODDER = make_sorcery(
@@ -11042,7 +11110,6 @@ DRUID_OF_THE_COWL = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Elf"},
     text="{T}: Add {G}.",
-    setup_interceptors=druid_of_the_cowl_setup,
 )
 
 JORAGA_INVOCATION = make_sorcery(
@@ -11126,7 +11193,6 @@ PIRATES_CUTLASS = make_artifact(
 UNCHARTED_HAVEN = make_land(
     name="Uncharted Haven",
     text="This land enters tapped. As it enters, choose a color.\n{T}: Add one mana of the chosen color.",
-    setup_interceptors=uncharted_haven_setup,
 )
 
 ANGELIC_DESTINY = make_enchantment(
@@ -11322,7 +11388,6 @@ ARCANIS_THE_OMNIPOTENT = make_creature(
     subtypes={"Wizard"},
     supertypes={"Legendary"},
     text="{T}: Draw three cards.\n{2}{U}{U}: Return Arcanis to its owner's hand.",
-    setup_interceptors=arcanis_the_omnipotent_setup,
 )
 
 CHART_A_COURSE = make_sorcery(
@@ -12175,7 +12240,6 @@ CULTIVATORS_CARAVAN = make_artifact(
     mana_cost="{3}",
     text="{T}: Add one mana of any color.\nCrew 3 (Tap any number of creatures you control with total power 3 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
-    setup_interceptors=cultivators_caravan_setup,
 )
 
 DARKSTEEL_COLOSSUS = make_artifact_creature(
@@ -12202,7 +12266,6 @@ FELDONS_CANE = make_artifact(
     name="Feldon's Cane",
     mana_cost="{1}",
     text="{T}, Exile this artifact: Shuffle your graveyard into your library.",
-    setup_interceptors=feldons_cane_setup,
 )
 
 FIRESHRIEKER = make_artifact(
@@ -12270,7 +12333,6 @@ STEEL_HELLKITE = make_artifact_creature(
     colors=set(),
     subtypes={"Dragon"},
     text="Flying\n{2}: This creature gets +1/+0 until end of turn.\n{X}: Destroy each nonland permanent with mana value X whose controller was dealt combat damage by this creature this turn. Activate only once each turn.",
-    setup_interceptors=steel_hellkite_setup,
 )
 
 THREE_TREE_MASCOT = make_artifact_creature(
@@ -12280,7 +12342,6 @@ THREE_TREE_MASCOT = make_artifact_creature(
     colors=set(),
     subtypes={"Shapeshifter"},
     text="Changeling (This card is every creature type.)\n{1}: Add one mana of any color. Activate only once each turn.",
-    setup_interceptors=three_tree_mascot_setup,
 )
 
 AZORIUS_GUILDGATE = make_land(
@@ -12300,13 +12361,11 @@ BOROS_GUILDGATE = make_land(
 CRAWLING_BARRENS = make_land(
     name="Crawling Barrens",
     text="{T}: Add {C}.\n{4}: Put two +1/+1 counters on this land. Then you may have it become a 0/0 Elemental creature until end of turn. It's still a land.",
-    setup_interceptors=crawling_barrens_setup,
 )
 
 CRYPTIC_CAVES = make_land(
     name="Cryptic Caves",
     text="{T}: Add {C}.\n{1}, {T}, Sacrifice this land: Draw a card. Activate only if you control five or more lands.",
-    setup_interceptors=cryptic_caves_setup,
 )
 
 DEMOLITION_FIELD = make_land(
@@ -12595,21 +12654,18 @@ EXPEDITION_MAP = make_artifact(
     name="Expedition Map",
     mana_cost="{1}",
     text="{2}, {T}, Sacrifice this artifact: Search your library for a land card, reveal it, put it into your hand, then shuffle.",
-    setup_interceptors=expedition_map_setup,
 )
 
 GILDED_LOTUS = make_artifact(
     name="Gilded Lotus",
     mana_cost="{5}",
     text="{T}: Add three mana of any one color.",
-    setup_interceptors=gilded_lotus_setup,
 )
 
 HEDRON_ARCHIVE = make_artifact(
     name="Hedron Archive",
     mana_cost="{4}",
     text="{T}: Add {C}{C}.\n{2}, {T}, Sacrifice this artifact: Draw two cards.",
-    setup_interceptors=hedron_archive_setup,
 )
 
 MAZES_END = make_land(

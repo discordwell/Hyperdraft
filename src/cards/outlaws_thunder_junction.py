@@ -5584,7 +5584,6 @@ TREASURE_DREDGER = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Rogue"},
     text="{1}, {T}, Pay 1 life: Create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
-    setup_interceptors=treasure_dredger_setup,
 )
 
 # =============================================================================
@@ -6448,7 +6447,6 @@ RESILIENT_ROADRUNNER = make_creature(
     colors={Color.RED},
     subtypes={"Bird"},
     text="Haste, protection from Coyotes\n{3}: This creature can't be blocked this turn except by creatures with haste.",
-    setup_interceptors=resilient_roadrunner_setup,
 )
 
 RETURN_THE_FAVOR = make_instant(
@@ -7159,7 +7157,6 @@ INTREPID_STABLEMASTER = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Scout"},
     text="Reach\n{T}: Add {G}.\n{T}: Add two mana of any one color. Spend this mana only to cast Mount or Vehicle spells.",
-    setup_interceptors=intrepid_stablemaster_setup,
 )
 
 MAP_THE_FRONTIER = make_sorcery(
@@ -7236,7 +7233,6 @@ RAUCOUS_ENTERTAINER = make_creature(
     colors={Color.GREEN},
     subtypes={"Bard", "Plant"},
     text="{1}, {T}: Put a +1/+1 counter on each creature you control that entered this turn.",
-    setup_interceptors=raucous_entertainer_setup,
 )
 
 REACH_FOR_THE_SKY = make_enchantment(
@@ -8384,7 +8380,6 @@ REDROCK_SENTINEL = make_artifact_creature(
     colors=set(),
     subtypes={"Golem"},
     text="Defender\n{2}, {T}, Sacrifice a land: Draw a card and create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
-    setup_interceptors=redrock_sentinel_setup,
 )
 
 SILVER_DEPUTY = make_artifact_creature(
@@ -8498,7 +8493,6 @@ MIRAGE_MESA = make_land(
     name="Mirage Mesa",
     text="This land enters tapped. As it enters, choose a color.\n{T}: Add one mana of the chosen color.",
     subtypes={"Desert"},
-    setup_interceptors=mirage_mesa_setup,
 )
 
 SANDSTORM_VERGE = make_land(
@@ -8519,7 +8513,6 @@ BUCOLIC_RANCH = make_land(
     name="Bucolic Ranch",
     text="{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a Mount spell.\n{3}, {T}: Look at the top card of your library. If it's a Mount card, you may reveal it and put it into your hand. If you don't put it into your hand, you may put it on the bottom of your library.",
     subtypes={"Desert"},
-    setup_interceptors=bucolic_ranch_setup,
 )
 
 BLOOMING_MARSH = make_land(

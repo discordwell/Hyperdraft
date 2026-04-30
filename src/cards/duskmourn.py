@@ -2699,7 +2699,6 @@ POSSESSED_GOAT = make_creature(
     colors={Color.WHITE},
     subtypes={"Goat"},
     text="{3}, Discard a card: Put three +1/+1 counters on this creature and it becomes a black Demon in addition to its other colors and types. Activate only once.",
-    setup_interceptors=possessed_goat_setup,
 )
 
 RELUCTANT_ROLE_MODEL = make_creature(
@@ -4903,7 +4902,6 @@ DIVERSION_SPECIALIST = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\n{1}, Sacrifice another creature or enchantment: Exile the top card of your library. You may play it this turn.",
-    setup_interceptors=diversion_specialist_setup,
 )
 
 
@@ -6535,7 +6533,6 @@ OVERGROWN_ZEALOT = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Elf"},
     text="{T}: Add one mana of any color.\n{T}: Add two mana of any one color. Spend this mana only to turn permanents face up.",
-    setup_interceptors=overgrown_zealot_setup,
 )
 
 OVERLORD_OF_THE_HAUNTWOODS = make_enchantment_creature(
@@ -6610,7 +6607,6 @@ TWITCHING_DOLL = make_artifact_creature(
     colors={Color.GREEN},
     subtypes={"Spider", "Toy"},
     text="{T}: Add one mana of any color. Put a nest counter on this creature.\n{T}, Sacrifice this creature: Create a 2/2 green Spider creature token with reach for each counter on this creature. Activate only as a sorcery.",
-    setup_interceptors=twitching_doll_setup,
 )
 
 TYVAR_THE_PUMMELER = make_creature(
@@ -6763,7 +6759,6 @@ INTRUDING_SOULRAGER = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Spirit"},
     text="Vigilance\n{T}, Sacrifice a Room: This creature deals 2 damage to each opponent. Draw a card.",
-    setup_interceptors=intruding_soulrager_setup,
 )
 
 THE_JOLLY_BALLOON_MAN = make_creature(
@@ -7030,7 +7025,6 @@ FOUND_FOOTAGE = make_artifact(
     mana_cost="{1}",
     text="You may look at face-down creatures your opponents control any time.\n{2}, Sacrifice this artifact: Surveil 2, then draw a card. (To surveil 2, look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)",
     subtypes={"Clue"},
-    setup_interceptors=found_footage_setup,
 )
 
 FRIENDLY_TEDDY = make_artifact_creature(
@@ -7062,7 +7056,6 @@ HAUNTED_SCREEN = make_artifact(
     name="Haunted Screen",
     mana_cost="{3}",
     text="{T}: Add {W} or {B}.\n{T}, Pay 1 life: Add {G}, {U}, or {R}.\n{7}: Put seven +1/+1 counters on this artifact. It becomes a 0/0 Spirit creature in addition to its other types. Activate only once.",
-    setup_interceptors=haunted_screen_setup,
 )
 
 KEYS_TO_THE_HOUSE = make_artifact(
@@ -7104,97 +7097,81 @@ SAW = make_artifact(
 ABANDONED_CAMPGROUND = make_land(
     name="Abandoned Campground",
     text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {W} or {U}.",
-    setup_interceptors=abandoned_campground_setup,
 )
 
 BLAZEMIRE_VERGE = make_land(
     name="Blazemire Verge",
     text="{T}: Add {B}.\n{T}: Add {R}. Activate only if you control a Swamp or a Mountain.",
-    setup_interceptors=blazemire_verge_setup,
 )
 
 BLEEDING_WOODS = make_land(
     name="Bleeding Woods",
     text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {R} or {G}.",
-    setup_interceptors=bleeding_woods_setup,
 )
 
 ETCHED_CORNFIELD = make_land(
     name="Etched Cornfield",
     text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {G} or {W}.",
-    setup_interceptors=etched_cornfield_setup,
 )
 
 FLOODFARM_VERGE = make_land(
     name="Floodfarm Verge",
     text="{T}: Add {W}.\n{T}: Add {U}. Activate only if you control a Plains or an Island.",
-    setup_interceptors=floodfarm_verge_setup,
 )
 
 GLOOMLAKE_VERGE = make_land(
     name="Gloomlake Verge",
     text="{T}: Add {U}.\n{T}: Add {B}. Activate only if you control an Island or a Swamp.",
-    setup_interceptors=gloomlake_verge_setup,
 )
 
 HUSHWOOD_VERGE = make_land(
     name="Hushwood Verge",
     text="{T}: Add {G}.\n{T}: Add {W}. Activate only if you control a Forest or a Plains.",
-    setup_interceptors=hushwood_verge_setup,
 )
 
 LAKESIDE_SHACK = make_land(
     name="Lakeside Shack",
     text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {G} or {U}.",
-    setup_interceptors=lakeside_shack_setup,
 )
 
 MURKY_SEWER = make_land(
     name="Murky Sewer",
     text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {U} or {B}.",
-    setup_interceptors=murky_sewer_setup,
 )
 
 NEGLECTED_MANOR = make_land(
     name="Neglected Manor",
     text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {W} or {B}.",
-    setup_interceptors=neglected_manor_setup,
 )
 
 PECULIAR_LIGHTHOUSE = make_land(
     name="Peculiar Lighthouse",
     text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {U} or {R}.",
-    setup_interceptors=peculiar_lighthouse_setup,
 )
 
 RAUCOUS_CARNIVAL = make_land(
     name="Raucous Carnival",
     text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {R} or {W}.",
-    setup_interceptors=raucous_carnival_setup,
 )
 
 RAZORTRAP_GORGE = make_land(
     name="Razortrap Gorge",
     text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {B} or {R}.",
-    setup_interceptors=razortrap_gorge_setup,
 )
 
 STRANGLED_CEMETERY = make_land(
     name="Strangled Cemetery",
     text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {B} or {G}.",
-    setup_interceptors=strangled_cemetery_setup,
 )
 
 TERRAMORPHIC_EXPANSE = make_land(
     name="Terramorphic Expanse",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
-    setup_interceptors=terramorphic_expanse_setup,
 )
 
 THORNSPIRE_VERGE = make_land(
     name="Thornspire Verge",
     text="{T}: Add {R}.\n{T}: Add {G}. Activate only if you control a Mountain or a Forest.",
-    setup_interceptors=thornspire_verge_setup,
 )
 
 VALGAVOTHS_LAIR = make_enchantment(
@@ -7202,7 +7179,6 @@ VALGAVOTHS_LAIR = make_enchantment(
     mana_cost="",
     colors=set(),
     text="Hexproof\nThis land enters tapped. As it enters, choose a color.\n{T}: Add one mana of the chosen color.",
-    setup_interceptors=valgavoths_lair_setup,
 )
 
 PLAINS = make_land(

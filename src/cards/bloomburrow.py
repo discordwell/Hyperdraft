@@ -6659,7 +6659,6 @@ BONECACHE_OVERSEER = make_creature(
     colors={Color.BLACK},
     subtypes={"Squirrel", "Warlock"},
     text="{T}, Pay 1 life: Draw a card. Activate only if three or more cards left your graveyard this turn or if you've sacrificed a Food this turn.",
-    setup_interceptors=bonecache_overseer_setup,
 )
 
 COILING_REBIRTH = make_sorcery(
@@ -6817,7 +6816,6 @@ OSTEOMANCER_ADEPT = make_creature(
     colors={Color.BLACK},
     subtypes={"Squirrel", "Warlock"},
     text="Deathtouch\n{T}: Until end of turn, you may cast creature spells from your graveyard by foraging in addition to paying their other costs. If you cast a spell this way, that creature enters with a finality counter on it. (To forage, exile three cards from your graveyard or sacrifice a Food. If a creature with a finality counter on it would die, exile it instead.)",
-    setup_interceptors=osteomancer_adept_setup,
 )
 
 PERSISTENT_MARSHSTALKER = make_creature(
@@ -7682,7 +7680,6 @@ THORNVAULT_FORAGER = make_creature(
     colors={Color.GREEN},
     subtypes={"Ranger", "Squirrel"},
     text="{T}: Add {G}.\n{T}, Forage: Add two mana in any combination of colors. (To forage, exile three cards from your graveyard or sacrifice a Food.)\n{3}{G}, {T}: Search your library for a Squirrel card, reveal it, put it into your hand, then shuffle.",
-    setup_interceptors=thornvault_forager_setup,
 )
 
 THREE_TREE_ROOTWEAVER = make_creature(
@@ -7692,7 +7689,6 @@ THREE_TREE_ROOTWEAVER = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Mole"},
     text="{T}: Add one mana of any color.",
-    setup_interceptors=three_tree_rootweaver_setup,
 )
 
 THREE_TREE_SCRIBE = make_creature(
@@ -7866,7 +7862,6 @@ GLARB_CALAMITYS_AUGUR = make_creature(
     subtypes={"Frog", "Noble", "Wizard"},
     supertypes={"Legendary"},
     text="Deathtouch\nYou may look at the top card of your library any time.\nYou may play lands and cast spells with mana value 4 or greater from the top of your library.\n{T}: Surveil 2.",
-    setup_interceptors=glarb_calamitys_augur_setup,
 )
 
 HEAD_OF_THE_HOMESTEAD = make_creature(
@@ -8175,7 +8170,6 @@ HEIRLOOM_EPIC = make_artifact(
     name="Heirloom Epic",
     mana_cost="{1}",
     text="{4}, {T}: Draw a card. For each mana in this ability's activation cost, you may tap an untapped creature you control rather than pay that mana. Activate only as a sorcery.",
-    setup_interceptors=heirloom_epic_setup,
 )
 
 PATCHWORK_BANNER = make_artifact(
@@ -8216,19 +8210,16 @@ THREE_TREE_MASCOT = make_artifact_creature(
     colors=set(),
     subtypes={"Shapeshifter"},
     text="Changeling (This card is every creature type.)\n{1}: Add one mana of any color. Activate only once each turn.",
-    setup_interceptors=three_tree_mascot_setup,
 )
 
 FABLED_PASSAGE = make_land(
     name="Fabled Passage",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Then if you control four or more lands, untap that land.",
-    setup_interceptors=fabled_passage_setup,
 )
 
 FOUNTAINPORT = make_land(
     name="Fountainport",
     text="{T}: Add {C}.\n{2}, {T}, Sacrifice a token: Draw a card.\n{3}, {T}, Pay 1 life: Create a 1/1 blue Fish creature token.\n{4}, {T}: Create a Treasure token.",
-    setup_interceptors=fountainport_setup,
 )
 
 HIDDEN_GROTTO = make_land(
@@ -8240,13 +8231,11 @@ HIDDEN_GROTTO = make_land(
 LILYPAD_VILLAGE = make_land(
     name="Lilypad Village",
     text="{T}: Add {C}.\n{T}: Add {U}. Spend this mana only to cast a creature spell.\n{U}, {T}: Surveil 2. Activate only if a Bird, Frog, Otter, or Rat entered the battlefield under your control this turn.",
-    setup_interceptors=lilypad_village_setup,
 )
 
 LUPINFLOWER_VILLAGE = make_land(
     name="Lupinflower Village",
     text="{T}: Add {C}.\n{T}: Add {W}. Spend this mana only to cast a creature spell.\n{1}{W}, {T}, Sacrifice this land: Look at the top six cards of your library. You may reveal a Bat, Bird, Mouse, or Rabbit card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
-    setup_interceptors=lupinflower_village_setup,
 )
 
 MUDFLAT_VILLAGE = make_land(
@@ -8258,7 +8247,6 @@ MUDFLAT_VILLAGE = make_land(
 OAKHOLLOW_VILLAGE = make_land(
     name="Oakhollow Village",
     text="{T}: Add {C}.\n{T}: Add {G}. Spend this mana only to cast a creature spell.\n{G}, {T}: Put a +1/+1 counter on each Frog, Rabbit, Raccoon, or Squirrel you control that entered the battlefield this turn.",
-    setup_interceptors=oakhollow_village_setup,
 )
 
 ROCKFACE_VILLAGE = make_land(
@@ -8271,13 +8259,11 @@ THREE_TREE_CITY = make_land(
     name="Three Tree City",
     text="As Three Tree City enters, choose a creature type.\n{T}: Add {C}.\n{2}, {T}: Choose a color. Add an amount of mana of that color equal to the number of creatures you control of the chosen type.",
     supertypes={"Legendary"},
-    setup_interceptors=three_tree_city_setup,
 )
 
 UNCHARTED_HAVEN = make_land(
     name="Uncharted Haven",
     text="This land enters tapped. As it enters, choose a color.\n{T}: Add one mana of the chosen color.",
-    setup_interceptors=uncharted_haven_setup,
 )
 
 PLAINS = make_land(
