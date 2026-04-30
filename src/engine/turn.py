@@ -413,6 +413,15 @@ class TurnManager:
                             CardType.ARTIFACT in obj.characteristics.types):
                             obj.characteristics.types.discard(CardType.CREATURE)
 
+                    # End "saddled until end of turn" (OTJ Mount mechanic)
+                    if obj.state.saddled_until_eot:
+                        obj.state.saddled_until_eot = False
+                    # Clear "creatures that saddled this Mount this turn" tracking.
+                    if obj.state.saddled_by_this_turn:
+                        obj.state.saddled_by_this_turn = []
+                    if obj.state.saddled_count_this_turn:
+                        obj.state.saddled_count_this_turn = 0
+
                     # Clear end-of-turn PT modifiers
                     if hasattr(obj.state, 'pt_modifiers'):
                         obj.state.pt_modifiers = [

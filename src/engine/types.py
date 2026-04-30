@@ -229,6 +229,16 @@ class EventType(Enum):
     PKM_MULLIGAN = auto()             # Opening hand mulligan
     PKM_SETUP = auto()                # Game setup phase
 
+    # OTJ Plot mechanic
+    PLOT_PAID = auto()                # Plot cost was paid; card goes to exile
+    PLOT_CAST = auto()                # Plotted card cast from exile (free)
+    PLOT_BECOMES_PLOTTED = auto()     # Trigger event for "when this becomes plotted"
+
+    # OTJ Saddle mechanic
+    SADDLE_PAID = auto()              # Saddle cost was paid (creatures tapped)
+    SADDLE_BECOMES_SADDLED = auto()   # Mount becomes saddled until end of turn
+    SADDLE_ATTACK_TRIGGER = auto()    # Marker for "attacks while saddled" effects
+
     # Yu-Gi-Oh! mechanics
     YGO_NORMAL_SUMMON = auto()        # Normal Summon a monster
     YGO_TRIBUTE_SUMMON = auto()       # Tribute Summon (level 5+)
@@ -454,6 +464,13 @@ class ObjectState:
     is_token: bool = False           # True if this is a token (not a card)
     damage_marked: int = 0           # Damage marked this turn (before cleanup)
     crewed_until_eot: bool = False   # True if Vehicle was crewed this turn
+    # OTJ Saddle mechanic state
+    saddled_until_eot: bool = False  # True if Mount was saddled this turn
+    saddled_by_this_turn: list = field(default_factory=list)  # Creature IDs that saddled this Mount this turn
+    saddled_count_this_turn: int = 0  # Times saddled this turn (for "first time" triggers)
+    # OTJ Plot mechanic state
+    plotted_turn: Optional[int] = None  # Turn number this card was plotted (None = not plotted)
+    plot_cast_used: bool = False     # True after a plotted card has been cast (prevents re-cast)
     # Track discard timing for mechanics like Mayhem.
     last_discarded_turn: Optional[int] = None
     last_discarded_by: Optional[str] = None
