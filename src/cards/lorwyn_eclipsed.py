@@ -29,7 +29,9 @@ from src.cards.interceptor_helpers import (
     make_upkeep_trigger, make_spell_cast_trigger, make_end_step_trigger,
     make_damage_trigger, make_life_gain_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
-    creatures_you_control, creatures_with_subtype
+    creatures_you_control, creatures_with_subtype,
+    create_modal_choice, create_target_choice,
+    create_discard_choice,
 )
 
 
@@ -2738,6 +2740,521 @@ def temple_garden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 # =============================================================================
+# Phase 2B vanilla-spell resolves (auto-pattern matcher gaps)
+# =============================================================================
+
+def _ecl_get_spell_and_caster(state: GameState, spell_name: str) -> tuple:
+    """Locate (spell_id, caster_id) for a spell of the given name on the stack."""
+    stack_zone = state.zones.get('stack')
+    spell_id = None
+    caster_id = None
+    if stack_zone:
+        for oid in stack_zone.objects:
+            obj = state.objects.get(oid)
+            if obj and obj.name == spell_name:
+                spell_id = obj.id
+                caster_id = obj.controller
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = f"{spell_name.lower().replace(' ', '_')}_spell"
+    return spell_id, caster_id
+
+
+def riverguards_reflexes_resolve(targets: list, state: GameState) -> list[Event]:
+    """Riverguard's Reflexes: +2/+2 + first strike + untap on a target creature."""
+    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Riverguard's Reflexes")
+    legal = [
+        oid for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and CardType.CREATURE in obj.characteristics.types
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0]
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': tid,
+                    'power_mod': 2,
+                    'toughness_mod': 2,
+                    'duration': 'end_of_turn',
+                },
+                source=choice.source_id,
+            ),
+            Event(
+                type=EventType.KEYWORD_GRANT,
+                payload={
+                    'object_id': tid,
+                    'keywords': ['first strike'],
+                    'until': 'end_of_turn',
+                },
+                source=choice.source_id,
+            ),
+            Event(
+                type=EventType.UNTAP,
+                payload={'object_id': tid},
+                source=choice.source_id,
+            ),
+        ]
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal,
+        prompt="Riverguard's Reflexes: Choose target creature",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def run_away_together_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Run Away Together: Choose two target creatures controlled by different
+    players. Return those creatures to their owners' hands.
+    """
+    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Run Away Together")
+
+    creatures = [
+        (oid, obj.controller)
+        for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and CardType.CREATURE in obj.characteristics.types
+    ]
+    if len(creatures) < 2:
+        return []
+
+    distinct_controllers = {c for _, c in creatures}
+    if len(distinct_controllers) < 2:
+        return []
+
+    legal = [oid for oid, _ in creatures]
+
+    def _handler(choice, selected, gs):
+        if not selected or len(selected) < 2:
+            return []
+        # Validate different controllers.
+        controllers = []
+        for tid in selected[:2]:
+            obj = gs.objects.get(tid)
+            if obj is not None:
+                controllers.append(obj.controller)
+        if len(set(controllers)) < 2:
+            return []
+        evts = []
+        for tid in selected[:2]:
+            obj = gs.objects.get(tid)
+            if not obj or obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            evts.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': tid,
+                    'from_zone_type': ZoneType.BATTLEFIELD,
+                    'to_zone_type': ZoneType.HAND,
+                    'to_zone': f'hand_{obj.owner}',
+                    'reason': 'bounced',
+                },
+                source=choice.source_id,
+            ))
+        return evts
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal,
+        prompt="Run Away Together: Choose two creatures with different controllers",
+        min_targets=2,
+        max_targets=2,
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def thirst_for_identity_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Thirst for Identity: Draw three cards. Then discard two cards unless you
+    discard a creature card. We approximate by drawing three then opening a
+    discard choice for two cards (the "unless creature" leniency is not
+    expressible without a multi-stage prompt).
+    """
+    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Thirst for Identity")
+    events = [Event(
+        type=EventType.DRAW,
+        payload={'count': 3, 'player': caster_id},
+        source=spell_id,
+        controller=caster_id,
+    )]
+    # The discard happens after the draw; the choice will be posted but
+    # unaffected by the draw events emitted in the same tick. This is a
+    # best-effort wiring.
+    hand = state.zones.get(f"hand_{caster_id}")
+    if hand and hand.objects:
+        create_discard_choice(
+            state=state,
+            player_id=caster_id,
+            source_id=spell_id,
+            card_ids=list(hand.objects),
+            discard_count=min(2, len(hand.objects)),
+            prompt="Thirst for Identity: Discard two cards",
+        )
+    return events
+
+
+def wanderwine_farewell_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Wanderwine Farewell: Return one or two target nonland permanents to
+    their owners' hands. (Token rider conditional on controlling a Merfolk
+    is approximated: each return creates a token if the controller has any
+    Merfolk in play.)
+    """
+    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Wanderwine Farewell")
+
+    legal = [
+        oid for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and CardType.LAND not in obj.characteristics.types
+    ]
+    if not legal:
+        return []
+
+    def _has_merfolk(controller_id, gs):
+        for oid, obj in gs.objects.items():
+            if obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            if obj.controller != controller_id:
+                continue
+            if "Merfolk" in (obj.characteristics.subtypes or set()):
+                return True
+        return False
+
+    def _handler(choice, selected, gs):
+        evts = []
+        returned = 0
+        for tid in (selected or []):
+            obj = gs.objects.get(tid)
+            if not obj or obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            evts.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': tid,
+                    'from_zone_type': ZoneType.BATTLEFIELD,
+                    'to_zone_type': ZoneType.HAND,
+                    'to_zone': f'hand_{obj.owner}',
+                    'reason': 'bounced',
+                },
+                source=choice.source_id,
+            ))
+            returned += 1
+        if returned and _has_merfolk(caster_id, gs):
+            for _ in range(returned):
+                evts.append(Event(
+                    type=EventType.OBJECT_CREATED,
+                    payload={
+                        'name': 'Merfolk',
+                        'controller': caster_id,
+                        'power': 1,
+                        'toughness': 1,
+                        'types': [CardType.CREATURE],
+                        'subtypes': ['Merfolk'],
+                        'colors': [Color.WHITE, Color.BLUE],
+                        'is_token': True,
+                    },
+                    source=choice.source_id,
+                ))
+        return evts
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal,
+        prompt="Wanderwine Farewell: Choose one or two nonland permanents",
+        min_targets=1,
+        max_targets=min(2, len(legal)),
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def blight_rot_resolve(targets: list, state: GameState) -> list[Event]:
+    """Blight Rot: Put four -1/-1 counters on target creature."""
+    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Blight Rot")
+    legal = [
+        oid for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and CardType.CREATURE in obj.characteristics.types
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0]
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': tid, 'counter_type': '-1/-1', 'amount': 4},
+            source=choice.source_id,
+        )]
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal,
+        prompt="Blight Rot: Choose target creature",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def darkness_descends_resolve(targets: list, state: GameState) -> list[Event]:
+    """Darkness Descends: Put two -1/-1 counters on each creature."""
+    spell_id, _ = _ecl_get_spell_and_caster(state, "Darkness Descends")
+    return [
+        Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': oid, 'counter_type': '-1/-1', 'amount': 2},
+            source=spell_id,
+        )
+        for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and CardType.CREATURE in obj.characteristics.types
+    ]
+
+
+def nameless_inversion_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Nameless Inversion: Target creature gets +3/-3 until end of turn.
+    (Loses-all-creature-types is engine-gap and not applied.)
+    """
+    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Nameless Inversion")
+    legal = [
+        oid for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and CardType.CREATURE in obj.characteristics.types
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0]
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': tid,
+                'power_mod': 3,
+                'toughness_mod': -3,
+                'duration': 'end_of_turn',
+            },
+            source=choice.source_id,
+        )]
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal,
+        prompt="Nameless Inversion: Choose target creature",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def perfect_intimidation_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Perfect Intimidation: Choose one or both —
+    - Target opponent exiles two cards from their hand.
+    - Remove all counters from target creature.
+    """
+    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Perfect Intimidation")
+    opponents = [pid for pid in state.players if pid != caster_id]
+
+    def _exile_two_handler(choice, selected, gs):
+        # Selected here is the chosen opponent's chosen cards.
+        if not selected:
+            return []
+        opp = choice.callback_data.get('opponent_id')
+        evts = []
+        for cid in selected[:2]:
+            evts.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': cid,
+                    'from_zone_type': ZoneType.HAND,
+                    'from_zone': f'hand_{opp}',
+                    'to_zone_type': ZoneType.EXILE,
+                    'to_zone': 'exile',
+                },
+                source=choice.source_id,
+            ))
+        return evts
+
+    def _remove_counters_handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0]
+        obj = gs.objects.get(tid)
+        if not obj:
+            return []
+        evts = []
+        # Remove all counter types this creature has.
+        counters = getattr(obj.state, 'counters', {}) or {}
+        for ctype, amount in list(counters.items()):
+            if amount > 0:
+                evts.append(Event(
+                    type=EventType.COUNTER_REMOVED,
+                    payload={
+                        'object_id': tid,
+                        'counter_type': ctype,
+                        'amount': amount,
+                    },
+                    source=choice.source_id,
+                ))
+        return evts
+
+    def _mode_exile_two(gs):
+        if not opponents:
+            return
+        opp = opponents[0]
+        hand = gs.zones.get(f"hand_{opp}")
+        if not hand or not hand.objects:
+            return
+        # Use the discard helper but flip events to exile via the rider.
+        # Simpler: open a target choice scoped to the opponent's hand.
+        ch = create_target_choice(
+            state=gs,
+            player_id=opp,
+            source_id=spell_id,
+            legal_targets=list(hand.objects),
+            prompt="Perfect Intimidation: Exile two cards from hand",
+            min_targets=min(2, len(hand.objects)),
+            max_targets=min(2, len(hand.objects)),
+        )
+        ch.choice_type = "target_with_callback"
+        ch.callback_data['handler'] = _exile_two_handler
+        ch.callback_data['opponent_id'] = opp
+
+    def _mode_remove_counters(gs):
+        legal = [
+            oid for oid, obj in gs.objects.items()
+            if obj.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in obj.characteristics.types
+        ]
+        if not legal:
+            return
+        ch = create_target_choice(
+            state=gs,
+            player_id=caster_id,
+            source_id=spell_id,
+            legal_targets=legal,
+            prompt="Perfect Intimidation: Remove all counters from target creature",
+        )
+        ch.choice_type = "target_with_callback"
+        ch.callback_data['handler'] = _remove_counters_handler
+
+    modes = [
+        {"index": 0, "text": "Target opponent exiles two cards from hand."},
+        {"index": 1, "text": "Remove all counters from target creature."},
+    ]
+    choice = create_modal_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        modes=modes,
+        min_modes=1,
+        max_modes=2,
+        prompt="Perfect Intimidation — Choose one or both:",
+    )
+    choice.choice_type = "modal_with_callback"
+
+    def _modal_handler(choice, selected, gs):
+        # Run modes in order; later prompts may overwrite the earlier one
+        # (nested choices), which mirrors the existing modal handlers in
+        # this codebase.
+        for sel in (selected or []):
+            idx = sel["index"] if isinstance(sel, dict) else sel
+            if idx == 0:
+                _mode_exile_two(gs)
+            elif idx == 1:
+                _mode_remove_counters(gs)
+        return []
+
+    choice.callback_data['handler'] = _modal_handler
+    return []
+
+
+def blossoming_defense_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Blossoming Defense: Target creature you control gets +2/+2 and gains
+    hexproof until end of turn.
+    """
+    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Blossoming Defense")
+    legal = [
+        oid for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and obj.controller == caster_id
+        and CardType.CREATURE in obj.characteristics.types
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0]
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': tid,
+                    'power_mod': 2,
+                    'toughness_mod': 2,
+                    'duration': 'end_of_turn',
+                },
+                source=choice.source_id,
+            ),
+            Event(
+                type=EventType.KEYWORD_GRANT,
+                payload={
+                    'object_id': tid,
+                    'keywords': ['hexproof'],
+                    'until': 'end_of_turn',
+                },
+                source=choice.source_id,
+            ),
+        ]
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal,
+        prompt="Blossoming Defense: Target creature you control",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -3039,6 +3556,7 @@ RIVERGUARDS_REFLEXES = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Target creature gets +2/+2 and gains first strike until end of turn. Untap it.",
+    resolve=riverguards_reflexes_resolve,
 )
 
 SHORE_LURKER = make_creature(
@@ -3352,6 +3870,7 @@ RUN_AWAY_TOGETHER = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Choose two target creatures controlled by different players. Return those creatures to their owners' hands.",
+    resolve=run_away_together_resolve,
 )
 
 SHINESTRIKER = make_creature(
@@ -3460,6 +3979,7 @@ THIRST_FOR_IDENTITY = make_instant(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Draw three cards. Then discard two cards unless you discard a creature card.",
+    resolve=thirst_for_identity_resolve,
 )
 
 UNEXPECTED_ASSISTANCE = make_instant(
@@ -3495,6 +4015,7 @@ WANDERWINE_FAREWELL = make_sorcery(
     colors={Color.BLUE},
     text="Convoke (Your creatures can help cast this spell. Each creature you tap while casting this spell pays for {1} or one mana of that creature's color.)\nReturn one or two target nonland permanents to their owners' hands. Then if you control a Merfolk, create a 1/1 white and blue Merfolk creature token for each permanent returned to its owner's hand this way.",
     subtypes={"Merfolk"},
+    resolve=wanderwine_farewell_resolve,
 )
 
 WILD_UNRAVELING = make_instant(
@@ -3544,6 +4065,7 @@ BLIGHT_ROT = make_instant(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Put four -1/-1 counters on target creature.",
+    resolve=blight_rot_resolve,
 )
 
 BLIGHTED_BLACKTHORN = make_creature(
@@ -3614,6 +4136,7 @@ DARKNESS_DESCENDS = make_sorcery(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     text="Put two -1/-1 counters on each creature.",
+    resolve=darkness_descends_resolve,
 )
 
 DAWNHAND_DISSIDENT = make_creature(
@@ -3768,6 +4291,7 @@ NAMELESS_INVERSION = make_instant(
     colors={Color.BLACK},
     text="Changeling (This card is every creature type.)\nTarget creature gets +3/-3 and loses all creature types until end of turn.",
     subtypes={"Shapeshifter"},
+    resolve=nameless_inversion_resolve,
 )
 
 NIGHTMARE_SOWER = make_creature(
@@ -3785,6 +4309,7 @@ PERFECT_INTIMIDATION = make_sorcery(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     text="Choose one or both —\n• Target opponent exiles two cards from their hand.\n• Remove all counters from target creature.",
+    resolve=perfect_intimidation_resolve,
 )
 
 REQUITING_HEX = make_instant(
@@ -4245,6 +4770,7 @@ BLOSSOMING_DEFENSE = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Target creature you control gets +2/+2 and gains hexproof until end of turn. (It can't be the target of spells or abilities your opponents control.)",
+    resolve=blossoming_defense_resolve,
 )
 
 BRISTLEBANE_BATTLER = make_creature(

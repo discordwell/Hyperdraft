@@ -4812,6 +4812,435 @@ def reasonable_doubt_resolve(targets: list, state: GameState) -> list[Event]:
 
 
 # =============================================================================
+# Phase 2B vanilla-spell resolves (auto-pattern matcher gaps)
+# =============================================================================
+
+def cerebral_confiscation_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Cerebral Confiscation: Choose one —
+    - Target opponent discards two cards.
+    - Target opponent reveals their hand. You choose a nonland card from it.
+      That player discards that card.
+    """
+    spell_id, caster_id = _get_spell_and_caster(state, "Cerebral Confiscation")
+    opponents = [pid for pid in state.players if pid != caster_id]
+    if not opponents:
+        return []
+    target_opp = opponents[0]
+
+    def _mode_discard_two(choice, selected, gs):
+        # Discard two: post a discard choice on the opponent's hand.
+        hand = gs.zones.get(f"hand_{target_opp}")
+        if not hand or not hand.objects:
+            return []
+        from src.cards.interceptor_helpers import create_discard_choice
+        create_discard_choice(
+            state=gs,
+            player_id=target_opp,
+            source_id=spell_id,
+            card_ids=list(hand.objects),
+            discard_count=min(2, len(hand.objects)),
+            prompt="Cerebral Confiscation: Discard two cards",
+        )
+        return []
+
+    def _mode_reveal_choose(choice, selected, gs):
+        # Reveal hand, you pick a nonland to discard.
+        def nonland(card):
+            return CardType.LAND not in card.characteristics.types
+
+        def _discard_handler(c, sel, gs2):
+            if not sel:
+                return []
+            return [Event(
+                type=EventType.DISCARD,
+                payload={'object_id': sel[0], 'player': target_opp},
+                source=c.source_id,
+            )]
+
+        ch = create_hand_reveal_choice(
+            state=gs,
+            choosing_player_id=caster_id,
+            source_id=spell_id,
+            target_player_id=target_opp,
+            card_filter=nonland,
+            min_choices=1,
+            max_choices=1,
+            prompt="Cerebral Confiscation: Choose a nonland card to discard",
+        )
+        if ch:
+            ch.choice_type = "hand_reveal_with_callback"
+            ch.callback_data['handler'] = _discard_handler
+        return []
+
+    modes = [
+        {"index": 0, "text": "Target opponent discards two cards."},
+        {"index": 1, "text": "Reveal opponent's hand. Choose a nonland card to discard."},
+    ]
+    choice = create_modal_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        modes=modes,
+        min_modes=1,
+        max_modes=1,
+        prompt="Cerebral Confiscation — Choose one:",
+    )
+    choice.choice_type = "modal_with_callback"
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        idx = selected[0]["index"] if isinstance(selected[0], dict) else selected[0]
+        if idx == 0:
+            return _mode_discard_two(choice, selected, gs)
+        return _mode_reveal_choose(choice, selected, gs)
+
+    choice.callback_data['handler'] = _handler
+    return []
+
+
+def extract_a_confession_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Extract a Confession: Each opponent sacrifices a creature of their choice.
+    (Collect-evidence rider is an engine gap; we always run the basic mode.)
+    """
+    spell_id, caster_id = _get_spell_and_caster(state, "Extract a Confession")
+    opponents = [pid for pid in state.players if pid != caster_id]
+    if not opponents:
+        return []
+
+    # Open a sacrifice choice for each opponent that has a creature.
+    for opp in opponents:
+        legal = [
+            oid for oid, obj in state.objects.items()
+            if obj.zone == ZoneType.BATTLEFIELD
+            and obj.controller == opp
+            and CardType.CREATURE in obj.characteristics.types
+        ]
+        if not legal:
+            continue
+        create_sacrifice_choice(
+            state=state,
+            player_id=opp,
+            source_id=spell_id,
+            permanent_ids=legal,
+            sacrifice_count=1,
+            prompt="Extract a Confession: Sacrifice a creature",
+        )
+    return []
+
+
+def macabre_reconstruction_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Macabre Reconstruction: Return up to two target creature cards from your
+    graveyard to your hand.
+    """
+    spell_id, caster_id = _get_spell_and_caster(state, "Macabre Reconstruction")
+
+    grave = state.zones.get(f"graveyard_{caster_id}")
+    legal: list[str] = []
+    if grave:
+        for cid in grave.objects:
+            obj = state.objects.get(cid)
+            if obj and CardType.CREATURE in obj.characteristics.types:
+                legal.append(cid)
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        evts = []
+        for cid in (selected or []):
+            obj = gs.objects.get(cid)
+            if not obj:
+                continue
+            evts.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': cid,
+                    'from_zone_type': ZoneType.GRAVEYARD,
+                    'from_zone': f'graveyard_{caster_id}',
+                    'to_zone_type': ZoneType.HAND,
+                    'to_zone': f'hand_{obj.owner}',
+                    'reason': 'returned',
+                },
+                source=choice.source_id,
+            ))
+        return evts
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal,
+        prompt="Macabre Reconstruction: Choose up to 2 creature cards to return",
+        min_targets=0,
+        max_targets=min(2, len(legal)),
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def felonious_rage_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Felonious Rage: Target creature you control gets +2/+0 and gains haste
+    until end of turn. (Death-trigger Detective rider is engine-gap.)
+    """
+    spell_id, caster_id = _get_spell_and_caster(state, "Felonious Rage")
+    legal = [
+        oid for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and obj.controller == caster_id
+        and CardType.CREATURE in obj.characteristics.types
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0]
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': tid,
+                    'power_mod': 2,
+                    'toughness_mod': 0,
+                    'duration': 'end_of_turn',
+                },
+                source=choice.source_id,
+            ),
+            Event(
+                type=EventType.KEYWORD_GRANT,
+                payload={
+                    'object_id': tid,
+                    'keywords': ['haste'],
+                    'until': 'end_of_turn',
+                },
+                source=choice.source_id,
+            ),
+        ]
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal,
+        prompt="Felonious Rage: Target creature you control",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def audience_with_trostani_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Audience with Trostani: Create a 0/1 green Plant creature token, then
+    draw cards equal to the number of differently named creature tokens you
+    control. We approximate "differently named" by counting distinct names
+    among token creatures the caster controls (post-creation).
+    """
+    spell_id, caster_id = _get_spell_and_caster(state, "Audience with Trostani")
+    # Count distinct token names BEFORE creation; then add Plant after.
+    distinct_names: set = set()
+    for oid, obj in state.objects.items():
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if obj.controller != caster_id:
+            continue
+        if CardType.CREATURE not in obj.characteristics.types:
+            continue
+        # Heuristic: tokens are the ones flagged in object state. Use name
+        # uniqueness across the controller's creatures as a proxy.
+        if getattr(obj.state, 'is_token', False):
+            distinct_names.add(obj.name)
+
+    # The Plant we're about to make adds at least one name ("Plant").
+    distinct_names.add("Plant")
+    draw_count = len(distinct_names)
+
+    return [
+        Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Plant',
+                'controller': caster_id,
+                'power': 0,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Plant'],
+                'colors': [Color.GREEN],
+                'is_token': True,
+            },
+            source=spell_id,
+        ),
+        Event(
+            type=EventType.DRAW,
+            payload={'count': draw_count, 'player': caster_id},
+            source=spell_id,
+        ),
+    ]
+
+
+def hardhitting_question_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Hard-Hitting Question: Target creature you control deals damage equal to
+    its power to target creature or planeswalker you don't control.
+    """
+    spell_id, caster_id = _get_spell_and_caster(state, "Hard-Hitting Question")
+
+    # First target: creature you control
+    own_creatures = [
+        oid for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and obj.controller == caster_id
+        and CardType.CREATURE in obj.characteristics.types
+    ]
+    if not own_creatures:
+        return []
+
+    def _opp_handler(choice, selected, gs):
+        if not selected:
+            return []
+        opp_target = selected[0]
+        attacker_id = choice.callback_data.get('attacker_id')
+        attacker = gs.objects.get(attacker_id)
+        if not attacker:
+            return []
+        damage = get_power(attacker, gs)
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={
+                'target': opp_target,
+                'amount': damage,
+                'source': attacker_id,
+                'is_combat': False,
+            },
+            source=attacker_id,
+        )]
+
+    def _own_handler(choice, selected, gs):
+        if not selected:
+            return []
+        attacker_id = selected[0]
+        opp_targets = []
+        for oid, obj in gs.objects.items():
+            if obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            if obj.controller == caster_id:
+                continue
+            if (CardType.CREATURE in obj.characteristics.types
+                    or CardType.PLANESWALKER in obj.characteristics.types):
+                opp_targets.append(oid)
+        if not opp_targets:
+            return []
+        ch2 = create_target_choice(
+            state=gs,
+            player_id=caster_id,
+            source_id=spell_id,
+            legal_targets=opp_targets,
+            prompt="Hard-Hitting Question: Choose creature or planeswalker to be dealt damage",
+        )
+        ch2.choice_type = "target_with_callback"
+        ch2.callback_data['handler'] = _opp_handler
+        ch2.callback_data['attacker_id'] = attacker_id
+        return []
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=own_creatures,
+        prompt="Hard-Hitting Question: Choose your creature to deal damage",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _own_handler
+    return []
+
+
+def urgent_necropsy_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Urgent Necropsy: Destroy up to one target artifact, up to one target
+    creature, up to one target enchantment, and up to one target
+    planeswalker. (Collect-evidence cost is engine-gap and ignored.)
+    """
+    spell_id, caster_id = _get_spell_and_caster(state, "Urgent Necropsy")
+
+    # Build per-category target pools.
+    artifacts, creatures, enchantments, walkers = [], [], [], []
+    for oid, obj in state.objects.items():
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        t = obj.characteristics.types
+        if CardType.ARTIFACT in t:
+            artifacts.append(oid)
+        if CardType.CREATURE in t:
+            creatures.append(oid)
+        if CardType.ENCHANTMENT in t:
+            enchantments.append(oid)
+        if CardType.PLANESWALKER in t:
+            walkers.append(oid)
+
+    # Open a single target choice per category (each up to one), chained.
+    pools = [
+        ("artifact", artifacts),
+        ("creature", creatures),
+        ("enchantment", enchantments),
+        ("planeswalker", walkers),
+    ]
+    pools = [(label, pool) for label, pool in pools if pool]
+    if not pools:
+        return []
+
+    def _make_chained_handler(remaining):
+        def _handler(choice, selected, gs):
+            evts = []
+            for tid in (selected or []):
+                obj = gs.objects.get(tid)
+                if not obj or obj.zone != ZoneType.BATTLEFIELD:
+                    continue
+                evts.append(Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': tid},
+                    source=choice.source_id,
+                ))
+            # Open the next pool, if any.
+            if remaining:
+                label, pool = remaining[0]
+                rest = remaining[1:]
+                ch2 = create_target_choice(
+                    state=gs,
+                    player_id=caster_id,
+                    source_id=spell_id,
+                    legal_targets=pool,
+                    prompt=f"Urgent Necropsy: Choose up to one {label} to destroy",
+                    min_targets=0,
+                    max_targets=1,
+                )
+                ch2.choice_type = "target_with_callback"
+                ch2.callback_data['handler'] = _make_chained_handler(rest)
+            return evts
+        return _handler
+
+    # Kick off the first prompt.
+    label, first_pool = pools[0]
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=first_pool,
+        prompt=f"Urgent Necropsy: Choose up to one {label} to destroy",
+        min_targets=0,
+        max_targets=1,
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _make_chained_handler(pools[1:])
+    return []
+
+
+# =============================================================================
 # ADDITIONAL SETUP FUNCTIONS (auto-generated wrap-up batch)
 # =============================================================================
 
@@ -7433,6 +7862,7 @@ CEREBRAL_CONFISCATION = make_sorcery(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Choose one —\n• Target opponent discards two cards.\n• Target opponent reveals their hand. You choose a nonland card from it. That player discards that card.",
+    resolve=cerebral_confiscation_resolve,
 )
 
 CLANDESTINE_MEDDLER = make_creature(
@@ -7457,6 +7887,7 @@ EXTRACT_A_CONFESSION = make_sorcery(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="As an additional cost to cast this spell, you may collect evidence 6. (Exile cards with total mana value 6 or greater from your graveyard.)\nEach opponent sacrifices a creature of their choice. If evidence was collected, instead each opponent sacrifices a creature with the greatest power among creatures they control.",
+    resolve=extract_a_confession_resolve,
 )
 
 FESTERLEECH = make_creature(
@@ -7535,6 +7966,7 @@ MACABRE_RECONSTRUCTION = make_sorcery(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     text="This spell costs {2} less to cast if a creature card was put into your graveyard from anywhere this turn.\nReturn up to two target creature cards from your graveyard to your hand.",
+    resolve=macabre_reconstruction_resolve,
 )
 
 MASSACRE_GIRL_KNOWN_KILLER = make_creature(
@@ -7814,6 +8246,7 @@ FELONIOUS_RAGE = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Target creature you control gets +2/+0 and gains haste until end of turn. When that creature dies this turn, create a 2/2 white and blue Detective creature token.",
+    resolve=felonious_rage_resolve,
 )
 
 FRANTIC_SCAPEGOAT = make_creature(
@@ -8063,6 +8496,7 @@ AUDIENCE_WITH_TROSTANI = make_sorcery(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Create a 0/1 green Plant creature token, then draw cards equal to the number of differently named creature tokens you control.",
+    resolve=audience_with_trostani_resolve,
 )
 
 AXEBANE_FEROX = make_creature(
@@ -8168,6 +8602,7 @@ HARDHITTING_QUESTION = make_sorcery(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Target creature you control deals damage equal to its power to target creature or planeswalker you don't control.",
+    resolve=hardhitting_question_resolve,
 )
 
 HEDGE_WHISPERER = make_creature(
@@ -9005,6 +9440,7 @@ URGENT_NECROPSY = make_instant(
     mana_cost="{2}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     text="As an additional cost to cast this spell, collect evidence X, where X is the total mana value of the permanents this spell targets.\nDestroy up to one target artifact, up to one target creature, up to one target enchantment, and up to one target planeswalker.",
+    resolve=urgent_necropsy_resolve,
 )
 
 VANNIFAR_EVOLVED_ENIGMA = make_creature(
