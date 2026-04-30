@@ -360,6 +360,252 @@ ORZHOV_CLUESTONE = make_trainer_item(
 
 
 # =============================================================================
+# Obzlet → Obzedat evolution line — the Ghost Council itself
+# =============================================================================
+
+def _council_punishment_effect(attacker, state):
+    """Place 2 damage counters on each of opponent's Benched Pokemon."""
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    bench_zone = state.zones.get(f"bench_{opp_id}")
+    if not bench_zone:
+        return []
+    events = []
+    for pkm_id in list(bench_zone.objects):
+        if not pkm_id:
+            continue
+        target = state.objects.get(pkm_id)
+        if not target:
+            continue
+        target.state.damage_counters += 2
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': pkm_id, 'counters': 2,
+                     'source': 'Council Punishment'},
+        ))
+    return events
+
+
+OBZLET = make_pokemon(
+    name="Obzlet",
+    hp=70,
+    pokemon_type=PokemonType.FIGHTING.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Tiny Decree",
+         "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 30, "text": ""},
+    ],
+    weakness_type=PokemonType.PSYCHIC.value,
+    retreat_cost=1,
+    text=("A cute trio of tiny spectral nobles in tiny robes, holding "
+          "tiny gavels and arguing in tiny voices over tiny grievances."),
+    rarity="common",
+)
+
+OBZEDAT_GHOST_COUNCIL = make_pokemon(
+    name="Obzedat, Ghost Council",
+    hp=120,
+    pokemon_type=PokemonType.FIGHTING.value,
+    evolution_stage="Stage 1",
+    evolves_from="Obzlet",
+    attacks=[
+        {"name": "Council Punishment",
+         "cost": [{"type": "F", "count": 1}, {"type": "D", "count": 1}],
+         "damage": 80,
+         "text": "Place 2 damage counters on each of your opponent's "
+                 "Benched Pokemon.",
+         "effect_fn": _council_punishment_effect},
+    ],
+    weakness_type=PokemonType.PSYCHIC.value,
+    retreat_cost=2,
+    text=("Five spectral patriarchs ruling Orzhov by unanimous, eternal, "
+          "and merciless verdict. Their gaze settles every debt."),
+    rarity="rare",
+)
+
+
+# =============================================================================
+# More stand-alone Basic Pokemon
+# =============================================================================
+
+def _drain_life_effect(attacker, state):
+    """Heal 30 (3 counters) from this Pokemon."""
+    if attacker.state.damage_counters <= 0:
+        return []
+    healed = min(3, attacker.state.damage_counters)
+    attacker.state.damage_counters -= healed
+    return [Event(
+        type=EventType.PKM_HEAL,
+        payload={'pokemon_id': attacker.id, 'amount': healed * 10,
+                 'source': 'Drain Life'},
+    )]
+
+
+VIZKOPA_GUILDMAGE = make_pokemon(
+    name="Vizkopa Guildmage",
+    hp=80,
+    pokemon_type=PokemonType.FIGHTING.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Drain Life",
+         "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 30,
+         "text": "Heal 30 damage from this Pokemon.",
+         "effect_fn": _drain_life_effect},
+    ],
+    weakness_type=PokemonType.PSYCHIC.value,
+    retreat_cost=1,
+    text=("A two-tone mage who siphons vitality through brokered contracts. "
+          "Her smile is always written in someone else's blood."),
+    rarity="uncommon",
+)
+
+
+CARTEL_ARISTOCRAT = make_pokemon(
+    name="Cartel Aristocrat",
+    hp=70,
+    pokemon_type=PokemonType.FIGHTING.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Sacrificial Gambit",
+         "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 40, "text": ""},
+    ],
+    weakness_type=PokemonType.PSYCHIC.value,
+    retreat_cost=1,
+    text=("Born of old money and older promises. She trades servants "
+          "for safety with a polite, untroubled smile."),
+    rarity="uncommon",
+)
+
+
+def _treasury_recover_effect(attacker, state):
+    """Retrieve 1 random Pokemon card from your discard to your hand."""
+    grave = state.zones.get(f"graveyard_{attacker.controller}")
+    hand = state.zones.get(f"hand_{attacker.controller}")
+    if not grave or not hand:
+        return []
+    pokemon_ids = []
+    for cid in grave.objects:
+        obj = state.objects.get(cid)
+        if obj and obj.characteristics and CardType.POKEMON in obj.characteristics.types:
+            pokemon_ids.append(cid)
+    if not pokemon_ids:
+        return []
+    chosen = random.choice(pokemon_ids)
+    grave.objects.remove(chosen)
+    hand.objects.append(chosen)
+    obj = state.objects.get(chosen)
+    if obj:
+        obj.zone = ZoneType.HAND
+    return [Event(
+        type=EventType.DRAW,
+        payload={'player': attacker.controller, 'count': 1,
+                 'source': 'Treasury Thrull'},
+    )]
+
+
+TREASURY_THRULL = make_pokemon(
+    name="Treasury Thrull",
+    hp=90,
+    pokemon_type=PokemonType.DARKNESS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Vault Reclaim",
+         "cost": [{"type": "D", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 50,
+         "text": "Put a random Pokemon card from your discard pile "
+                 "into your hand.",
+         "effect_fn": _treasury_recover_effect},
+    ],
+    weakness_type=PokemonType.GRASS.value,
+    retreat_cost=2,
+    text=("A hulking servitor wrought of bone and gold leaf. It guards "
+          "the cathedral vaults and remembers every coin."),
+    rarity="uncommon",
+)
+
+
+KNIGHT_OF_OBLIGATION = make_pokemon(
+    name="Knight of Obligation",
+    hp=60,
+    pokemon_type=PokemonType.FIGHTING.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Dutiful Strike",
+         "cost": [{"type": "F", "count": 1}],
+         "damage": 30, "text": ""},
+    ],
+    weakness_type=PokemonType.PSYCHIC.value,
+    retreat_cost=1,
+    text=("Sworn to a covenant older than her bloodline. Her vows "
+          "weigh heavier than her armor, and she is plated in silver."),
+    rarity="common",
+)
+
+
+# =============================================================================
+# Special Energy / Item — Orzhov Blend Energy
+# =============================================================================
+
+def _orzhov_blend_energy_effect(event, state):
+    """Search deck for one Fighting Energy AND one Darkness Energy and
+    attach BOTH directly to the active Pokemon."""
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    library = state.zones.get(f"library_{player_id}")
+    active_zone = state.zones.get(f"active_spot_{player_id}")
+    if not library or not active_zone or not active_zone.objects:
+        return []
+    active_id = active_zone.objects[0]
+    active = state.objects.get(active_id)
+    if not active:
+        return []
+    found_fighting = None
+    found_darkness = None
+    for card_id in library.objects:
+        obj = state.objects.get(card_id)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.ENERGY not in obj.characteristics.types:
+            continue
+        ptype = getattr(obj.card_def, 'pokemon_type', None) if obj.card_def else None
+        if ptype == PokemonType.FIGHTING.value and not found_fighting:
+            found_fighting = card_id
+        elif ptype == PokemonType.DARKNESS.value and not found_darkness:
+            found_darkness = card_id
+        if found_fighting and found_darkness:
+            break
+    events = []
+    for cid in (found_fighting, found_darkness):
+        if cid:
+            library.objects.remove(cid)
+            active.state.attached_energy.append(cid)
+            energy_obj = state.objects.get(cid)
+            if energy_obj:
+                energy_obj.zone = ZoneType.BATTLEFIELD
+            events.append(Event(
+                type=EventType.PKM_ATTACH_ENERGY,
+                payload={'pokemon_id': active_id, 'energy_id': cid,
+                         'source': 'Orzhov Blend Energy'},
+            ))
+    random.shuffle(library.objects)
+    return events
+
+
+ORZHOV_BLEND_ENERGY = make_trainer_item(
+    name="Orzhov Blend Energy",
+    text=("Search your deck for a Fighting Energy and a Darkness Energy "
+          "and attach both to your Active Pokemon. Then, shuffle your deck."),
+    rarity="rare",
+    resolve=_orzhov_blend_energy_effect,
+)
+
+
+# =============================================================================
 # Set registry
 # =============================================================================
 
@@ -372,6 +618,13 @@ BEYOND_RAVNICA_ORZHOV = {
     "Orzhova, the Church of Deals": ORZHOVA_THE_CHURCH_OF_DEALS,
     "Kaya, Ghost Assassin": KAYA_GHOST_ASSASSIN,
     "Orzhov Cluestone": ORZHOV_CLUESTONE,
+    "Obzlet": OBZLET,
+    "Obzedat, Ghost Council": OBZEDAT_GHOST_COUNCIL,
+    "Vizkopa Guildmage": VIZKOPA_GUILDMAGE,
+    "Cartel Aristocrat": CARTEL_ARISTOCRAT,
+    "Treasury Thrull": TREASURY_THRULL,
+    "Knight of Obligation": KNIGHT_OF_OBLIGATION,
+    "Orzhov Blend Energy": ORZHOV_BLEND_ENERGY,
 }
 
 
@@ -387,21 +640,21 @@ def make_orzhov_deck() -> list:
     deck.extend([TEYSLET] * 4)
     deck.extend([TEYSERIN] * 3)
     deck.extend([TEYSA_KARLOV_EX] * 2)
-    deck.extend([KARLOV_OF_THE_GHOST_COUNCIL] * 4)
-    deck.extend([TITHE_DRINKER] * 3)
+    deck.extend([OBZLET] * 3)
+    deck.extend([OBZEDAT_GHOST_COUNCIL] * 2)
+    deck.extend([KARLOV_OF_THE_GHOST_COUNCIL] * 2)
     # Trainers (22)
     deck.extend([ORZHOVA_THE_CHURCH_OF_DEALS] * 2)
     deck.extend([KAYA_GHOST_ASSASSIN] * 2)
     deck.extend([ORZHOV_CLUESTONE] * 3)
+    deck.extend([ORZHOV_BLEND_ENERGY] * 2)
     deck.extend([NEST_BALL] * 4)
     deck.extend([ULTRA_BALL] * 2)
     deck.extend([RARE_CANDY] * 2)
     deck.extend([SWITCH] * 1)
     deck.extend([POTION] * 1)
     deck.extend([PROFESSOR_RESEARCH] * 2)
-    deck.extend([IONO] * 1)
     deck.extend([BOSS_ORDERS] * 1)
-    deck.extend([JUDGE] * 1)
     # Energy (22) — Orzhov runs Fighting (white substitute) and Darkness
     deck.extend([FIGHTING_ENERGY] * 14)
     deck.extend([DARKNESS_ENERGY] * 8)

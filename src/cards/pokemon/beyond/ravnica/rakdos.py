@@ -352,6 +352,283 @@ RAKDOS_CLUESTONE = make_trainer_item(
 
 
 # =============================================================================
+# Bloodlet evolution line — vampire bat
+# =============================================================================
+
+
+BLOODLET = make_pokemon(
+    name="Bloodlet",
+    hp=70,
+    pokemon_type=PokemonType.DARKNESS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Fang Nip",
+         "cost": [{"type": "D", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 30, "text": ""},
+    ],
+    weakness_type=PokemonType.GRASS.value,
+    retreat_cost=1,
+    text=("A pudgy baby bat-vampire with comically oversized fangs. "
+          "It bonks itself in the chin every time it tries to bite."),
+    rarity="common",
+)
+
+
+def _bloodletter_aclazotz_effect(attacker, state):
+    """Discard 2 cards from your hand (high-cost-high-payoff flavor)."""
+    pid = attacker.controller
+    hand = state.zones.get(f"hand_{pid}")
+    grave = state.zones.get(f"graveyard_{pid}")
+    if not hand:
+        return []
+    events = []
+    discarded = 0
+    while discarded < 2 and hand.objects:
+        discard_id = hand.objects.pop(0)
+        if grave:
+            grave.objects.append(discard_id)
+        obj = state.objects.get(discard_id)
+        if obj:
+            obj.zone = ZoneType.GRAVEYARD
+        events.append(Event(
+            type=EventType.PKM_DISCARD_ENERGY,  # generic discard signal
+            payload={'player': pid, 'card_id': discard_id,
+                     'source': 'Bloodletter of Aclazotz'},
+        ))
+        discarded += 1
+    return events
+
+
+BLOODLETTER_OF_ACLAZOTZ = make_pokemon(
+    name="Bloodletter of Aclazotz",
+    hp=120,
+    pokemon_type=PokemonType.DARKNESS.value,
+    evolution_stage="Stage 1",
+    evolves_from="Bloodlet",
+    attacks=[
+        {"name": "Crimson Tithe",
+         "cost": [{"type": "D", "count": 2}, {"type": "C", "count": 1}],
+         "damage": 100,
+         "text": "Discard 2 cards from your hand.",
+         "effect_fn": _bloodletter_aclazotz_effect},
+    ],
+    weakness_type=PokemonType.GRASS.value,
+    retreat_cost=2,
+    text=("Anointed servant of the bat-god. Its bite is a sacrament "
+          "and its tithe is paid in stories burned to ash."),
+    rarity="rare",
+)
+
+
+# =============================================================================
+# Stand-alone Basic Pokemon (additions)
+# =============================================================================
+
+def _spike_jester_haste_effect(attacker, state):
+    """Place 1 damage counter on the attacker (haste flavor)."""
+    attacker.state.damage_counters += 1
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': attacker.id, 'counters': 1,
+                 'source': 'Spike Jester'},
+    )]
+
+
+SPIKE_JESTER = make_pokemon(
+    name="Spike Jester",
+    hp=80,
+    pokemon_type=PokemonType.DARKNESS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Headlong Charge",
+         "cost": [{"type": "D", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 50,
+         "text": "This Pokemon does 10 damage to itself.",
+         "effect_fn": _spike_jester_haste_effect},
+    ],
+    weakness_type=PokemonType.GRASS.value,
+    retreat_cost=1,
+    text=("A nimble imp in a checkered costume that thrives on momentum. "
+          "It would rather dent its own skull than slow down."),
+    rarity="common",
+)
+
+
+def _spawn_of_mayhem_madness_effect(attacker, state):
+    """+20 damage if you have 5+ cards in your discard pile (madness flavor)."""
+    pid = attacker.controller
+    grave = state.zones.get(f"graveyard_{pid}")
+    if not grave or len(grave.objects) < 5:
+        return []
+    opp_id = next((p for p in state.players if p != pid), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    target.state.damage_counters += 2  # +20 damage
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target_id, 'counters': 2,
+                 'source': 'Spawn of Mayhem'},
+    )]
+
+
+SPAWN_OF_MAYHEM = make_pokemon(
+    name="Spawn of Mayhem",
+    hp=90,
+    pokemon_type=PokemonType.FIRE.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Demonic Frenzy",
+         "cost": [{"type": "R", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 40,
+         "text": ("If you have 5 or more cards in your discard pile, "
+                  "this attack does 20 more damage."),
+         "effect_fn": _spawn_of_mayhem_madness_effect},
+    ],
+    weakness_type=PokemonType.WATER.value,
+    retreat_cost=2,
+    text=("A horned hellion that grows stronger as the body count rises. "
+          "Madness is its ladder; carnage is its rung."),
+    rarity="uncommon",
+)
+
+
+GORE_HOUSE_CHAINWALKER = make_pokemon(
+    name="Gore-House Chainwalker",
+    hp=70,
+    pokemon_type=PokemonType.FIRE.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Chain Slam",
+         "cost": [{"type": "R", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 50, "text": ""},
+    ],
+    weakness_type=PokemonType.WATER.value,
+    retreat_cost=1,
+    text=("A chain-flailing brute that walks where the carnival's "
+          "bouncers fear to stomp."),
+    rarity="common",
+)
+
+
+def _hellhole_flailer_discard_effect(attacker, state):
+    """+30 damage if you discard 1 card from your hand. Always discard if possible."""
+    pid = attacker.controller
+    hand = state.zones.get(f"hand_{pid}")
+    grave = state.zones.get(f"graveyard_{pid}")
+    if not hand or not hand.objects:
+        return []
+    # AI policy: always discard if hand has cards.
+    discard_id = hand.objects.pop(0)
+    if grave:
+        grave.objects.append(discard_id)
+    obj = state.objects.get(discard_id)
+    if obj:
+        obj.zone = ZoneType.GRAVEYARD
+    opp_id = next((p for p in state.players if p != pid), None)
+    events = []
+    if opp_id:
+        active_zone = state.zones.get(f"active_spot_{opp_id}")
+        if active_zone and active_zone.objects:
+            target_id = active_zone.objects[0]
+            target = state.objects.get(target_id)
+            if target:
+                target.state.damage_counters += 3  # +30 damage
+                events.append(Event(
+                    type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+                    payload={'pokemon_id': target_id, 'counters': 3,
+                             'source': 'Hellhole Flailer'},
+                ))
+    return events
+
+
+HELLHOLE_FLAILER = make_pokemon(
+    name="Hellhole Flailer",
+    hp=60,
+    pokemon_type=PokemonType.DARKNESS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Reckless Flail",
+         "cost": [{"type": "D", "count": 1}],
+         "damage": 30,
+         "text": ("You may discard a card from your hand. If you do, "
+                  "this attack does 30 more damage."),
+         "effect_fn": _hellhole_flailer_discard_effect},
+    ],
+    weakness_type=PokemonType.GRASS.value,
+    retreat_cost=1,
+    text=("A pit-bound brawler whose every flail loosens another tooth, "
+          "but loosens an opponent's spine in the bargain."),
+    rarity="common",
+)
+
+
+# =============================================================================
+# Rakdos Blend Energy — special item that attaches both colors directly
+# =============================================================================
+
+def _rakdos_blend_energy_effect(event, state):
+    """Search deck for one DARKNESS_ENERGY and one FIRE_ENERGY, attach both
+    directly to the active Pokemon, shuffle deck."""
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    library = state.zones.get(f"library_{player_id}")
+    active_zone = state.zones.get(f"active_spot_{player_id}")
+    if not library or not active_zone or not active_zone.objects:
+        return []
+    active_id = active_zone.objects[0]
+    active = state.objects.get(active_id)
+    if not active:
+        return []
+    found_dark = None
+    found_fire = None
+    for card_id in library.objects:
+        obj = state.objects.get(card_id)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.ENERGY not in obj.characteristics.types:
+            continue
+        ptype = getattr(obj.card_def, 'pokemon_type', None) if obj.card_def else None
+        if ptype == PokemonType.DARKNESS.value and not found_dark:
+            found_dark = card_id
+        elif ptype == PokemonType.FIRE.value and not found_fire:
+            found_fire = card_id
+        if found_dark and found_fire:
+            break
+    events = []
+    for cid in (found_dark, found_fire):
+        if cid:
+            library.objects.remove(cid)
+            active.state.attached_energy.append(cid)
+            obj = state.objects.get(cid)
+            if obj:
+                obj.zone = ZoneType.BATTLEFIELD
+            events.append(Event(
+                type=EventType.PKM_ATTACH_ENERGY,
+                payload={'pokemon_id': active_id, 'energy_id': cid,
+                         'source': 'Rakdos Blend Energy'},
+            ))
+    random.shuffle(library.objects)
+    return events
+
+
+RAKDOS_BLEND_ENERGY = make_trainer_item(
+    name="Rakdos Blend Energy",
+    text=("Search your deck for a Darkness Energy and a Fire Energy and "
+          "attach them both to your Active Pokemon. Then, shuffle your deck."),
+    rarity="rare",
+    resolve=_rakdos_blend_energy_effect,
+)
+
+
+# =============================================================================
 # Set registry
 # =============================================================================
 
@@ -364,6 +641,13 @@ BEYOND_RAVNICA_RAKDOS = {
     "Rix Maadi, Dungeon Palace": RIX_MAADI_DUNGEON_PALACE,
     "Tibalt, Rakish Instigator": TIBALT_RAKISH_INSTIGATOR,
     "Rakdos Cluestone": RAKDOS_CLUESTONE,
+    "Bloodlet": BLOODLET,
+    "Bloodletter of Aclazotz": BLOODLETTER_OF_ACLAZOTZ,
+    "Spike Jester": SPIKE_JESTER,
+    "Spawn of Mayhem": SPAWN_OF_MAYHEM,
+    "Gore-House Chainwalker": GORE_HOUSE_CHAINWALKER,
+    "Hellhole Flailer": HELLHOLE_FLAILER,
+    "Rakdos Blend Energy": RAKDOS_BLEND_ENERGY,
 }
 
 
@@ -375,25 +659,26 @@ def make_rakdos_deck() -> list:
         PROFESSOR_RESEARCH, IONO, BOSS_ORDERS, JUDGE,
     )
     deck = []
-    # Pokemon (16): 4-3-2 evolution line + 4 Cackler + 3 Hellsteed
+    # Pokemon (16): Rakdos parun line + Bloodlet line + 2 extra Cacklers
     deck.extend([RAKDOMLING] * 4)
     deck.extend([RAKDOMORE] * 3)
     deck.extend([RAKDOS_LORD_OF_RIOTS_EX] * 2)
-    deck.extend([RAKDOS_CACKLER] * 4)
-    deck.extend([CARNIVAL_HELLSTEED] * 3)
-    # Trainers (22)
+    deck.extend([BLOODLET] * 3)
+    deck.extend([BLOODLETTER_OF_ACLAZOTZ] * 2)
+    deck.extend([RAKDOS_CACKLER] * 2)
+    # Trainers (22): 9 guild-specific + 13 sv_starter staples
     deck.extend([RIX_MAADI_DUNGEON_PALACE] * 2)
     deck.extend([TIBALT_RAKISH_INSTIGATOR] * 2)
     deck.extend([RAKDOS_CLUESTONE] * 3)
+    deck.extend([RAKDOS_BLEND_ENERGY] * 2)
     deck.extend([NEST_BALL] * 4)
     deck.extend([ULTRA_BALL] * 2)
     deck.extend([RARE_CANDY] * 2)
     deck.extend([SWITCH] * 1)
     deck.extend([POTION] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 2)
+    deck.extend([PROFESSOR_RESEARCH] * 1)
     deck.extend([IONO] * 1)
     deck.extend([BOSS_ORDERS] * 1)
-    deck.extend([JUDGE] * 1)
     # Energy (22) — Rakdos runs both Darkness and Fire
     deck.extend([DARKNESS_ENERGY] * 14)
     deck.extend([FIRE_ENERGY] * 8)

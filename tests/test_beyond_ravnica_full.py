@@ -70,10 +70,10 @@ check("GUILD_DECK_BUILDERS has 10 entries",
 # Test 2: Each guild registry has 8 cards
 # =============================================================================
 
-print("\n=== Test 2: Each guild has 8 cards ===")
+print("\n=== Test 2: Each guild has 15 cards ===")
 for guild, registry in GUILD_REGISTRIES.items():
-    check(f"{guild} registry has 8 cards",
-          len(registry) == 8, f"got {len(registry)}")
+    check(f"{guild} registry has 15 cards",
+          len(registry) == 15, f"got {len(registry)}")
 
 
 # =============================================================================
@@ -91,8 +91,8 @@ for guild, builder in GUILD_DECK_BUILDERS.items():
 # =============================================================================
 
 print("\n=== Test 4: Aggregate registry ===")
-check("BEYOND_RAVNICA_CARDS has 80 entries",
-      len(BEYOND_RAVNICA_CARDS) == 80,
+check("BEYOND_RAVNICA_CARDS has 150 entries",
+      len(BEYOND_RAVNICA_CARDS) == 150,
       f"got {len(BEYOND_RAVNICA_CARDS)}")
 
 
@@ -100,7 +100,7 @@ check("BEYOND_RAVNICA_CARDS has 80 entries",
 # Test 5: Random guild-vs-guild AI smoke test
 # =============================================================================
 
-print("\n=== Test 5: AI vs AI smoke (5 random guild pairs) ===")
+print("\n=== Test 5: AI vs AI smoke (every guild plays once) ===")
 
 
 async def run_one_match(guild_a, guild_b):
@@ -126,11 +126,9 @@ async def run_one_match(guild_a, guild_b):
 random.seed(42)
 guild_list = sorted(EXPECTED_GUILDS)
 crashes = 0
-for i in range(5):
-    a = random.choice(guild_list)
-    b = random.choice(guild_list)
-    while b == a:
-        b = random.choice(guild_list)
+# Every guild plays at least once: pair guild i with guild (i+1) mod 10
+for i, a in enumerate(guild_list):
+    b = guild_list[(i + 1) % len(guild_list)]
     try:
         run(run_one_match(a, b))
         print(f"  PASS: {a} vs {b}")
@@ -140,7 +138,8 @@ for i in range(5):
         print(f"  FAIL: {a} vs {b} — {type(ex).__name__}: {ex}")
         failed += 1
 
-check("5 matches ran without crashing", crashes == 0, f"{crashes} crashes")
+check("All 10 matches ran without crashing", crashes == 0,
+      f"{crashes} crashes")
 
 
 # =============================================================================

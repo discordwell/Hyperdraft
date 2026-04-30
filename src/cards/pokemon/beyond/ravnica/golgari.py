@@ -407,6 +407,280 @@ GOLGARI_CLUESTONE = make_trainer_item(
 
 
 # =============================================================================
+# Izoni evolution line — recursion-flavored insect-elf
+# =============================================================================
+
+IZOLET = make_pokemon(
+    name="Izolet",
+    hp=70,
+    pokemon_type=PokemonType.GRASS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Tiny Skitter",
+         "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 30, "text": ""},
+    ],
+    weakness_type=PokemonType.FIRE.value,
+    retreat_cost=1,
+    text=("A cute baby insect-elf with a thousand twinkling eyes. "
+          "Each tiny pupil reflects a different memory of the undercity."),
+    rarity="common",
+)
+
+
+def _recursive_swarm_effect(attacker, state):
+    """+10 dmg per Pokemon in your discard pile, max +60."""
+    grave = state.zones.get(f"graveyard_{attacker.controller}")
+    if not grave:
+        return []
+    pkm_count = 0
+    for cid in grave.objects:
+        obj = state.objects.get(cid)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.POKEMON in obj.characteristics.types:
+            pkm_count += 1
+    bonus_counters = min(pkm_count, 6)  # cap at +60 dmg = 6 counters
+    if bonus_counters <= 0:
+        return []
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    target.state.damage_counters += bonus_counters
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={
+            'pokemon_id': target_id,
+            'counters': bonus_counters,
+            'source': 'Izoni, Thousand-Eyed',
+        },
+    )]
+
+
+IZONI_THOUSAND_EYED = make_pokemon(
+    name="Izoni, Thousand-Eyed",
+    hp=120,
+    pokemon_type=PokemonType.GRASS.value,
+    evolution_stage="Stage 1",
+    evolves_from="Izolet",
+    attacks=[
+        {"name": "Recursive Swarm",
+         "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 60,
+         "text": ("This attack does 10 more damage for each Pokemon in your "
+                  "discard pile (max 60)."),
+         "effect_fn": _recursive_swarm_effect},
+    ],
+    weakness_type=PokemonType.FIRE.value,
+    retreat_cost=2,
+    text=("Mother of swarms, queen of the Devkarin necropolis. Every eye "
+          "remembers a fallen drone — and calls it back."),
+    rarity="rare",
+)
+
+
+# =============================================================================
+# More stand-alone Basic Pokemon
+# =============================================================================
+
+def _venom_curl_effect(attacker, state):
+    """Heal 10 (1 counter) from this Pokemon."""
+    if attacker.state.damage_counters > 0:
+        attacker.state.damage_counters = max(
+            0, attacker.state.damage_counters - 1
+        )
+        return [Event(
+            type=EventType.PKM_HEAL,
+            payload={'pokemon_id': attacker.id, 'amount': 10},
+        )]
+    return []
+
+
+SLUICEWAY_SCORPION = make_pokemon(
+    name="Sluiceway Scorpion",
+    hp=80,
+    pokemon_type=PokemonType.DARKNESS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Venom Curl",
+         "cost": [{"type": "D", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 40,
+         "text": "Heal 10 damage from this Pokemon.",
+         "effect_fn": _venom_curl_effect},
+    ],
+    weakness_type=PokemonType.GRASS.value,
+    retreat_cost=1,
+    text=("Skitters through Ravnica's drainage canals, leaching life from "
+          "anything it stings to mend its own carapace."),
+    rarity="common",
+)
+
+
+DRUDGE_BEETLE = make_pokemon(
+    name="Drudge Beetle",
+    hp=70,
+    pokemon_type=PokemonType.GRASS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Mandible Crunch",
+         "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 40, "text": ""},
+    ],
+    weakness_type=PokemonType.FIRE.value,
+    retreat_cost=2,
+    text=("A diligent compost-beetle. Drags fallen leaves and broken bones "
+          "to the same neat heap with the patience of a saint."),
+    rarity="common",
+)
+
+
+def _harvest_souls_effect(attacker, state):
+    """+30 damage if opponent has any benched Pokemon."""
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    bench_zone = state.zones.get(f"bench_{opp_id}")
+    if not bench_zone or not bench_zone.objects:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    target.state.damage_counters += 3  # +30 dmg = 3 counters
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={
+            'pokemon_id': target_id,
+            'counters': 3,
+            'source': 'Slum Reaper',
+        },
+    )]
+
+
+SLUM_REAPER = make_pokemon(
+    name="Slum Reaper",
+    hp=90,
+    pokemon_type=PokemonType.DARKNESS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Harvest Souls",
+         "cost": [{"type": "D", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 50,
+         "text": ("If your opponent has any Benched Pokemon, "
+                  "this attack does 30 more damage."),
+         "effect_fn": _harvest_souls_effect},
+    ],
+    weakness_type=PokemonType.GRASS.value,
+    retreat_cost=2,
+    text=("Stalks the alleys at dusk, scythe rasping against the cobblestones. "
+          "Hunts where the herd is fattest."),
+    rarity="uncommon",
+)
+
+
+def _self_mill_effect(attacker, state):
+    """Mill the top card of your own deck (golgari self-mill flavor)."""
+    library = state.zones.get(f"library_{attacker.controller}")
+    grave = state.zones.get(f"graveyard_{attacker.controller}")
+    if not library or not library.objects:
+        return []
+    top_id = library.objects.pop(0)
+    top_obj = state.objects.get(top_id)
+    if grave:
+        grave.objects.append(top_id)
+    if top_obj:
+        top_obj.zone = ZoneType.GRAVEYARD
+    return []
+
+
+ERSTWHILE_TROOPER = make_pokemon(
+    name="Erstwhile Trooper",
+    hp=60,
+    pokemon_type=PokemonType.GRASS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Bonepile Salute",
+         "cost": [{"type": "G", "count": 1}],
+         "damage": 30,
+         "text": "Discard the top card of your deck.",
+         "effect_fn": _self_mill_effect},
+    ],
+    weakness_type=PokemonType.FIRE.value,
+    retreat_cost=1,
+    text=("A patchwork zombie soldier still drilling for a war that ended "
+          "centuries ago. Every step shakes loose another piece of itself."),
+    rarity="common",
+)
+
+
+# =============================================================================
+# Special Trainer — Golgari Blend Energy
+# =============================================================================
+
+def _golgari_blend_energy_effect(event, state):
+    """Search deck for one Grass Energy AND one Darkness Energy, attach BOTH to active."""
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    library = state.zones.get(f"library_{player_id}")
+    active_zone = state.zones.get(f"active_spot_{player_id}")
+    if not library or not active_zone or not active_zone.objects:
+        return []
+    active_id = active_zone.objects[0]
+    active = state.objects.get(active_id)
+    if not active:
+        return []
+    found_grass = None
+    found_dark = None
+    for card_id in library.objects:
+        obj = state.objects.get(card_id)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.ENERGY not in obj.characteristics.types:
+            continue
+        ptype = getattr(obj.card_def, 'pokemon_type', None) if obj.card_def else None
+        if ptype == PokemonType.GRASS.value and not found_grass:
+            found_grass = card_id
+        elif ptype == PokemonType.DARKNESS.value and not found_dark:
+            found_dark = card_id
+        if found_grass and found_dark:
+            break
+    events = []
+    for cid in (found_grass, found_dark):
+        if cid:
+            library.objects.remove(cid)
+            active.state.attached_energy.append(cid)
+            obj = state.objects.get(cid)
+            if obj:
+                obj.zone = ZoneType.BATTLEFIELD
+            events.append(Event(
+                type=EventType.PKM_ATTACH_ENERGY,
+                payload={'pokemon_id': active_id, 'energy_id': cid},
+            ))
+    random.shuffle(library.objects)
+    return events
+
+
+GOLGARI_BLEND_ENERGY = make_trainer_item(
+    name="Golgari Blend Energy",
+    text=("Search your deck for a Grass Energy and a Darkness Energy "
+          "and attach both to your Active Pokemon. Then, shuffle your deck."),
+    rarity="uncommon",
+    resolve=_golgari_blend_energy_effect,
+)
+
+
+# =============================================================================
 # Set registry
 # =============================================================================
 
@@ -419,6 +693,13 @@ BEYOND_RAVNICA_GOLGARI = {
     "Korozda, the Tangle": KOROZDA_THE_TANGLE,
     "Vraska, Golgari Queen": VRASKA_GOLGARI_QUEEN,
     "Golgari Cluestone": GOLGARI_CLUESTONE,
+    "Izolet": IZOLET,
+    "Izoni, Thousand-Eyed": IZONI_THOUSAND_EYED,
+    "Sluiceway Scorpion": SLUICEWAY_SCORPION,
+    "Drudge Beetle": DRUDGE_BEETLE,
+    "Slum Reaper": SLUM_REAPER,
+    "Erstwhile Trooper": ERSTWHILE_TROOPER,
+    "Golgari Blend Energy": GOLGARI_BLEND_ENERGY,
 }
 
 
@@ -430,17 +711,19 @@ def make_golgari_deck() -> list:
         PROFESSOR_RESEARCH, IONO, BOSS_ORDERS, JUDGE,
     )
     deck = []
-    # Pokemon (16) — 4-3-2 Jarad line + 4 Mazirek + 3 Rotwurm
+    # Pokemon (16) — 4-3-2 Jarad line + 3-2 Izoni line + 2 Mazirek
     deck.extend([JARLET] * 4)
     deck.extend([JARADITE] * 3)
     deck.extend([JARAD_GOLGARI_LICH_LORD_EX] * 2)
-    deck.extend([MAZIREK_KRAUL_DEATH_PRIEST] * 4)
-    deck.extend([GOLGARI_ROTWURM] * 3)
-    # Trainers (22)
+    deck.extend([IZOLET] * 3)
+    deck.extend([IZONI_THOUSAND_EYED] * 2)
+    deck.extend([MAZIREK_KRAUL_DEATH_PRIEST] * 2)
+    # Trainers (22) — 9 Golgari + 13 sv_starter
     deck.extend([KOROZDA_THE_TANGLE] * 2)
     deck.extend([VRASKA_GOLGARI_QUEEN] * 2)
     deck.extend([GOLGARI_CLUESTONE] * 3)
-    deck.extend([NEST_BALL] * 4)
+    deck.extend([GOLGARI_BLEND_ENERGY] * 2)
+    deck.extend([NEST_BALL] * 3)
     deck.extend([ULTRA_BALL] * 2)
     deck.extend([RARE_CANDY] * 2)
     deck.extend([SWITCH] * 1)
@@ -448,7 +731,6 @@ def make_golgari_deck() -> list:
     deck.extend([SUPER_ROD] * 1)
     deck.extend([PROFESSOR_RESEARCH] * 2)
     deck.extend([IONO] * 1)
-    deck.extend([BOSS_ORDERS] * 1)
     # Energy (22) — Golgari runs both Grass and Darkness
     deck.extend([GRASS_ENERGY] * 14)
     deck.extend([DARKNESS_ENERGY] * 8)

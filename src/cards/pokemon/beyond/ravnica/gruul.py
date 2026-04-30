@@ -443,6 +443,295 @@ GRUUL_CLUESTONE = make_trainer_item(
 
 
 # =============================================================================
+# Ruric Thar evolution line — twin-headed cyclops berserker
+# =============================================================================
+
+RURICLET = make_pokemon(
+    name="Ruriclet",
+    hp=70,
+    pokemon_type=PokemonType.FIRE.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Twin Tantrum",
+         "cost": [{"type": "R", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 30, "text": ""},
+    ],
+    weakness_type=PokemonType.WATER.value,
+    retreat_cost=1,
+    text=("Cute cyclops-troll twins joined at the shoulder. They argue "
+          "constantly but always agree on smashing things together."),
+    rarity="common",
+)
+
+
+def _rage_backlash_effect(attacker, state):
+    """Place 1 damage counter on attacker (rage backlash)."""
+    if not attacker:
+        return []
+    attacker.state.damage_counters += 1
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={
+            'pokemon_id': attacker.id,
+            'counters': 1,
+            'source': 'Ruric Thar (Backlash)',
+        },
+    )]
+
+
+RURIC_THAR_THE_UNBOWED = make_pokemon(
+    name="Ruric Thar, the Unbowed",
+    hp=120,
+    pokemon_type=PokemonType.FIRE.value,
+    evolution_stage="Stage 1",
+    evolves_from="Ruriclet",
+    attacks=[
+        {"name": "Unbowed Smash",
+         "cost": [{"type": "R", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 80,
+         "text": "Place 1 damage counter on this Pokemon.",
+         "effect_fn": _rage_backlash_effect},
+    ],
+    weakness_type=PokemonType.WATER.value,
+    retreat_cost=2,
+    text="The Unbowed two-headed cyclops, scourge of the Ninth District.",
+    rarity="rare",
+)
+
+
+# =============================================================================
+# Stand-alone Basic Pokemon (extended)
+# =============================================================================
+
+ATARKA_PUP = make_pokemon(
+    name="Atarka Pup",
+    hp=80,
+    pokemon_type=PokemonType.FIRE.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Big Swing",
+         "cost": [{"type": "R", "count": 2}, {"type": "C", "count": 1}],
+         "damage": 80, "text": ""},
+    ],
+    weakness_type=PokemonType.WATER.value,
+    retreat_cost=2,
+    text=("A juvenile dragon-broodling of clan Atarka. Eats first, "
+          "asks scaled questions never. Already bigger than most warriors."),
+    rarity="uncommon",
+)
+
+
+def _bloodied_bonus_effect(attacker, state):
+    """Capped +60 (+10 per damage counter on attacker, max 6 counters worth)."""
+    if not attacker:
+        return []
+    counters = min(attacker.state.damage_counters, 6)
+    bonus = counters  # 1 counter = 10 dmg = 1 damage counter
+    if bonus <= 0:
+        return []
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    target.state.damage_counters += bonus
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={
+            'pokemon_id': target_id,
+            'counters': bonus,
+            'source': 'Skarrgan Hellkite (Bloodied)',
+        },
+    )]
+
+
+SKARRGAN_HELLKITE = make_pokemon(
+    name="Skarrgan Hellkite",
+    hp=90,
+    pokemon_type=PokemonType.FIRE.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Bloodied Roar",
+         "cost": [{"type": "R", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 40,
+         "text": ("This attack does 10 more damage for each damage counter "
+                  "on this Pokemon (max +60)."),
+         "effect_fn": _bloodied_bonus_effect},
+    ],
+    weakness_type=PokemonType.WATER.value,
+    retreat_cost=2,
+    text=("A red-scaled dragon born from the rage pits. The angrier and "
+          "bloodier it gets, the harder it hits."),
+    rarity="rare",
+)
+
+
+def _wood_elves_effect(attacker, state):
+    """Search deck for a Grass Energy and attach it to active Pokemon."""
+    from src.cards.pokemon.sv_starter import GRASS_ENERGY
+    player_id = attacker.controller
+    library = state.zones.get(f"library_{player_id}")
+    active_zone = state.zones.get(f"active_spot_{player_id}")
+    if not library or not active_zone or not active_zone.objects:
+        return []
+    active_id = active_zone.objects[0]
+    active = state.objects.get(active_id)
+    if not active:
+        return []
+    # Find a Grass Energy in deck
+    energy_id = None
+    for card_id in library.objects:
+        obj = state.objects.get(card_id)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.ENERGY not in obj.characteristics.types:
+            continue
+        ptype = getattr(obj.card_def, 'pokemon_type', None) if obj.card_def else None
+        if ptype == PokemonType.GRASS.value:
+            energy_id = card_id
+            break
+    if not energy_id:
+        return []
+    library.objects.remove(energy_id)
+    active.state.attached_energy.append(energy_id)
+    energy_obj = state.objects.get(energy_id)
+    if energy_obj:
+        energy_obj.zone = ZoneType.BATTLEFIELD
+    random.shuffle(library.objects)
+    return [Event(
+        type=EventType.PKM_ATTACH_ENERGY,
+        payload={
+            'pokemon_id': active_id,
+            'energy_id': energy_id,
+            'source': 'Wood Elves',
+        },
+    )]
+
+
+WOOD_ELVES = make_pokemon(
+    name="Wood Elves",
+    hp=70,
+    pokemon_type=PokemonType.GRASS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Mana Dork",
+         "cost": [{"type": "G", "count": 1}],
+         "damage": 20,
+         "text": ("Search your deck for a Grass Energy and attach it to "
+                  "your Active Pokemon. Shuffle your deck."),
+         "effect_fn": _wood_elves_effect},
+    ],
+    weakness_type=PokemonType.FIRE.value,
+    retreat_cost=1,
+    text=("Quiet forest scouts who plant a sapling for every step. "
+          "They speak in pollen and never raise their voice."),
+    rarity="common",
+)
+
+
+def _burning_tree_mill_effect(attacker, state):
+    """Mill the top card of EACH player's deck."""
+    events = []
+    for pid in state.players:
+        library = state.zones.get(f"library_{pid}")
+        grave = state.zones.get(f"graveyard_{pid}")
+        if not library or not grave or not library.objects:
+            continue
+        top_id = library.objects.pop(0)
+        grave.objects.append(top_id)
+        top_obj = state.objects.get(top_id)
+        if top_obj:
+            top_obj.zone = ZoneType.GRAVEYARD
+    return events
+
+
+BURNING_TREE_SHAMAN = make_pokemon(
+    name="Burning-Tree Shaman",
+    hp=60,
+    pokemon_type=PokemonType.GRASS.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Wild Communion",
+         "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 30,
+         "text": "Each player discards the top card of their deck.",
+         "effect_fn": _burning_tree_mill_effect},
+    ],
+    weakness_type=PokemonType.FIRE.value,
+    retreat_cost=1,
+    text=("A green-flame druid who chants the names of dead trees. "
+          "The Burning-Tree clan listens for omens in every ash."),
+    rarity="uncommon",
+)
+
+
+# =============================================================================
+# Special Energy / Trainer (extended)
+# =============================================================================
+
+def _gruul_blend_effect(event, state):
+    """Search deck for one Fire Energy and one Grass Energy, attach BOTH to active."""
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    library = state.zones.get(f"library_{player_id}")
+    active_zone = state.zones.get(f"active_spot_{player_id}")
+    if not library or not active_zone or not active_zone.objects:
+        return []
+    active_id = active_zone.objects[0]
+    active = state.objects.get(active_id)
+    if not active:
+        return []
+    found_fire = None
+    found_grass = None
+    for card_id in library.objects:
+        obj = state.objects.get(card_id)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.ENERGY not in obj.characteristics.types:
+            continue
+        ptype = getattr(obj.card_def, 'pokemon_type', None) if obj.card_def else None
+        if ptype == PokemonType.FIRE.value and not found_fire:
+            found_fire = card_id
+        elif ptype == PokemonType.GRASS.value and not found_grass:
+            found_grass = card_id
+        if found_fire and found_grass:
+            break
+    events = []
+    for cid in (found_fire, found_grass):
+        if cid:
+            library.objects.remove(cid)
+            active.state.attached_energy.append(cid)
+            obj = state.objects.get(cid)
+            if obj:
+                obj.zone = ZoneType.BATTLEFIELD
+            events.append(Event(
+                type=EventType.PKM_ATTACH_ENERGY,
+                payload={
+                    'pokemon_id': active_id,
+                    'energy_id': cid,
+                    'source': 'Gruul Blend Energy',
+                },
+            ))
+    random.shuffle(library.objects)
+    return events
+
+
+GRUUL_BLEND_ENERGY = make_trainer_item(
+    name="Gruul Blend Energy",
+    text=("Search your deck for a Fire Energy and a Grass Energy and attach "
+          "both to your Active Pokemon. Then, shuffle your deck."),
+    rarity="rare",
+    resolve=_gruul_blend_effect,
+)
+
+
+# =============================================================================
 # Set registry
 # =============================================================================
 
@@ -455,6 +744,13 @@ BEYOND_RAVNICA_GRUUL = {
     "Skarrg, the Rage Pits": SKARRG_THE_RAGE_PITS,
     "Domri Rade": DOMRI_RADE,
     "Gruul Cluestone": GRUUL_CLUESTONE,
+    "Ruriclet": RURICLET,
+    "Ruric Thar, the Unbowed": RURIC_THAR_THE_UNBOWED,
+    "Atarka Pup": ATARKA_PUP,
+    "Skarrgan Hellkite": SKARRGAN_HELLKITE,
+    "Wood Elves": WOOD_ELVES,
+    "Burning-Tree Shaman": BURNING_TREE_SHAMAN,
+    "Gruul Blend Energy": GRUUL_BLEND_ENERGY,
 }
 
 
@@ -466,18 +762,20 @@ def make_gruul_deck() -> list:
         PROFESSOR_RESEARCH, IONO, BOSS_ORDERS, JUDGE,
     )
     deck = []
-    # Pokemon (16) — 4-3-2 line + 4 + 3
+    # Pokemon (16) — Borborygmos line + Ruric Thar line + filler
     deck.extend([BORBLET] * 4)
     deck.extend([BORBORGREW] * 3)
     deck.extend([BORBORYGMOS_EX] * 2)
-    deck.extend([BURNING_TREE_EMISSARY] * 4)
-    deck.extend([GHOR_CLAN_RAMPAGER] * 3)
+    deck.extend([RURICLET] * 3)
+    deck.extend([RURIC_THAR_THE_UNBOWED] * 2)
+    deck.extend([BURNING_TREE_EMISSARY] * 2)
     # Trainers (22)
     deck.extend([SKARRG_THE_RAGE_PITS] * 2)
     deck.extend([DOMRI_RADE] * 2)
     deck.extend([GRUUL_CLUESTONE] * 3)
-    deck.extend([NEST_BALL] * 4)
-    deck.extend([ULTRA_BALL] * 2)
+    deck.extend([GRUUL_BLEND_ENERGY] * 2)
+    deck.extend([NEST_BALL] * 3)
+    deck.extend([ULTRA_BALL] * 1)
     deck.extend([RARE_CANDY] * 2)
     deck.extend([SWITCH] * 1)
     deck.extend([POTION] * 1)
