@@ -251,6 +251,9 @@ class EventType(Enum):
     YGO_LP_CHANGE = auto()            # Life Points changed
     YGO_DRAW = auto()                 # Draw Phase draw
 
+    # OTJ Crime mechanic
+    CRIME_COMMITTED = auto()          # A player committed a crime (targeted opp/opp's permanent/opp's GY card)
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to

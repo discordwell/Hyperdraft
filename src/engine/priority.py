@@ -1460,7 +1460,7 @@ class PrioritySystem:
                 )
                 self.stack.push(item)
 
-            return [Event(
+            cast_event = Event(
                 type=EventType.CAST,
                 payload={
                     # Canonical spell-cast payload (used by spell-cast triggers).
@@ -1475,10 +1475,23 @@ class PrioritySystem:
                     'flashback': used_flashback,
                     'harmonize': used_harmonize,
                     'mayhem': used_mayhem,
+                    'targets': action.targets,
                 },
                 source=action.card_id,
                 controller=action.player_id,
-            )]
+            )
+
+            # OTJ: detect crime if this spell targets an opp / opp's permanent
+            # / opp's GY card. CRIME_COMMITTED fires alongside CAST.
+            from .crime import check_cast_targets_for_crime
+            crime_events = check_cast_targets_for_crime(
+                action.player_id,
+                action.targets,
+                self.state,
+                source_id=action.card_id,
+            )
+
+            return [cast_event] + crime_events
 
         step = plan[0]
         rest = plan[1:]
