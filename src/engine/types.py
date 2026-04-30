@@ -306,6 +306,10 @@ class EventType(Enum):
     LANDER_CREATED = auto()           # A Lander token was created
     LANDER_SACRIFICED = auto()        # A Lander token was sacrificed (sets turn_data flag)
     LANDER_SEARCH_LAND = auto()       # Resolve the search-for-basic-land step of Lander activation
+    # Edge of Eternities — Station mechanic
+    STATION_ACTIVATE = auto()           # Player taps another creature to charge a Station
+    STATION_CHARGE = auto()             # Charge counters being added to a Station
+    STATION_THRESHOLD_REACHED = auto()  # Station reached a charge threshold
 
 
 class EventStatus(Enum):
