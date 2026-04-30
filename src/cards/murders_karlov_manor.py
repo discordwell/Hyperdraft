@@ -6709,7 +6709,6 @@ RED_HERRING = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Clue", "Fish"},
     text="Haste\nThis creature attacks each combat if able.\n{2}, Sacrifice this creature: Draw a card.",
-    setup_interceptors=red_herring_setup
 )
 
 RUBBLEBELT_BRAGGART = make_creature(
@@ -7690,7 +7689,6 @@ TIN_STREET_GOSSIP = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Advisor", "Lizard"},
     text="Vigilance\n{T}: Add {R}{G}. Spend this mana only to cast face-down spells or to turn creatures face up.",
-    setup_interceptors=tin_street_gossip_setup
 )
 
 TOLSIMIR_MIDNIGHTS_LIGHT = make_creature(
@@ -7862,7 +7860,6 @@ MAGNIFYING_GLASS = make_artifact(
     name="Magnifying Glass",
     mana_cost="{3}",
     text="{T}: Add {C}.\n{4}, {T}: Investigate. (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
-    setup_interceptors=magnifying_glass_setup
 )
 
 SANITATION_AUTOMATON = make_artifact_creature(
@@ -7948,7 +7945,6 @@ SCENE_OF_THE_CRIME = make_artifact(
     mana_cost="",
     text="This land enters tapped.\n{T}: Add {C}.\n{T}, Tap an untapped creature you control: Add one mana of any color.\n{2}, Sacrifice this land: Draw a card.",
     subtypes={"Clue"},
-    setup_interceptors=scene_of_the_crime_setup
 )
 
 SHADOWY_BACKSTREET = make_land(

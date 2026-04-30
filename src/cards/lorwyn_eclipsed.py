@@ -2697,7 +2697,6 @@ GOLDMEADOW_NOMAD = make_creature(
     colors={Color.WHITE},
     subtypes={"Kithkin", "Scout"},
     text="{W}, Exile this card from your graveyard: Create a 1/1 green and white Kithkin creature token. Activate only as a sorcery.",
-    setup_interceptors=goldmeadow_nomad_setup,
 )
 
 KEEP_OUT = make_instant(
@@ -3786,7 +3785,6 @@ FLAMEBRAIDER = make_creature(
     colors={Color.RED},
     subtypes={"Bard", "Elemental"},
     text="{T}: Add two mana in any combination of colors. Spend this mana only to cast Elemental spells or activate abilities of Elemental sources.",
-    setup_interceptors=flamebraider_setup
 )
 
 FLAMEKIN_GILDWEAVER = make_creature(
@@ -4138,7 +4136,6 @@ GREAT_FOREST_DRUID = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Treefolk"},
     text="{T}: Add one mana of any color.",
-    setup_interceptors=great_forest_druid_setup
 )
 
 LUMINOLLUSK = make_creature(
@@ -4158,7 +4155,6 @@ LYS_ALANA_DIGNITARY = make_creature(
     colors={Color.GREEN},
     subtypes={"Advisor", "Elf"},
     text="As an additional cost to cast this spell, behold an Elf or pay {2}. (To behold an Elf, choose an Elf you control or reveal an Elf card from your hand.)\n{T}: Add {G}{G}. Activate only if there is an Elf card in your graveyard.",
-    setup_interceptors=lys_alana_dignitary_setup
 )
 
 LYS_ALANA_INFORMANT = make_creature(
@@ -4572,7 +4568,6 @@ FIGURE_OF_FABLE = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Kithkin"},
     text="{G/W}: This creature becomes a Kithkin Scout with base power and toughness 2/3.\n{1}{G/W}{G/W}: If this creature is a Scout, it becomes a Kithkin Soldier with base power and toughness 4/5.\n{3}{G/W}{G/W}{G/W}: If this creature is a Soldier, it becomes a Kithkin Avatar with base power and toughness 7/8 and protection from each of your opponents.",
-    setup_interceptors=figure_of_fable_setup
 )
 
 FLARING_CINDER = make_creature(
@@ -4873,7 +4868,6 @@ FIRDOCH_CORE = make_artifact(
     mana_cost="{3}",
     text="Changeling (This card is every creature type.)\n{T}: Add one mana of any color.\n{4}: This artifact becomes a 4/4 artifact creature until end of turn.",
     subtypes={"Shapeshifter"},
-    setup_interceptors=firdoch_core_setup
 )
 
 FORAGING_WICKERMAW = make_artifact_creature(
@@ -4912,7 +4906,6 @@ SPRINGLEAF_DRUM = make_artifact(
     name="Springleaf Drum",
     mana_cost="{1}",
     text="{T}, Tap an untapped creature you control: Add one mana of any color.",
-    setup_interceptors=springleaf_drum_setup
 )
 
 STALACTITE_DAGGER = make_artifact(
@@ -4933,13 +4926,11 @@ BLOOD_CRYPT = make_land(
 ECLIPSED_REALMS = make_land(
     name="Eclipsed Realms",
     text="As this land enters, choose Elemental, Elf, Faerie, Giant, Goblin, Kithkin, Merfolk, or Treefolk.\n{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a spell of the chosen type or activate an ability of a source of the chosen type.",
-    setup_interceptors=eclipsed_realms_setup
 )
 
 EVOLVING_WILDS = make_land(
     name="Evolving Wilds",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
-    setup_interceptors=evolving_wilds_setup
 )
 
 HALLOWED_FOUNTAIN = make_land(

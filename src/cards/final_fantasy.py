@@ -4247,7 +4247,6 @@ CARGO_SHIP = make_artifact(
     mana_cost="{1}{U}",
     text="Flying, vigilance\n{T}: Add {C}. Spend this mana only to cast an artifact spell or activate an ability of an artifact source.\nCrew 1 (Tap any number of creatures you control with total power 1 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
-    setup_interceptors=cargo_ship_ff_setup,
 )
 
 COMBAT_TUTORIAL = make_sorcery(
@@ -4404,7 +4403,6 @@ QIQIRN_MERCHANT = make_creature(
     colors={Color.BLUE},
     subtypes={"Beast", "Citizen"},
     text="{1}, {T}: Draw a card, then discard a card.\n{7}, {T}, Sacrifice this creature: Draw three cards. This ability costs {1} less to activate for each Town you control.",
-    setup_interceptors=qiqirn_merchant_ff_setup,
 )
 
 QUISTIS_TREPE = make_creature(
@@ -5073,7 +5071,6 @@ FREYA_CRESCENT = make_creature(
     subtypes={"Knight", "Rat"},
     supertypes={"Legendary"},
     text="Jump — During your turn, Freya Crescent has flying.\n{T}: Add {R}. Spend this mana only to cast an Equipment spell or activate an equip ability.",
-    setup_interceptors=freya_crescent_ff_setup,
 )
 
 GILGAMESH_MASTERATARMS = make_creature(
@@ -5514,7 +5511,6 @@ GOOBBUE_GARDENER = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast", "Plant"},
     text="{T}: Add {G}.",
-    setup_interceptors=goobbue_gardener_ff_setup,
 )
 
 GRAN_PULSE_OCHU = make_creature(
@@ -6196,7 +6192,6 @@ BLITZBALL = make_artifact(
     name="Blitzball",
     mana_cost="{3}",
     text="{T}: Add one mana of any color.\nGOOOOAAAALLL! — {T}, Sacrifice this artifact: Draw two cards. Activate only if an opponent was dealt combat damage by a legendary creature this turn.",
-    setup_interceptors=blitzball_ff_setup,
 )
 
 BUSTER_SWORD = make_artifact(
@@ -6318,7 +6313,6 @@ RELENTLESS_XATM092 = make_artifact_creature(
     colors=set(),
     subtypes={"Robot", "Spider"},
     text="This creature can't be blocked except by three or more creatures.\n{8}: Return this card from your graveyard to the battlefield tapped with a finality counter on it. (If a creature with a finality counter on it would die, exile it instead.)",
-    setup_interceptors=relentless_xatm092_ff_setup,
 )
 
 RING_OF_THE_LUCII = make_artifact(
@@ -6333,7 +6327,6 @@ WORLD_MAP = make_artifact(
     name="World Map",
     mana_cost="{1}",
     text="{1}, {T}, Sacrifice this artifact: Search your library for a basic land card, reveal it, put it into your hand, then shuffle.\n{3}, {T}, Sacrifice this artifact: Search your library for a land card, reveal it, put it into your hand, then shuffle.",
-    setup_interceptors=world_map_ff_setup,
 )
 
 ADVENTURERS_INN = make_land(
@@ -6354,14 +6347,12 @@ BARON_AIRSHIP_KINGDOM = make_land(
     name="Baron, Airship Kingdom",
     text="This land enters tapped.\n{T}: Add {U} or {R}.",
     subtypes={"Town"},
-    setup_interceptors=baron_airship_kingdom_ff_setup,
 )
 
 CAPITAL_CITY = make_land(
     name="Capital City",
     text="{T}: Add {C}.\n{1}, {T}: Add one mana of any color.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     subtypes={"Town"},
-    setup_interceptors=capital_city_ff_setup,
 )
 
 CLIVES_HIDEAWAY = make_land(
@@ -6375,7 +6366,6 @@ CROSSROADS_VILLAGE = make_land(
     name="Crossroads Village",
     text="This land enters tapped. As it enters, choose a color.\n{T}: Add one mana of the chosen color.",
     subtypes={"Town"},
-    setup_interceptors=crossroads_village_ff_setup,
 )
 
 EDEN_SEAT_OF_THE_SANCTUM = make_land(
@@ -6389,35 +6379,30 @@ GOHN_TOWN_OF_RUIN = make_land(
     name="Gohn, Town of Ruin",
     text="This land enters tapped.\n{T}: Add {B} or {G}.",
     subtypes={"Town"},
-    setup_interceptors=gohn_town_of_ruin_ff_setup,
 )
 
 THE_GOLD_SAUCER = make_land(
     name="The Gold Saucer",
     text="{T}: Add {C}.\n{2}, {T}: Flip a coin. If you win the flip, create a Treasure token.\n{3}, {T}, Sacrifice two artifacts: Draw a card.",
     subtypes={"Town"},
-    setup_interceptors=the_gold_saucer_ff_setup,
 )
 
 GONGAGA_REACTOR_TOWN = make_land(
     name="Gongaga, Reactor Town",
     text="This land enters tapped.\n{T}: Add {R} or {G}.",
     subtypes={"Town"},
-    setup_interceptors=gongaga_reactor_town_ff_setup,
 )
 
 GUADOSALAM_FARPLANE_GATEWAY = make_land(
     name="Guadosalam, Farplane Gateway",
     text="This land enters tapped.\n{T}: Add {G} or {U}.",
     subtypes={"Town"},
-    setup_interceptors=guadosalam_farplane_gateway_ff_setup,
 )
 
 INSOMNIA_CROWN_CITY = make_land(
     name="Insomnia, Crown City",
     text="This land enters tapped.\n{T}: Add {W} or {B}.",
     subtypes={"Town"},
-    setup_interceptors=insomnia_crown_city_ff_setup,
 )
 
 ISHGARD_THE_HOLY_SEE = make_sorcery(
@@ -6456,42 +6441,36 @@ RABANASTRE_ROYAL_CITY = make_land(
     name="Rabanastre, Royal City",
     text="This land enters tapped.\n{T}: Add {R} or {W}.",
     subtypes={"Town"},
-    setup_interceptors=rabanastre_royal_city_ff_setup,
 )
 
 SHARLAYAN_NATION_OF_SCHOLARS = make_land(
     name="Sharlayan, Nation of Scholars",
     text="This land enters tapped.\n{T}: Add {W} or {U}.",
     subtypes={"Town"},
-    setup_interceptors=sharlayan_nation_of_scholars_ff_setup,
 )
 
 STARTING_TOWN = make_land(
     name="Starting Town",
     text="This land enters tapped unless it's your first, second, or third turn of the game.\n{T}: Add {C}.\n{T}, Pay 1 life: Add one mana of any color.",
     subtypes={"Town"},
-    setup_interceptors=starting_town_ff_setup,
 )
 
 TRENO_DARK_CITY = make_land(
     name="Treno, Dark City",
     text="This land enters tapped.\n{T}: Add {U} or {B}.",
     subtypes={"Town"},
-    setup_interceptors=treno_dark_city_ff_setup,
 )
 
 VECTOR_IMPERIAL_CAPITAL = make_land(
     name="Vector, Imperial Capital",
     text="This land enters tapped.\n{T}: Add {B} or {R}.",
     subtypes={"Town"},
-    setup_interceptors=vector_imperial_capital_ff_setup,
 )
 
 WINDURST_FEDERATION_CENTER = make_land(
     name="Windurst, Federation Center",
     text="This land enters tapped.\n{T}: Add {G} or {W}.",
     subtypes={"Town"},
-    setup_interceptors=windurst_federation_center_ff_setup,
 )
 
 ZANARKAND_ANCIENT_METROPOLIS = make_sorcery(
@@ -6541,7 +6520,6 @@ WASTES = make_land(
     name="Wastes",
     text="{T}: Add {C}.",
     supertypes={"Basic"},
-    setup_interceptors=wastes_ff_setup,
 )
 
 CLOUD_PLANETS_CHAMPION = make_creature(
