@@ -31,7 +31,13 @@ from src.cards.interceptor_helpers import (
     make_end_step_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype, create_target_choice,
-    create_modal_choice
+    create_modal_choice,
+    make_graveyard_to_exile_replacer,
+)
+from src.engine.blb_mechanics import (
+    make_valiant_trigger,
+    make_expend_trigger,
+    make_forage_trigger,
 )
 
 
@@ -1891,7 +1897,7 @@ def beza_the_bounding_spring_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def bravekin_duo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated abilities with sorcery-speed restriction
+    # engine gap: activated {1}{T} sorcery-speed ability (target +1/+1 UEOT)
     return []
 
 
@@ -1962,8 +1968,22 @@ def feather_of_flight_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def flowerfoot_swordmaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Offspring (cost-based token copy) and Valiant (targeted-by-ally trigger)
-    return []
+    """Valiant — Mice you control get +1/+0 until end of turn."""
+    def pump_mice(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for tgt in state.objects.values():
+            if (tgt.controller == obj.controller and
+                tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types and
+                'Mouse' in tgt.characteristics.subtypes):
+                events.append(Event(
+                    type=EventType.PUMP,
+                    payload={'object_id': tgt.id, 'power': 1, 'toughness': 0,
+                             'duration': 'end_of_turn'},
+                    source=obj.id))
+        return events
+    # engine gap: Offspring {2} (cost-based token copy)
+    return [make_valiant_trigger(obj, pump_mice)]
 
 
 def jolly_gerbils_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1972,13 +1992,34 @@ def jolly_gerbils_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def mouse_trapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Valiant trigger
-    return []
+    """Valiant — Tap target creature an opponent controls."""
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effect': 'tap',
+                'effect_params': {},
+                'target_filter': 'opponent_creature',
+                'min_targets': 1,
+                'max_targets': 1,
+                'optional': False,
+            },
+            source=obj.id)]
+    return [make_valiant_trigger(obj, tap_effect)]
 
 
 def nettle_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Valiant trigger and sacrifice activated ability
-    return []
+    """Valiant — It gets +0/+2 until end of turn."""
+    def pump_self(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PUMP,
+            payload={'object_id': obj.id, 'power': 0, 'toughness': 2,
+                     'duration': 'end_of_turn'},
+            source=obj.id)]
+    # engine gap: sacrifice activated ability ({1}, Sac: Destroy artifact/enchantment)
+    return [make_valiant_trigger(obj, pump_self)]
 
 
 def star_charter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2031,22 +2072,118 @@ def waxwane_witness_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def whiskervale_forerunner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Valiant trigger
-    return []
+    """Valiant — Look at top 5 (simplified to scry 5)."""
+    def scry_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: full reveal-and-conditional-put-onto-bf — simplified to scry 5
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 5},
+            source=obj.id)]
+    return [make_valiant_trigger(obj, scry_effect)]
 
 
 # -----------------------------------------------------------------------------
 # BLUE CARDS
 # -----------------------------------------------------------------------------
 
-def azure_beastbinder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: unblockable-by-power restriction; remove-abilities + base-PT lock
+def _azure_beastbinder_execute(choice, selected, state: GameState) -> list[Event]:
+    """Apply -X/-Y to push creature toward 2/2 (closest engine approximation)."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    # engine gap: full lose-abilities + base-PT-lock; approximate with -1/-1 pump.
+    if CardType.CREATURE in target.characteristics.types:
+        return [Event(
+            type=EventType.PUMP,
+            payload={'object_id': target_id, 'power': -1, 'toughness': -1,
+                     'duration': 'end_of_turn'},
+            source=choice.source_id)]
     return []
+
+
+def azure_beastbinder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack trigger: target opp creature gets -1/-1 (approx of base-2/2 lock)."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        valid_targets = [
+            t.id for t in state.objects.values()
+            if t.controller != obj.controller
+            and t.zone == ZoneType.BATTLEFIELD
+            and (CardType.CREATURE in t.characteristics.types or
+                 CardType.ARTIFACT in t.characteristics.types or
+                 CardType.PLANESWALKER in t.characteristics.types)
+        ]
+        if not valid_targets:
+            return []
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose an artifact, creature, or planeswalker",
+            min_targets=0,
+            max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _azure_beastbinder_execute
+        return []
+    # engine gap: "can't be blocked by power 2+"; full lose-abilities + base-PT-lock
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def _daring_waverider_execute(choice, selected, state: GameState) -> list[Event]:
+    """Cast chosen instant/sorcery from gy without paying mana cost."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.GRAVEYARD:
+        return []
+    return [Event(
+        type=EventType.CAST,
+        payload={'object_id': target_id, 'controller': choice.player,
+                 'from_graveyard': True, 'without_paying_cost': True,
+                 'replace_graveyard_with_exile': True},
+        source=choice.source_id)]
 
 
 def daring_waverider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: cast-from-graveyard targeting and replacement-to-exile rider
-    return []
+    """ETB: may cast instant/sorcery from gy (MV<=4) without paying."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        gy_zone = state.zones.get(f'graveyard_{obj.controller}')
+        if not gy_zone:
+            return []
+        valid_targets = []
+        for oid in gy_zone.objects:
+            tgt = state.objects.get(oid)
+            if not tgt:
+                continue
+            types = tgt.characteristics.types
+            if CardType.INSTANT not in types and CardType.SORCERY not in types:
+                continue
+            mv = getattr(tgt.characteristics, 'mana_value', None)
+            if mv is None:
+                mv = 0
+            if mv > 4:
+                continue
+            valid_targets.append(oid)
+        if not valid_targets:
+            return []
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose an instant/sorcery card with MV<=4 to cast for free",
+            min_targets=0,
+            max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _daring_waverider_execute
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
 
 
 def dour_portmage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2150,13 +2287,44 @@ def gossips_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def kitnap_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Aura attachment + control-change + gift conditional stun counters
-    return []
+    """Aura ETB: tap enchanted creature; if no gift, 3 stun counters; gain control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        attached_id = getattr(obj.state, 'attached_to', None)
+        if not attached_id:
+            return []
+        # engine gap: gift-promised tracking — assume no gift, always stun.
+        return [
+            Event(type=EventType.TAP,
+                  payload={'object_id': attached_id},
+                  source=obj.id),
+            Event(type=EventType.COUNTER_ADDED,
+                  payload={'object_id': attached_id, 'counter_type': 'stun', 'amount': 3},
+                  source=obj.id),
+            Event(type=EventType.GAIN_CONTROL,
+                  payload={'object_id': attached_id, 'new_controller': obj.controller},
+                  source=obj.id),
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
 
 
 def kitsa_otterball_elite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: prowess static, activated draw/discard, copy-spell ability
-    return []
+    """Prowess: +1/+1 UEOT whenever you cast a noncreature spell."""
+    def noncreature_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        if caster != source.controller:
+            return False
+        types = set(event.payload.get('types', []))
+        return CardType.CREATURE not in types
+
+    def prowess_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.PUMP,
+                      payload={'object_id': obj.id, 'power': 1, 'toughness': 1,
+                               'duration': 'end_of_turn'},
+                      source=obj.id)]
+    # engine gap: activated {T}: loot ability; {2}{T}: copy-spell-with-power-gate
+    return [make_spell_cast_trigger(obj, prowess_effect, filter_fn=noncreature_filter)]
 
 
 def mockingbird_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2211,7 +2379,7 @@ def sugar_coat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def thought_shucker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Threshold-gated activated ability with once-only restriction
+    # engine gap: activated {1}{U} ability gated by Threshold (7+ gy) and once-only
     return []
 
 
@@ -2298,7 +2466,7 @@ def waterspout_warden_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def wishing_well_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: coin counter activation triggering conditional graveyard cast
+    # engine gap: activated {T}-add-coin-counter ability + conditional gy-cast trigger
     return []
 
 
@@ -2321,7 +2489,8 @@ def bandits_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def bonebind_orator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: graveyard-exile activated reanimation
+    # engine gap: activated ability with cost "{3}{B}, exile self from gy" — no
+    # generic activated-from-graveyard interceptor exists yet.
     return []
 
 
@@ -2699,8 +2868,18 @@ def brambleguard_captain_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def byway_barterer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Expend 4 mechanic
-    return []
+    """Expend 4 — discard hand, draw 2 (simplified to discard 1, draw 2)."""
+    def loot_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: "may discard your hand" choice — simplified to discard 1, draw 2
+        return [
+            Event(type=EventType.DISCARD,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+            Event(type=EventType.DRAW,
+                  payload={'player': obj.controller, 'amount': 2},
+                  source=obj.id),
+        ]
+    return [make_expend_trigger(obj, 4, loot_effect)]
 
 
 def dragonhawk_fates_tempest_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2730,13 +2909,23 @@ def dragonhawk_fates_tempest_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def emberheart_challenger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: prowess static and Valiant trigger
-    return []
+    """Valiant — Exile top of library; play it UEOT."""
+    def impulse_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.IMPULSE_DRAW,
+            payload={'player': obj.controller, 'amount': 1,
+                     'duration': 'end_of_turn'},
+            source=obj.id)]
+    # engine gap: prowess static (covered globally where prowess wires elsewhere)
+    return [make_valiant_trigger(obj, impulse_effect)]
 
 
 def festival_of_embers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: cast-from-graveyard for instants/sorceries with life cost; replace gy->exile
-    return []
+    """If a card or token would be put into ANY graveyard, exile it instead."""
+    # engine gap: gy-cast-with-life-cost permission ("During your turn, you may
+    # cast instants/sorceries from gy by paying 1 life"); activated sac ability.
+    return [make_graveyard_to_exile_replacer(
+        obj, affects_controller=True, affects_opponents=True)]
 
 
 def flamecache_gecko_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2937,7 +3126,7 @@ def manifold_mouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def raccoon_rallier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated tap ability with sorcery-speed restriction (haste grant)
+    # engine gap: activated {T} ability with sorcery-speed gate (target gains haste)
     return []
 
 
@@ -2974,8 +3163,25 @@ def reptilian_recruiter_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def roughshod_duo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Expend 4
-    return []
+    """Expend 4 — target creature you control gets +1/+1 and gains trample UEOT."""
+    def expend_effect(event: Event, state: GameState) -> list[Event]:
+        # Pick the first creature you control as default target (greedy).
+        for tgt in state.objects.values():
+            if (tgt.controller == obj.controller and
+                tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types):
+                return [
+                    Event(type=EventType.PUMP,
+                          payload={'object_id': tgt.id, 'power': 1, 'toughness': 1,
+                                   'duration': 'end_of_turn'},
+                          source=obj.id),
+                    Event(type=EventType.GRANT_KEYWORD,
+                          payload={'object_id': tgt.id, 'keyword': 'trample',
+                                   'duration': 'end_of_turn'},
+                          source=obj.id),
+                ]
+        return []
+    return [make_expend_trigger(obj, 4, expend_effect)]
 
 
 def stormsplitter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3026,8 +3232,18 @@ def sunspine_lynx_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def teapot_slinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Expend 4
-    return []
+    """Expend 4 — Deals 2 damage to each opponent."""
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for pid in state.players:
+            if pid != obj.controller:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': pid, 'amount': 2,
+                             'source': obj.id, 'is_combat': False},
+                    source=obj.id))
+        return events
+    return [make_expend_trigger(obj, 4, damage_effect)]
 
 
 def war_squeak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3046,8 +3262,18 @@ def war_squeak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def whiskerquill_scribe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Valiant trigger (loot)
-    return []
+    """Valiant — You may discard a card. If you do, draw a card. (Simplified to loot.)"""
+    def loot_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: "may" choice; simplified to unconditional loot
+        return [
+            Event(type=EventType.DISCARD,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+            Event(type=EventType.DRAW,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+        ]
+    return [make_valiant_trigger(obj, loot_effect)]
 
 
 # -----------------------------------------------------------------------------
@@ -3055,23 +3281,103 @@ def whiskerquill_scribe_setup(obj: GameObject, state: GameState) -> list[Interce
 # -----------------------------------------------------------------------------
 
 def barkknuckle_boxer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Expend 4
-    return []
+    """Expend 4 — Gains indestructible until end of turn."""
+    def indestructible_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': obj.id, 'keyword': 'indestructible',
+                     'duration': 'end_of_turn'},
+            source=obj.id)]
+    return [make_expend_trigger(obj, 4, indestructible_effect)]
 
 
 def brambleguard_veteran_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Expend 4
-    return []
+    """Expend 4 — Raccoons you control get +1/+1 and gain vigilance UEOT."""
+    def expend_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for tgt in state.objects.values():
+            if (tgt.controller == obj.controller and
+                tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types and
+                'Raccoon' in tgt.characteristics.subtypes):
+                events.append(Event(
+                    type=EventType.PUMP,
+                    payload={'object_id': tgt.id, 'power': 1, 'toughness': 1,
+                             'duration': 'end_of_turn'},
+                    source=obj.id))
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': tgt.id, 'keyword': 'vigilance',
+                             'duration': 'end_of_turn'},
+                    source=obj.id))
+        return events
+    return [make_expend_trigger(obj, 4, expend_effect)]
 
 
 def bushy_bodyguard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Offspring + Forage
-    return []
+    """ETB: may forage; if you do, put two +1/+1 counters on it."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: 'may' choice and full forage cost gating — simplified to
+        # always attempt forage; if cost can be paid, gain counters.
+        from src.engine.blb_mechanics import pay_forage_cost
+        if pay_forage_cost(obj.controller, state, source_id=obj.id):
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 2},
+                source=obj.id)]
+        return []
+    # engine gap: Offspring {2} (cost-based token copy)
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def _curious_forager_execute(choice, selected, state: GameState) -> list[Event]:
+    """Return chosen permanent card from graveyard to hand."""
+    target_id = selected[0] if selected else None
+    if not target_id:
+        return []
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.GRAVEYARD:
+        return []
+    return [Event(
+        type=EventType.RETURN_FROM_GRAVEYARD,
+        payload={'object_id': target_id, 'controller': choice.player,
+                 'destination': 'hand'},
+        source=choice.source_id)]
 
 
 def curious_forager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Forage with optional graveyard return targeting
-    return []
+    """ETB: may forage. When you do, return target permanent card from gy to hand."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: 'may' choice — simplified to always attempt forage.
+        from src.engine.blb_mechanics import pay_forage_cost
+        if not pay_forage_cost(obj.controller, state, source_id=obj.id):
+            return []
+        gy_zone = state.zones.get(f'graveyard_{obj.controller}')
+        if not gy_zone:
+            return []
+        permanent_types = {CardType.CREATURE, CardType.ARTIFACT,
+                           CardType.ENCHANTMENT, CardType.LAND,
+                           CardType.PLANESWALKER}
+        valid_targets = []
+        for oid in gy_zone.objects:
+            tgt = state.objects.get(oid)
+            if tgt and tgt.characteristics.types & permanent_types:
+                valid_targets.append(oid)
+        if not valid_targets:
+            return []
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a permanent card to return to your hand",
+            min_targets=1,
+            max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _curious_forager_execute
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
 
 
 def druid_of_the_spade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3227,7 +3533,8 @@ def innkeepers_talent_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def keeneyed_curator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: track exiled-with-this and apply +4/+4 / trample conditional
+    # engine gap: "exiled with this creature" provenance tracking + 4-type
+    # threshold static buff; activated {1}: exile-from-graveyard ability.
     return []
 
 
@@ -3371,7 +3678,7 @@ def stocking_the_pantry_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def tender_wildguide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated mana ability + activated +1/+1 counter ability (Offspring)
+    # engine gap: activated mana ability + activated +1/+1 counter; Offspring {2}
     return []
 
 
@@ -3476,7 +3783,8 @@ def alania_divergent_storm_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def baylen_the_haymaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap-N-tokens activated abilities
+    # engine gap: three activated abilities with "tap N untapped tokens you control"
+    # as their cost — no token-tap-cost framework exists yet.
     return []
 
 
@@ -3553,8 +3861,38 @@ def clement_the_worrywort_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def corpseberry_cultivator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Forage and forage trigger
-    return []
+    """Begin combat: may forage. Whenever you forage, +1/+1 counter on this."""
+    def combat_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.PHASE_START, EventType.COMBAT_DECLARED):
+            return False
+        if event.type == EventType.PHASE_START:
+            if event.payload.get('phase') != 'beginning_of_combat':
+                return False
+        return state.active_player == obj.controller
+
+    def begin_combat_forage(event: Event, state: GameState) -> list[Event]:
+        # engine gap: 'may' choice; simplified to always attempt forage.
+        from src.engine.blb_mechanics import pay_forage_cost
+        pay_forage_cost(obj.controller, state, source_id=obj.id)
+        return []
+
+    def counter_on_forage(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id)]
+
+    return [
+        Interceptor(
+            id=new_id(), source=obj.id, controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=combat_filter,
+            handler=lambda e, s: InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=begin_combat_forage(e, s)),
+            duration='while_on_battlefield'),
+        make_forage_trigger(obj, counter_on_forage),
+    ]
 
 
 def fireglass_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3660,8 +3998,14 @@ def the_infamous_cruelclaw_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def junkblade_bruiser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Expend 4
-    return []
+    """Expend 4 — This creature gets +2/+1 UEOT."""
+    def pump_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PUMP,
+            payload={'object_id': obj.id, 'power': 2, 'toughness': 1,
+                     'duration': 'end_of_turn'},
+            source=obj.id)]
+    return [make_expend_trigger(obj, 4, pump_effect)]
 
 
 def kastral_the_windcrested_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3689,7 +4033,7 @@ def kastral_the_windcrested_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 def lilysplash_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated flicker-with-counter ability
+    # engine gap: activated {1}{G}{U} sorcery-speed flicker-with-+1/+1 ability
     return []
 
 
@@ -3799,8 +4143,13 @@ def ral_crackling_wit_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def seedglaive_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Valiant trigger
-    return []
+    """Valiant — Put a +1/+1 counter on it."""
+    def counter_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id)]
+    return [make_valiant_trigger(obj, counter_effect)]
 
 
 def tidecaller_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3824,8 +4173,22 @@ def tidecaller_mentor_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def veteran_guardmouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Valiant trigger
-    return []
+    """Valiant — +1/+0 and gains first strike UEOT. Scry 1."""
+    def valiant_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.PUMP,
+                  payload={'object_id': obj.id, 'power': 1, 'toughness': 0,
+                           'duration': 'end_of_turn'},
+                  source=obj.id),
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': obj.id, 'keyword': 'first_strike',
+                           'duration': 'end_of_turn'},
+                  source=obj.id),
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+        ]
+    return [make_valiant_trigger(obj, valiant_effect)]
 
 
 def vren_the_relentless_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3880,8 +4243,14 @@ def vren_the_relentless_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def wandertale_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Expend 4; activated mana ability
-    return []
+    """Expend 4 — Put a +1/+1 counter on this creature."""
+    def counter_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id)]
+    # engine gap: activated mana ability ({T}: Add {R} or {G})
+    return [make_expend_trigger(obj, 4, counter_effect)]
 
 
 def ygra_eater_of_all_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3920,7 +4289,7 @@ def ygra_eater_of_all_setup(obj: GameObject, state: GameState) -> list[Intercept
 # -----------------------------------------------------------------------------
 
 def barkform_harvester_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Changeling and activated graveyard-to-bottom-of-library ability
+    # engine gap: Changeling (every creature type); activated {2} bottom-of-library
     return []
 
 
@@ -3953,7 +4322,7 @@ def heirloom_epic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def short_bow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: equipment attachment-bound bonuses + equip activated
+    # engine gap: Equipment attachment-bound +1/+1 / vigilance / reach + Equip {1}
     return []
 
 
@@ -3966,7 +4335,7 @@ def starforged_sword_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def tangle_tumbler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: vehicle-style abilities (counter activation; tap-tokens-to-crew)
+    # engine gap: Vehicle (tap-tokens-to-crew); activated {3}{T} counter ability
     return []
 
 
@@ -4010,7 +4379,8 @@ def lupinflower_village_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def mudflat_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: restricted mana, sacrifice graveyard-to-hand for tribal creatures
+    # engine gap: restricted mana ability ({B} for creature spells); activated
+    # {1}{B}{T}-Sac for tribal-gy-to-hand (Bat/Lizard/Rat/Squirrel)
     return []
 
 
@@ -4020,7 +4390,8 @@ def oakhollow_village_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def rockface_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: restricted mana, tribal pump activated ability
+    # engine gap: restricted mana ability; activated {R}{T} sorcery-speed tribal
+    # pump (Lizard/Mouse/Otter/Raccoon: +1/+0 + haste UEOT)
     return []
 
 
