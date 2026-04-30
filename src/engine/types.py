@@ -251,6 +251,9 @@ class EventType(Enum):
     YGO_LP_CHANGE = auto()            # Life Points changed
     YGO_DRAW = auto()                 # Draw Phase draw
 
+    # Edge of Eternities — Void mechanic
+    VOID_ACTIVATED = auto()           # Marker: Void condition became true this turn for a player
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
