@@ -2198,9 +2198,54 @@ def forsaken_miner_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def kaervek_the_punisher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Crime -> exile target black card from graveyard and copy it."""
-    # engine gap: crime tracking + graveyard-copy-cast flow not engine-tracked
-    return []
+    """Crime -> exile up to one target black card from your graveyard.
+    The "copy it and may cast (you lose 2 life if you do)" rider is an engine
+    gap (no graveyard-copy-cast flow); we still emit the exile and the
+    associated 2-life loss as the simplification chosen here."""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        gy_key = f"graveyard_{obj.controller}"
+        gy = state.zones.get(gy_key)
+        if not gy:
+            return []
+        legal_targets: list[str] = []
+        for cid in gy.objects:
+            card = state.objects.get(cid)
+            if not card:
+                continue
+            if Color.BLACK in (card.characteristics.colors or set()):
+                legal_targets.append(cid)
+        if not legal_targets:
+            return []
+
+        def handle_exile(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            tid = selected[0]
+            return [
+                Event(
+                    type=EventType.EXILE,
+                    payload={'object_id': tid},
+                    source=choice.source_id,
+                ),
+                Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': obj.controller, 'amount': -2},
+                    source=choice.source_id,
+                ),
+            ]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Kaervek, the Punisher: Exile up to one target black card from your graveyard",
+            min_targets=0,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_exile
+        return []
+    return [make_crime_committed_trigger(obj, crime_effect)]
 
 
 def overzealous_muscle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2375,9 +2420,75 @@ def demonic_ruckus_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def ferocification_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Beginning of combat: choose +2/+0 or menace+haste for your creature."""
-    # engine gap: targeted combat-start modal pump not auto-wired
-    return []
+    """Beginning of combat on your turn, choose one:
+      - Target creature you control gets +2/+0 UEOT.
+      - Target creature you control gains menace and haste UEOT.
+    Wired as a beginning-of-combat REACT that opens a modal target choice;
+    the choice handler emits PT_MODIFICATION or GRANT_KEYWORD events on the
+    chosen creature."""
+    def beginning_of_combat_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.PHASE_START, EventType.COMBAT_DECLARED):
+            return False
+        if event.type == EventType.PHASE_START and event.payload.get('phase') not in ('combat', 'beginning_of_combat'):
+            return False
+        return state.active_player == obj.controller
+
+    def open_modal(event: Event, state: GameState) -> InterceptorResult:
+        legal_targets: list[str] = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    o.controller == obj.controller and
+                    CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        def handle_modal(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            mode = (choice.callback_data or {}).get('mode_index', 0)
+            tid = selected[0]
+            if mode == 1:
+                return [
+                    Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={'object_id': tid, 'keyword': 'menace', 'duration': 'end_of_turn'},
+                        source=choice.source_id,
+                    ),
+                    Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={'object_id': tid, 'keyword': 'haste', 'duration': 'end_of_turn'},
+                        source=choice.source_id,
+                    ),
+                ]
+            return [Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': tid, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+                source=choice.source_id,
+            )]
+
+        # Default: choose mode 0 (+2/+0) and prompt for the target.
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Ferocification: target creature you control gets +2/+0 UEOT (mode 0) or gains menace+haste UEOT (mode 1)",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_modal
+        choice.callback_data['mode_index'] = 0
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=beginning_of_combat_filter,
+        handler=open_modal,
+        duration='while_on_battlefield',
+    )]
 
 
 def gila_courser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2637,9 +2748,99 @@ def intrepid_stablemaster_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def ornery_tumblewagg_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Beginning of combat: +1/+1 counter on a creature; saddled-attack doubles."""
-    # engine gap: targeted combat-start +1/+1 + counter doubling not engine-tracked
-    return []
+    """Beginning of combat on your turn: +1/+1 counter on target creature.
+    Saddle 2; whenever this attacks while saddled: double the number of
+    +1/+1 counters on target creature (we approximate via a fresh batch of
+    counters equal to its current +1/+1 counters).
+
+    The card text wants "target creature" generically; we restrict to a
+    creature you control to keep the prompt actionable in AI vs AI."""
+    def beginning_of_combat_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.PHASE_START, EventType.COMBAT_DECLARED):
+            return False
+        if event.type == EventType.PHASE_START and event.payload.get('phase') not in ('combat', 'beginning_of_combat'):
+            return False
+        return state.active_player == obj.controller
+
+    def open_counter_target(event: Event, state: GameState) -> InterceptorResult:
+        legal_targets: list[str] = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    o.controller == obj.controller and
+                    CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        def handle_counter(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': selected[0], 'counter_type': '+1/+1', 'amount': 1},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Ornery Tumblewagg: +1/+1 counter on target creature",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_counter
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    boc_interceptor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=beginning_of_combat_filter,
+        handler=open_counter_target,
+        duration='while_on_battlefield',
+    )
+
+    def saddled_attack_effect(event: Event, state: GameState) -> list[Event]:
+        legal_targets: list[str] = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_double(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            tid = selected[0]
+            target = gs.objects.get(tid)
+            if not target:
+                return []
+            current = (target.state.counters or {}).get('+1/+1', 0)
+            if current <= 0:
+                return []
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': tid, 'counter_type': '+1/+1', 'amount': current},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Ornery Tumblewagg: double the number of +1/+1 counters on target creature",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_double
+        return []
+
+    set_saddle_threshold(obj.card_def, 2) if obj.card_def else None
+    obj.state.saddle_threshold = 2
+    return [boc_interceptor, make_saddle_trigger(obj, threshold=2, effect_fn=saddled_attack_effect)]
 
 
 def rambling_possum_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2900,15 +3101,48 @@ def kellan_the_kid_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def laughing_jasper_flint_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Type-bend creatures you don't own; upkeep exile X cards."""
-    # engine gap: cross-controller type override + cross-library cast permission
-    return []
+    """At the beginning of your upkeep, exile the top X cards of target
+    opponent's library, where X is the number of outlaws you control.
+
+    Wired: upkeep trigger emitting EXILE_FROM_TOP from the first opponent.
+    The "may cast those cards / mana of any type" cross-library cast
+    permission and the static "creatures you don't own are also Mercenaries"
+    type-override remain engine gaps."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        x = 0
+        for o in state.objects.values():
+            if (o.controller == obj.controller and
+                    o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types and
+                    is_outlaw(o)):
+                x += 1
+        if x <= 0:
+            return []
+        target_player = None
+        for pid in state.players.keys():
+            if pid != obj.controller:
+                target_player = pid
+                break
+        if not target_player:
+            return []
+        return [Event(
+            type=EventType.EXILE_FROM_TOP,
+            payload={'player': target_player, 'amount': x},
+            source=obj.id,
+        )]
+    return [make_upkeep_trigger(obj, upkeep_effect)]
 
 
 def lazav_familiar_stranger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Crime -> +1/+1 counter and optional graveyard exile/copy."""
-    # engine gap: crime tracking + creature-copy effect not engine-tracked
-    return []
+    """Crime -> +1/+1 counter on Lazav (once per turn).
+    Skipped: optional graveyard-exile and copy-of-creature rider (engine gap)."""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+        )]
+    return [make_crime_committed_trigger(obj, crime_effect, once_per_turn=True)]
 
 
 def lilah_undefeated_slickshot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2990,9 +3224,61 @@ def rakdos_joins_up_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def rakdos_the_muscle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying, trample (kw); on-sac exile-from-opponent's-library; activated indestructible."""
-    # engine gap: sacrifice trigger + cross-library exile cast permissions not engine-tracked
-    return []
+    """Whenever you sacrifice another creature, exile cards equal to its
+    mana value from the top of target player's library.
+
+    Wired: sacrifice REACT trigger -> EXILE_FROM_TOP from the first opposing
+    player's library, count = the sacrificed creature's mana value
+    (approximate: 1 per mana symbol, digits parsed as integers). The
+    "may play those cards / mana of any type" cross-library cast permission
+    is left as an engine gap. The activated indestructible-and-tap ability
+    is also a separate engine gap (activated abilities)."""
+    from src.engine.library_search import _mana_value as _mv
+
+    def sacrifice_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('cause') != 'sacrifice':
+            return False
+        if event.payload.get('object_id') == obj.id:
+            return False
+        sacrificed = state.objects.get(event.payload.get('object_id'))
+        if not sacrificed:
+            return False
+        if sacrificed.controller != obj.controller:
+            return False
+        return CardType.CREATURE in sacrificed.characteristics.types
+
+    def exile_effect(event: Event, state: GameState) -> list[Event]:
+        sacrificed = state.objects.get(event.payload.get('object_id'))
+        if not sacrificed:
+            return []
+        mv = _mv(sacrificed.characteristics.mana_cost or "")
+        if mv <= 0:
+            return []
+        # Best-effort: pick first opponent.
+        target_player = None
+        for pid in state.players.keys():
+            if pid != obj.controller:
+                target_player = pid
+                break
+        if not target_player:
+            return []
+        return [Event(
+            type=EventType.EXILE_FROM_TOP,
+            payload={'player': target_player, 'amount': mv},
+            source=obj.id,
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=sacrifice_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=exile_effect(e, s)),
+        duration='while_on_battlefield',
+    )]
 
 
 def riku_of_many_paths_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3060,9 +3346,56 @@ def seraphic_steed_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def taii_wakeen_perfect_shot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Damage-equals-toughness draw; activated noncombat-damage scaling."""
-    # engine gap: damage-equals-toughness check + damage-replacement scaling not engine-tracked
-    return []
+    """Whenever a source you control deals noncombat damage to a creature
+    equal to that creature's toughness, draw a card.
+
+    Wired: REACT-priority interceptor on DAMAGE; on each event we check
+    source-controller, target is a creature on the battlefield, damage is
+    noncombat, and amount equals the creature's toughness. The activated
+    {X},{T} damage-scaling replacement remains an engine gap (no
+    activated-ability harness yet)."""
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('is_combat', False):
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return False
+        damage_source_id = event.source or event.payload.get('source')
+        damage_source = state.objects.get(damage_source_id) if damage_source_id else None
+        if not damage_source or damage_source.controller != obj.controller:
+            return False
+        target_id = event.payload.get('target') or event.payload.get('target_id')
+        target = state.objects.get(target_id) if target_id else None
+        if not target:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        toughness = get_toughness(target, state)
+        return amount == toughness
+
+    def draw_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=damage_filter,
+        handler=draw_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def vraska_the_silencer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3127,9 +3460,16 @@ def wylie_duke_atiin_hero_setup(obj: GameObject, state: GameState) -> list[Inter
 # -----------------------------------------------------------------------------
 
 def bandits_haul_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Crime -> loot counter; activated draw-from-counters."""
-    # engine gap: crime tracking + activated draw-from-counters not engine-tracked
-    return []
+    """Crime -> add a 'loot' counter on this artifact (once per turn).
+    The {2}, {T}, remove-two-loot-counters: draw-a-card activated ability is
+    a separate engine gap (activated abilities)."""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'loot', 'amount': 1},
+            source=obj.id,
+        )]
+    return [make_crime_committed_trigger(obj, crime_effect, once_per_turn=True)]
 
 
 def boom_box_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

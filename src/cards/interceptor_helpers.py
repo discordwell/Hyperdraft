@@ -3137,17 +3137,15 @@ def make_crime_committed_trigger(
             new_events=new_events,
         )
 
-    chapter_interceptor = Interceptor(
+    return Interceptor(
         id=new_id(),
-        source=saga_id,
-        controller=controller_id,
+        source=source_obj.id,
+        controller=source_obj.controller,
         priority=InterceptorPriority.REACT,
-        filter=chapter_filter,
-        handler=chapter_handler,
+        filter=trigger_filter,
+        handler=trigger_handler,
         duration='while_on_battlefield',
     )
-
-    return [etb_interceptor, draw_interceptor, chapter_interceptor]
 
 
 # =============================================================================
