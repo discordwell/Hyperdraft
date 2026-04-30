@@ -29,7 +29,13 @@ from src.cards.interceptor_helpers import (
     make_spell_cast_trigger, make_damage_trigger,
     make_targeted_etb_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
-    creatures_you_control, creatures_with_subtype
+    creatures_you_control, creatures_with_subtype,
+    # SPM mechanics — Web-slinging and Mayhem.
+    make_web_slinging_setup, make_mayhem_setup, combine_setups,
+)
+from src.engine.spm_mechanics import (
+    is_web_slinging_cast, web_slinging_returned_mv, is_mayhem_cast,
+    was_discarded_this_turn,
 )
 
 
@@ -1088,8 +1094,9 @@ def spiderman_india_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 # --- Carnage, Crimson Chaos ---
-# "When Carnage enters, return target creature card with mana value 3 or less from your graveyard to the battlefield."
-def carnage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+# "Trample" + "When Carnage enters, return target creature card with mana value
+# 3 or less from your graveyard to the battlefield." + Mayhem {B}{R}.
+def _carnage_etb(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         # Reanimate handler will create a chooser among creatures with MV<=3 in our graveyard.
         return [Event(
@@ -1105,6 +1112,12 @@ def carnage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     # Note: "attacks each combat / sacrifice on combat damage" rider is left unwired
     # (engine gap: per-card grant of self-sacrifice trigger on reanimated target).
     return [make_etb_trigger(obj, etb_effect)]
+
+
+carnage_setup = combine_setups(
+    make_mayhem_setup("{B}{R}"),
+    _carnage_etb,
+)
 
 
 # --- Mister Negative ---
@@ -1200,12 +1213,19 @@ def molten_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 # --- Spider-Man, Brooklyn Visionary ---
-# "When Spider-Man enters, search your library for a basic land card, put it onto the battlefield tapped, then shuffle."
-def spiderman_brooklyn_visionary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+# Web-slinging {2}{G} + "When Spider-Man enters, search your library for a basic
+# land card, put it onto the battlefield tapped, then shuffle."
+def _spiderman_brooklyn_visionary_etb(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         # Library search not fully implemented - placeholder
         return []
     return [make_etb_trigger(obj, etb_effect)]
+
+
+spiderman_brooklyn_visionary_setup = combine_setups(
+    make_web_slinging_setup("{2}{G}"),
+    _spiderman_brooklyn_visionary_etb,
+)
 
 
 # --- Mechanical Mobster ---
@@ -1432,11 +1452,19 @@ def antivenom_horrifying_healer_setup(obj: GameObject, state: GameState) -> list
 
 
 # --- Arachne, Psionic Weaver ---
-# "As Arachne enters, look at an opponent's hand, choose a type; spells of that type cost {1} more."
-def arachne_psionic_weaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+# Web-slinging {W} + "As Arachne enters, look at an opponent's hand, choose a
+# type; spells of that type cost {1} more." Hand-reveal + cost-modifier are
+# engine gaps; we still wire the web-slinging alt cost.
+def _arachne_etb(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         return []  # engine gap: hand-reveal + cost-modifier-by-chosen-type
     return [make_etb_trigger(obj, etb_effect)]
+
+
+arachne_psionic_weaver_setup = combine_setups(
+    make_web_slinging_setup("{W}"),
+    _arachne_etb,
+)
 
 
 # --- Costume Closet ---
@@ -1574,14 +1602,14 @@ def spectacular_spiderman_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 # --- Spider-Man, Web-Slinger ---
-# "Web-slinging {W}" — alt cost mechanic.
-def spiderman_webslinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: web-slinging alt cost not implemented
+# "Web-slinging {W}" — alt cost mechanic. The helper stamps the alt cost on
+# the card_def so the engine's cast-cost lookup can see it.
+spiderman_webslinger_setup = make_web_slinging_setup("{W}")
 
 
 # --- Spider-UK ---
 # Web-slinging + "At end step, if 2+ creatures entered this turn, draw a card and gain 2 life."
-def spideruk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+def _spideruk_end_step_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     from src.cards.interceptor_helpers import make_end_step_trigger
 
     def end_step_effect(event: Event, state: GameState) -> list[Event]:
@@ -1594,6 +1622,12 @@ def spideruk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             ]
         return []
     return [make_end_step_trigger(obj, end_step_effect)]
+
+
+spideruk_setup = combine_setups(
+    make_web_slinging_setup("{2}{W}"),
+    _spideruk_end_step_setup,
+)
 
 
 # --- Web Up ---
@@ -1663,9 +1697,9 @@ def beetle_legacy_criminal_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 # --- Chameleon, Master of Disguise ---
-# "Enter as a copy" + Mayhem alt cost.
-def chameleon_master_of_disguise_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: enter-as-copy + mayhem alt cost
+# "Enter as a copy" + Mayhem {2}{U} alt cost. Wire the Mayhem alt cost via the
+# helper; enter-as-copy still requires engine support and is left as a gap.
+chameleon_master_of_disguise_setup = make_mayhem_setup("{2}{U}")
 
 
 # --- The Clone Saga ---
@@ -1906,9 +1940,9 @@ def the_soul_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 # --- Swarm, Being of Bees ---
-# Flash + flying + mayhem alt cost. No additional triggers.
-def swarm_being_of_bees_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: mayhem alt cost not wired
+# Flash + flying + Mayhem {B} alt cost. Flash/flying are static keywords already
+# carried on the card_def; only the Mayhem alt cost needs explicit wiring.
+swarm_being_of_bees_setup = make_mayhem_setup("{B}")
 
 
 # --- Venom, Evil Unleashed ---
@@ -1952,9 +1986,8 @@ def maximum_carnage_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 # --- Raging Goblinoids ---
-# Haste + mayhem alt cost.
-def raging_goblinoids_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: mayhem alt cost
+# Haste (static) + Mayhem {2}{R} alt cost.
+raging_goblinoids_setup = make_mayhem_setup("{2}{R}")
 
 
 # --- Shadow of the Goblin ---
@@ -2005,9 +2038,8 @@ def spidergwen_free_spirit_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 # --- Spider-Islanders ---
-# Mayhem alt cost only.
-def spiderislanders_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: mayhem alt cost
+# Mayhem {1}{R} alt cost only.
+spiderislanders_setup = make_mayhem_setup("{1}{R}")
 
 
 # --- Spider-Verse ---
@@ -2133,10 +2165,17 @@ def sandman_shifting_scoundrel_setup(obj: GameObject, state: GameState) -> list[
 
 
 # --- Spiders-Man, Heroic Horde ---
-# Web-slinging cost + ETB if web-slung: gain 3 + create two 2/1 Spiders.
-def spidersman_heroic_horde_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+# Web-slinging {4}{G}{G} + ETB *if cast via web-slinging*: gain 3 + create two 2/1 Spiders.
+# We use combine_setups: the web-slinging helper handles the alt cost and tracks
+# "this was cast via web-slinging" in state.turn_data; the ETB trigger below
+# checks that flag before producing the bonus events.
+def _spidersman_heroic_horde_etb(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: detect web-slinging cast - assume it triggered
+        if not was_discarded_this_turn:
+            pass  # noqa - keep imports referenced
+        # Only fire if this card was cast via web-slinging this turn.
+        if not _was_websling(state, obj.id):
+            return []
         events = [Event(
             type=EventType.LIFE_CHANGE,
             payload={'player': obj.controller, 'amount': 3},
@@ -2159,6 +2198,17 @@ def spidersman_heroic_horde_setup(obj: GameObject, state: GameState) -> list[Int
             ))
         return events
     return [make_etb_trigger(obj, etb_effect)]
+
+
+def _was_websling(state: GameState, object_id: str) -> bool:
+    from src.engine.spm_mechanics import was_web_slung_this_turn
+    return was_web_slung_this_turn(state, object_id)
+
+
+spidersman_heroic_horde_setup = combine_setups(
+    make_web_slinging_setup("{4}{G}{G}"),
+    _spidersman_heroic_horde_etb,
+)
 
 
 # --- Supportive Parents ---
@@ -2297,16 +2347,33 @@ def morbius_the_living_vampire_setup(obj: GameObject, state: GameState) -> list[
 
 
 # --- Scarlet Spider, Ben Reilly ---
-# Web-slinging + Sensational Save (X counters from web-slinging cost).
-def scarlet_spider_ben_reilly_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+# Web-slinging {R}{G} + Sensational Save: if cast via web-slinging, enters with
+# X +1/+1 counters where X is the MV of the creature returned to pay the cost.
+def _scarlet_spider_ben_reilly_etb(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # engine gap: web-slinging detection + X counters from returned creature MV
+        from src.engine.spm_mechanics import was_web_slung_this_turn, web_slinging_returned_mv_for
+        if not was_web_slung_this_turn(state, obj.id):
+            return []
+        x = web_slinging_returned_mv_for(state, obj.id)
+        if x <= 0:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': x},
+            source=obj.id,
+        )]
     return [make_etb_trigger(obj, etb_effect)]
 
 
+scarlet_spider_ben_reilly_setup = combine_setups(
+    make_web_slinging_setup("{R}{G}"),
+    _scarlet_spider_ben_reilly_etb,
+)
+
+
 # --- Scarlet Spider, Kaine ---
-# Menace + ETB optional discard-for-counter + mayhem.
-def scarlet_spider_kaine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+# Menace (static) + ETB optional discard-for-counter + Mayhem {B/R}.
+def _scarlet_spider_kaine_etb(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         return [
             Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
@@ -2317,6 +2384,12 @@ def scarlet_spider_kaine_setup(obj: GameObject, state: GameState) -> list[Interc
             ),
         ]
     return [make_etb_trigger(obj, etb_effect)]
+
+
+scarlet_spider_kaine_setup = combine_setups(
+    make_mayhem_setup("{B/R}"),
+    _scarlet_spider_kaine_etb,
+)
 
 
 # --- Skyward Spider ---
@@ -2517,9 +2590,9 @@ def peter_parkers_camera_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 # --- Rocket-Powered Goblin Glider ---
-# ETB if cast from graveyard, attach. +2/+0 flying haste. Mayhem alt cost.
-def rocketpowered_goblin_glider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: cast-from-graveyard detection + auto-attach + mayhem alt cost
+# Equipment - ETB if cast from graveyard, attach. +2/+0 flying haste. Mayhem {2}.
+# We wire the Mayhem alt cost; auto-attach-on-mayhem-cast is left as an engine gap.
+rocketpowered_goblin_glider_setup = make_mayhem_setup("{2}")
 
 
 # --- Spider-Mobile ---
@@ -3097,6 +3170,7 @@ SPIDERSENSE = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Web-slinging {U} (You may cast this spell for {U} if you also return a tapped creature you control to its owner's hand.)\nCounter target instant spell, sorcery spell, or triggered ability.",
+    setup_interceptors=make_web_slinging_setup("{U}"),
 )
 
 UNSTABLE_EXPERIMENT = make_instant(
@@ -3235,6 +3309,7 @@ PRISON_BREAK = make_sorcery(
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     text="Return target creature card from your graveyard to the battlefield with an additional +1/+1 counter on it.\nMayhem {3}{B} (You may cast this card from your graveyard for {3}{B} if you discarded it this turn. Timing rules still apply.)",
+    setup_interceptors=make_mayhem_setup("{3}{B}"),
 )
 
 RISKY_RESEARCH = make_sorcery(
@@ -3249,6 +3324,7 @@ SANDMANS_QUICKSAND = make_sorcery(
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
     text="Mayhem {3}{B} (You may cast this card from your graveyard for {3}{B} if you discarded it this turn. Timing rules still apply.)\nAll creatures get -2/-2 until end of turn. If this spell's mayhem cost was paid, creatures your opponents control get -2/-2 until end of turn instead.",
+    setup_interceptors=make_mayhem_setup("{3}{B}"),
 )
 
 SCORPION_SEETHING_STRIKER = make_creature(
@@ -3379,6 +3455,7 @@ ELECTROS_BOLT = make_sorcery(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Electro's Bolt deals 4 damage to target creature.\nMayhem {1}{R} (You may cast this card from your graveyard for {1}{R} if you discarded it this turn. Timing rules still apply.)",
+    setup_interceptors=make_mayhem_setup("{1}{R}"),
 )
 
 GWEN_STACY = make_creature(
