@@ -1,0 +1,176 @@
+{
+  "set": "outlaws_thunder_junction.py",
+  "results": [
+    {
+      "fn": "armored_armadillo_setup",
+      "card_var": "ARMORED_ARMADILLO",
+      "disposition": "left",
+      "engine_gap": "ward + activated {3}{W} self-pump (X = own toughness)",
+      "notes": "Pure Ward static + activated ability; nothing trigger-shaped to wire."
+    },
+    {
+      "fn": "sterling_keykeeper_setup",
+      "card_var": "STERLING_KEYKEEPER",
+      "disposition": "left",
+      "engine_gap": "activated {2},{T}: tap target non-Mount creature",
+      "notes": "Single tap-activated targeting ability; activation pipeline missing."
+    },
+    {
+      "fn": "boneyard_desecrator_setup",
+      "card_var": "BONEYARD_DESECRATOR",
+      "disposition": "left",
+      "engine_gap": "menace static + activated {1}{B}+sac for +1/+1 counter (and Treasure if outlaw)",
+      "notes": "Whole effect is an activated sacrifice ability."
+    },
+    {
+      "fn": "kaervek_the_punisher_setup",
+      "card_var": "KAERVEK_THE_PUNISHER",
+      "disposition": "wired",
+      "engine_gap": "graveyard-copy-cast flow (cast a copy from gy, optional 'may') not engine-tracked",
+      "notes": "Crime trigger -> opens a target_with_callback over black cards in your graveyard; on selection emits EXILE + LIFE_CHANGE -2 (the 'lose 2 life if you cast the copy' rider, simplified to fire unconditionally on exile)."
+    },
+    {
+      "fn": "deadeye_duelist_setup",
+      "card_var": "DEADEYE_DUELIST",
+      "disposition": "left",
+      "engine_gap": "activated {1},{T}: 1 damage to target opponent",
+      "notes": "Reach is a printed keyword; the only ability is tap-activated targeting damage."
+    },
+    {
+      "fn": "ferocification_setup",
+      "card_var": "FEROCIFICATION",
+      "disposition": "wired",
+      "engine_gap": "no native modal-with-targeting at beginning of combat",
+      "notes": "Beginning-of-combat REACT (PHASE_START / COMBAT_DECLARED for active player). Opens target_with_callback over creatures you control; default mode = +2/+0 UEOT; mode 1 grants menace+haste UEOT."
+    },
+    {
+      "fn": "cactarantula_setup",
+      "card_var": "CACTARANTULA",
+      "disposition": "left",
+      "engine_gap": "'becomes the target of an opponent's spell or ability' trigger not engine-tracked",
+      "notes": "Trigger condition is the same target-of-opponent hook required for ward; no event for it yet."
+    },
+    {
+      "fn": "ornery_tumblewagg_setup",
+      "card_var": "ORNERY_TUMBLEWAGG",
+      "disposition": "wired",
+      "engine_gap": "true 'double the +1/+1 counters on target' (we approximate by adding a fresh batch equal to current counters)",
+      "notes": "Two interceptors: (1) beginning-of-combat REACT opens a target_with_callback that puts a +1/+1 counter on target creature you control; (2) saddled-attack via make_saddle_trigger opens a target_with_callback that adds counters equal to the target's current +1/+1 count (engine has no first-class doubler). Saddle threshold set to 2."
+    },
+    {
+      "fn": "spinewoods_armadillo_setup",
+      "card_var": "SPINEWOODS_ARMADILLO",
+      "disposition": "left",
+      "engine_gap": "ward + activated {1}{G},Discard: tutor basic land or Desert and gain 3 life",
+      "notes": "Reach is a printed keyword; ward static and activated tutor remain unsupported."
+    },
+    {
+      "fn": "voracious_varmint_setup",
+      "card_var": "VORACIOUS_VARMINT",
+      "disposition": "left",
+      "engine_gap": "activated {1}+sac: destroy target artifact/enchantment",
+      "notes": "Vigilance is a printed keyword; only ability is activated sacrifice destroy."
+    },
+    {
+      "fn": "ghired_mirror_of_the_wilds_setup",
+      "card_var": "GHIRED_MIRROR_OF_THE_WILDS",
+      "disposition": "left",
+      "engine_gap": "granting an activated tap ability to nontoken creatures (also: target-token-that-entered-this-turn provenance)",
+      "notes": "Haste is printed; the static is an activated-ability grant."
+    },
+    {
+      "fn": "laughing_jasper_flint_setup",
+      "card_var": "LAUGHING_JASPER_FLINT",
+      "disposition": "wired",
+      "engine_gap": "cross-library cast permission ('mana of any type') + 'creatures you control but don't own are Mercenaries' type override",
+      "notes": "Upkeep trigger emitting EXILE_FROM_TOP from the first opposing player's library, count = number of outlaws you control (uses the existing OUTLAW_TYPES/is_outlaw helper)."
+    },
+    {
+      "fn": "lazav_familiar_stranger_setup",
+      "card_var": "LAZAV_FAMILIAR_STRANGER",
+      "disposition": "wired",
+      "engine_gap": "optional graveyard-exile + creature-copy rider not engine-tracked",
+      "notes": "Crime trigger (once per turn) -> +1/+1 counter on Lazav. The 'may exile a card from a graveyard / become a copy if creature' rider remains unwired."
+    },
+    {
+      "fn": "lilah_undefeated_slickshot_setup",
+      "card_var": "LILAH_UNDEFEATED_SLICKSHOT",
+      "disposition": "left",
+      "engine_gap": "replace 'spell goes to graveyard on resolve' with 'exile and become plotted' for multicolored instants/sorceries; prowess static",
+      "notes": "Replacement on cast resolution + plot-on-resolve composition not engine-tracked."
+    },
+    {
+      "fn": "oko_the_ringleader_setup",
+      "card_var": "OKO_THE_RINGLEADER",
+      "disposition": "left",
+      "engine_gap": "planeswalker loyalty abilities and copy-of-creature transform",
+      "notes": "Whole card is loyalty abilities; planeswalker subsystem missing."
+    },
+    {
+      "fn": "rakdos_the_muscle_setup",
+      "card_var": "RAKDOS_THE_MUSCLE",
+      "disposition": "wired",
+      "engine_gap": "cross-library cast permission ('mana of any type') + activated sac-for-indestructible (once per turn)",
+      "notes": "ZONE_CHANGE-with-cause=='sacrifice' filter (creature, controller's, not self) -> EXILE_FROM_TOP from the first opposing player's library, count = sacrificed creature's MV (using src.engine.library_search._mana_value)."
+    },
+    {
+      "fn": "riku_of_many_paths_setup",
+      "card_var": "RIKU_OF_MANY_PATHS",
+      "disposition": "left",
+      "engine_gap": "modal-spell mode count not exposed on CAST events; per-mode loop unsupported",
+      "notes": "Trigger key is 'X = number of modes chosen on the triggering spell' which the engine does not surface."
+    },
+    {
+      "fn": "taii_wakeen_perfect_shot_setup",
+      "card_var": "TAII_WAKEEN_PERFECT_SHOT",
+      "disposition": "wired",
+      "engine_gap": "activated {X},{T} damage-replacement scaling (this-turn replacement) remains unwired",
+      "notes": "REACT-priority interceptor on DAMAGE: source-controller is Taii's controller, target is a creature on the battlefield, is_combat is False, amount == target's toughness (using get_toughness) -> draw a card."
+    },
+    {
+      "fn": "bandits_haul_setup",
+      "card_var": "BANDITS_HAUL",
+      "disposition": "wired",
+      "engine_gap": "activated {2},{T},remove-two-loot-counters: draw a card",
+      "notes": "Crime trigger (once per turn) -> add a 'loot' counter on this artifact. The activated draw remains unwired."
+    },
+    {
+      "fn": "boom_box_setup",
+      "card_var": "BOOM_BOX",
+      "disposition": "left",
+      "engine_gap": "activated {6},{T},sac: triple-modal targeted destruction",
+      "notes": "Single activated multi-target destroy ability."
+    },
+    {
+      "fn": "lavaspur_boots_setup",
+      "card_var": "LAVASPUR_BOOTS",
+      "disposition": "left",
+      "engine_gap": "equipment static (+1/+0, haste, ward {1}) + Equip {1}",
+      "notes": "Pure equipment with attachment-bound bonuses."
+    },
+    {
+      "fn": "tomb_trawler_setup",
+      "card_var": "TOMB_TRAWLER",
+      "disposition": "left",
+      "engine_gap": "activated {2}: target graveyard card to bottom of library",
+      "notes": "Single activated graveyard-targeting ability."
+    },
+    {
+      "fn": "sandstorm_verge_setup",
+      "card_var": "SANDSTORM_VERGE",
+      "disposition": "left",
+      "engine_gap": "activated land ability {3},{T}: target creature can't block this turn (sorcery speed)",
+      "notes": "Pure activated land ability."
+    }
+  ],
+  "summary": {
+    "wired": 8,
+    "left": 15
+  },
+  "engine_fix": {
+    "file": "src/cards/interceptor_helpers.py",
+    "function": "make_crime_committed_trigger",
+    "description": "Function returned dead leftover code from make_saga_setup (referenced undefined names saga_id / controller_id / chapter_filter / chapter_handler) instead of building and returning its single trigger Interceptor. Every crime-trigger card raised NameError at setup time. Replaced the trailing block with a proper Interceptor(...) return statement (REACT priority, while_on_battlefield).",
+    "regression_test": "tests/test_otj_crime.py"
+  }
+}
