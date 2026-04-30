@@ -1,0 +1,135 @@
+{
+  "set": "lorwyn_eclipsed.py",
+  "results": [
+    {
+      "fn": "ajani_outland_chaperone_setup",
+      "card_var": "AJANI_OUTLAND_CHAPERONE",
+      "disposition": "left",
+      "engine_gap": "planeswalker loyalty abilities not driven by interceptors yet",
+      "notes": "Existing comment retained; planeswalker activation framework absent."
+    },
+    {
+      "fn": "spiral_into_solitude_setup",
+      "card_var": "SPIRAL_INTO_SOLITUDE",
+      "disposition": "wired",
+      "engine_gap": "blight-1 + sacrifice-self activated exile not wired",
+      "notes": "Wired the static 'enchanted creature can't attack or block' clause via a custom PREVENT interceptor on ATTACK_DECLARED for obj.state.attached_to plus make_cant_block with a filter matching the attached creature."
+    },
+    {
+      "fn": "wanderbrine_trapper_setup",
+      "card_var": "WANDERBRINE_TRAPPER",
+      "disposition": "left",
+      "engine_gap": "activated tap+tap-another-creature cost; targeted tap effect on opponent creature",
+      "notes": "make_tap_trigger would fire on attack-tap, granting a free targeted tap every attack; cleanly leaving as engine gap until activation system is wired."
+    },
+    {
+      "fn": "illusion_spinners_setup",
+      "card_var": "ILLUSION_SPINNERS",
+      "disposition": "wired",
+      "engine_gap": "'cast as though it had flash' if controller has a Faerie",
+      "notes": "Wired hexproof-while-untapped via make_keyword_grant with a filter that matches self when state.tapped is False. Filter is evaluated each QUERY_ABILITIES, so tapping the creature drops hexproof dynamically."
+    },
+    {
+      "fn": "rimefire_torque_setup",
+      "card_var": "RIMEFIRE_TORQUE",
+      "disposition": "left",
+      "engine_gap": "as-enters chosen-type tracking; tap-charge counter trigger; spell-copy delayed trigger",
+      "notes": "Existing comment retained; full spell-copy machinery missing."
+    },
+    {
+      "fn": "champion_of_the_weird_setup",
+      "card_var": "CHAMPION_OF_THE_WEIRD",
+      "disposition": "left",
+      "engine_gap": "behold (additional exile cost) + linked LtB return; activated blight target-opponent",
+      "notes": "Existing comment retained; behold mechanic and exile-LtB linkage are engine gaps."
+    },
+    {
+      "fn": "dawnhand_dissident_setup",
+      "card_var": "DAWNHAND_DISSIDENT",
+      "disposition": "left",
+      "engine_gap": "two distinct {T} activated abilities (blight 1 + surveil 1; blight 2 + targeted graveyard exile); cast-from-exile permission with -1/-1 counter cost",
+      "notes": "Cannot wire either tap ability cleanly because the engine cannot distinguish between the two activations on a single TAP event."
+    },
+    {
+      "fn": "goliath_daydreamer_setup",
+      "card_var": "GOLIATH_DAYDREAMER",
+      "disposition": "left",
+      "engine_gap": "dream-counter exile zone + cast-from-exile-without-paying linkage",
+      "notes": "Custom keyword counter zone tracking is an engine gap."
+    },
+    {
+      "fn": "gristle_glutton_setup",
+      "card_var": "GRISTLE_GLUTTON",
+      "disposition": "left",
+      "engine_gap": "tap+blight activated cost; conditional 'if you discarded, draw'",
+      "notes": "Pure activated ability with multi-cost; no clean attach point."
+    },
+    {
+      "fn": "soulbright_seeker_setup",
+      "card_var": "SOULBRIGHT_SEEKER",
+      "disposition": "left",
+      "engine_gap": "behold cost + activated trample EOT + nth-resolution counter mana",
+      "notes": "Behold mechanic + activation counting is engine gap."
+    },
+    {
+      "fn": "stingslinger_setup",
+      "card_var": "STINGSLINGER",
+      "disposition": "left",
+      "engine_gap": "activated {1}{R}{T}+blight cost; deals 2 damage to each opponent",
+      "notes": "Wiring as tap_trigger would deal 2 damage to each opponent on every attack-tap, a major over-application."
+    },
+    {
+      "fn": "safewright_cavalry_setup",
+      "card_var": "SAFEWRIGHT_CAVALRY",
+      "disposition": "left",
+      "engine_gap": "'can't be blocked by more than one creature' restriction; activated targeted +2/+2 EOT for {5}",
+      "notes": "Both abilities require engine support not yet present."
+    },
+    {
+      "fn": "surly_farrier_setup",
+      "card_var": "SURLY_FARRIER",
+      "disposition": "left",
+      "engine_gap": "activated {T} sorcery-speed targeted +1/+1 + vigilance EOT",
+      "notes": "tap_trigger would fire on attack-tap; sorcery-speed gating is also missing."
+    },
+    {
+      "fn": "bre_of_clan_stoutarm_setup",
+      "card_var": "BRE_OF_CLAN_STOUTARM",
+      "disposition": "left",
+      "engine_gap": "activated {1}{W}{T} keyword-grant; end-step life-gain conditional cascade with cast-without-paying",
+      "notes": "End-step trigger could be partially wired (gained-life-this-turn check) but the cast-from-library cascade is gap."
+    },
+    {
+      "fn": "kirol_attentive_firstyear_setup",
+      "card_var": "KIROL_ATTENTIVE_FIRSTYEAR",
+      "disposition": "left",
+      "engine_gap": "activated 'tap two untapped creatures' cost; copy target triggered ability with new-target choice",
+      "notes": "Tap-N-creature costs and triggered-ability copying are engine gaps."
+    },
+    {
+      "fn": "tam_mindful_firstyear_setup",
+      "card_var": "TAM_MINDFUL_FIRSTYEAR",
+      "disposition": "left",
+      "engine_gap": "hexproof-from-each-of-its-colors static; activated 'becomes all colors' EOT",
+      "notes": "Per-color hexproof and color-overwrite EOT are engine gaps."
+    },
+    {
+      "fn": "dawnblessed_pennant_setup",
+      "card_var": "DAWNBLESSED_PENNANT",
+      "disposition": "left",
+      "engine_gap": "as-enters chosen-type tracking; chosen-type ETB life-gain trigger; activated GY-to-hand sacrifice",
+      "notes": "Chosen-type tracking is engine gap."
+    },
+    {
+      "fn": "mirrormind_crown_setup",
+      "card_var": "MIRRORMIND_CROWN",
+      "disposition": "left",
+      "engine_gap": "first-token-creation-each-turn replacement effect substituting copies of equipped creature; equipment system",
+      "notes": "Token-creation replacement and equipment attachment are engine gaps."
+    }
+  ],
+  "summary": {
+    "wired": 2,
+    "left": 16
+  }
+}
