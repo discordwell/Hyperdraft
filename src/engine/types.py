@@ -267,6 +267,10 @@ class EventType(Enum):
     LIBSEARCH_COMPLETE = auto()       # Finalize: move card to destination (post-choice)
     LIBSEARCH_SHUFFLE = auto()        # Shuffle library after a search (often part of complete)
 
+    # MTG Saga mechanic
+    SAGA_LORE_ADDED = auto()          # A lore counter is being added to a Saga
+    SAGA_CHAPTER = auto()             # A Saga chapter ability is triggering
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to

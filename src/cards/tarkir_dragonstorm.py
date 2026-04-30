@@ -30,6 +30,7 @@ from src.cards.interceptor_helpers import (
     create_modal_choice,
     make_etb_trigger,
     make_death_trigger,
+    make_saga_setup,
 )
 
 
@@ -3525,6 +3526,26 @@ AURORAL_PROCESSION = make_instant(
     resolve=auroral_procession_resolve,
 )
 
+def awaken_the_honored_dead_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Saga I/II/III.
+
+    I — Destroy target nonland permanent (engine gap: target).
+    II — Mill 3.
+    III — Optional discard; on discard return target creature/land from graveyard (engine gap: optional discard + target)."""
+    def i(_o, _s): return []  # engine gap: target nonland permanent
+
+    def ii(o, s):
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': o.controller, 'count': 3},
+            source=o.id,
+        )]
+
+    def iii(_o, _s): return []  # engine gap: optional discard + target
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
+
+
 AWAKEN_THE_HONORED_DEAD = make_enchantment(
     name="Awaken the Honored Dead",
     mana_cost="{B}{G}{U}",
@@ -3532,6 +3553,7 @@ AWAKEN_THE_HONORED_DEAD = make_enchantment(
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Destroy target nonland permanent.\nII — Mill three cards.\nIII — You may discard a card. When you do, return target creature or land card from your graveyard to your hand.",
     rarity="rare",
     subtypes={"Saga"},
+    setup_interceptors=awaken_the_honored_dead_setup,
 )
 
 BARRENSTEPPE_SIEGE = make_enchantment(
@@ -3947,6 +3969,17 @@ RAKSHASAS_BARGAIN = make_instant(
     rarity="uncommon",
 )
 
+def rediscover_the_way_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Saga I/II/III.
+
+    I, II — Scry-like look-at-top-3 + select 1 to hand (engine gap: pick-1-of-3).
+    III — Delayed-trigger: on next noncreature spell, target creature gains double strike EOT (engine gap)."""
+    def i_ii(_o, _s): return []  # engine gap: choose-1-of-top-3
+    def iii(_o, _s): return []  # engine gap: delayed double-strike trigger
+
+    return make_saga_setup(obj, {1: i_ii, 2: i_ii, 3: iii})
+
+
 REDISCOVER_THE_WAY = make_enchantment(
     name="Rediscover the Way",
     mana_cost="{U}{R}{W}",
@@ -3954,6 +3987,7 @@ REDISCOVER_THE_WAY = make_enchantment(
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI, II — Look at the top three cards of your library. Put one of them into your hand and the rest on the bottom of your library in any order.\nIII — Whenever you cast a noncreature spell this turn, target creature you control gains double strike until end of turn.",
     rarity="rare",
     subtypes={"Saga"},
+    setup_interceptors=rediscover_the_way_setup,
 )
 
 REIGNING_VICTOR = make_creature(
@@ -3978,6 +4012,52 @@ REPUTABLE_MERCHANT = make_creature(
     setup_interceptors=reputable_merchant_setup,
 )
 
+def revival_of_the_ancestors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Saga I/II/III.
+
+    I — Create three 1/1 white Spirit creature tokens.
+    II — Distribute three +1/+1 counters among 1-3 target creatures you control (engine gap: divide allocation).
+    III — Creatures you control gain trample and lifelink EOT."""
+    def i(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'count': 3,
+                'token': {
+                    'name': 'Spirit',
+                    'power': 1, 'toughness': 1,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Spirit'},
+                    'colors': {Color.WHITE},
+                },
+            },
+            source=o.id,
+        )]
+
+    def ii(_o, _s): return []  # engine gap: divide allocation
+
+    def iii(o, s):
+        events: list[Event] = []
+        for tgt in list(s.objects.values()):
+            if (tgt.controller == o.controller
+                    and tgt.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in tgt.characteristics.types):
+                for kw in ('trample', 'lifelink'):
+                    events.append(Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={
+                            'object_id': tgt.id,
+                            'keyword': kw,
+                            'duration': 'end_of_turn',
+                        },
+                        source=o.id,
+                    ))
+        return events
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
+
+
 REVIVAL_OF_THE_ANCESTORS = make_enchantment(
     name="Revival of the Ancestors",
     mana_cost="{1}{W}{B}{G}",
@@ -3985,6 +4065,7 @@ REVIVAL_OF_THE_ANCESTORS = make_enchantment(
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Create three 1/1 white Spirit creature tokens.\nII — Distribute three +1/+1 counters among one, two, or three target creatures you control.\nIII — Creatures you control gain trample and lifelink until end of turn.",
     rarity="rare",
     subtypes={"Saga"},
+    setup_interceptors=revival_of_the_ancestors_setup,
 )
 
 RIVERWHEEL_SWEEP = make_sorcery(
@@ -3995,6 +4076,50 @@ RIVERWHEEL_SWEEP = make_sorcery(
     rarity="uncommon",
 )
 
+def roar_of_endless_song_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Saga I/II/III.
+
+    I, II — Create a 5/5 green Elephant creature token.
+    III — Double the power and toughness of each creature you control EOT."""
+    def i_ii(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Elephant',
+                    'power': 5, 'toughness': 5,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Elephant'},
+                    'colors': {Color.GREEN},
+                },
+            },
+            source=o.id,
+        )]
+
+    def iii(o, s):
+        events: list[Event] = []
+        for tgt in list(s.objects.values()):
+            if (tgt.controller == o.controller
+                    and tgt.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in tgt.characteristics.types):
+                p = get_power(tgt, s) or 0
+                t = get_toughness(tgt, s) or 0
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': tgt.id,
+                        'power_mod': p,
+                        'toughness_mod': t,
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id,
+                ))
+        return events
+
+    return make_saga_setup(obj, {1: i_ii, 2: i_ii, 3: iii})
+
+
 ROAR_OF_ENDLESS_SONG = make_enchantment(
     name="Roar of Endless Song",
     mana_cost="{2}{G}{U}{R}",
@@ -4002,6 +4127,7 @@ ROAR_OF_ENDLESS_SONG = make_enchantment(
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI, II — Create a 5/5 green Elephant creature token.\nIII — Double the power and toughness of each creature you control until end of turn.",
     rarity="rare",
     subtypes={"Saga"},
+    setup_interceptors=roar_of_endless_song_setup,
 )
 
 RUNESCALE_STORMBROOD = make_creature(
@@ -4107,6 +4233,26 @@ TEVAL_ARBITER_OF_VIRTUE = make_creature(
     rarity="mythic",
 )
 
+def thunder_of_unity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Saga I/II/III.
+
+    I — Draw 2; lose 2 life.
+    II, III — Until EOT, whenever a creature you control enters, each opp loses 1 life and you gain 1 (engine gap: turn-scoped per-ETB drain trigger)."""
+    def i(o, s):
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'amount': 2},
+                  source=o.id),
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': o.controller, 'amount': -2},
+                  source=o.id),
+        ]
+
+    def ii_iii(_o, _s): return []  # engine gap: turn-scoped ETB drain
+
+    return make_saga_setup(obj, {1: i, 2: ii_iii, 3: ii_iii})
+
+
 THUNDER_OF_UNITY = make_enchantment(
     name="Thunder of Unity",
     mana_cost="{R}{W}{B}",
@@ -4114,6 +4260,7 @@ THUNDER_OF_UNITY = make_enchantment(
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — You draw two cards and you lose 2 life.\nII, III — Whenever a creature you control enters this turn, each opponent loses 1 life and you gain 1 life.",
     rarity="rare",
     subtypes={"Saga"},
+    setup_interceptors=thunder_of_unity_setup,
 )
 
 TWINMAW_STORMBROOD = make_creature(

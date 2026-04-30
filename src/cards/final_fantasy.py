@@ -40,6 +40,7 @@ from src.cards.interceptor_helpers import (
     creatures_you_control,
     creatures_with_subtype,
     all_opponents,
+    make_saga_setup,
 )
 
 
@@ -2394,11 +2395,23 @@ def tifa_lockhart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # =============================================================================
 
 def summon_bahamut_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Bahamut Saga - chapter abilities (placeholder, needs Saga engine support)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga lore counters and chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Bahamut Saga I/II/III/IV.
+
+    I, II — Destroy up to one target nonland permanent (engine gap: target).
+    III — Draw two cards.
+    IV — Mega Flare: damage = total mana value of other permanents you control to each opponent (engine gap: dynamic damage)."""
+    def i_ii(_o, _s): return []  # engine gap: target nonland permanent
+
+    def iii(o, s):
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': o.controller, 'amount': 2},
+            source=o.id,
+        )]
+
+    def iv(_o, _s): return []  # engine gap: dynamic mega flare damage
+
+    return make_saga_setup(obj, {1: i_ii, 2: i_ii, 3: iii, 4: iv})
 
 
 def ultima_origin_of_oblivion_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2622,27 +2635,89 @@ def stiltzkin_moogle_merchant_ff_setup(obj: GameObject, state: GameState) -> lis
 
 
 def summon_chocomog_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Choco/Mog Saga - chapter abilities (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga lore counters and chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Choco/Mog Saga (I-IV).
+
+    I, II, III, IV — Stampede! Other creatures you control get +1/+0 EOT."""
+    def stampede(o, s):
+        events: list[Event] = []
+        for tgt in list(s.objects.values()):
+            if (tgt.id != o.id
+                    and tgt.controller == o.controller
+                    and CardType.CREATURE in tgt.characteristics.types
+                    and tgt.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': tgt.id,
+                        'power_mod': 1,
+                        'toughness_mod': 0,
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id,
+                ))
+        return events
+
+    return make_saga_setup(obj, {1: stampede, 2: stampede, 3: stampede, 4: stampede})
 
 
 def summon_knights_of_round_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Knights of Round Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Knights of Round Saga (V).
+
+    I, II, III, IV — Create three 2/2 white Knight creature tokens.
+    V — Ultimate End: Other creatures get +2/+2 EOT and gain an indestructible counter."""
+    def knight_tokens(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'count': 3,
+                'token': {
+                    'name': 'Knight',
+                    'power': 2, 'toughness': 2,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Knight'},
+                    'colors': {Color.WHITE},
+                },
+            },
+            source=o.id,
+        )]
+
+    def ultimate(o, s):
+        events: list[Event] = []
+        for tgt in list(s.objects.values()):
+            if (tgt.id != o.id
+                    and tgt.controller == o.controller
+                    and CardType.CREATURE in tgt.characteristics.types
+                    and tgt.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': tgt.id,
+                        'power_mod': 2, 'toughness_mod': 2,
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id,
+                ))
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': tgt.id, 'counter_type': 'indestructible', 'amount': 1},
+                    source=o.id,
+                ))
+        return events
+
+    return make_saga_setup(obj, {1: knight_tokens, 2: knight_tokens,
+                                  3: knight_tokens, 4: knight_tokens, 5: ultimate})
 
 
 def summon_primal_garuda_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Primal Garuda Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Primal Garuda Saga I/II/III.
+
+    I — Aerial Blast: deals 4 damage to target tapped opponent creature (engine gap: target).
+    II, III — Slipstream: another target creature you control gets +1/+0 and gains flying EOT (engine gap: target)."""
+    def i(_o, _s): return []  # engine gap: target tapped opp creature
+    def ii_iii(_o, _s): return []  # engine gap: target creature you control
+
+    return make_saga_setup(obj, {1: i, 2: ii_iii, 3: ii_iii})
 
 
 def white_mages_staff_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2805,19 +2880,54 @@ def stuck_in_summoners_sanctum_ff_setup(obj: GameObject, state: GameState) -> li
 
 
 def summon_leviathan_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Leviathan Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Leviathan Saga I/II/III.
+
+    I — Bounce each creature that isn't a Kraken/Leviathan/Merfolk/Octopus/Serpent.
+    II, III — Until EOT, draw a card whenever a Kraken/Leviathan/Merfolk/Octopus/Serpent attacks (engine gap: delayed-trigger draw)."""
+    KEPT = {"Kraken", "Leviathan", "Merfolk", "Octopus", "Serpent"}
+
+    def i(o, s):
+        events: list[Event] = []
+        for tgt in list(s.objects.values()):
+            if (tgt.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in tgt.characteristics.types
+                    and not (tgt.characteristics.subtypes & KEPT)):
+                events.append(Event(
+                    type=EventType.RETURN_TO_HAND,
+                    payload={'object_id': tgt.id},
+                    source=o.id,
+                ))
+        return events
+
+    def ii_iii(_o, _s): return []  # engine gap: delayed-trigger draw on attack
+
+    return make_saga_setup(obj, {1: i, 2: ii_iii, 3: ii_iii})
 
 
 def summon_shiva_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Shiva Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Shiva Saga I/II/III.
+
+    I, II — Heavenly Strike: Tap target opponent creature; put a stun counter on it (engine gap: target).
+    III — Diamond Dust: draw a card for each tapped creature your opponents control."""
+    def i_ii(_o, _s): return []  # engine gap: target
+
+    def iii(o, s):
+        count = 0
+        for tgt in s.objects.values():
+            if (tgt.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in tgt.characteristics.types
+                    and tgt.controller != o.controller
+                    and tgt.state.tapped):
+                count += 1
+        if count <= 0:
+            return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': o.controller, 'amount': count},
+            source=o.id,
+        )]
+
+    return make_saga_setup(obj, {1: i_ii, 2: i_ii, 3: iii})
 
 
 def thiefs_knife_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3021,19 +3131,61 @@ def shambling_cieth_ff_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def summon_anima_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Anima Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Anima Saga I/II/III/IV.
+
+    I, II, III — Pain: You draw a card and you lose 1 life.
+    IV — Oblivion: Each opponent sacrifices a creature and loses 3 life (engine gap: opp creature choice)."""
+    def pain(o, s):
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'amount': 1},
+                  source=o.id),
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': o.controller, 'amount': -1},
+                  source=o.id),
+        ]
+
+    def iv(o, s):
+        # Best-effort: lose 3 life per opponent. Leave the sacrifice as engine gap.
+        events: list[Event] = []
+        for pid in s.players:
+            if pid == o.controller:
+                continue
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': pid, 'amount': -3},
+                source=o.id,
+            ))
+        return events
+
+    return make_saga_setup(obj, {1: pain, 2: pain, 3: pain, 4: iv})
 
 
 def summon_primal_odin_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Primal Odin Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Primal Odin Saga I/II/III.
+
+    I — Gungnir: Destroy target opponent creature (engine gap: target).
+    II — Zantetsuken: Grant Saga "loses-the-game on combat damage" (engine gap: ability grant).
+    III — Hall of Sorrow: Draw two; each player loses 2 life."""
+    def i(_o, _s): return []  # engine gap: target
+
+    def ii(_o, _s): return []  # engine gap: grant alt-win-condition ability
+
+    def iii(o, s):
+        events: list[Event] = [Event(
+            type=EventType.DRAW,
+            payload={'player': o.controller, 'amount': 2},
+            source=o.id,
+        )]
+        for pid in s.players:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': pid, 'amount': -2},
+                source=o.id,
+            ))
+        return events
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 def tonberry_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3145,35 +3297,77 @@ def sandworm_red_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def summon_brynhildr_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Brynhildr Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Brynhildr Saga I/II/III.
+
+    I — Chain: Exile top of library; you may play it on lore-counter turns (engine gap: may-play permission).
+    II, III — Gestalt Mode: Next creature spell this turn gets haste EOT (engine gap: delayed-trigger haste)."""
+    def i(_o, _s): return []   # engine gap: exile + conditional may-play
+    def ii_iii(_o, _s): return []  # engine gap: delayed-trigger haste grant
+
+    return make_saga_setup(obj, {1: i, 2: ii_iii, 3: ii_iii})
 
 
 def summon_esper_ramuh_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Esper Ramuh Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Esper Ramuh Saga I/II/III.
+
+    I — Judgment Bolt: This creature deals damage equal to # of noncreature, nonland cards in your graveyard to target opp creature (engine gap: target + dynamic damage).
+    II, III — Wizards you control get +1/+0 EOT."""
+    def i(_o, _s): return []  # engine gap: target + dynamic damage
+
+    def ii_iii(o, s):
+        events: list[Event] = []
+        for tgt in list(s.objects.values()):
+            if (tgt.controller == o.controller
+                    and tgt.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in tgt.characteristics.types
+                    and 'Wizard' in tgt.characteristics.subtypes):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': tgt.id,
+                        'power_mod': 1, 'toughness_mod': 0,
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id,
+                ))
+        return events
+
+    return make_saga_setup(obj, {1: i, 2: ii_iii, 3: ii_iii})
 
 
 def summon_gf_cerberus_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: G.F. Cerberus Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: G.F. Cerberus Saga I/II/III.
+
+    I — Surveil 1.
+    II — Double: When you next cast an instant/sorcery this turn, copy it (engine gap: delayed copy).
+    III — Triple: When you next cast an instant/sorcery this turn, copy it twice (engine gap)."""
+    def i(o, s):
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': o.controller, 'count': 1},
+            source=o.id,
+        )]
+
+    def ii_iii(_o, _s): return []  # engine gap: delayed-trigger copy
+
+    return make_saga_setup(obj, {1: i, 2: ii_iii, 3: ii_iii})
 
 
 def summon_gf_ifrit_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: G.F. Ifrit Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: G.F. Ifrit Saga I/II/III/IV.
+
+    I, II — Optional discard a card; if you do, draw (engine gap: optional discard prompt).
+    III, IV — Add {R}."""
+    def i_ii(_o, _s): return []  # engine gap: optional discard prompt
+
+    def iii_iv(o, s):
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {Color.RED: 1}},
+            source=o.id,
+        )]
+
+    return make_saga_setup(obj, {1: i_ii, 2: i_ii, 3: iii_iv, 4: iii_iv})
 
 
 def triple_triad_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3368,27 +3562,76 @@ def sazh_katzroy_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def summon_fat_chocobo_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Fat Chocobo Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Fat Chocobo Saga I/II/III/IV.
+
+    I — Wark: Create a 2/2 green Bird token with a land-enter trigger (engine gap: per-token trigger).
+    II, III, IV — Kerplunk: Creatures you control gain trample EOT."""
+    def i(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Bird',
+                    'power': 2, 'toughness': 2,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Bird'},
+                    'colors': {Color.GREEN},
+                },
+            },
+            source=o.id,
+        )]
+
+    def trample(o, s):
+        events: list[Event] = []
+        for tgt in list(s.objects.values()):
+            if (tgt.controller == o.controller
+                    and tgt.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in tgt.characteristics.types):
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={
+                        'object_id': tgt.id,
+                        'keyword': 'trample',
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id,
+                ))
+        return events
+
+    return make_saga_setup(obj, {1: i, 2: trample, 3: trample, 4: trample})
 
 
 def summon_fenrir_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Fenrir Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Fenrir Saga I/II/III.
+
+    I — Crescent Fang: Search library for a basic land, put it onto battlefield tapped (engine gap: library search).
+    II — Heavenward Howl: Next creature spell enters with an extra +1/+1 counter (engine gap: replacement effect).
+    III — Ecliptic Growl: Draw a card if you control the creature with the greatest power (engine gap: dynamic check)."""
+    def i(_o, _s): return []  # engine gap: library search
+    def ii(_o, _s): return []  # engine gap: ETB replacement
+    def iii(_o, _s): return []  # engine gap: greatest-power dynamic check
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 def summon_titan_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summon: Titan Saga (placeholder)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: Saga chapter abilities not implemented
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Summon: Titan Saga I/II/III.
+
+    I — Mill 5.
+    II — Return all land cards from your graveyard to the battlefield tapped (engine gap: lands-from-graveyard return).
+    III — Until EOT, target creature you control gains trample and gets +X/+X where X = lands you control (engine gap: target + dynamic +X)."""
+    def i(o, s):
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': o.controller, 'count': 5},
+            source=o.id,
+        )]
+
+    def ii(_o, _s): return []  # engine gap: lands from graveyard
+    def iii(_o, _s): return []  # engine gap: target + dynamic +X/+X
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 def summoners_grimoire_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

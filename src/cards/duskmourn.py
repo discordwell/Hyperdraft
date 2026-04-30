@@ -30,7 +30,8 @@ from src.cards.interceptor_helpers import (
     make_static_pt_boost, make_keyword_grant, make_upkeep_trigger,
     make_life_gain_trigger, make_draw_trigger,
     other_creatures_you_control, creatures_you_control, other_creatures_with_subtype,
-    create_modal_choice, create_target_choice
+    create_modal_choice, create_target_choice,
+    make_saga_setup,
 )
 
 
@@ -1190,9 +1191,20 @@ def stay_hidden_stay_silent_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 def the_tale_of_tamiyo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saga — three lore steps; mill+conditional-draw; final exile/copy."""
-    # engine gap: Saga lore counters
-    return []
+    """Saga I/II/III/IV.
+
+    I, II, III — Mill 2 (engine gap: shared-card-type recursion + draw).
+    IV — Exile any number of target instant/sorcery/Tamiyo planeswalker cards from your graveyard, copy them, you may cast the copies (engine gap: target multiple in graveyard + spell copy)."""
+    def i_ii_iii(o, s):
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': o.controller, 'count': 2},
+            source=o.id,
+        )]
+
+    def iv(_o, _s): return []  # engine gap: target multiple in GY + spell copy
+
+    return make_saga_setup(obj, {1: i_ii_iii, 2: i_ii_iii, 3: i_ii_iii, 4: iv})
 
 
 def unable_to_scream_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

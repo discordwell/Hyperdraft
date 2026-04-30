@@ -29,7 +29,8 @@ from src.cards.interceptor_helpers import (
     make_upkeep_trigger, make_end_step_trigger, make_damage_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype, create_target_choice,
-    create_modal_choice
+    create_modal_choice,
+    make_saga_setup,
 )
 
 
@@ -4337,9 +4338,13 @@ def glass_casket_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def the_princess_takes_flight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saga (I/II/III)."""
-    # engine gap: full Saga lore-counter mechanic with chapter triggers and exile/return.
-    return []
+    """Saga (I/II/III). I: exile target creature, II: +2/+2 flying EOT, III: return exiled.
+    Partial: chapters I/II/III rely on target selection; only the structural Saga
+    plumbing (lore counters, chapter triggers, sacrifice) is wired."""
+    def i(_o, _s): return []  # engine gap: target a creature to exile
+    def ii(_o, _s): return []  # engine gap: target creature for +2/+2 flying EOT
+    def iii(_o, _s): return []  # engine gap: return exiled creature
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 def regal_bunnicorn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4457,9 +4462,58 @@ def spellbook_vendor_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def three_blind_mice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saga I/II/III/IV."""
-    # engine gap: Saga chapters with copy-token semantics.
-    return []
+    """Saga I/II/III/IV.
+
+    I — Create a 1/1 white Mouse creature token.
+    II, III — Create a token that's a copy of target token you control.
+    IV — Creatures you control get +1/+1 and gain vigilance until end of turn.
+    Partial: II/III need target-token selection (engine gap)."""
+    def i(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Mouse',
+                    'power': 1, 'toughness': 1,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Mouse'},
+                    'colors': {Color.WHITE},
+                },
+            },
+            source=o.id,
+        )]
+
+    def ii_iii(_o, _s): return []  # engine gap: target a token to copy
+
+    def iv(o, s):
+        events: list[Event] = []
+        for tgt in list(s.objects.values()):
+            if (tgt.controller == o.controller
+                    and CardType.CREATURE in tgt.characteristics.types
+                    and tgt.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': tgt.id,
+                        'power_mod': 1,
+                        'toughness_mod': 1,
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id,
+                ))
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={
+                        'object_id': tgt.id,
+                        'keyword': 'vigilance',
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id,
+                ))
+        return events
+
+    return make_saga_setup(obj, {1: i, 2: ii_iii, 3: ii_iii, 4: iv})
 
 
 def unassuming_sage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4647,9 +4701,23 @@ def extraordinary_journey_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def gadwicks_first_duel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saga I/II/III."""
-    # engine gap: Saga chapters with cursed role + scry + delayed copy trigger.
-    return []
+    """Saga I/II/III.
+
+    I — Cursed Role token attached to up to one target creature (engine gap: targeting + role attach).
+    II — Scry 2.
+    III — When you next cast a 3- mana value instant/sorcery this turn, copy it (engine gap: delayed-trigger spell-copy)."""
+    def i(_o, _s): return []  # engine gap: target + role attach
+
+    def ii(o, s):
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': o.controller, 'amount': 2},
+            source=o.id,
+        )]
+
+    def iii(_o, _s): return []  # engine gap: delayed copy trigger
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 def icewrought_sentry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4877,9 +4945,31 @@ def virtue_of_persistence_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def the_witchs_vanity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saga I/II/III."""
-    # engine gap: Saga chapters with destroy + Food + Wicked Role.
-    return []
+    """Saga I/II/III.
+
+    I — Destroy target opponent creature with mana value 2 or less (engine gap: target).
+    II — Create a Food token.
+    III — Create a Wicked Role token attached to target creature you control (engine gap: target+attach)."""
+    def i(_o, _s): return []  # engine gap: target a creature with MV<=2
+
+    def ii(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Food',
+                    'types': {CardType.ARTIFACT},
+                    'subtypes': {'Food'},
+                    'colors': set(),
+                },
+            },
+            source=o.id,
+        )]
+
+    def iii(_o, _s): return []  # engine gap: target + role attach
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 # --- Red ---
@@ -4909,9 +4999,28 @@ def goddric_cloaked_reveler_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 def korvold_and_the_noble_thief_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saga I,II/III."""
-    # engine gap: Saga chapters with Treasure + opponent library exile.
-    return []
+    """Saga I,II/III.
+
+    I, II — Create a Treasure token.
+    III — Exile top three of target opponent's library; you may play those cards this turn (engine gap: target opponent + may-play permission)."""
+    def treasure(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Treasure',
+                    'types': {CardType.ARTIFACT},
+                    'subtypes': {'Treasure'},
+                    'colors': set(),
+                },
+            },
+            source=o.id,
+        )]
+
+    def iii(_o, _s): return []  # engine gap: target opponent + library exile + may-play
+
+    return make_saga_setup(obj, {1: treasure, 2: treasure, 3: iii})
 
 
 def raging_battle_mouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4979,9 +5088,32 @@ def howling_galefang_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def the_huntsmans_redemption_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saga I/II/III."""
-    # engine gap: Saga chapters with token, optional sac+search, and target buffs.
-    return []
+    """Saga I/II/III.
+
+    I — Create a 3/3 green Beast creature token.
+    II — Optional sacrifice a creature; if you do, search for a creature/basic land (engine gap: optional sac + library search).
+    III — Up to two target creatures get +2/+2 and trample EOT (engine gap: targeting up to two)."""
+    def i(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Beast',
+                    'power': 3, 'toughness': 3,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Beast'},
+                    'colors': {Color.GREEN},
+                },
+            },
+            source=o.id,
+        )]
+
+    def ii(_o, _s): return []  # engine gap: optional sac + search
+
+    def iii(_o, _s): return []  # engine gap: target up to two creatures
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 def redtooth_vanguard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5015,9 +5147,45 @@ def virtue_of_strength_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def welcome_to_sweettooth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saga I/II/III."""
-    # engine gap: Saga chapters with token creation and X counters.
-    return []
+    """Saga I/II/III.
+
+    I — Create a 1/1 white Human creature token.
+    II — Create a Food token.
+    III — Put X +1/+1 counters on target creature you control where X is one plus the number of Foods you control (engine gap: target)."""
+    def i(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Human',
+                    'power': 1, 'toughness': 1,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Human'},
+                    'colors': {Color.WHITE},
+                },
+            },
+            source=o.id,
+        )]
+
+    def ii(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Food',
+                    'types': {CardType.ARTIFACT},
+                    'subtypes': {'Food'},
+                    'colors': set(),
+                },
+            },
+            source=o.id,
+        )]
+
+    def iii(_o, _s): return []  # engine gap: target
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 # --- Multicolor / Legendary ---
@@ -5029,9 +5197,26 @@ def agatha_of_the_vile_cauldron_setup(obj: GameObject, state: GameState) -> list
 
 
 def the_apprentices_folly_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saga I,II/III with reflection token copies + sac all reflections."""
-    # engine gap: Saga chapters + non-legendary copy tokens + reflection sweep.
-    return []
+    """Saga I,II/III with reflection token copies + sac all reflections.
+
+    I, II — Choose target nontoken creature you control; create a non-legendary copy of it that's a Reflection with haste (engine gap: target + token copy).
+    III — Sacrifice all Reflections you control."""
+    def i_ii(_o, _s): return []  # engine gap: target + non-legendary copy
+
+    def iii(o, s):
+        events: list[Event] = []
+        for tgt in list(s.objects.values()):
+            if (tgt.controller == o.controller
+                    and tgt.zone == ZoneType.BATTLEFIELD
+                    and 'Reflection' in tgt.characteristics.subtypes):
+                events.append(Event(
+                    type=EventType.SACRIFICE,
+                    payload={'object_id': tgt.id, 'player': o.controller},
+                    source=o.id,
+                ))
+        return events
+
+    return make_saga_setup(obj, {1: i_ii, 2: i_ii, 3: iii})
 
 
 def johann_apprentice_sorcerer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
