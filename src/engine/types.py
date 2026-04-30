@@ -295,6 +295,13 @@ class EventType(Enum):
     EXPEND_4_REACHED = auto()         # Player crossed 4 total mana spent this turn
     EXPEND_8_REACHED = auto()         # Player crossed 8 total mana spent this turn
     VALIANT_TARGETED = auto()         # Permanent became target of an ally spell/ability
+    # Avatar TLA Bending mechanics — marker events fired when a bending action
+    # occurs. These let other cards observe bending (e.g. Aang's transform).
+    # Effect events (MANA_ADDED, COUNTER_ADDED, ZONE_CHANGE) still do the work.
+    BENDING_FIREBEND = auto()         # Firebending X resolved: payload = {'amount': X, 'controller', 'source'}
+    BENDING_WATERBEND = auto()        # Waterbend cost paid: payload = {'amount': X, 'controller', 'source'}
+    BENDING_EARTHBEND = auto()        # Earthbend X resolved: payload = {'amount': X, 'controller', 'source', 'land_id'}
+    BENDING_AIRBEND = auto()          # Airbend resolved: payload = {'amount': X, 'controller', 'source', 'target_id'}
 
 
 class EventStatus(Enum):
