@@ -289,6 +289,12 @@ class EventType(Enum):
     SAGA_CHAPTER = auto()             # A Saga chapter ability is triggering
     # OTJ Crime mechanic
     CRIME_COMMITTED = auto()          # A player committed a crime (targeted opp/opp's permanent/opp's GY card)
+    # Bloomburrow (BLB) set mechanics. See src/engine/blb_mechanics.py for helpers.
+    OFFSPRING_TRIGGERED = auto()      # Marker: offspring resolved -> 1/1 token copy was created
+    FORAGE_PAID = auto()              # Marker: forage cost was paid (3 GY exiled OR Food sacrificed)
+    EXPEND_4_REACHED = auto()         # Player crossed 4 total mana spent this turn
+    EXPEND_8_REACHED = auto()         # Player crossed 8 total mana spent this turn
+    VALIANT_TARGETED = auto()         # Permanent became target of an ally spell/ability
 
 
 class EventStatus(Enum):
