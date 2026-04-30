@@ -1741,12 +1741,41 @@ def rhys_the_evermore_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def spiral_into_solitude_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura: enchanted creature can't attack/block.
+    """Aura: enchanted creature can't attack or block.
 
-    engine gap: cant_attack/cant_block static restrictions are not yet
-    exposed via keyword_grant; register no-op for now.
+    engine gap: blight-1 + sacrifice-self activated exile not wired.
     """
-    return []  # engine gap: per-Aura restriction targeting attached creature
+    source_id = obj.id
+
+    def cant_attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        source = state.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        attached = source.state.attached_to
+        return attached is not None and event.payload.get('attacker_id') == attached
+
+    def cant_attack_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    cant_attack = Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=cant_attack_filter, handler=cant_attack_handler,
+        duration='while_on_battlefield',
+    )
+
+    def attached_blocker_filter(target: GameObject, state: GameState) -> bool:
+        source = state.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        return source.state.attached_to is not None and target.id == source.state.attached_to
+
+    from src.cards.interceptor_helpers import make_cant_block
+    cant_block = make_cant_block(obj, attached_blocker_filter)
+    return [cant_attack, cant_block]
+    # engine gap: activated exile-enchanted ability with blight cost
 
 
 def thoughtweft_imbuer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1820,8 +1849,14 @@ def gravelgill_scoundrel_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def illusion_spinners_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Static: hexproof while untapped (engine gap)."""
-    return []  # engine gap: tap-state-conditional hexproof
+    """Static: hexproof while this creature is untapped.
+
+    engine gap: cast-as-flash-when-controlling-Faerie permission.
+    """
+    def self_untapped(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id and not target.state.tapped
+    return [make_keyword_grant(obj, ['hexproof'], self_untapped)]
+    # engine gap: 'cast as though it had flash' on a Faerie controller
 
 
 def lofty_dreams_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
