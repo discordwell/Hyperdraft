@@ -32,6 +32,7 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype,
     create_modal_choice, create_target_choice,
+    make_saga_setup,
 )
 
 
@@ -2649,9 +2650,32 @@ def wolfbat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- RED ---
 
 def the_cave_of_two_lovers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saga (engine gap lore counters and chapter triggers)."""
-    # engine gap: Saga chapter triggers
-    return []
+    """Saga I/II/III.
+
+    I — Create two 1/1 white Ally creature tokens.
+    II — Search library for a Mountain or Cave (engine gap: library search).
+    III — Earthbend 3 (engine gap: target land + bending mechanic)."""
+    def i(o, s):
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'count': 2,
+                'token': {
+                    'name': 'Ally',
+                    'power': 1, 'toughness': 1,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Ally'},
+                    'colors': {Color.WHITE},
+                },
+            },
+            source=o.id,
+        )]
+
+    def ii(_o, _s): return []  # engine gap: library search
+    def iii(_o, _s): return []  # engine gap: earthbend target
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 def combustion_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3006,9 +3030,50 @@ def haru_hidden_talent_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def leaves_from_the_vine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saga (engine gap chapter triggers)."""
-    # engine gap: Saga chapter triggers
-    return []
+    """Saga I/II/III.
+
+    I — Mill 3, then create a Food token.
+    II — Put a +1/+1 counter on each of up to two target creatures you control (engine gap: target up to two).
+    III — Draw a card if there's a creature or Lesson card in your graveyard."""
+    def i(o, s):
+        return [
+            Event(type=EventType.MILL,
+                  payload={'player': o.controller, 'count': 3},
+                  source=o.id),
+            Event(type=EventType.CREATE_TOKEN,
+                  payload={
+                      'controller': o.controller,
+                      'token': {
+                          'name': 'Food',
+                          'types': {CardType.ARTIFACT},
+                          'subtypes': {'Food'},
+                          'colors': set(),
+                      },
+                  },
+                  source=o.id),
+        ]
+
+    def ii(_o, _s): return []  # engine gap: target up to two
+
+    def iii(o, s):
+        gy_key = f"graveyard_{o.controller}"
+        gy = s.zones.get(gy_key)
+        if gy is None:
+            return []
+        for oid in gy.objects:
+            card = s.objects.get(oid)
+            if card is None:
+                continue
+            if (CardType.CREATURE in card.characteristics.types
+                    or 'Lesson' in card.characteristics.subtypes):
+                return [Event(
+                    type=EventType.DRAW,
+                    payload={'player': o.controller, 'amount': 1},
+                    source=o.id,
+                )]
+        return []
+
+    return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
 
 
 def raucous_audience_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

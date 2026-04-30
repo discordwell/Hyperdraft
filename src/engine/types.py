@@ -251,6 +251,10 @@ class EventType(Enum):
     YGO_LP_CHANGE = auto()            # Life Points changed
     YGO_DRAW = auto()                 # Draw Phase draw
 
+    # MTG Saga mechanic
+    SAGA_LORE_ADDED = auto()          # A lore counter is being added to a Saga
+    SAGA_CHAPTER = auto()             # A Saga chapter ability is triggering
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
