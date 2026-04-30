@@ -34,6 +34,7 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, create_target_choice, create_modal_choice,
     make_crime_committed_trigger, is_crime_committed,
+    open_library_search,
 )
 
 
@@ -3719,6 +3720,465 @@ def jace_reawakened_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 # =============================================================================
+# PHASE 2B VANILLA-SPELL RESOLVES
+# =============================================================================
+
+def _spell_caster_and_id(state: GameState, name: str) -> tuple[Optional[str], Optional[str]]:
+    """Find the resolving spell on the stack by name. Returns (caster_id, spell_id)."""
+    stack_zone = state.zones.get('stack')
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == name:
+                return obj.controller, obj.id
+    return state.active_player, None
+
+
+# --- RUSTLER_RAMPAGE: Spree (untap creatures / double strike) ----------------
+
+def rustler_rampage_resolve(targets: list, state: GameState) -> list[Event]:
+    """Spree modal: untap all creatures target player controls, and/or grant double strike to target creature."""
+    caster_id, spell_id = _spell_caster_and_id(state, "Rustler Rampage")
+    spell_id = spell_id or "rustler_rampage_spell"
+
+    # Always at least surface a target choice for "target creature gains double strike"
+    valid_creatures = [
+        obj.id for obj in state.objects.values()
+        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
+    ]
+    if not valid_creatures:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_creatures,
+        prompt="Rustler Rampage: target creature gains double strike",
+        min_targets=0,
+        max_targets=1,
+    )
+    choice.choice_type = "target_with_callback"
+    def _execute(choice, selected, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Untap-all opponent creatures portion (auto-applied for active opponents).
+        spell = state.objects.get(choice.source_id)
+        ctrl = spell.controller if spell else state.active_player
+        for obj in state.objects.values():
+            if (obj.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in obj.characteristics.types
+                    and obj.controller != ctrl):
+                events.append(Event(
+                    type=EventType.UNTAP,
+                    payload={'object_id': obj.id},
+                    source=choice.source_id,
+                ))
+        # Double strike grant
+        if selected:
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': selected[0], 'keyword': 'double_strike', 'duration': 'end_of_turn'},
+                source=choice.source_id,
+            ))
+        return events
+    choice.callback_data['handler'] = _execute
+    return []
+
+
+# --- SEIZE_THE_SECRETS: Draw two cards (with crime cost reduction = engine gap)
+
+def seize_the_secrets_resolve(targets: list, state: GameState) -> list[Event]:
+    """Draw two cards. (Cost reduction handled at cast-time, not resolve.)"""
+    caster_id, _ = _spell_caster_and_id(state, "Seize the Secrets")
+    if not caster_id:
+        return []
+    return [Event(type=EventType.DRAW, payload={'player': caster_id, 'amount': 2})]
+
+
+# --- STEP_BETWEEN_WORLDS: Each player may shuffle, then draw 7 ----------------
+
+def step_between_worlds_resolve(targets: list, state: GameState) -> list[Event]:
+    """Each player shuffles their hand and graveyard into their library, then draws seven cards.
+
+    Auto-takes the option for each player (AI/test default). Exiling Step Between
+    Worlds itself is handled by the engine via the spell going to the graveyard
+    after resolution; we cannot easily redirect a sorcery to exile from the resolve
+    without engine support, so we leave that as a minor deviation.
+    """
+    events: list[Event] = []
+    for pid in state.players:
+        graveyard = state.zones.get(f'graveyard_{pid}')
+        hand = state.zones.get(f'hand_{pid}')
+        # Shuffle each card from hand+graveyard back into the library.
+        for zone in (hand, graveyard):
+            if zone is None:
+                continue
+            for obj_id in list(zone.objects):
+                events.append(Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': obj_id,
+                        'to_zone': f'library_{pid}',
+                        'to_zone_type': ZoneType.LIBRARY,
+                    },
+                ))
+        events.append(Event(type=EventType.DRAW, payload={'player': pid, 'amount': 7}))
+    return events
+
+
+# --- CORRUPTED_CONVICTION: Draw two cards (sac is additional cost = engine gap)
+
+def corrupted_conviction_resolve(targets: list, state: GameState) -> list[Event]:
+    """Draw two cards. The sacrifice is an additional cost paid at cast time."""
+    caster_id, _ = _spell_caster_and_id(state, "Corrupted Conviction")
+    if not caster_id:
+        return []
+    return [Event(type=EventType.DRAW, payload={'player': caster_id, 'amount': 2})]
+
+
+# --- FULL_STEAM_AHEAD: Pump all your creatures + trample/can't-be-double-blocked
+
+def full_steam_ahead_resolve(targets: list, state: GameState) -> list[Event]:
+    """Each creature you control gets +2/+2 and gains trample until end of turn."""
+    caster_id, spell_id = _spell_caster_and_id(state, "Full Steam Ahead")
+    spell_id = spell_id or "full_steam_ahead_spell"
+    if not caster_id:
+        return []
+    events: list[Event] = []
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD
+                and obj.controller == caster_id
+                and CardType.CREATURE in obj.characteristics.types):
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': obj.id,
+                    'power_mod': 2,
+                    'toughness_mod': 2,
+                    'duration': 'end_of_turn',
+                },
+                source=spell_id,
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': obj.id, 'keyword': 'trample', 'duration': 'end_of_turn'},
+                source=spell_id,
+            ))
+    return events
+
+
+# --- MAP_THE_FRONTIER: Tutor up to two basic land/Desert cards ---------------
+
+def map_the_frontier_resolve(targets: list, state: GameState) -> list[Event]:
+    """Search your library for up to two basic land cards and/or Desert cards, BF tapped."""
+    caster_id, spell_id = _spell_caster_and_id(state, "Map the Frontier")
+    spell_id = spell_id or "map_the_frontier_spell"
+    if not caster_id:
+        return []
+
+    def _land_filter(obj: GameObject, st: GameState) -> bool:
+        ch = obj.characteristics
+        is_basic = "Basic" in (ch.supertypes or set())
+        is_desert = "Desert" in (ch.subtypes or set())
+        return CardType.LAND in ch.types and (is_basic or is_desert)
+
+    return open_library_search(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        filter_fn=_land_filter,
+        max_count=2,
+        destination='battlefield',
+        tapped=True,
+        prompt="Search your library for up to two basic land cards and/or Desert cards",
+        optional=True,
+    )
+
+
+# --- RISE_OF_THE_VARMINTS: Create X 2/1 green Varmint tokens, X = creatures in GY
+
+def rise_of_the_varmints_resolve(targets: list, state: GameState) -> list[Event]:
+    """Create X 2/1 green Varmint tokens, where X is creature cards in your graveyard."""
+    caster_id, spell_id = _spell_caster_and_id(state, "Rise of the Varmints")
+    spell_id = spell_id or "rise_of_the_varmints_spell"
+    if not caster_id:
+        return []
+    graveyard = state.zones.get(f'graveyard_{caster_id}')
+    x = 0
+    if graveyard:
+        for obj_id in graveyard.objects:
+            obj = state.objects.get(obj_id)
+            if obj and CardType.CREATURE in obj.characteristics.types:
+                x += 1
+
+    events: list[Event] = []
+    for _ in range(x):
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Varmint Token',
+                'controller': caster_id,
+                'power': 2,
+                'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Varmint'],
+                'colors': [Color.GREEN],
+                'is_token': True,
+            },
+            source=spell_id,
+            controller=caster_id,
+        ))
+    return events
+
+
+# --- TUMBLEWEED_RISING: Create an X/X green Elemental, X = greatest power -----
+
+def tumbleweed_rising_resolve(targets: list, state: GameState) -> list[Event]:
+    """Create an X/X green Elemental token, X = greatest power among creatures you control."""
+    caster_id, spell_id = _spell_caster_and_id(state, "Tumbleweed Rising")
+    spell_id = spell_id or "tumbleweed_rising_spell"
+    if not caster_id:
+        return []
+    x = 0
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD
+                and obj.controller == caster_id
+                and CardType.CREATURE in obj.characteristics.types):
+            try:
+                p = get_power(obj, state)
+            except Exception:
+                p = 0
+            if p is not None and p > x:
+                x = p
+    return [Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'name': 'Elemental Token',
+            'controller': caster_id,
+            'power': x,
+            'toughness': x,
+            'types': [CardType.CREATURE],
+            'subtypes': ['Elemental'],
+            'colors': [Color.GREEN],
+            'is_token': True,
+        },
+        source=spell_id,
+        controller=caster_id,
+    )]
+
+
+# --- PILLAGE_THE_BOG: Look at top 2*lands, put 1 into hand --------------------
+
+def pillage_the_bog_resolve(targets: list, state: GameState) -> list[Event]:
+    """Look at the top 2*L cards (L = lands you control), put 1 into hand, rest on bottom random."""
+    caster_id, spell_id = _spell_caster_and_id(state, "Pillage the Bog")
+    spell_id = spell_id or "pillage_the_bog_spell"
+    if not caster_id:
+        return []
+    lands = sum(
+        1 for obj in state.objects.values()
+        if (obj.zone == ZoneType.BATTLEFIELD
+            and obj.controller == caster_id
+            and CardType.LAND in obj.characteristics.types)
+    )
+    n = max(0, lands * 2)
+    if n == 0:
+        return []
+    library = state.zones.get(f'library_{caster_id}')
+    if library is None or not library.objects:
+        return []
+    # Look at top n; put one in hand, rest on bottom in random order.
+    top_ids = list(library.objects[:n])
+    if not top_ids:
+        return []
+    chosen = top_ids[0]  # AI/default: take the first card
+    rest = top_ids[1:]
+    import random as _random
+    _random.shuffle(rest)
+    events: list[Event] = []
+    events.append(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': chosen,
+            'to_zone': f'hand_{caster_id}',
+            'to_zone_type': ZoneType.HAND,
+        },
+        source=spell_id,
+    ))
+    for r_id in rest:
+        events.append(Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': r_id,
+                'to_zone': f'library_{caster_id}',
+                'to_zone_type': ZoneType.LIBRARY,
+                'position': 'bottom',
+            },
+            source=spell_id,
+        ))
+    return events
+
+
+# --- ONE_LAST_JOB: Spree -- reanimate creature/Mount-Vehicle/Aura-Equipment ---
+
+def one_last_job_resolve(targets: list, state: GameState) -> list[Event]:
+    """Reanimate a creature card from your graveyard (basic mode 1).
+
+    Modes 2 and 3 (Mount/Vehicle, Aura/Equipment with attachment) are engine
+    gaps; we surface the simplest mode for AI/test playability.
+    """
+    caster_id, spell_id = _spell_caster_and_id(state, "One Last Job")
+    spell_id = spell_id or "one_last_job_spell"
+    if not caster_id:
+        return []
+    graveyard = state.zones.get(f'graveyard_{caster_id}')
+    if graveyard is None:
+        return []
+    valid: list[str] = []
+    for obj_id in graveyard.objects:
+        obj = state.objects.get(obj_id)
+        if obj and CardType.CREATURE in obj.characteristics.types:
+            valid.append(obj_id)
+    if not valid:
+        return []
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid,
+        prompt="One Last Job: reanimate a creature card",
+        min_targets=0,
+        max_targets=1,
+    )
+    choice.choice_type = "target_with_callback"
+    def _execute(choice, selected, state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = state.objects.get(target_id)
+        if not target:
+            return []
+        owner = target.owner or target.controller
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'to_zone': f'battlefield_{owner}',
+                'to_zone_type': ZoneType.BATTLEFIELD,
+            },
+            source=choice.source_id,
+        )]
+    choice.callback_data['handler'] = _execute
+    return []
+
+
+# --- LIVELY_DIRGE: Spree -- mill self / reanimate up to 2 with MV<=4 ---------
+
+def lively_dirge_resolve(targets: list, state: GameState) -> list[Event]:
+    """Reanimate up to two creature cards with total mana value 4 or less from your graveyard.
+
+    The first ({1}) tutor-to-graveyard mode is an engine gap (full library
+    search to graveyard); the {2} reanimate mode is what we surface here.
+    """
+    caster_id, spell_id = _spell_caster_and_id(state, "Lively Dirge")
+    spell_id = spell_id or "lively_dirge_spell"
+    if not caster_id:
+        return []
+    graveyard = state.zones.get(f'graveyard_{caster_id}')
+    if graveyard is None:
+        return []
+
+    def _mv(s: Optional[str]) -> int:
+        return sum(int(c) if c.isdigit() else 1 for c in (s or '') if c.isalnum() and c not in 'X')
+
+    valid: list[str] = []
+    for obj_id in graveyard.objects:
+        obj = state.objects.get(obj_id)
+        if obj and CardType.CREATURE in obj.characteristics.types and _mv(obj.characteristics.mana_cost) <= 4:
+            valid.append(obj_id)
+    if not valid:
+        return []
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid,
+        prompt="Lively Dirge: reanimate up to two creatures (total MV<=4)",
+        min_targets=0,
+        max_targets=2,
+    )
+    choice.choice_type = "target_with_callback"
+    def _execute(choice, selected, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        total_mv = 0
+        for tid in selected or []:
+            tgt = state.objects.get(tid)
+            if not tgt:
+                continue
+            mv = _mv(tgt.characteristics.mana_cost)
+            if total_mv + mv > 4:
+                break
+            total_mv += mv
+            owner = tgt.owner or tgt.controller
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': tid,
+                    'to_zone': f'battlefield_{owner}',
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                },
+                source=choice.source_id,
+            ))
+        return events
+    choice.callback_data['handler'] = _execute
+    return []
+
+
+# --- RUSH_OF_DREAD: Spree -- target opponent loses half life (rounded up) ----
+
+def rush_of_dread_resolve(targets: list, state: GameState) -> list[Event]:
+    """Make target opponent lose half their life, rounded up.
+
+    The other two modes (forced sacrifice and forced discard with rounding)
+    require interactive opponent choice and are engine gaps; we surface the
+    half-life mode which is unconditional.
+    """
+    caster_id, spell_id = _spell_caster_and_id(state, "Rush of Dread")
+    spell_id = spell_id or "rush_of_dread_spell"
+    if not caster_id:
+        return []
+    opps = [pid for pid in state.players if pid != caster_id]
+    if not opps:
+        return []
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=opps,
+        prompt="Rush of Dread: target opponent loses half life (rounded up)",
+        min_targets=0,
+        max_targets=1,
+    )
+    choice.choice_type = "target_with_callback"
+    def _execute(choice, selected, state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        opp = selected[0]
+        player = state.players.get(opp)
+        if player is None:
+            return []
+        life = getattr(player, 'life', 20)
+        loss = (life + 1) // 2  # rounded up
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp, 'amount': -loss},
+            source=choice.source_id,
+        )]
+    choice.callback_data['handler'] = _execute
+    return []
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -4381,6 +4841,7 @@ ONE_LAST_JOB = make_sorcery(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Spree (Choose one or more additional costs.)\n+ {2} — Return target creature card from your graveyard to the battlefield.\n+ {1} — Return target Mount or Vehicle card from your graveyard to the battlefield.\n+ {1} — Return target Aura or Equipment card from your graveyard to the battlefield attached to a creature you control.",
+    resolve=one_last_job_resolve,
 )
 
 OUTLAW_MEDIC = make_creature(
@@ -4606,6 +5067,7 @@ RUSTLER_RAMPAGE = make_instant(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Spree (Choose one or more additional costs.)\n+ {1} — Untap all creatures target player controls.\n+ {1} — Target creature gains double strike until end of turn.",
+    resolve=rustler_rampage_resolve,
 )
 
 SHEPHERD_OF_THE_CLOUDS = make_creature(
@@ -5502,6 +5964,7 @@ SEIZE_THE_SECRETS = make_sorcery(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="This spell costs {1} less to cast if you've committed a crime this turn. (Targeting opponents, anything they control, and/or cards in their graveyards is a crime.)\nDraw two cards.",
+    resolve=seize_the_secrets_resolve,
 )
 
 SHACKLE_SLINGER = make_creature(
@@ -5556,6 +6019,7 @@ STEP_BETWEEN_WORLDS = make_sorcery(
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     text="Each player may shuffle their hand and graveyard into their library. Each player who does draws seven cards. Exile Step Between Worlds.\nPlot {4}{U}{U} (You may pay {4}{U}{U} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    resolve=step_between_worlds_resolve,
 )
 
 STOIC_SPHINX = make_creature(
@@ -6123,6 +6587,7 @@ CORRUPTED_CONVICTION = make_instant(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="As an additional cost to cast this spell, sacrifice a creature.\nDraw two cards.",
+    resolve=corrupted_conviction_resolve,
 )
 
 # =============================================================================
@@ -6383,6 +6848,7 @@ LIVELY_DIRGE = make_sorcery(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Spree (Choose one or more additional costs.)\n+ {1} — Search your library for a card, put it into your graveyard, then shuffle.\n+ {2} — Return up to two creature cards with total mana value 4 or less from your graveyard to the battlefield.",
+    resolve=lively_dirge_resolve,
 )
 
 MOURNERS_SURPRISE = make_sorcery(
@@ -6562,6 +7028,7 @@ RUSH_OF_DREAD = make_sorcery(
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
     text="Spree (Choose one or more additional costs.)\n+ {1} — Target opponent sacrifices half the creatures they control of their choice, rounded up.\n+ {2} — Target opponent discards half the cards in their hand, rounded up.\n+ {2} — Target opponent loses half their life, rounded up.",
+    resolve=rush_of_dread_resolve,
 )
 
 SERVANT_OF_THE_STINGER = make_creature(
@@ -8233,6 +8700,7 @@ FULL_STEAM_AHEAD = make_sorcery(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     text="Until end of turn, each creature you control gets +2/+2 and gains trample and \"This creature can't be blocked by more than one creature.\"",
+    resolve=full_steam_ahead_resolve,
 )
 
 GIANT_BEAVER = make_creature(
@@ -8382,6 +8850,7 @@ MAP_THE_FRONTIER = make_sorcery(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="Search your library for up to two basic land cards and/or Desert cards, put them onto the battlefield tapped, then shuffle.",
+    resolve=map_the_frontier_resolve,
 )
 
 ORNERY_TUMBLEWAGG = make_creature(
@@ -8467,6 +8936,7 @@ RISE_OF_THE_VARMINTS = make_sorcery(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="Create X 2/1 green Varmint creature tokens, where X is the number of creature cards in your graveyard.\nPlot {2}{G} (You may pay {2}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    resolve=rise_of_the_varmints_resolve,
 )
 
 SMUGGLERS_SURPRISE = make_instant(
@@ -8911,6 +9381,7 @@ TUMBLEWEED_RISING = make_sorcery(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Create an X/X green Elemental creature token, where X is the greatest power among creatures you control.\nPlot {2}{G} (You may pay {2}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    resolve=tumbleweed_rising_resolve,
 )
 
 VORACIOUS_VARMINT = make_creature(
@@ -9286,6 +9757,7 @@ PILLAGE_THE_BOG = make_sorcery(
     mana_cost="{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     text="Look at the top X cards of your library, where X is twice the number of lands you control. Put one of them into your hand and the rest on the bottom of your library in a random order.\nPlot {1}{B}{G} (You may pay {1}{B}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+    resolve=pillage_the_bog_resolve,
 )
 
 RAKDOS_JOINS_UP = make_enchantment(

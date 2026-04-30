@@ -1,0 +1,141 @@
+{
+  "set": "outlaws_thunder_junction.py",
+  "results": [
+    {
+      "var": "ANOTHER_ROUND",
+      "disposition": "left",
+      "engine_gap": "X-cost iterative mass exile/return loop ('then repeat this process X more times'); requires multi-step resolve with re-entry into the choice/effect cycle",
+      "notes": "No bespoke for this complex iteration."
+    },
+    {
+      "var": "ONE_LAST_JOB",
+      "disposition": "resolved",
+      "engine_gap": "Mount/Vehicle and Aura/Equipment sub-modes (with attach to creature) are gaps",
+      "notes": "Resolves the simplest creature-reanimate mode (+ {2}). The Spree mode-selection UI is engine-gap; AI defaults to creature mode if any creature is in graveyard."
+    },
+    {
+      "var": "RUSTLER_RAMPAGE",
+      "disposition": "resolved",
+      "engine_gap": "Spree mode picker is engine gap; we eagerly emit untap-opp-creatures + double-strike grant",
+      "notes": "Bespoke target_with_callback that grants double strike to chosen creature and untaps all opponent creatures."
+    },
+    {
+      "var": "FLEETING_REFLECTION",
+      "disposition": "left",
+      "engine_gap": "Becomes-a-copy until end of turn (creature copy continuous effect) is an engine gap",
+      "notes": "Hexproof + untap are doable, but the copy-creature-effect dominates this card; left whole."
+    },
+    {
+      "var": "SEIZE_THE_SECRETS",
+      "disposition": "resolved",
+      "engine_gap": "Crime-based cost reduction is enforced at cast time, not resolve",
+      "notes": "Resolve emits DRAW(2)."
+    },
+    {
+      "var": "SHIFTING_GRIFT",
+      "disposition": "left",
+      "engine_gap": "Exchange-control of two permanents is an engine gap (no exchange primitive)",
+      "notes": "All three Spree modes use exchange; nothing meaningful to wire."
+    },
+    {
+      "var": "STEP_BETWEEN_WORLDS",
+      "disposition": "resolved",
+      "engine_gap": "Self-exiling sorcery (engine puts spells in graveyard); mass shuffle of hand+graveyard back to library expressed via ZONE_CHANGE events",
+      "notes": "AI-defaults each player to taking the option; emits one DRAW(7) per player."
+    },
+    {
+      "var": "BINDING_NEGOTIATION",
+      "disposition": "left",
+      "engine_gap": "Reveal opponent hand + caster picks card to discard; otherwise face-up exiled card to graveyard. No primitive for hand-card-pick from opponent.",
+      "notes": "Left."
+    },
+    {
+      "var": "CORRUPTED_CONVICTION",
+      "disposition": "resolved",
+      "engine_gap": "Sacrifice-as-additional-cost is engine gap (handled at cast time, not resolve)",
+      "notes": "Resolve emits DRAW(2)."
+    },
+    {
+      "var": "LIVELY_DIRGE",
+      "disposition": "resolved",
+      "engine_gap": "Library-tutor-to-graveyard ({1} mode) is full library-search; we surface only the {2} reanimate mode",
+      "notes": "Bespoke target_with_callback in graveyard with MV<=4 enforcement."
+    },
+    {
+      "var": "PITILESS_CARNAGE",
+      "disposition": "left",
+      "engine_gap": "'Sacrifice any number of permanents you control' requires interactive multi-sacrifice choice",
+      "notes": "Left."
+    },
+    {
+      "var": "RUSH_OF_DREAD",
+      "disposition": "resolved",
+      "engine_gap": "Forced opponent sac/discard with 'rounded up' counts requires interactive opp choice; both modes are engine gaps",
+      "notes": "Surfaces the 'half life rounded up' mode via target opponent + LIFE_CHANGE."
+    },
+    {
+      "var": "GREAT_TRAIN_HEIST",
+      "disposition": "left",
+      "engine_gap": "Extra combat phase + delayed treasure-on-combat-damage trigger; pump-with-FS doable but not standalone",
+      "notes": "Left."
+    },
+    {
+      "var": "RETURN_THE_FAVOR",
+      "disposition": "left",
+      "engine_gap": "Copy spell + change-target-of-spell are stack-rewriting primitives that aren't generic",
+      "notes": "Left."
+    },
+    {
+      "var": "FULL_STEAM_AHEAD",
+      "disposition": "resolved",
+      "engine_gap": "'Can't be blocked by more than one creature' restriction is gap; pump+trample wired",
+      "notes": "Emits PT_MODIFICATION + GRANT_KEYWORD(trample) for each creature you control."
+    },
+    {
+      "var": "MAP_THE_FRONTIER",
+      "disposition": "resolved",
+      "engine_gap": "None (uses open_library_search with Basic/Desert filter)",
+      "notes": "Tutor up to two basic land or Desert cards to battlefield tapped."
+    },
+    {
+      "var": "RISE_OF_THE_VARMINTS",
+      "disposition": "resolved",
+      "engine_gap": "None (counts creatures in graveyard at resolve)",
+      "notes": "Emits X OBJECT_CREATED events for 2/1 green Varmint tokens."
+    },
+    {
+      "var": "SMUGGLERS_SURPRISE",
+      "disposition": "left",
+      "engine_gap": "Putting creature cards from hand onto battlefield is engine gap",
+      "notes": "Left."
+    },
+    {
+      "var": "TUMBLEWEED_RISING",
+      "disposition": "resolved",
+      "engine_gap": "None (computes greatest power among creatures you control)",
+      "notes": "Emits OBJECT_CREATED for an X/X green Elemental token."
+    },
+    {
+      "var": "BADLANDS_REVIVAL",
+      "disposition": "left",
+      "engine_gap": "Graveyard targeting + simultaneous reanimate-and-bounce-from-GY is engine gap",
+      "notes": "Left."
+    },
+    {
+      "var": "MAKE_YOUR_OWN_LUCK",
+      "disposition": "left",
+      "engine_gap": "Plotting-from-library-look (exile face-up as plotted) is a complex plot subsystem hook",
+      "notes": "Left."
+    },
+    {
+      "var": "PILLAGE_THE_BOG",
+      "disposition": "resolved",
+      "engine_gap": "None (computes 2 * lands you control)",
+      "notes": "Looks at top X cards, puts the first into hand, rest to bottom in random order."
+    }
+  ],
+  "summary": {
+    "resolved": 12,
+    "left": 10
+  }
+}

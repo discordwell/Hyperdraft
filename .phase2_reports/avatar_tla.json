@@ -1,0 +1,135 @@
+{
+  "set": "avatar_tla.py",
+  "results": [
+    {
+      "var": "AVATARS_WRATH",
+      "disposition": "left",
+      "engine_gap": "Airbend (mass exile-to-cast-from-exile-for-cost) and 'opponents can't cast spells from anywhere other than their hands' restriction; both are bending/restriction subsystems",
+      "notes": "Left."
+    },
+    {
+      "var": "DESTINED_CONFRONTATION",
+      "disposition": "left",
+      "engine_gap": "Each player chooses creatures with total power <= 4 then sacrifices the rest; requires interactive multi-permanent choice with sum constraint per player",
+      "notes": "Left."
+    },
+    {
+      "var": "ENTER_THE_AVATAR_STATE",
+      "disposition": "resolved",
+      "engine_gap": "Adding 'Avatar' creature subtype until EOT is a typeline change; we wire flying/first_strike/lifelink/hexproof grants only",
+      "notes": "Bespoke target_with_callback that emits 4 GRANT_KEYWORD events."
+    },
+    {
+      "var": "ACCUMULATE_WISDOM",
+      "disposition": "resolved",
+      "engine_gap": "None (Lesson count is checked from graveyard)",
+      "notes": "Bespoke: looks at top 3, puts 1 (or all 3 if 3+ Lessons in graveyard) into hand."
+    },
+    {
+      "var": "CRASHING_WAVE",
+      "disposition": "left",
+      "engine_gap": "Waterbend {X} as additional cost is engine gap (bending costs); X-target tap + stun-counter distribution would be doable post-cost",
+      "notes": "Left."
+    },
+    {
+      "var": "OCTOPUS_FORM",
+      "disposition": "resolved",
+      "engine_gap": "None",
+      "notes": "Bespoke target_with_callback: PT_MODIFICATION (+1/+1), GRANT_KEYWORD(hexproof), UNTAP."
+    },
+    {
+      "var": "SECRET_OF_BLOODBENDING",
+      "disposition": "left",
+      "engine_gap": "'You control target opponent during their next combat/turn' (mind-control of player) is a major engine gap",
+      "notes": "Left."
+    },
+    {
+      "var": "SPIRIT_WATER_REVIVAL",
+      "disposition": "resolved",
+      "engine_gap": "Waterbend bonus mode (graveyard shuffle + 7 + no max hand size) requires bending + max-hand subsystems",
+      "notes": "Resolves the basic mode: DRAW(2)."
+    },
+    {
+      "var": "DAY_OF_BLACK_SUN",
+      "disposition": "resolved",
+      "engine_gap": "X value depends on cast-time mana spent (relies on `x_value` attribute on the spell object); REMOVE_ABILITIES until EOT may be partially supported",
+      "notes": "Iterates creatures with MV<=X, emits REMOVE_ABILITIES + OBJECT_DESTROYED."
+    },
+    {
+      "var": "COMBUSTION_TECHNIQUE",
+      "disposition": "resolved",
+      "engine_gap": "'Would die this turn -> exile instead' replacement effect requires a delayed replacement interceptor; we wire only the damage portion",
+      "notes": "Bespoke target_with_callback: damage = 2 + Lessons in GY."
+    },
+    {
+      "var": "FIRE_NATION_ATTACKS",
+      "disposition": "resolved",
+      "engine_gap": "Granting 'firebending 1' as a keyword on the created tokens is engine gap (bending kw)",
+      "notes": "Creates two 2/2 red Soldier tokens via OBJECT_CREATED. Flashback handled separately by engine."
+    },
+    {
+      "var": "THE_LAST_AGNI_KAI",
+      "disposition": "resolved",
+      "engine_gap": "Excess-damage -> {R} mana and 'don't lose unspent red mana EOT' are mana-pool subsystem gaps; we wire only the FIGHT",
+      "notes": "Auto-pairs first own creature with first opponent creature; emits FIGHT event."
+    },
+    {
+      "var": "REDIRECT_LIGHTNING",
+      "disposition": "left",
+      "engine_gap": "Change target of spell/ability with single target is a stack-rewriting primitive; the additional cost of pay-5-life-or-{2} is gap",
+      "notes": "Left."
+    },
+    {
+      "var": "SOLSTICE_REVELATIONS",
+      "disposition": "left",
+      "engine_gap": "Reveal-until-nonland exile + cast-without-paying conditional + flashback are layered exile-and-cast primitives",
+      "notes": "Left."
+    },
+    {
+      "var": "SOZINS_COMET",
+      "disposition": "left",
+      "engine_gap": "Granting 'firebending 5' (a bending keyword that adds 5 R on attack) to all your creatures requires bending kw grants",
+      "notes": "Left."
+    },
+    {
+      "var": "ALLIES_AT_LAST",
+      "disposition": "resolved",
+      "engine_gap": "Affinity-for-Allies cost reduction is at cast-time; multi-fight-target is gap. We pick first 2 own creatures vs first opp creature",
+      "notes": "Bespoke: emits damage = power for each of up to 2 attackers to one chosen opp creature."
+    },
+    {
+      "var": "CYCLE_OF_RENEWAL",
+      "disposition": "left",
+      "engine_gap": "Sacrifice-a-land-as-additional-cost integrated with the resolve effect is engine gap",
+      "notes": "Left."
+    },
+    {
+      "var": "ELEMENTAL_TEACHINGS",
+      "disposition": "left",
+      "engine_gap": "Search 4 differently-named lands + opponent picks 2 to GY + rest to BF tapped requires interactive opponent choice over a tutor result",
+      "notes": "Left."
+    },
+    {
+      "var": "PILLAR_LAUNCH",
+      "disposition": "resolved",
+      "engine_gap": "None",
+      "notes": "Bespoke target_with_callback: PT_MODIFICATION (+2/+2), GRANT_KEYWORD(reach), UNTAP."
+    },
+    {
+      "var": "ROCKY_REBUKE",
+      "disposition": "resolved",
+      "engine_gap": "None (auto-pairs first own creature with first opp creature)",
+      "notes": "Emits one DAMAGE event with amount = source power."
+    },
+    {
+      "var": "SEISMIC_SENSE",
+      "disposition": "resolved",
+      "engine_gap": "None (computes lands you control as X)",
+      "notes": "Looks at top X (=lands), puts a creature/land into hand, rest random bottom."
+    }
+  ],
+  "summary": {
+    "resolved": 12,
+    "left": 9
+  }
+}
