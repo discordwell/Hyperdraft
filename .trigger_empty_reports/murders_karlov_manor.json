@@ -1,0 +1,604 @@
+{
+  "set": "murders_karlov_manor.py",
+  "results": [
+    {
+      "fn": "griffnaut_tracker_setup",
+      "card_var": "GRIFFNAUT_TRACKER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: ETB exile up to 2 from any graveyard via target_with_callback"
+    },
+    {
+      "fn": "haazda_vigilante_setup",
+      "card_var": "HAAZDA_VIGILANTE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: ETB/attack +1/+1 counter on target creature you control with power<=2 via target_with_callback"
+    },
+    {
+      "fn": "agency_outfitter_setup",
+      "card_var": "AGENCY_OUTFITTER",
+      "disposition": "left",
+      "engine_gap": "library_search",
+      "notes": "Engine gap: library_search"
+    },
+    {
+      "fn": "benthic_criminologists_setup",
+      "card_var": "BENTHIC_CRIMINOLOGISTS",
+      "disposition": "left",
+      "engine_gap": "optional_sacrifice_for_draw",
+      "notes": "Engine gap: optional_sacrifice_for_draw"
+    },
+    {
+      "fn": "surveillance_monitor_setup",
+      "card_var": "SURVEILLANCE_MONITOR",
+      "disposition": "left",
+      "engine_gap": "collect_evidence_mechanic",
+      "notes": "Engine gap: collect_evidence_mechanic"
+    },
+    {
+      "fn": "clandestine_meddler_setup",
+      "card_var": "CLANDESTINE_MEDDLER",
+      "disposition": "left",
+      "engine_gap": "suspect_mechanic",
+      "notes": "Engine gap: suspect_mechanic"
+    },
+    {
+      "fn": "massacre_girl_setup",
+      "card_var": "MASSACRE_GIRL_KNOWN_KILLER",
+      "disposition": "left",
+      "engine_gap": "none",
+      "notes": "Engine gap: none"
+    },
+    {
+      "fn": "undercity_eliminator_setup",
+      "card_var": "UNDERCITY_ELIMINATOR",
+      "disposition": "left",
+      "engine_gap": "optional_sacrifice_then_target",
+      "notes": "Engine gap: optional_sacrifice_then_target"
+    },
+    {
+      "fn": "unscrupulous_agent_setup",
+      "card_var": "UNSCRUPULOUS_AGENT",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "1st version converted (2nd already had logic): target opponent exiles a card from their hand via target_with_callback + ZONE_CHANGE"
+    },
+    {
+      "fn": "cornered_crook_setup",
+      "card_var": "CORNERED_CROOK",
+      "disposition": "left",
+      "engine_gap": "optional_sacrifice_then_damage",
+      "notes": "Engine gap: optional_sacrifice_then_damage"
+    },
+    {
+      "fn": "frantic_scapegoat_setup",
+      "card_var": "FRANTIC_SCAPEGOAT",
+      "disposition": "left",
+      "engine_gap": "suspect_mechanic",
+      "notes": "Engine gap: suspect_mechanic"
+    },
+    {
+      "fn": "gearbane_orangutan_setup",
+      "card_var": "GEARBANE_ORANGUTAN",
+      "disposition": "left",
+      "engine_gap": "modal_with_optional_sacrifice",
+      "notes": "Engine gap: modal_with_optional_sacrifice"
+    },
+    {
+      "fn": "krenkos_buzzcrusher_setup",
+      "card_var": "KRENKOS_BUZZCRUSHER",
+      "disposition": "left",
+      "engine_gap": "per_player_target_destroy_then_search",
+      "notes": "Engine gap: per_player_target_destroy_then_search"
+    },
+    {
+      "fn": "glint_weaver_setup",
+      "card_var": "GLINT_WEAVER",
+      "disposition": "left",
+      "engine_gap": "distribute_counters_then_life_calc",
+      "notes": "Engine gap: distribute_counters_then_life_calc"
+    },
+    {
+      "fn": "agrus_kos_setup",
+      "card_var": "AGRUS_KOS_SPIRIT_OF_JUSTICE",
+      "disposition": "left",
+      "engine_gap": "suspect_mechanic",
+      "notes": "Engine gap: suspect_mechanic"
+    },
+    {
+      "fn": "blood_spatter_analysis_setup",
+      "card_var": "BLOOD_SPATTER_ANALYSIS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB deal 3 to target opp creature via target_with_callback"
+    },
+    {
+      "fn": "kraul_whipcracker_setup",
+      "card_var": "KRAUL_WHIPCRACKER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "1st version converted (2nd already had impl): ETB destroy target opp token via target_with_callback"
+    },
+    {
+      "fn": "private_eye_setup",
+      "card_var": "PRIVATE_EYE",
+      "disposition": "left",
+      "engine_gap": "none",
+      "notes": "Engine gap: none"
+    },
+    {
+      "fn": "shady_informant_setup",
+      "card_var": "SHADY_INFORMANT",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: dies deal 2 to any target via target_with_callback"
+    },
+    {
+      "fn": "case_of_burning_masks_setup",
+      "card_var": "CASE_OF_THE_BURNING_MASKS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "1st version converted (2nd already had impl): ETB deal 3 to target opp creature via target_with_callback"
+    },
+    {
+      "fn": "marketwatch_phantom_setup",
+      "card_var": "MARKETWATCH_PHANTOM",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "When small creature ETBs: this creature gains flying EOT via GRANT_KEYWORD"
+    },
+    {
+      "fn": "neighborhood_guardian_setup",
+      "card_var": "NEIGHBORHOOD_GUARDIAN",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "When small creature ETBs: target creature you control +1/+1 EOT via PUMP"
+    },
+    {
+      "fn": "perimeter_enforcer_setup",
+      "card_var": "PERIMETER_ENFORCER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "When another Detective ETBs: this gets +1/+1 EOT via PUMP"
+    },
+    {
+      "fn": "case_file_auditor_setup",
+      "card_var": "CASE_FILE_AUDITOR",
+      "disposition": "left",
+      "engine_gap": "library_top_n_reveal_choice",
+      "notes": "Engine gap: library_top_n_reveal_choice"
+    },
+    {
+      "fn": "coveted_falcon_setup",
+      "card_var": "COVETED_FALCON",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: attacks gain control of target permanent you own but don't control via GAIN_CONTROL"
+    },
+    {
+      "fn": "crimestopper_sprite_setup",
+      "card_var": "CRIMESTOPPER_SPRITE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: ETB tap target creature via TAP event (stun-counter rider needs collect-evidence tracking - left)"
+    },
+    {
+      "fn": "rot_farm_mortipede_setup",
+      "card_var": "ROT_FARM_MORTIPEDE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "When creature leaves your GY: self +1/+0 menace lifelink EOT via PUMP+2x GRANT_KEYWORD"
+    },
+    {
+      "fn": "lamplight_phoenix_setup",
+      "card_var": "LAMPLIGHT_PHOENIX",
+      "disposition": "left",
+      "engine_gap": "collect_evidence_then_self_return",
+      "notes": "Engine gap: collect_evidence_then_self_return"
+    },
+    {
+      "fn": "reckless_detective_setup",
+      "card_var": "RECKLESS_DETECTIVE",
+      "disposition": "left",
+      "engine_gap": "composite_optional_cost_sacrifice_or_discard",
+      "notes": "Engine gap: composite_optional_cost_sacrifice_or_discard"
+    },
+    {
+      "fn": "sample_collector_setup",
+      "card_var": "SAMPLE_COLLECTOR",
+      "disposition": "left",
+      "engine_gap": "collect_evidence_mechanic",
+      "notes": "Engine gap: collect_evidence_mechanic"
+    },
+    {
+      "fn": "culvert_ambusher_setup",
+      "card_var": "CULVERT_AMBUSHER",
+      "disposition": "left",
+      "engine_gap": "must_block_if_able_restriction",
+      "notes": "Engine gap: must_block_if_able_restriction"
+    },
+    {
+      "fn": "runebrand_juggler_setup",
+      "card_var": "RUNEBRAND_JUGGLER",
+      "disposition": "left",
+      "engine_gap": "suspect_mechanic",
+      "notes": "Engine gap: suspect_mechanic"
+    },
+    {
+      "fn": "rakish_scoundrel_setup",
+      "card_var": "RAKISH_SCOUNDREL",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: ETB target creature gains indestructible EOT via GRANT_KEYWORD"
+    },
+    {
+      "fn": "melek_reforged_researcher_setup",
+      "card_var": "MELEK_REFORGED_RESEARCHER",
+      "disposition": "left",
+      "engine_gap": "first_spell_cost_reduction",
+      "notes": "Engine gap: first_spell_cost_reduction"
+    },
+    {
+      "fn": "griffnaut_tracker_setup",
+      "card_var": "GRIFFNAUT_TRACKER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: ETB exile up to 2 from any graveyard via target_with_callback"
+    },
+    {
+      "fn": "haazda_vigilante_setup",
+      "card_var": "HAAZDA_VIGILANTE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: ETB/attack +1/+1 counter on target creature you control with power<=2 via target_with_callback"
+    },
+    {
+      "fn": "wojek_investigator_setup",
+      "card_var": "WOJEK_INVESTIGATOR",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted/fixed: upkeep investigate per opponent with more cards in hand than you (using state.zones, not the buggy player.hand)"
+    },
+    {
+      "fn": "agency_outfitter_setup",
+      "card_var": "AGENCY_OUTFITTER",
+      "disposition": "left",
+      "engine_gap": "library_search",
+      "notes": "Engine gap: library_search"
+    },
+    {
+      "fn": "benthic_criminologists_setup",
+      "card_var": "BENTHIC_CRIMINOLOGISTS",
+      "disposition": "left",
+      "engine_gap": "optional_sacrifice_for_draw",
+      "notes": "Engine gap: optional_sacrifice_for_draw"
+    },
+    {
+      "fn": "hotshot_investigators_setup",
+      "card_var": "HOTSHOT_INVESTIGATORS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "2nd version converted (1st already had impl): bounce up to 1 other creature; investigate if it was yours"
+    },
+    {
+      "fn": "surveillance_monitor_setup",
+      "card_var": "SURVEILLANCE_MONITOR",
+      "disposition": "left",
+      "engine_gap": "collect_evidence_mechanic",
+      "notes": "Engine gap: collect_evidence_mechanic"
+    },
+    {
+      "fn": "barbed_servitor_setup",
+      "card_var": "BARBED_SERVITOR",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "2nd version converted (1st already had impl): combat damage to player triggers DRAW + LIFE_CHANGE -1. Suspect/dealt-damage rider remain engine gaps"
+    },
+    {
+      "fn": "clandestine_meddler_setup",
+      "card_var": "CLANDESTINE_MEDDLER",
+      "disposition": "left",
+      "engine_gap": "suspect_mechanic",
+      "notes": "Engine gap: suspect_mechanic"
+    },
+    {
+      "fn": "undercity_eliminator_setup",
+      "card_var": "UNDERCITY_ELIMINATOR",
+      "disposition": "left",
+      "engine_gap": "optional_sacrifice_then_target",
+      "notes": "Engine gap: optional_sacrifice_then_target"
+    },
+    {
+      "fn": "cornered_crook_setup",
+      "card_var": "CORNERED_CROOK",
+      "disposition": "left",
+      "engine_gap": "optional_sacrifice_then_damage",
+      "notes": "Engine gap: optional_sacrifice_then_damage"
+    },
+    {
+      "fn": "frantic_scapegoat_setup",
+      "card_var": "FRANTIC_SCAPEGOAT",
+      "disposition": "left",
+      "engine_gap": "suspect_mechanic",
+      "notes": "Engine gap: suspect_mechanic"
+    },
+    {
+      "fn": "gearbane_orangutan_setup",
+      "card_var": "GEARBANE_ORANGUTAN",
+      "disposition": "left",
+      "engine_gap": "modal_with_optional_sacrifice",
+      "notes": "Engine gap: modal_with_optional_sacrifice"
+    },
+    {
+      "fn": "krenkos_buzzcrusher_setup",
+      "card_var": "KRENKOS_BUZZCRUSHER",
+      "disposition": "left",
+      "engine_gap": "per_player_target_destroy_then_search",
+      "notes": "Engine gap: per_player_target_destroy_then_search"
+    },
+    {
+      "fn": "glint_weaver_setup",
+      "card_var": "GLINT_WEAVER",
+      "disposition": "left",
+      "engine_gap": "distribute_counters_then_life_calc",
+      "notes": "Engine gap: distribute_counters_then_life_calc"
+    },
+    {
+      "fn": "agrus_kos_setup",
+      "card_var": "AGRUS_KOS_SPIRIT_OF_JUSTICE",
+      "disposition": "left",
+      "engine_gap": "suspect_mechanic",
+      "notes": "Engine gap: suspect_mechanic"
+    },
+    {
+      "fn": "shady_informant_setup",
+      "card_var": "SHADY_INFORMANT",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: dies deal 2 to any target via target_with_callback"
+    },
+    {
+      "fn": "yarus_setup",
+      "card_var": "YARUS_ROAR_OF_THE_OLD_GODS",
+      "disposition": "left",
+      "engine_gap": "none",
+      "notes": "Engine gap: none"
+    },
+    {
+      "fn": "case_of_the_shattered_pact_setup",
+      "card_var": "CASE_OF_THE_SHATTERED_PACT",
+      "disposition": "left",
+      "engine_gap": "library_search",
+      "notes": "Engine gap: library_search"
+    },
+    {
+      "fn": "case_of_the_gateway_express_setup",
+      "card_var": "CASE_OF_THE_GATEWAY_EXPRESS",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB choose opp creature; each creature you control deals 1 to it via target_with_callback + multi-source DAMAGE"
+    },
+    {
+      "fn": "due_diligence_setup",
+      "card_var": "DUE_DILIGENCE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Aura ETB target another creature you control +2/+2 vigilance EOT (best-effort filter)"
+    },
+    {
+      "fn": "krovod_haunch_setup",
+      "card_var": "KROVOD_HAUNCH",
+      "disposition": "left",
+      "engine_gap": "optional_mana_cost_for_tokens",
+      "notes": "Engine gap: optional_mana_cost_for_tokens"
+    },
+    {
+      "fn": "coveted_falcon_setup",
+      "card_var": "COVETED_FALCON",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: attacks gain control of target permanent you own but don't control via GAIN_CONTROL"
+    },
+    {
+      "fn": "crimestopper_sprite_setup",
+      "card_var": "CRIMESTOPPER_SPRITE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: ETB tap target creature via TAP event (stun-counter rider needs collect-evidence tracking - left)"
+    },
+    {
+      "fn": "cryptic_coat_setup",
+      "card_var": "CRYPTIC_COAT",
+      "disposition": "left",
+      "engine_gap": "cloak_mechanic",
+      "notes": "Engine gap: cloak_mechanic"
+    },
+    {
+      "fn": "dramatic_accusation_setup",
+      "card_var": "DRAMATIC_ACCUSATION",
+      "disposition": "left",
+      "engine_gap": "aura_attachment_target",
+      "notes": "Engine gap: aura_attachment_target"
+    },
+    {
+      "fn": "fae_flight_setup",
+      "card_var": "FAE_FLIGHT",
+      "disposition": "left",
+      "engine_gap": "aura_attachment_target",
+      "notes": "Engine gap: aura_attachment_target"
+    },
+    {
+      "fn": "lost_in_the_maze_setup",
+      "card_var": "LOST_IN_THE_MAZE",
+      "disposition": "left",
+      "engine_gap": "x_target_count_with_conditional_stun",
+      "notes": "Engine gap: x_target_count_with_conditional_stun"
+    },
+    {
+      "fn": "case_of_the_gorgons_kiss_setup",
+      "card_var": "CASE_OF_THE_GORGONS_KISS",
+      "disposition": "left",
+      "engine_gap": "damaged_this_turn_tracking",
+      "notes": "Engine gap: damaged_this_turn_tracking"
+    },
+    {
+      "fn": "slimy_dualleech_setup",
+      "card_var": "SLIMY_DUALLEECH",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Combat target creature you control with power<=2 +1/+0 + deathtouch EOT via PUMP+GRANT_KEYWORD"
+    },
+    {
+      "fn": "convenient_target_setup",
+      "card_var": "CONVENIENT_TARGET",
+      "disposition": "left",
+      "engine_gap": "aura_suspect",
+      "notes": "Engine gap: aura_suspect"
+    },
+    {
+      "fn": "expedited_inheritance_setup",
+      "card_var": "EXPEDITED_INHERITANCE",
+      "disposition": "left",
+      "engine_gap": "impulse_draw_with_play_permission",
+      "notes": "Engine gap: impulse_draw_with_play_permission"
+    },
+    {
+      "fn": "goblin_maskmaker_setup",
+      "card_var": "GOBLIN_MASKMAKER",
+      "disposition": "left",
+      "engine_gap": "face_down_spell_cost_reduction",
+      "notes": "Engine gap: face_down_spell_cost_reduction"
+    },
+    {
+      "fn": "incinerator_of_the_guilty_setup",
+      "card_var": "INCINERATOR_OF_THE_GUILTY",
+      "disposition": "left",
+      "engine_gap": "collect_evidence_x_with_aoe",
+      "notes": "Engine gap: collect_evidence_x_with_aoe"
+    },
+    {
+      "fn": "offender_at_large_setup",
+      "card_var": "OFFENDER_AT_LARGE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB up to one target creature gets +2/+0 EOT via PUMP"
+    },
+    {
+      "fn": "reckless_detective_setup",
+      "card_var": "RECKLESS_DETECTIVE",
+      "disposition": "left",
+      "engine_gap": "composite_optional_cost_sacrifice_or_discard",
+      "notes": "Engine gap: composite_optional_cost_sacrifice_or_discard"
+    },
+    {
+      "fn": "rubblebelt_braggart_setup",
+      "card_var": "RUBBLEBELT_BRAGGART",
+      "disposition": "left",
+      "engine_gap": "suspect_mechanic",
+      "notes": "Engine gap: suspect_mechanic"
+    },
+    {
+      "fn": "airtight_alibi_setup",
+      "card_var": "AIRTIGHT_ALIBI",
+      "disposition": "left",
+      "engine_gap": "aura_untap_remove_suspect",
+      "notes": "Engine gap: aura_untap_remove_suspect"
+    },
+    {
+      "fn": "case_of_the_trampled_garden_setup",
+      "card_var": "CASE_OF_THE_TRAMPLED_GARDEN",
+      "disposition": "left",
+      "engine_gap": "distribute_counters_among_2_targets",
+      "notes": "Engine gap: distribute_counters_among_2_targets"
+    },
+    {
+      "fn": "culvert_ambusher_setup",
+      "card_var": "CULVERT_AMBUSHER",
+      "disposition": "left",
+      "engine_gap": "must_block_if_able_restriction",
+      "notes": "Engine gap: must_block_if_able_restriction"
+    },
+    {
+      "fn": "sample_collector_setup",
+      "card_var": "SAMPLE_COLLECTOR",
+      "disposition": "left",
+      "engine_gap": "collect_evidence_mechanic",
+      "notes": "Engine gap: collect_evidence_mechanic"
+    },
+    {
+      "fn": "undergrowth_recon_setup",
+      "card_var": "UNDERGROWTH_RECON",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Upkeep return target land card from GY tapped via target_with_callback + ZONE_CHANGE + TAP"
+    },
+    {
+      "fn": "vituughazi_inspector_setup",
+      "card_var": "VITUGHAZI_INSPECTOR",
+      "disposition": "left",
+      "engine_gap": "collect_evidence_cost_paid_tracking",
+      "notes": "Engine gap: collect_evidence_cost_paid_tracking"
+    },
+    {
+      "fn": "buried_in_the_garden_setup",
+      "card_var": "BURIED_IN_THE_GARDEN",
+      "disposition": "left",
+      "engine_gap": "exile_until_aura_leaves",
+      "notes": "Engine gap: exile_until_aura_leaves"
+    },
+    {
+      "fn": "etrata_deadly_fugitive_setup",
+      "card_var": "ETRATA_DEADLY_FUGITIVE",
+      "disposition": "left",
+      "engine_gap": "cloak_top_of_opponent_library",
+      "notes": "Engine gap: cloak_top_of_opponent_library"
+    },
+    {
+      "fn": "kylox_visionary_inventor_setup",
+      "card_var": "KYLOX_VISIONARY_INVENTOR",
+      "disposition": "left",
+      "engine_gap": "variable_sacrifice_then_exile_x_then_free_cast",
+      "notes": "Engine gap: variable_sacrifice_then_exile_x_then_free_cast"
+    },
+    {
+      "fn": "kyloxs_voltstrider_setup",
+      "card_var": "KYLOXS_VOLTSTRIDER",
+      "disposition": "left",
+      "engine_gap": "cast_exiled_with_this_then_bottom_replace",
+      "notes": "Engine gap: cast_exiled_with_this_then_bottom_replace"
+    },
+    {
+      "fn": "rakish_scoundrel_setup",
+      "card_var": "RAKISH_SCOUNDREL",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Both versions converted: ETB target creature gains indestructible EOT via GRANT_KEYWORD"
+    },
+    {
+      "fn": "runebrand_juggler_setup",
+      "card_var": "RUNEBRAND_JUGGLER",
+      "disposition": "left",
+      "engine_gap": "suspect_mechanic",
+      "notes": "Engine gap: suspect_mechanic"
+    },
+    {
+      "fn": "vannifar_evolved_enigma_setup",
+      "card_var": "VANNIFAR_EVOLVED_ENIGMA",
+      "disposition": "left",
+      "engine_gap": "modal_cloak_or_counter_buff",
+      "notes": "Engine gap: modal_cloak_or_counter_buff"
+    },
+    {
+      "fn": "public_thoroughfare_setup",
+      "card_var": "PUBLIC_THOROUGHFARE",
+      "disposition": "left",
+      "engine_gap": "sacrifice_unless_alt_cost_etb",
+      "notes": "Engine gap: sacrifice_unless_alt_cost_etb"
+    }
+  ],
+  "summary": {
+    "converted": 28,
+    "left": 57
+  }
+}

@@ -931,8 +931,18 @@ def iroh_tea_master_setup(obj: GameObject, state: GameState) -> list[Interceptor
 def wandering_musicians_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever this creature attacks, creatures you control get +1/+0 until end of turn."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # This would need temporary P/T modification system
-        return []
+        events = []
+        for o in state.objects.values():
+            if (o.controller == obj.controller and
+                    o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={'object_id': o.id, 'power_mod': 1, 'toughness_mod': 0,
+                             'duration': 'end_of_turn'},
+                    source=obj.id
+                ))
+        return events
     return [make_attack_trigger(obj, attack_effect)]
 
 
@@ -1045,8 +1055,18 @@ def zhao_ruthless_admiral_setup(obj: GameObject, state: GameState) -> list[Inter
         return sacrificed.controller == obj.controller
 
     def pump_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need temporary effect system
-        return []
+        events = []
+        for o in state.objects.values():
+            if (o.controller == obj.controller and
+                    o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={'object_id': o.id, 'power_mod': 1, 'toughness_mod': 0,
+                             'duration': 'end_of_turn'},
+                    source=obj.id
+                ))
+        return events
 
     return [Interceptor(
         id=new_id(),
@@ -1699,9 +1719,27 @@ def aang_the_last_airbender_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 def aangs_iceberg_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB exile up to one other nonland permanent until this leaves (engine gap)."""
+    """ETB exile up to one other nonland permanent (engine gap: 'until this leaves' is permanent)."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: temporary exile until this leaves the battlefield
+        legal = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and o.id != obj.id
+            and CardType.LAND not in o.characteristics.types
+        ]
+        if not legal:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal,
+            prompt="Exile up to one other target nonland permanent",
+            min_targets=0,
+            max_targets=1,
+            callback_data={'effect': 'exile', 'source_id': obj.id},
+        )
+        # engine gap: "until this enchantment leaves" temporary-exile reversal
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -1805,9 +1843,56 @@ def compassionate_healer_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def earth_kingdom_jailer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB exile up to one target opponent permanent with MV>=3 until this leaves."""
+    """ETB exile up to one target opponent permanent (artifact/creature/enchantment) with MV>=3.
+    (engine gap: 'until this leaves' temporary-exile reversal)."""
+    def _mana_value(o: GameObject) -> int:
+        cost = o.characteristics.mana_cost or ''
+        # Treat each mana symbol or generic digit as 1 mana value (rough heuristic)
+        mv = 0
+        i = 0
+        while i < len(cost):
+            ch = cost[i]
+            if ch == '{':
+                end = cost.find('}', i)
+                if end == -1:
+                    break
+                inner = cost[i + 1:end]
+                if inner.isdigit():
+                    mv += int(inner)
+                else:
+                    mv += 1
+                i = end + 1
+            else:
+                i += 1
+        return mv
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: temporary exile until this leaves the battlefield
+        legal = []
+        for o in state.objects.values():
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if o.controller == obj.controller:
+                continue
+            types = o.characteristics.types
+            if not (CardType.ARTIFACT in types or CardType.CREATURE in types or
+                    CardType.ENCHANTMENT in types):
+                continue
+            if _mana_value(o) < 3:
+                continue
+            legal.append(o.id)
+        if not legal:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal,
+            prompt="Exile up to one target opponent permanent (mana value 3+)",
+            min_targets=0,
+            max_targets=1,
+            callback_data={'effect': 'exile', 'source_id': obj.id},
+        )
+        # engine gap: temporary exile until this creature leaves
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -1931,7 +2016,25 @@ def team_avatar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def vengeful_villagers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever this attacks, choose target creature opp controls. Tap, may sac for stun counter."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: optional sacrifice for stun counter on chosen target
+        legal = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and o.controller != obj.controller
+            and CardType.CREATURE in o.characteristics.types
+        ]
+        if not legal:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal,
+            prompt="Tap target creature an opponent controls (then may sac for stun counter)",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'effect': 'tap_then_optional_stun', 'source_id': obj.id},
+        )
+        # engine gap: optional artifact/creature sacrifice that adds stun counter on chosen target
         return []
     return [make_attack_trigger(obj, attack_effect)]
 
@@ -2008,10 +2111,27 @@ def honest_work_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def invasion_submersible_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB return up to one other nonland permanent (engine gap targeted bounce).
-    Exhaust waterbend {3}: become 3/3 (engine gap)."""
+    """ETB return up to one other nonland permanent to hand.
+    (engine gap: exhaust waterbend {3}: become 3/3 with counters.)"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: targeted bounce (return target permanent to hand)
+        legal = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and o.id != obj.id
+            and CardType.LAND not in o.characteristics.types
+        ]
+        if not legal:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal,
+            prompt="Return up to one other target nonland permanent to its owner's hand",
+            min_targets=0,
+            max_targets=1,
+            callback_data={'effect': 'bounce', 'source_id': obj.id},
+        )
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -2099,9 +2219,26 @@ def tigerseal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def ty_lee_chi_blocker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tap up to one creature; doesn't untap during its controller's untap step (engine gap)."""
+    """ETB tap up to one creature; doesn't untap during its controller's untap step (engine gap untap-skip)."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: persistent untap-skip while you control Ty Lee
+        legal = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+        ]
+        if not legal:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal,
+            prompt="Tap up to one target creature",
+            min_targets=0,
+            max_targets=1,
+            callback_data={'effect': 'tap', 'source_id': obj.id},
+        )
+        # engine gap: persistent "doesn't untap during its controller's untap step"
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -2187,10 +2324,21 @@ def yue_the_moon_spirit_setup(obj: GameObject, state: GameState) -> list[Interce
 # --- BLACK ---
 
 def beetleheaded_merchants_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this attacks, may sac creature/artifact -> draw + +1/+1 counter (engine gap optional sac)."""
+    """Whenever this attacks, may sac another creature/artifact -> draw + +1/+1 counter."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: optional sacrifice cost for triggered ability
-        return []
+        return [Event(
+            type=EventType.OPTIONAL_SACRIFICE_FOR_EFFECT,
+            payload={
+                'player': obj.controller,
+                'filter': 'creature_or_artifact_other',
+                'effect': 'draw_and_counter',
+                'count': 1,
+                'counter_target_id': obj.id,
+                'counter_type': '+1/+1',
+                'counter_amount': 1,
+            },
+            source=obj.id,
+        )]
     return [make_attack_trigger(obj, attack_effect)]
 
 
@@ -2339,10 +2487,27 @@ def june_bounty_hunter_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def koh_the_face_stealer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB exile up to one creature. Optional exile dying nontoken creatures.
-    Pay 1 life: choose exile - copy abilities (engine gap)."""
+    """ETB exile up to one other creature. When another nontoken creature dies, may exile it.
+    (engine gap: pay 1 life to copy abilities of an exiled card)."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: optional targeted exile + persistent ability copy
+        legal = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and o.id != obj.id
+            and CardType.CREATURE in o.characteristics.types
+        ]
+        if not legal:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal,
+            prompt="Exile up to one other target creature",
+            min_targets=0,
+            max_targets=1,
+            callback_data={'effect': 'exile', 'source_id': obj.id},
+        )
         return []
 
     def creature_death_filter(event: Event, state: GameState) -> bool:
@@ -2363,8 +2528,16 @@ def koh_the_face_stealer_setup(obj: GameObject, state: GameState) -> list[Interc
         return CardType.CREATURE in dying.characteristics.types
 
     def exile_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: optional exile replacement
-        return []
+        dying_id = event.payload.get('object_id')
+        if not dying_id:
+            return []
+        # "You may" — issue the exile event; the harness/replacement layer can opt-in.
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': dying_id, 'from_graveyard': True, 'optional': True,
+                     'tracked_by': obj.id},
+            source=obj.id,
+        )]
 
     return [
         make_etb_trigger(obj, etb_effect),
@@ -2482,9 +2655,27 @@ def the_cave_of_two_lovers_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def combustion_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever attacks, destroy target permanent unless controller takes power damage."""
+    """Whenever attacks, destroy target permanent unless its controller takes (power) damage.
+    (engine gap: 'unless they take damage' optional payment.)"""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: optional damage-or-destroy choice
+        legal = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and CardType.LAND not in o.characteristics.types  # restrict to nonland (heuristic)
+        ]
+        if not legal:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal,
+            prompt="Choose target permanent (its controller may take damage instead of destruction)",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'effect': 'destroy_unless_damage', 'source_id': obj.id,
+                           'damage_amount': obj.characteristics.power or 0},
+        )
         return []
     return [make_attack_trigger(obj, attack_effect)]
 
@@ -2619,18 +2810,45 @@ def tigerdillo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def twin_blades_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment ETB attach to creature you control + double strike EOT (engine gap)."""
+    """Equipment ETB: choose target creature you control. That creature gets double strike EOT.
+    (engine gap: auto-attach equipment.)"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: equipment auto-attach + double strike EOT
+        legal = [
+            o.id for o in state.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+        ]
+        if not legal:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal,
+            prompt="Choose a creature you control to gain double strike (and attach to)",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'effect': 'grant_double_strike_and_attach', 'source_id': obj.id},
+        )
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
 
 def ty_lee_artful_acrobat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Prowess (handled). Whenever attacks, may pay {1} -> target creature can't block (engine gap)."""
+    """Prowess (handled). Whenever attacks, may pay {1}; if you do, target creature can't block this turn."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: optional cost trigger + targeted block restriction
-        return []
+        return [Event(
+            type=EventType.OPTIONAL_COST_FOR_EFFECT,
+            payload={
+                'player': obj.controller,
+                'cost': {'generic': 1},
+                'effect': 'cant_block_target',
+                'source_id': obj.id,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+        )]
     return [make_attack_trigger(obj, attack_effect)]
 
 
@@ -3112,9 +3330,24 @@ def kyoshi_battle_fan_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def meteor_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment ETB: destroy target permanent (engine gap targeted destruction)."""
+    """Equipment ETB: destroy target permanent."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: target permanent destruction
+        legal = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+        ]
+        if not legal:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal,
+            prompt="Destroy target permanent",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'effect': 'destroy', 'source_id': obj.id},
+        )
         return []
     return [make_etb_trigger(obj, etb_effect)]
 

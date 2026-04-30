@@ -27,6 +27,7 @@ from src.cards.interceptor_helpers import (
     make_etb_trigger, make_death_trigger, make_attack_trigger,
     make_static_pt_boost, make_keyword_grant, make_upkeep_trigger,
     make_spell_cast_trigger, make_damage_trigger,
+    make_targeted_etb_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype
 )
@@ -138,19 +139,27 @@ def selfless_police_captain_setup(obj: GameObject, state: GameState) -> list[Int
 # --- Silver Sable, Mercenary Leader ---
 # "When Silver Sable enters, put a +1/+1 counter on another target creature."
 def silver_sable_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need targeting - simplified placeholder
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_targeted_etb_trigger(
+        obj,
+        effect='counter_add',
+        effect_params={'counter_type': '+1/+1', 'amount': 1},
+        target_filter='other_creature_you_control',
+        prompt="Choose another target creature to put a +1/+1 counter on"
+    )]
+    # Note: rules text says "another target creature" (any controller); approximated as
+    # other_creature_you_control because no "other_creature" cross-controller filter exists.
 
 
 # --- Starling, Aerial Ally ---
 # "When Starling enters, another target creature you control gains flying until end of turn."
 def starling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need targeting for flying grant
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_targeted_etb_trigger(
+        obj,
+        effect='grant_keyword',
+        effect_params={'keyword': 'flying', 'duration': 'end_of_turn'},
+        target_filter='other_creature_you_control',
+        prompt="Choose another creature you control to gain flying until end of turn"
+    )]
 
 
 # --- Flying Octobot ---
@@ -223,10 +232,14 @@ def mysterio_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- Spider-Byte, Web Warden ---
 # "When Spider-Byte enters, return up to one target nonland permanent to its owner's hand."
 def spiderbyte_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need targeting - placeholder
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_targeted_etb_trigger(
+        obj,
+        effect='bounce',
+        target_filter='nonland_permanent',
+        max_targets=1,
+        optional=True,
+        prompt="Choose up to one nonland permanent to return to its owner's hand"
+    )]
 
 
 # --- Agent Venom ---
@@ -305,9 +318,33 @@ def morlun_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # "Villain spells you cast cost {1} less to cast."
 def tombstone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need targeting - placeholder
-        return []
-    # Cost reduction would need QUERY_COST interceptor
+        # Compute legal targets: Villain cards in our graveyard
+        graveyard = state.zones.get(f'graveyard_{obj.controller}')
+        legal = []
+        if graveyard:
+            for card_id in graveyard.objects:
+                card = state.objects.get(card_id)
+                if card and 'Villain' in card.characteristics.subtypes:
+                    legal.append(card_id)
+        if not legal:
+            return []
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effect': 'graveyard_to_hand',
+                'effect_params': {},
+                'target_filter': 'creature_in_your_graveyard',
+                'min_targets': 1,
+                'max_targets': 1,
+                'optional': False,
+                'prompt': "Choose a Villain card in your graveyard to return to your hand",
+                'legal_targets_override': legal,
+            },
+            source=obj.id
+        )]
+    # Cost reduction would need QUERY_COST interceptor — engine gap; left untouched.
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -368,9 +405,53 @@ def j_jonah_jameson_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- Shocker, Unshakable ---
 # "When Shocker enters, he deals 2 damage to target creature and 2 damage to that creature's controller."
 def shocker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Two-step: target a creature for 2 damage, then resolve a follow-up event
+    # that also deals 2 damage to that creature's controller.
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need targeting - placeholder for now
+        # Use TARGET_REQUIRED with damage to creature; then react in callback to ping controller.
+        # Compute creature targets manually to allow custom callback for the "controller" hit.
+        creature_ids = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types
+        ]
+        if not creature_ids:
+            return []
+
+        def shocker_resolve(choice, selected, state: GameState) -> list[Event]:
+            tid = selected[0] if selected else None
+            if not tid:
+                return []
+            target = state.objects.get(tid)
+            if not target:
+                return []
+            events = [Event(
+                type=EventType.DAMAGE,
+                payload={'target': tid, 'amount': 2, 'source': obj.id, 'is_combat': False},
+                source=obj.id
+            )]
+            if target.controller in state.players:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': target.controller, 'amount': 2,
+                             'source': obj.id, 'is_combat': False},
+                    source=obj.id
+                ))
+            return events
+
+        from src.cards.interceptor_helpers import create_target_choice
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=creature_ids,
+            prompt="Choose target creature (Shocker deals 2 to it and 2 to its controller)",
+            min_targets=1,
+            max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = shocker_resolve
         return []
+
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -566,10 +647,14 @@ def web_warriors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- SP//dr, Piloted by Peni ---
 # "When SP//dr enters, put a +1/+1 counter on target creature."
 def spdr_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need targeting - placeholder
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_targeted_etb_trigger(
+        obj,
+        effect='counter_add',
+        effect_params={'counter_type': '+1/+1', 'amount': 1},
+        target_filter='creature',
+        prompt="Choose target creature to put a +1/+1 counter on"
+    )]
+    # Modified-creature combat-damage draw rider: engine gap (modified-tracker is fragile).
 
 
 # --- Spider-Girl, Legacy Hero ---
@@ -610,8 +695,20 @@ def spider_girl_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # "Whenever Vulture attacks, other Villains you control gain flying until end of turn."
 def vulture_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Would grant flying to other Villains - needs ability grant system
-        return []
+        events = []
+        for other in state.objects.values():
+            if (other.id != obj.id and
+                    other.controller == obj.controller and
+                    other.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in other.characteristics.types and
+                    'Villain' in other.characteristics.subtypes):
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': other.id, 'keyword': 'flying',
+                             'duration': 'end_of_turn'},
+                    source=obj.id
+                ))
+        return events
     return [make_attack_trigger(obj, attack_effect)]
 
 
@@ -623,9 +720,24 @@ def cosmic_spiderman_setup(obj: GameObject, state: GameState) -> list[Intercepto
                 event.payload.get('phase') == 'combat' and
                 state.active_player == obj.controller)
 
+    keywords = ('flying', 'first strike', 'trample', 'lifelink', 'haste')
+
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # Would grant keywords to other Spiders - needs ability grant system
-        return []
+        events = []
+        for other in state.objects.values():
+            if (other.id != obj.id and
+                    other.controller == obj.controller and
+                    other.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in other.characteristics.types and
+                    'Spider' in other.characteristics.subtypes):
+                for kw in keywords:
+                    events.append(Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={'object_id': other.id, 'keyword': kw,
+                                 'duration': 'end_of_turn'},
+                        source=obj.id
+                    ))
+        return events
 
     return [Interceptor(
         id=new_id(),
@@ -725,8 +837,32 @@ def ezekiel_sims_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 state.active_player == obj.controller)
 
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # Would need targeting - placeholder
-        return []
+        # Compute legal Spider-you-control targets explicitly.
+        legal = []
+        for other in state.objects.values():
+            if (other.controller == obj.controller and
+                    other.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in other.characteristics.types and
+                    'Spider' in other.characteristics.subtypes):
+                legal.append(other.id)
+        if not legal:
+            return []
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effect': 'pump',
+                'effect_params': {'power_mod': 2, 'toughness_mod': 2},
+                'target_filter': 'your_creature',
+                'min_targets': 1,
+                'max_targets': 1,
+                'optional': False,
+                'prompt': "Choose target Spider you control to get +2/+2 until end of turn",
+                'legal_targets_override': legal,
+            },
+            source=obj.id
+        )]
 
     return [Interceptor(
         id=new_id(),
@@ -955,8 +1091,19 @@ def spiderman_india_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # "When Carnage enters, return target creature card with mana value 3 or less from your graveyard to the battlefield."
 def carnage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need targeting - placeholder
-        return []
+        # Reanimate handler will create a chooser among creatures with MV<=3 in our graveyard.
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={
+                'player': obj.controller,
+                'card_type': 'creature',
+                'max_mv': 3,
+                'amount': 1,
+            },
+            source=obj.id
+        )]
+    # Note: "attacks each combat / sacrifice on combat damage" rider is left unwired
+    # (engine gap: per-card grant of self-sacrifice trigger on reanimated target).
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1472,7 +1619,25 @@ def wild_pack_squad_setup(obj: GameObject, state: GameState) -> list[Interceptor
                 state.active_player == obj.controller)
 
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        return []  # engine gap: targeted keyword grant
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effects': [
+                    {'effect': 'grant_keyword',
+                     'params': {'keyword': 'first strike', 'duration': 'end_of_turn'}},
+                    {'effect': 'grant_keyword',
+                     'params': {'keyword': 'vigilance', 'duration': 'end_of_turn'}},
+                ],
+                'target_filter': 'creature',
+                'min_targets': 1,
+                'max_targets': 1,
+                'optional': True,
+                'prompt': "Choose up to one creature to gain first strike and vigilance until end of turn",
+            },
+            source=obj.id
+        )]
 
     return [Interceptor(
         id=new_id(),
@@ -1895,10 +2060,17 @@ def kravens_last_hunt_setup(obj: GameObject, state: GameState) -> list[Intercept
 # --- Miles Morales ---
 # ETB +1/+1 to up to two targets; transform; double counters on attack.
 def miles_morales_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # engine gap: targeted up-to-two counters
-    return [make_etb_trigger(obj, etb_effect)]
-    # engine gap: transform mechanic + counter doubling
+    return [make_targeted_etb_trigger(
+        obj,
+        effect='counter_add',
+        effect_params={'counter_type': '+1/+1', 'amount': 1},
+        target_filter='creature',
+        min_targets=0,
+        max_targets=2,
+        optional=True,
+        prompt="Choose up to two creatures to put a +1/+1 counter on each"
+    )]
+    # engine gap: transform mechanic + attack-counter doubling not wired
 
 
 # --- Pictures of Spider-Man ---
@@ -2420,9 +2592,14 @@ def spidersuit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- Steel Wrecking Ball ---
 # ETB: 5 damage to target creature; activated discard-self destroy artifact.
 def steel_wrecking_ball_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # engine gap: targeted damage on ETB
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_targeted_etb_trigger(
+        obj,
+        effect='damage',
+        effect_params={'amount': 5},
+        target_filter='creature',
+        prompt="Choose target creature to deal 5 damage to"
+    )]
+    # Activated discard-self destroy-artifact ability is handled at activation site.
 
 
 # --- Subway Train ---

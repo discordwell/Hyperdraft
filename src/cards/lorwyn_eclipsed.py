@@ -153,9 +153,25 @@ def flock_impostor_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def gallant_fowlknight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: Creatures get +1/+0, Kithkin gain first strike (until end of turn - placeholder)."""
+    """ETB: Creatures you control get +1/+0; Kithkin also gain first strike, until end of turn."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Until end of turn effects need duration tracking
+        events = []
+        for perm in state.objects.values():
+            if (perm.controller == obj.controller and
+                    perm.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in perm.characteristics.types):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={'object_id': perm.id, 'power_mod': 1, 'toughness_mod': 0,
+                             'duration': 'end_of_turn'},
+                    source=obj.id))
+                if 'Kithkin' in perm.characteristics.subtypes:
+                    events.append(Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={'object_id': perm.id, 'keyword': 'first_strike',
+                                 'duration': 'end_of_turn'},
+                        source=obj.id))
+        return events
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -176,7 +192,12 @@ def kinsbaile_aspirant_setup(obj: GameObject, state: GameState) -> list[Intercep
                 CardType.CREATURE in entering.characteristics.types)
 
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        return []  # Until end of turn boost needs duration tracking
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1,
+                     'duration': 'end_of_turn'},
+            source=obj.id
+        )]
     return [make_etb_trigger(obj, effect_fn, other_creature_etb_filter)]
 
 
@@ -269,9 +290,13 @@ def reluctant_dounguard_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def shore_lurker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: Surveil 1 (placeholder)."""
+    """ETB: Surveil 1."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Surveil needs library manipulation
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id
+        )]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -359,7 +384,16 @@ def glen_elendra_guardian_setup(obj: GameObject, state: GameState) -> list[Inter
 def kulrath_mystic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Spell cast trigger: When you cast MV 4+, get +2/+0 and vigilance until end of turn."""
     def spell_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Until end of turn effects need duration
+        return [
+            Event(type=EventType.PT_MODIFICATION,
+                  payload={'object_id': obj.id, 'power_mod': 2, 'toughness_mod': 0,
+                           'duration': 'end_of_turn'},
+                  source=obj.id),
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': obj.id, 'keyword': 'vigilance',
+                           'duration': 'end_of_turn'},
+                  source=obj.id),
+        ]
     return [make_spell_cast_trigger(obj, spell_effect, mana_value_min=4)]
 
 
@@ -468,7 +502,7 @@ def tanufel_rimespeaker_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def unwelcome_sprite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Trigger: When you cast during opponent's turn, surveil 2 (placeholder)."""
+    """Trigger: When you cast during opponent's turn, surveil 2."""
     def spell_filter(event: Event, state: GameState, source: GameObject) -> bool:
         if event.type != EventType.CAST:
             return False
@@ -477,7 +511,11 @@ def unwelcome_sprite_setup(obj: GameObject, state: GameState) -> list[Intercepto
         return state.active_player != source.controller
 
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        return []  # Surveil needs library manipulation
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'count': 2},
+            source=obj.id
+        )]
     return [make_spell_cast_trigger(obj, effect_fn, filter_fn=spell_filter)]
 
 
@@ -706,9 +744,13 @@ def shimmercreep_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def twilight_diviner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: Surveil 2 (placeholder)."""
+    """ETB: Surveil 2 (token-copy graveyard trigger remains an engine gap)."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Surveil needs library manipulation
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'count': 2},
+            source=obj.id
+        )]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -827,16 +869,28 @@ def flamekin_gildweaver_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def kulrath_zealot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: Exile top card, may play until next end step (placeholder)."""
+    """ETB: Exile top card, may play it (impulse-style; basic until-EOT)."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Exile and play needs special handling
+        return [Event(
+            type=EventType.IMPULSE_DRAW,
+            payload={'player': obj.controller, 'count': 1,
+                     'caster': obj.controller, 'may_play': True,
+                     'until': 'end_of_turn'},
+            source=obj.id
+        )]
     return [make_etb_trigger(obj, etb_effect)]
 
 
 def sizzling_changeling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death trigger: Exile top card, may play it (placeholder)."""
+    """Death trigger: Exile top card, may play it (impulse-style; basic until-EOT)."""
     def death_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Exile and play needs special handling
+        return [Event(
+            type=EventType.IMPULSE_DRAW,
+            payload={'player': obj.controller, 'count': 1,
+                     'caster': obj.controller, 'may_play': True,
+                     'until': 'end_of_turn'},
+            source=obj.id
+        )]
     return [make_death_trigger(obj, death_effect)]
 
 
@@ -944,7 +998,12 @@ def crossroads_watcher_setup(obj: GameObject, state: GameState) -> list[Intercep
                 CardType.CREATURE in entering.characteristics.types)
 
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        return []  # Until end of turn boost needs duration
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=obj.id
+        )]
     return [make_etb_trigger(obj, effect_fn, other_etb_filter)]
 
 
@@ -979,14 +1038,22 @@ def luminollusk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def lys_alana_informant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB and death: Surveil 1 (placeholder)."""
+    """ETB and death: Surveil 1."""
     interceptors = []
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Surveil needs library manipulation
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id
+        )]
     interceptors.append(make_etb_trigger(obj, etb_effect))
 
     def death_effect(event: Event, state: GameState) -> list[Event]:
-        return []
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id
+        )]
     interceptors.append(make_death_trigger(obj, death_effect))
 
     return interceptors
@@ -1196,15 +1263,18 @@ def eclipsed_merrow_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def flaring_cinder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB and spell cast trigger: May discard to draw."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Modal choice
-    interceptors = [make_etb_trigger(obj, etb_effect)]
-
-    def spell_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Modal choice
-    interceptors.append(make_spell_cast_trigger(obj, spell_effect, mana_value_min=4))
-
+    """ETB and spell cast trigger: May discard to draw (loot, simplified to take)."""
+    def loot_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DISCARD,
+                  payload={'player': obj.controller, 'amount': 1, 'optional': True},
+                  source=obj.id),
+            Event(type=EventType.DRAW,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+        ]
+    interceptors = [make_etb_trigger(obj, loot_effect)]
+    interceptors.append(make_spell_cast_trigger(obj, loot_effect, mana_value_min=4))
     return interceptors
 
 
@@ -1355,18 +1425,55 @@ def voracious_tomeskimmer_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def wary_farmer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """End step: If another creature entered, surveil 1 (placeholder)."""
+    """End step: If another creature entered under your control this turn, surveil 1."""
+    def creature_etb_recorder(event: Event, state: GameState) -> list[Event]:
+        if event.type != EventType.ZONE_CHANGE:
+            return []
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return []
+        entering = state.objects.get(event.payload.get('object_id'))
+        if not entering:
+            return []
+        if (entering.controller == obj.controller and
+                CardType.CREATURE in entering.characteristics.types and
+                entering.id != obj.id):
+            state.turn_data[
+                f'wary_farmer_etb_turn_{state.turn_number}_{obj.controller}'
+            ] = True
+        return []
+
+    record_filter = lambda e, s: e.type == EventType.ZONE_CHANGE
+    record_int = Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=record_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=creature_etb_recorder(e, s)),
+        duration='while_on_battlefield')
+
     def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Needs turn tracking
-    return [make_end_step_trigger(obj, end_step_effect)]
+        key = f'wary_farmer_etb_turn_{state.turn_number}_{obj.controller}'
+        if not state.turn_data.get(key):
+            return []
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id
+        )]
+    return [record_int, make_end_step_trigger(obj, end_step_effect)]
 
 
 # --- ARTIFACT CARDS ---
 
 def foraging_wickermaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: Surveil 1 (placeholder)."""
+    """ETB: Surveil 1 (mana ability remains an engine gap)."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id
+        )]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1670,15 +1777,28 @@ def wanderbrine_trapper_setup(obj: GameObject, state: GameState) -> list[Interce
 # --- BLUE ---
 
 def aquitects_defenses_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura: +1/+2 plus hexproof EOT on entry (hexproof EOT is engine gap)."""
+    """Aura: +1/+2 (static) plus hexproof EOT on entry."""
     def is_enchanted_target(target: GameObject, state: GameState) -> bool:
         if CardType.CREATURE not in target.characteristics.types:
             return False
         if target.zone != ZoneType.BATTLEFIELD:
             return False
         return target.state.attached_to == obj.id
-    return make_static_pt_boost(obj, 1, 2, is_enchanted_target)
-    # engine gap: hexproof-until-EOT on ETB not wired
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        attached_id = obj.state.attached_to
+        if not attached_id:
+            return []
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': attached_id, 'keyword': 'hexproof',
+                     'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
+    interceptors = make_static_pt_boost(obj, 1, 2, is_enchanted_target)
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    return interceptors
 
 
 def blossombind_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1990,13 +2110,50 @@ def hexing_squelcher_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def lasting_tarfire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """End step trigger: if counter put on creature, deal 2 damage to each opponent.
+    """End step trigger: if you put a counter on a creature this turn, deal 2 damage to each opponent."""
+    def counter_recorder(event: Event, state: GameState) -> list[Event]:
+        if event.type != EventType.COUNTER_ADDED:
+            return []
+        target = state.objects.get(event.payload.get('object_id'))
+        if not target:
+            return []
+        # Only "creature" targets, only counters added by your effects.
+        if CardType.CREATURE not in target.characteristics.types:
+            return []
+        # Track that the controller put a counter on a creature this turn.
+        # Heuristic: source must be controlled by obj.controller (our side).
+        src_obj = state.objects.get(event.source) if event.source else None
+        src_ctrl = src_obj.controller if src_obj else state.active_player
+        if src_ctrl != obj.controller:
+            return []
+        state.turn_data[
+            f'lasting_tarfire_counter_{state.turn_number}_{obj.controller}'
+        ] = True
+        return []
 
-    engine gap: 'put a counter this turn' tracking — wire end step trigger only.
-    """
+    record_filter = lambda e, s: e.type == EventType.COUNTER_ADDED
+    record_int = Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=record_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=counter_recorder(e, s)),
+        duration='while_on_battlefield')
+
     def end_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # engine gap: per-turn 'counter put on a creature' detection
-    return [make_end_step_trigger(obj, end_effect, controller_only=False)]
+        key = f'lasting_tarfire_counter_{state.turn_number}_{obj.controller}'
+        if not state.turn_data.get(key):
+            return []
+        events = []
+        for player_id in state.players.keys():
+            if player_id != obj.controller:
+                events.append(Event(type=EventType.DAMAGE,
+                                    payload={'target': player_id, 'amount': 2,
+                                             'source': obj.id},
+                                    source=obj.id))
+        return events
+    return [record_int, make_end_step_trigger(obj, end_effect, controller_only=False)]
 
 
 def lavaleaper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2098,15 +2255,32 @@ def champions_of_the_perfect_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def giltleafs_embrace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura: enchanted creature gets +2/+0; ETB grants trample/indestructible EOT (engine gap)."""
+    """Aura: enchanted creature gets +2/+0 static; ETB grants trample/indestructible EOT."""
     def is_enchanted_target(target: GameObject, state: GameState) -> bool:
         if CardType.CREATURE not in target.characteristics.types:
             return False
         if target.zone != ZoneType.BATTLEFIELD:
             return False
         return target.state.attached_to == obj.id
-    # engine gap: ETB until-EOT keyword grant
-    return make_static_pt_boost(obj, 2, 0, is_enchanted_target)
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        attached_id = obj.state.attached_to
+        if not attached_id:
+            return []
+        return [
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': attached_id, 'keyword': 'trample',
+                           'duration': 'end_of_turn'},
+                  source=obj.id),
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': attached_id, 'keyword': 'indestructible',
+                           'duration': 'end_of_turn'},
+                  source=obj.id),
+        ]
+
+    interceptors = make_static_pt_boost(obj, 2, 0, is_enchanted_target)
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    return interceptors
 
 
 def great_forest_druid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2173,9 +2347,13 @@ def moonvigil_adherents_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def morcants_eyes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep surveil 1 + activated sac for tokens (engine gap)."""
+    """Upkeep surveil 1 (activated sac for tokens remains an engine gap)."""
     def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # engine gap: surveil 1 needs library manipulation
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id
+        )]
     return [make_upkeep_trigger(obj, upkeep_effect)]
 
 

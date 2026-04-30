@@ -77,7 +77,34 @@ def holy_cow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def sterling_supplier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, put a +1/+1 counter on another target creature you control."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need targeting - placeholder creates counter event
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.id != obj.id and
+                    o.zone == ZoneType.BATTLEFIELD and
+                    o.controller == obj.controller and
+                    CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_counter(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': selected[0], 'counter_type': '+1/+1', 'amount': 1},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Sterling Supplier: Put a +1/+1 counter on another target creature you control",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_counter
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -195,9 +222,75 @@ def frontier_seeker_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def shepherd_of_clouds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, return target permanent card mv 3 or less from graveyard."""
+    """When this creature enters, return target permanent card mv 3 or less from graveyard.
+    Return that card to the battlefield instead if you control a Mount."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Graveyard recursion with targeting
+        gy_key = f"graveyard_{obj.controller}"
+        gy = state.zones.get(gy_key)
+        if not gy:
+            return []
+        permanent_types = {CardType.CREATURE, CardType.ARTIFACT,
+                           CardType.ENCHANTMENT, CardType.LAND, CardType.PLANESWALKER}
+        legal_targets = []
+        for cid in gy.objects:
+            card = state.objects.get(cid)
+            if not card:
+                continue
+            if not (card.characteristics.types & permanent_types):
+                continue
+            mv_str = card.characteristics.mana_cost or ""
+            # Approximate mana value from cost string by counting digits & symbols
+            mv = 0
+            digits = ""
+            for ch in mv_str:
+                if ch.isdigit():
+                    digits += ch
+                elif ch.isalpha():
+                    mv += 1
+            if digits:
+                try:
+                    mv += int(digits)
+                except ValueError:
+                    pass
+            if mv <= 3:
+                legal_targets.append(cid)
+        if not legal_targets:
+            return []
+
+        # Check if we control a Mount
+        controls_mount = any(
+            o.controller == obj.controller and
+            o.zone == ZoneType.BATTLEFIELD and
+            "Mount" in (o.characteristics.subtypes or set())
+            for o in state.objects.values()
+        )
+
+        def handle_return(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            tid = selected[0]
+            if controls_mount:
+                # Reanimate to battlefield
+                return [Event(
+                    type=EventType.RETURN_FROM_GRAVEYARD,
+                    payload={'object_id': tid, 'to': 'battlefield'},
+                    source=choice.source_id,
+                )]
+            return [Event(
+                type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+                payload={'object_id': tid, 'player': obj.controller},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Shepherd of the Clouds: Return target permanent card with mana value 3 or less from your graveyard",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_return
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -220,7 +313,31 @@ def fortune_loyal_steed_setup(obj: GameObject, state: GameState) -> list[Interce
 def harrier_strix_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, tap target permanent."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Targeting required
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if o.zone == ZoneType.BATTLEFIELD and not o.state.tapped:
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_tap(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.TAP,
+                payload={'object_id': selected[0]},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Harrier Strix: Tap target permanent",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_tap
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -240,7 +357,35 @@ def loan_shark_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def peerless_ropemaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, return up to one target tapped creature to its owner's hand."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Bounce effect - targeting required
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types and
+                    o.state.tapped):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_bounce(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.RETURN_TO_HAND,
+                payload={'object_id': selected[0]},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Peerless Ropemaster: Return up to one target tapped creature to its owner's hand",
+            min_targets=0,
+            max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_bounce
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -298,7 +443,35 @@ def nimble_brigand_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 def spring_splasher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever this creature attacks, target creature defending player controls gets -3/-0."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Targeting required
+        # Approximate "defending player" as any opponent.
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types and
+                    o.controller != obj.controller):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_debuff(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': selected[0], 'power_mod': -3, 'toughness_mod': 0,
+                         'duration': 'end_of_turn'},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Spring Splasher: Target creature defending player controls gets -3/-0 until end of turn",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_debuff
         return []
     return [make_attack_trigger(obj, attack_effect)]
 
@@ -310,7 +483,34 @@ def spring_splasher_setup(obj: GameObject, state: GameState) -> list[Interceptor
 def ambush_gigapede_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, target creature an opponent controls gets -2/-2 until end of turn."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Targeting required
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types and
+                    o.controller != obj.controller):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_debuff(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': selected[0], 'power_mod': -2, 'toughness_mod': -2,
+                         'duration': 'end_of_turn'},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Ambush Gigapede: Target creature an opponent controls gets -2/-2 until end of turn",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_debuff
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -318,7 +518,28 @@ def ambush_gigapede_setup(obj: GameObject, state: GameState) -> list[Interceptor
 def desperate_bloodseeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, target player mills two cards."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Targeting required - mills opponent
+        legal_targets = list(state.players.keys())
+        if not legal_targets:
+            return []
+
+        def handle_mill(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.MILL,
+                payload={'player': selected[0], 'amount': 2},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Desperate Bloodseeker: Target player mills two cards",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_mill
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -384,7 +605,34 @@ def rictus_robber_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def rooftop_assassin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, destroy target creature an opponent controls that was dealt damage this turn."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Conditional destruction - targeting required
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types and
+                    o.controller != obj.controller and
+                    (o.state.damage > 0 or o.state.damage_marked > 0)):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_destroy(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.DESTROY,
+                payload={'object_id': selected[0]},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Rooftop Assassin: Destroy target creature an opponent controls that was dealt damage this turn",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_destroy
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -404,9 +652,32 @@ def gisa_the_hellraiser_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def hollow_marauder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, target opponents each discard a card."""
+    """When this creature enters, any number of target opponents each discard a card."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Discard targeting required
+        opponents = [pid for pid in state.players.keys() if pid != obj.controller]
+        if not opponents:
+            return []
+
+        def handle_discard(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.DISCARD,
+                payload={'player': pid, 'amount': 1},
+                source=choice.source_id,
+            ) for pid in selected]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=opponents,
+            prompt="Hollow Marauder: Choose any number of opponents to each discard a card",
+            min_targets=0,
+            max_targets=len(opponents),
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_discard
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -431,9 +702,32 @@ def rakish_crew_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def tinybones_joins_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Tinybones Joins Up enters, target players each discard a card."""
+    """When Tinybones Joins Up enters, any number of target players each discard a card."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Discard effect - targeting required
+        all_players = list(state.players.keys())
+        if not all_players:
+            return []
+
+        def handle_discard(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.DISCARD,
+                payload={'player': pid, 'amount': 1},
+                source=choice.source_id,
+            ) for pid in selected]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=all_players,
+            prompt="Tinybones Joins Up: Choose any number of target players to each discard a card",
+            min_targets=0,
+            max_targets=len(all_players),
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_discard
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -443,9 +737,45 @@ def tinybones_joins_up_setup(obj: GameObject, state: GameState) -> list[Intercep
 # -----------------------------------------------------------------------------
 
 def cunning_coyote_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, another target creature gets +1/+1 and haste until end of turn."""
+    """When this creature enters, another target creature you control gets +1/+1 and gains haste until end of turn."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Targeting required
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.id != obj.id and
+                    o.zone == ZoneType.BATTLEFIELD and
+                    o.controller == obj.controller and
+                    CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_pump(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            tid = selected[0]
+            return [
+                Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={'object_id': tid, 'power_mod': 1, 'toughness_mod': 1,
+                             'duration': 'end_of_turn'},
+                    source=choice.source_id,
+                ),
+                Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': tid, 'keyword': 'haste', 'duration': 'end_of_turn'},
+                    source=choice.source_id,
+                ),
+            ]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Cunning Coyote: Another target creature you control gets +1/+1 and gains haste until end of turn",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_pump
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -453,8 +783,23 @@ def cunning_coyote_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 def discerning_peddler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, you may discard a card. If you do, draw a card."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Looting effect
-        return []
+        # Approximate as a hard looting (engine doesn't expose may-discard-then-conditional-draw cleanly).
+        hand_key = f"hand_{obj.controller}"
+        hand = state.zones.get(hand_key)
+        if not hand or not hand.objects:
+            return []
+        return [
+            Event(
+                type=EventType.DISCARD,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            ),
+        ]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -540,8 +885,11 @@ def mine_raider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def irascible_wolverine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, exile the top card of your library. Until end of turn, you may play that card."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Impulse draw - library manipulation required
-        return []
+        return [Event(
+            type=EventType.IMPULSE_DRAW,
+            payload={'player': obj.controller, 'amount': 1, 'duration': 'end_of_turn'},
+            source=obj.id,
+        )]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -584,10 +932,42 @@ def terror_of_the_peaks_setup(obj: GameObject, state: GameState) -> list[Interce
     def creature_etb_effect(event: Event, state: GameState) -> list[Event]:
         entering_id = event.payload.get('object_id')
         entering_obj = state.objects.get(entering_id)
-        if entering_obj:
-            power = entering_obj.characteristics.power or 0
-            # Would need targeting - placeholder
+        if not entering_obj:
             return []
+        power = entering_obj.characteristics.power or 0
+        if power <= 0:
+            return []
+
+        # Legal targets: any creature on the battlefield, or any player.
+        legal_targets = list(state.players.keys())
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    (CardType.CREATURE in o.characteristics.types or
+                     CardType.PLANESWALKER in o.characteristics.types)):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_damage(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': target_id, 'target_id': target_id,
+                         'amount': power, 'source': choice.source_id, 'is_combat': False},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt=f"Terror of the Peaks: Deal {power} damage to any target",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_damage
         return []
 
     return [make_etb_trigger(obj, creature_etb_effect, creature_etb_filter)]
@@ -758,9 +1138,57 @@ def spinewoods_paladin_setup(obj: GameObject, state: GameState) -> list[Intercep
 # -----------------------------------------------------------------------------
 
 def annie_flash_the_veteran_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Annie Flash enters, if you cast it, return target permanent card mv 3 or less from graveyard."""
+    """When Annie Flash enters, if you cast it, return target permanent card mv 3 or less from graveyard to the battlefield tapped."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Graveyard recursion with targeting
+        gy_key = f"graveyard_{obj.controller}"
+        gy = state.zones.get(gy_key)
+        if not gy:
+            return []
+        permanent_types = {CardType.CREATURE, CardType.ARTIFACT,
+                           CardType.ENCHANTMENT, CardType.LAND, CardType.PLANESWALKER}
+        legal_targets = []
+        for cid in gy.objects:
+            card = state.objects.get(cid)
+            if not card:
+                continue
+            if not (card.characteristics.types & permanent_types):
+                continue
+            mv_str = card.characteristics.mana_cost or ""
+            mv = 0
+            digits = ""
+            for ch in mv_str:
+                if ch.isdigit():
+                    digits += ch
+                elif ch.isalpha():
+                    mv += 1
+            if digits:
+                try:
+                    mv += int(digits)
+                except ValueError:
+                    pass
+            if mv <= 3:
+                legal_targets.append(cid)
+        if not legal_targets:
+            return []
+
+        def handle_reanimate(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={'object_id': selected[0], 'to': 'battlefield', 'tapped': True},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Annie Flash: Return target permanent card with mana value 3 or less from your graveyard to the battlefield tapped",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_reanimate
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -768,7 +1196,36 @@ def annie_flash_the_veteran_setup(obj: GameObject, state: GameState) -> list[Int
 def annie_joins_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When Annie Joins Up enters, it deals 5 damage to target creature or planeswalker an opponent controls."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Targeting required
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    o.controller != obj.controller and
+                    (CardType.CREATURE in o.characteristics.types or
+                     CardType.PLANESWALKER in o.characteristics.types)):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_damage(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            tid = selected[0]
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': tid, 'target_id': tid, 'amount': 5,
+                         'source': choice.source_id, 'is_combat': False},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Annie Joins Up: Deal 5 damage to target creature or planeswalker an opponent controls",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_damage
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -853,7 +1310,36 @@ def bruse_tarl_roving_rancher_setup(obj: GameObject, state: GameState) -> list[I
 def honest_rutstein_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When Honest Rutstein enters, return target creature card from your graveyard to your hand."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Graveyard recursion - targeting required
+        gy_key = f"graveyard_{obj.controller}"
+        gy = state.zones.get(gy_key)
+        if not gy:
+            return []
+        legal_targets = []
+        for cid in gy.objects:
+            card = state.objects.get(cid)
+            if card and CardType.CREATURE in card.characteristics.types:
+                legal_targets.append(cid)
+        if not legal_targets:
+            return []
+
+        def handle_return(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+                payload={'object_id': selected[0], 'player': obj.controller},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Honest Rutstein: Return target creature card from your graveyard to your hand",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_return
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -1238,9 +1724,46 @@ def inventive_wingsmith_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def nurturing_pixie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, return up to one target non-Faerie, nonland permanent you control to its owner's hand."""
+    """When this creature enters, return up to one target non-Faerie, nonland permanent you control to its owner's hand.
+    If a permanent was returned this way, put a +1/+1 counter on this creature."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Bounce effect with counter - targeting required
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    o.controller == obj.controller and
+                    CardType.LAND not in o.characteristics.types and
+                    "Faerie" not in (o.characteristics.subtypes or set())):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_bounce(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [
+                Event(
+                    type=EventType.RETURN_TO_HAND,
+                    payload={'object_id': selected[0]},
+                    source=choice.source_id,
+                ),
+                Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=choice.source_id,
+                ),
+            ]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Nurturing Pixie: Return up to one non-Faerie, nonland permanent you control to its owner's hand",
+            min_targets=0,
+            max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_bounce
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -1646,9 +2169,40 @@ def treasure_dredger_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def unscrupulous_contractor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Optional ETB: sacrifice a creature -> target draws 2 and loses 2."""
+    """When this creature enters, you may sacrifice a creature. When you do, target player draws two cards and loses 2 life."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: optional sacrifice + targeted draw/life-loss not auto-wired
+        # Approximate: skip the optional sacrifice (engine gap), but offer the
+        # target choice for draw/life-loss so the visible payoff fires.
+        legal_players = list(state.players.keys())
+        if not legal_players:
+            return []
+
+        def handle_payoff(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            tid = selected[0]
+            return [
+                Event(
+                    type=EventType.DRAW,
+                    payload={'player': tid, 'amount': 2},
+                    source=choice.source_id,
+                ),
+                Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': tid, 'amount': -2},
+                    source=choice.source_id,
+                ),
+            ]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_players,
+            prompt="Unscrupulous Contractor: Target player draws two cards and loses 2 life",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_payoff
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -2158,9 +2712,47 @@ def oko_the_ringleader_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def rakdos_joins_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB return creature card from GY with +1/+1 counters; legendary-dies trigger."""
+    """When Rakdos Joins Up enters, return target creature card from your graveyard to the battlefield with two additional +1/+1 counters on it.
+    Legendary-dies damage trigger is left as an engine gap."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: graveyard reanimation + counters and legendary-dies trigger not engine-tracked
+        gy_key = f"graveyard_{obj.controller}"
+        gy = state.zones.get(gy_key)
+        if not gy:
+            return []
+        legal_targets = []
+        for cid in gy.objects:
+            card = state.objects.get(cid)
+            if card and CardType.CREATURE in card.characteristics.types:
+                legal_targets.append(cid)
+        if not legal_targets:
+            return []
+
+        def handle_reanimate(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            tid = selected[0]
+            return [
+                Event(
+                    type=EventType.RETURN_FROM_GRAVEYARD,
+                    payload={'object_id': tid, 'to': 'battlefield'},
+                    source=choice.source_id,
+                ),
+                Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': tid, 'counter_type': '+1/+1', 'amount': 2},
+                    source=choice.source_id,
+                ),
+            ]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Rakdos Joins Up: Return target creature card from your graveyard with two +1/+1 counters",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_reanimate
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -2178,12 +2770,30 @@ def riku_of_many_paths_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def roxanne_starfall_savant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB/attack -> create Meteorite tokens; tap-artifact-token bonus mana."""
+    """Whenever Roxanne enters or attacks, create a tapped colorless artifact token named Meteorite with
+    'When this token enters, it deals 2 damage to any target' and '{T}: Add one mana of any color.'
+    The token's complex granted abilities are an engine gap; we still emit the token creation."""
+    def make_meteorite(source_id: str) -> Event:
+        return Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Meteorite',
+                'types': {CardType.ARTIFACT},
+                'subtypes': set(),
+                'colors': set(),
+                'is_token': True,
+                'tapped': True,
+            },
+            source=source_id,
+        )
+
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: complex artifact-token-with-text not engine-tracked
-        return []
+        return [make_meteorite(obj.id)]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []
+        return [make_meteorite(obj.id)]
+
     return [make_etb_trigger(obj, etb_effect), make_attack_trigger(obj, attack_effect)]
 
 
@@ -2382,9 +2992,45 @@ def abraded_bluffs_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def arid_archway_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB-tapped: bounce a land you control; if Desert was returned, surveil 1."""
+    """When this land enters, return a land you control to its owner's hand.
+    If another Desert was returned this way, surveil 1."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: targeted self-bounce + conditional surveil not engine-tracked
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    o.controller == obj.controller and
+                    CardType.LAND in o.characteristics.types):
+                legal_targets.append(oid)
+        if not legal_targets:
+            return []
+
+        def handle_bounce(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            tid = selected[0]
+            target = gs.objects.get(tid)
+            events: list[Event] = [Event(
+                type=EventType.RETURN_TO_HAND,
+                payload={'object_id': tid},
+                source=choice.source_id,
+            )]
+            if target and tid != obj.id and "Desert" in (target.characteristics.subtypes or set()):
+                events.append(Event(
+                    type=EventType.SURVEIL,
+                    payload={'player': obj.controller, 'amount': 1},
+                    source=choice.source_id,
+                ))
+            return events
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Arid Archway: Return a land you control to its owner's hand",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_bounce
         return []
     return [make_etb_trigger(obj, etb_effect)]
 

@@ -4252,10 +4252,88 @@ def frostbridge_guard_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def glass_casket_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this artifact enters, exile target creature an opponent controls with mana value 3 or less until this artifact leaves the battlefield."""
+    # Track exiled card across closures (O-Ring style)
+    exiled_card = {'id': None}
+
+    def get_mana_value(o: GameObject) -> int:
+        mc = o.characteristics.mana_cost or ""
+        return sum(1 for c in mc if c in 'WUBRG') + sum(int(c) for c in mc if c.isdigit())
+
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        exiled_card['id'] = target_id
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.BATTLEFIELD,
+                'to_zone_type': ZoneType.EXILE,
+                'exiled_by': obj.id
+            },
+            source=obj.id,
+            controller=obj.controller
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: target selection + "until leaves" tracking. Register trigger only.
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller != obj.controller and
+                CardType.CREATURE in game_obj.characteristics.types and
+                get_mana_value(game_obj) <= 3):
+                valid_targets.append(game_obj.id)
+        if not valid_targets:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose an opponent's creature with mana value 3 or less to exile",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
-    return [make_etb_trigger(obj, etb_effect)]
+
+    def leaves_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.ZONE_CHANGE and
+                event.payload.get('object_id') == obj.id and
+                event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD)
+
+    def leaves_effect(event: Event, state: GameState) -> list[Event]:
+        if not exiled_card['id']:
+            return []
+        exiled_obj = state.objects.get(exiled_card['id'])
+        if not exiled_obj or exiled_obj.zone != ZoneType.EXILE:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': exiled_card['id'],
+                'from_zone_type': ZoneType.EXILE,
+                'to_zone_type': ZoneType.BATTLEFIELD
+            },
+            source=obj.id,
+            controller=obj.controller
+        )]
+
+    leaves_trigger = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=leaves_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=leaves_effect(e, s)),
+        duration='until_leaves'
+    )
+
+    return [make_etb_trigger(obj, etb_effect), leaves_trigger]
 
 
 def the_princess_takes_flight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4315,8 +4393,41 @@ def regal_bunnicorn_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def solitary_sanctuary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB tap+stun an opponent's creature; tap-untap creatures triggers +1/+1 counter."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        return [
+            Event(type=EventType.TAP, payload={'object_id': target_id}, source=obj.id),
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': target_id, 'counter_type': 'stun', 'amount': 1},
+                source=obj.id
+            )
+        ]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: target selection + stun-counter mechanic.
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller != obj.controller and
+                CardType.CREATURE in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+        if not valid_targets:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose an opponent's creature to tap and put a stun counter on",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -4382,11 +4493,84 @@ def virtue_of_loyalty_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def werefox_bodyguard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flash; ETB exile non-Fox until leaves; activated sac for 2 life."""
+    """Flash; ETB exile up to one non-Fox creature until leaves; activated sac for 2 life."""
+    exiled_card = {'id': None}
+
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        exiled_card['id'] = target_id
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.BATTLEFIELD,
+                'to_zone_type': ZoneType.EXILE,
+                'exiled_by': obj.id
+            },
+            source=obj.id,
+            controller=obj.controller
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: target selection + "until leaves" exile bookkeeping.
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.id != obj.id and
+                game_obj.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in game_obj.characteristics.types and
+                'Fox' not in game_obj.characteristics.subtypes):
+                valid_targets.append(game_obj.id)
+        if not valid_targets:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose up to one non-Fox creature to exile until this creature leaves",
+            min_targets=0,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
-    return [make_etb_trigger(obj, etb_effect)]
+
+    def leaves_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.ZONE_CHANGE and
+                event.payload.get('object_id') == obj.id and
+                event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD)
+
+    def leaves_effect(event: Event, state: GameState) -> list[Event]:
+        if not exiled_card['id']:
+            return []
+        exiled_obj = state.objects.get(exiled_card['id'])
+        if not exiled_obj or exiled_obj.zone != ZoneType.EXILE:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': exiled_card['id'],
+                'from_zone_type': ZoneType.EXILE,
+                'to_zone_type': ZoneType.BATTLEFIELD
+            },
+            source=obj.id,
+            controller=obj.controller
+        )]
+
+    leaves_trigger = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=leaves_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=leaves_effect(e, s)),
+        duration='until_leaves'
+    )
+
+    return [make_etb_trigger(obj, etb_effect), leaves_trigger]
 
 
 # --- Blue ---
@@ -4409,10 +4593,47 @@ def bitter_chill_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def diminisher_witch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB if bargained: create Cursed Role on opponent's creature."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Cursed Role',
+                'controller': obj.controller,
+                'attach_to': target_id,
+                'types': [CardType.ENCHANTMENT],
+                'subtypes': ['Aura', 'Role'],
+                'is_token': True
+            },
+            source=obj.id
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         if not event.payload.get('bargained', False):
             return []
-        # engine gap: target selection (opponent's creature) for Cursed Role attach.
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller != obj.controller and
+                CardType.CREATURE in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+        if not valid_targets:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose an opponent's creature to attach a Cursed Role to",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -4464,11 +4685,53 @@ def sleep_cursed_faerie_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def tenacious_tomeseeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Bargain ETB: return target instant or sorcery from graveyard."""
+    """Bargain ETB: return target instant or sorcery card from your graveyard to your hand."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.GRAVEYARD:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'to_zone_type': ZoneType.HAND,
+                'to_zone': f'hand_{obj.controller}'
+            },
+            source=obj.id,
+            controller=obj.controller
+        )]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         if not event.payload.get('bargained', False):
             return []
-        # engine gap: target selection from graveyard for instant/sorcery.
+        graveyard_key = f"graveyard_{obj.controller}"
+        graveyard = state.zones.get(graveyard_key)
+        if not graveyard:
+            return []
+        valid_targets = []
+        for card_id in graveyard.objects:
+            card = state.objects.get(card_id)
+            if not card:
+                continue
+            types = card.characteristics.types
+            if CardType.INSTANT in types or CardType.SORCERY in types:
+                valid_targets.append(card_id)
+        if not valid_targets:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose an instant or sorcery from your graveyard to return to hand",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -4566,9 +4829,49 @@ def lord_skitters_blessing_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def virtue_of_persistence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: return target creature card from a graveyard onto the battlefield."""
+    """Upkeep: put target creature card from a graveyard onto the battlefield under your control."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.GRAVEYARD:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'to_zone_type': ZoneType.BATTLEFIELD,
+                'new_controller': obj.controller
+            },
+            source=obj.id,
+            controller=obj.controller
+        )]
+
     def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: target selection from any graveyard for creature card.
+        valid_targets = []
+        for player_id in state.players:
+            graveyard_key = f"graveyard_{player_id}"
+            graveyard = state.zones.get(graveyard_key)
+            if not graveyard:
+                continue
+            for card_id in graveyard.objects:
+                card = state.objects.get(card_id)
+                if card and CardType.CREATURE in card.characteristics.types:
+                    valid_targets.append(card_id)
+        if not valid_targets:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a creature card from a graveyard to reanimate under your control",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
     return [make_upkeep_trigger(obj, upkeep_effect)]
 
@@ -4783,8 +5086,57 @@ def collectors_vault_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 def eriettes_tempting_apple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB gain control of target creature until EOT, untap+haste; activated abilities."""
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        target = game_state.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        return [
+            Event(
+                type=EventType.GAIN_CONTROL,
+                payload={
+                    'object_id': target_id,
+                    'new_controller': obj.controller,
+                    'duration': 'end_of_turn'
+                },
+                source=obj.id
+            ),
+            Event(
+                type=EventType.UNTAP,
+                payload={'object_id': target_id},
+                source=obj.id
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': target_id,
+                    'keyword': 'haste',
+                    'duration': 'end_of_turn'
+                },
+                source=obj.id
+            )
+        ]
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: target selection + GAIN_CONTROL + haste grant.
+        valid_targets = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in game_obj.characteristics.types):
+                valid_targets.append(game_obj.id)
+        if not valid_targets:
+            return []
+        create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=valid_targets,
+            prompt="Choose a creature to gain control of until end of turn",
+            min_targets=1,
+            max_targets=1,
+            callback_data={'handler': handle_target_choice}
+        )
         return []
     return [make_etb_trigger(obj, etb_effect)]
 

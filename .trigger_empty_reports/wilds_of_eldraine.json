@@ -1,0 +1,142 @@
+{
+  "set": "wilds_of_eldraine.py",
+  "results": [
+    {
+      "fn": "a_tale_for_the_ages_setup",
+      "card_var": "A_TALE_FOR_THE_AGES",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already fully implemented via make_static_pt_boost; no inner trigger returns []. False positive in briefing."
+    },
+    {
+      "fn": "mocking_sprite_setup",
+      "card_var": "MOCKING_SPRITE",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already fully implemented as QUERY_COST cost-reduction interceptor; no inner trigger returns []. False positive in briefing."
+    },
+    {
+      "fn": "blossoming_tortoise_setup",
+      "card_var": "BLOSSOMING_TORTOISE",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already fully implemented via make_static_pt_boost for land-creatures lord; no inner trigger returns []. False positive in briefing."
+    },
+    {
+      "fn": "archon_of_the_wild_rose_setup",
+      "card_var": "ARCHON_OF_THE_WILD_ROSE",
+      "disposition": "left",
+      "engine_gap": "Setting *base* P/T to 4/4 via replacement effect not yet supported; partial via keyword grant.",
+      "notes": "Already partially implemented (grants flying via make_keyword_grant). Base P/T replacement still missing."
+    },
+    {
+      "fn": "glass_casket_setup",
+      "card_var": "GLASS_CASKET",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Filled in O-Ring style: ETB target opponent's creature with mana value <=3; create_target_choice + ZONE_CHANGE to EXILE; until_leaves trigger returns it on departure. Mirrors perilous_snare_setup."
+    },
+    {
+      "fn": "regal_bunnicorn_setup",
+      "card_var": "REGAL_BUNNICORN",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already fully implemented via QUERY_POWER/QUERY_TOUGHNESS interceptors (CDA). False positive in briefing."
+    },
+    {
+      "fn": "solitary_sanctuary_setup",
+      "card_var": "SOLITARY_SANCTUARY",
+      "disposition": "converted",
+      "engine_gap": "Tap-untap-creature follow-up trigger still missing (needs custom interceptor).",
+      "notes": "ETB filled in: target opponent's creature via create_target_choice -> TAP + COUNTER_ADDED('stun')."
+    },
+    {
+      "fn": "spellbook_vendor_setup",
+      "card_var": "SPELLBOOK_VENDOR",
+      "disposition": "left",
+      "engine_gap": "Optional mana payment prompt + role token attachment to chosen target not yet wired.",
+      "notes": "Combat-begin trigger registers but optional pay {1} -> token-then-trigger semantics is an engine gap."
+    },
+    {
+      "fn": "unassuming_sage_setup",
+      "card_var": "UNASSUMING_SAGE",
+      "disposition": "left",
+      "engine_gap": "Optional ETB cost prompt not yet supported.",
+      "notes": "Could attach Sorcerer Role token to self trivially, but the optional {2} payment is the gating gap."
+    },
+    {
+      "fn": "werefox_bodyguard_setup",
+      "card_var": "WEREFOX_BODYGUARD",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Filled in O-Ring exile: up to one non-Fox creature target; ZONE_CHANGE to EXILE + until_leaves return trigger."
+    },
+    {
+      "fn": "diminisher_witch_setup",
+      "card_var": "DIMINISHER_WITCH",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Bargain-conditional ETB now selects opponent's creature and creates a Cursed Role token attached to it via OBJECT_CREATED."
+    },
+    {
+      "fn": "extraordinary_journey_setup",
+      "card_var": "EXTRAORDINARY_JOURNEY",
+      "disposition": "left",
+      "engine_gap": "X-target selection at ETB + cast-from-exile permission tracking not yet supported.",
+      "notes": "Skipped per briefing guidance; trigger remains a stub."
+    },
+    {
+      "fn": "icewrought_sentry_setup",
+      "card_var": "ICEWROUGHT_SENTRY",
+      "disposition": "left",
+      "engine_gap": "Optional mana payment branch on attack triggers not yet supported.",
+      "notes": "Vigilance keyword + base attack trigger registered; optional pay+target gap."
+    },
+    {
+      "fn": "ingenious_prodigy_setup",
+      "card_var": "INGENIOUS_PRODIGY",
+      "disposition": "left",
+      "engine_gap": "Optional remove-counter cost prompt not yet wired.",
+      "notes": "Counter-presence guard is in place; optional 'remove a +1/+1' to draw remains a stub."
+    },
+    {
+      "fn": "tenacious_tomeseeker_setup",
+      "card_var": "TENACIOUS_TOMESEEKER",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Bargain-conditional ETB now scans your graveyard for instant/sorcery, prompts via create_target_choice, and emits ZONE_CHANGE GRAVEYARD->HAND."
+    },
+    {
+      "fn": "barrow_naughty_setup",
+      "card_var": "BARROW_NAUGHTY",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented via make_keyword_grant for conditional lifelink. False positive in briefing."
+    },
+    {
+      "fn": "virtue_of_persistence_setup",
+      "card_var": "VIRTUE_OF_PERSISTENCE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "Upkeep trigger now scans every graveyard for creature cards, prompts via create_target_choice, and emits ZONE_CHANGE GRAVEYARD->BATTLEFIELD with new_controller=self."
+    },
+    {
+      "fn": "howling_galefang_setup",
+      "card_var": "HOWLING_GALEFANG",
+      "disposition": "left",
+      "engine_gap": "",
+      "notes": "Already implemented via make_keyword_grant for conditional haste based on adventure cards in exile. False positive in briefing."
+    },
+    {
+      "fn": "eriettes_tempting_apple_setup",
+      "card_var": "ERIETTES_TEMPTING_APPLE",
+      "disposition": "converted",
+      "engine_gap": "",
+      "notes": "ETB now selects any creature, then emits GAIN_CONTROL (end_of_turn) + UNTAP + GRANT_KEYWORD haste, mirroring established threaten patterns."
+    }
+  ],
+  "summary": {
+    "converted": 7,
+    "left": 12
+  }
+}

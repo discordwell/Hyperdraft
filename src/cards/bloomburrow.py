@@ -111,7 +111,31 @@ def valley_questcaller_setup(obj: GameObject, state: GameState) -> list[Intercep
     interceptors = make_static_pt_boost(
         obj, 1, 1, other_rabbits_bats_birds_mice(obj)
     )
-    # Also has ETB trigger for scry - simplified
+
+    # Triggered ability: Whenever one or more other Rabbits/Bats/Birds/Mice enter, scry 1.
+    def tribal_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == source.id:
+            return False
+        entering = state.objects.get(entering_id)
+        if not entering:
+            return False
+        if entering.controller != source.controller:
+            return False
+        if CardType.CREATURE not in entering.characteristics.types:
+            return False
+        return bool(entering.characteristics.subtypes & {"Rabbit", "Bat", "Bird", "Mouse"})
+
+    def scry_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.SCRY,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+
+    interceptors.append(make_etb_trigger(obj, scry_effect, tribal_etb_filter))
     return interceptors
 
 

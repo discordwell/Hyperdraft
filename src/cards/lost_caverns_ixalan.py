@@ -85,8 +85,17 @@ def ironpaw_aspirant_setup(obj: GameObject, state: GameState) -> list[Intercepto
 def malamet_war_scribe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, creatures you control get +2/+1 until end of turn."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # This would need temporary P/T boost - simplified as a placeholder
-        return []
+        events: list[Event] = []
+        for game_obj in state.objects.values():
+            if (game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller == obj.controller and
+                CardType.CREATURE in game_obj.characteristics.types):
+                events.append(Event(
+                    type=EventType.TEMPORARY_PT_CHANGE,
+                    payload={'object_id': game_obj.id, 'power': 2, 'toughness': 1, 'duration': 'end_of_turn'},
+                    source=obj.id
+                ))
+        return events
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1693,14 +1702,21 @@ def belligerent_yearling_setup(obj: GameObject, state: GameState) -> list[Interc
 def burning_sun_cavalry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever this creature attacks or blocks while you control a Dinosaur, gets +1/+1."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Check for dinosaur control - simplified
-        for obj_id, game_obj in state.objects.items():
-            if (game_obj.controller == obj.controller and
-                game_obj.zone == ZoneType.BATTLEFIELD and
-                CardType.CREATURE in game_obj.characteristics.types and
-                'Dinosaur' in game_obj.characteristics.subtypes):
-                return []  # Would apply +1/+1 boost
-        return []
+        # Only fires if controller currently has a Dinosaur on battlefield.
+        controls_dino = any(
+            game_obj.controller == obj.controller and
+            game_obj.zone == ZoneType.BATTLEFIELD and
+            CardType.CREATURE in game_obj.characteristics.types and
+            'Dinosaur' in game_obj.characteristics.subtypes
+            for game_obj in state.objects.values()
+        )
+        if not controls_dino:
+            return []
+        return [Event(
+            type=EventType.TEMPORARY_PT_CHANGE,
+            payload={'object_id': obj.id, 'power': 1, 'toughness': 1, 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
     return [make_attack_trigger(obj, attack_effect)]
 
 
@@ -1873,8 +1889,18 @@ def restless_anchorage_setup(obj: GameObject, state: GameState) -> list[Intercep
 def restless_prairie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever this land attacks, other creatures you control get +1/+1 until end of turn."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Temporary P/T boost - placeholder
-        return []
+        events: list[Event] = []
+        for game_obj in state.objects.values():
+            if (game_obj.id != obj.id and
+                game_obj.zone == ZoneType.BATTLEFIELD and
+                game_obj.controller == obj.controller and
+                CardType.CREATURE in game_obj.characteristics.types):
+                events.append(Event(
+                    type=EventType.TEMPORARY_PT_CHANGE,
+                    payload={'object_id': game_obj.id, 'power': 1, 'toughness': 1, 'duration': 'end_of_turn'},
+                    source=obj.id
+                ))
+        return events
     return [make_attack_trigger(obj, attack_effect)]
 
 
@@ -3169,11 +3195,42 @@ def thousand_moons_crackshot_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def thousand_moons_infantry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Untap during each other player's untap step."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: extra untap during opponents' untap step
-        return []
-    return [make_etb_trigger(obj, effect_fn)]
+    """Untap during each other player's untap step.
+
+    Engine note: the turn manager has no PHASE_START event for the untap step,
+    so we hook into upkeep (the next phase) when the active player isn't us
+    and only emit an UNTAP if the creature is actually tapped.
+    """
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        live = state.objects.get(obj.id)
+        if not live or not live.state.tapped:
+            return []
+        return [Event(
+            type=EventType.UNTAP,
+            payload={'object_id': obj.id},
+            source=obj.id
+        )]
+    # controller_only=False so the trigger fires for all players' upkeeps;
+    # the active-player check below restricts to opponents.
+    def opp_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        if event.payload.get('phase') != 'upkeep':
+            return False
+        return state.active_player != obj.controller
+
+    def opp_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=upkeep_effect(event, state))
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=opp_filter,
+        handler=opp_handler,
+        duration='while_on_battlefield'
+    )]
 
 
 def vanguard_of_the_rose_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

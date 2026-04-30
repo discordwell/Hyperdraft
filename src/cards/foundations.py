@@ -5396,9 +5396,19 @@ def curator_of_destinies_setup(obj: GameObject, state: GameState) -> list[Interc
 # Vigilance, prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.) / Whenever this creature deals combat damage to a player, put that many incubation counters on it. / Remove three incubation counters from this creature: Create a 2/2 blue Drake creature token with flying.
 def drake_hatcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: damage trigger
-        return []
-    return [make_damage_trigger(obj, effect_fn)]
+        # Whenever this creature deals combat damage to a player, put that many incubation counters on it.
+        target_id = event.payload.get('target')
+        if target_id not in state.players:
+            return []
+        amount = event.payload.get('amount', 0) or 0
+        if amount <= 0:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'incubation', 'amount': amount},
+            source=obj.id
+        )]
+    return [make_damage_trigger(obj, effect_fn, combat_only=True)]
 
 
 # --- GRAPPLING KRAKEN ---
@@ -5430,14 +5440,27 @@ def kaito_cunning_infiltrator_setup(obj: GameObject, state: GameState) -> list[I
     def trigger_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.DAMAGE:
             return False
+        if not event.payload.get('is_combat', False):
+            return False
         source_id = event.payload.get('source')
         source_obj = state.objects.get(source_id) if source_id else None
         if not source_obj:
             return False
-        return source_obj.controller == obj.controller
+        if source_obj.controller != obj.controller:
+            return False
+        # Must be combat damage to a player
+        target_id = event.payload.get('target')
+        return target_id in state.players
     def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
-        # engine gap: creature-you-control-deals-damage trigger
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # Whenever a creature you control deals combat damage to a player, put a loyalty counter on Kaito.
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': 'loyalty', 'amount': 1},
+                source=obj.id
+            )]
+        )
     return [Interceptor(
         id=new_id(),
         source=obj.id,
@@ -5635,14 +5658,33 @@ def quilled_greatwurm_setup(obj: GameObject, state: GameState) -> list[Intercept
     def trigger_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.DAMAGE:
             return False
+        if not event.payload.get('is_combat', False):
+            return False
+        # Only fires during your turn
+        if state.active_player != obj.controller:
+            return False
         source_id = event.payload.get('source')
         source_obj = state.objects.get(source_id) if source_id else None
         if not source_obj:
             return False
-        return source_obj.controller == obj.controller
+        if source_obj.controller != obj.controller:
+            return False
+        # Source must be a creature
+        return CardType.CREATURE in source_obj.characteristics.types
     def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
-        # engine gap: creature-you-control-deals-damage trigger
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # Put +1/+1 counters equal to combat damage dealt on the damaging creature.
+        source_id = event.payload.get('source')
+        amount = event.payload.get('amount', 0) or 0
+        if not source_id or amount <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': source_id, 'counter_type': '+1/+1', 'amount': amount},
+                source=obj.id
+            )]
+        )
     return [Interceptor(
         id=new_id(),
         source=obj.id,
@@ -5786,8 +5828,15 @@ def liliana_dreadhorde_general_setup(obj: GameObject, state: GameState) -> list[
             return False
         return CardType.CREATURE in target.characteristics.types
     def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
-        # engine gap: complex follow-up effect
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # Static: Whenever a creature you control dies, draw a card.
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id
+            )]
+        )
     return [Interceptor(
         id=new_id(),
         source=obj.id,
@@ -5880,8 +5929,19 @@ def affectionate_indrik_setup(obj: GameObject, state: GameState) -> list[Interce
 # --- GARRUK'S UPRISING ---
 # When this enchantment enters, if you control a creature with power 4 or greater, draw a card. / Creatures you control have trample. (Each of those creatures can deal excess combat damage to the player or planeswalker it's attacking.) / Whenever a creature you control with power 4 or greater enters, draw a card.
 def garruks_uprising_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ETB conditional draw. (Trample static and the recurring "creature ETBs with
+    # power >= 4 -> draw" trigger remain engine gaps.)
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: complex ETB effect (targeting/modal/conditional)
+        for o in state.objects.values():
+            if (o.controller == obj.controller
+                    and o.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in o.characteristics.types
+                    and get_power(o, state) >= 4):
+                return [Event(
+                    type=EventType.DRAW,
+                    payload={'player': obj.controller, 'amount': 1},
+                    source=obj.id
+                )]
         return []
     return [make_etb_trigger(obj, effect_fn)]
 
@@ -6137,8 +6197,20 @@ def death_baron_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # When this creature dies, create two 2/2 black Zombie creature tokens.
 def maalfeld_twins_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: complex death effect
-        return []
+        token_payload = {
+            'name': 'Zombie Token',
+            'controller': obj.controller,
+            'power': 2,
+            'toughness': 2,
+            'types': [CardType.CREATURE],
+            'subtypes': ['Zombie'],
+            'colors': [Color.BLACK],
+            'token': True
+        }
+        return [
+            Event(type=EventType.OBJECT_CREATED, payload=dict(token_payload), source=obj.id),
+            Event(type=EventType.OBJECT_CREATED, payload=dict(token_payload), source=obj.id),
+        ]
     return [make_death_trigger(obj, effect_fn)]
 
 
@@ -6205,8 +6277,17 @@ def goblin_oriflamme_setup(obj: GameObject, state: GameState) -> list[Intercepto
 # Flying / When this creature enters, create two Treasure tokens. (They're artifacts with "{T}, Sacrifice this token: Add one mana of any color.")
 def rapacious_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: complex ETB effect (targeting/modal/conditional)
-        return []
+        token_payload = {
+            'name': 'Treasure Token',
+            'controller': obj.controller,
+            'types': [CardType.ARTIFACT],
+            'subtypes': ['Treasure'],
+            'token': True
+        }
+        return [
+            Event(type=EventType.OBJECT_CREATED, payload=dict(token_payload), source=obj.id),
+            Event(type=EventType.OBJECT_CREATED, payload=dict(token_payload), source=obj.id),
+        ]
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -6293,9 +6374,16 @@ def stasis_snare_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # Whenever a Gate you control enters, this creature can't be blocked this turn. / Whenever this creature deals combat damage to a player, draw a card.
 def gateway_sneak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: damage trigger
-        return []
-    return [make_damage_trigger(obj, effect_fn)]
+        # Whenever this creature deals combat damage to a player, draw a card.
+        target_id = event.payload.get('target')
+        if target_id not in state.players:
+            return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_damage_trigger(obj, effect_fn, combat_only=True)]
 
 
 # --- HARBINGER OF THE TIDES ---
@@ -6356,26 +6444,72 @@ def vile_entomber_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.) / Haste (This creature can attack and {T} as soon as it comes under your control.) / At the beginning of the end step, sacrifice this creature.
 def ball_lightning_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: end-step trigger
-        return []
-    return [make_end_step_trigger(obj, effect_fn)]
+        return [Event(
+            type=EventType.SACRIFICE,
+            payload={'object_id': obj.id, 'player': obj.controller},
+            source=obj.id
+        )]
+    # Triggers on every end step (any player's), since the ability says "the end step"
+    return [make_end_step_trigger(obj, effect_fn, controller_only=False)]
 
 
 # --- DRAGON MAGE ---
 # Flying / Whenever this creature deals combat damage to a player, each player discards their hand, then draws seven cards.
 def dragon_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: damage trigger
-        return []
-    return [make_damage_trigger(obj, effect_fn)]
+        # Only fire when target is a player
+        target_id = event.payload.get('target')
+        if target_id not in state.players:
+            return []
+        events = []
+        for player_id in state.players.keys():
+            hand_zone = state.zones.get(f"hand_{player_id}")
+            hand_size = len(hand_zone.objects) if hand_zone else 0
+            # Discard entire hand
+            if hand_size > 0:
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': player_id, 'amount': hand_size},
+                    source=obj.id
+                ))
+            # Then draw seven
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': player_id, 'amount': 7},
+                source=obj.id
+            ))
+        return events
+    return [make_damage_trigger(obj, effect_fn, combat_only=True)]
 
 
 # --- DRAGONMASTER OUTCAST ---
 # At the beginning of your upkeep, if you control six or more lands, create a 5/5 red Dragon creature token with flying.
 def dragonmaster_outcast_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: upkeep trigger
-        return []
+        # Count lands controller controls
+        land_count = sum(
+            1 for o in state.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.LAND in o.characteristics.types
+        )
+        if land_count < 6:
+            return []
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Dragon Token',
+                'controller': obj.controller,
+                'power': 5,
+                'toughness': 5,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Dragon'],
+                'colors': [Color.RED],
+                'keywords': ['flying'],
+                'token': True
+            },
+            source=obj.id
+        )]
     return [make_upkeep_trigger(obj, effect_fn)]
 
 
@@ -6392,17 +6526,36 @@ def hoarding_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # First strike (This creature deals combat damage before creatures without first strike.) / Whenever an opponent casts a white or blue instant or sorcery spell, this creature deals 2 damage to that player.
 def mindsparker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: opponent-cast trigger
-        return []
-    return [make_spell_cast_trigger(obj, effect_fn, controller_only=False)]
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        if caster is None or caster == obj.controller:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': caster, 'amount': 2, 'source': obj.id, 'is_combat': False},
+            source=obj.id
+        )]
+    return [make_spell_cast_trigger(
+        obj, effect_fn,
+        controller_only=False,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+        color_filter={Color.WHITE, Color.BLUE}
+    )]
 
 
 # --- RAVENOUS GIANT ---
 # At the beginning of your upkeep, this creature deals 1 damage to you.
 def ravenous_giant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: upkeep trigger
-        return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={
+                'target': obj.controller,
+                'amount': 1,
+                'source': obj.id,
+                'is_combat': False
+            },
+            source=obj.id
+        )]
     return [make_upkeep_trigger(obj, effect_fn)]
 
 
@@ -6419,17 +6572,30 @@ def redcap_gutterdweller_setup(obj: GameObject, state: GameState) -> list[Interc
 # This creature can't be blocked by Humans. / Whenever this creature deals combat damage to a player, put a +1/+1 counter on it.
 def stromkirk_noble_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: damage trigger
-        return []
-    return [make_damage_trigger(obj, effect_fn)]
+        # Only fire when target is a player (deals combat damage to a player)
+        target_id = event.payload.get('target')
+        if target_id not in state.players:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_damage_trigger(obj, effect_fn, combat_only=True)]
 
 
 # --- TAUREAN MAULER ---
 # Changeling (This card is every creature type.) / Whenever an opponent casts a spell, you may put a +1/+1 counter on this creature.
 def taurean_mauler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: opponent-cast trigger
-        return []
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        if caster is None or caster == obj.controller:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
     return [make_spell_cast_trigger(obj, effect_fn, controller_only=False)]
 
 
@@ -6446,17 +6612,32 @@ def gnarlback_rhino_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # Whenever an opponent casts a blue or black spell, you may put a +1/+1 counter on this creature.
 def mold_adder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: opponent-cast trigger
-        return []
-    return [make_spell_cast_trigger(obj, effect_fn, controller_only=False)]
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        if caster is None or caster == obj.controller:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_spell_cast_trigger(
+        obj, effect_fn,
+        controller_only=False,
+        color_filter={Color.BLUE, Color.BLACK}
+    )]
 
 
 # --- PREDATOR OOZE ---
 # Indestructible (Damage and effects that say "destroy" don't destroy this creature.) / Whenever this creature attacks, put a +1/+1 counter on it. / Whenever a creature dealt damage by this creature this turn dies, put a +1/+1 counter on this creature.
 def predator_ooze_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Whenever this creature attacks, put a +1/+1 counter on it.
+    # (The "creature dealt damage by this dies" trigger remains an engine gap.)
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: complex attack trigger
-        return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
     return [make_attack_trigger(obj, effect_fn)]
 
 
@@ -6534,8 +6715,11 @@ def wildborn_preserver_setup(obj: GameObject, state: GameState) -> list[Intercep
 # Flying / Double strike (This creature deals both first-strike and regular combat damage.) / Lifelink (Damage dealt by this creature also causes you to gain that much life.) / Whenever you gain life, draw a card.
 def drogskol_reaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: life-gain trigger
-        return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
     return [make_life_gain_trigger(obj, effect_fn)]
 
 
@@ -6567,8 +6751,28 @@ def halana_and_alena_partners_setup(obj: GameObject, state: GameState) -> list[I
 # Flying / Ward—{3}, Pay 3 life. / Whenever you cast a noncreature spell, create X 1/1 red Phyrexian Goblin creature tokens, where X is the mana value of that spell. They gain haste until end of turn.
 def ovika_enigma_goliath_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: spell-cast trigger
-        return []
+        # Whenever you cast a noncreature spell, create X 1/1 red Phyrexian Goblin tokens (X = mana value).
+        spell_types = set(event.payload.get('types', []))
+        if CardType.CREATURE in spell_types:
+            return []
+        x = event.payload.get('mana_value', 0) or 0
+        if x <= 0:
+            return []
+        token_payload = {
+            'name': 'Phyrexian Goblin Token',
+            'controller': obj.controller,
+            'power': 1,
+            'toughness': 1,
+            'types': [CardType.CREATURE],
+            'subtypes': ['Phyrexian', 'Goblin'],
+            'colors': [Color.RED],
+            'keywords': ['haste'],
+            'token': True
+        }
+        return [
+            Event(type=EventType.OBJECT_CREATED, payload=dict(token_payload), source=obj.id)
+            for _ in range(x)
+        ]
     return [make_spell_cast_trigger(obj, effect_fn)]
 
 
@@ -6626,8 +6830,19 @@ def gate_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # Flying / Whenever you cast a spell, put a +1/+1 counter on Ramos for each of that spell's colors. / Remove five +1/+1 counters from Ramos: Add {W}{W}{U}{U}{B}{B}{R}{R}{G}{G}. Activate only once each turn.
 def ramos_dragon_engine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: spell-cast trigger
-        return []
+        spell_colors = set(event.payload.get('colors', []))
+        if not spell_colors:
+            color = event.payload.get('color')
+            if color is not None:
+                spell_colors = {color}
+        count = len(spell_colors)
+        if count <= 0:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': count},
+            source=obj.id
+        )]
     return [make_spell_cast_trigger(obj, effect_fn)]
 
 
@@ -6737,10 +6952,24 @@ def hinterland_sanctifier_setup(obj: GameObject, state: GameState) -> list[Inter
             return False
         if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
             return False
-        # Engine-gap: actual subtype/condition matching not implemented.
-        return False
+        entering_id = event.payload.get('object_id')
+        if entering_id == obj.id:
+            return False
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != obj.controller:
+            return False
+        return CardType.CREATURE in entering_obj.characteristics.types
     def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
-        return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id
+            )]
+        )
     return [Interceptor(
         id=new_id(),
         source=obj.id,
@@ -7689,8 +7918,31 @@ def immersturm_predator_setup(obj: GameObject, state: GameState) -> list[Interce
 # Enters with X +1/+1 counters where X = greatest power among other creatures / Draw cards equal to its power.
 def prime_speaker_zegana_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: ETB-with-conditional-counters + draw-equal-to-power
-        return []
+        # X = greatest power among OTHER creatures you control
+        x = 0
+        for o in state.objects.values():
+            if (o.id != obj.id
+                    and o.controller == obj.controller
+                    and o.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in o.characteristics.types):
+                x = max(x, get_power(o, state))
+        events = []
+        if x > 0:
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': x},
+                source=obj.id
+            ))
+        # Draw cards equal to its power (after the counters)
+        printed_power = obj.characteristics.power or 0
+        draw_amount = printed_power + x
+        if draw_amount > 0:
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': draw_amount},
+                source=obj.id
+            ))
+        return events
     return [make_etb_trigger(obj, effect_fn)]
 
 

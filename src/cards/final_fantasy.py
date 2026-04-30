@@ -2217,16 +2217,39 @@ def zodiark_umbral_god_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def barret_wallace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Barret: Attack -> deal damage equal to equipped creatures."""
+    """Barret: Attack -> deal damage equal to equipped creatures to defending player."""
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        equipped_count = sum(1 for o in state.objects.values()
-                           if o.controller == obj.controller and
-                           CardType.CREATURE in o.characteristics.types and
-                           o.zone == ZoneType.BATTLEFIELD and
-                           any('Equipment' in eq.characteristics.subtypes for eq in state.objects.values()
-                               if getattr(eq.state, 'attached_to', None) == o.id))
-        # Would need defending player targeting
-        return []
+        # Count creatures you control that have at least one Equipment attached.
+        equipped_count = 0
+        for o in state.objects.values():
+            if (o.controller == obj.controller and
+                    CardType.CREATURE in o.characteristics.types and
+                    o.zone == ZoneType.BATTLEFIELD):
+                # Check via attached_equipment helper (already used by sibling card).
+                if hasattr(o.state, 'attached_equipment') and o.state.attached_equipment:
+                    equipped_count += 1
+                    continue
+                # Also check the Equipment side: any Equipment attached_to this creature.
+                for eq in state.objects.values():
+                    if ('Equipment' in eq.characteristics.subtypes and
+                            getattr(eq.state, 'attached_to', None) == o.id):
+                        equipped_count += 1
+                        break
+        if equipped_count <= 0:
+            return []
+        defending = event.payload.get('defending_player')
+        if not defending:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={
+                'target': defending,
+                'amount': equipped_count,
+                'source': obj.id,
+                'is_combat': False,
+            },
+            source=obj.id,
+        )]
     return [make_attack_trigger(obj, attack_effect)]
 
 
