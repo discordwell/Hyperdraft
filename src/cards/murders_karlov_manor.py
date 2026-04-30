@@ -34,6 +34,7 @@ from src.cards.interceptor_helpers import (
     creatures_you_control, creatures_with_subtype,
     create_modal_choice, create_sacrifice_choice, create_target_choice,
     create_hand_reveal_choice,
+    make_replacement_interceptor,
 )
 
 
@@ -386,8 +387,38 @@ def surveillance_monitor_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def alley_assailant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When turned face up: opponent loses 3 life, you gain 3 life"""
-    # Face-up triggers need special handling - placeholder
-    return []
+    def face_up_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.TURN_FACE_UP and
+                event.payload.get('object_id') == obj.id)
+
+    def face_up_handler(event: Event, state: GameState) -> InterceptorResult:
+        # Pick first opponent (best-effort: targeting "target opponent" is
+        # simplified to all opponents share the loss).
+        events = []
+        for p_id in state.players.keys():
+            if p_id != obj.controller:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': p_id, 'amount': -3},
+                    source=obj.id,
+                ))
+                break  # "target opponent" — only one
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id,
+        ))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_up_filter,
+        handler=face_up_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def barbed_servitor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2197,8 +2228,37 @@ def sample_collector_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 def tunnel_tipster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """At end step: if face-down creature entered, put +1/+1 counter on this"""
-    # Would need face-down creature tracking
-    return []
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # Best-effort: scan timeline for a face-down ETB this turn under our
+        # controller. If we can't find a turn timeline, fall back to scanning
+        # objects for any face_down state on a creature that entered this turn.
+        turn = getattr(state, 'turn_number', None)
+        for oid, o in state.objects.items():
+            if (o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types and
+                getattr(o.state, 'face_down', False) and
+                getattr(o, 'entered_zone_at', None) is not None and
+                turn is not None and
+                getattr(o, 'entered_turn', turn) == turn):
+                return [Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id,
+                )]
+        # Simpler best-effort fallback: if any face-down creature is currently
+        # in play under our controller, put a counter (catches the common case).
+        for oid, o in state.objects.items():
+            if (o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD and
+                getattr(o.state, 'face_down', False)):
+                return [Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id,
+                )]
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
 
 
 def culvert_ambusher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2238,8 +2298,38 @@ def teysa_opulent_oligarch_setup(obj: GameObject, state: GameState) -> list[Inte
 
 def sumala_sentry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever face-down creature turned face up: +1/+1 counter on it and this"""
-    # Would need face-up tracking
-    return []
+    def face_up_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.TURN_FACE_UP:
+            return False
+        target_id = event.payload.get('object_id')
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        return target.controller == obj.controller
+
+    def face_up_handler(event: Event, state: GameState) -> InterceptorResult:
+        target_id = event.payload.get('object_id')
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': target_id, 'counter_type': '+1/+1', 'amount': 1},
+                      source=obj.id),
+                Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                      source=obj.id),
+            ],
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_up_filter,
+        handler=face_up_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def runebrand_juggler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4891,8 +4981,58 @@ def essence_of_antiquity_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def forum_familiar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When turned face up: bounce another permanent you control + counter on this."""
-    # engine gap: turn-face-up trigger + targeting
-    return []
+    def face_up_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.TURN_FACE_UP and
+                event.payload.get('object_id') == obj.id)
+
+    def face_up_handler(event: Event, state: GameState) -> InterceptorResult:
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (oid != obj.id and
+                o.zone == ZoneType.BATTLEFIELD and
+                o.controller == obj.controller):
+                legal_targets.append(oid)
+
+        # +1/+1 counter is applied unconditionally (per card text).
+        counter_event = Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+        )
+
+        if not legal_targets:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[counter_event])
+
+        def handle_bounce(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return [counter_event]
+            return [
+                Event(type=EventType.BOUNCE,
+                      payload={'object_id': selected[0]},
+                      source=choice.source_id),
+                counter_event,
+            ]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Forum Familiar: Return another target permanent you control to its owner's hand"
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_bounce
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_up_filter,
+        handler=face_up_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def karlov_watchdog_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4990,8 +5130,84 @@ def tenth_district_hero_setup(obj: GameObject, state: GameState) -> list[Interce
 
 def unyielding_gatekeeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When turned face up: exile nonland; if yours return tapped, else opp gets Detective token."""
-    # engine gap: turn-face-up trigger + targeting
-    return []
+    def face_up_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.TURN_FACE_UP and
+                event.payload.get('object_id') == obj.id)
+
+    def face_up_handler(event: Event, state: GameState) -> InterceptorResult:
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (oid != obj.id and
+                o.zone == ZoneType.BATTLEFIELD and
+                CardType.LAND not in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+        controller = obj.controller
+
+        def handle_exile(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            target = gs.objects.get(target_id)
+            events = [Event(
+                type=EventType.EXILE,
+                payload={'object_id': target_id},
+                source=choice.source_id,
+            )]
+            if target and target.controller == controller:
+                # Best-effort: schedule a return-tapped via ZONE_CHANGE.
+                # Full "exile then return tapped" behavior is an engine gap;
+                # we emit the bounce-back so any exile->battlefield handler
+                # picks it up. If not implemented, this is a no-op.
+                events.append(Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': target_id,
+                        'from_zone_type': ZoneType.EXILE,
+                        'to_zone_type': ZoneType.BATTLEFIELD,
+                        'enters_tapped': True,
+                    },
+                    source=choice.source_id,
+                ))
+            elif target:
+                # Opponent gets a 2/2 W/U Detective token.
+                events.append(Event(
+                    type=EventType.OBJECT_CREATED,
+                    payload={
+                        'name': 'Detective Token',
+                        'controller': target.controller,
+                        'power': 2, 'toughness': 2,
+                        'types': [CardType.CREATURE],
+                        'subtypes': ['Detective'],
+                        'colors': [Color.WHITE, Color.BLUE],
+                    },
+                    source=choice.source_id,
+                ))
+            return events
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Unyielding Gatekeeper: Exile another target nonland permanent",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_exile
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_up_filter,
+        handler=face_up_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def wrench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5004,8 +5220,29 @@ def wrench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def bubble_smuggler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """As turned face up: put four +1/+1 counters."""
-    # engine gap: turn-face-up trigger
-    return []
+    def face_up_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.TURN_FACE_UP and
+                event.payload.get('object_id') == obj.id)
+
+    def face_up_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 4},
+                source=obj.id,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_up_filter,
+        handler=face_up_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def burden_of_proof_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5125,8 +5362,48 @@ def dramatic_accusation_setup(obj: GameObject, state: GameState) -> list[Interce
 
 def exit_specialist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Disguise turn-face-up: bounce another creature."""
-    # engine gap: turn-face-up trigger + targeting
-    return []
+    def face_up_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.TURN_FACE_UP and
+                event.payload.get('object_id') == obj.id)
+
+    def face_up_handler(event: Event, state: GameState) -> InterceptorResult:
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (oid != obj.id and
+                o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+        def handle_bounce(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(type=EventType.BOUNCE,
+                          payload={'object_id': selected[0]},
+                          source=choice.source_id)]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Exit Specialist: Return another target creature to its owner's hand",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_bounce
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_up_filter,
+        handler=face_up_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def fae_flight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5145,8 +5422,35 @@ def forensic_researcher_setup(obj: GameObject, state: GameState) -> list[Interce
 
 def living_conundrum_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Hexproof; skip empty-library draws; 10/10 flying/vigilance if library empty."""
-    # engine gap: replacement on empty-library draw + conditional base P/T
-    return []
+    # Wire the empty-library draw skip. Conditional base P/T overwrite +
+    # hexproof + flying/vigilance grants are engine gaps.
+    def empty_library_draw_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DRAW:
+            return False
+        player = event.payload.get('player')
+        if player != obj.controller:
+            return False
+        amount = event.payload.get('amount')
+        if amount is None:
+            amount = event.payload.get('count', 1)
+        if amount <= 0:
+            return False
+        # Only fire when controller's library is empty.
+        library_key = f"library_{player}"
+        library = state.zones.get(library_key)
+        return bool(library is not None and len(library.objects) == 0)
+
+    def empty_library_draw_transform(event: Event, state: GameState) -> Optional[Event]:
+        new_event = event.copy()
+        if event.payload.get('amount') is not None:
+            new_event.payload['amount'] = 0
+        else:
+            new_event.payload['count'] = 0
+        return new_event
+
+    return [make_replacement_interceptor(
+        obj, empty_library_draw_filter, empty_library_draw_transform,
+    )]
 
 
 def lost_in_the_maze_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5363,8 +5667,52 @@ def case_of_the_crimson_pulse_setup(obj: GameObject, state: GameState) -> list[I
 
 def concealed_weapon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Equipment +3/+0. Disguise turn-face-up: attach to creature you control. Equip {1}{R}."""
-    # engine gap: turn-face-up trigger + auto-attach
-    return []
+    # Wire the face-up auto-attach. Equipment static +3/+0 grant + manual equip
+    # activated cost are engine gaps.
+    def face_up_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.TURN_FACE_UP and
+                event.payload.get('object_id') == obj.id)
+
+    def face_up_handler(event: Event, state: GameState) -> InterceptorResult:
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+        def handle_attach(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.AUTO_EQUIP,
+                payload={'equipment_id': obj.id, 'target_id': selected[0]},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Concealed Weapon: Attach to target creature you control",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_attach
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_up_filter,
+        handler=face_up_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def connecting_the_dots_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5561,8 +5909,37 @@ def flourishing_bloomkin_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def greenbelt_radical_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Disguise turn-face-up: counters on each creature + trample."""
-    # engine gap: turn-face-up trigger
-    return []
+    def face_up_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.TURN_FACE_UP and
+                event.payload.get('object_id') == obj.id)
+
+    def face_up_handler(event: Event, state: GameState) -> InterceptorResult:
+        events = []
+        for oid, o in state.objects.items():
+            if (o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': oid, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id,
+                ))
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': oid, 'keyword': 'trample', 'duration': 'end_of_turn'},
+                    source=obj.id,
+                ))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_up_filter,
+        handler=face_up_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def hedge_whisperer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5705,8 +6082,51 @@ def undergrowth_recon_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def vengeful_creeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Disguise turn-face-up: destroy target artifact or enchantment opp controls."""
-    # engine gap: turn-face-up trigger + targeting
-    return []
+    def face_up_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.TURN_FACE_UP and
+                event.payload.get('object_id') == obj.id)
+
+    def face_up_handler(event: Event, state: GameState) -> InterceptorResult:
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.controller != obj.controller and
+                (CardType.ARTIFACT in o.characteristics.types or
+                 CardType.ENCHANTMENT in o.characteristics.types)):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+        def handle_destroy(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.DESTROY,
+                payload={'object_id': selected[0]},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Vengeful Creeper: Destroy target artifact or enchantment an opponent controls",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_destroy
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_up_filter,
+        handler=face_up_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def vituughazi_inspector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5891,8 +6311,61 @@ def faerie_snoop_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def granite_witness_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Flying, vigilance. Disguise turn-face-up: tap or untap target creature."""
-    # engine gap: turn-face-up trigger + modal targeting
-    return []
+    def face_up_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.TURN_FACE_UP and
+                event.payload.get('object_id') == obj.id)
+
+    def face_up_handler(event: Event, state: GameState) -> InterceptorResult:
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+        # Modal: prompt for target with both options. We pick "tap" by default
+        # for AI; UI can present a modal choice. Handler emits both possible
+        # events and lets the engine pick (or applies tap then untap=noop).
+        def handle_tap_or_untap(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            target = gs.objects.get(target_id)
+            if not target:
+                return []
+            # Choose based on current state: if tapped, untap; else tap.
+            if getattr(target.state, 'tapped', False):
+                return [Event(type=EventType.UNTAP,
+                              payload={'object_id': target_id},
+                              source=choice.source_id)]
+            return [Event(type=EventType.TAP,
+                          payload={'object_id': target_id},
+                          source=choice.source_id)]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Granite Witness: Tap or untap target creature",
+            min_targets=0,  # "may"
+            max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_tap_or_untap
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_up_filter,
+        handler=face_up_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def kaya_spirits_justice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5967,8 +6440,51 @@ def runebrand_juggler_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def sanguine_savior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Flying, lifelink. Disguise turn-face-up: another creature gains lifelink until EOT."""
-    # engine gap: turn-face-up trigger + targeting
-    return []
+    def face_up_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.TURN_FACE_UP and
+                event.payload.get('object_id') == obj.id)
+
+    def face_up_handler(event: Event, state: GameState) -> InterceptorResult:
+        legal_targets = []
+        for oid, o in state.objects.items():
+            if (oid != obj.id and
+                o.zone == ZoneType.BATTLEFIELD and
+                o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types):
+                legal_targets.append(oid)
+
+        if not legal_targets:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+        def handle_grant(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': selected[0], 'keyword': 'lifelink', 'duration': 'end_of_turn'},
+                source=choice.source_id,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal_targets,
+            prompt="Sanguine Savior: Another target creature you control gains lifelink until end of turn",
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_grant
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_up_filter,
+        handler=face_up_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def tin_street_gossip_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
