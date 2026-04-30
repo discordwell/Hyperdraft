@@ -29,8 +29,11 @@ from src.cards.interceptor_helpers import (
     make_spell_cast_trigger, make_damage_trigger,
     make_targeted_etb_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
-    creatures_you_control, creatures_with_subtype
+    creatures_you_control, creatures_with_subtype,
+    open_library_search,
+    basic_land_filter, basic_subtype_filter, subtype_filter_lib,
 )
+from src.engine.library_search import _shuffle_library
 
 
 # =============================================================================
@@ -803,8 +806,29 @@ def hot_dog_cart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # "When this creature enters, you may search your library for a basic land card, reveal it, then shuffle and put that card on top."
 def spider_bot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Library search not fully implemented - placeholder
-        return []
+        # MTG ordering: shuffle, then put the chosen land on top.
+        def on_chosen(choice, moved, state):
+            library = state.zones.get(f"library_{obj.controller}")
+            if not library or not moved:
+                _shuffle_library(state, obj.controller)
+                return []
+            top_id = moved[0]
+            if top_id in library.objects:
+                library.objects.remove(top_id)
+            _shuffle_library(state, obj.controller)
+            library.objects.insert(0, top_id)
+            return []
+
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=basic_land_filter(),
+            destination="library_top",
+            reveal=True,
+            shuffle_after=False,
+            optional=True,
+            on_chosen=on_chosen,
+            prompt="You may search your library for a basic land card, reveal it, then shuffle and put it on top.",
+        )
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1128,9 +1152,21 @@ def the_spot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- Sun-Spider, Nimble Webber ---
 # "When Sun-Spider enters, search your library for an Aura or Equipment card, reveal it, put it into your hand, then shuffle."
 def sun_spider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def aura_or_equipment(card_obj, st):
+        subs = card_obj.characteristics.subtypes or set()
+        return "Aura" in subs or "Equipment" in subs
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Library search not fully implemented - placeholder
-        return []
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=aura_or_equipment,
+            destination="hand",
+            reveal=True,
+            shuffle_after=True,
+            optional=False,
+            min_count=1,
+            prompt="Search your library for an Aura or Equipment card and put it into your hand.",
+        )
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1194,8 +1230,15 @@ def lizard_connors_curse_setup(obj: GameObject, state: GameState) -> list[Interc
 # "When Molten Man enters, search your library for a basic Mountain card, put it onto the battlefield tapped, then shuffle."
 def molten_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Library search not fully implemented - placeholder
-        return []
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=basic_subtype_filter("Mountain"),
+            destination="battlefield_tapped",
+            shuffle_after=True,
+            optional=False,
+            min_count=1,
+            prompt="Search your library for a basic Mountain card and put it onto the battlefield tapped.",
+        )
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1203,8 +1246,15 @@ def molten_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # "When Spider-Man enters, search your library for a basic land card, put it onto the battlefield tapped, then shuffle."
 def spiderman_brooklyn_visionary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Library search not fully implemented - placeholder
-        return []
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=basic_land_filter(),
+            destination="battlefield_tapped",
+            shuffle_after=True,
+            optional=False,
+            min_count=1,
+            prompt="Search your library for a basic land card and put it onto the battlefield tapped.",
+        )
     return [make_etb_trigger(obj, etb_effect)]
 
 

@@ -32,6 +32,7 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype,
     create_modal_choice, create_target_choice,
+    open_library_search, basic_land_filter,
 )
 
 
@@ -1241,8 +1242,16 @@ def kyoshi_island_plaza_setup(obj: GameObject, state: GameState) -> list[Interce
     """When Kyoshi Island Plaza enters, search your library for up to X basic land cards.
     Whenever another Shrine you control enters, search your library for a basic land card."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Simplified - no library search
-        return []
+        # Approximation: tutor up to 1 basic on its own ETB (X-cost tracking is a separate engine gap).
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=basic_land_filter(),
+            destination="battlefield_tapped",
+            shuffle_after=True,
+            optional=True,
+            max_count=1,
+            prompt="Search your library for a basic land card.",
+        )
 
     def other_shrine_filter(event: Event, state: GameState, source: GameObject) -> bool:
         if event.type != EventType.ZONE_CHANGE:
@@ -1259,8 +1268,15 @@ def kyoshi_island_plaza_setup(obj: GameObject, state: GameState) -> list[Interce
                 "Shrine" in entering_obj.characteristics.subtypes)
 
     def search_effect(event: Event, state: GameState) -> list[Event]:
-        # Simplified - no library search
-        return []
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=basic_land_filter(),
+            destination="battlefield_tapped",
+            shuffle_after=True,
+            optional=True,
+            max_count=1,
+            prompt="Search your library for a basic land card.",
+        )
 
     return [
         make_etb_trigger(obj, etb_effect),
@@ -2554,10 +2570,25 @@ def koh_the_face_stealer_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def lo_and_li_twin_tutors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tutor for Lesson/Noble (engine gap library search). Lifelink to Noble/Lesson controlled."""
+    """ETB tutor for Lesson/Noble. Lifelink to Noble/Lesson controlled."""
+    def lesson_or_noble_card(card_obj, st):
+        subs = card_obj.characteristics.subtypes or set()
+        if "Lesson" in subs:
+            return True
+        if "Noble" in subs and CardType.CREATURE in card_obj.characteristics.types:
+            return True
+        return False
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: filtered library search
-        return []
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=lesson_or_noble_card,
+            destination="hand",
+            reveal=True,
+            shuffle_after=True,
+            optional=True,
+            prompt="You may search your library for a Lesson or Noble creature card.",
+        )
 
     def nobles_and_lessons(target: GameObject, state: GameState) -> bool:
         if target.controller != obj.controller:
