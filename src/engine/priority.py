@@ -254,8 +254,26 @@ class PrioritySystem:
             else:
                 # Player took an action - reset passes
                 self.passed_players.clear()
-                await self._execute_action(action)
+                executed_events = await self._execute_action(action)
                 await self._notify_action_processed(action)
+                # If a non-PASS action returned no events AND set no pending choice,
+                # it failed silently (e.g. legal-actions said yes but the executor
+                # bailed on a downstream check). Treat as PASS so the loop doesn't
+                # spin on an action that can't actually advance state.
+                if not executed_events and self.state.pending_choice is None:
+                    self.passed_players.add(self.priority_player)
+                    if self._all_players_passed():
+                        if self.stack and self.stack.is_empty():
+                            return
+                        if self.stack:
+                            stack_events = self.stack.resolve_top()
+                            for ev in stack_events:
+                                self._emit_event(ev)
+                        self.passed_players.clear()
+                        self.priority_player = self.turn_manager.active_player if self.turn_manager else None
+                        continue
+                    self.priority_player = self._get_next_player()
+                    continue
                 # Player retains priority after acting (rule 116.3c)
                 continue
 
