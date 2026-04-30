@@ -251,6 +251,12 @@ class EventType(Enum):
     YGO_LP_CHANGE = auto()            # Life Points changed
     YGO_DRAW = auto()                 # Draw Phase draw
 
+    # Library search subsystem (player-choice-driven tutors)
+    LIBSEARCH_BEGIN = auto()          # Open the search choice (creates PendingChoice)
+    LIBSEARCH_REVEAL = auto()         # Reveal a chosen card (marker event for triggers)
+    LIBSEARCH_COMPLETE = auto()       # Finalize: move card to destination (post-choice)
+    LIBSEARCH_SHUFFLE = auto()        # Shuffle library after a search (often part of complete)
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to

@@ -2745,3 +2745,159 @@ from src.engine.replacements import (  # noqa: E402  (re-export below)
     make_skip_to_graveyard_replacer,
     make_graveyard_to_exile_replacer,
 )
+
+
+# =============================================================================
+# LIBRARY SEARCH HELPERS
+# =============================================================================
+#
+# These wrap src/engine/library_search.py with card-friendly defaults. Cards
+# typically just need an ETB-style "search your library for an X, put it into
+# your hand, then shuffle." All of these helpers create a PendingChoice on
+# state.pending_choice and return [] (no events) — the card's effect_fn should
+# return whatever this helper returns.
+#
+# Example (Rune-Scarred Demon):
+#     def runescarred_demon_setup(obj, state):
+#         def effect_fn(event, state):
+#             return open_library_search(
+#                 state, obj.controller, obj.id,
+#                 filter_fn=any_card_filter(),
+#                 destination="hand",
+#             )
+#         return [make_etb_trigger(obj, effect_fn)]
+
+
+def open_library_search(
+    state: GameState,
+    player_id: str,
+    source_id: str,
+    *,
+    filter_fn: Optional[Callable[[GameObject, GameState], bool]] = None,
+    min_count: int = 0,
+    max_count: int = 1,
+    destination: str = "hand",
+    reveal: bool = False,
+    shuffle_after: bool = True,
+    tapped: bool = False,
+    prompt: Optional[str] = None,
+    optional: bool = True,
+    on_chosen: Optional[Callable] = None,
+    extra_callback_data: Optional[dict] = None,
+) -> list[Event]:
+    """Open a library-search PendingChoice. Returns [] (use as the effect_fn return).
+
+    See `src.engine.library_search.create_library_search_choice` for full
+    parameter documentation.
+    """
+    from src.engine.library_search import create_library_search_choice
+
+    create_library_search_choice(
+        state,
+        player_id,
+        source_id,
+        filter_fn=filter_fn,
+        min_count=min_count,
+        max_count=max_count,
+        destination=destination,
+        reveal=reveal,
+        shuffle_after=shuffle_after,
+        tapped=tapped,
+        prompt=prompt,
+        optional=optional,
+        on_chosen=on_chosen,
+        extra_callback_data=extra_callback_data,
+    )
+    return []
+
+
+def make_library_search_etb_trigger(
+    source_obj: GameObject,
+    *,
+    filter_fn: Optional[Callable[[GameObject, GameState], bool]] = None,
+    destination: str = "hand",
+    reveal: bool = False,
+    shuffle_after: bool = True,
+    tapped: bool = False,
+    max_count: int = 1,
+    optional: bool = True,
+    prompt: Optional[str] = None,
+    on_chosen: Optional[Callable] = None,
+) -> Interceptor:
+    """Convenience: ETB trigger that opens a library search with the given filter.
+
+    Common pattern for tutor creatures like Rune-Scarred Demon, Fierce Empath,
+    Vile Entomber, Hoarding Dragon, Campus Guide, etc.
+    """
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return open_library_search(
+            state,
+            source_obj.controller,
+            source_obj.id,
+            filter_fn=filter_fn,
+            destination=destination,
+            reveal=reveal,
+            shuffle_after=shuffle_after,
+            tapped=tapped,
+            max_count=max_count,
+            optional=optional,
+            prompt=prompt,
+            on_chosen=on_chosen,
+        )
+    return make_etb_trigger(source_obj, effect_fn)
+
+
+# --- Library filter shortcuts (re-exports of the engine module's factories) ---
+
+def basic_land_filter() -> Callable[[GameObject, GameState], bool]:
+    """Filter: any basic land card."""
+    from src.engine.library_search import is_basic_land
+    return is_basic_land()
+
+
+def basic_subtype_filter(subtype: str) -> Callable[[GameObject, GameState], bool]:
+    """Filter: a basic with the given subtype (e.g. 'Forest', 'Mountain')."""
+    from src.engine.library_search import is_basic_with_subtype
+    return is_basic_with_subtype(subtype)
+
+
+def creature_filter_lib() -> Callable[[GameObject, GameState], bool]:
+    """Filter: any creature card."""
+    from src.engine.library_search import is_card_type
+    return is_card_type(CardType.CREATURE)
+
+
+def artifact_filter_lib() -> Callable[[GameObject, GameState], bool]:
+    """Filter: any artifact card."""
+    from src.engine.library_search import is_card_type
+    return is_card_type(CardType.ARTIFACT)
+
+
+def enchantment_filter_lib() -> Callable[[GameObject, GameState], bool]:
+    """Filter: any enchantment card."""
+    from src.engine.library_search import is_card_type
+    return is_card_type(CardType.ENCHANTMENT)
+
+
+def creature_with_mv_at_least(min_mv: int) -> Callable[[GameObject, GameState], bool]:
+    """Filter: creature card with mana value >= min_mv."""
+    from src.engine.library_search import is_creature_with_mv_at_least
+    return is_creature_with_mv_at_least(min_mv)
+
+
+def instant_or_sorcery_with_mv(target_mv: int) -> Callable[[GameObject, GameState], bool]:
+    """Filter: instant or sorcery with exactly target_mv mana value."""
+    from src.engine.library_search import is_instant_or_sorcery_with_mv
+    return is_instant_or_sorcery_with_mv(target_mv)
+
+
+def subtype_filter_lib(subtype: str) -> Callable[[GameObject, GameState], bool]:
+    """Filter: any card with the given subtype (e.g. 'Aura', 'Equipment')."""
+    from src.engine.library_search import is_subtype
+    return is_subtype(subtype)
+
+
+def any_card_filter() -> Callable[[GameObject, GameState], bool]:
+    """Filter: any card in library (unconditional tutor)."""
+    from src.engine.library_search import any_card
+    return any_card()

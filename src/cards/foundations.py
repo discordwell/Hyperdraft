@@ -43,6 +43,13 @@ from src.cards.interceptor_helpers import (
     creatures_with_subtype,
     create_modal_choice,
     create_target_choice,
+    open_library_search,
+    any_card_filter,
+    artifact_filter_lib,
+    basic_land_filter,
+    creature_filter_lib,
+    creature_with_mv_at_least,
+    instant_or_sorcery_with_mv,
 )
 
 
@@ -2329,15 +2336,32 @@ def viashino_pyromancer_setup(obj: GameObject, state: GameState) -> list[Interce
 # When this creature enters, you may search your library for a creature card with mana value 6 or greater.
 def fierce_empath_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        return []  # Needs library search
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=creature_with_mv_at_least(6),
+            destination="hand",
+            shuffle_after=True,
+            optional=True,
+            prompt="You may search your library for a creature card with mana value 6 or greater.",
+        )
     return [make_etb_trigger(obj, effect_fn)]
 
 
 # --- SPRINGBLOOM DRUID ---
 # When this creature enters, you may sacrifice a land. If you do, search your library for up to two basic land cards.
+# Sacrifice rider is still an engine gap — we approximate by skipping the sacrifice and offering the search,
+# so the tutor part is at least exercisable end-to-end.
 def springbloom_druid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        return []  # Needs sacrifice and library search
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=basic_land_filter(),
+            destination="battlefield_tapped",
+            max_count=2,
+            shuffle_after=True,
+            optional=True,
+            prompt="You may sacrifice a land; if you do, search your library for up to 2 basic lands and put them onto the battlefield tapped.",
+        )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -5853,8 +5877,15 @@ def banishing_light_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # When this creature enters, you may search your library for an instant or sorcery card with mana value 1, reveal it, put it into your hand, then shuffle.
 def micromancer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: complex ETB effect (targeting/modal/conditional)
-        return []
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=instant_or_sorcery_with_mv(1),
+            destination="hand",
+            reveal=True,
+            shuffle_after=True,
+            optional=True,
+            prompt="You may search your library for an instant or sorcery with mana value 1, reveal it, then put it into your hand.",
+        )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -5907,8 +5938,15 @@ def painful_quandary_setup(obj: GameObject, state: GameState) -> list[Intercepto
 # Flying / When this creature enters, search your library for a card, put it into your hand, then shuffle.
 def runescarred_demon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: complex ETB effect (targeting/modal/conditional)
-        return []
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=any_card_filter(),
+            destination="hand",
+            shuffle_after=True,
+            optional=False,
+            min_count=1,
+            prompt="Search your library for a card and put it into your hand.",
+        )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -6069,8 +6107,44 @@ def adventuring_gear_setup(obj: GameObject, state: GameState) -> list[Intercepto
 # When this creature enters, you may search your library for a basic land card, reveal it, then shuffle and put that card on top.
 def campus_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: complex ETB effect (targeting/modal/conditional)
-        return []
+        # MTG order: shuffle THEN put-on-top, so we use a custom on_chosen rider
+        # to move the chosen card to library_top after shuffling.
+        from src.engine.library_search import _shuffle_library, _move_card_from_library
+
+        def shuffle_then_top(choice, selected, state):
+            # The default handler already moved the selected cards to "hand"
+            # because we set destination="hand" below — undo that, shuffle,
+            # then put on top. To avoid that mess, we instead use destination
+            # "library_top" with shuffle_after=False, and shuffle in the rider.
+            return []
+
+        # Cleaner: tutor with destination="library_top", shuffle_after=False,
+        # then shuffle the rest of the library via the rider so the chosen
+        # card ends up on top after the shuffle.
+        def on_chosen(choice, moved, state):
+            # Remove the chosen card from the top, shuffle the rest, put it
+            # back on top (matches the printed "shuffle, then put on top").
+            library = state.zones.get(f"library_{obj.controller}")
+            if not library or not moved:
+                _shuffle_library(state, obj.controller)
+                return []
+            top_id = moved[0]
+            if top_id in library.objects:
+                library.objects.remove(top_id)
+            _shuffle_library(state, obj.controller)
+            library.objects.insert(0, top_id)
+            return []
+
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=basic_land_filter(),
+            destination="library_top",
+            reveal=True,
+            shuffle_after=False,
+            optional=True,
+            on_chosen=on_chosen,
+            prompt="You may search your library for a basic land card, reveal it, then shuffle and put that card on top.",
+        )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -6481,8 +6555,15 @@ def nullpriest_of_oblivion_setup(obj: GameObject, state: GameState) -> list[Inte
 # Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.) / When this creature enters, search your library for a card, put that card into your graveyard, then shuffle.
 def vile_entomber_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: complex ETB effect (targeting/modal/conditional)
-        return []
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=any_card_filter(),
+            destination="graveyard",
+            shuffle_after=True,
+            optional=False,
+            min_count=1,
+            prompt="Search your library for a card and put that card into your graveyard.",
+        )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -6561,10 +6642,17 @@ def dragonmaster_outcast_setup(obj: GameObject, state: GameState) -> list[Interc
 
 # --- HOARDING DRAGON ---
 # Flying / When this creature enters, you may search your library for an artifact card, exile it, then shuffle. / When this creature dies, you may put the exiled card into its owner's hand.
+# Death-return rider remains an engine gap (delayed retrieval of "the exiled card"), but ETB tutor is wired.
 def hoarding_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: complex ETB effect (targeting/modal/conditional)
-        return []
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=artifact_filter_lib(),
+            destination="exile",
+            shuffle_after=True,
+            optional=True,
+            prompt="You may search your library for an artifact card and exile it.",
+        )
     return [make_etb_trigger(obj, effect_fn)]
 
 
