@@ -34,6 +34,18 @@ from src.cards.interceptor_helpers import (
     create_modal_choice, create_target_choice,
 )
 
+from src.engine.bending import (
+    make_firebend_attack_trigger,
+    make_earthbend_etb_trigger,
+    make_earthbend_attack_trigger,
+    make_earthbend_death_trigger,
+    make_earthbend_spell_cast_trigger,
+    make_earthbend_end_step_trigger,
+    make_airbend_etb_trigger,
+    make_airbend_attack_trigger,
+    emit_waterbend_marker,
+)
+
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -1503,18 +1515,13 @@ def sandbender_scavengers_setup(obj: GameObject, state: GameState) -> list[Inter
 
 def earth_village_ruffians_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature dies, earthbend 2."""
-    # Simplified - creates a token instead
-    def death_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': 'LAND_TARGET', 'counter_type': '+1/+1', 'amount': 2},
-            source=obj.id
-        )]
-    return [make_death_trigger(obj, death_effect)]
+    return [make_earthbend_death_trigger(obj, 2)]
 
 
 def beifongs_bounty_hunters_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever a nonland creature you control dies, earthbend X, where X is that creature's power."""
+    last_dying_power: dict[str, int] = {'value': 0}
+
     def creature_death_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.ZONE_CHANGE:
             return False
@@ -1530,28 +1537,18 @@ def beifongs_bounty_hunters_setup(obj: GameObject, state: GameState) -> list[Int
             return False
         if CardType.LAND in dying_obj.characteristics.types:
             return False
-        return CardType.CREATURE in dying_obj.characteristics.types
+        if CardType.CREATURE not in dying_obj.characteristics.types:
+            return False
+        last_dying_power['value'] = dying_obj.characteristics.power or 0
+        return True
 
-    def earthbend_effect(event: Event, state: GameState) -> list[Event]:
-        dying_id = event.payload.get('object_id')
-        dying_obj = state.objects.get(dying_id)
-        if dying_obj:
-            power = dying_obj.characteristics.power or 0
-            return [Event(
-                type=EventType.COUNTER_ADDED,
-                payload={'object_id': 'LAND_TARGET', 'counter_type': '+1/+1', 'amount': power},
-                source=obj.id
-            )]
-        return []
+    def x_dying_power(self_obj: GameObject, st: GameState) -> int:
+        return last_dying_power['value']
 
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=creature_death_filter,
-        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=earthbend_effect(e, s)),
-        duration='while_on_battlefield'
+    return [make_earthbend_death_trigger(
+        obj,
+        x_dying_power,
+        on_creature_death_filter=creature_death_filter,
     )]
 
 
@@ -1584,24 +1581,19 @@ def guru_pathik_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def sun_warriors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Firebending X, where X is the number of creatures you control."""
-    # Firebending adds mana when attacking - simplified implementation
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        creature_count = sum(1 for o in state.objects.values()
-                            if o.controller == obj.controller
-                            and o.zone == ZoneType.BATTLEFIELD
-                            and CardType.CREATURE in o.characteristics.types)
-        return [Event(
-            type=EventType.MANA_ADDED,
-            payload={'player': obj.controller, 'mana': {'R': creature_count}},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
+    def x_creature_count(self_obj: GameObject, st: GameState) -> int:
+        return sum(1 for o in st.objects.values()
+                   if o.controller == self_obj.controller
+                   and o.zone == ZoneType.BATTLEFIELD
+                   and CardType.CREATURE in o.characteristics.types)
+    return [make_firebend_attack_trigger(obj, x_creature_count)]
 
 
 def fire_lord_zuko_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you cast a spell from exile and whenever a permanent you control enters from exile,
+    """Firebending X, where X is Fire Lord Zuko's power.
+    Whenever you cast a spell from exile and whenever a permanent you control enters from exile,
     put a +1/+1 counter on each creature you control."""
-    # Simplified - triggers on any ETB
+    # Simplified - triggers on any ETB (engine gap: 'from exile' detection)
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         events = []
         for o in state.objects.values():
@@ -1614,7 +1606,14 @@ def fire_lord_zuko_setup(obj: GameObject, state: GameState) -> list[Interceptor]
                     source=obj.id
                 ))
         return events
-    return [make_etb_trigger(obj, etb_effect)]
+
+    def x_self_power(self_obj: GameObject, st: GameState) -> int:
+        return self_obj.characteristics.power or 0
+
+    return [
+        make_firebend_attack_trigger(obj, x_self_power),
+        make_etb_trigger(obj, etb_effect),
+    ]
 
 
 def katara_the_fearless_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1658,31 +1657,13 @@ def invasion_tactics_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def toph_hardheaded_teacher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you cast a spell, earthbend 1."""
-    def cast_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type != EventType.CAST:
-            return False
-        return event.payload.get('caster') == source.controller
-
-    def earthbend_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': 'LAND_TARGET', 'counter_type': '+1/+1', 'amount': 1},
-            source=obj.id
-        )]
-
-    return [make_spell_cast_trigger(obj, earthbend_effect, filter_fn=cast_filter)]
+    """Whenever you cast a spell, earthbend 1. (Lesson bonus +1/+1 is engine gap.)"""
+    return [make_earthbend_spell_cast_trigger(obj, 1)]
 
 
 def toph_first_metalbender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """At the beginning of your end step, earthbend 2."""
-    def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': 'LAND_TARGET', 'counter_type': '+1/+1', 'amount': 2},
-            source=obj.id
-        )]
-    return [make_end_step_trigger(obj, end_step_effect)]
+    return [make_earthbend_end_step_trigger(obj, 2)]
 
 
 # =============================================================================
@@ -1692,10 +1673,8 @@ def toph_first_metalbender_setup(obj: GameObject, state: GameState) -> list[Inte
 # --- WHITE ---
 
 def aang_the_last_airbender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying. ETB airbend (engine gap). Lesson cast -> lifelink EOT (engine gap)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: airbend (exile target nonland; owner may cast for {2})
-        return []
+    """Flying. ETB airbend up to one other target nonland permanent.
+    Lesson cast -> lifelink EOT."""
 
     def lesson_filter(event: Event, state: GameState, source: GameObject) -> bool:
         if event.type != EventType.CAST:
@@ -1713,7 +1692,10 @@ def aang_the_last_airbender_setup(obj: GameObject, state: GameState) -> list[Int
         )]
 
     return [
-        make_etb_trigger(obj, etb_effect),
+        make_airbend_etb_trigger(
+            obj,
+            prompt="Airbend up to one other target nonland permanent",
+        ),
         make_spell_cast_trigger(obj, lifelink_effect, filter_fn=lesson_filter),
     ]
 
@@ -1746,9 +1728,12 @@ def aangs_iceberg_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def airbender_ascension_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB airbend. Quest counters on creature ETB. EOT exile/return at 4 counters."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: airbend target creature
-        return []
+    def creature_target_filter(target: GameObject, st: GameState) -> bool:
+        return (
+            target.id != obj.id
+            and target.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in target.characteristics.types
+        )
 
     def creature_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
         if event.type != EventType.ZONE_CHANGE:
@@ -1776,28 +1761,54 @@ def airbender_ascension_setup(obj: GameObject, state: GameState) -> list[Interce
         return []
 
     return [
-        make_etb_trigger(obj, etb_effect),
+        make_airbend_etb_trigger(
+            obj,
+            target_filter=creature_target_filter,
+            prompt="Airbend up to one target creature",
+        ),
         make_etb_trigger(obj, quest_counter_effect, creature_etb_filter),
         make_end_step_trigger(obj, end_step_effect),
     ]
 
 
 def appa_loyal_sky_bison_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB or attack: choose one (flying EOT or airbend) - engine gap modal."""
-    def etb_or_attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: modal choice (flying EOT vs airbend)
-        return []
+    """Flying. ETB or attack, choose one: target creature gains flying EOT,
+    or airbend another target nonland permanent you control.
+
+    We model the airbend half as the default; modal choice is engine gap.
+    """
+    def own_nonland_filter(target: GameObject, st: GameState) -> bool:
+        return (
+            target.id != obj.id
+            and target.zone == ZoneType.BATTLEFIELD
+            and target.controller == obj.controller
+            and CardType.LAND not in target.characteristics.types
+        )
+
     return [
-        make_etb_trigger(obj, etb_or_attack_effect),
-        make_attack_trigger(obj, etb_or_attack_effect),
+        make_airbend_etb_trigger(
+            obj,
+            target_filter=own_nonland_filter,
+            prompt="Airbend another target nonland permanent you control",
+        ),
+        make_airbend_attack_trigger(
+            obj,
+            target_filter=own_nonland_filter,
+            prompt="Airbend another target nonland permanent you control",
+        ),
     ]
 
 
 def appa_steadfast_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB airbend (engine gap). Cast spell from exile -> Ally token."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: airbend any number of permanents
-        return []
+    """ETB airbend any number of own nonland permanents.
+    Cast spell from exile -> Ally token."""
+    def own_nonland_filter(target: GameObject, st: GameState) -> bool:
+        return (
+            target.id != obj.id
+            and target.zone == ZoneType.BATTLEFIELD
+            and target.controller == obj.controller
+            and CardType.LAND not in target.characteristics.types
+        )
 
     def cast_from_exile_filter(event: Event, state: GameState, source: GameObject) -> bool:
         if event.type != EventType.CAST:
@@ -1823,7 +1834,13 @@ def appa_steadfast_guardian_setup(obj: GameObject, state: GameState) -> list[Int
         )]
 
     return [
-        make_etb_trigger(obj, etb_effect),
+        make_airbend_etb_trigger(
+            obj,
+            target_filter=own_nonland_filter,
+            min_targets=0,
+            max_targets=99,
+            prompt="Airbend any number of other nonland permanents you control",
+        ),
         make_spell_cast_trigger(obj, token_effect, filter_fn=cast_from_exile_filter),
     ]
 
@@ -1904,11 +1921,19 @@ def earth_kingdom_protectors_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def glider_staff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment ETB airbend (engine gap). Equip and aura modifiers via equipment system."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: airbend target creature; equipped +1/+1, flying via equip system
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Equipment ETB airbend up to one target creature.
+    Equipped +1/+1 and flying via equipment system (engine gap)."""
+    def creature_target_filter(target: GameObject, st: GameState) -> bool:
+        return (
+            target.id != obj.id
+            and target.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in target.characteristics.types
+        )
+    return [make_airbend_etb_trigger(
+        obj,
+        target_filter=creature_target_filter,
+        prompt="Airbend up to one target creature",
+    )]
 
 
 def hakoda_selfless_commander_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2343,16 +2368,10 @@ def beetleheaded_merchants_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def boiling_rock_rioter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Firebending 1 (mana on attack - engine gap). Tap Ally: exile (engine gap activated).
+    """Firebending 1. Tap Ally: exile (engine gap activated).
     Whenever this attacks, may cast Ally exiled with this (engine gap)."""
-    def firebending_attack(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANA_ADDED,
-            payload={'player': obj.controller, 'mana': {'R': 1}},
-            source=obj.id
-        )]
     # engine gap: cast-from-exile, activated abilities
-    return [make_attack_trigger(obj, firebending_attack)]
+    return [make_firebend_attack_trigger(obj, 1)]
 
 
 def the_fire_nation_drill_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2622,21 +2641,14 @@ def swampsnare_trap_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def tundra_tank_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Firebending 1 attacks add {R}. ETB target creature gains indestructible EOT (engine gap)."""
-    def firebending_attack(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANA_ADDED,
-            payload={'player': obj.controller, 'mana': {'R': 1}},
-            source=obj.id
-        )]
-
+    """Firebending 1. ETB target creature gains indestructible EOT (engine gap)."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         # engine gap: targeted indestructible EOT
         return []
 
     return [
         make_etb_trigger(obj, etb_effect),
-        make_attack_trigger(obj, firebending_attack),
+        make_firebend_attack_trigger(obj, 1),
     ]
 
 
@@ -2694,33 +2706,21 @@ def fated_firepower_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def fire_nation_cadets_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Firebending 2 if Lesson in GY. {2}: +1/+0 EOT (activated, engine gap)."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
+    def x_if_lesson(self_obj: GameObject, st: GameState) -> int:
         has_lesson = any(
-            o.owner == obj.controller and o.zone == ZoneType.GRAVEYARD
+            o.owner == self_obj.controller and o.zone == ZoneType.GRAVEYARD
             and "Lesson" in o.characteristics.subtypes
-            for o in state.objects.values()
+            for o in st.objects.values()
         )
-        if not has_lesson:
-            return []
-        return [Event(
-            type=EventType.MANA_ADDED,
-            payload={'player': obj.controller, 'mana': {'R': 2}},
-            source=obj.id
-        )]
+        return 2 if has_lesson else 0
     # engine gap: activated +1/+0 ability
-    return [make_attack_trigger(obj, attack_effect)]
+    return [make_firebend_attack_trigger(obj, x_if_lesson)]
 
 
 def fire_sages_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Firebending 1 (mana on attack). {1}{R}{R}: +1/+1 counter (activated, engine gap)."""
-    def firebending_attack(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANA_ADDED,
-            payload={'player': obj.controller, 'mana': {'R': 1}},
-            source=obj.id
-        )]
+    """Firebending 1. {1}{R}{R}: +1/+1 counter (activated, engine gap)."""
     # engine gap: activated counter ability
-    return [make_attack_trigger(obj, firebending_attack)]
+    return [make_firebend_attack_trigger(obj, 1)]
 
 
 def firebender_ascension_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2747,29 +2747,15 @@ def firebender_ascension_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def firebending_student_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Prowess (engine handles). Firebending X = power on attack."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Read current power
-        current = obj.characteristics.power or 0
-        if current <= 0:
-            return []
-        return [Event(
-            type=EventType.MANA_ADDED,
-            payload={'player': obj.controller, 'mana': {'R': current}},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
+    def x_self_power(self_obj: GameObject, st: GameState) -> int:
+        return self_obj.characteristics.power or 0
+    return [make_firebend_attack_trigger(obj, x_self_power)]
 
 
 def jeong_jeong_the_deserter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Firebending 1. Exhaust {3}: +1/+1 counter and copy next Lesson cast this turn (engine gap)."""
-    def firebending_attack(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANA_ADDED,
-            payload={'player': obj.controller, 'mana': {'R': 1}},
-            source=obj.id
-        )]
     # engine gap: exhaust + delayed-trigger spell-copy
-    return [make_attack_trigger(obj, firebending_attack)]
+    return [make_firebend_attack_trigger(obj, 1)]
 
 
 def mai_jaded_edge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2781,26 +2767,14 @@ def mai_jaded_edge_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 def ran_and_shaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Flying, firebending 2. ETB if cast and 3+ Dragon/Lesson in GY -> token copy (engine gap).
     {3}{R}: Dragons +2/+0 EOT (activated, engine gap)."""
-    def firebending_attack(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANA_ADDED,
-            payload={'player': obj.controller, 'mana': {'R': 2}},
-            source=obj.id
-        )]
     # engine gap: token-copy of self + activated lord pump
-    return [make_attack_trigger(obj, firebending_attack)]
+    return [make_firebend_attack_trigger(obj, 2)]
 
 
 def rough_rhino_cavalry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Firebending 2. Exhaust {8}: two +1/+1 counters and trample EOT (engine gap)."""
-    def firebending_attack(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANA_ADDED,
-            payload={'player': obj.controller, 'mana': {'R': 2}},
-            source=obj.id
-        )]
     # engine gap: exhaust activated ability
-    return [make_attack_trigger(obj, firebending_attack)]
+    return [make_firebend_attack_trigger(obj, 2)]
 
 
 def tigerdillo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2866,15 +2840,9 @@ def zhao_the_moon_slayer_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def zuko_exiled_prince_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Firebending 3 (mana on attack). {3}: impulse draw (engine gap activated)."""
-    def firebending_attack(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.MANA_ADDED,
-            payload={'player': obj.controller, 'mana': {'R': 3}},
-            source=obj.id
-        )]
+    """Firebending 3. {3}: impulse draw (engine gap activated)."""
     # engine gap: activated impulse draw
-    return [make_attack_trigger(obj, firebending_attack)]
+    return [make_firebend_attack_trigger(obj, 3)]
 
 
 # --- GREEN ---

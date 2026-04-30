@@ -251,6 +251,14 @@ class EventType(Enum):
     YGO_LP_CHANGE = auto()            # Life Points changed
     YGO_DRAW = auto()                 # Draw Phase draw
 
+    # Avatar TLA Bending mechanics — marker events fired when a bending action
+    # occurs. These let other cards observe bending (e.g. Aang's transform).
+    # Effect events (MANA_ADDED, COUNTER_ADDED, ZONE_CHANGE) still do the work.
+    BENDING_FIREBEND = auto()         # Firebending X resolved: payload = {'amount': X, 'controller', 'source'}
+    BENDING_WATERBEND = auto()        # Waterbend cost paid: payload = {'amount': X, 'controller', 'source'}
+    BENDING_EARTHBEND = auto()        # Earthbend X resolved: payload = {'amount': X, 'controller', 'source', 'land_id'}
+    BENDING_AIRBEND = auto()          # Airbend resolved: payload = {'amount': X, 'controller', 'source', 'target_id'}
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
