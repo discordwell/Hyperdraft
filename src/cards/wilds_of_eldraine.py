@@ -4748,8 +4748,21 @@ def living_lectern_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 def sleep_cursed_faerie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB tapped with three stun counters; activated untap."""
-    # engine gap: enters-tapped+counters replacement + activated cost.
-    return []
+    # Wire ETB self-tap and three stun counters; activated untap is engine gap.
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.TAP,
+                payload={'object_id': obj.id},
+                source=obj.id
+            ),
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': 'stun', 'amount': 3},
+                source=obj.id
+            )
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
 
 
 def tenacious_tomeseeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
