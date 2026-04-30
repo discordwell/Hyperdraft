@@ -39,6 +39,12 @@ from src.engine.blb_mechanics import (
     make_expend_trigger,
     make_forage_trigger,
 )
+from src.engine.spell_resolve import (
+    resolve_chain,
+    resolve_create_token,
+    resolve_draw,
+    resolve_pump,
+)
 
 
 # =============================================================================
@@ -4557,6 +4563,92 @@ def _get_spell_info(state: GameState, spell_name: str) -> tuple[str, str]:
     return (state.active_player, f"{spell_name.lower().replace(' ', '_')}_spell")
 
 
+# -----------------------------------------------------------------------------
+# Inline resolve helpers used by Phase 2B vanilla-spell wirings.
+# -----------------------------------------------------------------------------
+def _resolve_grant_keywords(*keywords: str, duration: str = 'end_of_turn'):
+    """Emit GRANT_KEYWORD for each chosen target * each named keyword."""
+    kw_list = list(keywords)
+
+    def _resolve(targets, state):
+        events = []
+        for grp in (targets or []):
+            for t in grp or []:
+                if t is None or t.is_player:
+                    continue
+                for kw in kw_list:
+                    events.append(Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={
+                            'object_id': t.id,
+                            'keyword': kw,
+                            'duration': duration,
+                        },
+                    ))
+        return events
+
+    return _resolve
+
+
+def _resolve_untap_targets():
+    """Emit UNTAP for each chosen target permanent."""
+
+    def _resolve(targets, state):
+        events = []
+        for grp in (targets or []):
+            for t in grp or []:
+                if t is None or t.is_player:
+                    continue
+                events.append(Event(
+                    type=EventType.UNTAP,
+                    payload={'object_id': t.id},
+                ))
+        return events
+
+    return _resolve
+
+
+# -----------------------------------------------------------------------------
+# Phase 2B vanilla-spell resolves: simple composable effects so the
+# auto-pattern matcher in stack.py doesn't need to handle these texts.
+# -----------------------------------------------------------------------------
+
+# Hop to It: "Create three 1/1 white Rabbit creature tokens."
+hop_to_it_resolve = resolve_create_token(
+    name="Rabbit Token",
+    power=1, toughness=1,
+    types=[CardType.CREATURE],
+    subtypes=["Rabbit"],
+    colors=[Color.WHITE],
+    count=3,
+)
+
+# Pearl of Wisdom: "Draw two cards."
+pearl_of_wisdom_resolve = resolve_draw(2)
+
+# Scales of Shale: "Target creature gets +2/+0 and gains lifelink and
+# indestructible until end of turn."
+scales_of_shale_resolve = resolve_chain(
+    resolve_pump(2, 0),
+    _resolve_grant_keywords('lifelink', 'indestructible'),
+)
+
+# High Stride: "Target creature gets +1/+3 and gains reach until end of
+# turn. Untap it."
+high_stride_resolve = resolve_chain(
+    resolve_pump(1, 3),
+    _resolve_grant_keywords('reach'),
+    _resolve_untap_targets(),
+)
+
+# Overprotect: "Target creature you control gets +3/+3 and gains
+# trample, hexproof, and indestructible until end of turn."
+overprotect_resolve = resolve_chain(
+    resolve_pump(3, 3),
+    _resolve_grant_keywords('trample', 'hexproof', 'indestructible'),
+)
+
+
 # =============================================================================
 # REMOVAL SPELL RESOLVE FUNCTIONS
 # =============================================================================
@@ -6429,6 +6521,7 @@ HOP_TO_IT = make_sorcery(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Create three 1/1 white Rabbit creature tokens.",
+    resolve=hop_to_it_resolve,
 )
 
 INTREPID_RABBIT = make_creature(
@@ -6867,6 +6960,7 @@ PEARL_OF_WISDOM = make_sorcery(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="This spell costs {1} less to cast if you control an Otter.\nDraw two cards.",
+    resolve=pearl_of_wisdom_resolve,
 )
 
 PLUMECREED_ESCORT = make_creature(
@@ -7270,6 +7364,7 @@ SCALES_OF_SHALE = make_instant(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Affinity for Lizards (This spell costs {1} less to cast for each Lizard you control.)\nTarget creature gets +2/+0 and gains lifelink and indestructible until end of turn.",
+    resolve=scales_of_shale_resolve,
 )
 
 SCAVENGERS_TALENT = make_enchantment(
@@ -7886,6 +7981,7 @@ HIGH_STRIDE = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Target creature gets +1/+3 and gains reach until end of turn. Untap it.",
+    resolve=high_stride_resolve,
 )
 
 HIVESPINE_WOLVERINE = make_creature(
@@ -7969,6 +8065,7 @@ OVERPROTECT = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Target creature you control gets +3/+3 and gains trample, hexproof, and indestructible until end of turn.",
+    resolve=overprotect_resolve,
 )
 
 PAWPATCH_FORMATION = make_instant(

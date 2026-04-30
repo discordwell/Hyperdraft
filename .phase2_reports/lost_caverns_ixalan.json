@@ -1,0 +1,105 @@
+{
+  "set": "lost_caverns_ixalan.py",
+  "results": [
+    {
+      "var": "ABUELOS_AWAKENING",
+      "disposition": "left",
+      "engine_gap": "graveyard target choice + dynamic +1/+1 counters scaling with X + type-becoming (1/1 Spirit creature with flying in addition to existing types)",
+      "notes": "Bespoke reanimation with X counters and a type-changing layer effect. Composable resolves do not cover graveyard targeting or type-becoming."
+    },
+    {
+      "var": "HELPING_HAND",
+      "disposition": "left",
+      "engine_gap": "graveyard targeting (return creature card with mana value <= 3 to battlefield tapped)",
+      "notes": "Reanimation requires player-driven graveyard target choice and ETB-tapped flag. Bespoke pattern, not in spell_resolve helpers."
+    },
+    {
+      "var": "HURL_INTO_HISTORY",
+      "disposition": "left",
+      "engine_gap": "discover (LCI mechanic — counter target spell + discover X based on countered spell mana value)",
+      "notes": "Per task instructions, discover is an LCI engine subsystem to leave."
+    },
+    {
+      "var": "RELICS_ROAR",
+      "disposition": "left",
+      "engine_gap": "type-becoming with base P/T override (target becomes Dinosaur artifact creature 4/3 in addition to other types until end of turn)",
+      "notes": "Layer 4/6 type-changing effect; not modeled by composable resolves."
+    },
+    {
+      "var": "UNLUCKY_DROP",
+      "disposition": "left",
+      "engine_gap": "owner-choice ordering (target's owner picks top or bottom of library)",
+      "notes": "Player choice mechanic for library top/bottom; needs interactive prompt + ordered ZONE_CHANGE."
+    },
+    {
+      "var": "ANOTHER_CHANCE",
+      "disposition": "left",
+      "engine_gap": "may-mill + graveyard targeting (return up to two creature cards from graveyard to hand)",
+      "notes": "Mill auto-pattern works for the first part, but the up-to-two graveyard-to-hand return requires bespoke selection logic."
+    },
+    {
+      "var": "TERROR_TIDE",
+      "disposition": "left",
+      "engine_gap": "fathomless descent (LCI mechanic) + dynamic -X/-X to all creatures based on graveyard count",
+      "notes": "Per task instructions, descend is an LCI engine subsystem to leave."
+    },
+    {
+      "var": "CALAMITOUS_CAVEIN",
+      "disposition": "left",
+      "engine_gap": "dynamic damage to each creature/planeswalker (X = Caves controlled + Cave cards in graveyard)",
+      "notes": "Sweep with computed-X damage; needs bespoke iteration over battlefield + graveyard counting."
+    },
+    {
+      "var": "DARING_DISCOVERY",
+      "disposition": "left",
+      "engine_gap": "discover 4 (LCI mechanic) + 'can't block this turn' restriction on up-to-three creatures",
+      "notes": "Per task instructions, discover is an LCI engine subsystem to leave."
+    },
+    {
+      "var": "HIT_THE_MOTHER_LODE",
+      "disposition": "left",
+      "engine_gap": "discover 10 (LCI mechanic) + Treasure tokens scaling with the discovered card's mana value differential",
+      "notes": "Per task instructions, discover is an LCI engine subsystem to leave."
+    },
+    {
+      "var": "ZOYOWAS_JUSTICE",
+      "disposition": "left",
+      "engine_gap": "shuffle target into library + discover X for that target's controller (LCI mechanic)",
+      "notes": "Per task instructions, discover is an LCI engine subsystem to leave."
+    },
+    {
+      "var": "DISTURBED_SLUMBER",
+      "disposition": "left",
+      "engine_gap": "land becomes 4/4 Dinosaur creature with reach + haste + 'must be blocked' (type-becoming on a land)",
+      "notes": "Type-changing layer effect on a land permanent; not modeled by composable resolves."
+    },
+    {
+      "var": "GLIMPSE_THE_CORE",
+      "disposition": "left",
+      "engine_gap": "modal: search library for basic Forest OR return Cave card from graveyard (graveyard targeting)",
+      "notes": "Modal with two bespoke modes (library tutor + graveyard reanim); cannot be expressed via composables alone."
+    },
+    {
+      "var": "IN_THE_PRESENCE_OF_AGES",
+      "disposition": "left",
+      "engine_gap": "reveal top N + may-pick-creature-and-may-pick-land + remainder to graveyard",
+      "notes": "Player-driven choice from a revealed set; needs interactive prompt."
+    },
+    {
+      "var": "WALK_WITH_THE_ANCESTORS",
+      "disposition": "left",
+      "engine_gap": "graveyard target choice (return permanent card to hand) + discover 4 (LCI mechanic)",
+      "notes": "Combines graveyard targeting and LCI discover; both are listed gaps."
+    },
+    {
+      "var": "SQUIRMING_EMERGENCE",
+      "disposition": "left",
+      "engine_gap": "fathomless descent (LCI mechanic) + return target nonland permanent card from graveyard with MV <= graveyard count",
+      "notes": "Per task instructions, descend is an LCI engine subsystem to leave."
+    }
+  ],
+  "summary": {
+    "resolved": 0,
+    "left": 16
+  }
+}

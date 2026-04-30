@@ -1,0 +1,39 @@
+{
+  "set": "spider_man.py",
+  "results": [
+    {
+      "var": "HIDE_ON_THE_CEILING",
+      "disposition": "left",
+      "engine_gap": "X-target spell (exile X target permanents) + delayed-trigger return at next end step",
+      "notes": "X-target counts and delayed end-step returns are both general engine gaps for resolve callbacks."
+    },
+    {
+      "var": "SECRET_IDENTITY",
+      "disposition": "left",
+      "engine_gap": "modal type-becoming (Citizen 1/1 hexproof OR Hero 3/4 flying+vigilance) until end of turn",
+      "notes": "Layer-changing 'becomes a [subtype] with base P/T' effects aren't modeled by composable resolves; both modes need bespoke type/PT/keyword bundles."
+    },
+    {
+      "var": "BEHOLD_THE_SINISTER_SIX",
+      "disposition": "left",
+      "engine_gap": "graveyard targeting up to six cards with a 'different names' constraint",
+      "notes": "Multi-target graveyard selection with a uniqueness predicate; needs interactive prompt and constraint validation."
+    },
+    {
+      "var": "VILLAINOUS_WRATH",
+      "disposition": "resolved",
+      "engine_gap": "",
+      "notes": "Wired bespoke resolve: target opponent loses life equal to their creature count (dynamic LIFE_CHANGE), then OBJECT_DESTROYED for every creature on the battlefield. Auto-pattern can't read the controller's creature count from text."
+    },
+    {
+      "var": "HEROES_HANGOUT",
+      "disposition": "left",
+      "engine_gap": "modal: Date Night impulse-2 (exile top 2 + may-play one) OR Patrol Night (one or two creatures get +1/+0 + first strike)",
+      "notes": "Date Night needs impulse exile + delayed-may-play; Patrol Night needs variable-number targeting with keyword grant. Modal fan-out requires per-mode bespoke resolves."
+    }
+  ],
+  "summary": {
+    "resolved": 1,
+    "left": 4
+  }
+}

@@ -2933,6 +2933,64 @@ def vibrant_cityscape_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 # =============================================================================
+# PHASE 2B VANILLA-SPELL RESOLVES
+# =============================================================================
+
+def villainous_wrath_resolve(targets: list, state: GameState) -> list[Event]:
+    """Villainous Wrath: Target opponent loses life equal to creatures
+    they control. Then destroy all creatures.
+    """
+    # Find the resolving spell so we can attribute events.
+    spell_id = None
+    stack_zone = state.zones.get('stack')
+    if stack_zone:
+        for obj_id in reversed(list(stack_zone.objects or [])):
+            so = state.objects.get(obj_id)
+            if so and so.name == "Villainous Wrath":
+                spell_id = so.id
+                break
+
+    events: list[Event] = []
+
+    # First: target opponent loses life equal to creatures they control.
+    target_player = None
+    if targets:
+        for grp in targets:
+            for t in grp or []:
+                if t is not None and getattr(t, 'is_player', False):
+                    target_player = t.id
+                    break
+            if target_player is not None:
+                break
+
+    if target_player is not None:
+        creature_count = sum(
+            1 for o in state.objects.values()
+            if (o.controller == target_player and
+                o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types)
+        )
+        if creature_count > 0:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': target_player, 'amount': -creature_count},
+                source=spell_id,
+            ))
+
+    # Then: destroy all creatures.
+    for obj_id, o in state.objects.items():
+        if (o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types):
+            events.append(Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': obj_id},
+                source=spell_id,
+            ))
+
+    return events
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -3626,6 +3684,7 @@ VILLAINOUS_WRATH = make_sorcery(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     text="Target opponent loses life equal to the number of creatures they control. Then destroy all creatures.",
+    resolve=villainous_wrath_resolve,
 )
 
 ANGRY_RABBLE = make_creature(
