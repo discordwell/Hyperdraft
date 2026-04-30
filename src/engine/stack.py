@@ -12,7 +12,7 @@ import inspect
 import os
 
 from .types import (
-    GameState, GameObject, ZoneType, CardType,
+    GameState, GameObject, ZoneType, CardType, Color,
     Event, EventType, new_id
 )
 from .targeting import Target, TargetRequirement, TargetingSystem
@@ -429,12 +429,514 @@ class SpellBuilder:
     def _create_resolve_from_text(self, text: str, source_id: str) -> Callable:
         """
         Create a resolve function by parsing card text.
-        Handles common patterns like damage spells and destruction.
+
+        Patterns are checked in priority order; the first matching pattern wins.
+        Newer/specific patterns (token creation, counters, scry/surveil/mill,
+        pump, discard, tap, investigate, basic-land tutor) are checked before
+        the legacy generic patterns (damage, destroy, exile, counterspell,
+        bounce, draw, gain/lose life). See ``src/engine/spell_resolve.py`` for
+        composable resolve helpers card scripts can use directly.
         """
         text_lower = text.lower()
 
-        # "deals X damage to any target" or "deals X damage to target creature"
         import re
+
+        # ---------------------------------------------------------------
+        # Helpers shared by the patterns below.
+        # ---------------------------------------------------------------
+        def _caster_id() -> Optional[str]:
+            """Return the controller of the resolving spell, if known."""
+            obj = self.state.objects.get(source_id) if self.state else None
+            if obj is None:
+                return None
+            return obj.controller
+
+        _NUMBER_WORDS = {
+            'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3,
+            'four': 4, 'five': 5, 'six': 6, 'seven': 7,
+            'eight': 8, 'nine': 9, 'ten': 10,
+        }
+
+        def _word_or_int(s: str) -> int:
+            s = s.strip().lower()
+            if s in _NUMBER_WORDS:
+                return _NUMBER_WORDS[s]
+            try:
+                return int(s)
+            except ValueError:
+                return 1
+
+        # Color word -> Color enum.
+        _COLOR_WORDS = {
+            'white': Color.WHITE, 'blue': Color.BLUE, 'black': Color.BLACK,
+            'red': Color.RED, 'green': Color.GREEN, 'colorless': Color.COLORLESS,
+        }
+        # Mana symbols -> Color enum.
+        _MANA_SYMBOL = {
+            'w': Color.WHITE, 'u': Color.BLUE, 'b': Color.BLACK,
+            'r': Color.RED, 'g': Color.GREEN,
+        }
+
+        # Common token subtypes that show up in modern set text. The tuple
+        # below is ordered roughly by how unambiguous each subtype is when it
+        # appears in card text — multi-word names go first so we don't match
+        # a substring of one in another.
+        _TOKEN_SUBTYPES = [
+            'Treasure', 'Food', 'Clue', 'Map', 'Blood', 'Powerstone',
+            'Soldier', 'Goblin', 'Spirit', 'Zombie', 'Saproling',
+            'Knight', 'Elf', 'Wolf', 'Wolves', 'Cat', 'Bird',
+            'Drake', 'Beast', 'Dragon', 'Insect', 'Snake', 'Rat',
+            'Skeleton', 'Servo', 'Thopter', 'Squirrel', 'Pirate',
+            'Vampire', 'Demon', 'Angel', 'Faerie', 'Frog',
+        ]
+        # Subtypes that produce non-creature artifact tokens.
+        _NONCREATURE_ARTIFACT_TOKENS = {'Treasure', 'Food', 'Clue', 'Map',
+                                        'Blood', 'Powerstone'}
+
+        def _build_token_event(
+            count: int,
+            power: Optional[int],
+            toughness: Optional[int],
+            colors: list,
+            subtypes: list,
+            types: list,
+        ) -> list[Event]:
+            """Emit `count` OBJECT_CREATED events for tokens."""
+            caster = _caster_id()
+            evs: list[Event] = []
+            for _ in range(max(count, 0)):
+                payload: dict = {
+                    'name': (subtypes[0] if subtypes else 'Token') + ' Token',
+                    'controller': caster,
+                    'types': list(types),
+                    'subtypes': list(subtypes),
+                    'colors': list(colors),
+                    'is_token': True,
+                }
+                if power is not None:
+                    payload['power'] = power
+                if toughness is not None:
+                    payload['toughness'] = toughness
+                evs.append(Event(
+                    type=EventType.OBJECT_CREATED,
+                    payload=payload,
+                    source=source_id,
+                    controller=caster,
+                ))
+            return evs
+
+        # ---------------------------------------------------------------
+        # 1. Token creation. "Create a 1/1 white Soldier creature token"
+        #    "Create N [color]* [subtype] creature tokens"
+        #    Also handles non-creature tokens with known names: Treasure,
+        #    Food, Clue, Map, Blood, Powerstone (those are colorless artifacts
+        #    that don't have P/T).
+        # ---------------------------------------------------------------
+        # Creature token: "create [count] X/Y [colors] [subtype] creature token(s)"
+        creature_token_re = re.compile(
+            r'create\s+(?P<count>a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)'
+            r'(?:\s+(?P<plusone>\+1/\+1\s+counter))?'  # avoid colliding with counters pattern
+            r'\s+(?P<power>\d+)/(?P<toughness>\d+)'
+            r'(?P<rest>[^.]*)\bcreature token',
+            re.IGNORECASE,
+        )
+        m = creature_token_re.search(text_lower)
+        if m and not m.group('plusone'):
+            count = _word_or_int(m.group('count'))
+            power = int(m.group('power'))
+            toughness = int(m.group('toughness'))
+            rest = m.group('rest') or ''
+
+            colors: list = []
+            for word, color in _COLOR_WORDS.items():
+                if re.search(rf'\b{word}\b', rest):
+                    colors.append(color)
+            for sym, color in _MANA_SYMBOL.items():
+                if '{' + sym + '}' in rest or '{' + sym.upper() + '}' in rest:
+                    if color not in colors:
+                        colors.append(color)
+
+            subtypes: list[str] = []
+            for sub in _TOKEN_SUBTYPES:
+                if re.search(rf'\b{sub.lower()}\b', rest):
+                    # Normalize plural (Wolves -> Wolf etc.); we keep the
+                    # canonical form found in _TOKEN_SUBTYPES.
+                    subtypes.append('Wolf' if sub == 'Wolves' else sub)
+
+            def token_creature_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                return _build_token_event(
+                    count=count,
+                    power=power,
+                    toughness=toughness,
+                    colors=colors,
+                    subtypes=subtypes,
+                    types=[CardType.CREATURE],
+                )
+
+            return token_creature_resolve
+
+        # Non-creature artifact tokens (Treasure/Food/Clue/Map/Blood/Powerstone).
+        # "Create N [Treasure|Food|Clue|Map|Blood|Powerstone] token(s)"
+        nc_token_re = re.compile(
+            r'create\s+(?P<count>a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)'
+            r'\s+(?P<sub>treasure|food|clue|map|blood|powerstone)\s+tokens?',
+            re.IGNORECASE,
+        )
+        m = nc_token_re.search(text_lower)
+        if m:
+            count = _word_or_int(m.group('count'))
+            sub_raw = m.group('sub').strip().capitalize()
+
+            def token_artifact_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                return _build_token_event(
+                    count=count,
+                    power=None,
+                    toughness=None,
+                    colors=[Color.COLORLESS],
+                    subtypes=[sub_raw],
+                    types=[CardType.ARTIFACT],
+                )
+
+            return token_artifact_resolve
+
+        # ---------------------------------------------------------------
+        # 7. Investigate / Investigate N times.  (Earlier than counters so
+        #    "Investigate. Put a +1/+1 counter on..." doesn't get hijacked.)
+        # ---------------------------------------------------------------
+        investigate_re = re.compile(
+            r'\binvestigate(?:\s+(?P<count>a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+times?)?\b',
+            re.IGNORECASE,
+        )
+        m = investigate_re.search(text_lower)
+        if m:
+            count = _word_or_int(m.group('count')) if m.group('count') else 1
+
+            def investigate_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                return _build_token_event(
+                    count=count,
+                    power=None,
+                    toughness=None,
+                    colors=[Color.COLORLESS],
+                    subtypes=['Clue'],
+                    types=[CardType.ARTIFACT],
+                )
+
+            return investigate_resolve
+
+        # ---------------------------------------------------------------
+        # 2. +1/+1 counter on target creature. "Put a +1/+1 counter on
+        #    target X" / "Put N +1/+1 counters on target X".
+        # ---------------------------------------------------------------
+        counter_plusone_re = re.compile(
+            r'put\s+(?P<count>a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+'
+            r'\+1/\+1\s+counters?\s+on\s+target',
+            re.IGNORECASE,
+        )
+        m = counter_plusone_re.search(text_lower)
+        if m:
+            count = _word_or_int(m.group('count'))
+
+            def plus_one_counter_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                events: list[Event] = []
+                if targets and targets[0]:
+                    for target in targets[0]:
+                        if target.is_player:
+                            continue
+                        events.append(Event(
+                            type=EventType.COUNTER_ADDED,
+                            payload={
+                                'object_id': target.id,
+                                'counter_type': '+1/+1',
+                                'amount': count,
+                            },
+                            source=source_id,
+                        ))
+                return events
+
+            return plus_one_counter_resolve
+
+        # ---------------------------------------------------------------
+        # 3. Scry / Surveil / Mill / "target player mills N".
+        # ---------------------------------------------------------------
+        # Mill-target form: "target player mills N"
+        mill_target_re = re.compile(
+            r'target\s+(?:opponent|player)\s+mills?\s+'
+            r'(?P<count>a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)',
+            re.IGNORECASE,
+        )
+        m = mill_target_re.search(text_lower)
+        if m:
+            count = _word_or_int(m.group('count'))
+
+            def mill_target_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                events: list[Event] = []
+                if targets and targets[0]:
+                    for target in targets[0]:
+                        if target.is_player:
+                            events.append(Event(
+                                type=EventType.MILL,
+                                payload={'player': target.id, 'amount': count},
+                                source=source_id,
+                            ))
+                return events
+
+            return mill_target_resolve
+
+        # Plain mill (controller mills): "mill N", "mill N cards"
+        mill_re = re.compile(
+            r'\bmill\s+(?P<count>a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*(?:cards?)?',
+            re.IGNORECASE,
+        )
+        m = mill_re.search(text_lower)
+        if m and 'opponent mills' not in text_lower and 'player mills' not in text_lower:
+            count = _word_or_int(m.group('count'))
+
+            def mill_self_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                caster = _caster_id()
+                if not caster:
+                    return []
+                return [Event(
+                    type=EventType.MILL,
+                    payload={'player': caster, 'amount': count},
+                    source=source_id,
+                    controller=caster,
+                )]
+
+            return mill_self_resolve
+
+        # Surveil N (controller surveils — surveil targets are unusual).
+        surveil_re = re.compile(
+            r'\bsurveil\s+(?P<count>a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)',
+            re.IGNORECASE,
+        )
+        m = surveil_re.search(text_lower)
+        if m:
+            count = _word_or_int(m.group('count'))
+
+            def surveil_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                caster = _caster_id()
+                if not caster:
+                    return []
+                return [Event(
+                    type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': count},
+                    source=source_id,
+                    controller=caster,
+                )]
+
+            return surveil_resolve
+
+        # Scry N (controller scries).
+        scry_re = re.compile(
+            r'\bscry\s+(?P<count>a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)',
+            re.IGNORECASE,
+        )
+        m = scry_re.search(text_lower)
+        if m:
+            count = _word_or_int(m.group('count'))
+
+            def scry_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                caster = _caster_id()
+                if not caster:
+                    return []
+                return [Event(
+                    type=EventType.SCRY,
+                    payload={'player': caster, 'amount': count},
+                    source=source_id,
+                    controller=caster,
+                )]
+
+            return scry_resolve
+
+        # ---------------------------------------------------------------
+        # 4. Pump until end of turn. "Target creature gets +N/+M until end
+        #    of turn" — also matches negative modifiers ("-2/-0" etc.).
+        # ---------------------------------------------------------------
+        pump_re = re.compile(
+            r'target\s+(?:creature|permanent|player)?\s*gets?\s+'
+            r'(?P<p>[+-]\d+)/(?P<t>[+-]\d+)\s+until\s+end\s+of\s+turn',
+            re.IGNORECASE,
+        )
+        m = pump_re.search(text_lower)
+        if m:
+            p_mod = int(m.group('p'))
+            t_mod = int(m.group('t'))
+
+            def pump_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                events: list[Event] = []
+                if targets and targets[0]:
+                    for target in targets[0]:
+                        if target.is_player:
+                            continue
+                        events.append(Event(
+                            type=EventType.PT_MODIFICATION,
+                            payload={
+                                'object_id': target.id,
+                                'power_mod': p_mod,
+                                'toughness_mod': t_mod,
+                                'duration': 'end_of_turn',
+                            },
+                            source=source_id,
+                        ))
+                return events
+
+            return pump_resolve
+
+        # ---------------------------------------------------------------
+        # 5. Discard. "Target player discards N cards" /
+        #    "Each opponent discards a card".
+        # ---------------------------------------------------------------
+        # "each opponent discards [N] card(s)"
+        each_opp_discard_re = re.compile(
+            r'each\s+opponent\s+discards?\s+'
+            r'(?P<count>a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*cards?',
+            re.IGNORECASE,
+        )
+        m = each_opp_discard_re.search(text_lower)
+        if m:
+            count = _word_or_int(m.group('count'))
+
+            def each_opp_discard_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                caster = _caster_id()
+                if not caster:
+                    return []
+                events: list[Event] = []
+                for pid in state.players:
+                    if pid == caster:
+                        continue
+                    events.append(Event(
+                        type=EventType.DISCARD,
+                        payload={'player': pid, 'amount': count},
+                        source=source_id,
+                    ))
+                return events
+
+            return each_opp_discard_resolve
+
+        # "target player discards N card(s)" / "target opponent discards N card(s)"
+        target_discard_re = re.compile(
+            r'target\s+(?:player|opponent)\s+discards?\s+'
+            r'(?P<count>a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*cards?',
+            re.IGNORECASE,
+        )
+        m = target_discard_re.search(text_lower)
+        if m:
+            count = _word_or_int(m.group('count'))
+
+            def target_discard_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                events: list[Event] = []
+                if targets and targets[0]:
+                    for target in targets[0]:
+                        if target.is_player:
+                            events.append(Event(
+                                type=EventType.DISCARD,
+                                payload={'player': target.id, 'amount': count},
+                                source=source_id,
+                            ))
+                return events
+
+            return target_discard_resolve
+
+        # ---------------------------------------------------------------
+        # 6. Tap target. "Tap target [creature/permanent]"
+        # ---------------------------------------------------------------
+        if re.search(r'\btap\s+target\b', text_lower):
+            def tap_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                events: list[Event] = []
+                if targets and targets[0]:
+                    for target in targets[0]:
+                        if target.is_player:
+                            continue
+                        events.append(Event(
+                            type=EventType.TAP,
+                            payload={'object_id': target.id},
+                            source=source_id,
+                        ))
+                return events
+
+            return tap_resolve
+
+        # ---------------------------------------------------------------
+        # 8. Search your library for a basic land card, put it onto the
+        #    battlefield tapped, then shuffle.
+        # ---------------------------------------------------------------
+        if re.search(
+            r'search your library for a basic land card.*battlefield tapped.*shuffle',
+            text_lower,
+        ):
+            def basic_land_search_resolve(
+                targets: list[list[Target]], state: GameState
+            ) -> list[Event]:
+                caster = _caster_id()
+                if not caster:
+                    return []
+                # Try the player-choice library_search subsystem first.
+                try:
+                    from .library_search import create_library_search_choice
+
+                    def is_basic_land(obj: GameObject, _state: GameState) -> bool:
+                        if not obj.characteristics:
+                            return False
+                        if CardType.LAND not in obj.characteristics.types:
+                            return False
+                        return 'basic' in {
+                            s.lower() for s in obj.characteristics.supertypes
+                        }
+
+                    create_library_search_choice(
+                        state, caster, source_id,
+                        filter_fn=is_basic_land,
+                        destination='battlefield_tapped',
+                        shuffle_after=True,
+                        prompt='Search your library for a basic land card',
+                    )
+                    # Side-effect path: choice opened, no synchronous events.
+                    return []
+                except Exception:
+                    # Fallback marker event so callers see the tutor was attempted.
+                    return [Event(
+                        type=EventType.LIBSEARCH_BEGIN,
+                        payload={
+                            'player': caster,
+                            'destination': 'battlefield_tapped',
+                            'filter': 'basic_land',
+                            'shuffle_after': True,
+                        },
+                        source=source_id,
+                        controller=caster,
+                    )]
+
+            return basic_land_search_resolve
+
+        # ---------------------------------------------------------------
+        # Existing legacy patterns follow.
+        # ---------------------------------------------------------------
+
+        # "deals X damage to any target" or "deals X damage to target creature"
         damage_match = re.search(r'deals (\d+) damage', text_lower)
         if damage_match:
             amount = int(damage_match.group(1))
