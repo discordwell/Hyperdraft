@@ -43,10 +43,626 @@ from src.cards.interceptor_helpers import (
     make_saga_setup,
 )
 
+from src.engine.spell_resolve import (
+    resolve_chain,
+    resolve_create_token,
+    resolve_damage,
+    resolve_destroy,
+    resolve_draw,
+    resolve_exile,
+    resolve_life_change,
+    resolve_modal,
+    resolve_pump,
+)
+from src.engine.targeting import Target
+
 
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+
+# ---------------------------------------------------------------------------
+# Phase 2B vanilla-spell wiring helpers (Final Fantasy)
+# ---------------------------------------------------------------------------
+
+def _ff_caster_id(state: GameState) -> Optional[str]:
+    """Best-effort: return the controller of the topmost spell on the stack.
+
+    Falls back to ``state.priority_player`` and ``state.active_player``.
+    """
+    stack_zone = state.zones.get('stack') if state and state.zones else None
+    if stack_zone is not None:
+        for obj_id in reversed(list(stack_zone.objects or [])):
+            obj = state.objects.get(obj_id)
+            if obj is not None and obj.controller:
+                return obj.controller
+    pp = getattr(state, 'priority_player', None)
+    if pp:
+        return pp
+    return getattr(state, 'active_player', None)
+
+
+def _ff_top_spell_card(state: GameState, name: str):
+    """Return the topmost stack object whose name matches ``name``."""
+    stack_zone = state.zones.get('stack') if state and state.zones else None
+    if stack_zone is None:
+        return None
+    for obj_id in reversed(list(stack_zone.objects or [])):
+        obj = state.objects.get(obj_id)
+        if obj is not None and obj.name == name:
+            return obj
+    return None
+
+
+def _ff_was_cast_from_graveyard(state: GameState, name: str) -> bool:
+    """Detect flashback / graveyard-cast for the named spell.
+
+    A few card scripts mark this on the stack object's state via the alt-cast
+    helpers (`flashback`, `cast_from_graveyard`). We check the most common
+    flag names for robustness.
+    """
+    obj = _ff_top_spell_card(state, name)
+    if obj is None or obj.state is None:
+        return False
+    for flag in ('flashback', 'cast_from_graveyard', 'cast_from_gy', 'is_flashback'):
+        if getattr(obj.state, flag, False):
+            return True
+    add = obj.state.additional if hasattr(obj.state, 'additional') else None
+    if isinstance(add, dict):
+        for k in ('flashback', 'cast_from_graveyard'):
+            if add.get(k):
+                return True
+    return False
+
+
+# --- Bespoke resolve callables for FIN spells ---
+
+def _aerith_rescue_mission_create_heroes(targets, state):
+    """Mode 0 of Aerith's Rescue Mission — three 1/1 colorless Hero tokens."""
+    return resolve_create_token(
+        name="Hero", power=1, toughness=1,
+        types=[CardType.CREATURE], subtypes=["Hero"], colors=[],
+        count=3,
+    )(targets, state)
+
+
+def _aerith_rescue_mission_tap_stun(targets, state):
+    """Mode 1 of Aerith's Rescue Mission — tap up to 3 + stun on one.
+
+    The "tap creatures + stun" subset of MTG mechanics is partially
+    represented in this engine. Best-effort: tap each target, then add a
+    stun counter to the first.
+    """
+    events: list[Event] = []
+    flat: list[Target] = []
+    for group in (targets or []):
+        for t in (group or []):
+            if t and not t.is_player:
+                flat.append(t)
+    for t in flat:
+        events.append(Event(
+            type=EventType.TAP,
+            payload={'object_id': t.id},
+        ))
+    if flat:
+        events.append(Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': flat[0].id, 'counter_type': 'stun', 'amount': 1},
+        ))
+    return events
+
+
+def _moogles_valor_resolve(targets, state):
+    """For each creature you control, create a 1/2 white Moogle (lifelink).
+
+    Then creatures you control gain indestructible until end of turn.
+    """
+    caster = _ff_caster_id(state)
+    if caster is None:
+        return []
+
+    # Count creatures controlled by caster.
+    creature_ids: list[str] = []
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD and
+            obj.controller == caster and
+            CardType.CREATURE in obj.characteristics.types):
+            creature_ids.append(obj.id)
+    n = len(creature_ids)
+    events: list[Event] = []
+    for _ in range(n):
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Moogle',
+                'controller': caster,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Moogle'],
+                'colors': [Color.WHITE],
+                'is_token': True,
+                'power': 1, 'toughness': 2,
+                'abilities': [{'keyword': 'lifelink'}],
+            },
+            controller=caster,
+        ))
+    # Grant indestructible until end of turn to existing creatures.
+    for cid in creature_ids:
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': cid, 'keyword': 'indestructible',
+                     'duration': 'end_of_turn'},
+        ))
+    return events
+
+
+def _slash_of_light_resolve(targets, state):
+    """Damage = (creatures you control) + (Equipment you control) to target."""
+    caster = _ff_caster_id(state)
+    if caster is None:
+        return []
+    creatures = 0
+    equipment = 0
+    for obj in state.objects.values():
+        if obj.zone != ZoneType.BATTLEFIELD or obj.controller != caster:
+            continue
+        if CardType.CREATURE in obj.characteristics.types:
+            creatures += 1
+        if 'Equipment' in obj.characteristics.subtypes:
+            equipment += 1
+    amount = creatures + equipment
+    events: list[Event] = []
+    for group in (targets or []):
+        for t in (group or []):
+            if t is None:
+                continue
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={
+                    'target': t.id,
+                    'amount': amount,
+                    'is_combat': False,
+                    'is_player': t.is_player,
+                },
+            ))
+    return events
+
+
+def _louisoix_sacrifice_resolve(targets, state):
+    """Counter target activated/triggered ability or noncreature spell."""
+    events: list[Event] = []
+    for group in (targets or []):
+        for t in (group or []):
+            if t is None:
+                continue
+            events.append(Event(
+                type=EventType.COUNTER_SPELL,
+                payload={'target_id': t.id, 'reason': 'countered'},
+            ))
+    return events
+
+
+def _magic_damper_resolve(targets, state):
+    """+1/+1 + hexproof until EOT, then untap target creature you control."""
+    events: list[Event] = []
+    for group in (targets or []):
+        for t in (group or []):
+            if t is None or t.is_player:
+                continue
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': t.id, 'power_mod': 1,
+                         'toughness_mod': 1, 'duration': 'end_of_turn'},
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': t.id, 'keyword': 'hexproof',
+                         'duration': 'end_of_turn'},
+            ))
+            events.append(Event(
+                type=EventType.UNTAP,
+                payload={'object_id': t.id},
+            ))
+    return events
+
+
+def _evil_reawakened_resolve(targets, state):
+    """Return target creature card from your graveyard with two +1/+1 counters."""
+    events: list[Event] = []
+    for group in (targets or []):
+        for t in (group or []):
+            if t is None or t.is_player:
+                continue
+            events.append(Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={'object_id': t.id},
+            ))
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': t.id, 'counter_type': '+1/+1', 'amount': 2},
+            ))
+    return events
+
+
+def _fight_on_resolve(targets, state):
+    """Return up to two target creature cards from graveyard to hand."""
+    events: list[Event] = []
+    for group in (targets or []):
+        for t in (group or []):
+            if t is None or t.is_player:
+                continue
+            events.append(Event(
+                type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+                payload={'object_id': t.id},
+            ))
+    return events
+
+
+def _the_final_days_resolve(targets, state):
+    """2 tapped 2/2 black Horror tokens; X if cast from graveyard."""
+    caster = _ff_caster_id(state)
+    if caster is None:
+        return []
+    count = 2
+    if _ff_was_cast_from_graveyard(state, "The Final Days"):
+        gy = state.zones.get(f'graveyard_{caster}')
+        if gy is not None:
+            count = 0
+            for cid in gy.objects:
+                obj = state.objects.get(cid)
+                if obj and CardType.CREATURE in obj.characteristics.types:
+                    count += 1
+    events: list[Event] = []
+    for _ in range(count):
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Horror',
+                'controller': caster,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Horror'],
+                'colors': [Color.BLACK],
+                'is_token': True,
+                'power': 2, 'toughness': 2,
+                'tapped': True,
+            },
+            controller=caster,
+        ))
+    return events
+
+
+def _resentful_revelation_resolve(targets, state):
+    """Look at top 3, put one into hand, rest into graveyard."""
+    caster = _ff_caster_id(state)
+    if caster is None:
+        return []
+    library = state.zones.get(f'library_{caster}')
+    if library is None or len(library.objects) == 0:
+        return []
+    top3 = list(library.objects[-3:])  # last items = top of library
+    if not top3:
+        return []
+    # Best-effort: keep the first (topmost) card; mill the rest.
+    events: list[Event] = []
+    keep = top3[-1]
+    rest = [cid for cid in top3 if cid != keep]
+    events.append(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': keep,
+            'from_zone': f'library_{caster}',
+            'from_zone_type': ZoneType.LIBRARY,
+            'to_zone': f'hand_{caster}',
+            'to_zone_type': ZoneType.HAND,
+        },
+    ))
+    for cid in rest:
+        obj = state.objects.get(cid)
+        owner = obj.owner if obj else caster
+        events.append(Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': cid,
+                'from_zone': f'library_{owner}',
+                'from_zone_type': ZoneType.LIBRARY,
+                'to_zone': f'graveyard_{owner}',
+                'to_zone_type': ZoneType.GRAVEYARD,
+            },
+        ))
+    return events
+
+
+def _haste_magic_resolve(targets, state):
+    """+3/+1 and haste UEOT to target. Exile top of library; may play."""
+    caster = _ff_caster_id(state)
+    events: list[Event] = []
+    for group in (targets or []):
+        for t in (group or []):
+            if t is None or t.is_player:
+                continue
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': t.id, 'power_mod': 3,
+                         'toughness_mod': 1, 'duration': 'end_of_turn'},
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': t.id, 'keyword': 'haste',
+                         'duration': 'end_of_turn'},
+            ))
+    if caster is not None:
+        events.append(Event(
+            type=EventType.IMPULSE_DRAW,
+            payload={'player': caster, 'amount': 1,
+                     'duration': 'end_of_next_end_step'},
+        ))
+    return events
+
+
+def _nibelheim_aflame_resolve(targets, state):
+    """Target creature you control deals damage = its power to each other creature.
+
+    If cast from graveyard, also discard your hand and draw four cards.
+    """
+    caster = _ff_caster_id(state)
+    events: list[Event] = []
+    source_id = None
+    source_pow = 0
+    for group in (targets or []):
+        for t in (group or []):
+            if t is None or t.is_player:
+                continue
+            obj = state.objects.get(t.id)
+            if obj is None:
+                continue
+            source_id = obj.id
+            try:
+                source_pow = int(get_power(obj, state))
+            except Exception:
+                source_pow = obj.characteristics.power or 0
+            break
+        if source_id:
+            break
+
+    if source_id is not None and source_pow > 0:
+        for victim in state.objects.values():
+            if victim.id == source_id:
+                continue
+            if victim.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in victim.characteristics.types:
+                continue
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={
+                    'target': victim.id,
+                    'amount': source_pow,
+                    'is_combat': False,
+                    'is_player': False,
+                    'source_id': source_id,
+                },
+            ))
+
+    if caster and _ff_was_cast_from_graveyard(state, "Nibelheim Aflame"):
+        hand = state.zones.get(f'hand_{caster}')
+        if hand is not None:
+            for cid in list(hand.objects):
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': caster, 'object_id': cid},
+                ))
+        events.append(Event(
+            type=EventType.DRAW,
+            payload={'player': caster, 'amount': 4},
+        ))
+    return events
+
+
+def _selfdestruct_resolve(targets, state):
+    """Target creature you control deals X damage to other target and itself,
+    where X is its power."""
+    flat: list[Target] = []
+    for group in (targets or []):
+        for t in (group or []):
+            if t is not None:
+                flat.append(t)
+    if len(flat) < 2:
+        return []
+    source_t = flat[0]
+    other_t = flat[1]
+    src_obj = state.objects.get(source_t.id) if not source_t.is_player else None
+    if src_obj is None:
+        return []
+    try:
+        x = int(get_power(src_obj, state))
+    except Exception:
+        x = src_obj.characteristics.power or 0
+    if x <= 0:
+        return []
+    return [
+        Event(
+            type=EventType.DAMAGE,
+            payload={
+                'target': other_t.id,
+                'amount': x,
+                'is_combat': False,
+                'is_player': other_t.is_player,
+                'source_id': src_obj.id,
+            },
+        ),
+        Event(
+            type=EventType.DAMAGE,
+            payload={
+                'target': src_obj.id,
+                'amount': x,
+                'is_combat': False,
+                'is_player': False,
+                'source_id': src_obj.id,
+            },
+        ),
+    ]
+
+
+def _blitzball_shot_resolve(targets, state):
+    """+3/+3 and trample until end of turn."""
+    events: list[Event] = []
+    for group in (targets or []):
+        for t in (group or []):
+            if t is None or t.is_player:
+                continue
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': t.id, 'power_mod': 3,
+                         'toughness_mod': 3, 'duration': 'end_of_turn'},
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': t.id, 'keyword': 'trample',
+                         'duration': 'end_of_turn'},
+            ))
+    return events
+
+
+def _chocobo_kick_resolve(targets, state):
+    """Target creature you control deals damage = its power to opponent creature.
+
+    If kicked, deals twice that much damage instead. Kicker is reflected on
+    the stack object's state.kicked flag.
+    """
+    flat: list[Target] = []
+    for group in (targets or []):
+        for t in (group or []):
+            if t is not None:
+                flat.append(t)
+    if len(flat) < 2:
+        return []
+    src_t, victim_t = flat[0], flat[1]
+    src = state.objects.get(src_t.id)
+    if src is None:
+        return []
+    try:
+        pwr = int(get_power(src, state))
+    except Exception:
+        pwr = src.characteristics.power or 0
+
+    # Detect kicker: stored on the stack spell object.
+    stack_obj = _ff_top_spell_card(state, "Chocobo Kick")
+    kicked = bool(getattr(stack_obj.state, 'kicked', False)) if stack_obj and stack_obj.state else False
+    amount = pwr * 2 if kicked else pwr
+    if amount <= 0:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={
+            'target': victim_t.id,
+            'amount': amount,
+            'is_combat': False,
+            'is_player': victim_t.is_player,
+            'source_id': src.id,
+        },
+    )]
+
+
+def _commune_with_beavers_resolve(targets, state):
+    """Look at top 3, may put an artifact/creature/land card into hand."""
+    from src.engine.library_search import (
+        create_library_search_choice,
+    )
+    caster = _ff_caster_id(state)
+    if caster is None:
+        return []
+    src_obj = _ff_top_spell_card(state, "Commune with Beavers")
+    src_id = src_obj.id if src_obj is not None else "commune_with_beavers"
+    library = state.zones.get(f'library_{caster}')
+    if library is None or len(library.objects) == 0:
+        return []
+    # Best-effort: scope to top 3 cards via filter, then surface a choice.
+    top3 = set(list(library.objects)[-3:])
+
+    def filter_fn(obj, _state):
+        if obj.id not in top3:
+            return False
+        types = obj.characteristics.types
+        return (CardType.ARTIFACT in types or
+                CardType.CREATURE in types or
+                CardType.LAND in types)
+
+    create_library_search_choice(
+        state, caster, src_id,
+        filter_fn=filter_fn,
+        min_count=0, max_count=1,
+        destination='hand',
+        shuffle_after=False,
+        prompt='Reveal an artifact, creature, or land card to put into your hand',
+        optional=True,
+    )
+    return []
+
+
+def _reach_the_horizon_resolve(targets, state):
+    """Search library for up to 2 basic land or Town cards w/ different names.
+
+    Engine-side simplification: surface a single library search choice for
+    up to two basic-land/Town cards (different-names constraint not strictly
+    enforced — left=true for that nuance).
+    """
+    from src.engine.library_search import create_library_search_choice
+    caster = _ff_caster_id(state)
+    if caster is None:
+        return []
+    src_obj = _ff_top_spell_card(state, "Reach the Horizon")
+    src_id = src_obj.id if src_obj is not None else "reach_the_horizon"
+
+    def filter_fn(obj, _state):
+        if CardType.LAND not in obj.characteristics.types:
+            return False
+        if 'Basic' in obj.characteristics.supertypes:
+            return True
+        if 'Town' in obj.characteristics.subtypes:
+            return True
+        return False
+
+    create_library_search_choice(
+        state, caster, src_id,
+        filter_fn=filter_fn,
+        min_count=0, max_count=2,
+        destination='battlefield_tapped',
+        shuffle_after=True,
+        prompt='Search for up to two basic land or Town cards (different names)',
+        optional=True,
+    )
+    return []
+
+
+def _from_father_to_son_resolve(targets, state):
+    """Search library for a Vehicle card.
+
+    If cast from graveyard, put it onto the battlefield; otherwise, into hand.
+    """
+    from src.engine.library_search import create_library_search_choice
+    caster = _ff_caster_id(state)
+    if caster is None:
+        return []
+    src_obj = _ff_top_spell_card(state, "From Father to Son")
+    src_id = src_obj.id if src_obj is not None else "from_father_to_son"
+    cast_from_gy = _ff_was_cast_from_graveyard(state, "From Father to Son")
+
+    def filter_fn(obj, _state):
+        return 'Vehicle' in obj.characteristics.subtypes
+
+    destination = 'battlefield' if cast_from_gy else 'hand'
+    create_library_search_choice(
+        state, caster, src_id,
+        filter_fn=filter_fn,
+        min_count=0, max_count=1,
+        destination=destination,
+        reveal=True,
+        shuffle_after=True,
+        prompt='Search for a Vehicle card',
+        optional=True,
+    )
+    return []
+
 
 # =============================================================================
 # INTERCEPTOR SETUP FUNCTIONS
@@ -4197,6 +4813,10 @@ AERITH_RESCUE_MISSION = make_sorcery(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     text="Choose one —\n• Take the Elevator — Create three 1/1 colorless Hero creature tokens.\n• Take 59 Flights of Stairs — Tap up to three target creatures. Put a stun counter on one of them. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
+    resolve=resolve_modal([
+        _aerith_rescue_mission_create_heroes,
+        _aerith_rescue_mission_tap_stun,
+    ]),
 )
 
 AMBROSIA_WHITEHEART = make_creature(
@@ -4332,6 +4952,7 @@ FROM_FATHER_TO_SON = make_sorcery(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Search your library for a Vehicle card, reveal it, and put it into your hand. If this spell was cast from a graveyard, put that card onto the battlefield instead. Then shuffle.\nFlashback {4}{W}{W}{W} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+    resolve=_from_father_to_son_resolve,
 )
 
 GRAHA_TIA = make_creature(
@@ -4397,6 +5018,7 @@ MOOGLES_VALOR = make_instant(
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     text="For each creature you control, create a 1/2 white Moogle creature token with lifelink. Then creatures you control gain indestructible until end of turn.",
+    resolve=_moogles_valor_resolve,
 )
 
 PALADINS_ARMS = make_artifact(
@@ -4433,6 +5055,7 @@ SLASH_OF_LIGHT = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Slash of Light deals damage equal to the number of creatures you control plus the number of Equipment you control to target creature.",
+    resolve=_slash_of_light_resolve,
 )
 
 SNOW_VILLIERS = make_creature(
@@ -4487,11 +5110,27 @@ SUMMON_PRIMAL_GARUDA = make_creature(
     setup_interceptors=summon_primal_garuda_ff_setup,
 )
 
+def _ultima_resolve(targets, state):
+    """Destroy all artifacts and creatures. (End-the-turn effect not modeled.)"""
+    events: list[Event] = []
+    for obj in state.objects.values():
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        types = obj.characteristics.types
+        if CardType.CREATURE in types or CardType.ARTIFACT in types:
+            events.append(Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': obj.id},
+            ))
+    return events
+
+
 ULTIMA = make_sorcery(
     name="Ultima",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     text="Destroy all artifacts and creatures. End the turn. (Exile all spells and abilities from the stack, including this card. The player whose turn it is discards down to their maximum hand size. Damage wears off, and \"this turn\" and \"until end of turn\" effects end.)",
+    resolve=_ultima_resolve,
 )
 
 VENAT_HEART_OF_HYDAELYN = make_creature(
@@ -4672,6 +5311,7 @@ LOUISOIXS_SACRIFICE = make_instant(
     mana_cost="{U}",
     colors={Color.BLUE},
     text="As an additional cost to cast this spell, sacrifice a legendary creature or pay {2}.\nCounter target activated ability, triggered ability, or noncreature spell.",
+    resolve=_louisoix_sacrifice_resolve,
 )
 
 THE_LUNAR_WHALE = make_artifact(
@@ -4688,6 +5328,7 @@ MAGIC_DAMPER = make_instant(
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Target creature you control gets +1/+1 and gains hexproof until end of turn. Untap it.",
+    resolve=_magic_damper_resolve,
 )
 
 MATOYA_ARCHON_ELDER = make_creature(
@@ -4869,6 +5510,7 @@ TRAVEL_THE_OVERWORLD = make_sorcery(
     mana_cost="{5}{U}{U}",
     colors={Color.BLUE},
     text="Affinity for Towns (This spell costs {1} less to cast for each Town you control.)\nDraw four cards.",
+    resolve=resolve_draw(4),
 )
 
 ULTROS_OBNOXIOUS_OCTOPUS = make_creature(
@@ -5015,6 +5657,7 @@ EVIL_REAWAKENED = make_sorcery(
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     text="Return target creature card from your graveyard to the battlefield with two additional +1/+1 counters on it.",
+    resolve=_evil_reawakened_resolve,
 )
 
 FANG_FEARLESS_LCIE = make_creature(
@@ -5044,6 +5687,7 @@ FIGHT_ON = make_instant(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Return up to two target creature cards from your graveyard to your hand.",
+    resolve=_fight_on_resolve,
 )
 
 THE_FINAL_DAYS = make_sorcery(
@@ -5051,6 +5695,7 @@ THE_FINAL_DAYS = make_sorcery(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     text="Create two tapped 2/2 black Horror creature tokens. If this spell was cast from a graveyard, instead create X of those tokens, where X is the number of creature cards in your graveyard.\nFlashback {4}{B}{B} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+    resolve=_the_final_days_resolve,
 )
 
 GAIUS_VAN_BAELSAR = make_creature(
@@ -5171,6 +5816,7 @@ RESENTFUL_REVELATION = make_sorcery(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Look at the top three cards of your library. Put one of them into your hand and the rest into your graveyard.\nFlashback {6}{B} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+    resolve=_resentful_revelation_resolve,
 )
 
 SEPHIROTH_FABLED_SOLDIER = make_creature(
@@ -5410,6 +6056,7 @@ HASTE_MAGIC = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Target creature gets +3/+1 and gains haste until end of turn. Exile the top card of your library. You may play it until your next end step.",
+    resolve=_haste_magic_resolve,
 )
 
 HILL_GIGAS = make_creature(
@@ -5461,6 +6108,7 @@ NIBELHEIM_AFLAME = make_sorcery(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     text="Choose target creature you control. It deals damage equal to its power to each other creature. If this spell was cast from a graveyard, discard your hand and draw four cards.\nFlashback {5}{R}{R} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+    resolve=_nibelheim_aflame_resolve,
 )
 
 OPERA_LOVE_SONG = make_instant(
@@ -5562,6 +6210,7 @@ SELFDESTRUCT = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Target creature you control deals X damage to any other target and X damage to itself, where X is its power.",
+    resolve=_selfdestruct_resolve,
 )
 
 SIDEQUEST_PLAY_BLITZBALL = make_enchantment(
@@ -5730,6 +6379,7 @@ BLITZBALL_SHOT = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Target creature gets +3/+3 and gains trample until end of turn.",
+    resolve=_blitzball_shot_resolve,
 )
 
 CACTUAR = make_creature(
@@ -5747,6 +6397,7 @@ CHOCOBO_KICK = make_sorcery(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Kicker—Return a land you control to its owner's hand. (You may return a land you control to its owner's hand in addition to any other costs as you cast this spell.)\nTarget creature you control deals damage equal to its power to target creature an opponent controls. If this spell was kicked, the creature you control deals twice that much damage instead.",
+    resolve=_chocobo_kick_resolve,
 )
 
 CHOCOBO_RACETRACK = make_artifact(
@@ -5778,6 +6429,7 @@ COMMUNE_WITH_BEAVERS = make_sorcery(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Look at the top three cards of your library. You may reveal an artifact, creature, or land card from among them and put it into your hand. Put the rest on the bottom of your library in any order.",
+    resolve=_commune_with_beavers_resolve,
 )
 
 DIAMOND_WEAPON = make_artifact_creature(
@@ -5894,6 +6546,7 @@ REACH_THE_HORIZON = make_sorcery(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="Search your library for up to two basic land cards and/or Town cards with different names, put them onto the battlefield tapped, then shuffle.",
+    resolve=_reach_the_horizon_resolve,
 )
 
 A_REALM_REBORN = make_enchantment(
