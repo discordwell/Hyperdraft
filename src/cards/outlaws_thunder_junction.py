@@ -32,7 +32,8 @@ from src.cards.interceptor_helpers import (
     make_static_pt_boost, make_keyword_grant, make_spell_cast_trigger,
     make_damage_trigger, make_upkeep_trigger, make_end_step_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
-    creatures_you_control, create_target_choice, create_modal_choice
+    creatures_you_control, create_target_choice, create_modal_choice,
+    make_crime_committed_trigger, is_crime_committed,
 )
 
 
@@ -1675,21 +1676,36 @@ def blacksnag_buzzard_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def blood_hustler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you commit a crime, put a +1/+1 counter on this creature."""
-    # Simplified - triggers on targeting opponents
+    """Whenever you commit a crime, put a +1/+1 counter on this creature.
+    (Once per turn.)"""
     def crime_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.COUNTER_ADDED,
             payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
-            source=obj.id
+            source=obj.id,
         )]
-    return []  # Crime tracking not fully implemented
+    return [make_crime_committed_trigger(obj, crime_effect, once_per_turn=True)]
 
 
 def raven_of_fell_omens_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you commit a crime, each opponent loses 1 life and you gain 1 life."""
-    # Crime tracking not implemented - placeholder
-    return []
+    """Whenever you commit a crime, each opponent loses 1 life and you gain 1 life.
+    (Once per turn.)"""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for pid in state.players:
+            if pid != obj.controller:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': pid, 'amount': -1},
+                    source=obj.id,
+                ))
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        ))
+        return events
+    return [make_crime_committed_trigger(obj, crime_effect, once_per_turn=True)]
 
 
 def canyon_crab_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1773,9 +1789,22 @@ def nurturing_pixie_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def magda_the_hoardmaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you commit a crime, create a tapped Treasure token."""
-    # Crime tracking not implemented - placeholder
-    return []
+    """Whenever you commit a crime, create a tapped Treasure token.
+    (Once per turn.)"""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Treasure',
+                'types': {CardType.ARTIFACT},
+                'subtypes': {'Treasure'},
+                'is_token': True,
+                'tapped': True,
+            },
+            source=obj.id,
+        )]
+    return [make_crime_committed_trigger(obj, crime_effect, once_per_turn=True)]
 
 
 def rodeo_pyromancers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1958,8 +1987,11 @@ def mystical_tether_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def omenport_vigilante_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Has double strike if you've committed a crime this turn."""
-    # engine gap: crime tracking not implemented
-    return []
+    def affects_self_when_crime(target: GameObject, st: GameState) -> bool:
+        return (target.id == obj.id and
+                target.zone == ZoneType.BATTLEFIELD and
+                is_crime_committed(obj.controller, st))
+    return [make_keyword_grant(obj, ['double strike'], affects_self_when_crime)]
 
 
 def sheriff_of_safe_passage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2018,9 +2050,19 @@ def daring_thunderthief_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def deepmuck_desperado_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you commit a crime, each opponent mills three."""
-    # engine gap: crime tracking not implemented
-    return []
+    """Whenever you commit a crime, each opponent mills three.
+    (Once per turn.)"""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for pid in state.players:
+            if pid != obj.controller:
+                events.append(Event(
+                    type=EventType.MILL,
+                    payload={'player': pid, 'amount': 3},
+                    source=obj.id,
+                ))
+        return events
+    return [make_crime_committed_trigger(obj, crime_effect, once_per_turn=True)]
 
 
 def double_down_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2070,8 +2112,13 @@ def the_key_to_the_vault_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def marauding_sphinx_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever you commit a crime, surveil 2 (once/turn)."""
-    # engine gap: crime tracking not implemented
-    return []
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+        )]
+    return [make_crime_committed_trigger(obj, crime_effect, once_per_turn=True)]
 
 
 def shackle_slinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2092,8 +2139,12 @@ def slickshot_lockpicker_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def slickshot_vaultbuster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """+2/+0 while you've committed a crime this turn."""
-    # engine gap: crime tracking not implemented
-    return []
+    def affects_self_when_crime(target: GameObject, st: GameState) -> bool:
+        return (target.id == obj.id and
+                target.zone == ZoneType.BATTLEFIELD and
+                is_crime_committed(obj.controller, st))
+    return make_static_pt_boost(obj, power_mod=2, toughness_mod=0,
+                                affects_filter=affects_self_when_crime)
 
 
 def stoic_sphinx_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2123,9 +2174,15 @@ def visage_bandit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # -----------------------------------------------------------------------------
 
 def blood_hustler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Crime -> +1/+1 counter on this creature; activated drain."""
-    # engine gap: crime tracking not implemented
-    return []
+    """Crime -> +1/+1 counter on this creature; activated drain.
+    (Once per turn.) Activated drain ability not implemented."""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+        )]
+    return [make_crime_committed_trigger(obj, crime_effect, once_per_turn=True)]
 
 
 def boneyard_desecrator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2148,14 +2205,30 @@ def kaervek_the_punisher_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def overzealous_muscle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Crime during your turn -> indestructible until end of turn."""
-    # engine gap: crime tracking + temporary indestructible not engine-tracked
-    return []
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        if state.active_player != obj.controller:
+            return []
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': obj.id, 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+            source=obj.id,
+        )]
+    return [make_crime_committed_trigger(obj, crime_effect)]
 
 
 def rattleback_apothecary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Deathtouch (kw); crime -> menace or lifelink to your creature."""
-    # engine gap: crime tracking not implemented
-    return []
+    """Deathtouch (kw); crime -> menace or lifelink to your creature.
+    Simplification: grant menace+lifelink to self until end of turn on crime."""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': obj.id, 'keyword': 'menace', 'duration': 'end_of_turn'},
+                  source=obj.id),
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': obj.id, 'keyword': 'lifelink', 'duration': 'end_of_turn'},
+                  source=obj.id),
+        ]
+    return [make_crime_committed_trigger(obj, crime_effect)]
 
 
 def servant_of_the_stinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2220,9 +2293,23 @@ def unscrupulous_contractor_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 def vadmir_new_blood_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Crime -> +1/+1 counter; menace+lifelink at 4+ counters."""
-    # engine gap: crime tracking + threshold-keyword granting not engine-tracked
-    return []
+    """Crime -> +1/+1 counter (once/turn); menace+lifelink at 4+ counters."""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+        )]
+
+    def has_threshold(target: GameObject, st: GameState) -> bool:
+        return (target.id == obj.id and
+                target.zone == ZoneType.BATTLEFIELD and
+                int(target.state.counters.get('+1/+1', 0)) >= 4)
+
+    return [
+        make_crime_committed_trigger(obj, crime_effect, once_per_turn=True),
+        make_keyword_grant(obj, ['menace', 'lifelink'], has_threshold),
+    ]
 
 
 # -----------------------------------------------------------------------------
@@ -2504,9 +2591,16 @@ def freestrider_commando_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def freestrider_lookout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Reach; whenever you commit a crime, may put a land from top 5."""
-    # engine gap: crime tracking + library top-N reveal not engine-tracked
-    return []
+    """Reach; whenever you commit a crime, may put a land from top 5.
+    Simplification: surveil 1 (once/turn) since "reveal top N, may put a land
+    onto the battlefield tapped" is not engine-modeled."""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+    return [make_crime_committed_trigger(obj, crime_effect, once_per_turn=True)]
 
 
 def giant_beaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2527,8 +2621,13 @@ def giant_beaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def hardbristle_bandit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Mana ability; crime -> untap (once/turn)."""
-    # engine gap: crime tracking not implemented
-    return []
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.UNTAP,
+            payload={'object_id': obj.id},
+            source=obj.id,
+        )]
+    return [make_crime_committed_trigger(obj, crime_effect, once_per_turn=True)]
 
 
 def intrepid_stablemaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2635,9 +2734,23 @@ def assimilation_aegis_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def at_knifepoint_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Outlaws have first strike on your turn; crime -> Mercenary token (once/turn)."""
-    # engine gap: crime tracking + turn-conditional team keyword not engine-tracked
-    return []
+    """Outlaws have first strike on your turn; crime -> Mercenary token (once/turn).
+    Static "outlaws have first strike on your turn" not modeled; crime token wired."""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Mercenary',
+                'types': {CardType.CREATURE},
+                'subtypes': {'Human', 'Mercenary'},
+                'colors': {Color.RED},
+                'power': 1, 'toughness': 1,
+                'is_token': True,
+            },
+            source=obj.id,
+        )]
+    return [make_crime_committed_trigger(obj, crime_effect, once_per_turn=True)]
 
 
 def breeches_the_blastmaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2805,9 +2918,15 @@ def lilah_undefeated_slickshot_setup(obj: GameObject, state: GameState) -> list[
 
 
 def marchesa_dealer_of_death_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Crime -> may pay {1} to scry-like draw."""
-    # engine gap: crime tracking not implemented
-    return []
+    """Crime -> may pay {1} to scry-like draw.
+    Simplification: skip the optional cost; just scry 1 on crime."""
+    def crime_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+    return [make_crime_committed_trigger(obj, crime_effect)]
 
 
 def obeka_splitter_of_seconds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

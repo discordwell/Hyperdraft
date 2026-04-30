@@ -3063,6 +3063,75 @@ def make_saga_setup(
                 source=saga_id,
                 controller=controller_id,
             ))
+# === CRIME HELPERS ===
+# =============================================================================
+# OTJ Crime mechanic: a player commits a crime when they target an opponent,
+# an opponent's permanent, or a card in an opponent's graveyard with a spell
+# or ability.
+#
+# Crime detection is wired in:
+#   - src/engine/game.py        (after target choices resolve)
+#   - src/engine/priority.py    (when a spell with pre-chosen targets is cast)
+#
+# These helpers thinly wrap the engine API so card scripts don't import
+# ``src.engine.crime`` directly.
+
+def is_crime_committed(player: str, state: GameState) -> bool:
+    """Return True if ``player`` has committed a crime this turn."""
+    from src.engine.crime import is_crime_committed as _impl
+    return _impl(player, state)
+
+
+def crime_count(player: str, state: GameState) -> int:
+    """Return how many crimes ``player`` has committed this turn."""
+    from src.engine.crime import crime_count as _impl
+    return _impl(player, state)
+
+
+def make_crime_committed_trigger(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+    once_per_turn: bool = False,
+    filter_fn: Optional[Callable[[Event, GameState, GameObject], bool]] = None,
+) -> Interceptor:
+    """Create a "whenever you commit a crime" trigger.
+
+    Fires on ``EventType.CRIME_COMMITTED`` for the source's controller.
+
+    Args:
+        source_obj: The object with the trigger.
+        effect_fn: Function(event, state) -> list[Event] when trigger fires.
+        once_per_turn: If True, only fires once per turn (uses
+            ``state.turn_data['crime_trigger_<source_id>_<turn>']``).
+        filter_fn: Optional extra filter ``(event, state, source) -> bool``.
+
+    Event: CRIME_COMMITTED
+    Payload: {'player': str, 'targets': list, 'source': str}
+    Priority: REACT
+    """
+    source_id = source_obj.id
+
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.CRIME_COMMITTED:
+            return False
+        # Look up the source object live (the closure capture may be stale
+        # if the controller changed via Gain Control etc.).
+        live = state.objects.get(source_id, source_obj)
+        if event.payload.get('player') != live.controller:
+            return False
+        if once_per_turn:
+            key = f'crime_trigger_{source_id}_{state.turn_number}'
+            if state.turn_data.get(key):
+                return False
+        if filter_fn is not None and not filter_fn(event, state, live):
+            return False
+        return True
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        if once_per_turn:
+            key = f'crime_trigger_{source_id}_{state.turn_number}'
+            state.turn_data[key] = True
+        new_events = effect_fn(event, state)
         return InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=new_events,
@@ -3176,3 +3245,12 @@ def make_warp_setup(
     setattr(_warp_setup, "_warp_inner", inner_setup)
     return _warp_setup
 
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield',
+    )

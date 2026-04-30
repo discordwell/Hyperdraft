@@ -275,6 +275,8 @@ class EventType(Enum):
     # MTG Saga mechanic
     SAGA_LORE_ADDED = auto()          # A lore counter is being added to a Saga
     SAGA_CHAPTER = auto()             # A Saga chapter ability is triggering
+    # OTJ Crime mechanic
+    CRIME_COMMITTED = auto()          # A player committed a crime (targeted opp/opp's permanent/opp's GY card)
 
 
 class EventStatus(Enum):
