@@ -3520,11 +3520,37 @@ def acolyte_of_aclazotz_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def bloodletter_of_aclazotz_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying. Replacement: opponent loses life on your turn, lose double instead."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: replacement effect doubling life loss to opponents on your turn
-        return []
-    return [make_etb_trigger(obj, effect_fn)]
+    """Flying. If an opponent would lose life on your turn, they lose double instead."""
+    from src.engine.replacements import make_replacement_interceptor
+
+    src_controller = obj.controller
+
+    def event_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.LIFE_CHANGE, EventType.LIFE_LOSS):
+            return False
+        amount = event.payload.get('amount', 0)
+        # Life loss is amount < 0 in LIFE_CHANGE, or any positive in LIFE_LOSS.
+        if event.type == EventType.LIFE_CHANGE and amount >= 0:
+            return False
+        if event.type == EventType.LIFE_LOSS and amount <= 0:
+            return False
+        target_player = (
+            event.payload.get('player')
+            or event.payload.get('controller')
+            or event.controller
+        )
+        if not target_player or target_player == src_controller:
+            return False
+        # Only on your turn.
+        return state.active_player == src_controller
+
+    def transform(event: Event, state: GameState):
+        amount = event.payload.get('amount', 0)
+        new_event = event.copy()
+        new_event.payload['amount'] = amount * 2
+        return new_event
+
+    return [make_replacement_interceptor(obj, event_filter, transform)]
 
 
 def bloodthorn_flail_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

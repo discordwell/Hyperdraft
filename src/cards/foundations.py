@@ -2566,8 +2566,54 @@ def adaptive_automaton_setup(obj: GameObject, state: GameState) -> list[Intercep
 # If you would gain life, you gain that much life plus 1 instead.
 # Angel of Vitality gets +2/+2 as long as you have 25 or more life.
 def angel_of_vitality_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Life gain replacement needs replacement effect system
-    return []
+    """If you would gain life, you gain that much life plus 1 instead.
+
+    Bonus +2/+2 at 25+ life is wired via a conditional QUERY_POWER/TOUGHNESS
+    interceptor.
+    """
+    from src.engine.replacements import make_life_gain_replacer
+    interceptors: list[Interceptor] = []
+
+    # Life gain replacement: +1 to any life gain by controller.
+    interceptors.append(make_life_gain_replacer(obj, multiplier=1, addend=1))
+
+    # +2/+2 while controller has 25+ life.
+    source_id = obj.id
+    affected_controller = obj.controller
+
+    def boost_filter(event: Event, state: GameState, query_type: EventType) -> bool:
+        if event.type != query_type:
+            return False
+        if event.payload.get('object_id') != source_id:
+            return False
+        src = state.objects.get(source_id)
+        if not src or src.zone != ZoneType.BATTLEFIELD:
+            return False
+        player = state.players.get(affected_controller)
+        return bool(player and player.life >= 25)
+
+    def make_boost(query_type: EventType) -> Interceptor:
+        def filt(event: Event, state: GameState) -> bool:
+            return boost_filter(event, state, query_type)
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            new_event = event.copy()
+            new_event.payload['value'] = new_event.payload.get('value', 0) + 2
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+        return Interceptor(
+            id=new_id(),
+            source=source_id,
+            controller=affected_controller,
+            priority=InterceptorPriority.QUERY,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+        )
+
+    interceptors.append(make_boost(EventType.QUERY_POWER))
+    interceptors.append(make_boost(EventType.QUERY_TOUGHNESS))
+    return interceptors
 
 
 # --- LINDEN, THE STEADFAST QUEEN ---
@@ -7097,8 +7143,18 @@ def sower_of_chaos_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 # --- TWINFLAME TYRANT ---
 # Flying / If a source you control would deal damage to an opponent or permanent an opponent controls, it deals double that damage instead.
 def twinflame_tyrant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: damage doubling replacement effect
-    return []
+    """Damage from your sources to opponents (or their permanents) is doubled."""
+    from src.engine.replacements import make_damage_doubler
+    src_controller = obj.controller
+
+    def opponent_target(target_obj, target_player_id, state: GameState) -> bool:
+        if target_player_id is not None:
+            return target_player_id != src_controller
+        if target_obj is not None:
+            return target_obj.controller != src_controller
+        return False
+
+    return [make_damage_doubler(obj, target_filter=opponent_target)]
 
 
 # --- LOOT, EXUBERANT EXPLORER ---
@@ -7289,8 +7345,14 @@ def blanchwood_armor_setup(obj: GameObject, state: GameState) -> list[Intercepto
 # --- DOUBLING SEASON ---
 # Doubles tokens and counters for you.
 def doubling_season_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: doubling replacement effect for tokens and counters
-    return []
+    """Counters placed on permanents you control are doubled.
+
+    The token-doubling clause is not yet wired (token creation goes through
+    OBJECT_CREATED with a 'token' flag and would need a separate replacement
+    that re-emits another OBJECT_CREATED event).
+    """
+    from src.engine.replacements import make_counter_doubler
+    return [make_counter_doubler(obj, multiplier=2)]
 
 
 # --- GHALTA, PRIMAL HUNGER ---
@@ -7338,8 +7400,13 @@ def muldrotha_the_gravetide_setup(obj: GameObject, state: GameState) -> list[Int
 # --- PROGENITUS ---
 # Protection from everything / If put into a graveyard, shuffle into library instead.
 def progenitus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: protection-from-everything + graveyard replacement
-    return []
+    """If put into a graveyard, shuffle into library instead.
+
+    Protection-from-everything is still a future engine gap; only the
+    graveyard replacement is wired here.
+    """
+    from src.engine.replacements import make_skip_to_graveyard_replacer
+    return [make_skip_to_graveyard_replacer(obj, redirect_to=ZoneType.LIBRARY, self_only=True)]
 
 
 # --- RUBY, DARING TRACKER ---
@@ -7854,8 +7921,9 @@ def ghitu_lavarunner_setup(obj: GameObject, state: GameState) -> list[Intercepto
 # --- GIANT CINDERMAW ---
 # Trample / Players can't gain life.
 def giant_cindermaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: prevent-all-life-gain replacement
-    return []
+    """Players can't gain life: zero out every LIFE_CHANGE for any player."""
+    from src.engine.replacements import make_life_gain_prevention
+    return [make_life_gain_prevention(obj, affects_controller=True, affects_opponents=True)]
 
 
 # --- FYNN, THE FANGBEARER ---
@@ -7896,8 +7964,14 @@ def ayli_eternal_pilgrim_setup(obj: GameObject, state: GameState) -> list[Interc
 # --- DRYAD MILITANT ---
 # Hybrid {G/W} / Instant or sorcery cards exiled instead of going to graveyard.
 def dryad_militant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: replacement effect graveyard->exile
-    return []
+    """Instant and sorcery cards put into graveyards are exiled instead."""
+    from src.engine.replacements import make_graveyard_to_exile_replacer
+    return [make_graveyard_to_exile_replacer(
+        obj,
+        card_type_filter={CardType.INSTANT, CardType.SORCERY},
+        affects_controller=True,
+        affects_opponents=True,
+    )]
 
 
 # --- ENIGMA DRAKE ---
@@ -7963,8 +8037,11 @@ def cultivators_caravan_setup(obj: GameObject, state: GameState) -> list[Interce
 # --- DARKSTEEL COLOSSUS ---
 # Trample, indestructible / Shuffles into library if would go to graveyard.
 def darksteel_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: graveyard replacement to library
-    return []
+    """If Darksteel Colossus would be put into a graveyard, shuffle it into its
+    owner's library instead.
+    """
+    from src.engine.replacements import make_skip_to_graveyard_replacer
+    return [make_skip_to_graveyard_replacer(obj, redirect_to=ZoneType.LIBRARY, self_only=True)]
 
 
 # --- FELDON'S CANE ---
@@ -8127,8 +8204,18 @@ def confiscate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- GRATUITOUS VIOLENCE ---
 # If a creature you control would deal damage, it deals double instead.
 def gratuitous_violence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: damage doubling replacement
-    return []
+    """If a creature you control would deal damage, it deals double instead."""
+    from src.engine.replacements import make_damage_doubler
+    src_controller = obj.controller
+
+    def your_creature_source(damage_source, state: GameState) -> bool:
+        if damage_source is None:
+            return False
+        if damage_source.controller != src_controller:
+            return False
+        return CardType.CREATURE in damage_source.characteristics.types
+
+    return [make_damage_doubler(obj, source_filter=your_creature_source)]
 
 
 # --- UNFLINCHING COURAGE ---
