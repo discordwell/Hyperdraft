@@ -1,0 +1,752 @@
+{
+  "set": "lost_caverns_ixalan.py",
+  "results": [
+    {
+      "fn": "petrify_setup",
+      "card_var": "PETRIFY",
+      "disposition": "wired_stub",
+      "engine_gap": "aura attached restriction (can't attack/block/activate)",
+      "notes": "Petrify"
+    },
+    {
+      "fn": "ruinlurker_bat_setup",
+      "card_var": "RUINLURKER_BAT",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Ruin-Lurker Bat"
+    },
+    {
+      "fn": "thousand_moons_crackshot_setup",
+      "card_var": "THOUSAND_MOONS_CRACKSHOT",
+      "disposition": "wired_stub",
+      "engine_gap": "optional cost prompt then tap target on payment",
+      "notes": "Thousand Moons Crackshot"
+    },
+    {
+      "fn": "thousand_moons_infantry_setup",
+      "card_var": "THOUSAND_MOONS_INFANTRY",
+      "disposition": "wired_stub",
+      "engine_gap": "extra untap during opponents' untap step",
+      "notes": "Thousand Moons Infantry"
+    },
+    {
+      "fn": "vanguard_of_the_rose_setup",
+      "card_var": "VANGUARD_OF_THE_ROSE",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with sacrifice cost and EOT keyword grant",
+      "notes": "Vanguard of the Rose"
+    },
+    {
+      "fn": "warden_of_the_inner_sky_setup",
+      "card_var": "WARDEN_OF_THE_INNER_SKY",
+      "disposition": "wired_stub",
+      "engine_gap": "counter-conditional keywords and multi-permanent-tap activated ability",
+      "notes": "Warden of the Inner Sky"
+    },
+    {
+      "fn": "akal_pakal_first_among_equals_setup",
+      "card_var": "AKAL_PAKAL_FIRST_AMONG_EQUALS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Akal Pakal, First Among Equals"
+    },
+    {
+      "fn": "deeproot_pilgrimage_setup",
+      "card_var": "DEEPROOT_PILGRIMAGE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Deeproot Pilgrimage"
+    },
+    {
+      "fn": "eaten_by_piranhas_setup",
+      "card_var": "EATEN_BY_PIRANHAS",
+      "disposition": "wired_stub",
+      "engine_gap": "type-change + base-stat override aura",
+      "notes": "Eaten by Piranhas"
+    },
+    {
+      "fn": "frilled_cavewurm_setup",
+      "card_var": "FRILLED_CAVEWURM",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Frilled Cave-Wurm"
+    },
+    {
+      "fn": "hermitic_nautilus_setup",
+      "card_var": "HERMITIC_NAUTILUS",
+      "disposition": "wired_stub",
+      "engine_gap": "activated EOT P/T modifier",
+      "notes": "Hermitic Nautilus"
+    },
+    {
+      "fn": "malcolm_alluring_scoundrel_setup",
+      "card_var": "MALCOLM_ALLURING_SCOUNDREL",
+      "disposition": "wired_stub",
+      "engine_gap": "cast-without-paying-cost branch when 4+ chorus counters",
+      "notes": "Malcolm, Alluring Scoundrel"
+    },
+    {
+      "fn": "marauding_brinefang_setup",
+      "card_var": "MARAUDING_BRINEFANG",
+      "disposition": "wired_stub",
+      "engine_gap": "ward and cycling are static cost-replacement abilities",
+      "notes": "Marauding Brinefang"
+    },
+    {
+      "fn": "merfolk_cavediver_setup",
+      "card_var": "MERFOLK_CAVEDIVER",
+      "disposition": "wired_stub",
+      "engine_gap": "EOT P/T boost + EOT unblockable",
+      "notes": "Merfolk Cave-Diver"
+    },
+    {
+      "fn": "oaken_siren_setup",
+      "card_var": "OAKEN_SIREN",
+      "disposition": "wired_stub",
+      "engine_gap": "restricted mana ability",
+      "notes": "Oaken Siren"
+    },
+    {
+      "fn": "orazca_puzzledoor_setup",
+      "card_var": "ORAZCA_PUZZLEDOOR",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with tap+sac cost",
+      "notes": "Orazca Puzzle-Door"
+    },
+    {
+      "fn": "pirate_hat_setup",
+      "card_var": "PIRATE_HAT",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment with granted triggered ability",
+      "notes": "Pirate Hat"
+    },
+    {
+      "fn": "shipwreck_sentry_setup",
+      "card_var": "SHIPWRECK_SENTRY",
+      "disposition": "wired_stub",
+      "engine_gap": "conditional defender removal based on per-turn state",
+      "notes": "Shipwreck Sentry"
+    },
+    {
+      "fn": "song_of_stupefaction_setup",
+      "card_var": "SONG_OF_STUPEFACTION",
+      "disposition": "wired_stub",
+      "engine_gap": "optional mill prompt and dynamic -X/-0 aura",
+      "notes": "Song of Stupefaction"
+    },
+    {
+      "fn": "subterranean_schooner_setup",
+      "card_var": "SUBTERRANEAN_SCHOONER",
+      "disposition": "wired_stub",
+      "engine_gap": "crew-tracking + targeted explore",
+      "notes": "Subterranean Schooner"
+    },
+    {
+      "fn": "zoetic_glyph_setup",
+      "card_var": "ZOETIC_GLYPH",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Zoetic Glyph"
+    },
+    {
+      "fn": "acolyte_of_aclazotz_setup",
+      "card_var": "ACOLYTE_OF_ACLAZOTZ",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with tap+sac cost",
+      "notes": "Acolyte of Aclazotz"
+    },
+    {
+      "fn": "bloodletter_of_aclazotz_setup",
+      "card_var": "BLOODLETTER_OF_ACLAZOTZ",
+      "disposition": "wired_stub",
+      "engine_gap": "replacement effect doubling life loss to opponents on your turn",
+      "notes": "Bloodletter of Aclazotz"
+    },
+    {
+      "fn": "bloodthorn_flail_setup",
+      "card_var": "BLOODTHORN_FLAIL",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment with alternative equip cost",
+      "notes": "Bloodthorn Flail"
+    },
+    {
+      "fn": "broodrage_mycoid_setup",
+      "card_var": "BROODRAGE_MYCOID",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Broodrage Mycoid"
+    },
+    {
+      "fn": "canonized_in_blood_setup",
+      "card_var": "CANONIZED_IN_BLOOD",
+      "disposition": "wired_stub",
+      "engine_gap": "targeted +1/+1 counter requires choice",
+      "notes": "Canonized in Blood"
+    },
+    {
+      "fn": "dead_weight_setup",
+      "card_var": "DEAD_WEIGHT",
+      "disposition": "wired_stub",
+      "engine_gap": "aura with continuous P/T adjustment to target permanent",
+      "notes": "Dead Weight"
+    },
+    {
+      "fn": "deep_goblin_skulltaker_setup",
+      "card_var": "DEEP_GOBLIN_SKULLTAKER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Deep Goblin Skulltaker"
+    },
+    {
+      "fn": "echo_of_dusk_setup",
+      "card_var": "ECHO_OF_DUSK",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Echo of Dusk"
+    },
+    {
+      "fn": "fungal_fortitude_setup",
+      "card_var": "FUNGAL_FORTITUDE",
+      "disposition": "wired_stub",
+      "engine_gap": "aura with delayed return-from-graveyard trigger",
+      "notes": "Fungal Fortitude"
+    },
+    {
+      "fn": "gargantuan_leech_setup",
+      "card_var": "GARGANTUAN_LEECH",
+      "disposition": "wired_stub",
+      "engine_gap": "cost reduction based on Caves (lifelink granted via card text)",
+      "notes": "Gargantuan Leech"
+    },
+    {
+      "fn": "preacher_of_the_schism_setup",
+      "card_var": "PREACHER_OF_THE_SCHISM",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Preacher of the Schism"
+    },
+    {
+      "fn": "screaming_phantom_setup",
+      "card_var": "SCREAMING_PHANTOM",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Screaming Phantom"
+    },
+    {
+      "fn": "soulcoil_viper_setup",
+      "card_var": "SOULCOIL_VIPER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated reanimation with finality counter rider",
+      "notes": "Soulcoil Viper"
+    },
+    {
+      "fn": "souls_of_the_lost_setup",
+      "card_var": "SOULS_OF_THE_LOST",
+      "disposition": "wired_stub",
+      "engine_gap": "additional cost on cast and dynamic P/T from graveyard count",
+      "notes": "Souls of the Lost"
+    },
+    {
+      "fn": "stalactite_stalker_setup",
+      "card_var": "STALACTITE_STALKER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Stalactite Stalker"
+    },
+    {
+      "fn": "stinging_cave_crawler_setup",
+      "card_var": "STINGING_CAVE_CRAWLER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Stinging Cave Crawler"
+    },
+    {
+      "fn": "vitos_inquisitor_setup",
+      "card_var": "VITOS_INQUISITOR",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with sac cost and EOT keyword grant",
+      "notes": "Vito's Inquisitor"
+    },
+    {
+      "fn": "brazen_blademaster_setup",
+      "card_var": "BRAZEN_BLADEMASTER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Brazen Blademaster"
+    },
+    {
+      "fn": "breeches_eager_pillager_setup",
+      "card_var": "BREECHES_EAGER_PILLAGER",
+      "disposition": "wired_stub",
+      "engine_gap": "modal once-per-turn-per-mode choice",
+      "notes": "Breeches, Eager Pillager"
+    },
+    {
+      "fn": "child_of_the_volcano_setup",
+      "card_var": "CHILD_OF_THE_VOLCANO",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Child of the Volcano"
+    },
+    {
+      "fn": "curator_of_suns_creation_setup",
+      "card_var": "CURATOR_OF_SUNS_CREATION",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Curator of Sun's Creation"
+    },
+    {
+      "fn": "diamond_pickaxe_setup",
+      "card_var": "DIAMOND_PICKAXE",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment with granted attack-trigger Treasure",
+      "notes": "Diamond Pick-Axe"
+    },
+    {
+      "fn": "enterprising_scallywag_setup",
+      "card_var": "ENTERPRISING_SCALLYWAG",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Enterprising Scallywag"
+    },
+    {
+      "fn": "ageological_appraiser_setup",
+      "card_var": "AGEOLOGICAL_APPRAISER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "A-Geological Appraiser"
+    },
+    {
+      "fn": "goblin_tomb_raider_setup",
+      "card_var": "GOBLIN_TOMB_RAIDER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Goblin Tomb Raider"
+    },
+    {
+      "fn": "goldfury_strider_setup",
+      "card_var": "GOLDFURY_STRIDER",
+      "disposition": "wired_stub",
+      "engine_gap": "multi-permanent-tap activated ability with target choice",
+      "notes": "Goldfury Strider"
+    },
+    {
+      "fn": "hotfoot_gnome_setup",
+      "card_var": "HOTFOOT_GNOME",
+      "disposition": "wired_stub",
+      "engine_gap": "targeted activated EOT keyword grant",
+      "notes": "Hotfoot Gnome"
+    },
+    {
+      "fn": "inti_seneschal_of_the_sun_setup",
+      "card_var": "INTI_SENESCHAL_OF_THE_SUN",
+      "disposition": "wired_stub",
+      "engine_gap": "optional discard prompt and targeted EOT keyword grant",
+      "notes": "Inti, Seneschal of the Sun"
+    },
+    {
+      "fn": "panicked_altisaur_setup",
+      "card_var": "PANICKED_ALTISAUR",
+      "disposition": "wired_stub",
+      "engine_gap": "activated tap ability with broadcast damage",
+      "notes": "Panicked Altisaur"
+    },
+    {
+      "fn": "poetic_ingenuity_setup",
+      "card_var": "POETIC_INGENUITY",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Poetic Ingenuity"
+    },
+    {
+      "fn": "rampaging_ceratops_setup",
+      "card_var": "RAMPAGING_CERATOPS",
+      "disposition": "wired_stub",
+      "engine_gap": "block restriction (must-be-blocked-by-3+)",
+      "notes": "Rampaging Ceratops"
+    },
+    {
+      "fn": "scytheclaw_raptor_setup",
+      "card_var": "SCYTHECLAW_RAPTOR",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Scytheclaw Raptor"
+    },
+    {
+      "fn": "seismic_monstrosaur_setup",
+      "card_var": "SEISMIC_MONSTROSAUR",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with sacrifice cost and cycling",
+      "notes": "Seismic Monstrosaur"
+    },
+    {
+      "fn": "sunfire_torch_setup",
+      "card_var": "SUNFIRE_TORCH",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment with optional sacrifice trigger",
+      "notes": "Sunfire Torch"
+    },
+    {
+      "fn": "sunshot_militia_setup",
+      "card_var": "SUNSHOT_MILITIA",
+      "disposition": "wired_stub",
+      "engine_gap": "multi-permanent-tap activated ability",
+      "notes": "Sunshot Militia"
+    },
+    {
+      "fn": "volatile_wanderglyph_setup",
+      "card_var": "VOLATILE_WANDERGLYPH",
+      "disposition": "wired_stub",
+      "engine_gap": "optional discard then draw on tap",
+      "notes": "Volatile Wanderglyph"
+    },
+    {
+      "fn": "basking_capybara_setup",
+      "card_var": "BASKING_CAPYBARA",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Basking Capybara"
+    },
+    {
+      "fn": "bedrock_tortoise_setup",
+      "card_var": "BEDROCK_TORTOISE",
+      "disposition": "wired_stub",
+      "engine_gap": "conditional hexproof and assigning-by-toughness damage",
+      "notes": "Bedrock Tortoise"
+    },
+    {
+      "fn": "explorers_cache_setup",
+      "card_var": "EXPLORERS_CACHE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Explorer's Cache"
+    },
+    {
+      "fn": "ghalta_stampede_tyrant_setup",
+      "card_var": "GHALTA_STAMPEDE_TYRANT",
+      "disposition": "wired_stub",
+      "engine_gap": "hand-to-battlefield optional batch put-into-play",
+      "notes": "Ghalta, Stampede Tyrant"
+    },
+    {
+      "fn": "glowcap_lantern_setup",
+      "card_var": "GLOWCAP_LANTERN",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment with multiple granted abilities",
+      "notes": "Glowcap Lantern"
+    },
+    {
+      "fn": "hulking_raptor_setup",
+      "card_var": "HULKING_RAPTOR",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Hulking Raptor"
+    },
+    {
+      "fn": "intrepid_paleontologist_setup",
+      "card_var": "INTREPID_PALEONTOLOGIST",
+      "disposition": "wired_stub",
+      "engine_gap": "multiple activated abilities and cast-from-exile permission",
+      "notes": "Intrepid Paleontologist"
+    },
+    {
+      "fn": "ixallis_lorekeeper_setup",
+      "card_var": "IXALLIS_LOREKEEPER",
+      "disposition": "wired_stub",
+      "engine_gap": "restricted mana ability",
+      "notes": "Ixalli's Lorekeeper"
+    },
+    {
+      "fn": "malamet_veteran_setup",
+      "card_var": "MALAMET_VETERAN",
+      "disposition": "wired_stub",
+      "engine_gap": "targeted +1/+1 counter on attack with descend gate",
+      "notes": "Malamet Veteran"
+    },
+    {
+      "fn": "poison_dart_frog_setup",
+      "card_var": "POISON_DART_FROG",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability for EOT keyword grant",
+      "notes": "Poison Dart Frog"
+    },
+    {
+      "fn": "pugnacious_hammerskull_setup",
+      "card_var": "PUGNACIOUS_HAMMERSKULL",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Pugnacious Hammerskull"
+    },
+    {
+      "fn": "seeker_of_sunlight_setup",
+      "card_var": "SEEKER_OF_SUNLIGHT",
+      "disposition": "wired_stub",
+      "engine_gap": "activated sorcery-speed explore",
+      "notes": "Seeker of Sunlight"
+    },
+    {
+      "fn": "the_skullspore_nexus_setup",
+      "card_var": "THE_SKULLSPORE_NEXUS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "The Skullspore Nexus"
+    },
+    {
+      "fn": "tendril_of_the_mycotyrant_setup",
+      "card_var": "TENDRIL_OF_THE_MYCOTYRANT",
+      "disposition": "wired_stub",
+      "engine_gap": "animate-land activated ability",
+      "notes": "Tendril of the Mycotyrant"
+    },
+    {
+      "fn": "thrashing_brontodon_setup",
+      "card_var": "THRASHING_BRONTODON",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with sac cost and target destroy",
+      "notes": "Thrashing Brontodon"
+    },
+    {
+      "fn": "abuelo_ancestral_echo_setup",
+      "card_var": "ABUELO_ANCESTRAL_ECHO",
+      "disposition": "wired_stub",
+      "engine_gap": "activated flicker with delayed return",
+      "notes": "Abuelo, Ancestral Echo"
+    },
+    {
+      "fn": "amalia_benavides_aguirre_setup",
+      "card_var": "AMALIA_BENAVIDES_AGUIRRE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Amalia Benavides Aguirre"
+    },
+    {
+      "fn": "the_ancient_one_setup",
+      "card_var": "THE_ANCIENT_ONE",
+      "disposition": "wired_stub",
+      "engine_gap": "conditional attack/block restriction and activated loot",
+      "notes": "The Ancient One"
+    },
+    {
+      "fn": "bartolome_del_presidio_setup",
+      "card_var": "BARTOLOM_DEL_PRESIDIO",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Bartolom\u00e9 del Presidio"
+    },
+    {
+      "fn": "the_belligerent_setup",
+      "card_var": "THE_BELLIGERENT",
+      "disposition": "wired_stub",
+      "engine_gap": "play-from-top permission until EOT",
+      "notes": "The Belligerent"
+    },
+    {
+      "fn": "caparocti_sunborn_setup",
+      "card_var": "CAPAROCTI_SUNBORN",
+      "disposition": "wired_stub",
+      "engine_gap": "optional multi-permanent tap then conditional discover",
+      "notes": "Caparocti Sunborn"
+    },
+    {
+      "fn": "gishath_suns_avatar_setup",
+      "card_var": "GISHATH_SUNS_AVATAR",
+      "disposition": "wired_stub",
+      "engine_gap": "reveal-X-and-batch-put-into-play",
+      "notes": "Gishath, Sun's Avatar"
+    },
+    {
+      "fn": "kutzil_malamet_exemplar_setup",
+      "card_var": "KUTZIL_MALAMET_EXEMPLAR",
+      "disposition": "wired_stub",
+      "engine_gap": "opponent-can't-cast restriction and pumped-damage card draw",
+      "notes": "Kutzil, Malamet Exemplar"
+    },
+    {
+      "fn": "the_mycotyrant_setup",
+      "card_var": "THE_MYCOTYRANT",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "The Mycotyrant"
+    },
+    {
+      "fn": "nicanzil_current_conductor_setup",
+      "card_var": "NICANZIL_CURRENT_CONDUCTOR",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Nicanzil, Current Conductor"
+    },
+    {
+      "fn": "quintorius_kand_setup",
+      "card_var": "QUINTORIUS_KAND",
+      "disposition": "wired_stub",
+      "engine_gap": "planeswalker loyalty abilities and cast-from-exile triggers",
+      "notes": "Quintorius Kand"
+    },
+    {
+      "fn": "saheeli_the_suns_brilliance_setup",
+      "card_var": "SAHEELI_THE_SUNS_BRILLIANCE",
+      "disposition": "wired_stub",
+      "engine_gap": "clone-as-artifact with delayed sacrifice",
+      "notes": "Saheeli, the Sun's Brilliance"
+    },
+    {
+      "fn": "sovereign_okinec_ahau_setup",
+      "card_var": "SOVEREIGN_OKINEC_AHAU",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Sovereign Okinec Ahau"
+    },
+    {
+      "fn": "uchbenbak_the_great_mistake_setup",
+      "card_var": "UCHBENBAK_THE_GREAT_MISTAKE",
+      "disposition": "wired_stub",
+      "engine_gap": "graveyard-only activated ability with finality counter return",
+      "notes": "Uchbenbak, the Great Mistake"
+    },
+    {
+      "fn": "buried_treasure_setup",
+      "card_var": "BURIED_TREASURE",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities with sacrifice / graveyard-exile costs",
+      "notes": "Buried Treasure"
+    },
+    {
+      "fn": "contested_game_ball_setup",
+      "card_var": "CONTESTED_GAME_BALL",
+      "disposition": "wired_stub",
+      "engine_gap": "control-change-on-damage replacement-style trigger",
+      "notes": "Contested Game Ball"
+    },
+    {
+      "fn": "hunters_blowgun_setup",
+      "card_var": "HUNTERS_BLOWGUN",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment with conditional keyword grants",
+      "notes": "Hunter's Blowgun"
+    },
+    {
+      "fn": "the_millennium_calendar_setup",
+      "card_var": "THE_MILLENNIUM_CALENDAR",
+      "disposition": "wired_stub",
+      "engine_gap": "untap-tracking, doubler activated, threshold mass life loss",
+      "notes": "The Millennium Calendar"
+    },
+    {
+      "fn": "sorcerous_spyglass_setup",
+      "card_var": "SORCEROUS_SPYGLASS",
+      "disposition": "wired_stub",
+      "engine_gap": "replacement-style as-enters choice with ability lockdown",
+      "notes": "Sorcerous Spyglass"
+    },
+    {
+      "fn": "swashbucklers_whip_setup",
+      "card_var": "SWASHBUCKLERS_WHIP",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment with multiple granted activated abilities",
+      "notes": "Swashbuckler's Whip"
+    },
+    {
+      "fn": "tarrians_soulcleaver_setup",
+      "card_var": "TARRIANS_SOULCLEAVER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Tarrian's Soulcleaver"
+    },
+    {
+      "fn": "captivating_cave_setup",
+      "card_var": "CAPTIVATING_CAVE",
+      "disposition": "wired_stub",
+      "engine_gap": "land activated abilities (mana, costed counter activation)",
+      "notes": "Captivating Cave"
+    },
+    {
+      "fn": "cavern_of_souls_setup",
+      "card_var": "CAVERN_OF_SOULS",
+      "disposition": "wired_stub",
+      "engine_gap": "as-enters type choice and creature-type-restricted uncounterable mana",
+      "notes": "Cavern of Souls"
+    },
+    {
+      "fn": "cavernous_maw_setup",
+      "card_var": "CAVERNOUS_MAW",
+      "disposition": "wired_stub",
+      "engine_gap": "activated land animation",
+      "notes": "Cavernous Maw"
+    },
+    {
+      "fn": "echoing_deeps_setup",
+      "card_var": "ECHOING_DEEPS",
+      "disposition": "wired_stub",
+      "engine_gap": "enter-as-copy-of-graveyard-land choice",
+      "notes": "Echoing Deeps"
+    },
+    {
+      "fn": "forgotten_monument_setup",
+      "card_var": "FORGOTTEN_MONUMENT",
+      "disposition": "wired_stub",
+      "engine_gap": "granting activated abilities to other lands",
+      "notes": "Forgotten Monument"
+    },
+    {
+      "fn": "hidden_cataract_setup",
+      "card_var": "HIDDEN_CATARACT",
+      "disposition": "wired_stub",
+      "engine_gap": "activated land with sacrifice cost",
+      "notes": "Hidden Cataract"
+    },
+    {
+      "fn": "hidden_courtyard_setup",
+      "card_var": "HIDDEN_COURTYARD",
+      "disposition": "wired_stub",
+      "engine_gap": "activated land with sacrifice cost",
+      "notes": "Hidden Courtyard"
+    },
+    {
+      "fn": "hidden_necropolis_setup",
+      "card_var": "HIDDEN_NECROPOLIS",
+      "disposition": "wired_stub",
+      "engine_gap": "activated land with sacrifice cost",
+      "notes": "Hidden Necropolis"
+    },
+    {
+      "fn": "hidden_nursery_setup",
+      "card_var": "HIDDEN_NURSERY",
+      "disposition": "wired_stub",
+      "engine_gap": "activated land with sacrifice cost",
+      "notes": "Hidden Nursery"
+    },
+    {
+      "fn": "hidden_volcano_setup",
+      "card_var": "HIDDEN_VOLCANO",
+      "disposition": "wired_stub",
+      "engine_gap": "activated land with sacrifice cost",
+      "notes": "Hidden Volcano"
+    },
+    {
+      "fn": "promising_vein_setup",
+      "card_var": "PROMISING_VEIN",
+      "disposition": "wired_stub",
+      "engine_gap": "activated land with sacrifice/search cost",
+      "notes": "Promising Vein"
+    },
+    {
+      "fn": "sunken_citadel_setup",
+      "card_var": "SUNKEN_CITADEL",
+      "disposition": "wired_stub",
+      "engine_gap": "as-enters color choice and restricted mana",
+      "notes": "Sunken Citadel"
+    },
+    {
+      "fn": "volatile_fault_setup",
+      "card_var": "VOLATILE_FAULT",
+      "disposition": "wired_stub",
+      "engine_gap": "activated land with destroy + search + token chain",
+      "notes": "Volatile Fault"
+    }
+  ],
+  "summary": {
+    "wired_full": 31,
+    "wired_stub": 75,
+    "skipped": 0
+  }
+}

@@ -1241,6 +1241,1249 @@ def shriek_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 # =============================================================================
+# ADDITIONAL SETUP INTERCEPTORS (auto-generated stubs and wiring)
+# =============================================================================
+
+# --- Anti-Venom, Horrifying Healer ---
+# "When Anti-Venom enters, return target creature card from your graveyard to the battlefield.
+#  Damage to him is prevented and replaced with +1/+1 counters."
+def antivenom_horrifying_healer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # ETB: reanimate (engine gap: targeted graveyard reanimate not wired)
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: targeted reanimate from graveyard
+
+    interceptors = [make_etb_trigger(obj, etb_effect)]
+
+    # Damage prevention -> counter replacement
+    def dmg_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        return event.payload.get('target') == obj.id
+
+    def dmg_handler(event: Event, state: GameState) -> InterceptorResult:
+        amount = event.payload.get('amount', 0)
+        # Replace damage with counters
+        new_events = []
+        if amount > 0:
+            new_events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': amount},
+                source=obj.id
+            ))
+        return InterceptorResult(action=InterceptorAction.PREVENT, new_events=new_events)
+
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=dmg_filter,
+        handler=dmg_handler,
+        duration='while_on_battlefield'
+    ))
+    return interceptors
+
+
+# --- Arachne, Psionic Weaver ---
+# "As Arachne enters, look at an opponent's hand, choose a type; spells of that type cost {1} more."
+def arachne_psionic_weaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: hand-reveal + cost-modifier-by-chosen-type
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Costume Closet ---
+# "Enters with two +1/+1 counters; tap to move counter; trigger on modified creature leaving."
+def costume_closet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # ETB: place 2 +1/+1 counters on this artifact
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 2},
+            source=obj.id
+        )]
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    # Trigger when a modified creature you control leaves the battlefield
+    def modified_leaves_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        leaving_id = event.payload.get('object_id')
+        if leaving_id == obj.id:
+            return False
+        leaving = state.objects.get(leaving_id)
+        if not leaving or leaving.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in leaving.characteristics.types:
+            return False
+        # "Modified" = has counters or attached aura/equipment
+        has_counters = bool(getattr(leaving.state, 'counters', {}))
+        has_attachments = bool(getattr(leaving.state, 'attachments', []))
+        return has_counters or has_attachments
+
+    def modified_leaves_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=modified_leaves_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=modified_leaves_effect(e, s)),
+        duration='while_on_battlefield'
+    ))
+    return interceptors
+
+
+# --- Daily Bugle Reporters ---
+# "When this creature enters, choose one - +1/+1 counters or graveyard return."
+def daily_bugle_reporters_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: modal targeting (counters vs graveyard return)
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Flash Thompson, Spider-Fan ---
+# "When Flash Thompson enters, choose one or both - tap or untap target creature."
+def flash_thompson_spiderfan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: modal targeting (tap/untap)
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Friendly Neighborhood ---
+# "Enchant land. ETB: create three 1/1 G/W Human Citizen tokens. Enchanted land has activated ability."
+def friendly_neighborhood_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for _ in range(3):
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Human Citizen Token',
+                    'controller': obj.controller,
+                    'power': 1,
+                    'toughness': 1,
+                    'types': [CardType.CREATURE],
+                    'subtypes': ['Human', 'Citizen'],
+                    'colors': [Color.GREEN, Color.WHITE],
+                },
+                source=obj.id
+            ))
+        return events
+    # engine gap: enchanted-land-grants-activated-ability not wired
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Origin of Spider-Man ---
+# Saga: I-Spider token, II-counter+type change, III-double strike grant
+def origin_of_spiderman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: Sagas not implemented (lore counters / chapter triggers)
+
+
+# --- Rent Is Due ---
+# "At the beginning of your end step, you may tap two untapped creatures and/or Treasures. If so draw a card; else sacrifice."
+def rent_is_due_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_end_step_trigger
+
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # Simplified: draw a card if controller has 2+ untapped creatures/treasures, else sacrifice
+        eligible = 0
+        for other in state.objects.values():
+            if (other.controller == obj.controller and
+                    other.zone == ZoneType.BATTLEFIELD and
+                    not getattr(other.state, 'tapped', False)):
+                if (CardType.CREATURE in other.characteristics.types or
+                        'Treasure' in other.characteristics.subtypes):
+                    eligible += 1
+        if eligible >= 2:
+            return [Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id
+            )]
+        return [Event(
+            type=EventType.SACRIFICE,
+            payload={'object_id': obj.id, 'controller': obj.controller},
+            source=obj.id
+        )]
+
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+# --- Spectacular Spider-Man ---
+# Activated abilities only — no triggers to register at ETB.
+def spectacular_spiderman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated abilities (gain flying / sac + grant hexproof) handled elsewhere
+
+
+# --- Spider-Man, Web-Slinger ---
+# "Web-slinging {W}" — alt cost mechanic.
+def spiderman_webslinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: web-slinging alt cost not implemented
+
+
+# --- Spider-UK ---
+# Web-slinging + "At end step, if 2+ creatures entered this turn, draw a card and gain 2 life."
+def spideruk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_end_step_trigger
+
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: tracking creatures-entered-this-turn count is heuristic
+        entered = getattr(state, 'creatures_entered_this_turn', {}).get(obj.controller, 0)
+        if entered >= 2:
+            return [
+                Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+                Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id),
+            ]
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+# --- Web Up ---
+# "When this enchantment enters, exile target nonland permanent an opponent controls until ~ leaves."
+def web_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: targeted exile-until-leaves
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Web-Shooters ---
+# Equipment - static enchant ability; +1/+1, reach, attack trigger to tap.
+def webshooters_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: equipment passive grants/triggers not auto-wired here
+
+
+# --- Wild Pack Squad ---
+# "At the beginning of combat on your turn, up to one target creature gains first strike and vigilance until end of turn."
+def wild_pack_squad_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def combat_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.PHASE_START and
+                event.payload.get('phase') == 'combat' and
+                state.active_player == obj.controller)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: targeted keyword grant
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- With Great Power... ---
+# Aura: +2/+2 per attached aura/equipment; redirect damage from you to enchanted creature.
+def with_great_power_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: aura attaching + dynamic +2/+2 per attachments + damage redirect
+
+
+# --- Beetle, Legacy Criminal ---
+# Activated graveyard ability (Aftermath-style).
+def beetle_legacy_criminal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated-from-graveyard not auto-wired
+
+
+# --- Chameleon, Master of Disguise ---
+# "Enter as a copy" + Mayhem alt cost.
+def chameleon_master_of_disguise_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: enter-as-copy + mayhem alt cost
+
+
+# --- The Clone Saga ---
+def the_clone_saga_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: Sagas not implemented
+
+
+# --- Doc Ock, Sinister Scientist ---
+# Conditional base P/T 8/8 if 8+ cards in graveyard; hexproof while controlling another Villain.
+def doc_ock_sinister_scientist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # P/T = 8/8 if 8+ cards in your graveyard. Use QUERY_POWER / QUERY_TOUGHNESS.
+    source_id = obj.id
+
+    def gy_count(state: GameState) -> int:
+        graveyard = state.zones.get(f'graveyard_{obj.controller}')
+        return len(graveyard.objects) if graveyard else 0
+
+    def make_pt_query(query_event_type: EventType, base_value: int):
+        def pt_filter(event: Event, state: GameState) -> bool:
+            if event.type != query_event_type:
+                return False
+            src = state.objects.get(source_id)
+            if not src or src.zone != ZoneType.BATTLEFIELD:
+                return False
+            if event.payload.get('object_id') != source_id:
+                return False
+            return gy_count(state) >= 8
+
+        def pt_handler(event: Event, state: GameState) -> InterceptorResult:
+            new_event = event.copy()
+            new_event.payload['value'] = base_value
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+        return Interceptor(
+            id=new_id(),
+            source=source_id,
+            controller=obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=pt_filter,
+            handler=pt_handler,
+            duration='while_on_battlefield'
+        )
+
+    interceptors.append(make_pt_query(EventType.QUERY_POWER, 8))
+    interceptors.append(make_pt_query(EventType.QUERY_TOUGHNESS, 8))
+
+    # Hexproof while you control another Villain — engine gap: dynamic hexproof toggle
+    return interceptors
+
+
+# --- Hydro-Man, Fluid Felon ---
+# Whenever you cast a blue spell, +1/+1 EOT; at end step transforms to a land until next turn.
+def hydroman_fluid_felon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    def blue_spell_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
+    interceptors.append(make_spell_cast_trigger(
+        obj, blue_spell_effect,
+        color_filter={Color.BLUE},
+        controller_only=True
+    ))
+    # End step land-transform: engine gap (type-changing self-replacement)
+    return interceptors
+
+
+# --- Impostor Syndrome ---
+# "Whenever a nontoken creature you control deals combat damage to a player, create a copy token."
+def impostor_syndrome_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat', False):
+            return False
+        src_id = event.payload.get('source')
+        src = state.objects.get(src_id)
+        if not src or src.controller != obj.controller:
+            return False
+        if getattr(src.state, 'is_token', False):
+            return False
+        if CardType.CREATURE not in src.characteristics.types:
+            return False
+        # Damage to a player
+        target_id = event.payload.get('target')
+        return target_id in state.players
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        src_id = event.payload.get('source')
+        src = state.objects.get(src_id)
+        if not src:
+            return []
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': f"{src.characteristics.name} Token",
+                'controller': obj.controller,
+                'power': src.characteristics.power,
+                'toughness': src.characteristics.toughness,
+                'types': list(src.characteristics.types),
+                'subtypes': list(src.characteristics.subtypes),
+                'colors': list(src.characteristics.colors),
+                'is_copy_of': src_id,
+            },
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=damage_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Lady Octopus, Inspired Inventor ---
+# Adds ingenuity counters on first/second draw; activated cast-without-paying.
+def lady_octopus_inspired_inventor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_draw_trigger
+
+    draws_this_turn = {'value': 0, 'turn': -1}
+
+    def draw_effect(event: Event, state: GameState) -> list[Event]:
+        cur_turn = getattr(state, 'turn_number', 0)
+        if draws_this_turn['turn'] != cur_turn:
+            draws_this_turn['turn'] = cur_turn
+            draws_this_turn['value'] = 0
+        draws_this_turn['value'] += 1
+        if draws_this_turn['value'] in (1, 2):
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': 'ingenuity', 'amount': 1},
+                source=obj.id
+            )]
+        return []
+
+    return [make_draw_trigger(obj, draw_effect)]
+
+
+# --- Madame Web, Clairvoyant ---
+# Static "look at top card" + cast Spider/noncreature spells from top + attack-mill option.
+def madame_web_clairvoyant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # "may mill a card" — best-effort optional mill
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    # engine gap: cast-from-top-of-library not wired
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# --- Oscorp Research Team ---
+# Activated ability {6}{U}: draw 2.
+def oscorp_research_team_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated ability cost evaluation is handled elsewhere
+
+
+# --- Robotics Mastery ---
+# Aura: ETB - create two 1/1 colorless flying Robot tokens. +2/+2 to enchanted.
+def robotics_mastery_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for _ in range(2):
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Robot Token',
+                    'controller': obj.controller,
+                    'power': 1,
+                    'toughness': 1,
+                    'types': [CardType.ARTIFACT, CardType.CREATURE],
+                    'subtypes': ['Robot'],
+                    'colors': [],
+                    'keywords': ['flying'],
+                },
+                source=obj.id
+            ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+    # engine gap: aura +2/+2 to enchanted creature is handled by the aura layer system
+
+
+# --- Spider-Man No More ---
+# Aura: enchanted creature becomes 1/1 Citizen with defender, loses other abilities/types.
+def spiderman_no_more_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: type-rewriting aura with ability removal
+
+
+# --- Alien Symbiosis ---
+# Aura giving +1/+1, menace, Symbiote type. Discard-from-graveyard alt cost.
+def alien_symbiosis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: aura attribute layering + alternative cast cost from graveyard
+
+
+# --- The Death of Gwen Stacy ---
+def the_death_of_gwen_stacy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: Sagas not implemented
+
+
+# --- Inner Demons Gangsters ---
+# Activated discard-pump + menace. No persistent triggers.
+def inner_demons_gangsters_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated ability with discard cost handled at activation site
+
+
+# --- Merciless Enforcers ---
+# Activated 1-damage-each-opponent ping; lifelink keyword.
+def merciless_enforcers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated ability cost/effect handled at activation site
+
+
+# --- Parker Luck ---
+# At end step, two players each reveal top, swap MV-life-loss, then put cards in hand.
+def parker_luck_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_end_step_trigger
+
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: simultaneous reveal + cross-mv life loss
+
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+# --- The Soul Stone ---
+# Tap for {B}, harness ability, then upkeep reanimate (Infinity Stone mechanic).
+def the_soul_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: Infinity Stone harness flag + upkeep reanimate
+
+
+# --- Swarm, Being of Bees ---
+# Flash + flying + mayhem alt cost. No additional triggers.
+def swarm_being_of_bees_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: mayhem alt cost not wired
+
+
+# --- Venom, Evil Unleashed ---
+# Deathtouch + activated graveyard ability.
+def venom_evil_unleashed_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated-from-graveyard ability
+
+
+# --- Electro, Assaulting Battery ---
+# Don't lose unspent red mana, +R from instants/sorceries cast, LTB X-damage trigger.
+def electro_assaulting_battery_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # Whenever you cast an instant or sorcery, add {R}.
+    def add_red_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': obj.controller, 'mana': {'R': 1}},
+            source=obj.id
+        )]
+
+    interceptors.append(make_spell_cast_trigger(
+        obj, add_red_effect,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+        controller_only=True
+    ))
+
+    # LTB X-damage: engine gap (X cost prompt + damage)
+    return interceptors
+
+
+# --- Masked Meower ---
+# Haste + activated discard-sac to draw.
+def masked_meower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated ability with discard-and-sac cost
+
+
+# --- Maximum Carnage ---
+def maximum_carnage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: Sagas not implemented
+
+
+# --- Raging Goblinoids ---
+# Haste + mayhem alt cost.
+def raging_goblinoids_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: mayhem alt cost
+
+
+# --- Shadow of the Goblin ---
+# Main-phase loot + ping per land/spell-from-non-hand.
+def shadow_of_the_goblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # First main phase: discard a card, then draw a card
+    def first_main_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        if event.payload.get('phase') not in ('main_1', 'main1', 'first_main'):
+            return False
+        return state.active_player == obj.controller
+
+    def first_main_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+        ]
+
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=first_main_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=first_main_effect(e, s)),
+        duration='while_on_battlefield'
+    ))
+
+    # engine gap: "play a land or cast a spell from anywhere other than your hand" trigger
+    return interceptors
+
+
+# --- Spider-Gwen, Free Spirit ---
+# "Whenever Spider-Gwen becomes tapped, you may discard a card. If you do, draw a card."
+def spidergwen_free_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_tap_trigger
+
+    def tap_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+        ]
+
+    return [make_tap_trigger(obj, tap_effect)]
+
+
+# --- Spider-Islanders ---
+# Mayhem alt cost only.
+def spiderislanders_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: mayhem alt cost
+
+
+# --- Spider-Verse ---
+# Spiders ignore legend rule; copy spells cast from non-hand. Once per turn.
+def spiderverse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: legend rule waiver + cast-from-non-hand copy mechanic
+
+
+# --- Stegron the Dinosaur Man ---
+# Menace + activated discard-self pump-to-Dinosaur. No persistent triggers.
+def stegron_the_dinosaur_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated discard-self ability
+
+
+# --- Superior Foes of Spider-Man ---
+# Trample + 4MV+ spell impulse.
+def superior_foes_of_spiderman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.IMPULSE_DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_spell_cast_trigger(obj, effect_fn, mana_value_min=4)]
+
+
+# --- Taxi Driver ---
+# Activated ability {1},{T}: target gains haste EOT.
+def taxi_driver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated targeted keyword grant
+
+
+# --- Guy in the Chair ---
+# {T} for any color, {2}{G},{T}: +1/+1 counter on target Spider.
+def guy_in_the_chair_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated mana ability + activated counter ability
+
+
+# --- Kraven's Cats ---
+# Activated pump.
+def kravens_cats_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated pump ability
+
+
+# --- Kraven's Last Hunt ---
+def kravens_last_hunt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: Sagas not implemented
+
+
+# --- Miles Morales ---
+# ETB +1/+1 to up to two targets; transform; double counters on attack.
+def miles_morales_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: targeted up-to-two counters
+    return [make_etb_trigger(obj, etb_effect)]
+    # engine gap: transform mechanic + counter doubling
+
+
+# --- Pictures of Spider-Man ---
+# ETB look-at-top-5, activated sac for treasure.
+def pictures_of_spiderman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: look-at-top-N + select-up-to-2-creatures
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Radioactive Spider ---
+# Reach + deathtouch + activated tutor.
+def radioactive_spider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated tutor for Spider Hero
+
+
+# --- Sandman, Shifting Scoundrel ---
+# Power/toughness = number of lands you control.
+def sandman_shifting_scoundrel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+    source_id = obj.id
+
+    def land_count(state: GameState) -> int:
+        count = 0
+        for other in state.objects.values():
+            if (other.controller == obj.controller and
+                    other.zone == ZoneType.BATTLEFIELD and
+                    CardType.LAND in other.characteristics.types):
+                count += 1
+        return count
+
+    def make_pt_query(query_event_type: EventType):
+        def pt_filter(event: Event, state: GameState) -> bool:
+            if event.type != query_event_type:
+                return False
+            src = state.objects.get(source_id)
+            if not src or src.zone != ZoneType.BATTLEFIELD:
+                return False
+            return event.payload.get('object_id') == source_id
+
+        def pt_handler(event: Event, state: GameState) -> InterceptorResult:
+            new_event = event.copy()
+            new_event.payload['value'] = land_count(state)
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+        return Interceptor(
+            id=new_id(),
+            source=source_id,
+            controller=obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=pt_filter,
+            handler=pt_handler,
+            duration='while_on_battlefield'
+        )
+
+    interceptors.append(make_pt_query(EventType.QUERY_POWER))
+    interceptors.append(make_pt_query(EventType.QUERY_TOUGHNESS))
+    # engine gap: "can't be blocked by power<=2" + activated graveyard reanimate of self+land
+    return interceptors
+
+
+# --- Spiders-Man, Heroic Horde ---
+# Web-slinging cost + ETB if web-slung: gain 3 + create two 2/1 Spiders.
+def spidersman_heroic_horde_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: detect web-slinging cast - assume it triggered
+        events = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id
+        )]
+        for _ in range(2):
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Spider Token',
+                    'controller': obj.controller,
+                    'power': 2,
+                    'toughness': 1,
+                    'types': [CardType.CREATURE],
+                    'subtypes': ['Spider'],
+                    'colors': [Color.GREEN],
+                    'keywords': ['reach'],
+                },
+                source=obj.id
+            ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Supportive Parents ---
+# Mana ability: tap two creatures for any color.
+def supportive_parents_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated mana ability with tap-two-creatures cost
+
+
+# --- Web of Life and Destiny ---
+# Convoke + at-combat tutor-onto-battlefield.
+def web_of_life_and_destiny_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def combat_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.PHASE_START and
+                event.payload.get('phase') == 'combat' and
+                state.active_player == obj.controller)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: look-at-top-5 + creature-onto-battlefield
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Biorganic Carapace ---
+# Equipment - ETB self-attach, +2/+2, combat-damage draw per modified creature.
+def biorganic_carapace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: equipment ETB-attach + dynamic per-modified-creature draw
+
+
+# --- Cheering Crowd ---
+# Each player's first main: may put +1/+1 counter and add {C} per counter.
+def cheering_crowd_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def first_main_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        return event.payload.get('phase') in ('main_1', 'main1', 'first_main')
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: each-player-may-counter + mana-add per counter
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=first_main_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Jackal, Genius Geneticist ---
+# Trample + copy creature spell when MV equals Jackal's power.
+def jackal_genius_geneticist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def spell_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        if event.payload.get('caster') != obj.controller:
+            return False
+        spell_id = event.payload.get('spell_id')
+        spell = state.objects.get(spell_id) if spell_id else None
+        if not spell or CardType.CREATURE not in spell.characteristics.types:
+            return False
+        cur = state.objects.get(obj.id)
+        if not cur:
+            return False
+        return event.payload.get('mana_value', 0) == cur.characteristics.power
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.COPY_SPELL,
+                payload={'spell_id': event.payload.get('spell_id'), 'controller': obj.controller, 'not_legendary': True},
+                source=obj.id
+            ),
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id
+            ),
+        ]
+
+    return [make_spell_cast_trigger(obj, effect_fn, controller_only=True, filter_fn=lambda e, s, o: spell_filter(e, s))]
+
+
+# --- Kraven, Proud Predator ---
+# Power = greatest mana value among permanents you control.
+def kraven_proud_predator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    source_id = obj.id
+
+    def greatest_mv(state: GameState) -> int:
+        best = 0
+        for other in state.objects.values():
+            if (other.controller == obj.controller and
+                    other.zone == ZoneType.BATTLEFIELD):
+                mv = getattr(other.characteristics, 'mana_value', 0) or 0
+                if mv > best:
+                    best = mv
+        return best
+
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        src = state.objects.get(source_id)
+        if not src or src.zone != ZoneType.BATTLEFIELD:
+            return False
+        return event.payload.get('object_id') == source_id
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = greatest_mv(state)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=power_filter,
+        handler=power_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Morbius the Living Vampire ---
+# Flying/vigilance/lifelink + activated graveyard "look at top 3, hand 1."
+def morbius_the_living_vampire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated-from-graveyard impulse-style top-3
+
+
+# --- Scarlet Spider, Ben Reilly ---
+# Web-slinging + Sensational Save (X counters from web-slinging cost).
+def scarlet_spider_ben_reilly_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: web-slinging detection + X counters from returned creature MV
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Scarlet Spider, Kaine ---
+# Menace + ETB optional discard-for-counter + mayhem.
+def scarlet_spider_kaine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id
+            ),
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Skyward Spider ---
+# Ward 2 + flying-while-modified.
+def skyward_spider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    source_id = obj.id
+
+    def ability_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        target_id = event.payload.get('object_id')
+        if target_id != source_id:
+            return False
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        # "Modified" = has counters or attached aura/equipment
+        has_counters = bool(getattr(target.state, 'counters', {}))
+        has_attachments = bool(getattr(target.state, 'attachments', []))
+        return has_counters or has_attachments
+
+    def ability_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        granted = list(new_event.payload.get('granted', []))
+        if 'flying' not in granted:
+            granted.append('flying')
+        new_event.payload['granted'] = granted
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=ability_filter,
+        handler=ability_handler,
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Spider Manifestation ---
+# Reach + tap for {R}/{G} + untap on 4MV+ spell.
+def spider_manifestation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.UNTAP,
+            payload={'object_id': obj.id},
+            source=obj.id
+        )]
+    return [make_spell_cast_trigger(obj, effect_fn, mana_value_min=4)]
+
+
+# --- Spider-Man 2099 ---
+# Double strike, vigilance, conditional end-step damage.
+def spiderman_2099_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_end_step_trigger
+
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: tracking spell-from-non-hand or land-this-turn + targeted damage
+
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+# --- Superior Spider-Man ---
+# Enter as a copy of a graveyard creature (replacement).
+def superior_spiderman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: enter-as-copy-from-graveyard replacement
+
+
+# --- Symbiote Spider-Man ---
+# Combat damage to player: look at top X, hand 1, rest to GY. Activated graveyard counter+ability transfer.
+def symbiote_spiderman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def damage_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat', False):
+            return False
+        if event.payload.get('source') != source.id:
+            return False
+        return event.payload.get('target') in state.players
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: full "look at X cards, choose 1 to hand, rest to GY" choice not wired;
+        # approximate by milling the damage amount (player can recover via other effects)
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return []
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': amount},
+            source=obj.id
+        )]
+
+    return [make_damage_trigger(obj, effect_fn, combat_only=True, filter_fn=damage_filter)]
+
+
+# --- Bagel and Schmear ---
+# Activated abilities only.
+def bagel_and_schmear_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated tap-sac abilities
+
+
+# --- Doc Ock's Tentacles ---
+# Equipment with auto-attach trigger on 5MV+ creature ETB.
+def doc_ocks_tentacles_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def big_creature_etb_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering = state.objects.get(entering_id)
+        if not entering:
+            return False
+        if entering.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in entering.characteristics.types:
+            return False
+        return getattr(entering.characteristics, 'mana_value', 0) >= 5
+
+    def attach_effect(event: Event, state: GameState) -> list[Event]:
+        entering_id = event.payload.get('object_id')
+        return [Event(
+            type=EventType.AUTO_EQUIP,
+            payload={'equipment_id': obj.id, 'creature_id': entering_id},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=big_creature_etb_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=attach_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Interdimensional Web Watch ---
+# ETB exile top 2 + play-from-exile until next end step.
+def interdimensional_web_watch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.IMPULSE_DRAW,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Iron Spider, Stark Upgrade ---
+# Vigilance + activated counter-distribution + activated draw.
+def iron_spider_stark_upgrade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: activated abilities only
+
+
+# --- Living Brain, Mechanical Marvel ---
+# At-combat artifact-becomes-creature effect.
+def living_brain_mechanical_marvel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def combat_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.PHASE_START and
+                event.payload.get('phase') == 'combat' and
+                state.active_player == obj.controller)
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: targeted artifact-becomes-3/3-creature + untap
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Passenger Ferry ---
+# Vehicle attack-trigger pay {U} for unblockable.
+def passenger_ferry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: optional cost + targeted unblockable
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# --- Peter Parker's Camera ---
+# Enters with 3 film counters; activated ability to copy your activated/triggered ability.
+def peter_parkers_camera_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'film', 'amount': 3},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Rocket-Powered Goblin Glider ---
+# ETB if cast from graveyard, attach. +2/+0 flying haste. Mayhem alt cost.
+def rocketpowered_goblin_glider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: cast-from-graveyard detection + auto-attach + mayhem alt cost
+
+
+# --- Spider-Mobile ---
+# Trample, attack/block self-pump per Spider, crew 2.
+def spidermobile_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_or_block_filter(event: Event, state: GameState) -> bool:
+        if event.type == EventType.ATTACK_DECLARED:
+            return event.payload.get('attacker_id') == obj.id
+        if event.type == EventType.BLOCK_DECLARED:
+            return event.payload.get('blocker_id') == obj.id
+        return False
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        spider_count = 0
+        for other in state.objects.values():
+            if (other.controller == obj.controller and
+                    other.zone == ZoneType.BATTLEFIELD and
+                    'Spider' in other.characteristics.subtypes):
+                spider_count += 1
+        if spider_count <= 0:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': spider_count, 'toughness_mod': spider_count, 'duration': 'end_of_turn'},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_or_block_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- Spider-Slayer, Hatred Honed ---
+# Damage-to-Spider destroys; activated graveyard ability.
+def spiderslayer_hatred_honed_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def damage_to_spider_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('source') != source.id:
+            return False
+        target_id = event.payload.get('target')
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        return 'Spider' in target.characteristics.subtypes
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        target_id = event.payload.get('target')
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': target_id},
+            source=obj.id
+        )]
+
+    return [make_damage_trigger(obj, effect_fn, filter_fn=damage_to_spider_filter)]
+
+
+# --- Spider-Suit ---
+# Equipment static; no triggers.
+def spidersuit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: equipment passive grants handled by attach layer
+
+
+# --- Steel Wrecking Ball ---
+# ETB: 5 damage to target creature; activated discard-self destroy artifact.
+def steel_wrecking_ball_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: targeted damage on ETB
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Subway Train ---
+# ETB: optional pay {G} to fetch basic land.
+def subway_train_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return []  # engine gap: optional cost + tutor
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- Daily Bugle Building ---
+def daily_bugle_building_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: land activated abilities (including targeted menace grant)
+
+
+# --- Multiversal Passage ---
+def multiversal_passage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: choose-basic-land-type + pay-2-life-or-tapped
+
+
+# --- Ominous Asylum ---
+def ominous_asylum_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: ETB tapped + activated surveil
+
+
+# --- Oscorp Industries ---
+def oscorp_industries_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: ETB tapped + ETB-from-graveyard penalty + mayhem
+
+
+# --- Savage Mansion ---
+def savage_mansion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: ETB tapped + activated surveil
+
+
+# --- Sinister Hideout ---
+def sinister_hideout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: ETB tapped + activated surveil
+
+
+# --- Suburban Sanctuary ---
+def suburban_sanctuary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: ETB tapped + activated surveil
+
+
+# --- University Campus ---
+def university_campus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: ETB tapped + activated surveil
+
+
+# --- Urban Retreat ---
+def urban_retreat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: ETB tapped + bounce-creature-to-flicker activation
+
+
+# --- Vibrant Cityscape ---
+def vibrant_cityscape_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return []  # engine gap: tap-sacrifice fetch ability
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -1252,6 +2495,7 @@ ANTIVENOM_HORRIFYING_HEALER = make_creature(
     subtypes={"Hero", "Symbiote"},
     supertypes={"Legendary"},
     text="When Anti-Venom enters, if he was cast, return target creature card from your graveyard to the battlefield.\nIf damage would be dealt to Anti-Venom, prevent that damage and put that many +1/+1 counters on him.",
+    setup_interceptors=antivenom_horrifying_healer_setup,
 )
 
 ARACHNE_PSIONIC_WEAVER = make_creature(
@@ -1262,6 +2506,7 @@ ARACHNE_PSIONIC_WEAVER = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Web-slinging {W} (You may cast this spell for {W} if you also return a tapped creature you control to its owner's hand.)\nAs Arachne enters, look at an opponent's hand, then choose a card type other than creature.\nSpells of the chosen type cost {1} more to cast.",
+    setup_interceptors=arachne_psionic_weaver_setup,
 )
 
 AUNT_MAY = make_creature(
@@ -1289,6 +2534,7 @@ COSTUME_CLOSET = make_artifact(
     name="Costume Closet",
     mana_cost="{1}{W}",
     text="This artifact enters with two +1/+1 counters on it.\n{T}: Move a +1/+1 counter from this artifact onto target creature you control. Activate only as a sorcery.\nWhenever a modified creature you control leaves the battlefield, put a +1/+1 counter on this artifact. (Equipment, Auras you control, and counters are modifications.)",
+    setup_interceptors=costume_closet_setup,
 )
 
 DAILY_BUGLE_REPORTERS = make_creature(
@@ -1298,6 +2544,7 @@ DAILY_BUGLE_REPORTERS = make_creature(
     colors={Color.WHITE},
     subtypes={"Citizen", "Human"},
     text="When this creature enters, choose one —\n• Puff Piece — Put a +1/+1 counter on each of up to two target creatures.\n• Investigative Journalism — Return target creature card with mana value 2 or less from your graveyard to your hand.",
+    setup_interceptors=daily_bugle_reporters_setup,
 )
 
 FLASH_THOMPSON_SPIDERFAN = make_creature(
@@ -1308,6 +2555,7 @@ FLASH_THOMPSON_SPIDERFAN = make_creature(
     subtypes={"Citizen", "Human"},
     supertypes={"Legendary"},
     text="Flash\nWhen Flash Thompson enters, choose one or both —\n• Heckle — Tap target creature.\n• Hero Worship — Untap target creature.",
+    setup_interceptors=flash_thompson_spiderfan_setup,
 )
 
 FRIENDLY_NEIGHBORHOOD = make_enchantment(
@@ -1316,6 +2564,7 @@ FRIENDLY_NEIGHBORHOOD = make_enchantment(
     colors={Color.WHITE},
     text="Enchant land\nWhen this Aura enters, create three 1/1 green and white Human Citizen creature tokens.\nEnchanted land has \"{1}, {T}: Target creature gets +1/+1 until end of turn for each creature you control. Activate only as a sorcery.\"",
     subtypes={"Aura"},
+    setup_interceptors=friendly_neighborhood_setup,
 )
 
 ORIGIN_OF_SPIDERMAN = make_enchantment(
@@ -1324,6 +2573,7 @@ ORIGIN_OF_SPIDERMAN = make_enchantment(
     colors={Color.WHITE},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Create a 2/1 green Spider creature token with reach.\nII — Put a +1/+1 counter on target creature you control. It becomes a legendary Spider Hero in addition to its other types.\nIII — Target creature you control gains double strike until end of turn.",
     subtypes={"Saga"},
+    setup_interceptors=origin_of_spiderman_setup,
 )
 
 PETER_PARKER = make_creature(
@@ -1341,6 +2591,7 @@ RENT_IS_DUE = make_enchantment(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="At the beginning of your end step, you may tap two untapped creatures and/or Treasures you control. If you do, draw a card. Otherwise, sacrifice this enchantment.",
+    setup_interceptors=rent_is_due_setup,
 )
 
 SELFLESS_POLICE_CAPTAIN = make_creature(
@@ -1372,6 +2623,7 @@ SPECTACULAR_SPIDERMAN = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Flash\n{1}: Spectacular Spider-Man gains flying until end of turn.\n{1}, Sacrifice Spectacular Spider-Man: Creatures you control gain hexproof and indestructible until end of turn.",
+    setup_interceptors=spectacular_spiderman_setup,
 )
 
 SPECTACULAR_TACTICS = make_instant(
@@ -1389,6 +2641,7 @@ SPIDERMAN_WEBSLINGER = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Web-slinging {W} (You may cast this spell for {W} if you also return a tapped creature you control to its owner's hand.)",
+    setup_interceptors=spiderman_webslinger_setup,
 )
 
 SPIDERUK = make_creature(
@@ -1399,6 +2652,7 @@ SPIDERUK = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Web-slinging {2}{W} (You may cast this spell for {2}{W} if you also return a tapped creature you control to its owner's hand.)\nAt the beginning of your end step, if two or more creatures entered the battlefield under your control this turn, you draw a card and gain 2 life.",
+    setup_interceptors=spideruk_setup,
 )
 
 STARLING_AERIAL_ALLY = make_creature(
@@ -1431,6 +2685,7 @@ WEB_UP = make_enchantment(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="When this enchantment enters, exile target nonland permanent an opponent controls until this enchantment leaves the battlefield.",
+    setup_interceptors=web_up_setup,
 )
 
 WEBSHOOTERS = make_artifact(
@@ -1438,6 +2693,7 @@ WEBSHOOTERS = make_artifact(
     mana_cost="{1}{W}",
     text="Equipped creature gets +1/+1 and has reach and \"Whenever this creature attacks, tap target creature an opponent controls.\"\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=webshooters_setup,
 )
 
 WILD_PACK_SQUAD = make_creature(
@@ -1447,6 +2703,7 @@ WILD_PACK_SQUAD = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Mercenary"},
     text="At the beginning of combat on your turn, up to one target creature gains first strike and vigilance until end of turn.",
+    setup_interceptors=wild_pack_squad_setup,
 )
 
 WITH_GREAT_POWER = make_enchantment(
@@ -1455,6 +2712,7 @@ WITH_GREAT_POWER = make_enchantment(
     colors={Color.WHITE},
     text="Enchant creature you control\nEnchanted creature gets +2/+2 for each Aura and Equipment attached to it.\nAll damage that would be dealt to you is dealt to enchanted creature instead.",
     subtypes={"Aura"},
+    setup_interceptors=with_great_power_setup,
 )
 
 AMAZING_ACROBATICS = make_instant(
@@ -1472,6 +2730,7 @@ BEETLE_LEGACY_CRIMINAL = make_creature(
     subtypes={"Human", "Rogue", "Villain"},
     supertypes={"Legendary"},
     text="Flying\n{1}{U}, Exile this card from your graveyard: Put a +1/+1 counter on target creature. It gains flying until end of turn. Activate only as a sorcery.",
+    setup_interceptors=beetle_legacy_criminal_setup,
 )
 
 CHAMELEON_MASTER_OF_DISGUISE = make_creature(
@@ -1482,6 +2741,7 @@ CHAMELEON_MASTER_OF_DISGUISE = make_creature(
     subtypes={"Human", "Shapeshifter", "Villain"},
     supertypes={"Legendary"},
     text="You may have Chameleon enter as a copy of a creature you control, except his name is Chameleon, Master of Disguise.\nMayhem {2}{U} (You may cast this card from your graveyard for {2}{U} if you discarded it this turn. Timing rules still apply.)",
+    setup_interceptors=chameleon_master_of_disguise_setup,
 )
 
 THE_CLONE_SAGA = make_enchantment(
@@ -1490,6 +2750,7 @@ THE_CLONE_SAGA = make_enchantment(
     colors={Color.BLUE},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Surveil 3.\nII — When you next cast a creature spell this turn, copy it, except the copy isn't legendary.\nIII — Choose a card name. Whenever a creature with the chosen name deals combat damage to a player this turn, draw a card.",
     subtypes={"Saga"},
+    setup_interceptors=the_clone_saga_setup,
 )
 
 DOC_OCK_SINISTER_SCIENTIST = make_creature(
@@ -1500,6 +2761,7 @@ DOC_OCK_SINISTER_SCIENTIST = make_creature(
     subtypes={"Human", "Scientist", "Villain"},
     supertypes={"Legendary"},
     text="As long as there are eight or more cards in your graveyard, Doc Ock has base power and toughness 8/8.\nAs long as you control another Villain, Doc Ock has hexproof. (He can't be the target of spells or abilities your opponents control.)",
+    setup_interceptors=doc_ock_sinister_scientist_setup,
 )
 
 DOC_OCKS_HENCHMEN = make_creature(
@@ -1537,6 +2799,7 @@ HYDROMAN_FLUID_FELON = make_creature(
     subtypes={"Elemental", "Villain"},
     supertypes={"Legendary"},
     text="Whenever you cast a blue spell, if Hydro-Man is a creature, he gets +1/+1 until end of turn.\nAt the beginning of your end step, untap Hydro-Man. Until your next turn, he becomes a land and gains \"{T}: Add {U}.\" (He's not a creature during that time.)",
+    setup_interceptors=hydroman_fluid_felon_setup,
 )
 
 IMPOSTOR_SYNDROME = make_enchantment(
@@ -1544,6 +2807,7 @@ IMPOSTOR_SYNDROME = make_enchantment(
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
     text="Whenever a nontoken creature you control deals combat damage to a player, create a token that's a copy of it, except it isn't legendary.",
+    setup_interceptors=impostor_syndrome_setup,
 )
 
 LADY_OCTOPUS_INSPIRED_INVENTOR = make_creature(
@@ -1554,6 +2818,7 @@ LADY_OCTOPUS_INSPIRED_INVENTOR = make_creature(
     subtypes={"Human", "Scientist", "Villain"},
     supertypes={"Legendary"},
     text="Whenever you draw your first or second card each turn, put an ingenuity counter on Lady Octopus.\n{T}: You may cast an artifact spell from your hand with mana value less than or equal to the number of ingenuity counters on Lady Octopus without paying its mana cost.",
+    setup_interceptors=lady_octopus_inspired_inventor_setup,
 )
 
 MADAME_WEB_CLAIRVOYANT = make_creature(
@@ -1564,6 +2829,7 @@ MADAME_WEB_CLAIRVOYANT = make_creature(
     subtypes={"Advisor", "Mutant"},
     supertypes={"Legendary"},
     text="You may look at the top card of your library any time.\nYou may cast Spider spells and noncreature spells from the top of your library.\nWhenever you attack, you may mill a card. (You may put the top card of your library into your graveyard.)",
+    setup_interceptors=madame_web_clairvoyant_setup,
 )
 
 MYSTERIO_MASTER_OF_ILLUSION = make_creature(
@@ -1604,6 +2870,7 @@ OSCORP_RESEARCH_TEAM = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scientist"},
     text="{6}{U}: Draw two cards.",
+    setup_interceptors=oscorp_research_team_setup,
 )
 
 ROBOTICS_MASTERY = make_enchantment(
@@ -1612,6 +2879,7 @@ ROBOTICS_MASTERY = make_enchantment(
     colors={Color.BLUE},
     text="Flash\nEnchant creature\nWhen this Aura enters, create two 1/1 colorless Robot artifact creature tokens with flying.\nEnchanted creature gets +2/+2.",
     subtypes={"Aura"},
+    setup_interceptors=robotics_mastery_setup,
 )
 
 SCHOOL_DAZE = make_instant(
@@ -1645,6 +2913,7 @@ SPIDERMAN_NO_MORE = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature\nEnchanted creature is a Citizen with base power and toughness 1/1. It has defender and loses all other abilities. (It also loses all other creature types.)",
     subtypes={"Aura"},
+    setup_interceptors=spiderman_no_more_setup,
 )
 
 SPIDERSENSE = make_instant(
@@ -1685,6 +2954,7 @@ ALIEN_SYMBIOSIS = make_enchantment(
     colors={Color.BLACK},
     text="Enchant creature\nEnchanted creature gets +1/+1, has menace, and is a Symbiote in addition to its other types.\nYou may cast this card from your graveyard by discarding a card in addition to paying its other costs.",
     subtypes={"Aura"},
+    setup_interceptors=alien_symbiosis_setup,
 )
 
 BEHOLD_THE_SINISTER_SIX = make_sorcery(
@@ -1721,6 +2991,7 @@ THE_DEATH_OF_GWEN_STACY = make_enchantment(
     colors={Color.BLACK},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Destroy target creature.\nII — Each player may discard a card. Each player who doesn't loses 3 life.\nIII — Exile any number of target players' graveyards.",
     subtypes={"Saga"},
+    setup_interceptors=the_death_of_gwen_stacy_setup,
 )
 
 EDDIE_BROCK = make_creature(
@@ -1751,6 +3022,7 @@ INNER_DEMONS_GANGSTERS = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Rogue", "Villain"},
     text="Discard a card: This creature gets +1/+0 and gains menace until end of turn. Activate only as a sorcery. (It can't be blocked except by two or more creatures.)",
+    setup_interceptors=inner_demons_gangsters_setup,
 )
 
 MERCILESS_ENFORCERS = make_creature(
@@ -1760,6 +3032,7 @@ MERCILESS_ENFORCERS = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Mercenary", "Villain"},
     text="Lifelink\n{3}{B}: This creature deals 1 damage to each opponent.",
+    setup_interceptors=merciless_enforcers_setup,
 )
 
 MORLUN_DEVOURER_OF_SPIDERS = make_creature(
@@ -1778,6 +3051,7 @@ PARKER_LUCK = make_enchantment(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="At the beginning of your end step, two target players each reveal the top card of their library. They each lose life equal to the mana value of the card revealed by the other player. Then they each put the card they revealed into their hand.",
+    setup_interceptors=parker_luck_setup,
 )
 
 PRISON_BREAK = make_sorcery(
@@ -1825,6 +3099,7 @@ THE_SOUL_STONE = make_artifact(
     text="Indestructible\n{T}: Add {B}.\n{6}{B}, {T}, Exile a creature you control: Harness The Soul Stone. (Once harnessed, its ∞ ability is active.)\n∞ — At the beginning of your upkeep, return target creature card from your graveyard to the battlefield.",
     subtypes={"Infinity", "Stone"},
     supertypes={"Legendary"},
+    setup_interceptors=the_soul_stone_setup,
 )
 
 SPIDERMAN_NOIR = make_creature(
@@ -1853,6 +3128,7 @@ SWARM_BEING_OF_BEES = make_creature(
     subtypes={"Insect", "Villain"},
     supertypes={"Legendary"},
     text="Flash\nFlying\nMayhem {B} (You may cast this card from your graveyard for {B} if you discarded it this turn. Timing rules still apply.)",
+    setup_interceptors=swarm_being_of_bees_setup,
 )
 
 TOMBSTONE_CAREER_CRIMINAL = make_creature(
@@ -1874,6 +3150,7 @@ VENOM_EVIL_UNLEASHED = make_creature(
     subtypes={"Symbiote", "Villain"},
     supertypes={"Legendary"},
     text="Deathtouch\n{2}{B}, Exile this card from your graveyard: Put two +1/+1 counters on target creature. It gains deathtouch until end of turn. Activate only as a sorcery.",
+    setup_interceptors=venom_evil_unleashed_setup,
 )
 
 VENOMIZED_CAT = make_creature(
@@ -1918,6 +3195,7 @@ ELECTRO_ASSAULTING_BATTERY = make_creature(
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
     text="Flying\nYou don't lose unspent red mana as steps and phases end.\nWhenever you cast an instant or sorcery spell, add {R}.\nWhen Electro leaves the battlefield, you may pay {X}. When you do, he deals X damage to target player.",
+    setup_interceptors=electro_assaulting_battery_setup,
 )
 
 ELECTROS_BOLT = make_sorcery(
@@ -1973,6 +3251,7 @@ MASKED_MEOWER = make_creature(
     colors={Color.RED},
     subtypes={"Cat", "Hero", "Spider"},
     text="Haste\nDiscard a card, Sacrifice this creature: Draw a card.",
+    setup_interceptors=masked_meower_setup,
 )
 
 MAXIMUM_CARNAGE = make_enchantment(
@@ -1981,6 +3260,7 @@ MAXIMUM_CARNAGE = make_enchantment(
     colors={Color.RED},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Until your next turn, each creature attacks each combat if able and attacks a player other than you if able.\nII — Add {R}{R}{R}.\nIII — This Saga deals 5 damage to each opponent.",
     subtypes={"Saga"},
+    setup_interceptors=maximum_carnage_setup,
 )
 
 MOLTEN_MAN_INFERNO_INCARNATE = make_creature(
@@ -2001,6 +3281,7 @@ RAGING_GOBLINOIDS = make_creature(
     colors={Color.RED},
     subtypes={"Berserker", "Goblin", "Villain"},
     text="Haste\nMayhem {2}{R} (You may cast this card from your graveyard for {2}{R} if you discarded it this turn. Timing rules still apply.)",
+    setup_interceptors=raging_goblinoids_setup,
 )
 
 ROMANTIC_RENDEZVOUS = make_sorcery(
@@ -2015,6 +3296,7 @@ SHADOW_OF_THE_GOBLIN = make_enchantment(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Unreliable Visions — At the beginning of your first main phase, discard a card. If you do, draw a card.\nUndying Vengeance — Whenever you play a land or cast a spell from anywhere other than your hand, this enchantment deals 1 damage to each opponent.",
+    setup_interceptors=shadow_of_the_goblin_setup,
 )
 
 SHOCK = make_instant(
@@ -2043,6 +3325,7 @@ SPIDERGWEN_FREE_SPIRIT = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Reach\nWhenever Spider-Gwen becomes tapped, you may discard a card. If you do, draw a card.",
+    setup_interceptors=spidergwen_free_spirit_setup,
 )
 
 SPIDERISLANDERS = make_creature(
@@ -2052,6 +3335,7 @@ SPIDERISLANDERS = make_creature(
     colors={Color.RED},
     subtypes={"Citizen", "Horror", "Spider"},
     text="Mayhem {1}{R} (You may cast this card from your graveyard for {1}{R} if you discarded it this turn. Timing rules still apply.)",
+    setup_interceptors=spiderislanders_setup,
 )
 
 SPIDERPUNK = make_creature(
@@ -2070,6 +3354,7 @@ SPIDERVERSE = make_enchantment(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     text="The \"legend rule\" doesn't apply to Spiders you control.\nWhenever you cast a spell from anywhere other than your hand, you may copy it. If you do, you may choose new targets for the copy. If the copy is a permanent spell, it gains haste. Do this only once each turn.",
+    setup_interceptors=spiderverse_setup,
 )
 
 SPINNERET_AND_SPIDERLING = make_creature(
@@ -2091,6 +3376,7 @@ STEGRON_THE_DINOSAUR_MAN = make_creature(
     subtypes={"Dinosaur", "Villain"},
     supertypes={"Legendary"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nDinosaur Formula — {1}{R}, Discard this card: Until end of turn, target creature you control gets +3/+1 and becomes a Dinosaur in addition to its other types.",
+    setup_interceptors=stegron_the_dinosaur_man_setup,
 )
 
 SUPERIOR_FOES_OF_SPIDERMAN = make_creature(
@@ -2100,6 +3386,7 @@ SUPERIOR_FOES_OF_SPIDERMAN = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Rogue", "Villain"},
     text="Trample\nWhenever you cast a spell with mana value 4 or greater, you may exile the top card of your library. If you do, you may play that card until you exile another card with this creature.",
+    setup_interceptors=superior_foes_of_spiderman_setup,
 )
 
 TAXI_DRIVER = make_creature(
@@ -2109,6 +3396,7 @@ TAXI_DRIVER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Pilot"},
     text="{1}, {T}: Target creature gains haste until end of turn.",
+    setup_interceptors=taxi_driver_setup,
 )
 
 WISECRACK = make_instant(
@@ -2153,6 +3441,7 @@ GUY_IN_THE_CHAIR = make_creature(
     colors={Color.GREEN},
     subtypes={"Advisor", "Human"},
     text="{T}: Add one mana of any color.\nWeb Support — {2}{G}, {T}: Put a +1/+1 counter on target Spider. Activate only as a sorcery.",
+    setup_interceptors=guy_in_the_chair_setup,
 )
 
 KAPOW = make_sorcery(
@@ -2169,6 +3458,7 @@ KRAVENS_CATS = make_creature(
     colors={Color.GREEN},
     subtypes={"Cat", "Villain"},
     text="{2}{G}: This creature gets +2/+2 until end of turn. Activate only once each turn.",
+    setup_interceptors=kravens_cats_setup,
 )
 
 KRAVENS_LAST_HUNT = make_enchantment(
@@ -2177,6 +3467,7 @@ KRAVENS_LAST_HUNT = make_enchantment(
     colors={Color.GREEN},
     text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Mill five cards. When you do, this Saga deals damage equal to the greatest power among creature cards in your graveyard to target creature.\nII — Target creature you control gets +2/+2 until end of turn.\nIII — Return target creature card from your graveyard to your hand.",
     subtypes={"Saga"},
+    setup_interceptors=kravens_last_hunt_setup,
 )
 
 LIZARD_CONNORSS_CURSE = make_creature(
@@ -2208,12 +3499,14 @@ MILES_MORALES = make_creature(
     subtypes={"Citizen", "Hero", "Human"},
     supertypes={"Legendary"},
     text="When Miles Morales enters, put a +1/+1 counter on each of up to two target creatures.\n{3}{R}{G}{W}: Transform Miles Morales. Activate only as a sorcery.\n// Transforms into: Ultimate Spider-Man (4/3)\nFirst strike, haste\nCamouflage — {2}: Put a +1/+1 counter on Ultimate Spider-Man. He gains hexproof and becomes colorless until end of turn.\nWhenever you attack, double the number of each kind of counter on each Spider and legendary creature you control.",
+    setup_interceptors=miles_morales_setup,
 )
 
 PICTURES_OF_SPIDERMAN = make_artifact(
     name="Pictures of Spider-Man",
     mana_cost="{2}{G}",
     text="When this artifact enters, look at the top five cards of your library. You may reveal up to two creature cards from among them and put them into your hand. Put the rest on the bottom of your library in a random order.\n{1}, {T}, Sacrifice this artifact: Create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+    setup_interceptors=pictures_of_spiderman_setup,
 )
 
 PROFESSIONAL_WRESTLER = make_creature(
@@ -2233,6 +3526,7 @@ RADIOACTIVE_SPIDER = make_creature(
     colors={Color.GREEN},
     subtypes={"Spider"},
     text="Reach, deathtouch\nFateful Bite — {2}, Sacrifice this creature: Search your library for a Spider Hero card, reveal it, put it into your hand, then shuffle. Activate only as a sorcery.",
+    setup_interceptors=radioactive_spider_setup,
 )
 
 SANDMAN_SHIFTING_SCOUNDREL = make_creature(
@@ -2243,6 +3537,7 @@ SANDMAN_SHIFTING_SCOUNDREL = make_creature(
     subtypes={"Elemental", "Sand", "Villain"},
     supertypes={"Legendary"},
     text="Sandman's power and toughness are each equal to the number of lands you control.\nSandman can't be blocked by creatures with power 2 or less.\n{3}{G}{G}: Return this card and target land card from your graveyard to the battlefield tapped.",
+    setup_interceptors=sandman_shifting_scoundrel_setup,
 )
 
 SCOUT_THE_CITY = make_sorcery(
@@ -2292,6 +3587,7 @@ SPIDERSMAN_HEROIC_HORDE = make_creature(
     subtypes={"Hero", "Spider"},
     supertypes={"Legendary"},
     text="Web-slinging {4}{G}{G} (You may cast this spell for {4}{G}{G} if you also return a tapped creature you control to its owner's hand.)\nWhen Spiders-Man enters, if they were cast using web-slinging, you gain 3 life and create two 2/1 green Spider creature tokens with reach.",
+    setup_interceptors=spidersman_heroic_horde_setup,
 )
 
 STRENGTH_OF_WILL = make_instant(
@@ -2308,6 +3604,7 @@ SUPPORTIVE_PARENTS = make_creature(
     colors={Color.GREEN},
     subtypes={"Citizen", "Human"},
     text="Tap two untapped creatures you control: Add one mana of any color.",
+    setup_interceptors=supportive_parents_setup,
 )
 
 TERRIFIC_TEAMUP = make_instant(
@@ -2330,6 +3627,7 @@ WEB_OF_LIFE_AND_DESTINY = make_enchantment(
     mana_cost="{6}{G}{G}",
     colors={Color.GREEN},
     text="Convoke (Your creatures can help cast this spell. Each creature you tap while casting this spell pays for {1} or one mana of that creature's color.)\nAt the beginning of combat on your turn, look at the top five cards of your library. You may put a creature card from among them onto the battlefield. Put the rest on the bottom of your library in a random order.",
+    setup_interceptors=web_of_life_and_destiny_setup,
 )
 
 ARAA_HEART_OF_THE_SPIDER = make_creature(
@@ -2348,6 +3646,7 @@ BIORGANIC_CARAPACE = make_artifact(
     mana_cost="{2}{W}{U}",
     text="When this Equipment enters, attach it to target creature you control.\nEquipped creature gets +2/+2 and has \"Whenever this creature deals combat damage to a player, draw a card for each modified creature you control.\" (Equipment, Auras you control, and counters are modifications.)\nEquip {2}",
     subtypes={"Equipment"},
+    setup_interceptors=biorganic_carapace_setup,
 )
 
 CARNAGE_CRIMSON_CHAOS = make_creature(
@@ -2368,6 +3667,7 @@ CHEERING_CROWD = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Citizen", "Human"},
     text="At the beginning of each player's first main phase, that player may put a +1/+1 counter on this creature. If they do, they add {C} for each counter on it.",
+    setup_interceptors=cheering_crowd_setup,
 )
 
 COSMIC_SPIDERMAN = make_creature(
@@ -2421,6 +3721,7 @@ JACKAL_GENIUS_GENETICIST = make_creature(
     subtypes={"Human", "Scientist", "Villain"},
     supertypes={"Legendary"},
     text="Trample\nWhenever you cast a creature spell with mana value equal to Jackal's power, copy that spell, except the copy isn't legendary. Then put a +1/+1 counter on Jackal. (The copy becomes a token.)",
+    setup_interceptors=jackal_genius_geneticist_setup,
 )
 
 KRAVEN_PROUD_PREDATOR = make_creature(
@@ -2431,6 +3732,7 @@ KRAVEN_PROUD_PREDATOR = make_creature(
     subtypes={"Human", "Villain", "Warrior"},
     supertypes={"Legendary"},
     text="Vigilance\nTop of the Food Chain — Kraven's power is equal to the greatest mana value among permanents you control.",
+    setup_interceptors=kraven_proud_predator_setup,
 )
 
 KRAVEN_THE_HUNTER = make_creature(
@@ -2484,6 +3786,7 @@ MORBIUS_THE_LIVING_VAMPIRE = make_creature(
     subtypes={"Scientist", "Vampire", "Villain"},
     supertypes={"Legendary"},
     text="Flying, vigilance, lifelink\n{U}{B}, Exile this card from your graveyard: Look at the top three cards of your library. Put one of them into your hand and the rest on the bottom of your library in any order.",
+    setup_interceptors=morbius_the_living_vampire_setup,
 )
 
 PROWLER_CLAWED_THIEF = make_creature(
@@ -2530,6 +3833,7 @@ SCARLET_SPIDER_BEN_REILLY = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Web-slinging {R}{G} (You may cast this spell for {R}{G} if you also return a tapped creature you control to its owner's hand.)\nTrample\nSensational Save — If Scarlet Spider was cast using web-slinging, he enters with X +1/+1 counters on him, where X is the mana value of the returned creature.",
+    setup_interceptors=scarlet_spider_ben_reilly_setup,
 )
 
 SCARLET_SPIDER_KAINE = make_creature(
@@ -2540,6 +3844,7 @@ SCARLET_SPIDER_KAINE = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nWhen Scarlet Spider enters, you may discard a card. If you do, put a +1/+1 counter on him.\nMayhem {B/R} (You may cast this card from your graveyard for {B/R} if you discarded it this turn. Timing rules still apply.)",
+    setup_interceptors=scarlet_spider_kaine_setup,
 )
 
 SHRIEK_TREBLEMAKER = make_creature(
@@ -2571,6 +3876,7 @@ SKYWARD_SPIDER = make_creature(
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Hero", "Human", "Spider"},
     text="Ward {2} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.)\nThis creature has flying as long as it's modified. (Equipment, Auras you control, and counters are modifications.)",
+    setup_interceptors=skyward_spider_setup,
 )
 
 SPDR_PILOTED_BY_PENI = make_artifact_creature(
@@ -2591,6 +3897,7 @@ SPIDER_MANIFESTATION = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Avatar", "Spider"},
     text="Reach\n{T}: Add {R} or {G}.\nWhenever you cast a spell with mana value 4 or greater, untap this creature.",
+    setup_interceptors=spider_manifestation_setup,
 )
 
 SPIDERGIRL_LEGACY_HERO = make_creature(
@@ -2612,6 +3919,7 @@ SPIDERMAN_2099 = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="From the Future — You can't cast Spider-Man 2099 during your first, second, or third turns of the game.\nDouble strike, vigilance\nAt the beginning of your end step, if you've played a land or cast a spell this turn from anywhere other than your hand, Spider-Man 2099 deals damage equal to his power to any target.",
+    setup_interceptors=spiderman_2099_setup,
 )
 
 SPIDERMAN_INDIA = make_creature(
@@ -2666,6 +3974,7 @@ SUPERIOR_SPIDERMAN = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Mind Swap — You may have Superior Spider-Man enter as a copy of any creature card in a graveyard, except his name is Superior Spider-Man and he's a 4/4 Spider Human Hero in addition to his other types. When you do, exile that card.",
+    setup_interceptors=superior_spiderman_setup,
 )
 
 SYMBIOTE_SPIDERMAN = make_creature(
@@ -2676,6 +3985,7 @@ SYMBIOTE_SPIDERMAN = make_creature(
     subtypes={"Hero", "Spider", "Symbiote"},
     supertypes={"Legendary"},
     text="Whenever this creature deals combat damage to a player, look at that many cards from the top of your library. Put one of them into your hand and the rest into your graveyard.\nFind New Host — {2}{U/B}, Exile this card from your graveyard: Put a +1/+1 counter on target creature you control. It gains this card's other abilities. Activate only as a sorcery.",
+    setup_interceptors=symbiote_spiderman_setup,
 )
 
 ULTIMATE_GREEN_GOBLIN = make_creature(
@@ -2725,6 +4035,7 @@ BAGEL_AND_SCHMEAR = make_artifact(
     mana_cost="{1}",
     text="Share — {W}, {T}, Sacrifice this artifact: Put a +1/+1 counter on up to one target creature. Draw a card. Activate only as a sorcery.\nNosh — {2}, {T}, Sacrifice this artifact: You gain 3 life and draw a card.",
     subtypes={"Food"},
+    setup_interceptors=bagel_and_schmear_setup,
 )
 
 DOC_OCKS_TENTACLES = make_artifact(
@@ -2732,6 +4043,7 @@ DOC_OCKS_TENTACLES = make_artifact(
     mana_cost="{1}",
     text="Whenever a creature you control with mana value 5 or greater enters, you may attach this Equipment to it.\nEquipped creature gets +4/+4.\nEquip {5}",
     subtypes={"Equipment"},
+    setup_interceptors=doc_ocks_tentacles_setup,
 )
 
 EERIE_GRAVESTONE = make_artifact(
@@ -2752,6 +4064,7 @@ INTERDIMENSIONAL_WEB_WATCH = make_artifact(
     name="Interdimensional Web Watch",
     mana_cost="{4}",
     text="When this artifact enters, exile the top two cards of your library. Until the end of your next turn, you may play those cards.\n{T}: Add two mana in any combination of colors. Spend this mana only to cast spells from exile.",
+    setup_interceptors=interdimensional_web_watch_setup,
 )
 
 IRON_SPIDER_STARK_UPGRADE = make_artifact_creature(
@@ -2762,6 +4075,7 @@ IRON_SPIDER_STARK_UPGRADE = make_artifact_creature(
     subtypes={"Hero", "Spider"},
     supertypes={"Legendary"},
     text="Vigilance\n{T}: Put a +1/+1 counter on each artifact creature and/or Vehicle you control.\n{2}, Remove two +1/+1 counters from among artifacts you control: Draw a card.",
+    setup_interceptors=iron_spider_stark_upgrade_setup,
 )
 
 LIVING_BRAIN_MECHANICAL_MARVEL = make_artifact_creature(
@@ -2772,6 +4086,7 @@ LIVING_BRAIN_MECHANICAL_MARVEL = make_artifact_creature(
     subtypes={"Robot", "Villain"},
     supertypes={"Legendary"},
     text="At the beginning of combat on your turn, target non-Equipment artifact you control becomes an artifact creature with base power and toughness 3/3 until end of turn. Untap it.",
+    setup_interceptors=living_brain_mechanical_marvel_setup,
 )
 
 MECHANICAL_MOBSTER = make_artifact_creature(
@@ -2799,12 +4114,14 @@ PASSENGER_FERRY = make_artifact(
     mana_cost="{3}",
     text="Whenever this Vehicle attacks, you may pay {U}. When you do, another target attacking creature can't be blocked this turn.\nCrew 2 (Tap any number of creatures you control with total power 2 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
+    setup_interceptors=passenger_ferry_setup,
 )
 
 PETER_PARKERS_CAMERA = make_artifact(
     name="Peter Parker's Camera",
     mana_cost="{1}",
     text="This artifact enters with three film counters on it.\n{2}, {T}, Remove a film counter from this artifact: Copy target activated or triggered ability you control. You may choose new targets for the copy.",
+    setup_interceptors=peter_parkers_camera_setup,
 )
 
 ROCKETPOWERED_GOBLIN_GLIDER = make_artifact(
@@ -2812,6 +4129,7 @@ ROCKETPOWERED_GOBLIN_GLIDER = make_artifact(
     mana_cost="{3}",
     text="When this Equipment enters, if it was cast from your graveyard, attach it to target creature you control.\nEquipped creature gets +2/+0 and has flying and haste.\nEquip {2}\nMayhem {2}",
     subtypes={"Equipment"},
+    setup_interceptors=rocketpowered_goblin_glider_setup,
 )
 
 SPIDERBOT = make_artifact_creature(
@@ -2829,6 +4147,7 @@ SPIDERMOBILE = make_artifact(
     mana_cost="{3}",
     text="Trample\nWhenever this Vehicle attacks or blocks, it gets +1/+1 until end of turn for each Spider you control.\nCrew 2",
     subtypes={"Vehicle"},
+    setup_interceptors=spidermobile_setup,
 )
 
 SPIDERSLAYER_HATRED_HONED = make_artifact_creature(
@@ -2839,6 +4158,7 @@ SPIDERSLAYER_HATRED_HONED = make_artifact_creature(
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
     text="Whenever Spider-Slayer deals damage to a Spider, destroy that creature.\n{6}, Exile this card from your graveyard: Create two tapped 1/1 colorless Robot artifact creature tokens with flying.",
+    setup_interceptors=spiderslayer_hatred_honed_setup,
 )
 
 SPIDERSUIT = make_artifact(
@@ -2846,12 +4166,14 @@ SPIDERSUIT = make_artifact(
     mana_cost="{1}",
     text="Equipped creature gets +2/+2 and is a Spider Hero in addition to its other types.\nEquip {3} ({3}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=spidersuit_setup,
 )
 
 STEEL_WRECKING_BALL = make_artifact(
     name="Steel Wrecking Ball",
     mana_cost="{5}",
     text="When this artifact enters, it deals 5 damage to target creature.\n{1}{R}, Discard this card: Destroy target artifact.",
+    setup_interceptors=steel_wrecking_ball_setup,
 )
 
 SUBWAY_TRAIN = make_artifact(
@@ -2859,56 +4181,67 @@ SUBWAY_TRAIN = make_artifact(
     mana_cost="{2}",
     text="When this Vehicle enters, you may pay {G}. If you do, search your library for a basic land card, reveal it, put it into your hand, then shuffle.\nCrew 2 (Tap any number of creatures you control with total power 2 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
+    setup_interceptors=subway_train_setup,
 )
 
 DAILY_BUGLE_BUILDING = make_land(
     name="Daily Bugle Building",
     text="{T}: Add {C}.\n{1}, {T}: Add one mana of any color.\nSmear Campaign — {1}, {T}: Target legendary creature gains menace until end of turn. Activate only as a sorcery.",
+    setup_interceptors=daily_bugle_building_setup,
 )
 
 MULTIVERSAL_PASSAGE = make_land(
     name="Multiversal Passage",
     text="As this land enters, choose a basic land type. Then you may pay 2 life. If you don't, it enters tapped.\nThis land is the chosen type.",
+    setup_interceptors=multiversal_passage_setup,
 )
 
 OMINOUS_ASYLUM = make_land(
     name="Ominous Asylum",
     text="This land enters tapped.\n{T}: Add {B} or {R}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=ominous_asylum_setup,
 )
 
 OSCORP_INDUSTRIES = make_land(
     name="Oscorp Industries",
     text="This land enters tapped.\nWhen this land enters from a graveyard, you lose 2 life.\n{T}: Add {U}, {B}, or {R}.\nMayhem (You may play this card from your graveyard if you discarded it this turn. Timing rules still apply.)",
+    setup_interceptors=oscorp_industries_setup,
 )
 
 SAVAGE_MANSION = make_land(
     name="Savage Mansion",
     text="This land enters tapped.\n{T}: Add {R} or {G}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=savage_mansion_setup,
 )
 
 SINISTER_HIDEOUT = make_land(
     name="Sinister Hideout",
     text="This land enters tapped.\n{T}: Add {U} or {B}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=sinister_hideout_setup,
 )
 
 SUBURBAN_SANCTUARY = make_land(
     name="Suburban Sanctuary",
     text="This land enters tapped.\n{T}: Add {G} or {W}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=suburban_sanctuary_setup,
 )
 
 UNIVERSITY_CAMPUS = make_land(
     name="University Campus",
     text="This land enters tapped.\n{T}: Add {W} or {U}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=university_campus_setup,
 )
 
 URBAN_RETREAT = make_land(
     name="Urban Retreat",
     text="This land enters tapped.\n{T}: Add {G}, {W}, or {U}.\n{2}, Return a tapped creature you control to its owner's hand: Put this card from your hand onto the battlefield. Activate only as a sorcery.",
+    setup_interceptors=urban_retreat_setup,
 )
 
 VIBRANT_CITYSCAPE = make_land(
     name="Vibrant Cityscape",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=vibrant_cityscape_setup,
 )
 
 PLAINS = make_land(

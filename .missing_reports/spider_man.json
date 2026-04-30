@@ -1,0 +1,458 @@
+{
+  "set": "spider_man.py",
+  "results": [
+    {
+      "fn": "alien_symbiosis_setup",
+      "card_var": "ALIEN_SYMBIOSIS",
+      "disposition": "wired_stub",
+      "engine_gap": "aura attribute layering + alternative cast cost from graveyard",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "the_death_of_gwen_stacy_setup",
+      "card_var": "THE_DEATH_OF_GWEN_STACY",
+      "disposition": "wired_stub",
+      "engine_gap": "Sagas not implemented",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "inner_demons_gangsters_setup",
+      "card_var": "INNER_DEMONS_GANGSTERS",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with discard cost handled at activation site",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "merciless_enforcers_setup",
+      "card_var": "MERCILESS_ENFORCERS",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability cost/effect handled at activation site",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "parker_luck_setup",
+      "card_var": "PARKER_LUCK",
+      "disposition": "wired_full",
+      "engine_gap": "simultaneous reveal + cross-mv life loss",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "the_soul_stone_setup",
+      "card_var": "THE_SOUL_STONE",
+      "disposition": "wired_stub",
+      "engine_gap": "Infinity Stone harness flag + upkeep reanimate",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "swarm_being_of_bees_setup",
+      "card_var": "SWARM_BEING_OF_BEES",
+      "disposition": "wired_stub",
+      "engine_gap": "mayhem alt cost not wired",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "venom_evil_unleashed_setup",
+      "card_var": "VENOM_EVIL_UNLEASHED",
+      "disposition": "wired_stub",
+      "engine_gap": "activated-from-graveyard ability",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "electro_assaulting_battery_setup",
+      "card_var": "ELECTRO_ASSAULTING_BATTERY",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "masked_meower_setup",
+      "card_var": "MASKED_MEOWER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with discard-and-sac cost",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "maximum_carnage_setup",
+      "card_var": "MAXIMUM_CARNAGE",
+      "disposition": "wired_stub",
+      "engine_gap": "Sagas not implemented",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "raging_goblinoids_setup",
+      "card_var": "RAGING_GOBLINOIDS",
+      "disposition": "wired_stub",
+      "engine_gap": "mayhem alt cost",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "shadow_of_the_goblin_setup",
+      "card_var": "SHADOW_OF_THE_GOBLIN",
+      "disposition": "wired_full",
+      "engine_gap": "\"play a land or cast a spell from anywhere other than your hand\" trigger",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "spidergwen_free_spirit_setup",
+      "card_var": "SPIDERGWEN_FREE_SPIRIT",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "spiderislanders_setup",
+      "card_var": "SPIDERISLANDERS",
+      "disposition": "wired_stub",
+      "engine_gap": "mayhem alt cost",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "spiderverse_setup",
+      "card_var": "SPIDERVERSE",
+      "disposition": "wired_stub",
+      "engine_gap": "legend rule waiver + cast-from-non-hand copy mechanic",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "stegron_the_dinosaur_man_setup",
+      "card_var": "STEGRON_THE_DINOSAUR_MAN",
+      "disposition": "wired_stub",
+      "engine_gap": "activated discard-self ability",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "superior_foes_of_spiderman_setup",
+      "card_var": "SUPERIOR_FOES_OF_SPIDERMAN",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "taxi_driver_setup",
+      "card_var": "TAXI_DRIVER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated targeted keyword grant",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "guy_in_the_chair_setup",
+      "card_var": "GUY_IN_THE_CHAIR",
+      "disposition": "wired_stub",
+      "engine_gap": "activated mana ability + activated counter ability",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "kravens_cats_setup",
+      "card_var": "KRAVENS_CATS",
+      "disposition": "wired_stub",
+      "engine_gap": "activated pump ability",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "kravens_last_hunt_setup",
+      "card_var": "KRAVENS_LAST_HUNT",
+      "disposition": "wired_stub",
+      "engine_gap": "Sagas not implemented",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "miles_morales_setup",
+      "card_var": "MILES_MORALES",
+      "disposition": "wired_full",
+      "engine_gap": "targeted up-to-two counters",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "pictures_of_spiderman_setup",
+      "card_var": "PICTURES_OF_SPIDERMAN",
+      "disposition": "wired_full",
+      "engine_gap": "look-at-top-N + select-up-to-2-creatures",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "radioactive_spider_setup",
+      "card_var": "RADIOACTIVE_SPIDER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated tutor for Spider Hero",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "sandman_shifting_scoundrel_setup",
+      "card_var": "SANDMAN_SHIFTING_SCOUNDREL",
+      "disposition": "wired_full",
+      "engine_gap": "\"can't be blocked by power<=2\" + activated graveyard reanimate of self+land",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "spidersman_heroic_horde_setup",
+      "card_var": "SPIDERSMAN_HEROIC_HORDE",
+      "disposition": "wired_full",
+      "engine_gap": "detect web-slinging cast - assume it triggered",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "supportive_parents_setup",
+      "card_var": "SUPPORTIVE_PARENTS",
+      "disposition": "wired_stub",
+      "engine_gap": "activated mana ability with tap-two-creatures cost",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "web_of_life_and_destiny_setup",
+      "card_var": "WEB_OF_LIFE_AND_DESTINY",
+      "disposition": "wired_full",
+      "engine_gap": "look-at-top-5 + creature-onto-battlefield",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "biorganic_carapace_setup",
+      "card_var": "BIORGANIC_CARAPACE",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment ETB-attach + dynamic per-modified-creature draw",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "cheering_crowd_setup",
+      "card_var": "CHEERING_CROWD",
+      "disposition": "wired_full",
+      "engine_gap": "each-player-may-counter + mana-add per counter",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "jackal_genius_geneticist_setup",
+      "card_var": "JACKAL_GENIUS_GENETICIST",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "kraven_proud_predator_setup",
+      "card_var": "KRAVEN_PROUD_PREDATOR",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "morbius_the_living_vampire_setup",
+      "card_var": "MORBIUS_THE_LIVING_VAMPIRE",
+      "disposition": "wired_stub",
+      "engine_gap": "activated-from-graveyard impulse-style top-3",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "scarlet_spider_ben_reilly_setup",
+      "card_var": "SCARLET_SPIDER_BEN_REILLY",
+      "disposition": "wired_full",
+      "engine_gap": "web-slinging detection + X counters from returned creature MV",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "scarlet_spider_kaine_setup",
+      "card_var": "SCARLET_SPIDER_KAINE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "skyward_spider_setup",
+      "card_var": "SKYWARD_SPIDER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "spider_manifestation_setup",
+      "card_var": "SPIDER_MANIFESTATION",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "spiderman_2099_setup",
+      "card_var": "SPIDERMAN_2099",
+      "disposition": "wired_full",
+      "engine_gap": "tracking spell-from-non-hand or land-this-turn + targeted damage",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "superior_spiderman_setup",
+      "card_var": "SUPERIOR_SPIDERMAN",
+      "disposition": "wired_stub",
+      "engine_gap": "enter-as-copy-from-graveyard replacement",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "symbiote_spiderman_setup",
+      "card_var": "SYMBIOTE_SPIDERMAN",
+      "disposition": "wired_full",
+      "engine_gap": "full \"look at X cards, choose 1 to hand, rest to GY\" choice not wired;",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "bagel_and_schmear_setup",
+      "card_var": "BAGEL_AND_SCHMEAR",
+      "disposition": "wired_stub",
+      "engine_gap": "activated tap-sac abilities",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "doc_ocks_tentacles_setup",
+      "card_var": "DOC_OCKS_TENTACLES",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "interdimensional_web_watch_setup",
+      "card_var": "INTERDIMENSIONAL_WEB_WATCH",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "iron_spider_stark_upgrade_setup",
+      "card_var": "IRON_SPIDER_STARK_UPGRADE",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities only",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "living_brain_mechanical_marvel_setup",
+      "card_var": "LIVING_BRAIN_MECHANICAL_MARVEL",
+      "disposition": "wired_full",
+      "engine_gap": "targeted artifact-becomes-3/3-creature + untap",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "passenger_ferry_setup",
+      "card_var": "PASSENGER_FERRY",
+      "disposition": "wired_full",
+      "engine_gap": "optional cost + targeted unblockable",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "peter_parkers_camera_setup",
+      "card_var": "PETER_PARKERS_CAMERA",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "rocketpowered_goblin_glider_setup",
+      "card_var": "ROCKETPOWERED_GOBLIN_GLIDER",
+      "disposition": "wired_stub",
+      "engine_gap": "cast-from-graveyard detection + auto-attach + mayhem alt cost",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "spidermobile_setup",
+      "card_var": "SPIDERMOBILE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "spiderslayer_hatred_honed_setup",
+      "card_var": "SPIDERSLAYER_HATRED_HONED",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "has interceptor logic"
+    },
+    {
+      "fn": "spidersuit_setup",
+      "card_var": "SPIDERSUIT",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment passive grants handled by attach layer",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "steel_wrecking_ball_setup",
+      "card_var": "STEEL_WRECKING_BALL",
+      "disposition": "wired_full",
+      "engine_gap": "targeted damage on ETB",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "subway_train_setup",
+      "card_var": "SUBWAY_TRAIN",
+      "disposition": "wired_full",
+      "engine_gap": "optional cost + tutor",
+      "notes": "has interceptor logic (partial)"
+    },
+    {
+      "fn": "daily_bugle_building_setup",
+      "card_var": "DAILY_BUGLE_BUILDING",
+      "disposition": "wired_stub",
+      "engine_gap": "land activated abilities (including targeted menace grant)",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "multiversal_passage_setup",
+      "card_var": "MULTIVERSAL_PASSAGE",
+      "disposition": "wired_stub",
+      "engine_gap": "choose-basic-land-type + pay-2-life-or-tapped",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "ominous_asylum_setup",
+      "card_var": "OMINOUS_ASYLUM",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB tapped + activated surveil",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "oscorp_industries_setup",
+      "card_var": "OSCORP_INDUSTRIES",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB tapped + ETB-from-graveyard penalty + mayhem",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "savage_mansion_setup",
+      "card_var": "SAVAGE_MANSION",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB tapped + activated surveil",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "sinister_hideout_setup",
+      "card_var": "SINISTER_HIDEOUT",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB tapped + activated surveil",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "suburban_sanctuary_setup",
+      "card_var": "SUBURBAN_SANCTUARY",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB tapped + activated surveil",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "university_campus_setup",
+      "card_var": "UNIVERSITY_CAMPUS",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB tapped + activated surveil",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "urban_retreat_setup",
+      "card_var": "URBAN_RETREAT",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB tapped + bounce-creature-to-flicker activation",
+      "notes": "engine gap stub"
+    },
+    {
+      "fn": "vibrant_cityscape_setup",
+      "card_var": "VIBRANT_CITYSCAPE",
+      "disposition": "wired_stub",
+      "engine_gap": "tap-sacrifice fetch ability",
+      "notes": "engine gap stub"
+    }
+  ],
+  "summary": {
+    "wired_full": 28,
+    "wired_stub": 36,
+    "skipped": 0
+  }
+}

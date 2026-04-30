@@ -478,6 +478,10 @@ class TurnManager:
         )
         if self.pipeline:
             self.pipeline.emit(event)
+        # Clear per-turn scratchpad. Card setups use `state.turn_data` to
+        # remember "did X happen this turn" (e.g. life gained, attacked).
+        if hasattr(self.state, "turn_data"):
+            self.state.turn_data.clear()
         return [event]
 
     async def _emit_step_start(self) -> list[Event]:

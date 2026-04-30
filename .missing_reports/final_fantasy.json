@@ -1,0 +1,801 @@
+{
+  "set": "final_fantasy.py",
+  "results": [
+    {
+      "fn": "magitek_infantry_ff_setup",
+      "card_var": "MAGITEK_INFANTRY",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "static P/T conditional bonus"
+    },
+    {
+      "fn": "paladins_arms_ff_setup",
+      "card_var": "PALADINS_ARMS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "phoenix_down_ff_setup",
+      "card_var": "PHOENIX_DOWN",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities + modal choices via setup_interceptors not supported",
+      "notes": "activated abilities + modal choice"
+    },
+    {
+      "fn": "snow_villiers_ff_setup",
+      "card_var": "SNOW_VILLIERS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "P/T = creature count"
+    },
+    {
+      "fn": "stiltzkin_moogle_merchant_ff_setup",
+      "card_var": "STILTZKIN_MOOGLE_MERCHANT",
+      "disposition": "wired_stub",
+      "engine_gap": "activated control transfer ability not registered through setup_interceptors",
+      "notes": "activated control transfer"
+    },
+    {
+      "fn": "summon_chocomog_ff_setup",
+      "card_var": "SUMMON_CHOCOMOG",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga lore counters and chapter abilities not implemented",
+      "notes": "Saga lore counters"
+    },
+    {
+      "fn": "summon_knights_of_round_ff_setup",
+      "card_var": "SUMMON_KNIGHTS_OF_ROUND",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "summon_primal_garuda_ff_setup",
+      "card_var": "SUMMON_PRIMAL_GARUDA",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "white_mages_staff_ff_setup",
+      "card_var": "WHITE_MAGES_STAFF",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "the_wind_crystal_ff_setup",
+      "card_var": "THE_WIND_CRYSTAL",
+      "disposition": "wired_stub",
+      "engine_gap": "replacement effects (cost reduction by color, life-gain doubling) not modular",
+      "notes": "color cost reduction + life doubling"
+    },
+    {
+      "fn": "astrologians_planisphere_ff_setup",
+      "card_var": "ASTROLOGIANS_PLANISPHERE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "cargo_ship_ff_setup",
+      "card_var": "CARGO_SHIP",
+      "disposition": "wired_stub",
+      "engine_gap": "Vehicle crewing + restricted mana not yet implemented",
+      "notes": "Vehicle crew + restricted mana"
+    },
+    {
+      "fn": "ether_ff_setup",
+      "card_var": "ETHER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities + delayed spell copy not modular",
+      "notes": "activated abilities + delayed copy"
+    },
+    {
+      "fn": "gogo_master_of_mimicry_ff_setup",
+      "card_var": "GOGO_MASTER_OF_MIMICRY",
+      "disposition": "wired_stub",
+      "engine_gap": "copy ability not implemented",
+      "notes": "copy ability"
+    },
+    {
+      "fn": "the_lunar_whale_ff_setup",
+      "card_var": "THE_LUNAR_WHALE",
+      "disposition": "wired_stub",
+      "engine_gap": "play from top of library / crew mechanic not modular",
+      "notes": "play from top of library + crew"
+    },
+    {
+      "fn": "the_prima_vista_ff_setup",
+      "card_var": "THE_PRIMA_VISTA",
+      "disposition": "wired_stub",
+      "engine_gap": "temporary \"becomes a creature\" not implemented for Vehicles via interceptors",
+      "notes": "noncreature spell MV>=4 -> become creature"
+    },
+    {
+      "fn": "qiqirn_merchant_ff_setup",
+      "card_var": "QIQIRN_MERCHANT",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities not registered through setup_interceptors",
+      "notes": "activated abilities"
+    },
+    {
+      "fn": "sages_nouliths_ff_setup",
+      "card_var": "SAGES_NOULITHS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "sahagin_ff_setup",
+      "card_var": "SAHAGIN",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "noncreature spell MV>=4 trigger"
+    },
+    {
+      "fn": "scorpion_sentinel_ff_setup",
+      "card_var": "SCORPION_SENTINEL",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "+3/+0 if 7+ lands"
+    },
+    {
+      "fn": "sleep_magic_ff_setup",
+      "card_var": "SLEEP_MAGIC",
+      "disposition": "wired_stub",
+      "engine_gap": "aura targeting + permanent doesn't-untap effect not modular",
+      "notes": "Aura tapped lock + dies-to-damage trigger"
+    },
+    {
+      "fn": "stuck_in_summoners_sanctum_ff_setup",
+      "card_var": "STUCK_IN_SUMMONERS_SANCTUM",
+      "disposition": "wired_stub",
+      "engine_gap": "aura targeting + don't-untap + ability suppression not modular",
+      "notes": "Aura tapped lock + activated lock"
+    },
+    {
+      "fn": "summon_leviathan_ff_setup",
+      "card_var": "SUMMON_LEVIATHAN",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "summon_shiva_ff_setup",
+      "card_var": "SUMMON_SHIVA",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "thiefs_knife_ff_setup",
+      "card_var": "THIEFS_KNIFE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "the_water_crystal_ff_setup",
+      "card_var": "THE_WATER_CRYSTAL",
+      "disposition": "wired_stub",
+      "engine_gap": "cost reduction by color + replacement effects on mills not modular",
+      "notes": "color cost reduction + mill replacement"
+    },
+    {
+      "fn": "yshtola_rhul_ff_setup",
+      "card_var": "YSHTOLA_RHUL",
+      "disposition": "wired_stub",
+      "engine_gap": "targeting + flicker + extra-end-step phase loop not modular",
+      "notes": "end step blink target creature"
+    },
+    {
+      "fn": "ardyn_the_usurper_ff_setup",
+      "card_var": "ARDYN_THE_USURPER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "demon lord + reanimate token"
+    },
+    {
+      "fn": "black_mages_rod_ff_setup",
+      "card_var": "BLACK_MAGES_ROD",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "dark_knights_greatsword_ff_setup",
+      "card_var": "DARK_KNIGHTS_GREATSWORD",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "the_darkness_crystal_ff_setup",
+      "card_var": "THE_DARKNESS_CRYSTAL",
+      "disposition": "wired_stub",
+      "engine_gap": "cost reduction by color + replacement effects on death not modular",
+      "notes": "color cost reduction + replacement effects"
+    },
+    {
+      "fn": "demon_wall_ff_setup",
+      "card_var": "DEMON_WALL",
+      "disposition": "wired_stub",
+      "engine_gap": "'can attack as though without defender' conditional not modular",
+      "notes": "defender + counter-driven attack ability"
+    },
+    {
+      "fn": "fang_fearless_lcie_ff_setup",
+      "card_var": "FANG_FEARLESS_LCIE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "graveyard departure trigger"
+    },
+    {
+      "fn": "kain_traitorous_dragoon_ff_setup",
+      "card_var": "KAIN_TRAITOROUS_DRAGOON",
+      "disposition": "wired_stub",
+      "engine_gap": "conditional flying during your turn + control transfer on combat damage not modular",
+      "notes": "Jump (turn-based flying) + control swap"
+    },
+    {
+      "fn": "ninjas_blades_ff_setup",
+      "card_var": "NINJAS_BLADES",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "phantom_train_ff_setup",
+      "card_var": "PHANTOM_TRAIN",
+      "disposition": "wired_stub",
+      "engine_gap": "activated sacrifice cost ability not registered through setup_interceptors",
+      "notes": "Vehicle sacrifice cost"
+    },
+    {
+      "fn": "qutrub_forayer_ff_setup",
+      "card_var": "QUTRUB_FORAYER",
+      "disposition": "wired_stub",
+      "engine_gap": "modal targeting choice in ETB not modular",
+      "notes": "ETB modal choice"
+    },
+    {
+      "fn": "shambling_cieth_ff_setup",
+      "card_var": "SHAMBLING_CIETH",
+      "disposition": "wired_stub",
+      "engine_gap": "'may pay X' from graveyard + return-to-hand from graveyard not modular",
+      "notes": "graveyard return on may-pay {B}"
+    },
+    {
+      "fn": "summon_anima_ff_setup",
+      "card_var": "SUMMON_ANIMA",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "summon_primal_odin_ff_setup",
+      "card_var": "SUMMON_PRIMAL_ODIN",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "tonberry_ff_setup",
+      "card_var": "TONBERRY",
+      "disposition": "wired_stub",
+      "engine_gap": "enters with stun counter + conditional 'during your turn' keywords not modular",
+      "notes": "ETB stun counter + conditional keywords"
+    },
+    {
+      "fn": "blazing_bomb_ff_setup",
+      "card_var": "BLAZING_BOMB",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "noncreature spell MV>=4 trigger"
+    },
+    {
+      "fn": "freya_crescent_ff_setup",
+      "card_var": "FREYA_CRESCENT",
+      "disposition": "wired_stub",
+      "engine_gap": "conditional 'during your turn' keyword + restricted-use mana not modular",
+      "notes": "Jump + restricted activated mana"
+    },
+    {
+      "fn": "hill_gigas_ff_setup",
+      "card_var": "HILL_GIGAS",
+      "disposition": "wired_stub",
+      "engine_gap": "placeholder body",
+      "notes": "Mountaincycling"
+    },
+    {
+      "fn": "item_shopkeep_ff_setup",
+      "card_var": "ITEM_SHOPKEEP",
+      "disposition": "wired_stub",
+      "engine_gap": "targeting attacking equipped creature for menace grant not modular",
+      "notes": "attack target Equipment menace grant"
+    },
+    {
+      "fn": "raubahn_bull_of_ala_mhigo_ff_setup",
+      "card_var": "RAUBAHN_BULL_OF_ALA_MHIGO",
+      "disposition": "wired_stub",
+      "engine_gap": "dynamic ward cost + targeting Equipment auto-attach not modular",
+      "notes": "ward power-life + attack attach"
+    },
+    {
+      "fn": "red_mages_rapier_ff_setup",
+      "card_var": "RED_MAGES_RAPIER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "samurais_katana_ff_setup",
+      "card_var": "SAMURAIS_KATANA",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "sandworm_red_ff_setup",
+      "card_var": "SANDWORM",
+      "disposition": "wired_stub",
+      "engine_gap": "targeting + library search effect not modular",
+      "notes": "ETB destroy land + library search"
+    },
+    {
+      "fn": "summon_brynhildr_ff_setup",
+      "card_var": "SUMMON_BRYNHILDR",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "summon_esper_ramuh_ff_setup",
+      "card_var": "SUMMON_ESPER_RAMUH",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "summon_gf_cerberus_ff_setup",
+      "card_var": "SUMMON_GF_CERBERUS",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "summon_gf_ifrit_ff_setup",
+      "card_var": "SUMMON_GF_IFRIT",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "triple_triad_ff_setup",
+      "card_var": "TRIPLE_TRIAD",
+      "disposition": "wired_stub",
+      "engine_gap": "cross-player exile + may-cast-without-paying mechanic not modular",
+      "notes": "upkeep exile + may-play tracking"
+    },
+    {
+      "fn": "warriors_sword_ff_setup",
+      "card_var": "WARRIORS_SWORD",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "zell_dincht_ff_setup",
+      "card_var": "ZELL_DINCHT",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "extra land + power = lands + bounce"
+    },
+    {
+      "fn": "bards_bow_ff_setup",
+      "card_var": "BARDS_BOW",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "cactuar_ff_setup",
+      "card_var": "CACTUAR",
+      "disposition": "wired_stub",
+      "engine_gap": "'didn't enter this turn' check + self-bounce not modular here",
+      "notes": "end step self-bounce"
+    },
+    {
+      "fn": "diamond_weapon_ff_setup",
+      "card_var": "DIAMOND_WEAPON",
+      "disposition": "wired_stub",
+      "engine_gap": "combat damage prevention to specific creature + cost reduction by graveyard count not modular",
+      "notes": "cost reduction + damage prevention"
+    },
+    {
+      "fn": "the_earth_crystal_ff_setup",
+      "card_var": "THE_EARTH_CRYSTAL",
+      "disposition": "wired_stub",
+      "engine_gap": "cost reduction by color + replacement of counters being placed not modular",
+      "notes": "cost reduction + counter doubling"
+    },
+    {
+      "fn": "gigantoad_ff_setup",
+      "card_var": "GIGANTOAD",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "+2/+2 if 7+ lands"
+    },
+    {
+      "fn": "goobbue_gardener_ff_setup",
+      "card_var": "GOOBBUE_GARDENER",
+      "disposition": "wired_stub",
+      "engine_gap": "creature mana abilities not registered through setup_interceptors here",
+      "notes": "activated mana ability"
+    },
+    {
+      "fn": "gran_pulse_ochu_ff_setup",
+      "card_var": "GRAN_PULSE_OCHU",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities not registered through setup_interceptors",
+      "notes": "deathtouch + activated graveyard P/T pump"
+    },
+    {
+      "fn": "a_realm_reborn_ff_setup",
+      "card_var": "A_REALM_REBORN",
+      "disposition": "wired_stub",
+      "engine_gap": "granting mana abilities to permanents you control not modular here",
+      "notes": "global mana ability grant"
+    },
+    {
+      "fn": "ride_the_shoopuf_ff_setup",
+      "card_var": "RIDE_THE_SHOOPUF",
+      "disposition": "wired_stub",
+      "engine_gap": "targeting target creature for counter not modular here",
+      "notes": "landfall counter + animate"
+    },
+    {
+      "fn": "sazh_katzroy_ff_setup",
+      "card_var": "SAZH_KATZROY",
+      "disposition": "wired_stub",
+      "engine_gap": "library search for Bird/basic land not modular",
+      "notes": "ETB tutor + attack double counters"
+    },
+    {
+      "fn": "summon_fat_chocobo_ff_setup",
+      "card_var": "SUMMON_FAT_CHOCOBO",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "summon_fenrir_ff_setup",
+      "card_var": "SUMMON_FENRIR",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "summon_titan_ff_setup",
+      "card_var": "SUMMON_TITAN",
+      "disposition": "wired_stub",
+      "engine_gap": "Saga chapter abilities not implemented",
+      "notes": "Saga chapter abilities"
+    },
+    {
+      "fn": "summoners_grimoire_ff_setup",
+      "card_var": "SUMMONERS_GRIMOIRE",
+      "disposition": "wired_stub",
+      "engine_gap": "Job select implicit on Equipment not modular here",
+      "notes": "Equipment attack-cheat creature"
+    },
+    {
+      "fn": "torgal_a_fine_hound_ff_setup",
+      "card_var": "TORGAL_A_FINE_HOUND",
+      "disposition": "wired_stub",
+      "engine_gap": "first-of-turn tracking + entering-with-counters modification not modular",
+      "notes": "first Human/turn counter scaling"
+    },
+    {
+      "fn": "absolute_virtue_ff_setup",
+      "card_var": "ABSOLUTE_VIRTUE",
+      "disposition": "wired_stub",
+      "engine_gap": "'you have protection' player-level effect not modular",
+      "notes": "uncounterable + protection from opponents"
+    },
+    {
+      "fn": "choco_seeker_of_paradise_ff_setup",
+      "card_var": "CHOCO_SEEKER_OF_PARADISE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Bird attack scry-style + landfall"
+    },
+    {
+      "fn": "hope_estheim_ff_setup",
+      "card_var": "HOPE_ESTHEIM",
+      "disposition": "wired_stub",
+      "engine_gap": "per-turn life-gained tracking not implemented; stub",
+      "notes": "end step mill = life gained tracking"
+    },
+    {
+      "fn": "ignis_scientia_ff_setup",
+      "card_var": "IGNIS_SCIENTIA",
+      "disposition": "wired_stub",
+      "engine_gap": "library look + selective put-onto-battlefield not modular",
+      "notes": "ETB land tutor + activated GY exile"
+    },
+    {
+      "fn": "sin_spiras_punishment_ff_setup",
+      "card_var": "SIN_SPIRAS_PUNISHMENT",
+      "disposition": "wired_stub",
+      "engine_gap": "random graveyard pick + token copy of card not modular",
+      "notes": "ETB/attack random GY copy + repeat on land"
+    },
+    {
+      "fn": "avivi_ornitier_ff_setup",
+      "card_var": "AVIVI_ORNITIER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "noncreature spell counter + damage to opponents"
+    },
+    {
+      "fn": "the_wandering_minstrel_ff_setup",
+      "card_var": "THE_WANDERING_MINSTREL",
+      "disposition": "wired_stub",
+      "engine_gap": "lands enter untapped replacement + Town counting + activated +X/+X not modular",
+      "notes": "lands enter untapped + Town count effects"
+    },
+    {
+      "fn": "yuna_hope_of_spira_ff_setup",
+      "card_var": "YUNA_HOPE_OF_SPIRA",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "enchantment lord + GY return with finality"
+    },
+    {
+      "fn": "zidane_tantalus_thief_ff_setup",
+      "card_var": "ZIDANE_TANTALUS_THIEF",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "ETB control swap + opponent-takes-permanent treasure"
+    },
+    {
+      "fn": "aettir_and_priwen_ff_setup",
+      "card_var": "AETTIR_AND_PRIWEN",
+      "disposition": "wired_stub",
+      "engine_gap": "setting base P/T to a dynamic value via attached Equipment not modular",
+      "notes": "equipped P/T = life total"
+    },
+    {
+      "fn": "blitzball_ff_setup",
+      "card_var": "BLITZBALL",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities + 'opponent dealt damage by legendary creature this turn' tracking not modular",
+      "notes": "any-color mana + GOAL conditional draw"
+    },
+    {
+      "fn": "buster_sword_ff_setup",
+      "card_var": "BUSTER_SWORD",
+      "disposition": "wired_stub",
+      "engine_gap": "combat damage trigger on equipped creature + cast-from-hand-free not modular here",
+      "notes": "equipped combat damage -> draw + free cast"
+    },
+    {
+      "fn": "excalibur_ii_ff_setup",
+      "card_var": "EXCALIBUR_II",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "life gain -> charge counter"
+    },
+    {
+      "fn": "genji_glove_ff_setup",
+      "card_var": "GENJI_GLOVE",
+      "disposition": "wired_stub",
+      "engine_gap": "double strike grant via attached + extra combat phase logic not modular",
+      "notes": "double strike grant + extra combat"
+    },
+    {
+      "fn": "lion_heart_ff_setup",
+      "card_var": "LION_HEART",
+      "disposition": "wired_stub",
+      "engine_gap": "targeting any-target for damage from an Equipment ETB not modular",
+      "notes": "Equipment ETB damage to any target"
+    },
+    {
+      "fn": "lunatic_pandora_ff_setup",
+      "card_var": "LUNATIC_PANDORA",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities not modular here",
+      "notes": "activated surveil + destroy"
+    },
+    {
+      "fn": "the_masamune_ff_setup",
+      "card_var": "THE_MASAMUNE",
+      "disposition": "wired_stub",
+      "engine_gap": "'must be blocked' + double-trigger emblem effect via Equipment not modular",
+      "notes": "first strike + must be blocked + emblem trigger doubler"
+    },
+    {
+      "fn": "monks_fist_ff_setup",
+      "card_var": "MONKS_FIST",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Equipment Job select ETB"
+    },
+    {
+      "fn": "relentless_xatm092_ff_setup",
+      "card_var": "RELENTLESS_XATM092",
+      "disposition": "wired_stub",
+      "engine_gap": "'must be blocked by 3+' modifier + reanimation activated ability not modular",
+      "notes": "block restriction + activated reanimate"
+    },
+    {
+      "fn": "ring_of_the_lucii_ff_setup",
+      "card_var": "RING_OF_THE_LUCII",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities not modular here",
+      "notes": "activated mana + tap target"
+    },
+    {
+      "fn": "world_map_ff_setup",
+      "card_var": "WORLD_MAP",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities not modular here",
+      "notes": "activated tutor abilities"
+    },
+    {
+      "fn": "baron_airship_kingdom_ff_setup",
+      "card_var": "BARON_AIRSHIP_KINGDOM",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB-tapped state and activated dual mana abilities not modular",
+      "notes": "ETB-tapped + dual mana ability"
+    },
+    {
+      "fn": "capital_city_ff_setup",
+      "card_var": "CAPITAL_CITY",
+      "disposition": "wired_stub",
+      "engine_gap": "activated mana abilities + cycling not modular here",
+      "notes": "activated mana + cycling"
+    },
+    {
+      "fn": "clives_hideaway_ff_setup",
+      "card_var": "CLIVES_HIDEAWAY",
+      "disposition": "wired_stub",
+      "engine_gap": "Hideaway mechanic (look at top 4, exile face down) not implemented",
+      "notes": "Hideaway 4 mechanic + conditional play"
+    },
+    {
+      "fn": "crossroads_village_ff_setup",
+      "card_var": "CROSSROADS_VILLAGE",
+      "disposition": "wired_stub",
+      "engine_gap": "choose-a-color on enter + restricted-color mana production not modular",
+      "notes": "choose-color on enter + restricted mana"
+    },
+    {
+      "fn": "eden_seat_of_the_sanctum_ff_setup",
+      "card_var": "EDEN_SEAT_OF_THE_SANCTUM",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities + delayed reanimation trigger not modular",
+      "notes": "activated mill + sacrifice trigger"
+    },
+    {
+      "fn": "gohn_town_of_ruin_ff_setup",
+      "card_var": "GOHN_TOWN_OF_RUIN",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB-tapped state and activated dual mana abilities not modular",
+      "notes": "ETB-tapped + dual mana ability"
+    },
+    {
+      "fn": "the_gold_saucer_ff_setup",
+      "card_var": "THE_GOLD_SAUCER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities + coin flip not modular here",
+      "notes": "activated abilities + coin flip"
+    },
+    {
+      "fn": "gongaga_reactor_town_ff_setup",
+      "card_var": "GONGAGA_REACTOR_TOWN",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB-tapped state and activated dual mana abilities not modular",
+      "notes": "ETB-tapped + dual mana ability"
+    },
+    {
+      "fn": "guadosalam_farplane_gateway_ff_setup",
+      "card_var": "GUADOSALAM_FARPLANE_GATEWAY",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB-tapped state and activated dual mana abilities not modular",
+      "notes": "ETB-tapped + dual mana ability"
+    },
+    {
+      "fn": "insomnia_crown_city_ff_setup",
+      "card_var": "INSOMNIA_CROWN_CITY",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB-tapped state and activated dual mana abilities not modular",
+      "notes": "ETB-tapped + dual mana ability"
+    },
+    {
+      "fn": "rabanastre_royal_city_ff_setup",
+      "card_var": "RABANASTRE_ROYAL_CITY",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB-tapped state and activated dual mana abilities not modular",
+      "notes": "ETB-tapped + dual mana ability"
+    },
+    {
+      "fn": "sharlayan_nation_of_scholars_ff_setup",
+      "card_var": "SHARLAYAN_NATION_OF_SCHOLARS",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB-tapped state and activated dual mana abilities not modular",
+      "notes": "ETB-tapped + dual mana ability"
+    },
+    {
+      "fn": "starting_town_ff_setup",
+      "card_var": "STARTING_TOWN",
+      "disposition": "wired_stub",
+      "engine_gap": "'enters tapped unless' conditional based on turn count not modular",
+      "notes": "conditional ETB-tapped + life-pay any-color"
+    },
+    {
+      "fn": "treno_dark_city_ff_setup",
+      "card_var": "TRENO_DARK_CITY",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB-tapped state and activated dual mana abilities not modular",
+      "notes": "ETB-tapped + dual mana ability"
+    },
+    {
+      "fn": "vector_imperial_capital_ff_setup",
+      "card_var": "VECTOR_IMPERIAL_CAPITAL",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB-tapped state and activated dual mana abilities not modular",
+      "notes": "ETB-tapped + dual mana ability"
+    },
+    {
+      "fn": "windurst_federation_center_ff_setup",
+      "card_var": "WINDURST_FEDERATION_CENTER",
+      "disposition": "wired_stub",
+      "engine_gap": "ETB-tapped state and activated dual mana abilities not modular",
+      "notes": "ETB-tapped + dual mana ability"
+    },
+    {
+      "fn": "wastes_ff_setup",
+      "card_var": "WASTES",
+      "disposition": "wired_stub",
+      "engine_gap": "activated tap-for-mana abilities for basic lands not registered here",
+      "notes": "basic land mana ability"
+    },
+    {
+      "fn": "cloud_planets_champion_ff_setup",
+      "card_var": "CLOUD_PLANETS_CHAMPION",
+      "disposition": "wired_stub",
+      "engine_gap": "'while equipped' + 'during your turn' conjunction grant not modular",
+      "notes": "while-equipped + during-turn keyword grant"
+    },
+    {
+      "fn": "beatrix_loyal_general_ff_setup",
+      "card_var": "BEATRIX_LOYAL_GENERAL",
+      "disposition": "wired_stub",
+      "engine_gap": "voluntary multi-Equipment attach to single target not modular",
+      "notes": "combat -> may attach Equipment"
+    },
+    {
+      "fn": "lightning_security_sergeant_ff_setup",
+      "card_var": "LIGHTNING_SECURITY_SERGEANT",
+      "disposition": "wired_stub",
+      "engine_gap": "exile-top + may-play-while-controlled not modular",
+      "notes": "combat damage -> exile-may-play"
+    },
+    {
+      "fn": "xande_dark_mage_ff_setup",
+      "card_var": "XANDE_DARK_MAGE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "P/T = noncreature/nonland graveyard count"
+    }
+  ],
+  "summary": {
+    "wired_full": 28,
+    "wired_stub": 85,
+    "skipped": 0
+  }
+}

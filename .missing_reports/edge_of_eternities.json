@@ -1,0 +1,626 @@
+{
+  "set": "edge_of_eternities.py",
+  "results": [
+    {
+      "fn": "squires_lightblade_setup",
+      "card_var": "SQUIRES_LIGHTBLADE",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment auto-attach + first-strike-until-EOT",
+      "notes": "Squire's Lightblade"
+    },
+    {
+      "fn": "starport_security_setup",
+      "card_var": "STARPORT_SECURITY",
+      "disposition": "wired_stub",
+      "engine_gap": "dynamic activated ability cost (-2 if you control creature with +1/+1 counter)",
+      "notes": "Starport Security"
+    },
+    {
+      "fn": "sunstar_expansionist_setup",
+      "card_var": "SUNSTAR_EXPANSIONIST",
+      "disposition": "wired_full",
+      "engine_gap": "temporary +1/+0 EOT pump",
+      "notes": "Sunstar Expansionist"
+    },
+    {
+      "fn": "atomic_microsizer_setup",
+      "card_var": "ATOMIC_MICROSIZER",
+      "disposition": "wired_stub",
+      "engine_gap": "equipped-creature attack trigger; can't-be-blocked + base P/T set",
+      "notes": "Atomic Microsizer"
+    },
+    {
+      "fn": "cryoshatter_setup",
+      "card_var": "CRYOSHATTER",
+      "disposition": "wired_stub",
+      "engine_gap": "aura attachment + -5/-0 + conditional destroy on tap/damage",
+      "notes": "Cryoshatter"
+    },
+    {
+      "fn": "gigastorm_titan_setup",
+      "card_var": "GIGASTORM_TITAN",
+      "disposition": "wired_stub",
+      "engine_gap": "dynamic cast cost reduction (cost reduction at cast time)",
+      "notes": "Gigastorm Titan"
+    },
+    {
+      "fn": "illvoi_galeblade_setup",
+      "card_var": "ILLVOI_GALEBLADE",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with sacrifice cost",
+      "notes": "Illvoi Galeblade"
+    },
+    {
+      "fn": "illvoi_light_jammer_setup",
+      "card_var": "ILLVOI_LIGHT_JAMMER",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment auto-attach + hexproof-until-EOT",
+      "notes": "Illvoi Light Jammer"
+    },
+    {
+      "fn": "mechan_shieldmate_setup",
+      "card_var": "MECHAN_SHIELDMATE",
+      "disposition": "wired_stub",
+      "engine_gap": "conditional defender removal based on per-turn ETB tracking",
+      "notes": "Mechan Shieldmate"
+    },
+    {
+      "fn": "mmmenon_the_right_hand_setup",
+      "card_var": "MMMENON_THE_RIGHT_HAND",
+      "disposition": "wired_stub",
+      "engine_gap": "cast-from-library + restricted mana production",
+      "notes": "Mm'menon, the Right Hand"
+    },
+    {
+      "fn": "moonlit_meditation_setup",
+      "card_var": "MOONLIT_MEDITATION",
+      "disposition": "wired_stub",
+      "engine_gap": "replacement of token creation by copying enchanted permanent",
+      "notes": "Moonlit Meditation"
+    },
+    {
+      "fn": "specimen_freighter_setup",
+      "card_var": "SPECIMEN_FREIGHTER",
+      "disposition": "wired_full",
+      "engine_gap": "targeted bounce (up to 2)",
+      "notes": "Specimen Freighter"
+    },
+    {
+      "fn": "starfield_vocalist_setup",
+      "card_var": "STARFIELD_VOCALIST",
+      "disposition": "wired_stub",
+      "engine_gap": "replicate triggered abilities (doubling effect)",
+      "notes": "Starfield Vocalist"
+    },
+    {
+      "fn": "steelswarm_operator_setup",
+      "card_var": "STEELSWARM_OPERATOR",
+      "disposition": "wired_stub",
+      "engine_gap": "restricted mana production (only for artifacts)",
+      "notes": "Steelswarm Operator"
+    },
+    {
+      "fn": "synthesizer_labship_setup",
+      "card_var": "SYNTHESIZER_LABSHIP",
+      "disposition": "wired_stub",
+      "engine_gap": "station-charge-counter gated abilities + temporary creature animation",
+      "notes": "Synthesizer Labship"
+    },
+    {
+      "fn": "tractor_beam_setup",
+      "card_var": "TRACTOR_BEAM",
+      "disposition": "wired_stub",
+      "engine_gap": "aura attachment + control change + untap restriction",
+      "notes": "Tractor Beam"
+    },
+    {
+      "fn": "uthros_psionicist_setup",
+      "card_var": "UTHROS_PSIONICIST",
+      "disposition": "wired_stub",
+      "engine_gap": "cost reduction with per-turn second-spell tracking",
+      "notes": "Uthros Psionicist"
+    },
+    {
+      "fn": "weftwalking_setup",
+      "card_var": "WEFTWALKING",
+      "disposition": "wired_full",
+      "engine_gap": "hand/graveyard shuffle into library + once-per-turn first-spell-free",
+      "notes": "Weftwalking"
+    },
+    {
+      "fn": "alpharael_stonechosen_setup",
+      "card_var": "ALPHARAEL_STONECHOSEN",
+      "disposition": "wired_stub",
+      "engine_gap": "void mechanic check + ward + half-life-loss",
+      "notes": "Alpharael, Stonechosen"
+    },
+    {
+      "fn": "blade_of_the_swarm_setup",
+      "card_var": "BLADE_OF_THE_SWARM",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Blade of the Swarm"
+    },
+    {
+      "fn": "chorale_of_the_void_setup",
+      "card_var": "CHORALE_OF_THE_VOID",
+      "disposition": "wired_stub",
+      "engine_gap": "aura-attached attack trigger, reanimate from opponent GY",
+      "notes": "Chorale of the Void"
+    },
+    {
+      "fn": "dubious_delicacy_setup",
+      "card_var": "DUBIOUS_DELICACY",
+      "disposition": "wired_stub",
+      "engine_gap": "target selection + temporary -3/-3 P/T modification",
+      "notes": "Dubious Delicacy"
+    },
+    {
+      "fn": "entropic_battlecruiser_setup",
+      "card_var": "ENTROPIC_BATTLECRUISER",
+      "disposition": "wired_full",
+      "engine_gap": "requires station >=1 charge counter check",
+      "notes": "Entropic Battlecruiser"
+    },
+    {
+      "fn": "fallers_faithful_setup",
+      "card_var": "FALLERS_FAITHFUL",
+      "disposition": "wired_stub",
+      "engine_gap": "target selection + conditional draw based on damage history",
+      "notes": "Faller's Faithful"
+    },
+    {
+      "fn": "hylderblade_setup",
+      "card_var": "HYLDERBLADE",
+      "disposition": "wired_stub",
+      "engine_gap": "void mechanic check + equipment auto-attach",
+      "notes": "Hylderblade"
+    },
+    {
+      "fn": "insatiable_skittermaw_setup",
+      "card_var": "INSATIABLE_SKITTERMAW",
+      "disposition": "wired_full",
+      "engine_gap": "void-mechanic state tracking required",
+      "notes": "Insatiable Skittermaw"
+    },
+    {
+      "fn": "perigee_beckoner_setup",
+      "card_var": "PERIGEE_BECKONER",
+      "disposition": "wired_stub",
+      "engine_gap": "target selection + temporary granted death trigger",
+      "notes": "Perigee Beckoner"
+    },
+    {
+      "fn": "requiem_monolith_setup",
+      "card_var": "REQUIEM_MONOLITH",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability granting temporary damage trigger to a target",
+      "notes": "Requiem Monolith"
+    },
+    {
+      "fn": "sunset_saboteur_setup",
+      "card_var": "SUNSET_SABOTEUR",
+      "disposition": "wired_stub",
+      "engine_gap": "target selection on opponent's creature",
+      "notes": "Sunset Saboteur"
+    },
+    {
+      "fn": "timeline_culler_setup",
+      "card_var": "TIMELINE_CULLER",
+      "disposition": "wired_stub",
+      "engine_gap": "warp casting from graveyard",
+      "notes": "Timeline Culler"
+    },
+    {
+      "fn": "umbral_collar_zealot_setup",
+      "card_var": "UMBRAL_COLLAR_ZEALOT",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with sacrifice cost",
+      "notes": "Umbral Collar Zealot"
+    },
+    {
+      "fn": "voidforged_titan_setup",
+      "card_var": "VOIDFORGED_TITAN",
+      "disposition": "wired_stub",
+      "engine_gap": "void mechanic check (always-fires stub)",
+      "notes": "Voidforged Titan"
+    },
+    {
+      "fn": "xuifit_osteoharmonist_setup",
+      "card_var": "XUIFIT_OSTEOHARMONIST",
+      "disposition": "wired_stub",
+      "engine_gap": "tap-activated reanimation with type/ability rewriting",
+      "notes": "Xu-Ifit, Osteoharmonist"
+    },
+    {
+      "fn": "galvanizing_sawship_setup",
+      "card_var": "GALVANIZING_SAWSHIP",
+      "disposition": "wired_stub",
+      "engine_gap": "station-charge-counter gated keyword grant",
+      "notes": "Galvanizing Sawship"
+    },
+    {
+      "fn": "kavaron_skywarden_setup",
+      "card_var": "KAVARON_SKYWARDEN",
+      "disposition": "wired_full",
+      "engine_gap": "void mechanic check (always-fires stub)",
+      "notes": "Kavaron Skywarden"
+    },
+    {
+      "fn": "kavaron_turbodrone_setup",
+      "card_var": "KAVARON_TURBODRONE",
+      "disposition": "wired_stub",
+      "engine_gap": "tap activated targeted +1/+1 + haste EOT",
+      "notes": "Kavaron Turbodrone"
+    },
+    {
+      "fn": "memorial_vault_setup",
+      "card_var": "MEMORIAL_VAULT",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with sacrifice cost + impulse draw",
+      "notes": "Memorial Vault"
+    },
+    {
+      "fn": "pain_for_all_setup",
+      "card_var": "PAIN_FOR_ALL",
+      "disposition": "wired_stub",
+      "engine_gap": "aura-relative damage redirection + targeting",
+      "notes": "Pain for All"
+    },
+    {
+      "fn": "possibility_technician_setup",
+      "card_var": "POSSIBILITY_TECHNICIAN",
+      "disposition": "wired_full",
+      "engine_gap": "exile-top + may-play conditional cast",
+      "notes": "Possibility Technician"
+    },
+    {
+      "fn": "red_tiger_mechan_setup",
+      "card_var": "RED_TIGER_MECHAN",
+      "disposition": "wired_stub",
+      "engine_gap": "warp mechanic; haste comes from card text/keyword grant",
+      "notes": "Red Tiger Mechan"
+    },
+    {
+      "fn": "roving_actuator_setup",
+      "card_var": "ROVING_ACTUATOR",
+      "disposition": "wired_stub",
+      "engine_gap": "void mechanic + GY targeting + copy-and-cast-free",
+      "notes": "Roving Actuator"
+    },
+    {
+      "fn": "rust_harvester_setup",
+      "card_var": "RUST_HARVESTER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with exile cost from GY",
+      "notes": "Rust Harvester"
+    },
+    {
+      "fn": "slagdrill_scrapper_setup",
+      "card_var": "SLAGDRILL_SCRAPPER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with sacrifice cost",
+      "notes": "Slagdrill Scrapper"
+    },
+    {
+      "fn": "terrapact_intimidator_setup",
+      "card_var": "TERRAPACT_INTIMIDATOR",
+      "disposition": "wired_full",
+      "engine_gap": "opponent choice; default to self-counters branch",
+      "notes": "Terrapact Intimidator"
+    },
+    {
+      "fn": "territorial_bruntar_setup",
+      "card_var": "TERRITORIAL_BRUNTAR",
+      "disposition": "wired_stub",
+      "engine_gap": "reveal-until-nonland + impulse-cast",
+      "notes": "Territorial Bruntar"
+    },
+    {
+      "fn": "zookeeper_mechan_setup",
+      "card_var": "ZOOKEEPER_MECHAN",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities (mana production + targeted pump)",
+      "notes": "Zookeeper Mechan"
+    },
+    {
+      "fn": "bioengineered_future_setup",
+      "card_var": "BIOENGINEERED_FUTURE",
+      "disposition": "wired_full",
+      "engine_gap": "replacement effect adding counters per lands-entered-this-turn",
+      "notes": "Bioengineered Future"
+    },
+    {
+      "fn": "broodguard_elite_setup",
+      "card_var": "BROODGUARD_ELITE",
+      "disposition": "wired_stub",
+      "engine_gap": "X-cost counter parsing",
+      "notes": "Broodguard Elite"
+    },
+    {
+      "fn": "eusocial_engineering_setup",
+      "card_var": "EUSOCIAL_ENGINEERING",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Eusocial Engineering"
+    },
+    {
+      "fn": "famished_worldsire_setup",
+      "card_var": "FAMISHED_WORLDSIRE",
+      "disposition": "wired_stub",
+      "engine_gap": "devour mechanic + library search putting lands tapped",
+      "notes": "Famished Worldsire"
+    },
+    {
+      "fn": "frenzied_baloth_setup",
+      "card_var": "FRENZIED_BALOTH",
+      "disposition": "wired_stub",
+      "engine_gap": "uncounterable spells + combat damage cannot be prevented",
+      "notes": "Frenzied Baloth"
+    },
+    {
+      "fn": "fungal_colossus_setup",
+      "card_var": "FUNGAL_COLOSSUS",
+      "disposition": "wired_stub",
+      "engine_gap": "dynamic cast cost reduction (lands-named-count)",
+      "notes": "Fungal Colossus"
+    },
+    {
+      "fn": "gene_pollinator_setup",
+      "card_var": "GENE_POLLINATOR",
+      "disposition": "wired_stub",
+      "engine_gap": "activated mana ability with tap of another permanent as cost",
+      "notes": "Gene Pollinator"
+    },
+    {
+      "fn": "icetill_explorer_setup",
+      "card_var": "ICETILL_EXPLORER",
+      "disposition": "wired_full",
+      "engine_gap": "play lands from graveyard",
+      "notes": "Icetill Explorer"
+    },
+    {
+      "fn": "intrepid_tenderfoot_setup",
+      "card_var": "INTREPID_TENDERFOOT",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with mana cost",
+      "notes": "Intrepid Tenderfoot"
+    },
+    {
+      "fn": "larval_scoutlander_setup",
+      "card_var": "LARVAL_SCOUTLANDER",
+      "disposition": "wired_stub",
+      "engine_gap": "sacrifice-cost-replaced + library search",
+      "notes": "Larval Scoutlander"
+    },
+    {
+      "fn": "lashwhip_predator_setup",
+      "card_var": "LASHWHIP_PREDATOR",
+      "disposition": "wired_stub",
+      "engine_gap": "dynamic cast cost reduction (opponent board count)",
+      "notes": "Lashwhip Predator"
+    },
+    {
+      "fn": "loading_zone_setup",
+      "card_var": "LOADING_ZONE",
+      "disposition": "wired_stub",
+      "engine_gap": "replacement effect doubling counter additions",
+      "notes": "Loading Zone"
+    },
+    {
+      "fn": "meltstriders_gear_setup",
+      "card_var": "MELTSTRIDERS_GEAR",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment auto-attach",
+      "notes": "Meltstrider's Gear"
+    },
+    {
+      "fn": "meltstriders_resolve_setup",
+      "card_var": "MELTSTRIDERS_RESOLVE",
+      "disposition": "wired_stub",
+      "engine_gap": "aura attachment + fight effect targeting",
+      "notes": "Meltstrider's Resolve"
+    },
+    {
+      "fn": "mightform_harmonizer_setup",
+      "card_var": "MIGHTFORM_HARMONIZER",
+      "disposition": "wired_stub",
+      "engine_gap": "target selection + dynamic power doubling EOT",
+      "notes": "Mightform Harmonizer"
+    },
+    {
+      "fn": "sledgeclass_seedship_setup",
+      "card_var": "SLEDGECLASS_SEEDSHIP",
+      "disposition": "wired_stub",
+      "engine_gap": "cheat-into-play creature from hand",
+      "notes": "Sledge-Class Seedship"
+    },
+    {
+      "fn": "terrasymbiosis_setup",
+      "card_var": "TERRASYMBIOSIS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Terrasymbiosis"
+    },
+    {
+      "fn": "dyadrine_synthesis_amalgam_setup",
+      "card_var": "DYADRINE_SYNTHESIS_AMALGAM",
+      "disposition": "wired_stub",
+      "engine_gap": "optional counter-removal cost + token creation",
+      "notes": "Dyadrine, Synthesis Amalgam"
+    },
+    {
+      "fn": "genemorph_imago_setup",
+      "card_var": "GENEMORPH_IMAGO",
+      "disposition": "wired_stub",
+      "engine_gap": "target selection + base P/T set EOT",
+      "notes": "Genemorph Imago"
+    },
+    {
+      "fn": "infinite_guideline_station_setup",
+      "card_var": "INFINITE_GUIDELINE_STATION",
+      "disposition": "wired_full",
+      "engine_gap": "requires station >=12; counts multicolored permanents",
+      "notes": "Infinite Guideline Station"
+    },
+    {
+      "fn": "ragost_deft_gastronaut_setup",
+      "card_var": "RAGOST_DEFT_GASTRONAUT",
+      "disposition": "wired_stub",
+      "engine_gap": "activated abilities (sac->3 life, sac food->3 damage), self-untap-if-lifegain",
+      "notes": "Ragost, Deft Gastronaut"
+    },
+    {
+      "fn": "sami_wildcat_captain_setup",
+      "card_var": "SAMI_WILDCAT_CAPTAIN",
+      "disposition": "wired_stub",
+      "engine_gap": "affinity-for-artifacts cost reduction",
+      "notes": "Sami, Wildcat Captain"
+    },
+    {
+      "fn": "allfates_scroll_setup",
+      "card_var": "ALLFATES_SCROLL",
+      "disposition": "wired_stub",
+      "engine_gap": "tap-for-any-color + sac-and-draw with dynamic X",
+      "notes": "All-Fates Scroll"
+    },
+    {
+      "fn": "bygone_colossus_setup",
+      "card_var": "BYGONE_COLOSSUS",
+      "disposition": "wired_stub",
+      "engine_gap": "warp casting",
+      "notes": "Bygone Colossus"
+    },
+    {
+      "fn": "dawnsire_sunstar_dreadnought_setup",
+      "card_var": "DAWNSIRE_SUNSTAR_DREADNOUGHT",
+      "disposition": "wired_stub",
+      "engine_gap": "requires station >=10 charge counters; targeted 100 damage",
+      "notes": "Dawnsire, Sunstar Dreadnought"
+    },
+    {
+      "fn": "the_dominion_bracelet_setup",
+      "card_var": "THE_DOMINION_BRACELET",
+      "disposition": "wired_stub",
+      "engine_gap": "control-opponent activated ability with dynamic cost",
+      "notes": "The Dominion Bracelet"
+    },
+    {
+      "fn": "the_endstone_setup",
+      "card_var": "THE_ENDSTONE",
+      "disposition": "wired_full",
+      "engine_gap": "setting life total to specific value (half starting life rounded up)",
+      "notes": "The Endstone"
+    },
+    {
+      "fn": "the_eternity_elevator_setup",
+      "card_var": "THE_ETERNITY_ELEVATOR",
+      "disposition": "wired_stub",
+      "engine_gap": "activated mana abilities with charge-counter scaling",
+      "notes": "The Eternity Elevator"
+    },
+    {
+      "fn": "survey_mechan_setup",
+      "card_var": "SURVEY_MECHAN",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with sac cost + dynamic cost reduction",
+      "notes": "Survey Mechan"
+    },
+    {
+      "fn": "thaumaton_torpedo_setup",
+      "card_var": "THAUMATON_TORPEDO",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability + dynamic cost reduction (per-turn attack tracking)",
+      "notes": "Thaumaton Torpedo"
+    },
+    {
+      "fn": "adagia_windswept_bastion_setup",
+      "card_var": "ADAGIA_WINDSWEPT_BASTION",
+      "disposition": "wired_stub",
+      "engine_gap": "enters-tapped land + station-charge-counter gated activated ability",
+      "notes": "Adagia, Windswept Bastion"
+    },
+    {
+      "fn": "breeding_pool_setup",
+      "card_var": "BREEDING_POOL",
+      "disposition": "wired_stub",
+      "engine_gap": "enters-tapped-unless-pay choice",
+      "notes": "Breeding Pool"
+    },
+    {
+      "fn": "command_bridge_setup",
+      "card_var": "COMMAND_BRIDGE",
+      "disposition": "wired_stub",
+      "engine_gap": "sacrifice-unless-tap-untapped-permanent cost",
+      "notes": "Command Bridge"
+    },
+    {
+      "fn": "evendo_waking_haven_setup",
+      "card_var": "EVENDO_WAKING_HAVEN",
+      "disposition": "wired_stub",
+      "engine_gap": "station-charge-counter gated activated ability",
+      "notes": "Evendo, Waking Haven"
+    },
+    {
+      "fn": "godless_shrine_setup",
+      "card_var": "GODLESS_SHRINE",
+      "disposition": "wired_stub",
+      "engine_gap": "enters-tapped-unless-pay choice",
+      "notes": "Godless Shrine"
+    },
+    {
+      "fn": "kavaron_memorial_world_setup",
+      "card_var": "KAVARON_MEMORIAL_WORLD",
+      "disposition": "wired_stub",
+      "engine_gap": "station-charge-counter gated activated ability",
+      "notes": "Kavaron, Memorial World"
+    },
+    {
+      "fn": "sacred_foundry_setup",
+      "card_var": "SACRED_FOUNDRY",
+      "disposition": "wired_stub",
+      "engine_gap": "enters-tapped-unless-pay choice",
+      "notes": "Sacred Foundry"
+    },
+    {
+      "fn": "secluded_starforge_setup",
+      "card_var": "SECLUDED_STARFORGE",
+      "disposition": "wired_stub",
+      "engine_gap": "tap-X-artifacts activated ability + token-creation activated ability",
+      "notes": "Secluded Starforge"
+    },
+    {
+      "fn": "stomping_ground_setup",
+      "card_var": "STOMPING_GROUND",
+      "disposition": "wired_stub",
+      "engine_gap": "enters-tapped-unless-pay choice",
+      "notes": "Stomping Ground"
+    },
+    {
+      "fn": "susur_secundi_void_altar_setup",
+      "card_var": "SUSUR_SECUNDI_VOID_ALTAR",
+      "disposition": "wired_stub",
+      "engine_gap": "station-charge-counter gated activated ability",
+      "notes": "Susur Secundi, Void Altar"
+    },
+    {
+      "fn": "uthros_titanic_godcore_setup",
+      "card_var": "UTHROS_TITANIC_GODCORE",
+      "disposition": "wired_stub",
+      "engine_gap": "station-charge-counter gated activated ability",
+      "notes": "Uthros, Titanic Godcore"
+    },
+    {
+      "fn": "watery_grave_setup",
+      "card_var": "WATERY_GRAVE",
+      "disposition": "wired_stub",
+      "engine_gap": "enters-tapped-unless-pay choice",
+      "notes": "Watery Grave"
+    }
+  ],
+  "summary": {
+    "wired_full": 15,
+    "wired_stub": 73,
+    "skipped": 0
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "set": "wilds_of_eldraine.py",
+  "results": [
+    {"fn": "the_huntsmans_redemption_setup", "card_var": "THE_HUNTSMANS_REDEMPTION", "disposition": "wired_stub", "engine_gap": "Saga lore-counter chapter triggers (token / sac+search / target buffs)", "notes": ""},
+    {"fn": "redtooth_vanguard_setup", "card_var": "REDTOOTH_VANGUARD", "disposition": "wired_stub", "engine_gap": "trigger fires from graveyard + optional pay + return-to-hand", "notes": ""},
+    {"fn": "rootrider_faun_setup", "card_var": "ROOTRIDER_FAUN", "disposition": "wired_stub", "engine_gap": "mana-producing activated abilities", "notes": ""},
+    {"fn": "toadstool_admirer_setup", "card_var": "TOADSTOOL_ADMIRER", "disposition": "wired_stub", "engine_gap": "ward keyword + activated +1/+1 counter", "notes": ""},
+    {"fn": "verdant_outrider_setup", "card_var": "VERDANT_OUTRIDER", "disposition": "wired_stub", "engine_gap": "activated unblockable-by-power-filter", "notes": ""},
+    {"fn": "virtue_of_strength_setup", "card_var": "VIRTUE_OF_STRENGTH", "disposition": "wired_stub", "engine_gap": "mana-production replacement (basic land triple)", "notes": ""},
+    {"fn": "welcome_to_sweettooth_setup", "card_var": "WELCOME_TO_SWEETTOOTH", "disposition": "wired_stub", "engine_gap": "Saga chapters with token creation + X counters", "notes": ""},
+    {"fn": "agatha_of_the_vile_cauldron_setup", "card_var": "AGATHA_OF_THE_VILE_CAULDRON", "disposition": "wired_stub", "engine_gap": "dynamic activated cost reduction tied to source power; team buff activated", "notes": ""},
+    {"fn": "the_apprentices_folly_setup", "card_var": "THE_APPRENTICES_FOLLY", "disposition": "wired_stub", "engine_gap": "Saga + non-legendary copy tokens + Reflection sweep", "notes": ""},
+    {"fn": "johann_apprentice_sorcerer_setup", "card_var": "JOHANN_APPRENTICE_SORCERER", "disposition": "wired_stub", "engine_gap": "cast-from-top-of-library permission + look-at-top continuous", "notes": ""},
+    {"fn": "likeness_looter_setup", "card_var": "LIKENESS_LOOTER", "disposition": "wired_stub", "engine_gap": "activated copy-from-graveyard with MV restriction; activated rummage", "notes": ""},
+    {"fn": "rowan_scion_of_war_setup", "card_var": "ROWAN_SCION_OF_WAR", "disposition": "wired_stub", "engine_gap": "dynamic cost reduction tied to life-lost-this-turn", "notes": ""},
+    {"fn": "troyan_gutsy_explorer_setup", "card_var": "TROYAN_GUTSY_EXPLORER", "disposition": "wired_stub", "engine_gap": "restricted-mana production + activated rummage", "notes": ""},
+    {"fn": "will_scion_of_peace_setup", "card_var": "WILL_SCION_OF_PEACE", "disposition": "wired_stub", "engine_gap": "dynamic cost reduction tied to life-gained-this-turn", "notes": ""},
+    {"fn": "yenna_redtooth_regent_setup", "card_var": "YENNA_REDTOOTH_REGENT", "disposition": "wired_stub", "engine_gap": "activated copy-enchantment token with name uniqueness; conditional untap+scry", "notes": ""},
+    {"fn": "agathas_soul_cauldron_setup", "card_var": "AGATHAS_SOUL_CAULDRON", "disposition": "wired_stub", "engine_gap": "mana-as-any-color; ability-grant from exiled creature cards; tap exile gy with delayed counter", "notes": ""},
+    {"fn": "collectors_vault_setup", "card_var": "COLLECTORS_VAULT", "disposition": "wired_stub", "engine_gap": "activated rummage + Treasure token", "notes": ""},
+    {"fn": "eriettes_tempting_apple_setup", "card_var": "ERIETTES_TEMPTING_APPLE", "disposition": "wired_stub", "engine_gap": "ETB GAIN_CONTROL + untap + haste; modal sac activated abilities", "notes": "ETB trigger registered with empty effect"},
+    {"fn": "gingerbrute_setup", "card_var": "GINGERBRUTE", "disposition": "wired_stub", "engine_gap": "activated conditional unblockable; sac for life", "notes": "Static haste from card keywords"},
+    {"fn": "hyldas_crown_of_winter_setup", "card_var": "HYLDAS_CROWN_OF_WINTER", "disposition": "wired_stub", "engine_gap": "activated tap-target with conditional cost reduction; sac-draw scaling", "notes": ""},
+    {"fn": "scarecrow_guide_setup", "card_var": "SCARECROW_GUIDE", "disposition": "wired_stub", "engine_gap": "mana-producing activated ability with once-per-turn", "notes": ""},
+    {"fn": "three_bowls_of_porridge_setup", "card_var": "THREE_BOWLS_OF_PORRIDGE", "disposition": "wired_stub", "engine_gap": "modal activated ability with once-per-mode tracking", "notes": ""},
+    {"fn": "edgewall_inn_setup", "card_var": "EDGEWALL_INN", "disposition": "wired_stub", "engine_gap": "as-enter color choice + colorful mana ability + sac-activated graveyard return", "notes": ""},
+    {"fn": "evolving_wilds_setup", "card_var": "EVOLVING_WILDS", "disposition": "wired_stub", "engine_gap": "library search activated ability", "notes": ""},
+    {"fn": "charging_hooligan_setup", "card_var": "CHARGING_HOOLIGAN", "disposition": "wired_full", "engine_gap": "", "notes": "Attack trigger emits PUMP scaled to attacking creatures + conditional trample if any Rat attacking"}
+  ],
+  "summary": {"wired_full": 1, "wired_stub": 24, "skipped": 0}
+}

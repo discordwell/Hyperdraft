@@ -1,0 +1,990 @@
+{
+  "set": "bloomburrow.py",
+  "results": [
+    {
+      "fn": "builders_talent_setup",
+      "card_var": "BUILDERS_TALENT",
+      "disposition": "wired_full",
+      "engine_gap": "Class level-up activation and gated triggers",
+      "notes": ""
+    },
+    {
+      "fn": "caretakers_talent_setup",
+      "card_var": "CARETAKERS_TALENT",
+      "disposition": "wired_full",
+      "engine_gap": "Class level 2 / 3 effects",
+      "notes": ""
+    },
+    {
+      "fn": "carrot_cake_setup",
+      "card_var": "CARROT_CAKE",
+      "disposition": "wired_full",
+      "engine_gap": "sacrifice trigger replicating same effect",
+      "notes": ""
+    },
+    {
+      "fn": "feather_of_flight_setup",
+      "card_var": "FEATHER_OF_FLIGHT",
+      "disposition": "wired_full",
+      "engine_gap": "aura attachment-bound P/T and keyword grant",
+      "notes": ""
+    },
+    {
+      "fn": "flowerfoot_swordmaster_setup",
+      "card_var": "FLOWERFOOT_SWORDMASTER",
+      "disposition": "wired_stub",
+      "engine_gap": "Offspring (cost-based token copy) and Valiant (targeted-by-ally trigger)",
+      "notes": ""
+    },
+    {
+      "fn": "jolly_gerbils_setup",
+      "card_var": "JOLLY_GERBILS",
+      "disposition": "wired_stub",
+      "engine_gap": "\"whenever you give a gift\" hook",
+      "notes": ""
+    },
+    {
+      "fn": "mouse_trapper_setup",
+      "card_var": "MOUSE_TRAPPER",
+      "disposition": "wired_stub",
+      "engine_gap": "Valiant trigger",
+      "notes": ""
+    },
+    {
+      "fn": "nettle_guard_setup",
+      "card_var": "NETTLE_GUARD",
+      "disposition": "wired_stub",
+      "engine_gap": "Valiant trigger and sacrifice activated ability",
+      "notes": ""
+    },
+    {
+      "fn": "star_charter_setup",
+      "card_var": "STAR_CHARTER",
+      "disposition": "wired_full",
+      "engine_gap": "reveal/conditional draw - simplified to scry 4",
+      "notes": ""
+    },
+    {
+      "fn": "warren_elder_setup",
+      "card_var": "WARREN_ELDER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated +1/+1 anthem ability",
+      "notes": ""
+    },
+    {
+      "fn": "warren_warleader_setup",
+      "card_var": "WARREN_WARLEADER",
+      "disposition": "wired_full",
+      "engine_gap": "modal choice between tapped Rabbit token and attacker pump.",
+      "notes": ""
+    },
+    {
+      "fn": "waxwane_witness_setup",
+      "card_var": "WAXWANE_WITNESS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "whiskervale_forerunner_setup",
+      "card_var": "WHISKERVALE_FORERUNNER",
+      "disposition": "wired_stub",
+      "engine_gap": "Valiant trigger",
+      "notes": ""
+    },
+    {
+      "fn": "azure_beastbinder_setup",
+      "card_var": "AZURE_BEASTBINDER",
+      "disposition": "wired_stub",
+      "engine_gap": "unblockable-by-power restriction; remove-abilities + base-PT lock",
+      "notes": ""
+    },
+    {
+      "fn": "daring_waverider_setup",
+      "card_var": "DARING_WAVERIDER",
+      "disposition": "wired_stub",
+      "engine_gap": "cast-from-graveyard targeting and replacement-to-exile rider",
+      "notes": ""
+    },
+    {
+      "fn": "dour_portmage_setup",
+      "card_var": "DOUR_PORTMAGE",
+      "disposition": "wired_full",
+      "engine_gap": "activated bounce ability",
+      "notes": ""
+    },
+    {
+      "fn": "eluge_the_shoreless_sea_setup",
+      "card_var": "ELUGE_THE_SHORELESS_SEA",
+      "disposition": "wired_full",
+      "engine_gap": "flood counter creation, type change to Island, cost reduction",
+      "notes": ""
+    },
+    {
+      "fn": "gossips_talent_setup",
+      "card_var": "GOSSIPS_TALENT",
+      "disposition": "wired_full",
+      "engine_gap": "Class level-up activation and L2/L3 effects",
+      "notes": ""
+    },
+    {
+      "fn": "kitnap_setup",
+      "card_var": "KITNAP",
+      "disposition": "wired_stub",
+      "engine_gap": "Aura attachment + control-change + gift conditional stun counters",
+      "notes": ""
+    },
+    {
+      "fn": "kitsa_otterball_elite_setup",
+      "card_var": "KITSA_OTTERBALL_ELITE",
+      "disposition": "wired_stub",
+      "engine_gap": "prowess static, activated draw/discard, copy-spell ability",
+      "notes": ""
+    },
+    {
+      "fn": "mockingbird_setup",
+      "card_var": "MOCKINGBIRD",
+      "disposition": "wired_stub",
+      "engine_gap": "enter-as-copy with X mana value cap",
+      "notes": ""
+    },
+    {
+      "fn": "nightwhorl_hermit_setup",
+      "card_var": "NIGHTWHORL_HERMIT",
+      "disposition": "wired_stub",
+      "engine_gap": "Threshold-conditional power boost + unblockable",
+      "notes": ""
+    },
+    {
+      "fn": "shoreline_looter_setup",
+      "card_var": "SHORELINE_LOOTER",
+      "disposition": "wired_full",
+      "engine_gap": "unblockable static, threshold conditional discard",
+      "notes": ""
+    },
+    {
+      "fn": "stormchasers_talent_setup",
+      "card_var": "STORMCHASERS_TALENT",
+      "disposition": "wired_full",
+      "engine_gap": "Class level-up and L2/L3 effects",
+      "notes": ""
+    },
+    {
+      "fn": "sugar_coat_setup",
+      "card_var": "SUGAR_COAT",
+      "disposition": "wired_stub",
+      "engine_gap": "Aura that overwrites types and abilities of enchanted permanent",
+      "notes": ""
+    },
+    {
+      "fn": "thought_shucker_setup",
+      "card_var": "THOUGHT_SHUCKER",
+      "disposition": "wired_stub",
+      "engine_gap": "Threshold-gated activated ability with once-only restriction",
+      "notes": ""
+    },
+    {
+      "fn": "thundertrap_trainer_setup",
+      "card_var": "THUNDERTRAP_TRAINER",
+      "disposition": "wired_full",
+      "engine_gap": "targeted reveal + selective put-into-hand for noncreature/nonland",
+      "notes": ""
+    },
+    {
+      "fn": "valley_floodcaller_setup",
+      "card_var": "VALLEY_FLOODCALLER",
+      "disposition": "wired_full",
+      "engine_gap": "cast-noncreature-as-flash permission",
+      "notes": ""
+    },
+    {
+      "fn": "waterspout_warden_setup",
+      "card_var": "WATERSPOUT_WARDEN",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "wishing_well_setup",
+      "card_var": "WISHING_WELL",
+      "disposition": "wired_stub",
+      "engine_gap": "coin counter activation triggering conditional graveyard cast",
+      "notes": ""
+    },
+    {
+      "fn": "bandits_talent_setup",
+      "card_var": "BANDITS_TALENT",
+      "disposition": "wired_full",
+      "engine_gap": "Class L2/L3, \"unless they discard nonland\" choice",
+      "notes": ""
+    },
+    {
+      "fn": "bonebind_orator_setup",
+      "card_var": "BONEBIND_ORATOR",
+      "disposition": "wired_stub",
+      "engine_gap": "graveyard-exile activated reanimation",
+      "notes": ""
+    },
+    {
+      "fn": "bonecache_overseer_setup",
+      "card_var": "BONECACHE_OVERSEER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated draw with conditional cost (cards left graveyard, food sacrificed)",
+      "notes": ""
+    },
+    {
+      "fn": "huskburster_swarm_setup",
+      "card_var": "HUSKBURSTER_SWARM",
+      "disposition": "wired_stub",
+      "engine_gap": "cost reduction based on exiled+graveyard creature cards",
+      "notes": ""
+    },
+    {
+      "fn": "iridescent_vinelasher_setup",
+      "card_var": "IRIDESCENT_VINELASHER",
+      "disposition": "wired_full",
+      "engine_gap": "Offspring",
+      "notes": ""
+    },
+    {
+      "fn": "maha_its_feathers_night_setup",
+      "card_var": "MAHA_ITS_FEATHERS_NIGHT",
+      "disposition": "wired_full",
+      "engine_gap": "Ward\u2014Discard a card",
+      "notes": ""
+    },
+    {
+      "fn": "moonstone_harbinger_setup",
+      "card_var": "MOONSTONE_HARBINGER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "osteomancer_adept_setup",
+      "card_var": "OSTEOMANCER_ADEPT",
+      "disposition": "wired_stub",
+      "engine_gap": "activated cast-from-graveyard with forage cost and finality counter rider",
+      "notes": ""
+    },
+    {
+      "fn": "persistent_marshstalker_setup",
+      "card_var": "PERSISTENT_MARSHSTALKER",
+      "disposition": "wired_full",
+      "engine_gap": "threshold-gated graveyard reanimation on Rat attack",
+      "notes": ""
+    },
+    {
+      "fn": "ravine_raider_setup",
+      "card_var": "RAVINE_RAIDER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated +1/+1 pump ability",
+      "notes": ""
+    },
+    {
+      "fn": "rottenmouth_viper_setup",
+      "card_var": "ROTTENMOUTH_VIPER",
+      "disposition": "wired_full",
+      "engine_gap": "\"unless sacrifices/discards\" payment choice",
+      "notes": ""
+    },
+    {
+      "fn": "scavengers_talent_setup",
+      "card_var": "SCAVENGERS_TALENT",
+      "disposition": "wired_full",
+      "engine_gap": "Class L2/L3 effects",
+      "notes": ""
+    },
+    {
+      "fn": "sinister_monolith_setup",
+      "card_var": "SINISTER_MONOLITH",
+      "disposition": "wired_full",
+      "engine_gap": "activated draw-2 ability with self-sacrifice",
+      "notes": ""
+    },
+    {
+      "fn": "starlit_soothsayer_setup",
+      "card_var": "STARLIT_SOOTHSAYER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "thoughtstalker_warlock_setup",
+      "card_var": "THOUGHTSTALKER_WARLOCK",
+      "disposition": "wired_full",
+      "engine_gap": "reveal-and-choose-nonland-card branch when opponent lost life",
+      "notes": ""
+    },
+    {
+      "fn": "wicks_patrol_setup",
+      "card_var": "WICKS_PATROL",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "artists_talent_setup",
+      "card_var": "ARTISTS_TALENT",
+      "disposition": "wired_full",
+      "engine_gap": "Class L2 (cost reduction) and L3 (damage replacement)",
+      "notes": ""
+    },
+    {
+      "fn": "blacksmiths_talent_setup",
+      "card_var": "BLACKSMITHS_TALENT",
+      "disposition": "wired_full",
+      "engine_gap": "Class L2 (begin-combat attach) and L3 (double strike + haste)",
+      "notes": ""
+    },
+    {
+      "fn": "brambleguard_captain_setup",
+      "card_var": "BRAMBLEGUARD_CAPTAIN",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "byway_barterer_setup",
+      "card_var": "BYWAY_BARTERER",
+      "disposition": "wired_stub",
+      "engine_gap": "Expend 4 mechanic",
+      "notes": ""
+    },
+    {
+      "fn": "dragonhawk_fates_tempest_setup",
+      "card_var": "DRAGONHAWK_FATES_TEMPEST",
+      "disposition": "wired_full",
+      "engine_gap": "delayed end-step damage based on still-exiled count",
+      "notes": ""
+    },
+    {
+      "fn": "emberheart_challenger_setup",
+      "card_var": "EMBERHEART_CHALLENGER",
+      "disposition": "wired_stub",
+      "engine_gap": "prowess static and Valiant trigger",
+      "notes": ""
+    },
+    {
+      "fn": "festival_of_embers_setup",
+      "card_var": "FESTIVAL_OF_EMBERS",
+      "disposition": "wired_stub",
+      "engine_gap": "cast-from-graveyard for instants/sorceries with life cost; replace gy->exile",
+      "notes": ""
+    },
+    {
+      "fn": "flamecache_gecko_setup",
+      "card_var": "FLAMECACHE_GECKO",
+      "disposition": "wired_full",
+      "engine_gap": "activated discard/draw ability",
+      "notes": ""
+    },
+    {
+      "fn": "frilled_sparkshooter_setup",
+      "card_var": "FRILLED_SPARKSHOOTER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "harnesser_of_storms_setup",
+      "card_var": "HARNESSER_OF_STORMS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "aheartfire_hero_setup",
+      "card_var": "AHEARTFIRE_HERO",
+      "disposition": "wired_full",
+      "engine_gap": "Valiant trigger",
+      "notes": ""
+    },
+    {
+      "fn": "hearthborn_battler_setup",
+      "card_var": "HEARTHBORN_BATTLER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "hired_claw_setup",
+      "card_var": "HIRED_CLAW",
+      "disposition": "wired_full",
+      "engine_gap": "activated +1/+1 counter ability (conditional on opponent life loss)",
+      "notes": ""
+    },
+    {
+      "fn": "hoarders_overflow_setup",
+      "card_var": "HOARDERS_OVERFLOW",
+      "disposition": "wired_full",
+      "engine_gap": "Expend 4; activated discard-hand-then-draw-X",
+      "notes": ""
+    },
+    {
+      "fn": "kindlespark_duo_setup",
+      "card_var": "KINDLESPARK_DUO",
+      "disposition": "wired_full",
+      "engine_gap": "tap-for-1-damage ability",
+      "notes": ""
+    },
+    {
+      "fn": "manifold_mouse_setup",
+      "card_var": "MANIFOLD_MOUSE",
+      "disposition": "wired_full",
+      "engine_gap": "choice between double strike and trample",
+      "notes": ""
+    },
+    {
+      "fn": "raccoon_rallier_setup",
+      "card_var": "RACCOON_RALLIER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated tap ability with sorcery-speed restriction (haste grant)",
+      "notes": ""
+    },
+    {
+      "fn": "reptilian_recruiter_setup",
+      "card_var": "REPTILIAN_RECRUITER",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "roughshod_duo_setup",
+      "card_var": "ROUGHSHOD_DUO",
+      "disposition": "wired_stub",
+      "engine_gap": "Expend 4",
+      "notes": ""
+    },
+    {
+      "fn": "stormsplitter_setup",
+      "card_var": "STORMSPLITTER",
+      "disposition": "wired_full",
+      "engine_gap": "copy-token of arbitrary creature with end-step exile rider",
+      "notes": ""
+    },
+    {
+      "fn": "sunspine_lynx_setup",
+      "card_var": "SUNSPINE_LYNX",
+      "disposition": "wired_full",
+      "engine_gap": "\"players can't gain life\", \"damage can't be prevented\"",
+      "notes": ""
+    },
+    {
+      "fn": "teapot_slinger_setup",
+      "card_var": "TEAPOT_SLINGER",
+      "disposition": "wired_stub",
+      "engine_gap": "Expend 4",
+      "notes": ""
+    },
+    {
+      "fn": "war_squeak_setup",
+      "card_var": "WAR_SQUEAK",
+      "disposition": "wired_full",
+      "engine_gap": "Aura attachment-bound +1/+1 and haste grant",
+      "notes": ""
+    },
+    {
+      "fn": "whiskerquill_scribe_setup",
+      "card_var": "WHISKERQUILL_SCRIBE",
+      "disposition": "wired_stub",
+      "engine_gap": "Valiant trigger (loot)",
+      "notes": ""
+    },
+    {
+      "fn": "barkknuckle_boxer_setup",
+      "card_var": "BARKKNUCKLE_BOXER",
+      "disposition": "wired_stub",
+      "engine_gap": "Expend 4",
+      "notes": ""
+    },
+    {
+      "fn": "brambleguard_veteran_setup",
+      "card_var": "BRAMBLEGUARD_VETERAN",
+      "disposition": "wired_stub",
+      "engine_gap": "Expend 4",
+      "notes": ""
+    },
+    {
+      "fn": "bushy_bodyguard_setup",
+      "card_var": "BUSHY_BODYGUARD",
+      "disposition": "wired_stub",
+      "engine_gap": "Offspring + Forage",
+      "notes": ""
+    },
+    {
+      "fn": "curious_forager_setup",
+      "card_var": "CURIOUS_FORAGER",
+      "disposition": "wired_stub",
+      "engine_gap": "Forage with optional graveyard return targeting",
+      "notes": ""
+    },
+    {
+      "fn": "druid_of_the_spade_setup",
+      "card_var": "DRUID_OF_THE_SPADE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "fecund_greenshell_setup",
+      "card_var": "FECUND_GREENSHELL",
+      "disposition": "wired_full",
+      "engine_gap": "top-card type check + put-onto-battlefield branch",
+      "notes": ""
+    },
+    {
+      "fn": "hazardroot_herbalist_setup",
+      "card_var": "HAZARDROOT_HERBALIST",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "heaped_harvest_setup",
+      "card_var": "HEAPED_HARVEST",
+      "disposition": "wired_full",
+      "engine_gap": "search-and-fetch-basic + sacrifice retrigger",
+      "notes": ""
+    },
+    {
+      "fn": "hunters_talent_setup",
+      "card_var": "HUNTERS_TALENT",
+      "disposition": "wired_full",
+      "engine_gap": "targeted fight-style damage",
+      "notes": ""
+    },
+    {
+      "fn": "innkeepers_talent_setup",
+      "card_var": "INNKEEPERS_TALENT",
+      "disposition": "wired_full",
+      "engine_gap": "Class L2 (ward 1 on counter-having permanents) and L3 (counter doubling)",
+      "notes": ""
+    },
+    {
+      "fn": "keeneyed_curator_setup",
+      "card_var": "KEENEYED_CURATOR",
+      "disposition": "wired_stub",
+      "engine_gap": "track exiled-with-this and apply +4/+4 / trample conditional",
+      "notes": ""
+    },
+    {
+      "fn": "lumra_bellow_of_the_woods_setup",
+      "card_var": "LUMRA_BELLOW_OF_THE_WOODS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "mistbreath_elder_setup",
+      "card_var": "MISTBREATH_ELDER",
+      "disposition": "wired_full",
+      "engine_gap": "choose-and-bounce-another with +1/+1 reward, otherwise self-bounce",
+      "notes": ""
+    },
+    {
+      "fn": "pawpatch_recruit_setup",
+      "card_var": "PAWPATCH_RECRUIT",
+      "disposition": "wired_full",
+      "engine_gap": "opponent-targets-your-creature event detection",
+      "notes": ""
+    },
+    {
+      "fn": "rustshield_rampager_setup",
+      "card_var": "RUSTSHIELD_RAMPAGER",
+      "disposition": "wired_stub",
+      "engine_gap": "Offspring + power<=2 unblockability",
+      "notes": ""
+    },
+    {
+      "fn": "scrapshooter_setup",
+      "card_var": "SCRAPSHOOTER",
+      "disposition": "wired_full",
+      "engine_gap": "gift promise tracking - simplified to always destroy",
+      "notes": ""
+    },
+    {
+      "fn": "stocking_the_pantry_setup",
+      "card_var": "STOCKING_THE_PANTRY",
+      "disposition": "wired_full",
+      "engine_gap": "activated remove-counter-to-draw ability",
+      "notes": ""
+    },
+    {
+      "fn": "tender_wildguide_setup",
+      "card_var": "TENDER_WILDGUIDE",
+      "disposition": "wired_stub",
+      "engine_gap": "activated mana ability + activated +1/+1 counter ability (Offspring)",
+      "notes": ""
+    },
+    {
+      "fn": "thornvault_forager_setup",
+      "card_var": "THORNVAULT_FORAGER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated mana abilities (incl. forage cost) and tutor ability",
+      "notes": ""
+    },
+    {
+      "fn": "three_tree_rootweaver_setup",
+      "card_var": "THREE_TREE_ROOTWEAVER",
+      "disposition": "wired_stub",
+      "engine_gap": "activated any-color mana ability",
+      "notes": ""
+    },
+    {
+      "fn": "three_tree_scribe_setup",
+      "card_var": "THREE_TREE_SCRIBE",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "treetop_sentries_setup",
+      "card_var": "TREETOP_SENTRIES",
+      "disposition": "wired_full",
+      "engine_gap": "Forage cost gating",
+      "notes": ""
+    },
+    {
+      "fn": "alania_divergent_storm_setup",
+      "card_var": "ALANIA_DIVERGENT_STORM",
+      "disposition": "wired_full",
+      "engine_gap": "opponent-draw + spell copy with new targets",
+      "notes": ""
+    },
+    {
+      "fn": "baylen_the_haymaker_setup",
+      "card_var": "BAYLEN_THE_HAYMAKER",
+      "disposition": "wired_stub",
+      "engine_gap": "tap-N-tokens activated abilities",
+      "notes": ""
+    },
+    {
+      "fn": "burrowguard_mentor_setup",
+      "card_var": "BURROWGUARD_MENTOR",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "cindering_cutthroat_setup",
+      "card_var": "CINDERING_CUTTHROAT",
+      "disposition": "wired_full",
+      "engine_gap": "activated menace ability",
+      "notes": ""
+    },
+    {
+      "fn": "clement_the_worrywort_setup",
+      "card_var": "CLEMENT_THE_WORRYWORT",
+      "disposition": "wired_full",
+      "engine_gap": "targeted-with-lesser-MV bounce",
+      "notes": ""
+    },
+    {
+      "fn": "corpseberry_cultivator_setup",
+      "card_var": "CORPSEBERRY_CULTIVATOR",
+      "disposition": "wired_stub",
+      "engine_gap": "Forage and forage trigger",
+      "notes": ""
+    },
+    {
+      "fn": "fireglass_mentor_setup",
+      "card_var": "FIREGLASS_MENTOR",
+      "disposition": "wired_full",
+      "engine_gap": "pick-one of two impulse-drawn cards",
+      "notes": ""
+    },
+    {
+      "fn": "glarb_calamitys_augur_setup",
+      "card_var": "GLARB_CALAMITYS_AUGUR",
+      "disposition": "wired_stub",
+      "engine_gap": "top-of-library reveal/play permission and surveil-2 activated ability",
+      "notes": ""
+    },
+    {
+      "fn": "helga_skittish_seer_setup",
+      "card_var": "HELGA_SKITTISH_SEER",
+      "disposition": "wired_full",
+      "engine_gap": "tap-add-X-mana ability",
+      "notes": ""
+    },
+    {
+      "fn": "hugs_grisly_guardian_setup",
+      "card_var": "HUGS_GRISLY_GUARDIAN",
+      "disposition": "wired_full",
+      "engine_gap": "extra land per turn permission",
+      "notes": ""
+    },
+    {
+      "fn": "the_infamous_cruelclaw_setup",
+      "card_var": "THE_INFAMOUS_CRUELCLAW",
+      "disposition": "wired_full",
+      "engine_gap": "exile-until-nonland + cast-by-discarding",
+      "notes": ""
+    },
+    {
+      "fn": "junkblade_bruiser_setup",
+      "card_var": "JUNKBLADE_BRUISER",
+      "disposition": "wired_stub",
+      "engine_gap": "Expend 4",
+      "notes": ""
+    },
+    {
+      "fn": "kastral_the_windcrested_setup",
+      "card_var": "KASTRAL_THE_WINDCRESTED",
+      "disposition": "wired_full",
+      "engine_gap": "modal choice",
+      "notes": ""
+    },
+    {
+      "fn": "lilysplash_mentor_setup",
+      "card_var": "LILYSPLASH_MENTOR",
+      "disposition": "wired_stub",
+      "engine_gap": "activated flicker-with-counter ability",
+      "notes": ""
+    },
+    {
+      "fn": "lunar_convocation_setup",
+      "card_var": "LUNAR_CONVOCATION",
+      "disposition": "wired_full",
+      "engine_gap": "activated pay-life-to-draw ability",
+      "notes": ""
+    },
+    {
+      "fn": "mind_drill_assailant_setup",
+      "card_var": "MIND_DRILL_ASSAILANT",
+      "disposition": "wired_full",
+      "engine_gap": "activated surveil-1 ability",
+      "notes": ""
+    },
+    {
+      "fn": "muerra_trash_tactician_setup",
+      "card_var": "MUERRA_TRASH_TACTICIAN",
+      "disposition": "wired_full",
+      "engine_gap": "Expend 4 / Expend 8 triggers",
+      "notes": ""
+    },
+    {
+      "fn": "ral_crackling_wit_setup",
+      "card_var": "RAL_CRACKLING_WIT",
+      "disposition": "wired_full",
+      "engine_gap": "planeswalker loyalty abilities",
+      "notes": ""
+    },
+    {
+      "fn": "seedglaive_mentor_setup",
+      "card_var": "SEEDGLAIVE_MENTOR",
+      "disposition": "wired_stub",
+      "engine_gap": "Valiant trigger",
+      "notes": ""
+    },
+    {
+      "fn": "tidecaller_mentor_setup",
+      "card_var": "TIDECALLER_MENTOR",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "veteran_guardmouse_setup",
+      "card_var": "VETERAN_GUARDMOUSE",
+      "disposition": "wired_stub",
+      "engine_gap": "Valiant trigger",
+      "notes": ""
+    },
+    {
+      "fn": "vren_the_relentless_setup",
+      "card_var": "VREN_THE_RELENTLESS",
+      "disposition": "wired_full",
+      "engine_gap": "Ward 2; full die->exile replacement on opponents' creatures",
+      "notes": ""
+    },
+    {
+      "fn": "wandertale_mentor_setup",
+      "card_var": "WANDERTALE_MENTOR",
+      "disposition": "wired_stub",
+      "engine_gap": "Expend 4; activated mana ability",
+      "notes": ""
+    },
+    {
+      "fn": "ygra_eater_of_all_setup",
+      "card_var": "YGRA_EATER_OF_ALL",
+      "disposition": "wired_full",
+      "engine_gap": "Ward (sacrifice food); making other creatures Food artifacts",
+      "notes": ""
+    },
+    {
+      "fn": "barkform_harvester_setup",
+      "card_var": "BARKFORM_HARVESTER",
+      "disposition": "wired_stub",
+      "engine_gap": "Changeling and activated graveyard-to-bottom-of-library ability",
+      "notes": ""
+    },
+    {
+      "fn": "bumbleflowers_sharepot_setup",
+      "card_var": "BUMBLEFLOWERS_SHAREPOT",
+      "disposition": "wired_full",
+      "engine_gap": "activated destroy-permanent ability",
+      "notes": ""
+    },
+    {
+      "fn": "fountainport_bell_setup",
+      "card_var": "FOUNTAINPORT_BELL",
+      "disposition": "wired_full",
+      "engine_gap": "search-and-reveal-then-top",
+      "notes": ""
+    },
+    {
+      "fn": "heirloom_epic_setup",
+      "card_var": "HEIRLOOM_EPIC",
+      "disposition": "wired_stub",
+      "engine_gap": "activated ability with creature-tap mana substitution",
+      "notes": ""
+    },
+    {
+      "fn": "short_bow_setup",
+      "card_var": "SHORT_BOW",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment attachment-bound bonuses + equip activated",
+      "notes": ""
+    },
+    {
+      "fn": "starforged_sword_setup",
+      "card_var": "STARFORGED_SWORD",
+      "disposition": "wired_full",
+      "engine_gap": "gift-conditional auto-attach",
+      "notes": ""
+    },
+    {
+      "fn": "tangle_tumbler_setup",
+      "card_var": "TANGLE_TUMBLER",
+      "disposition": "wired_stub",
+      "engine_gap": "vehicle-style abilities (counter activation; tap-tokens-to-crew)",
+      "notes": ""
+    },
+    {
+      "fn": "three_tree_mascot_setup",
+      "card_var": "THREE_TREE_MASCOT",
+      "disposition": "wired_stub",
+      "engine_gap": "Changeling and activated any-color mana ability",
+      "notes": ""
+    },
+    {
+      "fn": "fabled_passage_setup",
+      "card_var": "FABLED_PASSAGE",
+      "disposition": "wired_stub",
+      "engine_gap": "tap-and-sacrifice search; conditional untap based on land count",
+      "notes": ""
+    },
+    {
+      "fn": "fountainport_setup",
+      "card_var": "FOUNTAINPORT",
+      "disposition": "wired_stub",
+      "engine_gap": "multiple activated abilities (mana, draw, token, treasure)",
+      "notes": ""
+    },
+    {
+      "fn": "hidden_grotto_setup",
+      "card_var": "HIDDEN_GROTTO",
+      "disposition": "wired_full",
+      "engine_gap": "any-color mana ability",
+      "notes": ""
+    },
+    {
+      "fn": "lilypad_village_setup",
+      "card_var": "LILYPAD_VILLAGE",
+      "disposition": "wired_stub",
+      "engine_gap": "restricted-mana abilities and conditional surveil activation",
+      "notes": ""
+    },
+    {
+      "fn": "lupinflower_village_setup",
+      "card_var": "LUPINFLOWER_VILLAGE",
+      "disposition": "wired_stub",
+      "engine_gap": "restricted mana, sacrifice tutor for tribal creatures",
+      "notes": ""
+    },
+    {
+      "fn": "mudflat_village_setup",
+      "card_var": "MUDFLAT_VILLAGE",
+      "disposition": "wired_stub",
+      "engine_gap": "restricted mana, sacrifice graveyard-to-hand for tribal creatures",
+      "notes": ""
+    },
+    {
+      "fn": "oakhollow_village_setup",
+      "card_var": "OAKHOLLOW_VILLAGE",
+      "disposition": "wired_stub",
+      "engine_gap": "restricted mana, conditional +1/+1 counter activation",
+      "notes": ""
+    },
+    {
+      "fn": "rockface_village_setup",
+      "card_var": "ROCKFACE_VILLAGE",
+      "disposition": "wired_stub",
+      "engine_gap": "restricted mana, tribal pump activated ability",
+      "notes": ""
+    },
+    {
+      "fn": "three_tree_city_setup",
+      "card_var": "THREE_TREE_CITY",
+      "disposition": "wired_stub",
+      "engine_gap": "chosen-creature-type tracking; X-mana production",
+      "notes": ""
+    },
+    {
+      "fn": "uncharted_haven_setup",
+      "card_var": "UNCHARTED_HAVEN",
+      "disposition": "wired_stub",
+      "engine_gap": "chosen-color tracking; conditional mana ability",
+      "notes": ""
+    },
+    {
+      "fn": "byrke_long_ear_of_the_law_setup",
+      "card_var": "BYRKE_LONG_EAR_OF_THE_LAW",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": ""
+    },
+    {
+      "fn": "charmed_sleep_setup",
+      "card_var": "CHARMED_SLEEP",
+      "disposition": "wired_full",
+      "engine_gap": "doesn't-untap restriction",
+      "notes": ""
+    },
+    {
+      "fn": "colossification_setup",
+      "card_var": "COLOSSIFICATION",
+      "disposition": "wired_full",
+      "engine_gap": "aura attachment-bound +20/+20",
+      "notes": ""
+    },
+    {
+      "fn": "sword_of_vengeance_setup",
+      "card_var": "SWORD_OF_VENGEANCE",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment static (+2/+0, first strike, vigilance, trample, haste); equip cost",
+      "notes": ""
+    },
+    {
+      "fn": "blossoming_sands_setup",
+      "card_var": "BLOSSOMING_SANDS",
+      "disposition": "wired_full",
+      "engine_gap": "dual-color mana ability",
+      "notes": ""
+    },
+    {
+      "fn": "swiftwater_cliffs_setup",
+      "card_var": "SWIFTWATER_CLIFFS",
+      "disposition": "wired_full",
+      "engine_gap": "dual-color mana ability",
+      "notes": ""
+    }
+  ],
+  "summary": {
+    "wired_full": 81,
+    "wired_stub": 59,
+    "skipped": 0
+  }
+}

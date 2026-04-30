@@ -1778,6 +1778,2340 @@ def hivespine_wolverine_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 # =============================================================================
+# AUTO-GENERATED SETUP FUNCTIONS (Bloomburrow missing cards)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Filter helpers for BLB animal-tribal mechanics
+# -----------------------------------------------------------------------------
+def _other_bats_you_control(source: GameObject):
+    return other_creatures_with_subtype(source, "Bat")
+
+
+def _other_rats_you_control(source: GameObject):
+    return other_creatures_with_subtype(source, "Rat")
+
+
+def _attacking_creatures_you_control(source: GameObject):
+    def filter_fn(target: GameObject, state: GameState) -> bool:
+        return (target.controller == source.controller and
+                CardType.CREATURE in target.characteristics.types and
+                target.zone == ZoneType.BATTLEFIELD and
+                target.state.attacking)
+    return filter_fn
+
+
+# -----------------------------------------------------------------------------
+# WHITE CARDS
+# -----------------------------------------------------------------------------
+
+def beza_the_bounding_spring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Beza enters, conditional Treasure/life/Fish/draw based on opponent comparisons."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        opp_ids = [pid for pid in state.players if pid != obj.controller]
+        if not opp_ids:
+            return events
+
+        def count_for(controller_id: str, card_type: CardType) -> int:
+            return sum(
+                1 for o in state.objects.values()
+                if o.controller == controller_id and o.zone == ZoneType.BATTLEFIELD
+                and card_type in o.characteristics.types
+            )
+
+        def hand_size(controller_id: str) -> int:
+            for zone in state.zones.values():
+                if zone.type == ZoneType.HAND and zone.owner == controller_id:
+                    return len(zone.objects)
+            return 0
+
+        my_lands = count_for(obj.controller, CardType.LAND)
+        my_creatures = count_for(obj.controller, CardType.CREATURE)
+        my_hand = hand_size(obj.controller)
+        my_life = state.players[obj.controller].life
+
+        for opp in opp_ids:
+            if count_for(opp, CardType.LAND) > my_lands:
+                events.append(Event(
+                    type=EventType.CREATE_TOKEN,
+                    payload={'controller': obj.controller, 'token_type': 'Artifact',
+                             'name': 'Treasure', 'subtypes': {'Treasure'}},
+                    source=obj.id))
+                break
+        for opp in opp_ids:
+            if state.players[opp].life > my_life:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': obj.controller, 'amount': 4}, source=obj.id))
+                break
+        for opp in opp_ids:
+            if count_for(opp, CardType.CREATURE) > my_creatures:
+                for _ in range(2):
+                    events.append(Event(
+                        type=EventType.CREATE_TOKEN,
+                        payload={'controller': obj.controller, 'token_type': 'Creature',
+                                 'name': 'Fish', 'power': 1, 'toughness': 1,
+                                 'colors': {Color.BLUE}, 'subtypes': {'Fish'}},
+                        source=obj.id))
+                break
+        for opp in opp_ids:
+            if hand_size(opp) > my_hand:
+                events.append(Event(
+                    type=EventType.DRAW,
+                    payload={'player': obj.controller, 'amount': 1}, source=obj.id))
+                break
+        return events
+
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def bravekin_duo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated abilities with sorcery-speed restriction
+    return []
+
+
+def builders_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Class enters: create 0/4 white Wall token with defender."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token_type': 'Creature',
+                     'name': 'Wall', 'power': 0, 'toughness': 4,
+                     'colors': {Color.WHITE}, 'subtypes': {'Wall'},
+                     'keywords': ['defender']},
+            source=obj.id)]
+    # engine gap: Class level-up activation and gated triggers
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def caretakers_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever one or more tokens you control enter, draw a card (once per turn)."""
+    def token_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering = state.objects.get(event.payload.get('object_id'))
+        if not entering:
+            return False
+        return (entering.controller == source.controller and
+                entering.state.is_token)
+
+    def draw_effect(event: Event, state: GameState) -> list[Event]:
+        key = f'caretakers_talent_drew_{obj.id}_{state.turn_number}'
+        if state.turn_data.get(key):
+            return []
+        state.turn_data[key] = True
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+    # engine gap: Class level 2 / 3 effects
+    return [make_etb_trigger(obj, draw_effect, token_etb_filter)]
+
+
+def carrot_cake_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this artifact enters, create Rabbit token and scry 1."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.CREATE_TOKEN,
+                  payload={'controller': obj.controller, 'token_type': 'Creature',
+                           'name': 'Rabbit', 'power': 1, 'toughness': 1,
+                           'colors': {Color.WHITE}, 'subtypes': {'Rabbit'}},
+                  source=obj.id),
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+        ]
+    # engine gap: sacrifice trigger replicating same effect
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def feather_of_flight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura ETB: draw a card. Enchanted creature gets +1/+0 and flying."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+    # engine gap: aura attachment-bound P/T and keyword grant
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def flowerfoot_swordmaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Offspring (cost-based token copy) and Valiant (targeted-by-ally trigger)
+    return []
+
+
+def jolly_gerbils_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: "whenever you give a gift" hook
+    return []
+
+
+def mouse_trapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Valiant trigger
+    return []
+
+
+def nettle_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Valiant trigger and sacrifice activated ability
+    return []
+
+
+def star_charter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """End step: if life changed, look at top 4 (simplified to scry 4)."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        key_gain = f'life_gained_turn_{state.turn_number}_{obj.controller}'
+        key_loss = f'life_lost_turn_{state.turn_number}_{obj.controller}'
+        if not (state.turn_data.get(key_gain) or state.turn_data.get(key_loss)):
+            return []
+        # engine gap: reveal/conditional draw - simplified to scry 4
+        return [Event(type=EventType.SCRY,
+                      payload={'player': obj.controller, 'amount': 4},
+                      source=obj.id)]
+    return [make_end_step_trigger(obj, end_step_effect, controller_only=True)]
+
+
+def warren_elder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated +1/+1 anthem ability
+    return []
+
+
+def warren_warleader_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you attack, choose: create tapped Rabbit OR pump attackers."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: modal choice between tapped Rabbit token and attacker pump.
+        # Default to creating a 1/1 white Rabbit token.
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token_type': 'Creature',
+                     'name': 'Rabbit', 'power': 1, 'toughness': 1,
+                     'colors': {Color.WHITE}, 'subtypes': {'Rabbit'},
+                     'tapped': True, 'attacking': True},
+            source=obj.id)]
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def waxwane_witness_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Life gain or loss during your turn -> +1/+0 until end of turn."""
+    def life_effect(event: Event, state: GameState) -> list[Event]:
+        if state.active_player != obj.controller:
+            return []
+        return [Event(type=EventType.PUMP,
+                      payload={'object_id': obj.id, 'power': 1, 'toughness': 0,
+                               'duration': 'end_of_turn'},
+                      source=obj.id)]
+    return [
+        make_life_gain_trigger(obj, life_effect, controller_only=True),
+        make_life_loss_trigger(obj, life_effect, opponent_only=False),
+    ]
+
+
+def whiskervale_forerunner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Valiant trigger
+    return []
+
+
+# -----------------------------------------------------------------------------
+# BLUE CARDS
+# -----------------------------------------------------------------------------
+
+def azure_beastbinder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: unblockable-by-power restriction; remove-abilities + base-PT lock
+    return []
+
+
+def daring_waverider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: cast-from-graveyard targeting and replacement-to-exile rider
+    return []
+
+
+def dour_portmage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever another creature you control leaves the battlefield without dying, draw a card."""
+    def leave_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        # Without dying = NOT going to graveyard
+        if event.payload.get('to_zone_type') == ZoneType.GRAVEYARD:
+            return False
+        leaving_id = event.payload.get('object_id')
+        if leaving_id == source.id:
+            return False
+        leaving = state.objects.get(leaving_id)
+        if not leaving:
+            return False
+        return (leaving.controller == source.controller and
+                CardType.CREATURE in leaving.characteristics.types)
+
+    def draw_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+
+    leave_trigger = Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: leave_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=draw_effect(e, s)),
+        duration='while_on_battlefield',
+    )
+    # engine gap: activated bounce ability
+    return [leave_trigger]
+
+
+def eluge_the_shoreless_sea_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """P/T equal to Islands you control."""
+    def is_owner_island(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+
+    def power_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_POWER and
+                event.payload.get('object_id') == obj.id)
+
+    def toughness_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_TOUGHNESS and
+                event.payload.get('object_id') == obj.id)
+
+    def islands_count() -> int:
+        return sum(
+            1 for o in state.objects.values()
+            if o.controller == obj.controller and o.zone == ZoneType.BATTLEFIELD
+            and 'Island' in o.characteristics.subtypes
+        )
+
+    def pt_handler(event: Event, state: GameState) -> InterceptorResult:
+        ne = event.copy()
+        count = sum(
+            1 for o in state.objects.values()
+            if o.controller == obj.controller and o.zone == ZoneType.BATTLEFIELD
+            and 'Island' in o.characteristics.subtypes
+        )
+        ne.payload['value'] = count
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    p_int = Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY,
+                        filter=power_filter, handler=pt_handler,
+                        duration='while_on_battlefield')
+    t_int = Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY,
+                        filter=toughness_filter, handler=pt_handler,
+                        duration='while_on_battlefield')
+    # engine gap: flood counter creation, type change to Island, cost reduction
+    return [p_int, t_int]
+
+
+def gossips_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Class L1: surveil 1 when a creature you control enters."""
+    def creature_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering = state.objects.get(event.payload.get('object_id'))
+        if not entering:
+            return False
+        return (entering.controller == source.controller and
+                CardType.CREATURE in entering.characteristics.types)
+
+    def surveil_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.SURVEIL,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+    # engine gap: Class level-up activation and L2/L3 effects
+    return [make_etb_trigger(obj, surveil_effect, creature_etb_filter)]
+
+
+def kitnap_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Aura attachment + control-change + gift conditional stun counters
+    return []
+
+
+def kitsa_otterball_elite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: prowess static, activated draw/discard, copy-spell ability
+    return []
+
+
+def mockingbird_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: enter-as-copy with X mana value cap
+    return []
+
+
+def nightwhorl_hermit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Threshold-conditional power boost + unblockable
+    return []
+
+
+def shoreline_looter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Unblockable + threshold combat damage trigger."""
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        # Engine gap: full threshold-conditional discard branch
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+
+    def opponent_combat_dmg_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('source') != source.id:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        target = event.payload.get('target')
+        return target in state.players and target != source.controller
+
+    # engine gap: unblockable static, threshold conditional discard
+    return [make_damage_trigger(obj, damage_effect, filter_fn=opponent_combat_dmg_filter)]
+
+
+def stormchasers_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Class enters: create 1/1 blue/red Otter token with prowess."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token_type': 'Creature',
+                     'name': 'Otter', 'power': 1, 'toughness': 1,
+                     'colors': {Color.BLUE, Color.RED}, 'subtypes': {'Otter'},
+                     'keywords': ['prowess']},
+            source=obj.id)]
+    # engine gap: Class level-up and L2/L3 effects
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def sugar_coat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Aura that overwrites types and abilities of enchanted permanent
+    return []
+
+
+def thought_shucker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Threshold-gated activated ability with once-only restriction
+    return []
+
+
+def thundertrap_trainer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: simplified library look (scry 4)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeted reveal + selective put-into-hand for noncreature/nonland
+        return [Event(type=EventType.SCRY,
+                      payload={'player': obj.controller, 'amount': 4},
+                      source=obj.id)]
+    # engine gap: Offspring
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def valley_floodcaller_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast a noncreature spell, BFOR creatures you control get +1/+1 and untap."""
+    def noncreature_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        if caster != source.controller:
+            return False
+        types = set(event.payload.get('types', []))
+        return CardType.CREATURE not in types
+
+    def pump_untap(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for target in state.objects.values():
+            if (target.controller == obj.controller and
+                target.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in target.characteristics.types and
+                bool(target.characteristics.subtypes &
+                     {"Bird", "Frog", "Otter", "Rat"})):
+                events.append(Event(
+                    type=EventType.PUMP,
+                    payload={'object_id': target.id, 'power': 1, 'toughness': 1,
+                             'duration': 'end_of_turn'},
+                    source=obj.id))
+                if target.state.tapped:
+                    events.append(Event(type=EventType.UNTAP,
+                                        payload={'object_id': target.id},
+                                        source=obj.id))
+        return events
+    # engine gap: cast-noncreature-as-flash permission
+    return [make_spell_cast_trigger(obj, pump_untap, filter_fn=noncreature_filter)]
+
+
+def waterspout_warden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack trigger: gain flying if another creature entered this turn."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        key = f'creature_etb_turn_{state.turn_number}_{obj.controller}'
+        # Use turn_data to check if any creature entered this turn other than self
+        if not state.turn_data.get(key):
+            return []
+        return [Event(type=EventType.GRANT_KEYWORD,
+                      payload={'object_id': obj.id, 'keyword': 'flying',
+                               'duration': 'end_of_turn'},
+                      source=obj.id)]
+
+    def creature_etb_recorder(event: Event, state: GameState) -> list[Event]:
+        if event.type != EventType.ZONE_CHANGE:
+            return []
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return []
+        entering = state.objects.get(event.payload.get('object_id'))
+        if not entering:
+            return []
+        if (entering.controller == obj.controller and
+            CardType.CREATURE in entering.characteristics.types and
+            entering.id != obj.id):
+            state.turn_data[f'creature_etb_turn_{state.turn_number}_{obj.controller}'] = True
+        return []
+
+    record_filter = lambda e, s: e.type == EventType.ZONE_CHANGE
+    record_int = Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=record_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=creature_etb_recorder(e, s)),
+        duration='while_on_battlefield')
+    return [record_int, make_attack_trigger(obj, attack_effect)]
+
+
+def wishing_well_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: coin counter activation triggering conditional graveyard cast
+    return []
+
+
+# -----------------------------------------------------------------------------
+# BLACK CARDS
+# -----------------------------------------------------------------------------
+
+def bandits_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Class enters: each opponent discards two cards (simplified)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for pid in state.players:
+            if pid != obj.controller:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': pid, 'amount': 2},
+                                    source=obj.id))
+        return events
+    # engine gap: Class L2/L3, "unless they discard nonland" choice
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def bonebind_orator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: graveyard-exile activated reanimation
+    return []
+
+
+def bonecache_overseer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated draw with conditional cost (cards left graveyard, food sacrificed)
+    return []
+
+
+def huskburster_swarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: cost reduction based on exiled+graveyard creature cards
+    return []
+
+
+def iridescent_vinelasher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Landfall - whenever a land you control enters, deal 1 damage to target opponent."""
+    def land_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering = state.objects.get(event.payload.get('object_id'))
+        if not entering:
+            return False
+        return (entering.controller == source.controller and
+                CardType.LAND in entering.characteristics.types)
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        for pid in state.players:
+            if pid != obj.controller:
+                return [Event(type=EventType.DAMAGE,
+                              payload={'target': pid, 'amount': 1,
+                                       'source': obj.id, 'is_combat': False},
+                              source=obj.id)]
+        return []
+    # engine gap: Offspring
+    return [make_etb_trigger(obj, damage_effect, land_etb_filter)]
+
+
+def maha_its_feathers_night_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Creatures opponents control have base toughness 1."""
+    def opp_creature_filter(target: GameObject, state: GameState) -> bool:
+        return (target.controller != obj.controller and
+                CardType.CREATURE in target.characteristics.types and
+                target.zone == ZoneType.BATTLEFIELD)
+
+    def toughness_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_TOUGHNESS:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        if not target:
+            return False
+        return opp_creature_filter(target, state)
+
+    def toughness_handler(event: Event, state: GameState) -> InterceptorResult:
+        ne = event.copy()
+        ne.payload['value'] = 1
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    # engine gap: Ward—Discard a card
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY,
+                        filter=toughness_filter, handler=toughness_handler,
+                        duration='while_on_battlefield')]
+
+
+def moonstone_harbinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you gain or lose life, Bats you control get +1/+0 and gain deathtouch (1/turn)."""
+    def life_effect(event: Event, state: GameState) -> list[Event]:
+        if state.active_player != obj.controller:
+            return []
+        key = f'moonstone_harbinger_{obj.id}_t{state.turn_number}'
+        if state.turn_data.get(key):
+            return []
+        state.turn_data[key] = True
+        events: list[Event] = []
+        for target in state.objects.values():
+            if (target.controller == obj.controller and
+                target.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in target.characteristics.types and
+                'Bat' in target.characteristics.subtypes):
+                events.append(Event(
+                    type=EventType.PUMP,
+                    payload={'object_id': target.id, 'power': 1, 'toughness': 0,
+                             'duration': 'end_of_turn'},
+                    source=obj.id))
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': target.id, 'keyword': 'deathtouch',
+                             'duration': 'end_of_turn'},
+                    source=obj.id))
+        return events
+    return [
+        make_life_gain_trigger(obj, life_effect, controller_only=True),
+        make_life_loss_trigger(obj, life_effect, opponent_only=False),
+    ]
+
+
+def osteomancer_adept_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated cast-from-graveyard with forage cost and finality counter rider
+    return []
+
+
+def persistent_marshstalker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Power equals 1 for each other Rat you control (continuous)."""
+    def power_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_POWER and
+                event.payload.get('object_id') == obj.id)
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        count = sum(
+            1 for o in state.objects.values()
+            if o.id != obj.id and o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and 'Rat' in o.characteristics.subtypes
+        )
+        ne = event.copy()
+        ne.payload['value'] = ne.payload.get('value', 0) + count
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    # engine gap: threshold-gated graveyard reanimation on Rat attack
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY,
+                        filter=power_filter, handler=power_handler,
+                        duration='while_on_battlefield')]
+
+
+def ravine_raider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated +1/+1 pump ability
+    return []
+
+
+def rottenmouth_viper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB or attack: +blight counter, then drain X*4."""
+    def blight_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'blight', 'amount': 1},
+            source=obj.id)]
+        blight_count = obj.state.counters.get('blight', 0) + 1
+        for pid in state.players:
+            if pid != obj.controller:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': pid, 'amount': -4 * blight_count},
+                    source=obj.id))
+        # engine gap: "unless sacrifices/discards" payment choice
+        return events
+
+    return [
+        make_etb_trigger(obj, blight_effect),
+        make_attack_trigger(obj, blight_effect),
+    ]
+
+
+def scavengers_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Class L1: when one or more creatures die, create a Food (1/turn)."""
+    def death_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying = state.objects.get(event.payload.get('object_id'))
+        if not dying:
+            return False
+        return (dying.controller == source.controller and
+                CardType.CREATURE in dying.characteristics.types)
+
+    def food_effect(event: Event, state: GameState) -> list[Event]:
+        key = f'scavengers_talent_{obj.id}_t{state.turn_number}'
+        if state.turn_data.get(key):
+            return []
+        state.turn_data[key] = True
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token_type': 'Artifact',
+                     'name': 'Food', 'subtypes': {'Food'}},
+            source=obj.id)]
+    # engine gap: Class L2/L3 effects
+    death_int = Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: death_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=food_effect(e, s)),
+        duration='while_on_battlefield')
+    return [death_int]
+
+
+def sinister_monolith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Beginning of combat: each opponent loses 1, you gain 1."""
+    def begin_combat_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.PHASE_START, EventType.COMBAT_DECLARED):
+            return False
+        if event.type == EventType.PHASE_START:
+            if event.payload.get('phase') != 'beginning_of_combat':
+                return False
+        return state.active_player == obj.controller
+
+    def drain_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for pid in state.players:
+            if pid != obj.controller:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': pid, 'amount': -1},
+                                    source=obj.id))
+        events.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': obj.controller, 'amount': 1},
+                            source=obj.id))
+        return events
+
+    # engine gap: activated draw-2 ability with self-sacrifice
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=begin_combat_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=drain_effect(e, s)),
+        duration='while_on_battlefield')]
+
+
+def starlit_soothsayer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """End step: if life changed this turn, surveil 1."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        key_gain = f'life_gained_turn_{state.turn_number}_{obj.controller}'
+        key_loss = f'life_lost_turn_{state.turn_number}_{obj.controller}'
+        if not (state.turn_data.get(key_gain) or state.turn_data.get(key_loss)):
+            return []
+        return [Event(type=EventType.SURVEIL,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+    return [make_end_step_trigger(obj, end_step_effect, controller_only=True)]
+
+
+def thoughtstalker_warlock_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: opponent discards a card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        for pid in state.players:
+            if pid != obj.controller:
+                return [Event(type=EventType.DISCARD,
+                              payload={'player': pid, 'amount': 1},
+                              source=obj.id)]
+        return []
+    # engine gap: reveal-and-choose-nonland-card branch when opponent lost life
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def wicks_patrol_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: mill three, then -X/-X to opponent's creature where X = greatest MV in graveyard."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = [Event(
+            type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id)]
+        # Find greatest MV in our graveyard
+        gy_zone = None
+        for zone in state.zones.values():
+            if zone.type == ZoneType.GRAVEYARD and zone.owner == obj.controller:
+                gy_zone = zone
+                break
+        max_mv = 0
+        if gy_zone:
+            for oid in gy_zone.objects:
+                go = state.objects.get(oid)
+                if not go or not go.card_def:
+                    continue
+                cost_str = (go.card_def.mana_cost or "").replace("{", "").replace("}", "")
+                count = 0
+                num = ""
+                for ch in cost_str:
+                    if ch.isdigit():
+                        num += ch
+                    else:
+                        if num:
+                            count += int(num)
+                            num = ""
+                        if ch.upper() in {'W', 'U', 'B', 'R', 'G', 'C', 'X'}:
+                            count += 1 if ch.upper() != 'X' else 0
+                if num:
+                    count += int(num)
+                if count > max_mv:
+                    max_mv = count
+        if max_mv > 0:
+            for tgt in state.objects.values():
+                if (tgt.controller != obj.controller and
+                    tgt.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in tgt.characteristics.types):
+                    events.append(Event(
+                        type=EventType.PUMP,
+                        payload={'object_id': tgt.id, 'power': -max_mv,
+                                 'toughness': -max_mv, 'duration': 'end_of_turn'},
+                        source=obj.id))
+                    break
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# -----------------------------------------------------------------------------
+# RED CARDS
+# -----------------------------------------------------------------------------
+
+def artists_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Class L1: cast noncreature spell -> may discard, then draw."""
+    def noncreature_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        if caster != source.controller:
+            return False
+        types = set(event.payload.get('types', []))
+        return CardType.CREATURE not in types
+
+    def loot_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DISCARD,
+                  payload={'player': obj.controller, 'amount': 1, 'optional': True},
+                  source=obj.id),
+            Event(type=EventType.DRAW,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+        ]
+    # engine gap: Class L2 (cost reduction) and L3 (damage replacement)
+    return [make_spell_cast_trigger(obj, loot_effect, filter_fn=noncreature_filter)]
+
+
+def blacksmiths_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Class enters: create Sword equipment token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token_type': 'Artifact',
+                     'name': 'Sword', 'subtypes': {'Equipment'}},
+            source=obj.id)]
+    # engine gap: Class L2 (begin-combat attach) and L3 (double strike + haste)
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def brambleguard_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Begin of combat: target creature you control gets +X/+0 (X = this creature's power)."""
+    def combat_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.PHASE_START, EventType.COMBAT_DECLARED):
+            return False
+        if event.type == EventType.PHASE_START:
+            if event.payload.get('phase') != 'beginning_of_combat':
+                return False
+        return state.active_player == obj.controller
+
+    def pump_effect(event: Event, state: GameState) -> list[Event]:
+        from src.engine import get_power as _gp
+        x = _gp(obj, state)
+        for tgt in state.objects.values():
+            if (tgt.controller == obj.controller and
+                tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types and
+                tgt.id != obj.id):
+                return [Event(
+                    type=EventType.PUMP,
+                    payload={'object_id': tgt.id, 'power': x, 'toughness': 0,
+                             'duration': 'end_of_turn'},
+                    source=obj.id)]
+        return []
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=pump_effect(e, s)),
+        duration='while_on_battlefield')]
+
+
+def byway_barterer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Expend 4 mechanic
+    return []
+
+
+def dragonhawk_fates_tempest_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB or attack: simplified impulse draw of X (X = creatures with power 4+)."""
+    def big_creature_count() -> int:
+        from src.engine import get_power as _gp
+        return sum(
+            1 for o in state.objects.values()
+            if o.controller == obj.controller and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and _gp(o, state) >= 4
+        )
+
+    def impulse_effect(event: Event, state: GameState) -> list[Event]:
+        x = big_creature_count()
+        if x <= 0:
+            return []
+        # engine gap: delayed end-step damage based on still-exiled count
+        return [Event(type=EventType.IMPULSE_DRAW,
+                      payload={'player': obj.controller, 'amount': x,
+                               'duration': 'next_end_step'},
+                      source=obj.id)]
+    return [
+        make_etb_trigger(obj, impulse_effect),
+        make_attack_trigger(obj, impulse_effect),
+    ]
+
+
+def emberheart_challenger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: prowess static and Valiant trigger
+    return []
+
+
+def festival_of_embers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: cast-from-graveyard for instants/sorceries with life cost; replace gy->exile
+    return []
+
+
+def flamecache_gecko_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: if an opponent lost life this turn, add {B}{R}."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        any_loss = False
+        for pid in state.players:
+            if pid == obj.controller:
+                continue
+            if state.turn_data.get(f'life_lost_turn_{state.turn_number}_{pid}'):
+                any_loss = True
+                break
+        if not any_loss:
+            return []
+        return [
+            Event(type=EventType.ADD_MANA,
+                  payload={'player': obj.controller, 'mana': 'B'}, source=obj.id),
+            Event(type=EventType.ADD_MANA,
+                  payload={'player': obj.controller, 'mana': 'R'}, source=obj.id),
+        ]
+    # engine gap: activated discard/draw ability
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def frilled_sparkshooter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: enters with a +1/+1 counter if an opponent lost life this turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        any_loss = False
+        for pid in state.players:
+            if pid == obj.controller:
+                continue
+            if state.turn_data.get(f'life_lost_turn_{state.turn_number}_{pid}'):
+                any_loss = True
+                break
+        if not any_loss:
+            return []
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                      source=obj.id)]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def harnesser_of_storms_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast a noncreature or Otter spell, exile top of library; play UEOT (1/turn)."""
+    def cast_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        if caster != source.controller:
+            return False
+        types = set(event.payload.get('types', []))
+        subs = set(event.payload.get('subtypes', []))
+        return (CardType.CREATURE not in types) or ('Otter' in subs)
+
+    def impulse_effect(event: Event, state: GameState) -> list[Event]:
+        key = f'harnesser_storms_{obj.id}_t{state.turn_number}'
+        if state.turn_data.get(key):
+            return []
+        state.turn_data[key] = True
+        return [Event(type=EventType.IMPULSE_DRAW,
+                      payload={'player': obj.controller, 'amount': 1,
+                               'duration': 'end_of_turn'},
+                      source=obj.id)]
+    return [make_spell_cast_trigger(obj, impulse_effect, filter_fn=cast_filter)]
+
+
+def aheartfire_hero_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """A-Heartfire Hero: death damage = power; Valiant gap."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        from src.engine import get_power as _gp
+        power = _gp(obj, state)
+        events: list[Event] = []
+        for pid in state.players:
+            if pid != obj.controller:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': pid, 'amount': power, 'source': obj.id,
+                             'is_combat': False},
+                    source=obj.id))
+        return events
+    # engine gap: Valiant trigger
+    return [make_death_trigger(obj, death_effect)]
+
+
+def hearthborn_battler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a player casts their second spell each turn, deal 2 damage to target opponent."""
+    def cast_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        if not caster:
+            return False
+        key = f'hearthborn_count_{state.turn_number}_{caster}'
+        prev = state.turn_data.get(key, 0)
+        state.turn_data[key] = prev + 1
+        return prev + 1 == 2
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        for pid in state.players:
+            if pid != obj.controller:
+                return [Event(type=EventType.DAMAGE,
+                              payload={'target': pid, 'amount': 2,
+                                       'source': obj.id, 'is_combat': False},
+                              source=obj.id)]
+        return []
+
+    return [make_spell_cast_trigger(obj, damage_effect,
+                                    controller_only=False,
+                                    filter_fn=cast_filter)]
+
+
+def hired_claw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you attack with one or more Lizards, deal 1 damage to target opponent."""
+    def lizard_attack_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker = state.objects.get(event.payload.get('attacker_id'))
+        if not attacker:
+            return False
+        return (attacker.controller == source.controller and
+                'Lizard' in attacker.characteristics.subtypes)
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        for pid in state.players:
+            if pid != obj.controller:
+                return [Event(type=EventType.DAMAGE,
+                              payload={'target': pid, 'amount': 1,
+                                       'source': obj.id, 'is_combat': False},
+                              source=obj.id)]
+        return []
+    # engine gap: activated +1/+1 counter ability (conditional on opponent life loss)
+    return [make_attack_trigger(obj, damage_effect, lizard_attack_filter)]
+
+
+def hoarders_overflow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: put a stash counter on this enchantment."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': 'stash', 'amount': 1},
+                      source=obj.id)]
+    # engine gap: Expend 4; activated discard-hand-then-draw-X
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def kindlespark_duo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast a noncreature spell, untap this creature."""
+    def noncreature_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        if caster != source.controller:
+            return False
+        types = set(event.payload.get('types', []))
+        return CardType.CREATURE not in types
+
+    def untap_effect(event: Event, state: GameState) -> list[Event]:
+        if obj.state.tapped:
+            return [Event(type=EventType.UNTAP,
+                          payload={'object_id': obj.id},
+                          source=obj.id)]
+        return []
+    # engine gap: tap-for-1-damage ability
+    return [make_spell_cast_trigger(obj, untap_effect, filter_fn=noncreature_filter)]
+
+
+def manifold_mouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Begin combat: target Mouse you control gains double strike or trample (default trample)."""
+    def combat_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.PHASE_START, EventType.COMBAT_DECLARED):
+            return False
+        if event.type == EventType.PHASE_START:
+            if event.payload.get('phase') != 'beginning_of_combat':
+                return False
+        return state.active_player == obj.controller
+
+    def grant_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: choice between double strike and trample
+        for tgt in state.objects.values():
+            if (tgt.controller == obj.controller and
+                tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types and
+                'Mouse' in tgt.characteristics.subtypes):
+                return [Event(type=EventType.GRANT_KEYWORD,
+                              payload={'object_id': tgt.id, 'keyword': 'trample',
+                                       'duration': 'end_of_turn'},
+                              source=obj.id)]
+        return []
+
+    # engine gap: Offspring
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=grant_effect(e, s)),
+        duration='while_on_battlefield')]
+
+
+def raccoon_rallier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated tap ability with sorcery-speed restriction (haste grant)
+    return []
+
+
+def reptilian_recruiter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain control until eot if power<=2 or you control another Lizard (simplified)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        from src.engine import get_power as _gp
+        has_other_lizard = any(
+            o.id != obj.id and o.controller == obj.controller and
+            o.zone == ZoneType.BATTLEFIELD and
+            'Lizard' in o.characteristics.subtypes
+            for o in state.objects.values()
+        )
+        for tgt in state.objects.values():
+            if (tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types and
+                tgt.id != obj.id):
+                if _gp(tgt, state) <= 2 or has_other_lizard:
+                    return [
+                        Event(type=EventType.GAIN_CONTROL,
+                              payload={'object_id': tgt.id,
+                                       'new_controller': obj.controller,
+                                       'duration': 'end_of_turn'},
+                              source=obj.id),
+                        Event(type=EventType.UNTAP,
+                              payload={'object_id': tgt.id}, source=obj.id),
+                        Event(type=EventType.GRANT_KEYWORD,
+                              payload={'object_id': tgt.id, 'keyword': 'haste',
+                                       'duration': 'end_of_turn'},
+                              source=obj.id),
+                    ]
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def roughshod_duo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Expend 4
+    return []
+
+
+def stormsplitter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast an instant or sorcery, create a copy token of this creature."""
+    def is_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        if caster != source.controller:
+            return False
+        types = set(event.payload.get('types', []))
+        return bool(types & {CardType.INSTANT, CardType.SORCERY})
+
+    def token_copy(event: Event, state: GameState) -> list[Event]:
+        # engine gap: copy-token of arbitrary creature with end-step exile rider
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token_type': 'Creature',
+                     'name': obj.name, 'power': obj.characteristics.power or 1,
+                     'toughness': obj.characteristics.toughness or 1,
+                     'colors': set(obj.characteristics.colors),
+                     'subtypes': set(obj.characteristics.subtypes),
+                     'keywords': ['haste'], 'exile_at_end_of_turn': True},
+            source=obj.id)]
+    return [make_spell_cast_trigger(obj, token_copy, filter_fn=is_filter)]
+
+
+def sunspine_lynx_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: deal damage to each player equal to nonbasic lands they control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for pid in state.players:
+            count = sum(
+                1 for o in state.objects.values()
+                if o.controller == pid and o.zone == ZoneType.BATTLEFIELD
+                and CardType.LAND in o.characteristics.types
+                and 'Basic' not in o.characteristics.supertypes
+            )
+            if count > 0:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': pid, 'amount': count,
+                             'source': obj.id, 'is_combat': False},
+                    source=obj.id))
+        return events
+    # engine gap: "players can't gain life", "damage can't be prevented"
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def teapot_slinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Expend 4
+    return []
+
+
+def war_squeak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura ETB: target creature an opponent controls can't block this turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        for tgt in state.objects.values():
+            if (tgt.controller != obj.controller and
+                tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types):
+                return [Event(type=EventType.CANT_BLOCK,
+                              payload={'object_id': tgt.id, 'duration': 'end_of_turn'},
+                              source=obj.id)]
+        return []
+    # engine gap: Aura attachment-bound +1/+1 and haste grant
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def whiskerquill_scribe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Valiant trigger (loot)
+    return []
+
+
+# -----------------------------------------------------------------------------
+# GREEN CARDS
+# -----------------------------------------------------------------------------
+
+def barkknuckle_boxer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Expend 4
+    return []
+
+
+def brambleguard_veteran_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Expend 4
+    return []
+
+
+def bushy_bodyguard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Offspring + Forage
+    return []
+
+
+def curious_forager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Forage with optional graveyard return targeting
+    return []
+
+
+def druid_of_the_spade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """As long as you control a token, this creature gets +2/+0 and has trample."""
+    def has_token() -> bool:
+        return any(
+            o.controller == obj.controller and o.zone == ZoneType.BATTLEFIELD
+            and o.state.is_token
+            for o in state.objects.values()
+        )
+
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        return has_token()
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        ne = event.copy()
+        ne.payload['value'] = ne.payload.get('value', 0) + 2
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    def ability_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        return has_token()
+
+    def ability_handler(event: Event, state: GameState) -> InterceptorResult:
+        ne = event.copy()
+        granted = list(ne.payload.get('granted', []))
+        if 'trample' not in granted:
+            granted.append('trample')
+        ne.payload['granted'] = granted
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY,
+                    filter=power_filter, handler=power_handler,
+                    duration='while_on_battlefield'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY,
+                    filter=ability_filter, handler=ability_handler,
+                    duration='while_on_battlefield'),
+    ]
+
+
+def fecund_greenshell_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB or other-creature ETB with toughness>power: scry-like top-card check (simplified)."""
+    def etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering = state.objects.get(event.payload.get('object_id'))
+        if not entering:
+            return False
+        if entering.controller != source.controller:
+            return False
+        if CardType.CREATURE not in entering.characteristics.types:
+            return False
+        if entering.id == source.id:
+            return True
+        p = entering.characteristics.power or 0
+        t = entering.characteristics.toughness or 0
+        return t > p
+
+    def reveal_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: top-card type check + put-onto-battlefield branch
+        return [Event(type=EventType.SCRY,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+
+    # engine gap: 10-land anthem (+2/+2)
+    return [make_etb_trigger(obj, reveal_effect, etb_filter)]
+
+
+def hazardroot_herbalist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you attack, target creature you control gets +1/+0 (deathtouch if token)."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        for tgt in state.objects.values():
+            if (tgt.controller == obj.controller and
+                tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types):
+                events: list[Event] = [Event(
+                    type=EventType.PUMP,
+                    payload={'object_id': tgt.id, 'power': 1, 'toughness': 0,
+                             'duration': 'end_of_turn'},
+                    source=obj.id)]
+                if tgt.state.is_token:
+                    events.append(Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={'object_id': tgt.id, 'keyword': 'deathtouch',
+                                 'duration': 'end_of_turn'},
+                        source=obj.id))
+                return events
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def heaped_harvest_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Artifact ETB: search for basic land, put onto battlefield tapped."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: search-and-fetch-basic + sacrifice retrigger
+        return [Event(type=EventType.SEARCH_LIBRARY,
+                      payload={'player': obj.controller, 'card_type': CardType.LAND,
+                               'basic_only': True, 'destination': 'battlefield_tapped'},
+                      source=obj.id)]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def hunters_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Class enters: bite (target creature you control deals damage to opponent's creature)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeted fight-style damage
+        return []
+    # engine gap: Class L2 (attack pump w/ trample) and L3 (end-step draw)
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def innkeepers_talent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Class L1: begin combat, put +1/+1 counter on target creature you control."""
+    def combat_filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.PHASE_START, EventType.COMBAT_DECLARED):
+            return False
+        if event.type == EventType.PHASE_START:
+            if event.payload.get('phase') != 'beginning_of_combat':
+                return False
+        return state.active_player == obj.controller
+
+    def counter_effect(event: Event, state: GameState) -> list[Event]:
+        for tgt in state.objects.values():
+            if (tgt.controller == obj.controller and
+                tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types):
+                return [Event(type=EventType.COUNTER_ADDED,
+                              payload={'object_id': tgt.id,
+                                       'counter_type': '+1/+1', 'amount': 1},
+                              source=obj.id)]
+        return []
+    # engine gap: Class L2 (ward 1 on counter-having permanents) and L3 (counter doubling)
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=counter_effect(e, s)),
+        duration='while_on_battlefield')]
+
+
+def keeneyed_curator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: track exiled-with-this and apply +4/+4 / trample conditional
+    return []
+
+
+def lumra_bellow_of_the_woods_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: mill 4, then return all land cards from graveyard to battlefield tapped."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = [Event(type=EventType.MILL,
+                                     payload={'player': obj.controller, 'amount': 4},
+                                     source=obj.id)]
+        # Find lands in our graveyard
+        gy_zone = None
+        for zone in state.zones.values():
+            if zone.type == ZoneType.GRAVEYARD and zone.owner == obj.controller:
+                gy_zone = zone
+                break
+        if gy_zone:
+            for oid in list(gy_zone.objects):
+                go = state.objects.get(oid)
+                if go and CardType.LAND in go.characteristics.types:
+                    events.append(Event(
+                        type=EventType.RETURN_FROM_GRAVEYARD,
+                        payload={'object_id': oid, 'controller': obj.controller,
+                                 'tapped': True},
+                        source=obj.id))
+        return events
+
+    # P/T equal to lands you control
+    def power_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_POWER and
+                event.payload.get('object_id') == obj.id)
+
+    def toughness_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_TOUGHNESS and
+                event.payload.get('object_id') == obj.id)
+
+    def pt_handler(event: Event, state: GameState) -> InterceptorResult:
+        ne = event.copy()
+        count = sum(
+            1 for o in state.objects.values()
+            if o.controller == obj.controller and o.zone == ZoneType.BATTLEFIELD
+            and CardType.LAND in o.characteristics.types
+        )
+        ne.payload['value'] = count
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY,
+                    filter=power_filter, handler=pt_handler,
+                    duration='while_on_battlefield'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY,
+                    filter=toughness_filter, handler=pt_handler,
+                    duration='while_on_battlefield'),
+    ]
+
+
+def mistbreath_elder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: bounce another creature, put +1/+1 counter on this; otherwise bounce self."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: choose-and-bounce-another with +1/+1 reward, otherwise self-bounce
+        for tgt in state.objects.values():
+            if (tgt.controller == obj.controller and
+                tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types and
+                tgt.id != obj.id):
+                return [
+                    Event(type=EventType.BOUNCE,
+                          payload={'object_id': tgt.id}, source=obj.id),
+                    Event(type=EventType.COUNTER_ADDED,
+                          payload={'object_id': obj.id,
+                                   'counter_type': '+1/+1', 'amount': 1},
+                          source=obj.id),
+                ]
+        return []
+    return [make_upkeep_trigger(obj, upkeep_effect, controller_only=True)]
+
+
+def pawpatch_recruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When a creature you control is targeted by an opponent, +1/+1 counter on another."""
+    def opponent_target_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.TARGET_REQUIRED and event.type != EventType.CAST:
+            return False
+        # engine gap: opponent-targets-your-creature event detection
+        return False
+
+    def counter_effect(event: Event, state: GameState) -> list[Event]:
+        return []
+    # engine gap: Offspring + opponent-targets-your-creature trigger
+    return []
+
+
+def rustshield_rampager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Offspring + power<=2 unblockability
+    return []
+
+
+def scrapshooter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: destroy target artifact/enchantment if gift was promised (simplified to always)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: gift promise tracking - simplified to always destroy
+        for tgt in state.objects.values():
+            if (tgt.controller != obj.controller and
+                tgt.zone == ZoneType.BATTLEFIELD and
+                (CardType.ARTIFACT in tgt.characteristics.types or
+                 CardType.ENCHANTMENT in tgt.characteristics.types)):
+                return [Event(type=EventType.DESTROY,
+                              payload={'object_id': tgt.id},
+                              source=obj.id)]
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def stocking_the_pantry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When +1/+1 counter is added to a creature you control, put a supply counter on this."""
+    def counter_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COUNTER_ADDED:
+            return False
+        if event.payload.get('counter_type') != '+1/+1':
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        if not target:
+            return False
+        return (target.controller == obj.controller and
+                CardType.CREATURE in target.characteristics.types)
+
+    def supply_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id, 'counter_type': 'supply', 'amount': 1},
+                      source=obj.id)]
+    # engine gap: activated remove-counter-to-draw ability
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=counter_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=supply_effect(e, s)),
+        duration='while_on_battlefield')]
+
+
+def tender_wildguide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated mana ability + activated +1/+1 counter ability (Offspring)
+    return []
+
+
+def thornvault_forager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated mana abilities (incl. forage cost) and tutor ability
+    return []
+
+
+def three_tree_rootweaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated any-color mana ability
+    return []
+
+
+def three_tree_scribe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When a creature you control leaves bf without dying, put +1/+1 counter on target creature."""
+    def leave_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') == ZoneType.GRAVEYARD:
+            return False
+        leaving = state.objects.get(event.payload.get('object_id'))
+        if not leaving:
+            return False
+        return (leaving.controller == source.controller and
+                CardType.CREATURE in leaving.characteristics.types)
+
+    def counter_effect(event: Event, state: GameState) -> list[Event]:
+        for tgt in state.objects.values():
+            if (tgt.controller == obj.controller and
+                tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types):
+                return [Event(type=EventType.COUNTER_ADDED,
+                              payload={'object_id': tgt.id,
+                                       'counter_type': '+1/+1', 'amount': 1},
+                              source=obj.id)]
+        return []
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: leave_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=counter_effect(e, s)),
+        duration='while_on_battlefield')]
+
+
+def treetop_sentries_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: forage to draw a card (simplified)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: Forage cost gating
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# -----------------------------------------------------------------------------
+# MULTICOLOR / GOLD CARDS
+# -----------------------------------------------------------------------------
+
+def alania_divergent_storm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trigger when first instant/sorcery/Otter spell of turn is cast."""
+    def cast_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        if caster != source.controller:
+            return False
+        types = set(event.payload.get('types', []))
+        subs = set(event.payload.get('subtypes', []))
+        is_instant = CardType.INSTANT in types
+        is_sorcery = CardType.SORCERY in types
+        is_otter = 'Otter' in subs and CardType.CREATURE in types
+        if not (is_instant or is_sorcery or is_otter):
+            return False
+        # Track first-of-each-type per turn
+        key = None
+        if is_instant:
+            key = f'alania_first_instant_{state.turn_number}_{source.controller}'
+        elif is_sorcery:
+            key = f'alania_first_sorcery_{state.turn_number}_{source.controller}'
+        elif is_otter:
+            key = f'alania_first_otter_{state.turn_number}_{source.controller}'
+        if not key or state.turn_data.get(key):
+            return False
+        state.turn_data[key] = True
+        return True
+
+    def copy_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: opponent-draw + spell copy with new targets
+        for pid in state.players:
+            if pid != obj.controller:
+                return [Event(type=EventType.DRAW,
+                              payload={'player': pid, 'amount': 1},
+                              source=obj.id)]
+        return []
+
+    return [make_spell_cast_trigger(obj, copy_effect, filter_fn=cast_filter)]
+
+
+def baylen_the_haymaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap-N-tokens activated abilities
+    return []
+
+
+def burrowguard_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """P/T equal to creatures you control."""
+    def power_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_POWER and
+                event.payload.get('object_id') == obj.id)
+
+    def toughness_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.QUERY_TOUGHNESS and
+                event.payload.get('object_id') == obj.id)
+
+    def pt_handler(event: Event, state: GameState) -> InterceptorResult:
+        ne = event.copy()
+        count = sum(
+            1 for o in state.objects.values()
+            if o.controller == obj.controller and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+        )
+        ne.payload['value'] = count
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY,
+                    filter=power_filter, handler=pt_handler,
+                    duration='while_on_battlefield'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY,
+                    filter=toughness_filter, handler=pt_handler,
+                    duration='while_on_battlefield'),
+    ]
+
+
+def cindering_cutthroat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: enters with +1/+1 counter if opp lost life this turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        any_loss = False
+        for pid in state.players:
+            if pid == obj.controller:
+                continue
+            if state.turn_data.get(f'life_lost_turn_{state.turn_number}_{pid}'):
+                any_loss = True
+                break
+        if not any_loss:
+            return []
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id,
+                               'counter_type': '+1/+1', 'amount': 1},
+                      source=obj.id)]
+    # engine gap: activated menace ability
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def clement_the_worrywort_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this or another creature you control enters, bounce target with lesser MV."""
+    def creature_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering = state.objects.get(event.payload.get('object_id'))
+        if not entering:
+            return False
+        return (entering.controller == source.controller and
+                CardType.CREATURE in entering.characteristics.types)
+
+    def bounce_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeted-with-lesser-MV bounce
+        return []
+    # engine gap: Frog mana ability grant
+    return [make_etb_trigger(obj, bounce_effect, creature_etb_filter)]
+
+
+def corpseberry_cultivator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Forage and forage trigger
+    return []
+
+
+def fireglass_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Beginning of second main phase: if opp lost life, exile top 2, choose 1 playable."""
+    def main2_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        if event.payload.get('phase') not in ('main2', 'postcombat_main', 'second_main'):
+            return False
+        return state.active_player == obj.controller
+
+    def impulse_effect(event: Event, state: GameState) -> list[Event]:
+        any_loss = False
+        for pid in state.players:
+            if pid == obj.controller:
+                continue
+            if state.turn_data.get(f'life_lost_turn_{state.turn_number}_{pid}'):
+                any_loss = True
+                break
+        if not any_loss:
+            return []
+        # engine gap: pick-one of two impulse-drawn cards
+        return [Event(type=EventType.IMPULSE_DRAW,
+                      payload={'player': obj.controller, 'amount': 1,
+                               'duration': 'end_of_turn'},
+                      source=obj.id)]
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=main2_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=impulse_effect(e, s)),
+        duration='while_on_battlefield')]
+
+
+def glarb_calamitys_augur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: top-of-library reveal/play permission and surveil-2 activated ability
+    return []
+
+
+def helga_skittish_seer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast creature spell with MV>=4: draw, gain 1, +1/+1 counter."""
+    def cast_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        if caster != source.controller:
+            return False
+        types = set(event.payload.get('types', []))
+        if CardType.CREATURE not in types:
+            return False
+        return event.payload.get('mana_value', 0) >= 4
+
+    def reward_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+            Event(type=EventType.COUNTER_ADDED,
+                  payload={'object_id': obj.id,
+                           'counter_type': '+1/+1', 'amount': 1},
+                  source=obj.id),
+        ]
+    # engine gap: tap-add-X-mana ability
+    return [make_spell_cast_trigger(obj, reward_effect, filter_fn=cast_filter)]
+
+
+def hugs_grisly_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: exile top X cards (X = mana value 6 simplified), play until next turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.IMPULSE_DRAW,
+                      payload={'player': obj.controller, 'amount': 6,
+                               'duration': 'next_end_step'},
+                      source=obj.id)]
+    # engine gap: extra land per turn permission
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def the_infamous_cruelclaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Combat damage to player: exile top until nonland, may cast for discard cost."""
+    def combat_dmg_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('source') != source.id:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        target = event.payload.get('target')
+        return target in state.players
+
+    def impulse_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: exile-until-nonland + cast-by-discarding
+        return [Event(type=EventType.IMPULSE_DRAW,
+                      payload={'player': obj.controller, 'amount': 1,
+                               'duration': 'end_of_turn'},
+                      source=obj.id)]
+    return [make_damage_trigger(obj, impulse_effect, filter_fn=combat_dmg_filter)]
+
+
+def junkblade_bruiser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Expend 4
+    return []
+
+
+def kastral_the_windcrested_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever Birds you control deal combat damage to player, choose one (default: draw a card)."""
+    def bird_combat_dmg_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        target = event.payload.get('target')
+        if target not in state.players:
+            return False
+        src_obj = state.objects.get(event.payload.get('source'))
+        if not src_obj:
+            return False
+        return (src_obj.controller == source.controller and
+                'Bird' in src_obj.characteristics.subtypes)
+
+    def reward_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: modal choice
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+    return [make_damage_trigger(obj, reward_effect, filter_fn=bird_combat_dmg_filter)]
+
+
+def lilysplash_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated flicker-with-counter ability
+    return []
+
+
+def lunar_convocation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """End step: if you gained life this turn, each opp loses 1. If gained AND lost, create Bat."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        gained = state.turn_data.get(f'life_gained_turn_{state.turn_number}_{obj.controller}')
+        lost = state.turn_data.get(f'life_lost_turn_{state.turn_number}_{obj.controller}')
+        if gained:
+            for pid in state.players:
+                if pid != obj.controller:
+                    events.append(Event(type=EventType.LIFE_CHANGE,
+                                        payload={'player': pid, 'amount': -1},
+                                        source=obj.id))
+        if gained and lost:
+            events.append(Event(
+                type=EventType.CREATE_TOKEN,
+                payload={'controller': obj.controller, 'token_type': 'Creature',
+                         'name': 'Bat', 'power': 1, 'toughness': 1,
+                         'colors': {Color.BLACK}, 'subtypes': {'Bat'},
+                         'keywords': ['flying']},
+                source=obj.id))
+        return events
+    # engine gap: activated pay-life-to-draw ability
+    return [make_end_step_trigger(obj, end_step_effect, controller_only=True)]
+
+
+def mind_drill_assailant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Threshold: +3/+0 if 7+ cards in graveyard."""
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        gy_zone = None
+        for zone in state.zones.values():
+            if zone.type == ZoneType.GRAVEYARD and zone.owner == obj.controller:
+                gy_zone = zone
+                break
+        if not gy_zone:
+            return False
+        return len(gy_zone.objects) >= 7
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        ne = event.copy()
+        ne.payload['value'] = ne.payload.get('value', 0) + 3
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    # engine gap: activated surveil-1 ability
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY,
+                        filter=power_filter, handler=power_handler,
+                        duration='while_on_battlefield')]
+
+
+def muerra_trash_tactician_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Beginning of first main phase: add R or G per Raccoon (simplified to 1 R)."""
+    def main1_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        if event.payload.get('phase') not in ('main1', 'precombat_main', 'first_main'):
+            return False
+        return state.active_player == obj.controller
+
+    def mana_effect(event: Event, state: GameState) -> list[Event]:
+        count = sum(
+            1 for o in state.objects.values()
+            if o.controller == obj.controller and o.zone == ZoneType.BATTLEFIELD
+            and 'Raccoon' in o.characteristics.subtypes
+        )
+        events: list[Event] = []
+        for _ in range(count):
+            events.append(Event(type=EventType.ADD_MANA,
+                                payload={'player': obj.controller, 'mana': 'R'},
+                                source=obj.id))
+        return events
+    # engine gap: Expend 4 / Expend 8 triggers
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=main1_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=mana_effect(e, s)),
+        duration='while_on_battlefield')]
+
+
+def ral_crackling_wit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast a noncreature spell, put a loyalty counter on Ral."""
+    def noncreature_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.controller
+        if caster != source.controller:
+            return False
+        types = set(event.payload.get('types', []))
+        return CardType.CREATURE not in types
+
+    def loyalty_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id,
+                               'counter_type': 'loyalty', 'amount': 1},
+                      source=obj.id)]
+    # engine gap: planeswalker loyalty abilities
+    return [make_spell_cast_trigger(obj, loyalty_effect, filter_fn=noncreature_filter)]
+
+
+def seedglaive_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Valiant trigger
+    return []
+
+
+def tidecaller_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Threshold ETB: bounce nonland permanent if 7+ cards in graveyard."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        gy_zone = None
+        for zone in state.zones.values():
+            if zone.type == ZoneType.GRAVEYARD and zone.owner == obj.controller:
+                gy_zone = zone
+                break
+        if not gy_zone or len(gy_zone.objects) < 7:
+            return []
+        for tgt in state.objects.values():
+            if (tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.LAND not in tgt.characteristics.types):
+                return [Event(type=EventType.BOUNCE,
+                              payload={'object_id': tgt.id},
+                              source=obj.id)]
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def veteran_guardmouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Valiant trigger
+    return []
+
+
+def vren_the_relentless_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """End step: create X 1/1 Rats based on opponents' creatures exiled this turn."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        x = state.turn_data.get(f'vren_exiled_count_{state.turn_number}', 0)
+        if x <= 0:
+            return []
+        events: list[Event] = []
+        for _ in range(x):
+            events.append(Event(
+                type=EventType.CREATE_TOKEN,
+                payload={'controller': obj.controller, 'token_type': 'Creature',
+                         'name': 'Rat', 'power': 1, 'toughness': 1,
+                         'colors': {Color.BLACK}, 'subtypes': {'Rat'}},
+                source=obj.id))
+        return events
+
+    def opp_creature_death_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        if not target:
+            return False
+        return (target.controller != obj.controller and
+                CardType.CREATURE in target.characteristics.types and
+                target.zone == ZoneType.BATTLEFIELD)
+
+    def replace_with_exile(event: Event, state: GameState) -> InterceptorResult:
+        # Track exile and convert destroy to exile
+        state.turn_data[f'vren_exiled_count_{state.turn_number}'] = (
+            state.turn_data.get(f'vren_exiled_count_{state.turn_number}', 0) + 1
+        )
+        new_event = Event(
+            type=EventType.EXILE,
+            payload=dict(event.payload),
+            source=event.source,
+            controller=event.controller)
+        return InterceptorResult(
+            action=InterceptorAction.REPLACE,
+            new_events=[new_event])
+
+    # engine gap: Ward 2; full die->exile replacement on opponents' creatures
+    return [
+        make_end_step_trigger(obj, end_step_effect, controller_only=False),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.PREVENT,
+                    filter=opp_creature_death_filter,
+                    handler=replace_with_exile,
+                    duration='while_on_battlefield'),
+    ]
+
+
+def wandertale_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Expend 4; activated mana ability
+    return []
+
+
+def ygra_eater_of_all_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a Food is put into a graveyard from the battlefield, +2 +1/+1 counters on Ygra."""
+    def food_die_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        if not target:
+            return False
+        return 'Food' in target.characteristics.subtypes
+
+    def counter_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': obj.id,
+                               'counter_type': '+1/+1', 'amount': 2},
+                      source=obj.id)]
+
+    # engine gap: Ward (sacrifice food); making other creatures Food artifacts
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=food_die_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=counter_effect(e, s)),
+        duration='while_on_battlefield')]
+
+
+# -----------------------------------------------------------------------------
+# ARTIFACTS / EQUIPMENT
+# -----------------------------------------------------------------------------
+
+def barkform_harvester_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Changeling and activated graveyard-to-bottom-of-library ability
+    return []
+
+
+def bumbleflowers_sharepot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Artifact ETB: create Food token."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token_type': 'Artifact',
+                     'name': 'Food', 'subtypes': {'Food'}},
+            source=obj.id)]
+    # engine gap: activated destroy-permanent ability
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def fountainport_bell_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Artifact ETB: search library for basic land, reveal, top of library (simplified)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: search-and-reveal-then-top
+        return [Event(type=EventType.SEARCH_LIBRARY,
+                      payload={'player': obj.controller, 'card_type': CardType.LAND,
+                               'basic_only': True, 'destination': 'library_top'},
+                      source=obj.id)]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def heirloom_epic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: activated ability with creature-tap mana substitution
+    return []
+
+
+def short_bow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: equipment attachment-bound bonuses + equip activated
+    return []
+
+
+def starforged_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: if gift was promised, attach to target creature you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: gift-conditional auto-attach
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def tangle_tumbler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: vehicle-style abilities (counter activation; tap-tokens-to-crew)
+    return []
+
+
+def three_tree_mascot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: Changeling and activated any-color mana ability
+    return []
+
+
+# -----------------------------------------------------------------------------
+# LANDS
+# -----------------------------------------------------------------------------
+
+def fabled_passage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: tap-and-sacrifice search; conditional untap based on land count
+    return []
+
+
+def fountainport_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: multiple activated abilities (mana, draw, token, treasure)
+    return []
+
+
+def hidden_grotto_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.SURVEIL,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+    # engine gap: any-color mana ability
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def lilypad_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: restricted-mana abilities and conditional surveil activation
+    return []
+
+
+def lupinflower_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: restricted mana, sacrifice tutor for tribal creatures
+    return []
+
+
+def mudflat_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: restricted mana, sacrifice graveyard-to-hand for tribal creatures
+    return []
+
+
+def oakhollow_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: restricted mana, conditional +1/+1 counter activation
+    return []
+
+
+def rockface_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: restricted mana, tribal pump activated ability
+    return []
+
+
+def three_tree_city_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: chosen-creature-type tracking; X-mana production
+    return []
+
+
+def uncharted_haven_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: chosen-color tracking; conditional mana ability
+    return []
+
+
+# -----------------------------------------------------------------------------
+# COMMANDER / EXTRA SET CARDS
+# -----------------------------------------------------------------------------
+
+def byrke_long_ear_of_the_law_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: put +1/+1 on up to two creatures. Attack: double counters."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        count = 0
+        for tgt in state.objects.values():
+            if count >= 2:
+                break
+            if (tgt.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in tgt.characteristics.types):
+                events.append(Event(type=EventType.COUNTER_ADDED,
+                                    payload={'object_id': tgt.id,
+                                             'counter_type': '+1/+1', 'amount': 1},
+                                    source=obj.id))
+                count += 1
+        return events
+
+    def counter_attack_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker = state.objects.get(event.payload.get('attacker_id'))
+        if not attacker:
+            return False
+        if attacker.controller != source.controller:
+            return False
+        return attacker.state.counters.get('+1/+1', 0) > 0
+
+    def double_effect(event: Event, state: GameState) -> list[Event]:
+        attacker = state.objects.get(event.payload.get('attacker_id'))
+        if not attacker:
+            return []
+        current = attacker.state.counters.get('+1/+1', 0)
+        if current <= 0:
+            return []
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': attacker.id,
+                               'counter_type': '+1/+1', 'amount': current},
+                      source=obj.id)]
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        make_attack_trigger(obj, double_effect,
+                            filter_fn=counter_attack_filter),
+    ]
+
+
+def charmed_sleep_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura ETB: tap enchanted creature."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        attached = obj.state.attached_to
+        if not attached:
+            return []
+        return [Event(type=EventType.TAP,
+                      payload={'object_id': attached},
+                      source=obj.id)]
+    # engine gap: doesn't-untap restriction
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def colossification_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura ETB: tap enchanted creature."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        attached = obj.state.attached_to
+        if not attached:
+            return []
+        return [Event(type=EventType.TAP,
+                      payload={'object_id': attached},
+                      source=obj.id)]
+    # engine gap: aura attachment-bound +20/+20
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def sword_of_vengeance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # engine gap: equipment static (+2/+0, first strike, vigilance, trample, haste); equip cost
+    return []
+
+
+def blossoming_sands_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+    # engine gap: dual-color mana ability
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def swiftwater_cliffs_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+    # engine gap: dual-color mana ability
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# =============================================================================
 # SPELL RESOLVE FUNCTIONS
 # =============================================================================
 
@@ -3577,6 +5911,7 @@ BEZA_THE_BOUNDING_SPRING = make_creature(
     subtypes={"Elemental", "Elk"},
     supertypes={"Legendary"},
     text="When Beza enters, create a Treasure token if an opponent controls more lands than you. You gain 4 life if an opponent has more life than you. Create two 1/1 blue Fish creature tokens if an opponent controls more creatures than you. Draw a card if an opponent has more cards in hand than you.",
+    setup_interceptors=beza_the_bounding_spring_setup,
 )
 
 BRAVEKIN_DUO = make_creature(
@@ -3586,6 +5921,7 @@ BRAVEKIN_DUO = make_creature(
     colors={Color.WHITE},
     subtypes={"Mouse", "Rabbit"},
     text="{1}, {T}: Target creature gets +1/+1 until end of turn. Activate only as a sorcery.",
+    setup_interceptors=bravekin_duo_setup,
 )
 
 BRIGHTBLADE_STOAT = make_creature(
@@ -3603,6 +5939,7 @@ BUILDERS_TALENT = make_enchantment(
     colors={Color.WHITE},
     text="(Gain the next level as a sorcery to add its ability.)\nWhen this Class enters, create a 0/4 white Wall creature token with defender.\n{W}: Level 2\nWhenever one or more noncreature, nonland permanents you control enter, put a +1/+1 counter on target creature you control.\n{4}{W}: Level 3\nWhen this Class becomes level 3, return target noncreature, nonland permanent card from your graveyard to the battlefield.",
     subtypes={"Class"},
+    setup_interceptors=builders_talent_setup,
 )
 
 CARETAKERS_TALENT = make_enchantment(
@@ -3611,6 +5948,7 @@ CARETAKERS_TALENT = make_enchantment(
     colors={Color.WHITE},
     text="(Gain the next level as a sorcery to add its ability.)\nWhenever one or more tokens you control enter, draw a card. This ability triggers only once each turn.\n{W}: Level 2\nWhen this Class becomes level 2, create a token that's a copy of target token you control.\n{3}{W}: Level 3\nCreature tokens you control get +2/+2.",
     subtypes={"Class"},
+    setup_interceptors=caretakers_talent_setup,
 )
 
 CARROT_CAKE = make_artifact(
@@ -3618,6 +5956,7 @@ CARROT_CAKE = make_artifact(
     mana_cost="{1}{W}",
     text="When this artifact enters and when you sacrifice it, create a 1/1 white Rabbit creature token and scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{2}, {T}, Sacrifice this artifact: You gain 3 life.",
     subtypes={"Food"},
+    setup_interceptors=carrot_cake_setup,
 )
 
 CRUMB_AND_GET_IT = make_instant(
@@ -3667,6 +6006,7 @@ FEATHER_OF_FLIGHT = make_enchantment(
     colors={Color.WHITE},
     text="Flash\nEnchant creature\nWhen this Aura enters, draw a card.\nEnchanted creature gets +1/+0 and has flying.",
     subtypes={"Aura"},
+    setup_interceptors=feather_of_flight_setup,
 )
 
 FLOWERFOOT_SWORDMASTER = make_creature(
@@ -3676,6 +6016,7 @@ FLOWERFOOT_SWORDMASTER = make_creature(
     colors={Color.WHITE},
     subtypes={"Mouse", "Soldier"},
     text="Offspring {2} (You may pay an additional {2} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nValiant — Whenever this creature becomes the target of a spell or ability you control for the first time each turn, Mice you control get +1/+0 until end of turn.",
+    setup_interceptors=flowerfoot_swordmaster_setup,
 )
 
 HARVESTRITE_HOST = make_creature(
@@ -3722,6 +6063,7 @@ JOLLY_GERBILS = make_creature(
     colors={Color.WHITE},
     subtypes={"Citizen", "Hamster"},
     text="Whenever you give a gift, draw a card.",
+    setup_interceptors=jolly_gerbils_setup,
 )
 
 LIFECREED_DUO = make_creature(
@@ -3749,6 +6091,7 @@ MOUSE_TRAPPER = make_creature(
     colors={Color.WHITE},
     subtypes={"Mouse", "Soldier"},
     text="Flash\nValiant — Whenever this creature becomes the target of a spell or ability you control for the first time each turn, tap target creature an opponent controls.",
+    setup_interceptors=mouse_trapper_setup,
 )
 
 NETTLE_GUARD = make_creature(
@@ -3758,6 +6101,7 @@ NETTLE_GUARD = make_creature(
     colors={Color.WHITE},
     subtypes={"Mouse", "Soldier"},
     text="Valiant — Whenever this creature becomes the target of a spell or ability you control for the first time each turn, it gets +0/+2 until end of turn.\n{1}, Sacrifice this creature: Destroy target artifact or enchantment.",
+    setup_interceptors=nettle_guard_setup,
 )
 
 PARTING_GUST = make_instant(
@@ -3843,6 +6187,7 @@ STAR_CHARTER = make_creature(
     colors={Color.WHITE},
     subtypes={"Bat", "Cleric"},
     text="Flying\nAt the beginning of your end step, if you gained or lost life this turn, look at the top four cards of your library. You may reveal a creature card with power 3 or less from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+    setup_interceptors=star_charter_setup,
 )
 
 STARFALL_INVOCATION = make_sorcery(
@@ -3879,6 +6224,7 @@ WARREN_ELDER = make_creature(
     colors={Color.WHITE},
     subtypes={"Cleric", "Rabbit"},
     text="{3}{W}: Creatures you control get +1/+1 until end of turn.",
+    setup_interceptors=warren_elder_setup,
 )
 
 WARREN_WARLEADER = make_creature(
@@ -3888,6 +6234,7 @@ WARREN_WARLEADER = make_creature(
     colors={Color.WHITE},
     subtypes={"Knight", "Rabbit"},
     text="Offspring {2} (You may pay an additional {2} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nWhenever you attack, choose one —\n• Create a 1/1 white Rabbit creature token that's tapped and attacking.\n• Attacking creatures you control get +1/+1 until end of turn.",
+    setup_interceptors=warren_warleader_setup,
 )
 
 WAXWANE_WITNESS = make_creature(
@@ -3897,6 +6244,7 @@ WAXWANE_WITNESS = make_creature(
     colors={Color.WHITE},
     subtypes={"Bat", "Cleric"},
     text="Flying, vigilance\nWhenever you gain or lose life during your turn, this creature gets +1/+0 until end of turn.",
+    setup_interceptors=waxwane_witness_setup,
 )
 
 WHISKERVALE_FORERUNNER = make_creature(
@@ -3906,6 +6254,7 @@ WHISKERVALE_FORERUNNER = make_creature(
     colors={Color.WHITE},
     subtypes={"Bard", "Mouse"},
     text="Valiant — Whenever this creature becomes the target of a spell or ability you control for the first time each turn, look at the top five cards of your library. You may reveal a creature card with mana value 3 or less from among them. You may put it onto the battlefield if it's your turn. If you don't put it onto the battlefield, put it into your hand. Put the rest on the bottom of your library in a random order.",
+    setup_interceptors=whiskervale_forerunner_setup,
 )
 
 AZURE_BEASTBINDER = make_creature(
@@ -3915,6 +6264,7 @@ AZURE_BEASTBINDER = make_creature(
     colors={Color.BLUE},
     subtypes={"Rat", "Rogue"},
     text="Vigilance\nThis creature can't be blocked by creatures with power 2 or greater.\nWhenever this creature attacks, up to one target artifact, creature, or planeswalker an opponent controls loses all abilities until your next turn. If it's a creature, it also has base power and toughness 2/2 until your next turn.",
+    setup_interceptors=azure_beastbinder_setup,
 )
 
 BELLOWING_CRIER = make_creature(
@@ -3942,6 +6292,7 @@ DARING_WAVERIDER = make_creature(
     colors={Color.BLUE},
     subtypes={"Otter", "Wizard"},
     text="When this creature enters, you may cast target instant or sorcery card with mana value 4 or less from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead.",
+    setup_interceptors=daring_waverider_setup,
 )
 
 DAZZLING_DENIAL = make_instant(
@@ -3965,6 +6316,7 @@ DOUR_PORTMAGE = make_creature(
     colors={Color.BLUE},
     subtypes={"Frog", "Wizard"},
     text="Whenever one or more other creatures you control leave the battlefield without dying, draw a card.\n{1}{U}, {T}: Return another target creature you control to its owner's hand.",
+    setup_interceptors=dour_portmage_setup,
 )
 
 EDDYMURK_CRAB = make_creature(
@@ -3985,6 +6337,7 @@ ELUGE_THE_SHORELESS_SEA = make_creature(
     subtypes={"Elemental", "Fish"},
     supertypes={"Legendary"},
     text="Eluge's power and toughness are each equal to the number of Islands you control.\nWhenever Eluge enters or attacks, put a flood counter on target land. It's an Island in addition to its other types for as long as it has a flood counter on it.\nThe first instant or sorcery spell you cast each turn costs {U} (or {1}) less to cast for each land you control with a flood counter on it.",
+    setup_interceptors=eluge_the_shoreless_sea_setup,
 )
 
 FINCH_FORMATION = make_creature(
@@ -4003,6 +6356,7 @@ GOSSIPS_TALENT = make_enchantment(
     colors={Color.BLUE},
     text="(Gain the next level as a sorcery to add its ability.)\nWhenever a creature you control enters, surveil 1.\n{1}{U}: Level 2\nWhenever you attack, target attacking creature with power 3 or less can't be blocked this turn.\n{3}{U}: Level 3\nWhenever a creature you control deals combat damage to a player, you may exile it, then return it to the battlefield under its owner's control.",
     subtypes={"Class"},
+    setup_interceptors=gossips_talent_setup,
 )
 
 INTO_THE_FLOOD_MAW = make_instant(
@@ -4018,6 +6372,7 @@ KITNAP = make_enchantment(
     colors={Color.BLUE},
     text="Gift a card (You may promise an opponent a gift as you cast this spell. If you do, when it enters, they draw a card.)\nEnchant creature\nWhen this Aura enters, tap enchanted creature. If the gift wasn't promised, put three stun counters on it.\nYou control enchanted creature.",
     subtypes={"Aura"},
+    setup_interceptors=kitnap_setup,
 )
 
 KITSA_OTTERBALL_ELITE = make_creature(
@@ -4028,6 +6383,7 @@ KITSA_OTTERBALL_ELITE = make_creature(
     subtypes={"Otter", "Wizard"},
     supertypes={"Legendary"},
     text="Vigilance\nProwess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\n{T}: Draw a card, then discard a card.\n{2}, {T}: Copy target instant or sorcery spell you control. You may choose new targets for the copy. Activate only if Kitsa's power is 3 or greater.",
+    setup_interceptors=kitsa_otterball_elite_setup,
 )
 
 KNIGHTFISHER = make_creature(
@@ -4091,6 +6447,7 @@ MOCKINGBIRD = make_creature(
     colors={Color.BLUE},
     subtypes={"Bard", "Bird"},
     text="Flying\nYou may have this creature enter as a copy of any creature on the battlefield with mana value less than or equal to the amount of mana spent to cast this creature, except it's a Bird in addition to its other types and it has flying.",
+    setup_interceptors=mockingbird_setup,
 )
 
 NIGHTWHORL_HERMIT = make_creature(
@@ -4100,6 +6457,7 @@ NIGHTWHORL_HERMIT = make_creature(
     colors={Color.BLUE},
     subtypes={"Rat", "Rogue"},
     text="Vigilance\nThreshold — As long as there are seven or more cards in your graveyard, this creature gets +1/+0 and can't be blocked.",
+    setup_interceptors=nightwhorl_hermit_setup,
 )
 
 OTTERBALL_ANTICS = make_sorcery(
@@ -4163,6 +6521,7 @@ SHORELINE_LOOTER = make_creature(
     colors={Color.BLUE},
     subtypes={"Rat", "Rogue"},
     text="This creature can't be blocked.\nThreshold — Whenever this creature deals combat damage to a player, draw a card. Then discard a card unless there are seven or more cards in your graveyard.",
+    setup_interceptors=shoreline_looter_setup,
 )
 
 SKYSKIPPER_DUO = make_creature(
@@ -4205,6 +6564,7 @@ STORMCHASERS_TALENT = make_enchantment(
     colors={Color.BLUE},
     text="(Gain the next level as a sorcery to add its ability.)\nWhen this Class enters, create a 1/1 blue and red Otter creature token with prowess.\n{3}{U}: Level 2\nWhen this Class becomes level 2, return target instant or sorcery card from your graveyard to your hand.\n{5}{U}: Level 3\nWhenever you cast an instant or sorcery spell, create a 1/1 blue and red Otter creature token with prowess.",
     subtypes={"Class"},
+    setup_interceptors=stormchasers_talent_setup,
 )
 
 SUGAR_COAT = make_enchantment(
@@ -4213,6 +6573,7 @@ SUGAR_COAT = make_enchantment(
     colors={Color.BLUE},
     text="Flash\nEnchant creature or Food\nEnchanted permanent is a colorless Food artifact with \"{2}, {T}, Sacrifice this artifact: You gain 3 life\" and loses all other card types and abilities.",
     subtypes={"Aura"},
+    setup_interceptors=sugar_coat_setup,
 )
 
 THOUGHT_SHUCKER = make_creature(
@@ -4222,6 +6583,7 @@ THOUGHT_SHUCKER = make_creature(
     colors={Color.BLUE},
     subtypes={"Rat", "Rogue"},
     text="Threshold — {1}{U}: Put a +1/+1 counter on this creature and draw a card. Activate only if there are seven or more cards in your graveyard and only once.",
+    setup_interceptors=thought_shucker_setup,
 )
 
 THUNDERTRAP_TRAINER = make_creature(
@@ -4231,6 +6593,7 @@ THUNDERTRAP_TRAINER = make_creature(
     colors={Color.BLUE},
     subtypes={"Otter", "Wizard"},
     text="Offspring {4} (You may pay an additional {4} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nWhen this creature enters, look at the top four cards of your library. You may reveal a noncreature, nonland card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+    setup_interceptors=thundertrap_trainer_setup,
 )
 
 VALLEY_FLOODCALLER = make_creature(
@@ -4240,6 +6603,7 @@ VALLEY_FLOODCALLER = make_creature(
     colors={Color.BLUE},
     subtypes={"Otter", "Wizard"},
     text="Flash\nYou may cast noncreature spells as though they had flash.\nWhenever you cast a noncreature spell, Birds, Frogs, Otters, and Rats you control get +1/+1 until end of turn. Untap them.",
+    setup_interceptors=valley_floodcaller_setup,
 )
 
 WATERSPOUT_WARDEN = make_creature(
@@ -4249,12 +6613,14 @@ WATERSPOUT_WARDEN = make_creature(
     colors={Color.BLUE},
     subtypes={"Frog", "Soldier"},
     text="Whenever this creature attacks, if another creature entered the battlefield under your control this turn, this creature gains flying until end of turn.",
+    setup_interceptors=waterspout_warden_setup,
 )
 
 WISHING_WELL = make_artifact(
     name="Wishing Well",
     mana_cost="{3}{U}",
     text="{T}: Put a coin counter on this artifact. When you do, you may cast target instant or sorcery card with mana value equal to the number of coin counters on this artifact from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead. Activate only as a sorcery.",
+    setup_interceptors=wishing_well_setup,
 )
 
 AGATEBLADE_ASSASSIN = make_creature(
@@ -4273,6 +6639,7 @@ BANDITS_TALENT = make_enchantment(
     colors={Color.BLACK},
     text="(Gain the next level as a sorcery to add its ability.)\nWhen this Class enters, each opponent discards two cards unless they discard a nonland card.\n{B}: Level 2\nAt the beginning of each opponent's upkeep, if that player has one or fewer cards in hand, they lose 2 life.\n{3}{B}: Level 3\nAt the beginning of your draw step, draw an additional card for each opponent who has one or fewer cards in hand.",
     subtypes={"Class"},
+    setup_interceptors=bandits_talent_setup,
 )
 
 BONEBIND_ORATOR = make_creature(
@@ -4282,6 +6649,7 @@ BONEBIND_ORATOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Bard", "Squirrel", "Warlock"},
     text="{3}{B}, Exile this card from your graveyard: Return another target creature card from your graveyard to your hand.",
+    setup_interceptors=bonebind_orator_setup,
 )
 
 BONECACHE_OVERSEER = make_creature(
@@ -4291,6 +6659,7 @@ BONECACHE_OVERSEER = make_creature(
     colors={Color.BLACK},
     subtypes={"Squirrel", "Warlock"},
     text="{T}, Pay 1 life: Draw a card. Activate only if three or more cards left your graveyard this turn or if you've sacrificed a Food this turn.",
+    setup_interceptors=bonecache_overseer_setup,
 )
 
 COILING_REBIRTH = make_sorcery(
@@ -4399,6 +6768,7 @@ HUSKBURSTER_SWARM = make_creature(
     colors={Color.BLACK},
     subtypes={"Elemental", "Insect"},
     text="This spell costs {1} less to cast for each creature card you own in exile and in your graveyard.\nMenace, deathtouch",
+    setup_interceptors=huskburster_swarm_setup,
 )
 
 IRIDESCENT_VINELASHER = make_creature(
@@ -4408,6 +6778,7 @@ IRIDESCENT_VINELASHER = make_creature(
     colors={Color.BLACK},
     subtypes={"Assassin", "Lizard"},
     text="Offspring {2} (You may pay an additional {2} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nLandfall — Whenever a land you control enters, this creature deals 1 damage to target opponent.",
+    setup_interceptors=iridescent_vinelasher_setup,
 )
 
 MAHA_ITS_FEATHERS_NIGHT = make_creature(
@@ -4418,6 +6789,7 @@ MAHA_ITS_FEATHERS_NIGHT = make_creature(
     subtypes={"Bird", "Elemental"},
     supertypes={"Legendary"},
     text="Flying, trample\nWard—Discard a card.\nCreatures your opponents control have base toughness 1.",
+    setup_interceptors=maha_its_feathers_night_setup,
 )
 
 MOONSTONE_HARBINGER = make_creature(
@@ -4427,6 +6799,7 @@ MOONSTONE_HARBINGER = make_creature(
     colors={Color.BLACK},
     subtypes={"Bat", "Warrior"},
     text="Flying, deathtouch\nWhenever you gain or lose life during your turn, Bats you control get +1/+0 and gain deathtouch until end of turn. This ability triggers only once each turn.",
+    setup_interceptors=moonstone_harbinger_setup,
 )
 
 NOCTURNAL_HUNGER = make_instant(
@@ -4444,6 +6817,7 @@ OSTEOMANCER_ADEPT = make_creature(
     colors={Color.BLACK},
     subtypes={"Squirrel", "Warlock"},
     text="Deathtouch\n{T}: Until end of turn, you may cast creature spells from your graveyard by foraging in addition to paying their other costs. If you cast a spell this way, that creature enters with a finality counter on it. (To forage, exile three cards from your graveyard or sacrifice a Food. If a creature with a finality counter on it would die, exile it instead.)",
+    setup_interceptors=osteomancer_adept_setup,
 )
 
 PERSISTENT_MARSHSTALKER = make_creature(
@@ -4453,6 +6827,7 @@ PERSISTENT_MARSHSTALKER = make_creature(
     colors={Color.BLACK},
     subtypes={"Berserker", "Rat"},
     text="This creature gets +1/+0 for each other Rat you control.\nThreshold — Whenever you attack with one or more Rats, if there are seven or more cards in your graveyard, you may pay {2}{B}. If you do, return this card from your graveyard to the battlefield tapped and attacking.",
+    setup_interceptors=persistent_marshstalker_setup,
 )
 
 PSYCHIC_WHORL = make_sorcery(
@@ -4469,6 +6844,7 @@ RAVINE_RAIDER = make_creature(
     colors={Color.BLACK},
     subtypes={"Lizard", "Rogue"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\n{1}{B}: This creature gets +1/+1 until end of turn.",
+    setup_interceptors=ravine_raider_setup,
 )
 
 ROTTENMOUTH_VIPER = make_creature(
@@ -4478,6 +6854,7 @@ ROTTENMOUTH_VIPER = make_creature(
     colors={Color.BLACK},
     subtypes={"Elemental", "Snake"},
     text="As an additional cost to cast this spell, you may sacrifice any number of nonland permanents. This spell costs {1} less to cast for each permanent sacrificed this way.\nWhenever this creature enters or attacks, put a blight counter on it. Then for each blight counter on it, each opponent loses 4 life unless that player sacrifices a nonland permanent of their choice or discards a card.",
+    setup_interceptors=rottenmouth_viper_setup,
 )
 
 RUTHLESS_NEGOTIATION = make_sorcery(
@@ -4508,6 +6885,7 @@ SCAVENGERS_TALENT = make_enchantment(
     colors={Color.BLACK},
     text="(Gain the next level as a sorcery to add its ability.)\nWhenever one or more creatures you control die, create a Food token. This ability triggers only once each turn.\n{1}{B}: Level 2\nWhenever you sacrifice a permanent, target player mills two cards.\n{2}{B}: Level 3\nAt the beginning of your end step, you may sacrifice three other nonland permanents. If you do, return a creature card from your graveyard to the battlefield with a finality counter on it.",
     subtypes={"Class"},
+    setup_interceptors=scavengers_talent_setup,
 )
 
 SEASON_OF_LOSS = make_sorcery(
@@ -4521,6 +6899,7 @@ SINISTER_MONOLITH = make_artifact(
     name="Sinister Monolith",
     mana_cost="{3}{B}",
     text="At the beginning of combat on your turn, each opponent loses 1 life and you gain 1 life.\n{T}, Pay 2 life, Sacrifice this artifact: Draw two cards. Activate only as a sorcery.",
+    setup_interceptors=sinister_monolith_setup,
 )
 
 STARGAZE = make_sorcery(
@@ -4537,6 +6916,7 @@ STARLIT_SOOTHSAYER = make_creature(
     colors={Color.BLACK},
     subtypes={"Bat", "Cleric"},
     text="Flying\nAt the beginning of your end step, if you gained or lost life this turn, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=starlit_soothsayer_setup,
 )
 
 STARSCAPE_CLERIC = make_creature(
@@ -4566,6 +6946,7 @@ THOUGHTSTALKER_WARLOCK = make_creature(
     colors={Color.BLACK},
     subtypes={"Lizard", "Warlock"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nWhen this creature enters, choose target opponent. If they lost life this turn, they reveal their hand, you choose a nonland card from it, and they discard that card. Otherwise, they discard a card.",
+    setup_interceptors=thoughtstalker_warlock_setup,
 )
 
 VALLEY_ROTCALLER = make_creature(
@@ -4596,6 +6977,7 @@ WICKS_PATROL = make_creature(
     colors={Color.BLACK},
     subtypes={"Rat", "Warlock"},
     text="When this creature enters, mill three cards. When you do, target creature an opponent controls gets -X/-X until end of turn, where X is the greatest mana value among cards in your graveyard.",
+    setup_interceptors=wicks_patrol_setup,
 )
 
 AGATE_ASSAULT = make_sorcery(
@@ -4622,6 +7004,7 @@ ARTISTS_TALENT = make_enchantment(
     colors={Color.RED},
     text="(Gain the next level as a sorcery to add its ability.)\nWhenever you cast a noncreature spell, you may discard a card. If you do, draw a card.\n{2}{R}: Level 2\nNoncreature spells you cast cost {1} less to cast.\n{2}{R}: Level 3\nIf a source you control would deal noncombat damage to an opponent or a permanent an opponent controls, it deals that much damage plus 2 instead.",
     subtypes={"Class"},
+    setup_interceptors=artists_talent_setup,
 )
 
 BLACKSMITHS_TALENT = make_enchantment(
@@ -4630,6 +7013,7 @@ BLACKSMITHS_TALENT = make_enchantment(
     colors={Color.RED},
     text="(Gain the next level as a sorcery to add its ability.)\nWhen this Class enters, create a colorless Equipment artifact token named Sword with \"Equipped creature gets +1/+1\" and equip {2}.\n{2}{R}: Level 2\nAt the beginning of combat on your turn, attach target Equipment you control to up to one target creature you control.\n{3}{R}: Level 3\nDuring your turn, equipped creatures you control have double strike and haste.",
     subtypes={"Class"},
+    setup_interceptors=blacksmiths_talent_setup,
 )
 
 BLOOMING_BLAST = make_instant(
@@ -4647,6 +7031,7 @@ BRAMBLEGUARD_CAPTAIN = make_creature(
     colors={Color.RED},
     subtypes={"Mouse", "Soldier"},
     text="At the beginning of combat on your turn, target creature you control gets +X/+0 until end of turn, where X is this creature's power.",
+    setup_interceptors=brambleguard_captain_setup,
 )
 
 BRAZEN_COLLECTOR = make_creature(
@@ -4666,6 +7051,7 @@ BYWAY_BARTERER = make_creature(
     colors={Color.RED},
     subtypes={"Raccoon", "Rogue"},
     text="Menace\nWhenever you expend 4, you may discard your hand. If you do, draw two cards. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)",
+    setup_interceptors=byway_barterer_setup,
 )
 
 CONDUCT_ELECTRICITY = make_instant(
@@ -4694,6 +7080,7 @@ DRAGONHAWK_FATES_TEMPEST = make_creature(
     subtypes={"Bird", "Dragon"},
     supertypes={"Legendary"},
     text="Flying\nWhenever Dragonhawk enters or attacks, exile the top X cards of your library, where X is the number of creatures you control with power 4 or greater. You may play those cards until your next end step. At the beginning of your next end step, Dragonhawk deals 2 damage to each opponent for each of those cards that are still exiled.",
+    setup_interceptors=dragonhawk_fates_tempest_setup,
 )
 
 EMBERHEART_CHALLENGER = make_creature(
@@ -4703,6 +7090,7 @@ EMBERHEART_CHALLENGER = make_creature(
     colors={Color.RED},
     subtypes={"Mouse", "Warrior"},
     text="Haste\nProwess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nValiant — Whenever this creature becomes the target of a spell or ability you control for the first time each turn, exile the top card of your library. Until end of turn, you may play that card.",
+    setup_interceptors=emberheart_challenger_setup,
 )
 
 FESTIVAL_OF_EMBERS = make_enchantment(
@@ -4710,6 +7098,7 @@ FESTIVAL_OF_EMBERS = make_enchantment(
     mana_cost="{4}{R}",
     colors={Color.RED},
     text="During your turn, you may cast instant and sorcery spells from your graveyard by paying 1 life in addition to their other costs.\nIf a card or token would be put into your graveyard from anywhere, exile it instead.\n{1}{R}: Sacrifice this enchantment.",
+    setup_interceptors=festival_of_embers_setup,
 )
 
 FLAMECACHE_GECKO = make_creature(
@@ -4719,6 +7108,7 @@ FLAMECACHE_GECKO = make_creature(
     colors={Color.RED},
     subtypes={"Lizard", "Warlock"},
     text="When this creature enters, if an opponent lost life this turn, add {B}{R}.\n{1}{R}, Discard a card: Draw a card.",
+    setup_interceptors=flamecache_gecko_setup,
 )
 
 FRILLED_SPARKSHOOTER = make_creature(
@@ -4728,6 +7118,7 @@ FRILLED_SPARKSHOOTER = make_creature(
     colors={Color.RED},
     subtypes={"Archer", "Lizard"},
     text="Menace, reach\nThis creature enters with a +1/+1 counter on it if an opponent lost life this turn.",
+    setup_interceptors=frilled_sparkshooter_setup,
 )
 
 HARNESSER_OF_STORMS = make_creature(
@@ -4737,6 +7128,7 @@ HARNESSER_OF_STORMS = make_creature(
     colors={Color.RED},
     subtypes={"Otter", "Wizard"},
     text="Whenever you cast a noncreature or Otter spell, you may exile the top card of your library. Until end of turn, you may play that card. This ability triggers only once each turn.",
+    setup_interceptors=harnesser_of_storms_setup,
 )
 
 HEARTFIRE_HERO = make_creature(
@@ -4756,6 +7148,7 @@ AHEARTFIRE_HERO = make_creature(
     colors={Color.RED},
     subtypes={"Mouse", "Soldier"},
     text="Valiant — Whenever Heartfire Hero becomes the target of a spell or ability you control for the first time each turn, put a +1/+1 counter on it.\nWhen Heartfire Hero dies, it deals damage equal to its power to each opponent.",
+    setup_interceptors=aheartfire_hero_setup,
 )
 
 HEARTHBORN_BATTLER = make_creature(
@@ -4765,6 +7158,7 @@ HEARTHBORN_BATTLER = make_creature(
     colors={Color.RED},
     subtypes={"Lizard", "Warlock"},
     text="Haste\nWhenever a player casts their second spell each turn, this creature deals 2 damage to target opponent.",
+    setup_interceptors=hearthborn_battler_setup,
 )
 
 HIRED_CLAW = make_creature(
@@ -4774,6 +7168,7 @@ HIRED_CLAW = make_creature(
     colors={Color.RED},
     subtypes={"Lizard", "Mercenary"},
     text="Whenever you attack with one or more Lizards, this creature deals 1 damage to target opponent.\n{1}{R}: Put a +1/+1 counter on this creature. Activate only if an opponent lost life this turn and only once each turn.",
+    setup_interceptors=hired_claw_setup,
 )
 
 HOARDERS_OVERFLOW = make_enchantment(
@@ -4781,6 +7176,7 @@ HOARDERS_OVERFLOW = make_enchantment(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="When this enchantment enters and whenever you expend 4, put a stash counter on it. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)\n{1}{R}, Sacrifice this enchantment: Discard your hand, then draw cards equal to the number of stash counters on this enchantment.",
+    setup_interceptors=hoarders_overflow_setup,
 )
 
 KINDLESPARK_DUO = make_creature(
@@ -4790,6 +7186,7 @@ KINDLESPARK_DUO = make_creature(
     colors={Color.RED},
     subtypes={"Lizard", "Otter"},
     text="{T}: This creature deals 1 damage to target opponent.\nWhenever you cast a noncreature spell, untap this creature.",
+    setup_interceptors=kindlespark_duo_setup,
 )
 
 MANIFOLD_MOUSE = make_creature(
@@ -4799,6 +7196,7 @@ MANIFOLD_MOUSE = make_creature(
     colors={Color.RED},
     subtypes={"Mouse", "Soldier"},
     text="Offspring {2} (You may pay an additional {2} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nAt the beginning of combat on your turn, target Mouse you control gains your choice of double strike or trample until end of turn.",
+    setup_interceptors=manifold_mouse_setup,
 )
 
 MIGHT_OF_THE_MEEK = make_instant(
@@ -4841,6 +7239,7 @@ RACCOON_RALLIER = make_creature(
     colors={Color.RED},
     subtypes={"Bard", "Raccoon"},
     text="{T}: Target creature you control gains haste until end of turn. Activate only as a sorcery.",
+    setup_interceptors=raccoon_rallier_setup,
 )
 
 REPTILIAN_RECRUITER = make_creature(
@@ -4850,6 +7249,7 @@ REPTILIAN_RECRUITER = make_creature(
     colors={Color.RED},
     subtypes={"Lizard", "Warrior"},
     text="Trample\nWhen this creature enters, choose target creature. If that creature's power is 2 or less or if you control another Lizard, gain control of that creature until end of turn, untap it, and it gains haste until end of turn.",
+    setup_interceptors=reptilian_recruiter_setup,
 )
 
 ROUGHSHOD_DUO = make_creature(
@@ -4859,6 +7259,7 @@ ROUGHSHOD_DUO = make_creature(
     colors={Color.RED},
     subtypes={"Mouse", "Raccoon"},
     text="Trample\nWhenever you expend 4, target creature you control gets +1/+1 and gains trample until end of turn. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)",
+    setup_interceptors=roughshod_duo_setup,
 )
 
 SAZACAPS_BREW = make_instant(
@@ -4892,6 +7293,7 @@ STORMSPLITTER = make_creature(
     colors={Color.RED},
     subtypes={"Otter", "Wizard"},
     text="Haste\nWhenever you cast an instant or sorcery spell, create a token that's a copy of this creature. Exile that token at the beginning of the next end step.",
+    setup_interceptors=stormsplitter_setup,
 )
 
 SUNSPINE_LYNX = make_creature(
@@ -4901,6 +7303,7 @@ SUNSPINE_LYNX = make_creature(
     colors={Color.RED},
     subtypes={"Cat", "Elemental"},
     text="Players can't gain life.\nDamage can't be prevented.\nWhen this creature enters, it deals damage to each player equal to the number of nonbasic lands that player controls.",
+    setup_interceptors=sunspine_lynx_setup,
 )
 
 TAKE_OUT_THE_TRASH = make_instant(
@@ -4918,6 +7321,7 @@ TEAPOT_SLINGER = make_creature(
     colors={Color.RED},
     subtypes={"Raccoon", "Warrior"},
     text="Menace\nWhenever you expend 4, this creature deals 2 damage to each opponent. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)",
+    setup_interceptors=teapot_slinger_setup,
 )
 
 VALLEY_FLAMECALLER = make_creature(
@@ -4943,6 +7347,7 @@ WAR_SQUEAK = make_enchantment(
     colors={Color.RED},
     text="Enchant creature\nWhen this Aura enters, target creature an opponent controls can't block this turn.\nEnchanted creature gets +1/+1 and has haste.",
     subtypes={"Aura"},
+    setup_interceptors=war_squeak_setup,
 )
 
 WHISKERQUILL_SCRIBE = make_creature(
@@ -4952,6 +7357,7 @@ WHISKERQUILL_SCRIBE = make_creature(
     colors={Color.RED},
     subtypes={"Citizen", "Mouse"},
     text="Valiant — Whenever this creature becomes the target of a spell or ability you control for the first time each turn, you may discard a card. If you do, draw a card.",
+    setup_interceptors=whiskerquill_scribe_setup,
 )
 
 WILDFIRE_HOWL = make_sorcery(
@@ -4978,6 +7384,7 @@ BARKKNUCKLE_BOXER = make_creature(
     colors={Color.GREEN},
     subtypes={"Berserker", "Raccoon"},
     text="Whenever you expend 4, this creature gains indestructible until end of turn. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)",
+    setup_interceptors=barkknuckle_boxer_setup,
 )
 
 BRAMBLEGUARD_VETERAN = make_creature(
@@ -4987,6 +7394,7 @@ BRAMBLEGUARD_VETERAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Raccoon", "Warrior"},
     text="Whenever you expend 4, Raccoons you control get +1/+1 and gain vigilance until end of turn. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)",
+    setup_interceptors=brambleguard_veteran_setup,
 )
 
 BUSHY_BODYGUARD = make_creature(
@@ -4996,6 +7404,7 @@ BUSHY_BODYGUARD = make_creature(
     colors={Color.GREEN},
     subtypes={"Squirrel", "Warrior"},
     text="Offspring {2} (You may pay an additional {2} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nWhen this creature enters, you may forage. If you do, put two +1/+1 counters on it. (To forage, exile three cards from your graveyard or sacrifice a Food.)",
+    setup_interceptors=bushy_bodyguard_setup,
 )
 
 CACHE_GRAB = make_instant(
@@ -5022,6 +7431,7 @@ CURIOUS_FORAGER = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Squirrel"},
     text="When this creature enters, you may forage. When you do, return target permanent card from your graveyard to your hand. (To forage, exile three cards from your graveyard or sacrifice a Food.)",
+    setup_interceptors=curious_forager_setup,
 )
 
 DRUID_OF_THE_SPADE = make_creature(
@@ -5031,6 +7441,7 @@ DRUID_OF_THE_SPADE = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Rabbit"},
     text="As long as you control a token, this creature gets +2/+0 and has trample.",
+    setup_interceptors=druid_of_the_spade_setup,
 )
 
 FECUND_GREENSHELL = make_creature(
@@ -5040,6 +7451,7 @@ FECUND_GREENSHELL = make_creature(
     colors={Color.GREEN},
     subtypes={"Elemental", "Turtle"},
     text="Reach\nAs long as you control ten or more lands, creatures you control get +2/+2.\nWhenever this creature or another creature you control with toughness greater than its power enters, look at the top card of your library. If it's a land card, you may put it onto the battlefield tapped. Otherwise, put it into your hand.",
+    setup_interceptors=fecund_greenshell_setup,
 )
 
 FOR_THE_COMMON_GOOD = make_sorcery(
@@ -5065,6 +7477,7 @@ HAZARDROOT_HERBALIST = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Rabbit"},
     text="Whenever you attack, target creature you control gets +1/+0 until end of turn. If that creature is a token, it also gains deathtouch until end of turn.",
+    setup_interceptors=hazardroot_herbalist_setup,
 )
 
 HEAPED_HARVEST = make_artifact(
@@ -5072,6 +7485,7 @@ HEAPED_HARVEST = make_artifact(
     mana_cost="{2}{G}",
     text="When this artifact enters and when you sacrifice it, you may search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\n{2}, {T}, Sacrifice this artifact: You gain 3 life.",
     subtypes={"Food"},
+    setup_interceptors=heaped_harvest_setup,
 )
 
 HIGH_STRIDE = make_instant(
@@ -5107,6 +7521,7 @@ HUNTERS_TALENT = make_enchantment(
     colors={Color.GREEN},
     text="(Gain the next level as a sorcery to add its ability.)\nWhen this Class enters, target creature you control deals damage equal to its power to target creature you don't control.\n{1}{G}: Level 2\nWhenever you attack, target attacking creature gets +1/+0 and gains trample until end of turn.\n{3}{G}: Level 3\nAt the beginning of your end step, if you control a creature with power 4 or greater, draw a card.",
     subtypes={"Class"},
+    setup_interceptors=hunters_talent_setup,
 )
 
 INNKEEPERS_TALENT = make_enchantment(
@@ -5115,6 +7530,7 @@ INNKEEPERS_TALENT = make_enchantment(
     colors={Color.GREEN},
     text="(Gain the next level as a sorcery to add its ability.)\nAt the beginning of combat on your turn, put a +1/+1 counter on target creature you control.\n{G}: Level 2\nPermanents you control with counters on them have ward {1}.\n{3}{G}: Level 3\nIf you would put one or more counters on a permanent or player, put twice that many of each of those kinds of counters on that permanent or player instead.",
     subtypes={"Class"},
+    setup_interceptors=innkeepers_talent_setup,
 )
 
 KEENEYED_CURATOR = make_creature(
@@ -5124,6 +7540,7 @@ KEENEYED_CURATOR = make_creature(
     colors={Color.GREEN},
     subtypes={"Raccoon", "Scout"},
     text="As long as there are four or more card types among cards exiled with this creature, it gets +4/+4 and has trample.\n{1}: Exile target card from a graveyard.",
+    setup_interceptors=keeneyed_curator_setup,
 )
 
 LONGSTALK_BRAWL = make_sorcery(
@@ -5141,6 +7558,7 @@ LUMRA_BELLOW_OF_THE_WOODS = make_creature(
     subtypes={"Bear", "Elemental"},
     supertypes={"Legendary"},
     text="Vigilance, reach\nLumra's power and toughness are each equal to the number of lands you control.\nWhen Lumra enters, mill four cards. Then return all land cards from your graveyard to the battlefield tapped.",
+    setup_interceptors=lumra_bellow_of_the_woods_setup,
 )
 
 MISTBREATH_ELDER = make_creature(
@@ -5150,6 +7568,7 @@ MISTBREATH_ELDER = make_creature(
     colors={Color.GREEN},
     subtypes={"Frog", "Warrior"},
     text="At the beginning of your upkeep, return another creature you control to its owner's hand. If you do, put a +1/+1 counter on this creature. Otherwise, you may return this creature to its owner's hand.",
+    setup_interceptors=mistbreath_elder_setup,
 )
 
 OVERPROTECT = make_instant(
@@ -5174,6 +7593,7 @@ PAWPATCH_RECRUIT = make_creature(
     colors={Color.GREEN},
     subtypes={"Rabbit", "Warrior"},
     text="Offspring {2} (You may pay an additional {2} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nTrample\nWhenever a creature you control becomes the target of a spell or ability an opponent controls, put a +1/+1 counter on target creature you control other than that creature.",
+    setup_interceptors=pawpatch_recruit_setup,
 )
 
 PEERLESS_RECYCLING = make_instant(
@@ -5197,6 +7617,7 @@ RUSTSHIELD_RAMPAGER = make_creature(
     colors={Color.GREEN},
     subtypes={"Raccoon", "Warrior"},
     text="Offspring {2} (You may pay an additional {2} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nThis creature can't be blocked by creatures with power 2 or less.",
+    setup_interceptors=rustshield_rampager_setup,
 )
 
 SCRAPSHOOTER = make_creature(
@@ -5206,6 +7627,7 @@ SCRAPSHOOTER = make_creature(
     colors={Color.GREEN},
     subtypes={"Archer", "Raccoon"},
     text="Gift a card (You may promise an opponent a gift as you cast this spell. If you do, when it enters, they draw a card.)\nReach\nWhen this creature enters, if the gift was promised, destroy target artifact or enchantment an opponent controls.",
+    setup_interceptors=scrapshooter_setup,
 )
 
 SEASON_OF_GATHERING = make_sorcery(
@@ -5230,6 +7652,7 @@ STOCKING_THE_PANTRY = make_enchantment(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Whenever you put one or more +1/+1 counters on a creature you control, put a supply counter on this enchantment.\n{2}, Remove a supply counter from this enchantment: Draw a card.",
+    setup_interceptors=stocking_the_pantry_setup,
 )
 
 SUNSHOWER_DRUID = make_creature(
@@ -5249,6 +7672,7 @@ TENDER_WILDGUIDE = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Possum"},
     text="Offspring {2} (You may pay an additional {2} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\n{T}: Add one mana of any color.\n{T}: Put a +1/+1 counter on this creature.",
+    setup_interceptors=tender_wildguide_setup,
 )
 
 THORNVAULT_FORAGER = make_creature(
@@ -5258,6 +7682,7 @@ THORNVAULT_FORAGER = make_creature(
     colors={Color.GREEN},
     subtypes={"Ranger", "Squirrel"},
     text="{T}: Add {G}.\n{T}, Forage: Add two mana in any combination of colors. (To forage, exile three cards from your graveyard or sacrifice a Food.)\n{3}{G}, {T}: Search your library for a Squirrel card, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=thornvault_forager_setup,
 )
 
 THREE_TREE_ROOTWEAVER = make_creature(
@@ -5267,6 +7692,7 @@ THREE_TREE_ROOTWEAVER = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Mole"},
     text="{T}: Add one mana of any color.",
+    setup_interceptors=three_tree_rootweaver_setup,
 )
 
 THREE_TREE_SCRIBE = make_creature(
@@ -5276,6 +7702,7 @@ THREE_TREE_SCRIBE = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Frog"},
     text="Whenever this creature or another creature you control leaves the battlefield without dying, put a +1/+1 counter on target creature you control.",
+    setup_interceptors=three_tree_scribe_setup,
 )
 
 TREEGUARD_DUO = make_creature(
@@ -5295,6 +7722,7 @@ TREETOP_SENTRIES = make_creature(
     colors={Color.GREEN},
     subtypes={"Archer", "Squirrel"},
     text="Reach\nWhen this creature enters, you may forage. If you do, draw a card. (To forage, exile three cards from your graveyard or sacrifice a Food.)",
+    setup_interceptors=treetop_sentries_setup,
 )
 
 VALLEY_MIGHTCALLER = make_creature(
@@ -5322,6 +7750,7 @@ ALANIA_DIVERGENT_STORM = make_creature(
     subtypes={"Otter", "Wizard"},
     supertypes={"Legendary"},
     text="Whenever you cast a spell, if it's the first instant spell, the first sorcery spell, or the first Otter spell other than Alania you've cast this turn, you may have target opponent draw a card. If you do, copy that spell. You may choose new targets for the copy.",
+    setup_interceptors=alania_divergent_storm_setup,
 )
 
 BAYLEN_THE_HAYMAKER = make_creature(
@@ -5332,6 +7761,7 @@ BAYLEN_THE_HAYMAKER = make_creature(
     subtypes={"Rabbit", "Warrior"},
     supertypes={"Legendary"},
     text="Tap two untapped tokens you control: Add one mana of any color.\nTap three untapped tokens you control: Draw a card.\nTap four untapped tokens you control: Put three +1/+1 counters on Baylen. It gains trample until end of turn.",
+    setup_interceptors=baylen_the_haymaker_setup,
 )
 
 BURROWGUARD_MENTOR = make_creature(
@@ -5341,6 +7771,7 @@ BURROWGUARD_MENTOR = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Rabbit", "Soldier"},
     text="Trample\nBurrowguard Mentor's power and toughness are each equal to the number of creatures you control.",
+    setup_interceptors=burrowguard_mentor_setup,
 )
 
 CAMELLIA_THE_SEEDMISER = make_creature(
@@ -5361,6 +7792,7 @@ CINDERING_CUTTHROAT = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Assassin", "Lizard"},
     text="This creature enters with a +1/+1 counter on it if an opponent lost life this turn.\n{1}{B/R}: This creature gains menace until end of turn. (It can't be blocked except by two or more creatures.)",
+    setup_interceptors=cindering_cutthroat_setup,
 )
 
 CLEMENT_THE_WORRYWORT = make_creature(
@@ -5371,6 +7803,7 @@ CLEMENT_THE_WORRYWORT = make_creature(
     subtypes={"Druid", "Frog"},
     supertypes={"Legendary"},
     text="Vigilance\nWhenever Clement or another creature you control enters, return up to one target creature you control with lesser mana value to its owner's hand.\nFrogs you control have \"{T}: Add {G} or {U}. Spend this mana only to cast a creature spell.\"",
+    setup_interceptors=clement_the_worrywort_setup,
 )
 
 CORPSEBERRY_CULTIVATOR = make_creature(
@@ -5380,6 +7813,7 @@ CORPSEBERRY_CULTIVATOR = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Squirrel", "Warlock"},
     text="At the beginning of combat on your turn, you may forage. (Exile three cards from your graveyard or sacrifice a Food.)\nWhenever you forage, put a +1/+1 counter on this creature.",
+    setup_interceptors=corpseberry_cultivator_setup,
 )
 
 DREAMDEW_ENTRANCER = make_creature(
@@ -5410,6 +7844,7 @@ FIREGLASS_MENTOR = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Lizard", "Warlock"},
     text="At the beginning of your second main phase, if an opponent lost life this turn, exile the top two cards of your library. Choose one of them. Until end of turn, you may play that card.",
+    setup_interceptors=fireglass_mentor_setup,
 )
 
 GEV_SCALED_SCORCH = make_creature(
@@ -5431,6 +7866,7 @@ GLARB_CALAMITYS_AUGUR = make_creature(
     subtypes={"Frog", "Noble", "Wizard"},
     supertypes={"Legendary"},
     text="Deathtouch\nYou may look at the top card of your library any time.\nYou may play lands and cast spells with mana value 4 or greater from the top of your library.\n{T}: Surveil 2.",
+    setup_interceptors=glarb_calamitys_augur_setup,
 )
 
 HEAD_OF_THE_HOMESTEAD = make_creature(
@@ -5451,6 +7887,7 @@ HELGA_SKITTISH_SEER = make_creature(
     subtypes={"Druid", "Frog"},
     supertypes={"Legendary"},
     text="Whenever you cast a creature spell with mana value 4 or greater, you draw a card, gain 1 life, and put a +1/+1 counter on Helga.\n{T}: Add X mana of any one color, where X is Helga's power. Spend this mana only to cast creature spells with mana value 4 or greater or creature spells with {X} in their mana costs.",
+    setup_interceptors=helga_skittish_seer_setup,
 )
 
 HUGS_GRISLY_GUARDIAN = make_creature(
@@ -5461,6 +7898,7 @@ HUGS_GRISLY_GUARDIAN = make_creature(
     subtypes={"Badger", "Warrior"},
     supertypes={"Legendary"},
     text="Trample\nWhen Hugs enters, exile the top X cards of your library. Until the end of your next turn, you may play those cards.\nYou may play an additional land on each of your turns.",
+    setup_interceptors=hugs_grisly_guardian_setup,
 )
 
 THE_INFAMOUS_CRUELCLAW = make_creature(
@@ -5471,6 +7909,7 @@ THE_INFAMOUS_CRUELCLAW = make_creature(
     subtypes={"Mercenary", "Weasel"},
     supertypes={"Legendary"},
     text="Menace\nWhenever The Infamous Cruelclaw deals combat damage to a player, exile cards from the top of your library until you exile a nonland card. You may cast that card by discarding a card rather than paying its mana cost.",
+    setup_interceptors=the_infamous_cruelclaw_setup,
 )
 
 JUNKBLADE_BRUISER = make_creature(
@@ -5480,6 +7919,7 @@ JUNKBLADE_BRUISER = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Berserker", "Raccoon"},
     text="Trample\nWhenever you expend 4, this creature gets +2/+1 until end of turn. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)",
+    setup_interceptors=junkblade_bruiser_setup,
 )
 
 KASTRAL_THE_WINDCRESTED = make_creature(
@@ -5490,6 +7930,7 @@ KASTRAL_THE_WINDCRESTED = make_creature(
     subtypes={"Bird", "Scout"},
     supertypes={"Legendary"},
     text="Flying\nWhenever one or more Birds you control deal combat damage to a player, choose one —\n• You may put a Bird creature card from your hand or graveyard onto the battlefield with a finality counter on it.\n• Put a +1/+1 counter on each Bird you control.\n• Draw a card.",
+    setup_interceptors=kastral_the_windcrested_setup,
 )
 
 LILYSPLASH_MENTOR = make_creature(
@@ -5499,6 +7940,7 @@ LILYSPLASH_MENTOR = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Druid", "Frog"},
     text="Reach\n{1}{G}{U}: Exile another target creature you control, then return it to the battlefield under its owner's control with a +1/+1 counter on it. Activate only as a sorcery.",
+    setup_interceptors=lilysplash_mentor_setup,
 )
 
 LUNAR_CONVOCATION = make_enchantment(
@@ -5506,6 +7948,7 @@ LUNAR_CONVOCATION = make_enchantment(
     mana_cost="{W}{B}",
     colors={Color.BLACK, Color.WHITE},
     text="At the beginning of your end step, if you gained life this turn, each opponent loses 1 life.\nAt the beginning of your end step, if you gained and lost life this turn, create a 1/1 black Bat creature token with flying.\n{1}{B}, Pay 2 life: Draw a card.",
+    setup_interceptors=lunar_convocation_setup,
 )
 
 MABEL_HEIR_TO_CRAGFLAME = make_creature(
@@ -5526,6 +7969,7 @@ MIND_DRILL_ASSAILANT = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Rat", "Warlock"},
     text="Threshold — As long as there are seven or more cards in your graveyard, this creature gets +3/+0.\n{2}{U/B}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=mind_drill_assailant_setup,
 )
 
 MOONRISE_CLERIC = make_creature(
@@ -5546,6 +7990,7 @@ MUERRA_TRASH_TACTICIAN = make_creature(
     subtypes={"Raccoon", "Warrior"},
     supertypes={"Legendary"},
     text="At the beginning of your first main phase, add {R} or {G} for each Raccoon you control.\nWhenever you expend 4, you gain 3 life. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)\nWhenever you expend 8, exile the top two cards of your library. Until the end of your next turn, you may play those cards.",
+    setup_interceptors=muerra_trash_tactician_setup,
 )
 
 PLUMECREED_MENTOR = make_creature(
@@ -5576,6 +8021,7 @@ RAL_CRACKLING_WIT = make_planeswalker(
     subtypes={"Ral"},
     supertypes={"Legendary"},
     text="Whenever you cast a noncreature spell, put a loyalty counter on Ral.\n+1: Create a 1/1 blue and red Otter creature token with prowess.\n−3: Draw three cards, then discard two cards.\n−10: Draw three cards. You get an emblem with \"Instant and sorcery spells you cast have storm.\" (Whenever you cast an instant or sorcery spell, copy it for each spell cast before it this turn.)",
+    setup_interceptors=ral_crackling_wit_setup,
 )
 
 SEEDGLAIVE_MENTOR = make_creature(
@@ -5585,6 +8031,7 @@ SEEDGLAIVE_MENTOR = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Mouse", "Soldier"},
     text="Vigilance, haste\nValiant — Whenever this creature becomes the target of a spell or ability you control for the first time each turn, put a +1/+1 counter on it.",
+    setup_interceptors=seedglaive_mentor_setup,
 )
 
 SEEDPOD_SQUIRE = make_creature(
@@ -5634,6 +8081,7 @@ TIDECALLER_MENTOR = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Rat", "Wizard"},
     text="Menace\nThreshold — When this creature enters, if there are seven or more cards in your graveyard, return up to one target nonland permanent to its owner's hand.",
+    setup_interceptors=tidecaller_mentor_setup,
 )
 
 VETERAN_GUARDMOUSE = make_creature(
@@ -5643,6 +8091,7 @@ VETERAN_GUARDMOUSE = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Mouse", "Soldier"},
     text="Valiant — Whenever this creature becomes the target of a spell or ability you control for the first time each turn, it gets +1/+0 and gains first strike until end of turn. Scry 1. (Look at the top card of your library. You may put that card on the bottom.)",
+    setup_interceptors=veteran_guardmouse_setup,
 )
 
 VINEREAP_MENTOR = make_creature(
@@ -5663,6 +8112,7 @@ VREN_THE_RELENTLESS = make_creature(
     subtypes={"Rat", "Rogue"},
     supertypes={"Legendary"},
     text="Ward {2}\nIf a creature an opponent controls would die, exile it instead.\nAt the beginning of each end step, create X 1/1 black Rat creature tokens with \"This token gets +1/+1 for each other Rat you control,\" where X is the number of creatures that were exiled under your opponents' control this turn.",
+    setup_interceptors=vren_the_relentless_setup,
 )
 
 WANDERTALE_MENTOR = make_creature(
@@ -5672,6 +8122,7 @@ WANDERTALE_MENTOR = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Bard", "Raccoon"},
     text="Whenever you expend 4, put a +1/+1 counter on this creature. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)\n{T}: Add {R} or {G}.",
+    setup_interceptors=wandertale_mentor_setup,
 )
 
 YGRA_EATER_OF_ALL = make_creature(
@@ -5682,6 +8133,7 @@ YGRA_EATER_OF_ALL = make_creature(
     subtypes={"Cat", "Elemental"},
     supertypes={"Legendary"},
     text="Ward—Sacrifice a Food.\nOther creatures are Food artifacts in addition to their other types and have \"{2}, {T}, Sacrifice this permanent: You gain 3 life.\"\nWhenever a Food is put into a graveyard from the battlefield, put two +1/+1 counters on Ygra.",
+    setup_interceptors=ygra_eater_of_all_setup,
 )
 
 ZORALINE_COSMOS_CALLER = make_creature(
@@ -5702,24 +8154,28 @@ BARKFORM_HARVESTER = make_artifact_creature(
     colors=set(),
     subtypes={"Shapeshifter"},
     text="Changeling (This card is every creature type.)\nReach\n{2}: Put target card from your graveyard on the bottom of your library.",
+    setup_interceptors=barkform_harvester_setup,
 )
 
 BUMBLEFLOWERS_SHAREPOT = make_artifact(
     name="Bumbleflower's Sharepot",
     mana_cost="{2}",
     text="When this artifact enters, create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")\n{5}, {T}, Sacrifice this artifact: Destroy target nonland permanent. Activate only as a sorcery.",
+    setup_interceptors=bumbleflowers_sharepot_setup,
 )
 
 FOUNTAINPORT_BELL = make_artifact(
     name="Fountainport Bell",
     mana_cost="{1}",
     text="When this artifact enters, you may search your library for a basic land card, reveal it, then shuffle and put that card on top.\n{1}, Sacrifice this artifact: Draw a card.",
+    setup_interceptors=fountainport_bell_setup,
 )
 
 HEIRLOOM_EPIC = make_artifact(
     name="Heirloom Epic",
     mana_cost="{1}",
     text="{4}, {T}: Draw a card. For each mana in this ability's activation cost, you may tap an untapped creature you control rather than pay that mana. Activate only as a sorcery.",
+    setup_interceptors=heirloom_epic_setup,
 )
 
 PATCHWORK_BANNER = make_artifact(
@@ -5734,6 +8190,7 @@ SHORT_BOW = make_artifact(
     mana_cost="{2}",
     text="Equipped creature gets +1/+1 and has vigilance and reach.\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=short_bow_setup,
 )
 
 STARFORGED_SWORD = make_artifact(
@@ -5741,6 +8198,7 @@ STARFORGED_SWORD = make_artifact(
     mana_cost="{4}",
     text="Gift a tapped Fish (You may promise an opponent a gift as you cast this spell. If you do, when it enters, they create a tapped 1/1 blue Fish creature token.)\nWhen this Equipment enters, if the gift was promised, attach this Equipment to target creature you control.\nEquipped creature gets +3/+3 and loses flying.\nEquip {3}",
     subtypes={"Equipment"},
+    setup_interceptors=starforged_sword_setup,
 )
 
 TANGLE_TUMBLER = make_artifact(
@@ -5748,6 +8206,7 @@ TANGLE_TUMBLER = make_artifact(
     mana_cost="{3}",
     text="Vigilance\n{3}, {T}: Put a +1/+1 counter on target creature.\nTap two untapped tokens you control: This Vehicle becomes an artifact creature until end of turn.",
     subtypes={"Vehicle"},
+    setup_interceptors=tangle_tumbler_setup,
 )
 
 THREE_TREE_MASCOT = make_artifact_creature(
@@ -5757,57 +8216,68 @@ THREE_TREE_MASCOT = make_artifact_creature(
     colors=set(),
     subtypes={"Shapeshifter"},
     text="Changeling (This card is every creature type.)\n{1}: Add one mana of any color. Activate only once each turn.",
+    setup_interceptors=three_tree_mascot_setup,
 )
 
 FABLED_PASSAGE = make_land(
     name="Fabled Passage",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Then if you control four or more lands, untap that land.",
+    setup_interceptors=fabled_passage_setup,
 )
 
 FOUNTAINPORT = make_land(
     name="Fountainport",
     text="{T}: Add {C}.\n{2}, {T}, Sacrifice a token: Draw a card.\n{3}, {T}, Pay 1 life: Create a 1/1 blue Fish creature token.\n{4}, {T}: Create a Treasure token.",
+    setup_interceptors=fountainport_setup,
 )
 
 HIDDEN_GROTTO = make_land(
     name="Hidden Grotto",
     text="When this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)\n{T}: Add {C}.\n{1}, {T}: Add one mana of any color.",
+    setup_interceptors=hidden_grotto_setup,
 )
 
 LILYPAD_VILLAGE = make_land(
     name="Lilypad Village",
     text="{T}: Add {C}.\n{T}: Add {U}. Spend this mana only to cast a creature spell.\n{U}, {T}: Surveil 2. Activate only if a Bird, Frog, Otter, or Rat entered the battlefield under your control this turn.",
+    setup_interceptors=lilypad_village_setup,
 )
 
 LUPINFLOWER_VILLAGE = make_land(
     name="Lupinflower Village",
     text="{T}: Add {C}.\n{T}: Add {W}. Spend this mana only to cast a creature spell.\n{1}{W}, {T}, Sacrifice this land: Look at the top six cards of your library. You may reveal a Bat, Bird, Mouse, or Rabbit card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+    setup_interceptors=lupinflower_village_setup,
 )
 
 MUDFLAT_VILLAGE = make_land(
     name="Mudflat Village",
     text="{T}: Add {C}.\n{T}: Add {B}. Spend this mana only to cast a creature spell.\n{1}{B}, {T}, Sacrifice this land: Return target Bat, Lizard, Rat, or Squirrel card from your graveyard to your hand.",
+    setup_interceptors=mudflat_village_setup,
 )
 
 OAKHOLLOW_VILLAGE = make_land(
     name="Oakhollow Village",
     text="{T}: Add {C}.\n{T}: Add {G}. Spend this mana only to cast a creature spell.\n{G}, {T}: Put a +1/+1 counter on each Frog, Rabbit, Raccoon, or Squirrel you control that entered the battlefield this turn.",
+    setup_interceptors=oakhollow_village_setup,
 )
 
 ROCKFACE_VILLAGE = make_land(
     name="Rockface Village",
     text="{T}: Add {C}.\n{T}: Add {R}. Spend this mana only to cast a creature spell.\n{R}, {T}: Target Lizard, Mouse, Otter, or Raccoon you control gets +1/+0 and gains haste until end of turn. Activate only as a sorcery.",
+    setup_interceptors=rockface_village_setup,
 )
 
 THREE_TREE_CITY = make_land(
     name="Three Tree City",
     text="As Three Tree City enters, choose a creature type.\n{T}: Add {C}.\n{2}, {T}: Choose a color. Add an amount of mana of that color equal to the number of creatures you control of the chosen type.",
     supertypes={"Legendary"},
+    setup_interceptors=three_tree_city_setup,
 )
 
 UNCHARTED_HAVEN = make_land(
     name="Uncharted Haven",
     text="This land enters tapped. As it enters, choose a color.\n{T}: Add one mana of the chosen color.",
+    setup_interceptors=uncharted_haven_setup,
 )
 
 PLAINS = make_land(
@@ -5864,6 +8334,7 @@ BYRKE_LONG_EAR_OF_THE_LAW = make_creature(
     subtypes={"Rabbit", "Soldier"},
     supertypes={"Legendary"},
     text="Vigilance\nWhen Byrke enters, put a +1/+1 counter on each of up to two target creatures.\nWhenever a creature you control with a +1/+1 counter on it attacks, double the number of +1/+1 counters on it.",
+    setup_interceptors=byrke_long_ear_of_the_law_setup,
 )
 
 SERRA_REDEEMER = make_creature(
@@ -5882,6 +8353,7 @@ CHARMED_SLEEP = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature\nWhen this Aura enters, tap enchanted creature.\nEnchanted creature doesn't untap during its controller's untap step.",
     subtypes={"Aura"},
+    setup_interceptors=charmed_sleep_setup,
 )
 
 MIND_SPRING = make_sorcery(
@@ -5915,6 +8387,7 @@ COLOSSIFICATION = make_enchantment(
     colors={Color.GREEN},
     text="Enchant creature\nWhen this Aura enters, tap enchanted creature.\nEnchanted creature gets +20/+20.",
     subtypes={"Aura"},
+    setup_interceptors=colossification_setup,
 )
 
 GIANT_GROWTH = make_instant(
@@ -5938,16 +8411,19 @@ SWORD_OF_VENGEANCE = make_artifact(
     mana_cost="{3}",
     text="Equipped creature gets +2/+0 and has first strike, vigilance, trample, and haste.\nEquip {3}",
     subtypes={"Equipment"},
+    setup_interceptors=sword_of_vengeance_setup,
 )
 
 BLOSSOMING_SANDS = make_land(
     name="Blossoming Sands",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {G} or {W}.",
+    setup_interceptors=blossoming_sands_setup,
 )
 
 SWIFTWATER_CLIFFS = make_land(
     name="Swiftwater Cliffs",
     text="This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {U} or {R}.",
+    setup_interceptors=swiftwater_cliffs_setup,
 )
 
 # =============================================================================

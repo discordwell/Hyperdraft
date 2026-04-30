@@ -28,6 +28,8 @@ from src.cards.interceptor_helpers import (
     make_etb_trigger, make_death_trigger, make_attack_trigger,
     make_static_pt_boost, make_keyword_grant, make_upkeep_trigger,
     make_spell_cast_trigger, make_damage_trigger, make_life_gain_trigger,
+    make_end_step_trigger, make_leaves_battlefield_trigger,
+    make_additional_land_play,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype,
     create_modal_choice, create_sacrifice_choice, create_target_choice,
@@ -4227,6 +4229,1201 @@ def reasonable_doubt_resolve(targets: list, state: GameState) -> list[Event]:
     return []
 
 
+# =============================================================================
+# ADDITIONAL SETUP FUNCTIONS (auto-generated wrap-up batch)
+# =============================================================================
+
+# --- Token-creation helpers used by the batch ---
+
+def _clue_event(controller: str, source_id: str) -> Event:
+    return Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'name': 'Clue',
+            'controller': controller,
+            'types': [CardType.ARTIFACT],
+            'subtypes': ['Clue'],
+            'colors': []
+        },
+        source=source_id
+    )
+
+
+# --- WHITE: Cases / Auras / Disguise creatures ---
+
+def case_of_the_shattered_pact_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: search for basic land. Solved: combat trigger pumps creature."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: library search + reveal + shuffle
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def assemble_the_players_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Look at top of library; once/turn cast creature with power 2 or less from top."""
+    # engine gap: cast-from-top permission + look-at-top
+    return []
+
+
+def aurelias_vindicator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Disguise turn-face-up exile X creatures; LTB returns exiled cards."""
+    def ltb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: track exile-with-this and return them
+        return []
+    return [make_leaves_battlefield_trigger(obj, ltb_effect)]
+
+
+def case_of_the_gateway_express_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each creature you control deals 1 to target creature you don't control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target opponent creature + multi-source damage
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def case_of_the_pilfered_proof_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a Detective you control enters or is turned face up, +1/+1 counter."""
+    def detective_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering = state.objects.get(entering_id)
+        if not entering:
+            return False
+        return (entering.controller == source.controller and
+                'Detective' in entering.characteristics.subtypes)
+
+    def detective_etb_effect(event: Event, state: GameState) -> list[Event]:
+        entering_id = event.payload.get('object_id')
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': entering_id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, detective_etb_effect, filter_fn=detective_etb_filter)]
+
+
+def due_diligence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura ETB: pump another creature you control. Static: +2/+2 vigilance to enchanted."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aura attachment target; "another" filter
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def essence_of_antiquity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When turned face up: hexproof + untap creatures you control."""
+    # engine gap: turn-face-up trigger
+    return []
+
+
+def forum_familiar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When turned face up: bounce another permanent you control + counter on this."""
+    # engine gap: turn-face-up trigger + targeting
+    return []
+
+
+def karlov_watchdog_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Vigilance; can't-turn-face-up restriction; attack with 3+ pumps team."""
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        attackers = event.payload.get('attackers', [])
+        if event.payload.get('attacking_player') != obj.controller:
+            return False
+        return len(attackers) >= 3
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for oid, o in state.objects.items():
+            if (o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.PT_MODIFY,
+                    payload={'object_id': oid, 'power': 1, 'toughness': 1, 'until': 'end_of_turn'},
+                    source=obj.id
+                ))
+        return events
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=attack_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def krovod_haunch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this Equipment goes to graveyard from battlefield, may pay {1}{W} for two Dog tokens."""
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: optional cost ({1}{W}) before tokens
+        return []
+    return [make_death_trigger(obj, death_effect)]
+
+
+def makeshift_binding_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: exile target opponent creature until this leaves; gain 2 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: exile-until-leaves with target opponent creature
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def sanctuary_wall_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated tap creature + stun counters."""
+    # engine gap: activated abilities (cost+effect)
+    return []
+
+
+def seasoned_consultant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When you attack with three or more creatures, this gets +2/+0 until EOT."""
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        if event.payload.get('attacking_player') != obj.controller:
+            return False
+        return len(event.payload.get('attackers', [])) >= 3
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFY,
+            payload={'object_id': obj.id, 'power': 2, 'toughness': 0, 'until': 'end_of_turn'},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=attack_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def tenth_district_hero_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated abilities to become Detective then Mileva legendary."""
+    # engine gap: activated abilities, becomes-creature, indestructible grant
+    return []
+
+
+def unyielding_gatekeeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When turned face up: exile nonland; if yours return tapped, else opp gets Detective token."""
+    # engine gap: turn-face-up trigger + targeting
+    return []
+
+
+def wrench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment: +1/+1, vigilance, granted tap-target activated ability; sac to draw."""
+    # engine gap: equipment static grants + activated tap-target
+    return []
+
+
+# --- BLUE ---
+
+def bubble_smuggler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """As turned face up: put four +1/+1 counters."""
+    # engine gap: turn-face-up trigger
+    return []
+
+
+def burden_of_proof_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: conditional P/T based on whether enchanted creature is your Detective."""
+    # engine gap: aura with conditional base P/T overwrite + can't-block restriction
+    return []
+
+
+def candlestick_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment grants +1/+1 and 'whenever attacks, surveil 2'; sac to draw."""
+    # engine gap: equipment-granted triggered ability
+    return []
+
+
+def case_of_the_ransacked_lab_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cost reduction; solved: draw on instant/sorcery cast."""
+    # engine gap: spell cost reduction + state-based solve tracking
+    return []
+
+
+def conspiracy_unraveler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying; alternative cost via collect evidence 10."""
+    # engine gap: alternative casting costs
+    return []
+
+
+def coveted_falcon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying; attacks: gain control of target permanent you own; turned face up: opponent gains control + draws."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target permanent you own but don't control
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def crimestopper_sprite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: tap target creature; stun counter if evidence collected."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeting + collect-evidence-cost-paid tracking
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def cryptic_coat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: cloak top of library and attach. Equip grants +1/+0 and unblockable. Activated bounce self."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: cloak mechanic + auto-attach + activated bounce
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def curious_inquiry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura grants +1/+1 and 'investigate on combat damage to player' to enchanted."""
+    # engine gap: aura-granted damage trigger
+    return []
+
+
+def dramatic_accusation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: tap on ETB; doesn't untap; activated shuffle into library."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: enchanted-creature tracking; shuffle activated ability
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def exit_specialist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Disguise turn-face-up: bounce another creature."""
+    # engine gap: turn-face-up trigger + targeting
+    return []
+
+
+def fae_flight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flash aura: hexproof on ETB; +1/+0 and flying."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: enchanted-creature reference
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def forensic_researcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated tap to untap permanent; collect-evidence tap target opponent creature."""
+    # engine gap: activated abilities with cost+target
+    return []
+
+
+def living_conundrum_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Hexproof; skip empty-library draws; 10/10 flying/vigilance if library empty."""
+    # engine gap: replacement on empty-library draw + conditional base P/T
+    return []
+
+
+def lost_in_the_maze_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: tap X targets, stun counters on those you don't control. Tapped creatures hexproof."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: X-target selection + conditional stun
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def mistway_spy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Disguise turn-face-up: investigate on combat damage to player until EOT."""
+    # engine gap: turn-face-up trigger + delayed temporary trigger
+    return []
+
+
+def profts_eidetic_memory_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: draw a card. No max hand size. Combat: pump if 2+ cards drawn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    def combat_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: cards-drawn-this-turn tracking + targeting
+        return []
+
+    def combat_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        return event.payload.get('attacking_player') == obj.controller
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=combat_filter,
+            handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
+            duration='while_on_battlefield'
+        )
+    ]
+
+
+# --- BLACK ---
+
+def agency_coroner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated: sac creature to draw 1 (or 2 if suspected)."""
+    # engine gap: activated ability with sacrifice cost + suspected check
+    return []
+
+
+def case_of_the_gorgons_kiss_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: destroy creature dealt damage this turn. Solved: becomes 4/4 Gorgon."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: damaged-this-turn tracking + targeting
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def illicit_masquerade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flash. ETB: impostor counter on each creature you control. Death of impostor: exile + may return another."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for oid, o in state.objects.items():
+            if (o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': oid, 'counter_type': 'impostor', 'amount': 1},
+                    source=obj.id
+                ))
+        return events
+
+    def impostor_death_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        dying = state.objects.get(dying_id)
+        if not dying or dying.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in dying.characteristics.types:
+            return False
+        counters = dying.state.counters if hasattr(dying.state, 'counters') else {}
+        return counters.get('impostor', 0) > 0
+
+    def impostor_death_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: exile + return-from-graveyard target choice
+        return []
+
+    return [
+        make_etb_trigger(obj, etb_effect),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=impostor_death_filter,
+            handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=impostor_death_effect(e, s)),
+            duration='while_on_battlefield'
+        )
+    ]
+
+
+def lead_pipe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment: +2/+0; equipped creature dies => each opp loses 1; sac to draw."""
+    # engine gap: equipment-granted death trigger
+    return []
+
+
+def leering_onlooker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. Activated graveyard ability creates two 1/1 black Bats."""
+    # engine gap: activated graveyard abilities
+    return []
+
+
+def polygraph_orb_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: look top 4, take 2 to hand and 2 to graveyard, lose 2 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': -2},
+            source=obj.id
+        )]
+        # engine gap: look-top-4 ordered placement
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def repeat_offender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated: if suspected get +1/+1, else suspect."""
+    # engine gap: activated ability + suspect mechanic
+    return []
+
+
+def slimy_dualleech_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Combat: target creature you control with power 2 or less gets +1/+0 + deathtouch."""
+    def combat_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        return event.payload.get('attacking_player') == obj.controller
+
+    def combat_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target a creature you control with power <= 2
+        return []
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- RED ---
+
+def case_of_the_crimson_pulse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: discard 1 then draw 2. Solved: upkeep discard hand and draw 2."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 2}, source=obj.id)
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def concealed_weapon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment +3/+0. Disguise turn-face-up: attach to creature you control. Equip {1}{R}."""
+    # engine gap: turn-face-up trigger + auto-attach
+    return []
+
+
+def connecting_the_dots_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever creature you control attacks, exile top of library face down. Activated: discard hand, sac to put exiled into hand."""
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return False
+        return attacker.controller == obj.controller
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.EXILE_FROM_TOP,
+            payload={'player': obj.controller, 'amount': 1, 'face_down': True, 'tracking_source': obj.id},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=attack_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def convenient_target_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: suspect enchanted creature on ETB; +1/+1; activated graveyard return."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aura attachment target tracking + suspect mechanic
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def expedited_inheritance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a creature is dealt damage, controller may exile that many cards from top, may play."""
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        target_id = event.payload.get('target')
+        target = state.objects.get(target_id) if target_id else None
+        if not target:
+            return False
+        return CardType.CREATURE in target.characteristics.types
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: optional impulse-draw with may-play permission
+        return []
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=damage_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def fugitive_codebreaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Prowess, haste. Disguise (cost-reduced). Turn-face-up: discard hand, draw 3."""
+    # engine gap: turn-face-up trigger + dynamic disguise cost
+    return []
+
+
+def goblin_maskmaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this attacks, face-down spells you cast this turn cost {1} less."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: cost reduction for face-down spells until end of turn
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def incinerator_of_the_guilty_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, trample. Combat damage to player: collect evidence X to deal X to each of their creatures+pws."""
+    def combat_damage_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: collect-evidence variable + AoE to player's permanents
+        return []
+    return [make_damage_trigger(obj, combat_damage_effect, combat_only=True)]
+
+
+def knife_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment: +1/+0 and first strike during your turn; sac to draw; equip {2}."""
+    # engine gap: conditional equipment grant (during your turn)
+    return []
+
+
+def offender_at_large_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Disguise. ETB or turn-face-up: target creature gets +2/+0 until EOT."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeting
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def reckless_detective_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever attacks, may sac artifact OR discard a card. If you do, draw + +2/+0."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: may-sacrifice-or-discard composite cost
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def red_herring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste. Attacks each combat if able. Activated sac to draw."""
+    # engine gap: must-attack restriction + sacrifice activation
+    return []
+
+
+def rubblebelt_braggart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When attacks if not suspected: may suspect."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: suspect mechanic
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+# --- GREEN ---
+
+def airtight_alibi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flash aura: untap+hexproof+remove suspect on ETB; +2/+2 and can't-be-suspected."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aura attachment target reference + remove-suspect
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def axebane_ferox_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Deathtouch, haste, ward(collect evidence 4)."""
+    # engine gap: ward-by-collect-evidence
+    return []
+
+
+def case_of_the_locked_hothouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Additional land each turn. Solved: cast creatures+enchantments+lands from top."""
+    return [make_additional_land_play(obj, 1)]
+
+
+def case_of_the_trampled_garden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: distribute 2 +1/+1 counters. Solved: attack trigger pumps."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: distribute counters among up to 2 targets
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def culvert_ambusher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB or turn-face-up: target creature blocks if able."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: must-block-if-able restriction + targeting
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def flourishing_bloomkin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """+1/+1 per Forest you control. Disguise turn-face-up: search 2 Forests."""
+    # engine gap: dynamic P/T (count Forests) + library search; turn-face-up trigger
+    return []
+
+
+def greenbelt_radical_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Disguise turn-face-up: counters on each creature + trample."""
+    # engine gap: turn-face-up trigger
+    return []
+
+
+def hedge_whisperer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """May skip untap. Activated: animate land 5/5 while tapped."""
+    # engine gap: activated ability with collect-evidence cost + animate-land
+    return []
+
+
+def a_killer_among_us_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: create 1/1 Human, 1/1 Merfolk, 1/1 Goblin tokens, secretly choose a type."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Human Token',
+                    'controller': obj.controller,
+                    'power': 1, 'toughness': 1,
+                    'types': [CardType.CREATURE],
+                    'subtypes': ['Human'],
+                    'colors': [Color.WHITE]
+                },
+                source=obj.id
+            ),
+            Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Merfolk Token',
+                    'controller': obj.controller,
+                    'power': 1, 'toughness': 1,
+                    'types': [CardType.CREATURE],
+                    'subtypes': ['Merfolk'],
+                    'colors': [Color.BLUE]
+                },
+                source=obj.id
+            ),
+            Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Goblin Token',
+                    'controller': obj.controller,
+                    'power': 1, 'toughness': 1,
+                    'types': [CardType.CREATURE],
+                    'subtypes': ['Goblin'],
+                    'colors': [Color.RED]
+                },
+                source=obj.id
+            )
+        ]
+        # engine gap: secret choice tracking + activated reveal-and-pump
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def nervous_gardener_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Disguise turn-face-up: search basic-typed land card to hand."""
+    # engine gap: turn-face-up trigger + library search
+    return []
+
+
+def pompous_gadabout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """During your turn hexproof; can't be blocked by creatures without name."""
+    # engine gap: conditional hexproof + can't-be-blocked-by-no-name
+    return []
+
+
+def the_pride_of_hull_clade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cost reduction by team toughness. Defender. Activated pump+can-attack."""
+    # engine gap: cost reduction + activated grant attack-ignoring-defender
+    return []
+
+
+def rope_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment: +1/+2, reach, can't-be-blocked-by-more-than-one. Sac draw. Equip {3}."""
+    # engine gap: equipment-granted reach + block restriction
+    return []
+
+
+def sample_collector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever attacks, may collect evidence 3: counter on target creature you control."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: collect-evidence cost + targeting
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def topiary_panther_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample. Basic landcycling {1}{G}."""
+    # engine gap: cycling activated abilities
+    return []
+
+
+def undergrowth_recon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: return target land card from your graveyard tapped."""
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target land in graveyard + return tapped
+        return []
+    return [make_upkeep_trigger(obj, upkeep_effect)]
+
+
+def vengeful_creeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Disguise turn-face-up: destroy target artifact or enchantment opp controls."""
+    # engine gap: turn-face-up trigger + targeting
+    return []
+
+
+def vituughazi_inspector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reach. ETB: if collect-evidence-6 paid, +1/+1 counter on target + 2 life."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: collect-evidence-cost-paid tracking + targeting
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# --- MULTICOLOR / LEGENDARY ---
+
+def anzrag_the_quakemole_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When becomes blocked: untap creatures + extra combat. Activated must-block."""
+    def block_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for oid, o in state.objects.items():
+            if (o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(type=EventType.UNTAP, payload={'object_id': oid}, source=obj.id))
+        events.append(Event(type=EventType.EXTRA_COMBAT, payload={'player': obj.controller}, source=obj.id))
+        return events
+
+    def block_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.BLOCK_DECLARED:
+            return False
+        return event.payload.get('attacker_id') == obj.id
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=block_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=block_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def aurelia_the_law_above_full_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a player attacks with 3+: draw. With 5+: deal 3 to each opp + gain 3."""
+    def combat_filter(event: Event, state: GameState) -> bool:
+        return event.type == EventType.COMBAT_DECLARED
+
+    def combat_effect(event: Event, state: GameState) -> list[Event]:
+        attackers = event.payload.get('attackers', [])
+        n = len(attackers)
+        events = []
+        if n >= 3:
+            events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id))
+        if n >= 5:
+            for p_id in state.players.keys():
+                if p_id != obj.controller:
+                    events.append(Event(
+                        type=EventType.DAMAGE,
+                        payload={'source': obj.id, 'target': p_id, 'amount': 3, 'is_combat': False},
+                        source=obj.id
+                    ))
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3}, source=obj.id))
+        return events
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def buried_in_the_garden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura land: ETB exile target nonland opp permanent until leaves; tap-for-mana extra."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: exile-until-leaves + extra-mana-on-tap
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def coerced_to_kill_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: gain control of enchanted; base 1/1 with deathtouch + Assassin type."""
+    # engine gap: control-change static + base P/T overwrite + type addition
+    return []
+
+
+def crowdcontrol_warden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """As ETB or turn-face-up: X +1/+1 counters where X = other creatures you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        x = 0
+        for oid, o in state.objects.items():
+            if (oid != obj.id and
+                o.controller == obj.controller and
+                CardType.CREATURE in o.characteristics.types and
+                o.zone == ZoneType.BATTLEFIELD):
+                x += 1
+        if x <= 0:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': x},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def curious_cadaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. When you sacrifice a Clue, return self from graveyard to hand."""
+    def clue_sac_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('cause') != 'sacrifice':
+            return False
+        sac_id = event.payload.get('object_id')
+        sac = state.objects.get(sac_id)
+        if not sac or sac.controller != obj.controller:
+            return False
+        return 'Clue' in sac.characteristics.subtypes
+
+    def clue_sac_effect(event: Event, state: GameState) -> list[Event]:
+        # only if self is in graveyard
+        if obj.zone != ZoneType.GRAVEYARD:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': obj.id,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'to_zone_type': ZoneType.HAND
+            },
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=clue_sac_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=clue_sac_effect(e, s)),
+        duration='until_leaves'
+    )]
+
+
+def etrata_deadly_fugitive_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Deathtouch. Face-down creatures get activated 'turn-face-up or exile-cast'. Assassin combat damage to opp: cloak top of their library."""
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        src_id = event.payload.get('source')
+        src = state.objects.get(src_id) if src_id else None
+        if not src or src.controller != obj.controller:
+            return False
+        if 'Assassin' not in src.characteristics.subtypes:
+            return False
+        target_id = event.payload.get('target')
+        return target_id in state.players and target_id != obj.controller
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: cloak-top-of-library mechanic
+        return []
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=damage_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def faerie_snoop_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. Disguise turn-face-up: top 2, one to hand, other to graveyard."""
+    # engine gap: turn-face-up trigger + ordered placement
+    return []
+
+
+def granite_witness_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, vigilance. Disguise turn-face-up: tap or untap target creature."""
+    # engine gap: turn-face-up trigger + modal targeting
+    return []
+
+
+def kaya_spirits_justice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Planeswalker; passive token-becomes-copy when creatures exiled. Loyalty abilities."""
+    # engine gap: planeswalker loyalty abilities + token-becomes-copy
+    return []
+
+
+def kylox_visionary_inventor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace, ward {2}, haste. Whenever attacks, sac creatures, exile X cards, may cast for free."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: variable sacrifice + exile-X + free-cast
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def kyloxs_voltstrider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Vehicle: collect-evidence-6 to become creature; attacks: cast exiled spell free."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: cast-exiled-with-this + bottom-instead-of-graveyard
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def leyline_of_the_guildpact_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Opening-hand on battlefield. Each nonland permanent is all colors. Lands every basic land type."""
+    # engine gap: opening-hand mechanic + all-colors and all-basic-types pervasive query
+    return []
+
+
+def rakish_scoundrel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Deathtouch. ETB or turn-face-up: indestructible to target until EOT."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeting
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def runebrand_juggler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: suspect up to one target creature you control. Activated sac suspected: -5/-5."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: suspect mechanic + targeting
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def sanguine_savior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, lifelink. Disguise turn-face-up: another creature gains lifelink until EOT."""
+    # engine gap: turn-face-up trigger + targeting
+    return []
+
+
+def tin_street_gossip_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Vigilance. {T}: add {R}{G} restricted to face-down spells / turn face up."""
+    # engine gap: restricted mana from tap ability
+    return []
+
+
+def trostani_three_whispers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Three activated abilities granting deathtouch / vigilance / double strike."""
+    # engine gap: activated abilities with target + temporary keyword grant
+    return []
+
+
+def vannifar_evolved_enigma_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Combat: choose mode — cloak from hand, or +1/+1 counter on each colorless creature you control."""
+    def combat_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        return event.payload.get('attacking_player') == obj.controller
+
+    def combat_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: modal choice (cloak vs counters) on combat
+        return []
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+# --- ARTIFACTS / VEHICLES / EQUIPMENT (colorless) ---
+
+def cryptex_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated tap+collect-evidence-3 for any color + unlock counter; sac for surveil 3 + draw 3 if 5+ unlock."""
+    # engine gap: activated abilities with collect-evidence cost + counter conditional sacrifice
+    return []
+
+
+def gravestone_strider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated mana ability (once/turn). Activated graveyard exile-target."""
+    # engine gap: activated abilities w/ once-per-turn restriction + graveyard activation
+    return []
+
+
+def lumbering_laundry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated: see face-down creatures opponents control. Disguise {5}."""
+    # engine gap: activated information ability
+    return []
+
+
+def magnifying_glass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: {C}; {4},{T}: investigate."""
+    # engine gap: activated mana ability + costed investigate
+    return []
+
+
+def thinking_cap_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment +1/+2; equip Detective {1}; equip {3}."""
+    # engine gap: discounted equip costs by subtype
+    return []
+
+
+# --- LANDS ---
+
+def _surveil_land_setup_factory(amount: int = 1):
+    def setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def etb_effect(event: Event, state: GameState) -> list[Event]:
+            return [Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': amount},
+                source=obj.id
+            )]
+        return [make_etb_trigger(obj, etb_effect)]
+    return setup
+
+
+def branch_of_vituughazi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Disguise land: turn face up adds two of one color, persistent until EOT."""
+    # engine gap: turn-face-up land trigger + persistent mana
+    return []
+
+
+def commercial_district_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Surveil 1 on ETB."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def elegant_parlor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def escape_tunnel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated abilities to fetch land or unblockable target."""
+    # engine gap: activated land abilities
+    return []
+
+
+def hedge_maze_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def lush_portico_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def meticulous_archive_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def public_thoroughfare_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: sacrifice unless tap untapped artifact or land."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: sacrifice-unless-pay alternative cost on ETB
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def raucous_theater_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def scene_of_the_crime_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Land enters tapped; {T}:{C}; tap creature for any color; {2},sac to draw."""
+    # engine gap: complex activated abilities + sacrifice draw
+    return []
+
+
+def shadowy_backstreet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def thundering_falls_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def undercity_sewers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def underground_mortuary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
 
 CASE_OF_THE_SHATTERED_PACT = make_enchantment(
     name="Case of the Shattered Pact",
@@ -4234,6 +5431,7 @@ CASE_OF_THE_SHATTERED_PACT = make_enchantment(
     colors=set(),
     text="When this Case enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle.\nTo solve — There are five colors among permanents you control. (If unsolved, solve at the beginning of your end step.)\nSolved — At the beginning of combat on your turn, target creature you control gains flying, double strike, and vigilance until end of turn.",
     subtypes={"Case"},
+    setup_interceptors=case_of_the_shattered_pact_setup,
 )
 
 ABSOLVING_LAMMASU = make_creature(
@@ -4251,6 +5449,7 @@ ASSEMBLE_THE_PLAYERS = make_enchantment(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="You may look at the top card of your library any time.\nOnce each turn, you may cast a creature spell with power 2 or less from the top of your library.",
+    setup_interceptors=assemble_the_players_setup,
 )
 
 AURELIAS_VINDICATOR = make_creature(
@@ -4260,6 +5459,7 @@ AURELIAS_VINDICATOR = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel"},
     text="Flying, lifelink, ward {2}\nDisguise {X}{3}{W}\nWhen this creature is turned face up, exile up to X other target creatures from the battlefield and/or creature cards from graveyards.\nWhen this creature leaves the battlefield, return the exiled cards to their owners' hands.",
+    setup_interceptors=aurelias_vindicator_setup,
 )
 
 AUSPICIOUS_ARRIVAL = make_instant(
@@ -4292,6 +5492,7 @@ CASE_OF_THE_GATEWAY_EXPRESS = make_enchantment(
     colors={Color.WHITE},
     text="When this Case enters, choose target creature you don't control. Each creature you control deals 1 damage to that creature.\nTo solve — Three or more creatures attacked this turn. (If unsolved, solve at the beginning of your end step.)\nSolved — Creatures you control get +1/+0.",
     subtypes={"Case"},
+    setup_interceptors=case_of_the_gateway_express_setup,
 )
 
 CASE_OF_THE_PILFERED_PROOF = make_enchantment(
@@ -4300,6 +5501,7 @@ CASE_OF_THE_PILFERED_PROOF = make_enchantment(
     colors={Color.WHITE},
     text="Whenever a Detective you control enters or is turned face up, put a +1/+1 counter on it.\nTo solve — You control three or more Detectives. (If unsolved, solve at the beginning of your end step.)\nSolved — If one or more tokens would be created under your control, those tokens plus a Clue token are created instead. (It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
     subtypes={"Case"},
+    setup_interceptors=case_of_the_pilfered_proof_setup,
 )
 
 CASE_OF_THE_UNEATEN_FEAST = make_enchantment(
@@ -4347,6 +5549,7 @@ DUE_DILIGENCE = make_enchantment(
     colors={Color.WHITE},
     text="Enchant creature\nWhen this Aura enters, target creature you control other than enchanted creature gets +2/+2 and gains vigilance until end of turn.\nEnchanted creature gets +2/+2 and has vigilance.",
     subtypes={"Aura"},
+    setup_interceptors=due_diligence_setup,
 )
 
 ESSENCE_OF_ANTIQUITY = make_artifact_creature(
@@ -4356,6 +5559,7 @@ ESSENCE_OF_ANTIQUITY = make_artifact_creature(
     colors={Color.WHITE},
     subtypes={"Golem"},
     text="Disguise {2}{W} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, creatures you control gain hexproof until end of turn. Untap them.",
+    setup_interceptors=essence_of_antiquity_setup,
 )
 
 FORUM_FAMILIAR = make_creature(
@@ -4365,6 +5569,7 @@ FORUM_FAMILIAR = make_creature(
     colors={Color.WHITE},
     subtypes={"Cat"},
     text="Disguise {1}{W} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, return another target permanent you control to its owner's hand and put a +1/+1 counter on this creature.",
+    setup_interceptors=forum_familiar_setup,
 )
 
 GRIFFNAUT_TRACKER = make_creature(
@@ -4404,6 +5609,7 @@ KARLOV_WATCHDOG = make_creature(
     colors={Color.WHITE},
     subtypes={"Dog"},
     text="Vigilance\nPermanents your opponents control can't be turned face up during your turn.\nWhenever you attack with three or more creatures, creatures you control get +1/+1 until end of turn.",
+    setup_interceptors=karlov_watchdog_setup,
 )
 
 KROVOD_HAUNCH = make_artifact(
@@ -4411,6 +5617,7 @@ KROVOD_HAUNCH = make_artifact(
     mana_cost="{W}",
     text="Equipped creature gets +2/+0.\n{2}, {T}, Sacrifice this Equipment: You gain 3 life.\nWhen this Equipment is put into a graveyard from the battlefield, you may pay {1}{W}. If you do, create two 1/1 white Dog creature tokens.\nEquip {2}",
     subtypes={"Equipment", "Food"},
+    setup_interceptors=krovod_haunch_setup,
 )
 
 MAKE_YOUR_MOVE = make_instant(
@@ -4426,6 +5633,7 @@ MAKESHIFT_BINDING = make_enchantment(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="When this enchantment enters, exile target creature an opponent controls until this enchantment leaves the battlefield. You gain 2 life.",
+    setup_interceptors=makeshift_binding_setup,
 )
 
 MARKETWATCH_PHANTOM = make_creature(
@@ -4508,6 +5716,7 @@ SANCTUARY_WALL = make_artifact_creature(
     colors={Color.WHITE},
     subtypes={"Wall"},
     text="Defender\n{2}{W}, {T}: Tap target creature. You may put a stun counter on it. If you do, put a stun counter on this creature. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
+    setup_interceptors=sanctuary_wall_setup,
 )
 
 SEASONED_CONSULTANT = make_creature(
@@ -4517,6 +5726,7 @@ SEASONED_CONSULTANT = make_creature(
     colors={Color.WHITE},
     subtypes={"Detective", "Human"},
     text="Whenever you attack with three or more creatures, this creature gets +2/+0 until end of turn.",
+    setup_interceptors=seasoned_consultant_setup,
 )
 
 TENTH_DISTRICT_HERO = make_creature(
@@ -4526,6 +5736,7 @@ TENTH_DISTRICT_HERO = make_creature(
     colors={Color.WHITE},
     subtypes={"Human"},
     text="{1}{W}, Collect evidence 2: This creature becomes a Human Detective with base power and toughness 4/4 and gains vigilance.\n{2}{W}, Collect evidence 4: If this creature is a Detective, it becomes a legendary creature named Mileva, the Stalwart, it has base power and toughness 5/5, and it gains \"Other creatures you control have indestructible.\"",
+    setup_interceptors=tenth_district_hero_setup,
 )
 
 UNYIELDING_GATEKEEPER = make_creature(
@@ -4535,6 +5746,7 @@ UNYIELDING_GATEKEEPER = make_creature(
     colors={Color.WHITE},
     subtypes={"Cleric", "Elephant"},
     text="Disguise {1}{W} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, exile another target nonland permanent. If you controlled it, return it to the battlefield tapped. Otherwise, its controller creates a 2/2 white and blue Detective creature token.",
+    setup_interceptors=unyielding_gatekeeper_setup,
 )
 
 WOJEK_INVESTIGATOR = make_creature(
@@ -4552,6 +5764,7 @@ WRENCH = make_artifact(
     mana_cost="{W}",
     text="Equipped creature gets +1/+1 and has vigilance and \"{3}, {T}: Tap target creature.\"\n{2}, Sacrifice this Equipment: Draw a card.\nEquip {2}",
     subtypes={"Clue", "Equipment"},
+    setup_interceptors=wrench_setup,
 )
 
 AGENCY_OUTFITTER = make_creature(
@@ -4588,6 +5801,7 @@ BUBBLE_SMUGGLER = make_creature(
     colors={Color.BLUE},
     subtypes={"Fish", "Octopus"},
     text="Disguise {5}{U} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nAs this creature is turned face up, put four +1/+1 counters on it.",
+    setup_interceptors=bubble_smuggler_setup
 )
 
 BURDEN_OF_PROOF = make_enchantment(
@@ -4596,6 +5810,7 @@ BURDEN_OF_PROOF = make_enchantment(
     colors={Color.BLUE},
     text="Flash\nEnchant creature\nEnchanted creature gets +2/+2 as long as it's a Detective you control. Otherwise, it has base power and toughness 1/1 and can't block Detectives.",
     subtypes={"Aura"},
+    setup_interceptors=burden_of_proof_setup
 )
 
 CANDLESTICK = make_artifact(
@@ -4603,6 +5818,7 @@ CANDLESTICK = make_artifact(
     mana_cost="{U}",
     text="Equipped creature gets +1/+1 and has \"Whenever this creature attacks, surveil 2.\" (Look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)\n{2}, Sacrifice this Equipment: Draw a card.\nEquip {2}",
     subtypes={"Clue", "Equipment"},
+    setup_interceptors=candlestick_setup
 )
 
 CASE_OF_THE_FILCHED_FALCON = make_enchantment(
@@ -4620,6 +5836,7 @@ CASE_OF_THE_RANSACKED_LAB = make_enchantment(
     colors={Color.BLUE},
     text="Instant and sorcery spells you cast cost {1} less to cast.\nTo solve — You've cast four or more instant and sorcery spells this turn. (If unsolved, solve at the beginning of your end step.)\nSolved — Whenever you cast an instant or sorcery spell, draw a card.",
     subtypes={"Case"},
+    setup_interceptors=case_of_the_ransacked_lab_setup
 )
 
 COLD_CASE_CRACKER = make_creature(
@@ -4639,6 +5856,7 @@ CONSPIRACY_UNRAVELER = make_creature(
     colors={Color.BLUE},
     subtypes={"Detective", "Sphinx"},
     text="Flying\nYou may collect evidence 10 rather than pay the mana cost for spells you cast. (To collect evidence 10, exile cards with total mana value 10 or greater from your graveyard.)",
+    setup_interceptors=conspiracy_unraveler_setup
 )
 
 COVETED_FALCON = make_artifact_creature(
@@ -4648,6 +5866,7 @@ COVETED_FALCON = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Bird"},
     text="Flying\nWhenever this creature attacks, gain control of target permanent you own but don't control.\nDisguise {1}{U}\nWhen this creature is turned face up, target opponent gains control of any number of target permanents you control. Draw a card for each one they gained control of this way.",
+    setup_interceptors=coveted_falcon_setup
 )
 
 CRIMESTOPPER_SPRITE = make_creature(
@@ -4657,6 +5876,7 @@ CRIMESTOPPER_SPRITE = make_creature(
     colors={Color.BLUE},
     subtypes={"Detective", "Faerie"},
     text="As an additional cost to cast this spell, you may collect evidence 6. (Exile cards with total mana value 6 or greater from your graveyard.)\nFlying\nWhen this creature enters, tap target creature. If evidence was collected, put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
+    setup_interceptors=crimestopper_sprite_setup
 )
 
 CRYPTIC_COAT = make_artifact(
@@ -4664,6 +5884,7 @@ CRYPTIC_COAT = make_artifact(
     mana_cost="{2}{U}",
     text="When this Equipment enters, cloak the top card of your library, then attach this Equipment to it. (To cloak a card, put it onto the battlefield face down as a 2/2 creature with ward {2}. Turn it face up any time for its mana cost if it's a creature card.)\nEquipped creature gets +1/+0 and can't be blocked.\n{1}{U}: Return this Equipment to its owner's hand.",
     subtypes={"Equipment"},
+    setup_interceptors=cryptic_coat_setup
 )
 
 CURIOUS_INQUIRY = make_enchantment(
@@ -4672,6 +5893,7 @@ CURIOUS_INQUIRY = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature\nEnchanted creature gets +1/+1 and has \"Whenever this creature deals combat damage to a player, investigate.\" (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
     subtypes={"Aura"},
+    setup_interceptors=curious_inquiry_setup
 )
 
 DEDUCE = make_instant(
@@ -4688,6 +5910,7 @@ DRAMATIC_ACCUSATION = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature\nWhen this Aura enters, tap enchanted creature.\nEnchanted creature doesn't untap during its controller's untap step.\n{U}{U}: Shuffle enchanted creature into its owner's library.",
     subtypes={"Aura"},
+    setup_interceptors=dramatic_accusation_setup
 )
 
 ELIMINATE_THE_IMPOSSIBLE = make_instant(
@@ -4704,6 +5927,7 @@ EXIT_SPECIALIST = make_creature(
     colors={Color.BLUE},
     subtypes={"Detective", "Human"},
     text="This creature can't be blocked by creatures with power 3 or greater.\nDisguise {1}{U} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, return another target creature to its owner's hand.",
+    setup_interceptors=exit_specialist_setup
 )
 
 FAE_FLIGHT = make_enchantment(
@@ -4712,6 +5936,7 @@ FAE_FLIGHT = make_enchantment(
     colors={Color.BLUE},
     text="Flash\nEnchant creature\nWhen this Aura enters, enchanted creature gains hexproof until end of turn.\nEnchanted creature gets +1/+0 and has flying.",
     subtypes={"Aura"},
+    setup_interceptors=fae_flight_setup
 )
 
 FORENSIC_GADGETEER = make_creature(
@@ -4731,6 +5956,7 @@ FORENSIC_RESEARCHER = make_creature(
     colors={Color.BLUE},
     subtypes={"Detective", "Merfolk"},
     text="{T}: Untap another target permanent you control.\n{T}, Collect evidence 3: Tap target creature you don't control. (To collect evidence 3, exile cards with total mana value 3 or greater from your graveyard.)",
+    setup_interceptors=forensic_researcher_setup
 )
 
 FURTIVE_COURIER = make_creature(
@@ -4777,6 +6003,7 @@ LIVING_CONUNDRUM = make_creature(
     colors={Color.BLUE},
     subtypes={"Elemental"},
     text="Hexproof\nIf you would draw a card while your library has no cards in it, skip that draw instead.\nAs long as there are no cards in your library, this creature has base power and toughness 10/10 and has flying and vigilance.",
+    setup_interceptors=living_conundrum_setup
 )
 
 LOST_IN_THE_MAZE = make_enchantment(
@@ -4784,6 +6011,7 @@ LOST_IN_THE_MAZE = make_enchantment(
     mana_cost="{X}{U}{U}",
     colors={Color.BLUE},
     text="Flash\nWhen this enchantment enters, tap X target creatures. Put a stun counter on each of those creatures you don't control. (If a permanent with a stun counter would become untapped, remove one from it instead.)\nTapped creatures you control have hexproof.",
+    setup_interceptors=lost_in_the_maze_setup
 )
 
 MISTWAY_SPY = make_creature(
@@ -4793,6 +6021,7 @@ MISTWAY_SPY = make_creature(
     colors={Color.BLUE},
     subtypes={"Detective", "Merfolk"},
     text="Flying\nDisguise {1}{U} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, until end of turn, whenever a creature you control deals combat damage to a player, investigate.",
+    setup_interceptors=mistway_spy_setup
 )
 
 OUT_COLD = make_instant(
@@ -4809,6 +6038,7 @@ PROFTS_EIDETIC_MEMORY = make_enchantment(
     colors={Color.BLUE},
     text="When Proft's Eidetic Memory enters, draw a card.\nYou have no maximum hand size.\nAt the beginning of combat on your turn, if you've drawn more than one card this turn, put X +1/+1 counters on target creature you control, where X is the number of cards you've drawn this turn minus one.",
     supertypes={"Legendary"},
+    setup_interceptors=profts_eidetic_memory_setup
 )
 
 PROJEKTOR_INSPECTOR = make_creature(
@@ -4877,6 +6107,7 @@ AGENCY_CORONER = make_creature(
     colors={Color.BLACK},
     subtypes={"Cleric", "Ogre"},
     text="{2}{B}, Sacrifice another creature: Draw a card. If the sacrificed creature was suspected, draw two cards instead.",
+    setup_interceptors=agency_coroner_setup
 )
 
 ALLEY_ASSAILANT = make_creature(
@@ -4915,6 +6146,7 @@ CASE_OF_THE_GORGONS_KISS = make_enchantment(
     colors={Color.BLACK},
     text="When this Case enters, destroy up to one target creature that was dealt damage this turn.\nTo solve — Three or more creature cards were put into graveyards from anywhere this turn. (If unsolved, solve at the beginning of your end step.)\nSolved — This Case is a 4/4 Gorgon creature with deathtouch and lifelink in addition to its other types.",
     subtypes={"Case"},
+    setup_interceptors=case_of_the_gorgons_kiss_setup
 )
 
 CASE_OF_THE_STASHED_SKELETON = make_enchantment(
@@ -4992,6 +6224,7 @@ ILLICIT_MASQUERADE = make_enchantment(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     text="Flash\nWhen this enchantment enters, put an impostor counter on each creature you control.\nWhenever a creature you control with an impostor counter on it dies, exile it. Return up to one other target creature card from your graveyard to the battlefield.",
+    setup_interceptors=illicit_masquerade_setup
 )
 
 IT_DOESNT_ADD_UP = make_instant(
@@ -5006,6 +6239,7 @@ LEAD_PIPE = make_artifact(
     mana_cost="{B}",
     text="Equipped creature gets +2/+0.\nWhenever equipped creature dies, each opponent loses 1 life.\n{2}, Sacrifice this Equipment: Draw a card.\nEquip {2}",
     subtypes={"Clue", "Equipment"},
+    setup_interceptors=lead_pipe_setup
 )
 
 LEERING_ONLOOKER = make_creature(
@@ -5015,6 +6249,7 @@ LEERING_ONLOOKER = make_creature(
     colors={Color.BLACK},
     subtypes={"Vampire"},
     text="Flying\n{2}{B}{B}, Exile this card from your graveyard: Create two tapped 1/1 black Bat creature tokens with flying.",
+    setup_interceptors=leering_onlooker_setup
 )
 
 LONG_GOODBYE = make_instant(
@@ -5082,6 +6317,7 @@ POLYGRAPH_ORB = make_artifact(
     name="Polygraph Orb",
     mana_cost="{4}{B}",
     text="When this artifact enters, look at the top four cards of your library. Put two of them into your hand and the rest into your graveyard. You lose 2 life.\n{2}, {T}, Collect evidence 3: Each opponent loses 3 life unless they discard a card or sacrifice a creature. (To collect evidence 3, exile cards with total mana value 3 or greater from your graveyard.)",
+    setup_interceptors=polygraph_orb_setup
 )
 
 PRESUMED_DEAD = make_instant(
@@ -5099,6 +6335,7 @@ REPEAT_OFFENDER = make_creature(
     colors={Color.BLACK},
     subtypes={"Assassin", "Human"},
     text="{2}{B}: If this creature is suspected, put a +1/+1 counter on it. Otherwise, suspect it. (A suspected creature has menace and can't block.)",
+    setup_interceptors=repeat_offender_setup
 )
 
 ROT_FARM_MORTIPEDE = make_creature(
@@ -5126,6 +6363,7 @@ SLIMY_DUALLEECH = make_creature(
     colors={Color.BLACK},
     subtypes={"Leech"},
     text="At the beginning of combat on your turn, target creature you control with power 2 or less gets +1/+0 and gains deathtouch until end of turn.",
+    setup_interceptors=slimy_dualleech_setup
 )
 
 SNARLING_GOREHOUND = make_creature(
@@ -5215,6 +6453,7 @@ CASE_OF_THE_CRIMSON_PULSE = make_enchantment(
     colors={Color.RED},
     text="When this Case enters, discard a card, then draw two cards.\nTo solve — You have no cards in hand. (If unsolved, solve at the beginning of your end step.)\nSolved — At the beginning of your upkeep, discard your hand, then draw two cards.",
     subtypes={"Case"},
+    setup_interceptors=case_of_the_crimson_pulse_setup
 )
 
 CAUGHT_REDHANDED = make_instant(
@@ -5238,6 +6477,7 @@ CONCEALED_WEAPON = make_artifact(
     mana_cost="{1}{R}",
     text="Equipped creature gets +3/+0.\nDisguise {2}{R} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this Equipment is turned face up, attach it to target creature you control.\nEquip {1}{R}",
     subtypes={"Equipment"},
+    setup_interceptors=concealed_weapon_setup
 )
 
 CONNECTING_THE_DOTS = make_enchantment(
@@ -5245,6 +6485,7 @@ CONNECTING_THE_DOTS = make_enchantment(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Whenever a creature you control attacks, exile the top card of your library face down. (You can't look at it.)\n{1}{R}, Discard your hand, Sacrifice this enchantment: Put all cards exiled with this enchantment into their owners' hands.",
+    setup_interceptors=connecting_the_dots_setup
 )
 
 CONVENIENT_TARGET = make_enchantment(
@@ -5253,6 +6494,7 @@ CONVENIENT_TARGET = make_enchantment(
     colors={Color.RED},
     text="Enchant creature\nWhen this Aura enters, suspect enchanted creature. (It has menace and can't block.)\nEnchanted creature gets +1/+1.\n{2}{R}: Return this card from your graveyard to your hand.",
     subtypes={"Aura"},
+    setup_interceptors=convenient_target_setup
 )
 
 CORNERED_CROOK = make_creature(
@@ -5287,6 +6529,7 @@ EXPEDITED_INHERITANCE = make_enchantment(
     mana_cost="{R}{R}",
     colors={Color.RED},
     text="Whenever a creature is dealt damage, its controller may exile that many cards from the top of their library. They may play those cards until the end of their next turn.",
+    setup_interceptors=expedited_inheritance_setup
 )
 
 EXPOSE_THE_CULPRIT = make_instant(
@@ -5320,6 +6563,7 @@ FUGITIVE_CODEBREAKER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Rogue"},
     text="Prowess, haste\nDisguise {5}{R}. This cost is reduced by {1} for each instant and sorcery card in your graveyard. (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, discard your hand, then draw three cards.",
+    setup_interceptors=fugitive_codebreaker_setup
 )
 
 GALVANIZE = make_instant(
@@ -5346,6 +6590,7 @@ GOBLIN_MASKMAKER = make_creature(
     colors={Color.RED},
     subtypes={"Citizen", "Goblin"},
     text="Whenever this creature attacks, face-down spells you cast this turn cost {1} less to cast.",
+    setup_interceptors=goblin_maskmaker_setup
 )
 
 HARRIED_DRONESMITH = make_creature(
@@ -5365,6 +6610,7 @@ INCINERATOR_OF_THE_GUILTY = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     text="Flying, trample\nWhenever this creature deals combat damage to a player, you may collect evidence X. When you do, this creature deals X damage to each creature and planeswalker that player controls. (To collect evidence X, exile cards with total mana value X or greater from your graveyard.)",
+    setup_interceptors=incinerator_of_the_guilty_setup
 )
 
 INNOCENT_BYSTANDER = make_creature(
@@ -5382,6 +6628,7 @@ KNIFE = make_artifact(
     mana_cost="{R}",
     text="During your turn, equipped creature gets +1/+0 and has first strike.\n{2}, Sacrifice this Equipment: Draw a card.\nEquip {2}",
     subtypes={"Clue", "Equipment"},
+    setup_interceptors=knife_setup
 )
 
 KRENKO_BARON_OF_TIN_STREET = make_creature(
@@ -5422,6 +6669,7 @@ OFFENDER_AT_LARGE = make_creature(
     colors={Color.RED},
     subtypes={"Giant", "Rogue"},
     text="Disguise {4}{R} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature enters or is turned face up, up to one target creature gets +2/+0 until end of turn.",
+    setup_interceptors=offender_at_large_setup
 )
 
 PERSON_OF_INTEREST = make_creature(
@@ -5451,6 +6699,7 @@ RECKLESS_DETECTIVE = make_creature(
     colors={Color.RED},
     subtypes={"Detective", "Devil"},
     text="Whenever this creature attacks, you may sacrifice an artifact or discard a card. If you do, draw a card and this creature gets +2/+0 until end of turn.",
+    setup_interceptors=reckless_detective_setup
 )
 
 RED_HERRING = make_artifact_creature(
@@ -5460,6 +6709,7 @@ RED_HERRING = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Clue", "Fish"},
     text="Haste\nThis creature attacks each combat if able.\n{2}, Sacrifice this creature: Draw a card.",
+    setup_interceptors=red_herring_setup
 )
 
 RUBBLEBELT_BRAGGART = make_creature(
@@ -5469,6 +6719,7 @@ RUBBLEBELT_BRAGGART = make_creature(
     colors={Color.RED},
     subtypes={"Lizard", "Warrior"},
     text="Whenever this creature attacks, if it's not suspected, you may suspect it. (A suspected creature has menace and can't block.)",
+    setup_interceptors=rubblebelt_braggart_setup
 )
 
 SHOCK = make_instant(
@@ -5521,6 +6772,7 @@ AIRTIGHT_ALIBI = make_enchantment(
     colors={Color.GREEN},
     text="Flash\nEnchant creature\nWhen this Aura enters, untap enchanted creature. It gains hexproof until end of turn. If it's suspected, it's no longer suspected.\nEnchanted creature gets +2/+2 and can't become suspected.",
     subtypes={"Aura"},
+    setup_interceptors=airtight_alibi_setup
 )
 
 ANALYZE_THE_POLLEN = make_sorcery(
@@ -5551,6 +6803,7 @@ AXEBANE_FEROX = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast"},
     text="Deathtouch, haste\nWard—Collect evidence 4. (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player exiles cards with total mana value 4 or greater from their graveyard.)",
+    setup_interceptors=axebane_ferox_setup
 )
 
 BITE_DOWN_ON_CRIME = make_sorcery(
@@ -5566,6 +6819,7 @@ CASE_OF_THE_LOCKED_HOTHOUSE = make_enchantment(
     colors={Color.GREEN},
     text="You may play an additional land on each of your turns.\nTo solve — You control seven or more lands. (If unsolved, solve at the beginning of your end step.)\nSolved — You may look at the top card of your library any time, and you may play lands and cast creature and enchantment spells from the top of your library.",
     subtypes={"Case"},
+    setup_interceptors=case_of_the_locked_hothouse_setup
 )
 
 CASE_OF_THE_TRAMPLED_GARDEN = make_enchantment(
@@ -5574,6 +6828,7 @@ CASE_OF_THE_TRAMPLED_GARDEN = make_enchantment(
     colors={Color.GREEN},
     text="When this Case enters, distribute two +1/+1 counters among one or two target creatures you control.\nTo solve — Creatures you control have total power 8 or greater. (If unsolved, solve at the beginning of your end step.)\nSolved — Whenever you attack, put a +1/+1 counter on target attacking creature. It gains trample until end of turn.",
     subtypes={"Case"},
+    setup_interceptors=case_of_the_trampled_garden_setup
 )
 
 CHALK_OUTLINE = make_enchantment(
@@ -5591,6 +6846,7 @@ CULVERT_AMBUSHER = make_creature(
     colors={Color.GREEN},
     subtypes={"Horror", "Wurm"},
     text="When this creature enters or is turned face up, target creature blocks this turn if able.\nDisguise {4}{G} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)",
+    setup_interceptors=culvert_ambusher_setup
 )
 
 FANATICAL_STRENGTH = make_instant(
@@ -5608,6 +6864,7 @@ FLOURISHING_BLOOMKIN = make_creature(
     colors={Color.GREEN},
     subtypes={"Elemental", "Plant"},
     text="This creature gets +1/+1 for each Forest you control.\nDisguise {4}{G}\nWhen this creature is turned face up, search your library for up to two Forest cards and reveal them. Put one of them onto the battlefield tapped and the other into your hand, then shuffle.",
+    setup_interceptors=flourishing_bloomkin_setup
 )
 
 GET_A_LEG_UP = make_instant(
@@ -5634,6 +6891,7 @@ GREENBELT_RADICAL = make_creature(
     colors={Color.GREEN},
     subtypes={"Centaur", "Citizen"},
     text="Disguise {5}{G}{G} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, put a +1/+1 counter on each creature you control. Creatures you control gain trample until end of turn.",
+    setup_interceptors=greenbelt_radical_setup
 )
 
 HARDHITTING_QUESTION = make_sorcery(
@@ -5650,6 +6908,7 @@ HEDGE_WHISPERER = make_creature(
     colors={Color.GREEN},
     subtypes={"Detective", "Druid", "Elf"},
     text="You may choose not to untap this creature during your untap step.\n{3}{G}, {T}, Collect evidence 4: Target land you control becomes a 5/5 green Plant Boar creature with haste for as long as this creature remains tapped. It's still a land. Activate only as a sorcery. (To collect evidence 4, exile cards with total mana value 4 or greater from your graveyard.)",
+    setup_interceptors=hedge_whisperer_setup
 )
 
 HIDE_IN_PLAIN_SIGHT = make_sorcery(
@@ -5664,6 +6923,7 @@ A_KILLER_AMONG_US = make_enchantment(
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     text="When this enchantment enters, create a 1/1 white Human creature token, a 1/1 blue Merfolk creature token, and a 1/1 red Goblin creature token. Then secretly choose Human, Merfolk, or Goblin.\nSacrifice this enchantment, Reveal the creature type you chose: If target attacking creature token is the chosen type, put three +1/+1 counters on it and it gains deathtouch until end of turn.",
+    setup_interceptors=a_killer_among_us_setup
 )
 
 LOXODON_EAVESDROPPER = make_creature(
@@ -5683,6 +6943,7 @@ NERVOUS_GARDENER = make_creature(
     colors={Color.GREEN},
     subtypes={"Dryad"},
     text="Disguise {G} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, search your library for a land card with a basic land type, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=nervous_gardener_setup
 )
 
 
@@ -5829,6 +7090,7 @@ POMPOUS_GADABOUT = make_creature(
     colors={Color.GREEN},
     subtypes={"Citizen", "Human"},
     text="During your turn, this creature has hexproof.\nThis creature can't be blocked by creatures that don't have a name.",
+    setup_interceptors=pompous_gadabout_setup
 )
 
 THE_PRIDE_OF_HULL_CLADE = make_creature(
@@ -5839,6 +7101,7 @@ THE_PRIDE_OF_HULL_CLADE = make_creature(
     subtypes={"Crocodile", "Elk", "Turtle"},
     supertypes={"Legendary"},
     text="This spell costs {X} less to cast, where X is the total toughness of creatures you control.\nDefender\n{2}{U}{U}: Until end of turn, target creature you control gets +1/+0, gains \"Whenever this creature deals combat damage to a player, draw cards equal to its toughness,\" and can attack as though it didn't have defender.",
+    setup_interceptors=the_pride_of_hull_clade_setup
 )
 
 ROPE = make_artifact(
@@ -5846,6 +7109,7 @@ ROPE = make_artifact(
     mana_cost="{G}",
     text="Equipped creature gets +1/+2, has reach, and can't be blocked by more than one creature.\n{2}, Sacrifice this Equipment: Draw a card.\nEquip {3}",
     subtypes={"Clue", "Equipment"},
+    setup_interceptors=rope_setup
 )
 
 RUBBLEBELT_MAVERICK = make_creature(
@@ -5865,6 +7129,7 @@ SAMPLE_COLLECTOR = make_creature(
     colors={Color.GREEN},
     subtypes={"Detective", "Troll"},
     text="Whenever this creature attacks, you may collect evidence 3. When you do, put a +1/+1 counter on target creature you control. (To collect evidence 3, exile cards with total mana value 3 or greater from your graveyard.)",
+    setup_interceptors=sample_collector_setup
 )
 
 SHARPEYED_ROOKIE = make_creature(
@@ -5898,6 +7163,7 @@ TOPIARY_PANTHER = make_creature(
     colors={Color.GREEN},
     subtypes={"Cat", "Plant"},
     text="Trample\nBasic landcycling {1}{G} ({1}{G}, Discard this card: Search your library for a basic land card, reveal it, put it into your hand, then shuffle.)",
+    setup_interceptors=topiary_panther_setup
 )
 
 TUNNEL_TIPSTER = make_creature(
@@ -5915,6 +7181,7 @@ UNDERGROWTH_RECON = make_enchantment(
     mana_cost="{1}{G}{G}",
     colors={Color.GREEN},
     text="At the beginning of your upkeep, return target land card from your graveyard to the battlefield tapped.",
+    setup_interceptors=undergrowth_recon_setup
 )
 
 VENGEFUL_CREEPER = make_creature(
@@ -5924,6 +7191,7 @@ VENGEFUL_CREEPER = make_creature(
     colors={Color.GREEN},
     subtypes={"Elemental", "Plant"},
     text="Disguise {5}{G} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, destroy target artifact or enchantment an opponent controls.",
+    setup_interceptors=vengeful_creeper_setup
 )
 
 VITUGHAZI_INSPECTOR = make_creature(
@@ -5933,6 +7201,7 @@ VITUGHAZI_INSPECTOR = make_creature(
     colors={Color.GREEN},
     subtypes={"Detective", "Elf"},
     text="As an additional cost to cast this spell, you may collect evidence 6. (Exile cards with total mana value 6 or greater from your graveyard.)\nReach\nWhen this creature enters, if evidence was collected, put a +1/+1 counter on target creature and you gain 2 life.",
+    setup_interceptors=vituughazi_inspector_setup
 )
 
 AGRUS_KOS_SPIRIT_OF_JUSTICE = make_creature(
@@ -5965,6 +7234,7 @@ ANZRAG_THE_QUAKEMOLE = make_creature(
     subtypes={"God", "Mole"},
     supertypes={"Legendary"},
     text="Whenever Anzrag becomes blocked, untap each creature you control. After this phase, there is an additional combat phase.\n{3}{R}{R}{G}{G}: Anzrag must be blocked each combat this turn if able.",
+    setup_interceptors=anzrag_the_quakemole_setup
 )
 
 ASSASSINS_TROPHY = make_instant(
@@ -5983,6 +7253,7 @@ AURELIA_THE_LAW_ABOVE = make_creature(
     subtypes={"Angel"},
     supertypes={"Legendary"},
     text="Flying, vigilance, haste\nWhenever a player attacks with three or more creatures, you draw a card.\nWhenever a player attacks with five or more creatures, Aurelia deals 3 damage to each of your opponents and you gain 3 life.",
+    setup_interceptors=aurelia_the_law_above_setup
 )
 
 BLOOD_SPATTER_ANALYSIS = make_enchantment(
@@ -6006,6 +7277,7 @@ BURIED_IN_THE_GARDEN = make_enchantment(
     colors={Color.GREEN, Color.WHITE},
     text="Enchant land\nWhen this Aura enters, exile target nonland permanent you don't control until this Aura leaves the battlefield.\nWhenever enchanted land is tapped for mana, its controller adds an additional one mana of any color.",
     subtypes={"Aura"},
+    setup_interceptors=buried_in_the_garden_setup
 )
 
 COERCED_TO_KILL = make_enchantment(
@@ -6014,6 +7286,7 @@ COERCED_TO_KILL = make_enchantment(
     colors={Color.BLACK, Color.BLUE},
     text="Enchant creature\nYou control enchanted creature.\nEnchanted creature has base power and toughness 1/1, has deathtouch, and is an Assassin in addition to its other types.",
     subtypes={"Aura"},
+    setup_interceptors=coerced_to_kill_setup
 )
 
 CROWDCONTROL_WARDEN = make_creature(
@@ -6023,6 +7296,7 @@ CROWDCONTROL_WARDEN = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Centaur", "Soldier"},
     text="As this creature enters or is turned face up, put X +1/+1 counters on it, where X is the number of other creatures you control.\nDisguise {3}{G/W}{G/W} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)",
+    setup_interceptors=crowdcontrol_warden_setup
 )
 
 CURIOUS_CADAVER = make_creature(
@@ -6032,6 +7306,7 @@ CURIOUS_CADAVER = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Detective", "Zombie"},
     text="Flying\nWhen you sacrifice a Clue, return this card from your graveyard to your hand.",
+    setup_interceptors=curious_cadaver_setup
 )
 
 DEADLY_COMPLICATION = make_sorcery(
@@ -6081,6 +7356,7 @@ ETRATA_DEADLY_FUGITIVE = make_creature(
     subtypes={"Assassin", "Vampire"},
     supertypes={"Legendary"},
     text="Deathtouch\nFace-down creatures you control have \"{2}{U}{B}: Turn this creature face up. If you can't, exile it, then you may cast the exiled card without paying its mana cost.\"\nWhenever an Assassin you control deals combat damage to an opponent, cloak the top card of that player's library.",
+    setup_interceptors=etrata_deadly_fugitive_setup
 )
 
 EVIDENCE_EXAMINER = make_creature(
@@ -6111,6 +7387,7 @@ FAERIE_SNOOP = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Detective", "Faerie"},
     text="Flying\nDisguise {1}{U/B}{U/B} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, look at the top two cards of your library. Put one into your hand and the other into your graveyard.",
+    setup_interceptors=faerie_snoop_setup
 )
 
 GADGET_TECHNICIAN = make_creature(
@@ -6140,6 +7417,7 @@ GRANITE_WITNESS = make_artifact_creature(
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Detective", "Gargoyle"},
     text="Flying, vigilance\nDisguise {W/U}{W/U} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, you may tap or untap target creature.",
+    setup_interceptors=granite_witness_setup
 )
 
 ILLTIMED_EXPLOSION = make_sorcery(
@@ -6187,6 +7465,7 @@ KAYA_SPIRITS_JUSTICE = make_planeswalker(
     subtypes={"Kaya"},
     supertypes={"Legendary"},
     text="Whenever one or more creatures you control and/or creature cards in your graveyard are put into exile, you may choose a creature card from among them. Until end of turn, target token you control becomes a copy of it, except it has flying.\n+2: Surveil 2, then exile a card from a graveyard.\n+1: Create a 1/1 white and black Spirit creature token with flying.\n−2: Exile target creature you control. For each other player, exile up to one target creature that player controls.",
+    setup_interceptors=kaya_spirits_justice_setup
 )
 
 KELLAN_INQUISITIVE_PRODIGY = make_creature(
@@ -6217,6 +7496,7 @@ KYLOX_VISIONARY_INVENTOR = make_creature(
     subtypes={"Artificer", "Lizard"},
     supertypes={"Legendary"},
     text="Menace, ward {2}, haste\nWhenever Kylox attacks, sacrifice any number of other creatures, then exile the top X cards of your library, where X is their total power. You may cast any number of instant and/or sorcery spells from among the exiled cards without paying their mana costs.",
+    setup_interceptors=kylox_visionary_inventor_setup
 )
 
 KYLOXS_VOLTSTRIDER = make_artifact(
@@ -6224,6 +7504,7 @@ KYLOXS_VOLTSTRIDER = make_artifact(
     mana_cost="{1}{U}{R}",
     text="Collect evidence 6: This Vehicle becomes an artifact creature until end of turn.\nWhenever this Vehicle attacks, you may cast an instant or sorcery spell from among cards exiled with it. If that spell would be put into a graveyard, put it on the bottom of its owner's library instead.\nCrew 2",
     subtypes={"Vehicle"},
+    setup_interceptors=kyloxs_voltstrider_setup
 )
 
 LAZAV_WEARER_OF_FACES = make_creature(
@@ -6242,6 +7523,7 @@ LEYLINE_OF_THE_GUILDPACT = make_enchantment(
     mana_cost="{G/W}{G/U}{B/G}{R/G}",
     colors={Color.BLACK, Color.GREEN, Color.RED, Color.BLUE, Color.WHITE},
     text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nEach nonland permanent you control is all colors.\nLands you control are every basic land type in addition to their other types.",
+    setup_interceptors=leyline_of_the_guildpact_setup
 )
 
 LIGHTNING_HELIX = make_instant(
@@ -6316,6 +7598,7 @@ RAKISH_SCOUNDREL = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Elf", "Rogue"},
     text="Deathtouch\nWhen this creature enters or is turned face up, target creature gains indestructible until end of turn.\nDisguise {4}{B/G}{B/G} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)",
+    setup_interceptors=rakish_scoundrel_setup
 )
 
 RELIVE_THE_PAST = make_sorcery(
@@ -6348,6 +7631,7 @@ RUNEBRAND_JUGGLER = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Shaman"},
     text="When this creature enters, suspect up to one target creature you control. (A suspected creature has menace and can't block.)\n{3}{B}{R}, Sacrifice a suspected creature: Target creature gets -5/-5 until end of turn.",
+    setup_interceptors=runebrand_juggler_setup
 )
 
 SANGUINE_SAVIOR = make_creature(
@@ -6357,6 +7641,7 @@ SANGUINE_SAVIOR = make_creature(
     colors={Color.BLACK, Color.WHITE},
     subtypes={"Cleric", "Vampire"},
     text="Flying, lifelink\nDisguise {W/B}{W/B} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this creature is turned face up, another target creature you control gains lifelink until end of turn.",
+    setup_interceptors=sanguine_savior_setup
 )
 
 SHADY_INFORMANT = make_creature(
@@ -6405,6 +7690,7 @@ TIN_STREET_GOSSIP = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Advisor", "Lizard"},
     text="Vigilance\n{T}: Add {R}{G}. Spend this mana only to cast face-down spells or to turn creatures face up.",
+    setup_interceptors=tin_street_gossip_setup
 )
 
 TOLSIMIR_MIDNIGHTS_LIGHT = make_creature(
@@ -6433,6 +7719,7 @@ TROSTANI_THREE_WHISPERS = make_creature(
     subtypes={"Dryad"},
     supertypes={"Legendary"},
     text="{1}{G}: Target creature gains deathtouch until end of turn.\n{G/W}: Target creature gains vigilance until end of turn.\n{2}{W}: Target creature gains double strike until end of turn.",
+    setup_interceptors=trostani_three_whispers_setup
 )
 
 UNDERCOVER_CROCODELF = make_creature(
@@ -6460,6 +7747,7 @@ VANNIFAR_EVOLVED_ENIGMA = make_creature(
     subtypes={"Elf", "Ooze", "Wizard"},
     supertypes={"Legendary"},
     text="At the beginning of combat on your turn, choose one —\n• Cloak a card from your hand. (Put it onto the battlefield face down as a 2/2 creature with ward {2}. Turn it face up any time for its mana cost if it's a creature card.)\n• Put a +1/+1 counter on each colorless creature you control.",
+    setup_interceptors=vannifar_evolved_enigma_setup
 )
 
 WARLEADERS_CALL = make_enchantment(
@@ -6537,6 +7825,7 @@ CRYPTEX = make_artifact(
     name="Cryptex",
     mana_cost="{2}",
     text="{T}, Collect evidence 3: Add one mana of any color. Put an unlock counter on this artifact. (To collect evidence 3, exile cards with total mana value 3 or greater from your graveyard.)\nSacrifice this artifact: Surveil 3, then draw three cards. Activate only if this artifact has five or more unlock counters on it.",
+    setup_interceptors=cryptex_setup
 )
 
 GRAVESTONE_STRIDER = make_artifact_creature(
@@ -6546,6 +7835,7 @@ GRAVESTONE_STRIDER = make_artifact_creature(
     colors=set(),
     subtypes={"Golem"},
     text="{1}: Add one mana of any color. Activate only once each turn.\n{2}, Exile this card from your graveyard: Exile target card from a graveyard.",
+    setup_interceptors=gravestone_strider_setup
 )
 
 LUMBERING_LAUNDRY = make_artifact_creature(
@@ -6555,6 +7845,7 @@ LUMBERING_LAUNDRY = make_artifact_creature(
     colors=set(),
     subtypes={"Golem"},
     text="{2}: Until end of turn, you may look at face-down creatures you don't control any time.\nDisguise {5} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)",
+    setup_interceptors=lumbering_laundry_setup
 )
 
 MAGNETIC_SNUFFLER = make_artifact_creature(
@@ -6571,6 +7862,7 @@ MAGNIFYING_GLASS = make_artifact(
     name="Magnifying Glass",
     mana_cost="{3}",
     text="{T}: Add {C}.\n{4}, {T}: Investigate. (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
+    setup_interceptors=magnifying_glass_setup
 )
 
 SANITATION_AUTOMATON = make_artifact_creature(
@@ -6588,57 +7880,67 @@ THINKING_CAP = make_artifact(
     mana_cost="{1}",
     text="Equipped creature gets +1/+2.\nEquip Detective {1}\nEquip {3} ({3}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=thinking_cap_setup
 )
 
 BRANCH_OF_VITUGHAZI = make_land(
     name="Branch of Vitu-Ghazi",
     text="{T}: Add {C}.\nDisguise {3} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)\nWhen this land is turned face up, add two mana of any one color. Until end of turn, you don't lose this mana as steps and phases end.",
+    setup_interceptors=branch_of_vituughazi_setup
 )
 
 COMMERCIAL_DISTRICT = make_land(
     name="Commercial District",
     text="({T}: Add {R} or {G}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
     subtypes={"Forest", "Mountain"},
+    setup_interceptors=commercial_district_setup
 )
 
 ELEGANT_PARLOR = make_land(
     name="Elegant Parlor",
     text="({T}: Add {R} or {W}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
     subtypes={"Mountain", "Plains"},
+    setup_interceptors=elegant_parlor_setup
 )
 
 ESCAPE_TUNNEL = make_land(
     name="Escape Tunnel",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\n{T}, Sacrifice this land: Target creature with power 2 or less can't be blocked this turn.",
+    setup_interceptors=escape_tunnel_setup
 )
 
 HEDGE_MAZE = make_land(
     name="Hedge Maze",
     text="({T}: Add {G} or {U}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
     subtypes={"Forest", "Island"},
+    setup_interceptors=hedge_maze_setup
 )
 
 LUSH_PORTICO = make_land(
     name="Lush Portico",
     text="({T}: Add {G} or {W}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
     subtypes={"Forest", "Plains"},
+    setup_interceptors=lush_portico_setup
 )
 
 METICULOUS_ARCHIVE = make_land(
     name="Meticulous Archive",
     text="({T}: Add {W} or {U}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
     subtypes={"Island", "Plains"},
+    setup_interceptors=meticulous_archive_setup
 )
 
 PUBLIC_THOROUGHFARE = make_land(
     name="Public Thoroughfare",
     text="This land enters tapped.\nWhen this land enters, sacrifice it unless you tap an untapped artifact or land you control.\n{T}: Add one mana of any color.",
+    setup_interceptors=public_thoroughfare_setup
 )
 
 RAUCOUS_THEATER = make_land(
     name="Raucous Theater",
     text="({T}: Add {B} or {R}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
     subtypes={"Mountain", "Swamp"},
+    setup_interceptors=raucous_theater_setup
 )
 
 SCENE_OF_THE_CRIME = make_artifact(
@@ -6646,30 +7948,35 @@ SCENE_OF_THE_CRIME = make_artifact(
     mana_cost="",
     text="This land enters tapped.\n{T}: Add {C}.\n{T}, Tap an untapped creature you control: Add one mana of any color.\n{2}, Sacrifice this land: Draw a card.",
     subtypes={"Clue"},
+    setup_interceptors=scene_of_the_crime_setup
 )
 
 SHADOWY_BACKSTREET = make_land(
     name="Shadowy Backstreet",
     text="({T}: Add {W} or {B}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
     subtypes={"Plains", "Swamp"},
+    setup_interceptors=shadowy_backstreet_setup
 )
 
 THUNDERING_FALLS = make_land(
     name="Thundering Falls",
     text="({T}: Add {U} or {R}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
     subtypes={"Island", "Mountain"},
+    setup_interceptors=thundering_falls_setup
 )
 
 UNDERCITY_SEWERS = make_land(
     name="Undercity Sewers",
     text="({T}: Add {U} or {B}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
     subtypes={"Island", "Swamp"},
+    setup_interceptors=undercity_sewers_setup
 )
 
 UNDERGROUND_MORTUARY = make_land(
     name="Underground Mortuary",
     text="({T}: Add {B} or {G}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
     subtypes={"Forest", "Swamp"},
+    setup_interceptors=underground_mortuary_setup
 )
 
 PLAINS = make_land(

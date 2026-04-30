@@ -1,0 +1,780 @@
+{
+  "set": "outlaws_thunder_junction.py",
+  "results": [
+    {
+      "fn": "emergent_haunting_setup",
+      "card_var": "EMERGENT_HAUNTING",
+      "disposition": "skipped",
+      "engine_gap": "enchantment-becomes-creature transformation not modeled",
+      "notes": "Emergent Haunting"
+    },
+    {
+      "fn": "fblthp_lost_on_the_range_setup",
+      "card_var": "FBLTHP_LOST_ON_THE_RANGE",
+      "disposition": "skipped",
+      "engine_gap": "top-of-library plot/play permissions not engine-tracked",
+      "notes": "Fblthp, Lost on the Range"
+    },
+    {
+      "fn": "geyser_drake_setup",
+      "card_var": "GEYSER_DRAKE",
+      "disposition": "skipped",
+      "engine_gap": "turn-conditional cost reduction not engine-tracked",
+      "notes": "Geyser Drake"
+    },
+    {
+      "fn": "the_key_to_the_vault_setup",
+      "card_var": "THE_KEY_TO_THE_VAULT",
+      "disposition": "skipped",
+      "engine_gap": "equipment damage triggers + free-cast not engine-tracked",
+      "notes": "The Key to the Vault"
+    },
+    {
+      "fn": "marauding_sphinx_setup",
+      "card_var": "MARAUDING_SPHINX",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking not implemented",
+      "notes": "Marauding Sphinx"
+    },
+    {
+      "fn": "shackle_slinger_setup",
+      "card_var": "SHACKLE_SLINGER",
+      "disposition": "wired_stub",
+      "engine_gap": "second-spell-per-turn detection + targeting + stun counters",
+      "notes": "Shackle Slinger"
+    },
+    {
+      "fn": "slickshot_lockpicker_setup",
+      "card_var": "SLICKSHOT_LOCKPICKER",
+      "disposition": "wired_stub",
+      "engine_gap": "flashback grant to a graveyard card not engine-tracked",
+      "notes": "Slickshot Lockpicker"
+    },
+    {
+      "fn": "slickshot_vaultbuster_setup",
+      "card_var": "SLICKSHOT_VAULTBUSTER",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking not implemented",
+      "notes": "Slickshot Vault-Buster"
+    },
+    {
+      "fn": "stoic_sphinx_setup",
+      "card_var": "STOIC_SPHINX",
+      "disposition": "skipped",
+      "engine_gap": "conditional hexproof from spell-cast tracking not implemented",
+      "notes": "Stoic Sphinx"
+    },
+    {
+      "fn": "stop_cold_setup",
+      "card_var": "STOP_COLD",
+      "disposition": "wired_stub",
+      "engine_gap": "aura/enchanted-target manipulation not modeled",
+      "notes": "Stop Cold"
+    },
+    {
+      "fn": "visage_bandit_setup",
+      "card_var": "VISAGE_BANDIT",
+      "disposition": "wired_stub",
+      "engine_gap": "enter-as-a-copy choice not modeled",
+      "notes": "Visage Bandit"
+    },
+    {
+      "fn": "blood_hustler_setup",
+      "card_var": "BLOOD_HUSTLER",
+      "disposition": "skipped",
+      "engine_gap": "",
+      "notes": "Blood Hustler"
+    },
+    {
+      "fn": "boneyard_desecrator_setup",
+      "card_var": "BONEYARD_DESECRATOR",
+      "disposition": "skipped",
+      "engine_gap": "activated-with-sacrifice abilities not engine-tracked here",
+      "notes": "Boneyard Desecrator"
+    },
+    {
+      "fn": "forsaken_miner_setup",
+      "card_var": "FORSAKEN_MINER",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking + GY-to-BF optional return not engine-tracked",
+      "notes": "Forsaken Miner"
+    },
+    {
+      "fn": "kaervek_the_punisher_setup",
+      "card_var": "KAERVEK_THE_PUNISHER",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking + graveyard-copy-cast flow not engine-tracked",
+      "notes": "Kaervek, the Punisher"
+    },
+    {
+      "fn": "overzealous_muscle_setup",
+      "card_var": "OVERZEALOUS_MUSCLE",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking + temporary indestructible not engine-tracked",
+      "notes": "Overzealous Muscle"
+    },
+    {
+      "fn": "rattleback_apothecary_setup",
+      "card_var": "RATTLEBACK_APOTHECARY",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking not implemented",
+      "notes": "Rattleback Apothecary"
+    },
+    {
+      "fn": "servant_of_the_stinger_setup",
+      "card_var": "SERVANT_OF_THE_STINGER",
+      "disposition": "wired_stub",
+      "engine_gap": "crime tracking + library tutor not engine-tracked",
+      "notes": "Servant of the Stinger"
+    },
+    {
+      "fn": "tinybones_the_pickpocket_setup",
+      "card_var": "TINYBONES_THE_PICKPOCKET",
+      "disposition": "wired_stub",
+      "engine_gap": "cross-player-graveyard cast permission not engine-tracked",
+      "notes": "Tinybones, the Pickpocket"
+    },
+    {
+      "fn": "treasure_dredger_setup",
+      "card_var": "TREASURE_DREDGER",
+      "disposition": "skipped",
+      "engine_gap": "activated tap+sac+life-payment ability not engine-tracked",
+      "notes": "Treasure Dredger"
+    },
+    {
+      "fn": "unscrupulous_contractor_setup",
+      "card_var": "UNSCRUPULOUS_CONTRACTOR",
+      "disposition": "wired_stub",
+      "engine_gap": "optional sacrifice + targeted draw/life-loss not auto-wired",
+      "notes": "Unscrupulous Contractor"
+    },
+    {
+      "fn": "vadmir_new_blood_setup",
+      "card_var": "VADMIR_NEW_BLOOD",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking + threshold-keyword granting not engine-tracked",
+      "notes": "Vadmir, New Blood"
+    },
+    {
+      "fn": "brimstone_roundup_setup",
+      "card_var": "BRIMSTONE_ROUNDUP",
+      "disposition": "wired_stub",
+      "engine_gap": "per-turn Nth-spell counting not implemented",
+      "notes": "Brimstone Roundup"
+    },
+    {
+      "fn": "calamity_galloping_inferno_setup",
+      "card_var": "CALAMITY_GALLOPING_INFERNO",
+      "disposition": "wired_stub",
+      "engine_gap": "saddle creature tracking + copy-token-of-creature not engine-tracked",
+      "notes": "Calamity, Galloping Inferno"
+    },
+    {
+      "fn": "deadeye_duelist_setup",
+      "card_var": "DEADEYE_DUELIST",
+      "disposition": "skipped",
+      "engine_gap": "activated tap-target damage ability not engine-tracked",
+      "notes": "Deadeye Duelist"
+    },
+    {
+      "fn": "demonic_ruckus_setup",
+      "card_var": "DEMONIC_RUCKUS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Demonic Ruckus"
+    },
+    {
+      "fn": "ferocification_setup",
+      "card_var": "FEROCIFICATION",
+      "disposition": "skipped",
+      "engine_gap": "targeted combat-start modal pump not auto-wired",
+      "notes": "Ferocification"
+    },
+    {
+      "fn": "gila_courser_setup",
+      "card_var": "GILA_COURSER",
+      "disposition": "wired_stub",
+      "engine_gap": "saddle gating + impulse-extension across turns not engine-tracked",
+      "notes": "Gila Courser"
+    },
+    {
+      "fn": "hellspur_brute_setup",
+      "card_var": "HELLSPUR_BRUTE",
+      "disposition": "skipped",
+      "engine_gap": "affinity cost reduction not engine-tracked",
+      "notes": "Hellspur Brute"
+    },
+    {
+      "fn": "longhorn_sharpshooter_setup",
+      "card_var": "LONGHORN_SHARPSHOOTER",
+      "disposition": "skipped",
+      "engine_gap": "\"becomes plotted\" trigger not engine-tracked",
+      "notes": "Longhorn Sharpshooter"
+    },
+    {
+      "fn": "magebane_lizard_setup",
+      "card_var": "MAGEBANE_LIZARD",
+      "disposition": "wired_full",
+      "engine_gap": "precise per-turn noncreature spell count not engine-tracked.",
+      "notes": "Magebane Lizard"
+    },
+    {
+      "fn": "quilled_charger_setup",
+      "card_var": "QUILLED_CHARGER",
+      "disposition": "wired_full",
+      "engine_gap": "saddle gating; emit the pump as a best-effort",
+      "notes": "Quilled Charger"
+    },
+    {
+      "fn": "reckless_lackey_setup",
+      "card_var": "RECKLESS_LACKEY",
+      "disposition": "skipped",
+      "engine_gap": "activated sacrifice ability not engine-tracked",
+      "notes": "Reckless Lackey"
+    },
+    {
+      "fn": "resilient_roadrunner_setup",
+      "card_var": "RESILIENT_ROADRUNNER",
+      "disposition": "skipped",
+      "engine_gap": "protection-from and conditional unblockable not engine-tracked",
+      "notes": "Resilient Roadrunner"
+    },
+    {
+      "fn": "stingerback_terror_setup",
+      "card_var": "STINGERBACK_TERROR",
+      "disposition": "skipped",
+      "engine_gap": "dynamic P/T from hand size not engine-tracked",
+      "notes": "Stingerback Terror"
+    },
+    {
+      "fn": "aloe_alchemist_setup",
+      "card_var": "ALOE_ALCHEMIST",
+      "disposition": "skipped",
+      "engine_gap": "\"becomes plotted\" trigger not engine-tracked",
+      "notes": "Aloe Alchemist"
+    },
+    {
+      "fn": "bristlepack_sentry_setup",
+      "card_var": "BRISTLEPACK_SENTRY",
+      "disposition": "skipped",
+      "engine_gap": "conditional attack-as-though-no-defender not engine-tracked",
+      "notes": "Bristlepack Sentry"
+    },
+    {
+      "fn": "bristly_bill_spine_sower_setup",
+      "card_var": "BRISTLY_BILL_SPINE_SOWER",
+      "disposition": "wired_full",
+      "engine_gap": "target-selection on landfall; emit self-counter as fallback",
+      "notes": "Bristly Bill, Spine Sower"
+    },
+    {
+      "fn": "cactarantula_setup",
+      "card_var": "CACTARANTULA",
+      "disposition": "skipped",
+      "engine_gap": "target-of-spell trigger not engine-tracked here",
+      "notes": "Cactarantula"
+    },
+    {
+      "fn": "colossal_rattlewurm_setup",
+      "card_var": "COLOSSAL_RATTLEWURM",
+      "disposition": "skipped",
+      "engine_gap": "conditional flash and graveyard-cost activated tutor not engine-tracked",
+      "notes": "Colossal Rattlewurm"
+    },
+    {
+      "fn": "drover_grizzly_setup",
+      "card_var": "DROVER_GRIZZLY",
+      "disposition": "wired_full",
+      "engine_gap": "saddle gating; emit team trample grant as best-effort",
+      "notes": "Drover Grizzly"
+    },
+    {
+      "fn": "freestrider_commando_setup",
+      "card_var": "FREESTRIDER_COMMANDO",
+      "disposition": "wired_stub",
+      "engine_gap": "detection of \"wasn't cast or no mana was spent\" not engine-tracked.",
+      "notes": "Freestrider Commando"
+    },
+    {
+      "fn": "freestrider_lookout_setup",
+      "card_var": "FREESTRIDER_LOOKOUT",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking + library top-N reveal not engine-tracked",
+      "notes": "Freestrider Lookout"
+    },
+    {
+      "fn": "giant_beaver_setup",
+      "card_var": "GIANT_BEAVER",
+      "disposition": "wired_full",
+      "engine_gap": "saddle creature targeting; emit self-counter as best-effort",
+      "notes": "Giant Beaver"
+    },
+    {
+      "fn": "hardbristle_bandit_setup",
+      "card_var": "HARDBRISTLE_BANDIT",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking not implemented",
+      "notes": "Hardbristle Bandit"
+    },
+    {
+      "fn": "intrepid_stablemaster_setup",
+      "card_var": "INTREPID_STABLEMASTER",
+      "disposition": "skipped",
+      "engine_gap": "mana-restriction abilities (Mount/Vehicle only) not engine-tracked",
+      "notes": "Intrepid Stablemaster"
+    },
+    {
+      "fn": "ornery_tumblewagg_setup",
+      "card_var": "ORNERY_TUMBLEWAGG",
+      "disposition": "skipped",
+      "engine_gap": "targeted combat-start +1/+1 + counter doubling not engine-tracked",
+      "notes": "Ornery Tumblewagg"
+    },
+    {
+      "fn": "rambling_possum_setup",
+      "card_var": "RAMBLING_POSSUM",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Rambling Possum"
+    },
+    {
+      "fn": "raucous_entertainer_setup",
+      "card_var": "RAUCOUS_ENTERTAINER",
+      "disposition": "skipped",
+      "engine_gap": "activated ability + per-turn ETB tracking not engine-tracked",
+      "notes": "Raucous Entertainer"
+    },
+    {
+      "fn": "reach_for_the_sky_setup",
+      "card_var": "REACH_FOR_THE_SKY",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Reach for the Sky"
+    },
+    {
+      "fn": "spinewoods_armadillo_setup",
+      "card_var": "SPINEWOODS_ARMADILLO",
+      "disposition": "skipped",
+      "engine_gap": "ward and complex discard-cost activated tutor not engine-tracked",
+      "notes": "Spinewoods Armadillo"
+    },
+    {
+      "fn": "stubborn_burrowfiend_setup",
+      "card_var": "STUBBORN_BURROWFIEND",
+      "disposition": "skipped",
+      "engine_gap": "saddle event tracking not engine-tracked",
+      "notes": "Stubborn Burrowfiend"
+    },
+    {
+      "fn": "voracious_varmint_setup",
+      "card_var": "VORACIOUS_VARMINT",
+      "disposition": "skipped",
+      "engine_gap": "activated sacrifice destroy not engine-tracked",
+      "notes": "Voracious Varmint"
+    },
+    {
+      "fn": "akul_the_unrepentant_setup",
+      "card_var": "AKUL_THE_UNREPENTANT",
+      "disposition": "skipped",
+      "engine_gap": "complex activated sacrifice ability not engine-tracked",
+      "notes": "Akul the Unrepentant"
+    },
+    {
+      "fn": "assimilation_aegis_setup",
+      "card_var": "ASSIMILATION_AEGIS",
+      "disposition": "wired_stub",
+      "engine_gap": "equipment exile-until-leaves + copy-on-attach not engine-tracked",
+      "notes": "Assimilation Aegis"
+    },
+    {
+      "fn": "at_knifepoint_setup",
+      "card_var": "AT_KNIFEPOINT",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking + turn-conditional team keyword not engine-tracked",
+      "notes": "At Knifepoint"
+    },
+    {
+      "fn": "breeches_the_blastmaker_setup",
+      "card_var": "BREECHES_THE_BLASTMAKER",
+      "disposition": "wired_stub",
+      "engine_gap": "2nd-spell tracking + coin flip + spell copy not engine-tracked",
+      "notes": "Breeches, the Blastmaker"
+    },
+    {
+      "fn": "cactusfolk_sureshot_setup",
+      "card_var": "CACTUSFOLK_SURESHOT",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Cactusfolk Sureshot"
+    },
+    {
+      "fn": "congregation_gryff_setup",
+      "card_var": "CONGREGATION_GRYFF",
+      "disposition": "wired_full",
+      "engine_gap": "saddle gating; emit Mount-count pump as best-effort",
+      "notes": "Congregation Gryff"
+    },
+    {
+      "fn": "doc_aurlock_grizzled_genius_setup",
+      "card_var": "DOC_AURLOCK_GRIZZLED_GENIUS",
+      "disposition": "skipped",
+      "engine_gap": "zone-of-cast cost reduction + plot cost reduction not engine-tracked",
+      "notes": "Doc Aurlock, Grizzled Genius"
+    },
+    {
+      "fn": "eriette_the_beguiler_setup",
+      "card_var": "ERIETTE_THE_BEGUILER",
+      "disposition": "skipped",
+      "engine_gap": "aura-attach trigger + control-conditional-on-attached not engine-tracked",
+      "notes": "Eriette, the Beguiler"
+    },
+    {
+      "fn": "ghired_mirror_of_the_wilds_setup",
+      "card_var": "GHIRED_MIRROR_OF_THE_WILDS",
+      "disposition": "skipped",
+      "engine_gap": "granting activated abilities to other creatures not engine-tracked",
+      "notes": "Ghired, Mirror of the Wilds"
+    },
+    {
+      "fn": "the_gitrog_ravenous_ride_setup",
+      "card_var": "THE_GITROG_RAVENOUS_RIDE",
+      "disposition": "wired_stub",
+      "engine_gap": "saddler tracking + draw/lands-from-hand chain not engine-tracked",
+      "notes": "The Gitrog, Ravenous Ride"
+    },
+    {
+      "fn": "jolene_plundering_pugilist_setup",
+      "card_var": "JOLENE_PLUNDERING_PUGILIST",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Jolene, Plundering Pugilist"
+    },
+    {
+      "fn": "kambal_profiteering_mayor_setup",
+      "card_var": "KAMBAL_PROFITEERING_MAYOR",
+      "disposition": "skipped",
+      "engine_gap": "token-batch ETB triggers + token copy of opponent token not engine-tracked",
+      "notes": "Kambal, Profiteering Mayor"
+    },
+    {
+      "fn": "kellan_the_kid_setup",
+      "card_var": "KELLAN_THE_KID",
+      "disposition": "skipped",
+      "engine_gap": "zone-of-cast trigger + free-cast permission not engine-tracked",
+      "notes": "Kellan, the Kid"
+    },
+    {
+      "fn": "laughing_jasper_flint_setup",
+      "card_var": "LAUGHING_JASPER_FLINT",
+      "disposition": "skipped",
+      "engine_gap": "cross-controller type override + cross-library cast permission",
+      "notes": "Laughing Jasper Flint"
+    },
+    {
+      "fn": "lazav_familiar_stranger_setup",
+      "card_var": "LAZAV_FAMILIAR_STRANGER",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking + creature-copy effect not engine-tracked",
+      "notes": "Lazav, Familiar Stranger"
+    },
+    {
+      "fn": "lilah_undefeated_slickshot_setup",
+      "card_var": "LILAH_UNDEFEATED_SLICKSHOT",
+      "disposition": "skipped",
+      "engine_gap": "prowess + alternative-resolution exile-to-plot not engine-tracked",
+      "notes": "Lilah, Undefeated Slickshot"
+    },
+    {
+      "fn": "marchesa_dealer_of_death_setup",
+      "card_var": "MARCHESA_DEALER_OF_DEATH",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking not implemented",
+      "notes": "Marchesa, Dealer of Death"
+    },
+    {
+      "fn": "obeka_splitter_of_seconds_setup",
+      "card_var": "OBEKA_SPLITTER_OF_SECONDS",
+      "disposition": "wired_stub",
+      "engine_gap": "extra-upkeep insertion not engine-tracked",
+      "notes": "Obeka, Splitter of Seconds"
+    },
+    {
+      "fn": "oko_the_ringleader_setup",
+      "card_var": "OKO_THE_RINGLEADER",
+      "disposition": "skipped",
+      "engine_gap": "planeswalker loyalty abilities and copy-of-creature transform not engine-tracked",
+      "notes": "Oko, the Ringleader"
+    },
+    {
+      "fn": "rakdos_joins_up_setup",
+      "card_var": "RAKDOS_JOINS_UP",
+      "disposition": "wired_stub",
+      "engine_gap": "graveyard reanimation + counters and legendary-dies trigger not engine-tracked",
+      "notes": "Rakdos Joins Up"
+    },
+    {
+      "fn": "rakdos_the_muscle_setup",
+      "card_var": "RAKDOS_THE_MUSCLE",
+      "disposition": "skipped",
+      "engine_gap": "sacrifice trigger + cross-library exile cast permissions not engine-tracked",
+      "notes": "Rakdos, the Muscle"
+    },
+    {
+      "fn": "riku_of_many_paths_setup",
+      "card_var": "RIKU_OF_MANY_PATHS",
+      "disposition": "skipped",
+      "engine_gap": "modal-spell mode count not engine-tracked",
+      "notes": "Riku of Many Paths"
+    },
+    {
+      "fn": "roxanne_starfall_savant_setup",
+      "card_var": "ROXANNE_STARFALL_SAVANT",
+      "disposition": "wired_stub",
+      "engine_gap": "complex artifact-token-with-text not engine-tracked",
+      "notes": "Roxanne, Starfall Savant"
+    },
+    {
+      "fn": "satoru_the_infiltrator_setup",
+      "card_var": "SATORU_THE_INFILTRATOR",
+      "disposition": "wired_stub",
+      "engine_gap": "detection of \"wasn't cast or no mana was spent\" not engine-tracked",
+      "notes": "Satoru, the Infiltrator"
+    },
+    {
+      "fn": "seraphic_steed_setup",
+      "card_var": "SERAPHIC_STEED",
+      "disposition": "wired_full",
+      "engine_gap": "saddle gating; emit token as best-effort",
+      "notes": "Seraphic Steed"
+    },
+    {
+      "fn": "taii_wakeen_perfect_shot_setup",
+      "card_var": "TAII_WAKEEN_PERFECT_SHOT",
+      "disposition": "skipped",
+      "engine_gap": "damage-equals-toughness check + damage-replacement scaling not engine-tracked",
+      "notes": "Taii Wakeen, Perfect Shot"
+    },
+    {
+      "fn": "vraska_the_silencer_setup",
+      "card_var": "VRASKA_THE_SILENCER",
+      "disposition": "wired_stub",
+      "engine_gap": "optional pay {1} + reanimate-as-treasure not engine-tracked",
+      "notes": "Vraska, the Silencer"
+    },
+    {
+      "fn": "wylie_duke_atiin_hero_setup",
+      "card_var": "WYLIE_DUKE_ATIIN_HERO",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Wylie Duke, Atiin Hero"
+    },
+    {
+      "fn": "bandits_haul_setup",
+      "card_var": "BANDITS_HAUL",
+      "disposition": "skipped",
+      "engine_gap": "crime tracking + activated draw-from-counters not engine-tracked",
+      "notes": "Bandit's Haul"
+    },
+    {
+      "fn": "boom_box_setup",
+      "card_var": "BOOM_BOX",
+      "disposition": "skipped",
+      "engine_gap": "activated sacrifice + multi-target destruction not engine-tracked",
+      "notes": "Boom Box"
+    },
+    {
+      "fn": "gold_pan_setup",
+      "card_var": "GOLD_PAN",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Gold Pan"
+    },
+    {
+      "fn": "lavaspur_boots_setup",
+      "card_var": "LAVASPUR_BOOTS",
+      "disposition": "skipped",
+      "engine_gap": "equipped-creature granted abilities not engine-tracked here",
+      "notes": "Lavaspur Boots"
+    },
+    {
+      "fn": "luxurious_locomotive_setup",
+      "card_var": "LUXURIOUS_LOCOMOTIVE",
+      "disposition": "wired_full",
+      "engine_gap": "crewers-this-turn tracking; emit a single Treasure as best-effort",
+      "notes": "Luxurious Locomotive"
+    },
+    {
+      "fn": "mobile_homestead_setup",
+      "card_var": "MOBILE_HOMESTEAD",
+      "disposition": "wired_stub",
+      "engine_gap": "top-of-library reveal-and-may-play-land not engine-tracked",
+      "notes": "Mobile Homestead"
+    },
+    {
+      "fn": "redrock_sentinel_setup",
+      "card_var": "REDROCK_SENTINEL",
+      "disposition": "skipped",
+      "engine_gap": "activated land-sacrifice ability not engine-tracked",
+      "notes": "Redrock Sentinel"
+    },
+    {
+      "fn": "tomb_trawler_setup",
+      "card_var": "TOMB_TRAWLER",
+      "disposition": "skipped",
+      "engine_gap": "activated graveyard targeting not engine-tracked",
+      "notes": "Tomb Trawler"
+    },
+    {
+      "fn": "abraded_bluffs_setup",
+      "card_var": "ABRADED_BLUFFS",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Abraded Bluffs"
+    },
+    {
+      "fn": "arid_archway_setup",
+      "card_var": "ARID_ARCHWAY",
+      "disposition": "wired_stub",
+      "engine_gap": "targeted self-bounce + conditional surveil not engine-tracked",
+      "notes": "Arid Archway"
+    },
+    {
+      "fn": "bristling_backwoods_setup",
+      "card_var": "BRISTLING_BACKWOODS",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Bristling Backwoods"
+    },
+    {
+      "fn": "conduit_pylons_setup",
+      "card_var": "CONDUIT_PYLONS",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Conduit Pylons"
+    },
+    {
+      "fn": "creosote_heath_setup",
+      "card_var": "CREOSOTE_HEATH",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Creosote Heath"
+    },
+    {
+      "fn": "eroded_canyon_setup",
+      "card_var": "ERODED_CANYON",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Eroded Canyon"
+    },
+    {
+      "fn": "festering_gulch_setup",
+      "card_var": "FESTERING_GULCH",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Festering Gulch"
+    },
+    {
+      "fn": "forlorn_flats_setup",
+      "card_var": "FORLORN_FLATS",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Forlorn Flats"
+    },
+    {
+      "fn": "jagged_barrens_setup",
+      "card_var": "JAGGED_BARRENS",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Jagged Barrens"
+    },
+    {
+      "fn": "lonely_arroyo_setup",
+      "card_var": "LONELY_ARROYO",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Lonely Arroyo"
+    },
+    {
+      "fn": "lush_oasis_setup",
+      "card_var": "LUSH_OASIS",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Lush Oasis"
+    },
+    {
+      "fn": "mirage_mesa_setup",
+      "card_var": "MIRAGE_MESA",
+      "disposition": "skipped",
+      "engine_gap": "ETB color choice not engine-tracked",
+      "notes": "Mirage Mesa"
+    },
+    {
+      "fn": "sandstorm_verge_setup",
+      "card_var": "SANDSTORM_VERGE",
+      "disposition": "skipped",
+      "engine_gap": "activated can't-block-this-turn not engine-tracked",
+      "notes": "Sandstorm Verge"
+    },
+    {
+      "fn": "soured_springs_setup",
+      "card_var": "SOURED_SPRINGS",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Soured Springs"
+    },
+    {
+      "fn": "bucolic_ranch_setup",
+      "card_var": "BUCOLIC_RANCH",
+      "disposition": "skipped",
+      "engine_gap": "activated library-peek + restricted mana not engine-tracked",
+      "notes": "Bucolic Ranch"
+    },
+    {
+      "fn": "blooming_marsh_setup",
+      "card_var": "BLOOMING_MARSH",
+      "disposition": "wired_full",
+      "engine_gap": "",
+      "notes": "Blooming Marsh"
+    },
+    {
+      "fn": "botanical_sanctum_setup",
+      "card_var": "BOTANICAL_SANCTUM",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Botanical Sanctum"
+    },
+    {
+      "fn": "concealed_courtyard_setup",
+      "card_var": "CONCEALED_COURTYARD",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Concealed Courtyard"
+    },
+    {
+      "fn": "inspiring_vantage_setup",
+      "card_var": "INSPIRING_VANTAGE",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Inspiring Vantage"
+    },
+    {
+      "fn": "spirebluff_canal_setup",
+      "card_var": "SPIREBLUFF_CANAL",
+      "disposition": "wired_stub",
+      "engine_gap": "",
+      "notes": "Spirebluff Canal"
+    },
+    {
+      "fn": "jace_reawakened_setup",
+      "card_var": "JACE_REAWAKENED",
+      "disposition": "skipped",
+      "engine_gap": "planeswalker cast restriction + loyalty abilities not engine-tracked",
+      "notes": "Jace Reawakened"
+    }
+  ],
+  "summary": {
+    "wired_full": 17,
+    "wired_stub": 35,
+    "skipped": 58
+  }
+}

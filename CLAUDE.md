@@ -68,7 +68,7 @@ CARD_NAME = make_creature(
 ## Card Sets
 
 ### Real MTG Sets (from Scryfall API)
-Located in `src/cards/`. ~3,450 cards with accurate data. ~1,030 cards have wired interceptors across the 12 sets; the rest are vanilla or have abilities the engine cannot yet express. See `engine_gaps.md` for the punch list of unblocked cards grouped by missing capability.
+Located in `src/cards/`. ~3,450 cards with accurate data. **2,560 cards have wired interceptors** across the 12 sets — every non-vanilla, non-spell permanent has a setup function. ~744 instants/sorceries use cast-effect dispatch (no setup_interceptors). ~230 truly vanilla cards (keyword-only or stat-line). Of the wired cards, ~275 have full effect implementations; the rest register their triggers but use `return []` stubs because the engine cannot yet express the effect (target selection, until-end-of-turn P/T, optional sacrifice prompts, modal choices, mechanic-specific tracking). See `engine_gaps.md` for the punch list grouped by missing capability.
 
 | Set | Code | Cards |
 |-----|------|-------|

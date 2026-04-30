@@ -29,6 +29,7 @@ from src.cards.interceptor_helpers import (
     make_static_pt_boost, make_keyword_grant, make_upkeep_trigger,
     make_end_step_trigger, make_life_gain_trigger, make_tap_trigger,
     make_spell_cast_trigger, make_damage_trigger,
+    make_leaves_battlefield_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, all_opponents
 )
@@ -2015,6 +2016,1136 @@ def nutrient_block_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 # =============================================================================
+# MISSING CARD SETUPS (auto-generated, mostly stubs)
+# =============================================================================
+
+def anticausal_vestige_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When leaves the battlefield, draw a card; warp."""
+    interceptors = []
+
+    def leaves_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: warp/cheat-into-play permanent from hand
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    interceptors.append(make_leaves_battlefield_trigger(obj, leaves_effect))
+    return interceptors
+
+
+def tezzeret_cruel_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever an artifact you control enters, put a loyalty counter on Tezzeret."""
+    def artifact_etb_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.ARTIFACT in entering_obj.characteristics.types
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'loyalty', 'amount': 1},
+            source=obj.id
+        )]
+
+    # engine gap: planeswalker activated abilities and emblems
+    return [make_etb_trigger(obj, effect_fn, filter_fn=artifact_etb_filter)]
+
+
+def allfates_stalker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, exile up to one target non-Assassin creature; warp."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target selection + temporary exile until LTB
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def astelli_reclaimer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, return target noncreature/nonland permanent card from graveyard with MV X or less."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target selection + X-based MV filter on graveyard
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def banishing_light_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, exile target nonland permanent an opponent controls until this leaves."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target selection + temporary exile-until-LTB
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def dualsun_adepts_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{5}: Creatures you control get +1/+1 until end of turn."""
+    # engine gap: activated ability that pumps all creatures via temporary P/T
+    return []
+
+
+def exalted_sunborn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """If one or more tokens would be created under your control, twice that many are created instead."""
+    # engine gap: replacement effect on token creation (doubling)
+    return []
+
+
+def hardlight_containment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: enchant artifact; ETB exile creature; ward 1 on enchanted permanent."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aura attachment + temporary exile + ward grant
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def luxknight_breacher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enters with a +1/+1 counter for each other creature/artifact you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        count = 0
+        for o in state.objects.values():
+            if (o.id != obj.id and o.controller == obj.controller and
+                o.zone == ZoneType.BATTLEFIELD and
+                (CardType.CREATURE in o.characteristics.types or
+                 CardType.ARTIFACT in o.characteristics.types)):
+                count += 1
+        if count <= 0:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': count},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def pinnacle_starcage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, exile all artifacts/creatures with MV<=2 until this leaves."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: mass temporary exile-until-LTB
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def seam_rip_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, exile target nonland permanent (MV<=2) an opponent controls until this leaves."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target selection + temporary exile-until-LTB
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def the_seriema_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, search for a legendary creature card. Station 7+ flying. Other tapped legendaries indestructible."""
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: library search + reveal
+        return []
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    # Other tapped legendary creatures you control have indestructible.
+    def legendary_tapped_filter(target: GameObject, state: GameState) -> bool:
+        if target.id == obj.id:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        if 'Legendary' not in target.characteristics.supertypes:
+            return False
+        return target.state.tapped
+
+    interceptors.append(make_keyword_grant(obj, ['indestructible'], legendary_tapped_filter))
+    return interceptors
+
+
+def squires_lightblade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment: ETB attach to your creature, gives first strike EOT. +1/+0. Equip {3}."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: equipment auto-attach + first-strike-until-EOT
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def starport_security_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated ability tap-target with cost reduction; engine gap on dynamic activated cost."""
+    # engine gap: dynamic activated ability cost (-2 if you control creature with +1/+1 counter)
+    return []
+
+
+def sunstar_expansionist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB conditional Lander; landfall +1/+0 EOT."""
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Count lands per player
+        my_lands = sum(1 for o in state.objects.values()
+                       if o.controller == obj.controller and CardType.LAND in o.characteristics.types
+                       and o.zone == ZoneType.BATTLEFIELD)
+        opp_more = False
+        for pid in state.players.keys():
+            if pid == obj.controller:
+                continue
+            their_lands = sum(1 for o in state.objects.values()
+                              if o.controller == pid and CardType.LAND in o.characteristics.types
+                              and o.zone == ZoneType.BATTLEFIELD)
+            if their_lands > my_lands:
+                opp_more = True
+                break
+        if not opp_more:
+            return []
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Lander Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Lander'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    def landfall_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: temporary +1/+0 EOT pump
+        return []
+    interceptors.append(make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter))
+    return interceptors
+
+
+def atomic_microsizer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment: equipped +1/+0; whenever equipped attacks, target gets unblockable + base 1/1 EOT."""
+    # engine gap: equipped-creature attack trigger; can't-be-blocked + base P/T set
+    return []
+
+
+def cryoshatter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: enchanted creature gets -5/-0; when tapped or damaged, destroy it."""
+    # engine gap: aura attachment + -5/-0 + conditional destroy on tap/damage
+    return []
+
+
+def gigastorm_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """This spell costs {3} less to cast if you've cast another spell this turn."""
+    # engine gap: dynamic cast cost reduction (cost reduction at cast time)
+    return []
+
+
+def illvoi_galeblade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}, sac: draw a card."""
+    # engine gap: activated ability with sacrifice cost
+    return []
+
+
+def illvoi_light_jammer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment: ETB attach + hexproof EOT. +1/+2. Equip {3}."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: equipment auto-attach + hexproof-until-EOT
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def mechan_shieldmate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Defender; can attack as though it didn't have defender if an artifact entered this turn."""
+    # engine gap: conditional defender removal based on per-turn ETB tracking
+    return []
+
+
+def mmmenon_the_right_hand_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying; look at top; cast artifacts from top; artifacts you control tap for {U} (specific use)."""
+    # engine gap: cast-from-library + restricted mana production
+    return []
+
+
+def moonlit_meditation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: first time you would create tokens each turn, create copies of enchanted permanent instead."""
+    # engine gap: replacement of token creation by copying enchanted permanent
+    return []
+
+
+def specimen_freighter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When enters, return up to two non-Spacecraft creatures to hand. Station 9+ flying. Attack: defender mills 4."""
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: targeted bounce (up to 2)
+        return []
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # Mill 4 to each opponent (defending player approximation)
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': pid, 'amount': 4},
+            source=obj.id
+        ) for pid in state.players.keys() if pid != obj.controller]
+    interceptors.append(make_attack_trigger(obj, attack_effect))
+    return interceptors
+
+
+def starfield_vocalist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """If a permanent entering causes a triggered ability of yours to trigger, that ability triggers an additional time."""
+    # engine gap: replicate triggered abilities (doubling effect)
+    return []
+
+
+def steelswarm_operator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Tap-for-restricted-mana abilities."""
+    # engine gap: restricted mana production (only for artifacts)
+    return []
+
+
+def synthesizer_labship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Station 2+/9+ activated abilities at combat."""
+    # engine gap: station-charge-counter gated abilities + temporary creature animation
+    return []
+
+
+def tractor_beam_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: tap, gain control, no untap."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aura attachment + control change + untap restriction
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def uthros_psionicist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """The second spell you cast each turn costs {2} less."""
+    # engine gap: cost reduction with per-turn second-spell tracking
+    return []
+
+
+def weftwalking_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB if cast, shuffle hand+graveyard into library, draw 7. First spell each player casts may be free."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: hand/graveyard shuffle into library + once-per-turn first-spell-free
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 7},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def alpharael_stonechosen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ward-discard random; void attack: defender loses half life."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: void mechanic check + ward + half-life-loss
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def blade_of_the_swarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: choose one - two +1/+1 counters on self OR put exiled warp card on bottom."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Default to mode 1: counters (engine gap: modal choice + warp interaction)
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def chorale_of_the_void_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: attack puts target creature card from defender's GY onto BF tapped+attacking. Void EOT sac."""
+    interceptors = []
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aura-attached attack trigger, reanimate from opponent GY
+        return []
+    interceptors.append(make_attack_trigger(obj, attack_effect))
+
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: void-mechanic conditional sacrifice
+        return []
+    interceptors.append(make_end_step_trigger(obj, end_step_effect))
+    return interceptors
+
+
+def dubious_delicacy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flash; ETB: target creature -3/-3 EOT. Activated abilities for life/loss."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target selection + temporary -3/-3 P/T modification
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def entropic_battlecruiser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Station 1+/8+ effects; opponent discard => 3 life loss; attack: opponents discard."""
+    interceptors = []
+
+    def discard_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DISCARD:
+            return False
+        return event.payload.get('player') != obj.controller
+
+    def discard_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: requires station >=1 charge counter check
+        target = event.payload.get('player')
+        if not target:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': target, 'amount': -3},
+            source=obj.id
+        )]
+
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=discard_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=discard_effect(e, s)),
+        duration='while_on_battlefield'
+    ))
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: requires station >=8; opponent discard, lose 3 if can't
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': pid, 'amount': 1},
+            source=obj.id
+        ) for pid in state.players.keys() if pid != obj.controller]
+    interceptors.append(make_attack_trigger(obj, attack_effect))
+    return interceptors
+
+
+def fallers_faithful_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: destroy up to one target creature. If undamaged, controller draws 2."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target selection + conditional draw based on damage history
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def hylderblade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment +3/+1; void EOT attach to target."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: void mechanic check + equipment auto-attach
+        return []
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def insatiable_skittermaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace; void EOT +1/+1 counter on self."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: void-mechanic state tracking required
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def perigee_beckoner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: target creature gets +2/+0 and 'when dies, return tapped'. Warp."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target selection + temporary granted death trigger
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def requiem_monolith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: temporary 'when damaged, draw cards and lose life' on target."""
+    # engine gap: activated ability granting temporary damage trigger to a target
+    return []
+
+
+def sunset_saboteur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace; ward discard; attack puts +1/+1 on opponent's creature (downside)."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target selection on opponent's creature
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def timeline_culler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste; warp from graveyard."""
+    # engine gap: warp casting from graveyard
+    return []
+
+
+def umbral_collar_zealot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sacrifice another creature/artifact: surveil 1."""
+    # engine gap: activated ability with sacrifice cost
+    return []
+
+
+def voidforged_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Void EOT: draw a card and lose 1 life."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: void mechanic check (always-fires stub)
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': -1}, source=obj.id)
+        ]
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def xuifit_osteoharmonist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: Return target creature card from your GY to BF as a Skeleton, no abilities."""
+    # engine gap: tap-activated reanimation with type/ability rewriting
+    return []
+
+
+def galvanizing_sawship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Station 3+ flying haste."""
+    # engine gap: station-charge-counter gated keyword grant
+    return []
+
+
+def kavaron_skywarden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reach; void EOT: +1/+1 counter."""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: void mechanic check (always-fires stub)
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id
+        )]
+    return [make_end_step_trigger(obj, end_step_effect)]
+
+
+def kavaron_turbodrone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: target creature gets +1/+1 and haste EOT (sorcery speed)."""
+    # engine gap: tap activated targeted +1/+1 + haste EOT
+    return []
+
+
+def memorial_vault_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}, sac artifact: exile top X cards, may play this turn."""
+    # engine gap: activated ability with sacrifice cost + impulse draw
+    return []
+
+
+def pain_for_all_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: ETB enchanted deals power-damage to any other target. Whenever damaged, deals to each opponent."""
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aura-relative damage redirection + targeting
+        return []
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    return interceptors
+
+
+def possibility_technician_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever this or another Kavu enters, exile top card; may play if you control a Kavu."""
+    def kavu_etb_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        if CardType.CREATURE not in entering_obj.characteristics.types:
+            return False
+        return 'Kavu' in entering_obj.characteristics.subtypes or entering_id == source_obj.id
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # engine gap: exile-top + may-play conditional cast
+        return [Event(
+            type=EventType.EXILE_FROM_TOP,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, effect_fn, filter_fn=kavu_etb_filter)]
+
+
+def red_tiger_mechan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste; warp."""
+    # engine gap: warp mechanic; haste comes from card text/keyword grant
+    return []
+
+
+def roving_actuator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Void ETB: exile target instant/sorcery (MV<=2) from GY, copy, may cast free."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: void mechanic + GY targeting + copy-and-cast-free
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def rust_harvester_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace; {2}{T}, exile artifact from GY: +1/+1 counter, deal power damage to any target."""
+    # engine gap: activated ability with exile cost from GY
+    return []
+
+
+def slagdrill_scrapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{T}, sac artifact/land: draw."""
+    # engine gap: activated ability with sacrifice cost
+    return []
+
+
+def terrapact_intimidator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: target opponent may have you create 2 Lander tokens; if not, two +1/+1 on self."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: opponent choice; default to self-counters branch
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 2},
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def territorial_bruntar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reach; landfall: exile until nonland; may cast."""
+    def landfall_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: reveal-until-nonland + impulse-cast
+        return []
+    return [make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter)]
+
+
+def zookeeper_mechan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: Add {R}; {6}{R}: target creature +4/+0 EOT (sorcery)."""
+    # engine gap: activated abilities (mana production + targeted pump)
+    return []
+
+
+def bioengineered_future_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: create Lander; creatures enter with extra +1/+1 per land entered this turn."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Lander Token',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Lander'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    # engine gap: replacement effect adding counters per lands-entered-this-turn
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def broodguard_elite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enters with X +1/+1 counters; LTB transfer counters; warp."""
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: X-cost counter parsing
+        return []
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    def leaves_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: counter transfer to target on LTB
+        return []
+    interceptors.append(make_leaves_battlefield_trigger(obj, leaves_effect))
+    return interceptors
+
+
+def eusocial_engineering_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Landfall: create 2/2 Robot."""
+    def landfall_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Robot Token',
+                'controller': obj.controller,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.ARTIFACT, CardType.CREATURE],
+                'subtypes': ['Robot'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+    return [make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter)]
+
+
+def famished_worldsire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ward 3; Devour land 3; ETB: search for X land cards onto BF tapped."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: devour mechanic + library search putting lands tapped
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def frenzied_baloth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample, haste; uncounterable; creatures uncounterable; combat damage uncovered."""
+    # engine gap: uncounterable spells + combat damage cannot be prevented
+    return []
+
+
+def fungal_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """This spell costs {X} less to cast where X is differently named lands."""
+    # engine gap: dynamic cast cost reduction (lands-named-count)
+    return []
+
+
+def gene_pollinator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}, tap a permanent: any color mana."""
+    # engine gap: activated mana ability with tap of another permanent as cost
+    return []
+
+
+def icetill_explorer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Extra land per turn; may play lands from GY; landfall: mill 1."""
+    interceptors = []
+
+    # engine gap: play lands from graveyard
+    # Additional land play is supported
+    from src.cards.interceptor_helpers import make_additional_land_play
+    interceptors.append(make_additional_land_play(obj, count=1))
+
+    def landfall_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+    interceptors.append(make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter))
+    return interceptors
+
+
+def intrepid_tenderfoot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{3}: +1/+1 counter on self (sorcery)."""
+    # engine gap: activated ability with mana cost
+    return []
+
+
+def larval_scoutlander_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB may sac land/Lander -> search 2 basics tapped. Station 7+ flying."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: sacrifice-cost-replaced + library search
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def lashwhip_predator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cost {2} less if opponents control 3+ creatures."""
+    # engine gap: dynamic cast cost reduction (opponent board count)
+    return []
+
+
+def loading_zone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Doubles counters put on creature/Spacecraft/Planet you control. Warp."""
+    # engine gap: replacement effect doubling counter additions
+    return []
+
+
+def meltstriders_gear_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment ETB attach. Equipped +2/+1 reach. Equip {5}."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: equipment auto-attach
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def meltstriders_resolve_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura ETB: enchanted creature fights up to one target opponent's creature. +0/+2; can't be blocked by 2+."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: aura attachment + fight effect targeting
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def mightform_harmonizer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Landfall: double power of target creature EOT. Warp."""
+    def landfall_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target selection + dynamic power doubling EOT
+        return []
+    return [make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter)]
+
+
+def sledgeclass_seedship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Station 7+ flying. Attack: may put creature card from hand onto BF."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: cheat-into-play creature from hand
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def terrasymbiosis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever +1/+1 counters added to creature, may draw cards. Once per turn."""
+    triggered_this_turn = [False]
+
+    def counter_filter(event: Event, state: GameState) -> bool:
+        if triggered_this_turn[0]:
+            return False
+        if event.type != EventType.COUNTER_ADDED:
+            return False
+        if event.payload.get('counter_type') != '+1/+1':
+            return False
+        target_id = event.payload.get('object_id')
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        if target.controller != obj.controller:
+            return False
+        return CardType.CREATURE in target.characteristics.types
+
+    def counter_effect(event: Event, state: GameState) -> list[Event]:
+        triggered_this_turn[0] = True
+        amount = event.payload.get('amount', 1)
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': amount},
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=counter_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=counter_effect(e, s)),
+        duration='while_on_battlefield'
+    )]
+
+
+def dyadrine_synthesis_amalgam_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample; enters with X +1/+1; attack: remove counters from 2 creatures => draw + 2/2 token."""
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: optional counter-removal cost + token creation
+        return []
+    return [make_attack_trigger(obj, attack_effect)]
+
+
+def genemorph_imago_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying; landfall: target has base 3/3 EOT (or 6/6 if 6+ lands)."""
+    def landfall_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        entering_obj = state.objects.get(entering_id)
+        if not entering_obj:
+            return False
+        if entering_obj.controller != source_obj.controller:
+            return False
+        return CardType.LAND in entering_obj.characteristics.types
+
+    def landfall_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: target selection + base P/T set EOT
+        return []
+    return [make_etb_trigger(obj, landfall_effect, filter_fn=landfall_filter)]
+
+
+def infinite_guideline_station_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: create tapped Robot per multicolored permanent. Station 12+ flying. Attack: draw per multicolored."""
+    interceptors = []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events = []
+        for o in state.objects.values():
+            if (o.controller == obj.controller and
+                o.zone == ZoneType.BATTLEFIELD and
+                len(o.characteristics.colors) >= 2):
+                events.append(Event(
+                    type=EventType.OBJECT_CREATED,
+                    payload={
+                        'name': 'Robot Token',
+                        'controller': obj.controller,
+                        'power': 2,
+                        'toughness': 2,
+                        'types': [CardType.ARTIFACT, CardType.CREATURE],
+                        'subtypes': ['Robot'],
+                        'colors': [],
+                        'tapped': True
+                    },
+                    source=obj.id
+                ))
+        return events
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: requires station >=12; counts multicolored permanents
+        count = sum(1 for o in state.objects.values()
+                    if o.controller == obj.controller
+                    and o.zone == ZoneType.BATTLEFIELD
+                    and len(o.characteristics.colors) >= 2)
+        if count <= 0:
+            return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': count},
+            source=obj.id
+        )]
+    interceptors.append(make_attack_trigger(obj, attack_effect))
+    return interceptors
+
+
+def ragost_deft_gastronaut_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Artifacts you control are Foods with sac->3 life. Sac Food -> 3 dmg each opponent. EOT untap if life gained."""
+    interceptors = []
+
+    # Grant Food subtype to artifacts you control
+    from src.cards.interceptor_helpers import type_grant_interceptor
+
+    def your_artifacts(target: GameObject, state: GameState) -> bool:
+        if target.controller != obj.controller:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        return CardType.ARTIFACT in target.characteristics.types
+
+    interceptors.append(type_grant_interceptor(obj, ['Food'], affects_filter=your_artifacts))
+
+    # engine gap: activated abilities (sac->3 life, sac food->3 damage), self-untap-if-lifegain
+    return interceptors
+
+
+def sami_wildcat_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Double strike vigilance; spells have affinity for artifacts."""
+    # engine gap: affinity-for-artifacts cost reduction
+    return []
+
+
+def allfates_scroll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: any color mana; {7}{T} sac: draw X cards (differently named lands)."""
+    # engine gap: tap-for-any-color + sac-and-draw with dynamic X
+    return []
+
+
+def bygone_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Warp."""
+    # engine gap: warp casting
+    return []
+
+
+def dawnsire_sunstar_dreadnought_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Station 10+/20+ effects."""
+    interceptors = []
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: requires station >=10 charge counters; targeted 100 damage
+        return []
+    interceptors.append(make_attack_trigger(obj, attack_effect))
+    return interceptors
+
+
+def the_dominion_bracelet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipped +1/+1 with control-opponent ability. Equip {1}."""
+    # engine gap: control-opponent activated ability with dynamic cost
+    return []
+
+
+def the_endstone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you play land or cast spell, draw. EOT: life becomes half starting life."""
+    interceptors = []
+
+    def play_or_cast_filter(event: Event, state: GameState) -> bool:
+        if event.type == EventType.CAST or event.type == EventType.SPELL_CAST:
+            caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+            return caster == obj.controller
+        if event.type == EventType.ZONE_CHANGE:
+            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+                return False
+            entering_id = event.payload.get('object_id')
+            entering = state.objects.get(entering_id)
+            if not entering:
+                return False
+            if entering.controller != obj.controller:
+                return False
+            return CardType.LAND in entering.characteristics.types
+        return False
+
+    def draw_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id
+        )]
+
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=play_or_cast_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_effect(e, s)),
+        duration='while_on_battlefield'
+    ))
+
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: setting life total to specific value (half starting life rounded up)
+        return []
+    interceptors.append(make_end_step_trigger(obj, end_step_effect))
+    return interceptors
+
+
+def the_eternity_elevator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: Add CCC. Station 20+: tap for X mana (charge counters)."""
+    # engine gap: activated mana abilities with charge-counter scaling
+    return []
+
+
+def survey_mechan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying; hexproof; {10}, sac: 3 damage + draw 3 + 3 life. Cost reduction by named lands."""
+    # engine gap: activated ability with sac cost + dynamic cost reduction
+    return []
+
+
+def thaumaton_torpedo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{6}{T} sac: destroy nonland. -3 cost if attacked with Spacecraft this turn."""
+    # engine gap: activated ability + dynamic cost reduction (per-turn attack tracking)
+    return []
+
+
+def adagia_windswept_bastion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Land enters tapped; {T}: W; Station 12+ activated ability."""
+    # engine gap: enters-tapped land + station-charge-counter gated activated ability
+    return []
+
+
+def breeding_pool_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Shockland: pay 2 life or enters tapped."""
+    # engine gap: enters-tapped-unless-pay choice
+    return []
+
+
+def command_bridge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enters tapped; sacrifice unless tap; tap for any color."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # engine gap: sacrifice-unless-tap-untapped-permanent cost
+        return []
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def evendo_waking_haven_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enters tapped; {T}: G; Station 12+ activated ability."""
+    # engine gap: station-charge-counter gated activated ability
+    return []
+
+
+def godless_shrine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Shockland: pay 2 life or enters tapped."""
+    # engine gap: enters-tapped-unless-pay choice
+    return []
+
+
+def kavaron_memorial_world_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enters tapped; {T}: R; Station 12+ activated ability."""
+    # engine gap: station-charge-counter gated activated ability
+    return []
+
+
+def sacred_foundry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Shockland: pay 2 life or enters tapped."""
+    # engine gap: enters-tapped-unless-pay choice
+    return []
+
+
+def secluded_starforge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Activated abilities (Robot tokens, Spacecraft pump)."""
+    # engine gap: tap-X-artifacts activated ability + token-creation activated ability
+    return []
+
+
+def stomping_ground_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Shockland: pay 2 life or enters tapped."""
+    # engine gap: enters-tapped-unless-pay choice
+    return []
+
+
+def susur_secundi_void_altar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enters tapped; {T}: B; Station 12+ activated ability (sac creature draw cards)."""
+    # engine gap: station-charge-counter gated activated ability
+    return []
+
+
+def uthros_titanic_godcore_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enters tapped; {T}: U; Station 12+ activated ability (U per artifact)."""
+    # engine gap: station-charge-counter gated activated ability
+    return []
+
+
+def watery_grave_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Shockland: pay 2 life or enters tapped."""
+    # engine gap: enters-tapped-unless-pay choice
+    return []
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -2025,6 +3156,7 @@ ANTICAUSAL_VESTIGE = make_creature(
     colors=set(),
     subtypes={"Eldrazi"},
     text="When this creature leaves the battlefield, draw a card, then you may put a permanent card with mana value less than or equal to the number of lands you control from your hand onto the battlefield tapped.\nWarp {4} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=anticausal_vestige_setup,
 )
 
 TEZZERET_CRUEL_CAPTAIN = make_planeswalker(
@@ -2035,6 +3167,7 @@ TEZZERET_CRUEL_CAPTAIN = make_planeswalker(
     subtypes={"Tezzeret"},
     supertypes={"Legendary"},
     text="Whenever an artifact you control enters, put a loyalty counter on Tezzeret.\n0: Untap target artifact or creature. If it's an artifact creature, put a +1/+1 counter on it.\n−3: Search your library for an artifact card with mana value 1 or less, reveal it, put it into your hand, then shuffle.\n−7: You get an emblem with \"At the beginning of combat on your turn, put three +1/+1 counters on target artifact you control. If it's not a creature, it becomes a 0/0 Robot artifact creature.\"",
+    setup_interceptors=tezzeret_cruel_captain_setup,
 )
 
 ALLFATES_STALKER = make_creature(
@@ -2044,6 +3177,7 @@ ALLFATES_STALKER = make_creature(
     colors={Color.WHITE},
     subtypes={"Assassin", "Drix"},
     text="When this creature enters, exile up to one target non-Assassin creature until this creature leaves the battlefield.\nWarp {1}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=allfates_stalker_setup,
 )
 
 ASTELLI_RECLAIMER = make_creature(
@@ -2053,6 +3187,7 @@ ASTELLI_RECLAIMER = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel", "Warrior"},
     text="Flying\nWhen this creature enters, return target noncreature, nonland permanent card with mana value X or less from your graveyard to the battlefield, where X is the amount of mana spent to cast this creature.\nWarp {2}{W}",
+    setup_interceptors=astelli_reclaimer_setup,
 )
 
 AUXILIARY_BOOSTERS = make_artifact(
@@ -2068,6 +3203,7 @@ BANISHING_LIGHT = make_enchantment(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="When this enchantment enters, exile target nonland permanent an opponent controls until this enchantment leaves the battlefield.",
+    setup_interceptors=banishing_light_setup,
 )
 
 BEYOND_THE_QUIET = make_sorcery(
@@ -2124,6 +3260,7 @@ DUALSUN_ADEPTS = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Double strike\n{5}: Creatures you control get +1/+1 until end of turn.",
+    setup_interceptors=dualsun_adepts_setup,
 )
 
 DUALSUN_TECHNIQUE = make_instant(
@@ -2147,6 +3284,7 @@ EXALTED_SUNBORN = make_creature(
     colors={Color.WHITE},
     subtypes={"Angel", "Wizard"},
     text="Flying, lifelink\nIf one or more tokens would be created under your control, twice that many of those tokens are created instead.\nWarp {1}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=exalted_sunborn_setup,
 )
 
 EXOSUIT_SAVIOR = make_creature(
@@ -2193,6 +3331,7 @@ HARDLIGHT_CONTAINMENT = make_enchantment(
     colors={Color.WHITE},
     text="Enchant artifact you control\nWhen this Aura enters, exile target creature an opponent controls until this Aura leaves the battlefield.\nEnchanted permanent has ward {1}.",
     subtypes={"Aura"},
+    setup_interceptors=hardlight_containment_setup,
 )
 
 HONOR = make_sorcery(
@@ -2247,12 +3386,14 @@ LUXKNIGHT_BREACHER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
     text="This creature enters with a +1/+1 counter on it for each other creature and/or artifact you control.",
+    setup_interceptors=luxknight_breacher_setup,
 )
 
 PINNACLE_STARCAGE = make_artifact(
     name="Pinnacle Starcage",
     mana_cost="{1}{W}{W}",
     text="When this artifact enters, exile all artifacts and creatures with mana value 2 or less until this artifact leaves the battlefield.\n{6}{W}{W}: Put each card exiled with this artifact into its owner's graveyard, then create a 2/2 colorless Robot artifact creature token for each card put into a graveyard this way. Sacrifice this artifact.",
+    setup_interceptors=pinnacle_starcage_setup,
 )
 
 PULSAR_SQUADRON_ACE = make_creature(
@@ -2309,6 +3450,7 @@ SEAM_RIP = make_enchantment(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="When this enchantment enters, exile target nonland permanent an opponent controls with mana value 2 or less until this enchantment leaves the battlefield.",
+    setup_interceptors=seam_rip_setup,
 )
 
 THE_SERIEMA = make_artifact(
@@ -2317,6 +3459,7 @@ THE_SERIEMA = make_artifact(
     text="When The Seriema enters, search your library for a legendary creature card, reveal it, put it into your hand, then shuffle.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 7+.)\n7+ | Flying\nOther tapped legendary creatures you control have indestructible.",
     subtypes={"Spacecraft"},
     supertypes={"Legendary"},
+    setup_interceptors=the_seriema_setup,
 )
 
 SQUIRES_LIGHTBLADE = make_artifact(
@@ -2324,6 +3467,7 @@ SQUIRES_LIGHTBLADE = make_artifact(
     mana_cost="{W}",
     text="Flash\nWhen this Equipment enters, attach it to target creature you control. That creature gains first strike until end of turn.\nEquipped creature gets +1/+0.\nEquip {3}",
     subtypes={"Equipment"},
+    setup_interceptors=squires_lightblade_setup,
 )
 
 STARFIELD_SHEPHERD = make_creature(
@@ -2353,6 +3497,7 @@ STARPORT_SECURITY = make_artifact_creature(
     colors={Color.WHITE},
     subtypes={"Robot", "Soldier"},
     text="{3}{W}, {T}: Tap another target creature. This ability costs {2} less to activate if you control a creature with a +1/+1 counter on it.",
+    setup_interceptors=starport_security_setup,
 )
 
 SUNSTAR_CHAPLAIN = make_creature(
@@ -2372,6 +3517,7 @@ SUNSTAR_EXPANSIONIST = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
     text="When this creature enters, if an opponent controls more lands than you, create a Lander token. (It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")\nLandfall — Whenever a land you control enters, this creature gets +1/+0 until end of turn.",
+    setup_interceptors=sunstar_expansionist_setup,
 )
 
 SUNSTAR_LIGHTSMITH = make_creature(
@@ -2421,6 +3567,7 @@ ATOMIC_MICROSIZER = make_artifact(
     mana_cost="{U}",
     text="Equipped creature gets +1/+0.\nWhenever equipped creature attacks, choose up to one target creature. That creature can't be blocked this turn and has base power and toughness 1/1 until end of turn.\nEquip {2}",
     subtypes={"Equipment"},
+    setup_interceptors=atomic_microsizer_setup,
 )
 
 CEREBRAL_DOWNLOAD = make_instant(
@@ -2470,6 +3617,7 @@ CRYOSHATTER = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature\nEnchanted creature gets -5/-0.\nWhen enchanted creature becomes tapped or is dealt damage, destroy it.",
     subtypes={"Aura"},
+    setup_interceptors=cryoshatter_setup,
 )
 
 DESCULPTING_BLAST = make_instant(
@@ -2503,6 +3651,7 @@ GIGASTORM_TITAN = make_creature(
     colors={Color.BLUE},
     subtypes={"Elemental"},
     text="This spell costs {3} less to cast if you've cast another spell this turn.",
+    setup_interceptors=gigastorm_titan_setup,
 )
 
 ILLVOI_GALEBLADE = make_creature(
@@ -2512,6 +3661,7 @@ ILLVOI_GALEBLADE = make_creature(
     colors={Color.BLUE},
     subtypes={"Jellyfish", "Warrior"},
     text="Flash\nFlying\n{2}, Sacrifice this creature: Draw a card.",
+    setup_interceptors=illvoi_galeblade_setup,
 )
 
 ILLVOI_INFILTRATOR = make_creature(
@@ -2529,6 +3679,7 @@ ILLVOI_LIGHT_JAMMER = make_artifact(
     mana_cost="{1}{U}",
     text="Flash\nWhen this Equipment enters, attach it to target creature you control. That creature gains hexproof until end of turn. (It can't be the target of spells or abilities your opponents control.)\nEquipped creature gets +1/+2.\nEquip {3}",
     subtypes={"Equipment"},
+    setup_interceptors=illvoi_light_jammer_setup,
 )
 
 ILLVOI_OPERATIVE = make_creature(
@@ -2575,6 +3726,7 @@ MECHAN_SHIELDMATE = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Robot", "Soldier"},
     text="Defender\nAs long as an artifact entered the battlefield under your control this turn, this creature can attack as though it didn't have defender.",
+    setup_interceptors=mechan_shieldmate_setup,
 )
 
 MECHANOZOA = make_artifact_creature(
@@ -2602,6 +3754,7 @@ MMMENON_THE_RIGHT_HAND = make_creature(
     subtypes={"Advisor", "Jellyfish"},
     supertypes={"Legendary"},
     text="Flying\nYou may look at the top card of your library any time.\nYou may cast artifact spells from the top of your library.\nArtifacts you control have \"{T}: Add {U}. Spend this mana only to cast a spell from anywhere other than your hand.\"",
+    setup_interceptors=mmmenon_the_right_hand_setup,
 )
 
 MOONLIT_MEDITATION = make_enchantment(
@@ -2610,6 +3763,7 @@ MOONLIT_MEDITATION = make_enchantment(
     colors={Color.BLUE},
     text="Enchant artifact or creature you control\nThe first time you would create one or more tokens each turn, you may instead create that many tokens that are copies of enchanted permanent.",
     subtypes={"Aura"},
+    setup_interceptors=moonlit_meditation_setup,
 )
 
 MOUTH_OF_THE_STORM = make_creature(
@@ -2674,6 +3828,7 @@ SPECIMEN_FREIGHTER = make_artifact(
     mana_cost="{5}{U}",
     text="When this Spacecraft enters, return up to two target non-Spacecraft creatures to their owners' hands.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 9+.)\n9+ | Flying\nWhenever this Spacecraft attacks, defending player mills four cards.",
     subtypes={"Spacecraft"},
+    setup_interceptors=specimen_freighter_setup,
 )
 
 STARBREACH_WHALE = make_creature(
@@ -2693,6 +3848,7 @@ STARFIELD_VOCALIST = make_creature(
     colors={Color.BLUE},
     subtypes={"Bard", "Human"},
     text="If a permanent entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.\nWarp {1}{U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=starfield_vocalist_setup,
 )
 
 STARWINDER = make_creature(
@@ -2712,6 +3868,7 @@ STEELSWARM_OPERATOR = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Robot", "Soldier"},
     text="Flying\n{T}: Add {U}. Spend this mana only to cast an artifact spell.\n{T}: Add {U}{U}. Spend this mana only to activate abilities of artifact sources.",
+    setup_interceptors=steelswarm_operator_setup,
 )
 
 SYNTHESIZER_LABSHIP = make_artifact(
@@ -2719,6 +3876,7 @@ SYNTHESIZER_LABSHIP = make_artifact(
     mana_cost="{U}",
     text="Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 9+.)\n2+ | At the beginning of combat on your turn, up to one other target artifact you control becomes an artifact creature with base power and toughness 2/2 and gains flying until end of turn.\n9+ | Flying, vigilance",
     subtypes={"Spacecraft"},
+    setup_interceptors=synthesizer_labship_setup,
 )
 
 TRACTOR_BEAM = make_enchantment(
@@ -2727,6 +3885,7 @@ TRACTOR_BEAM = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature or Spacecraft\nWhen this Aura enters, tap enchanted permanent.\nYou control enchanted permanent.\nEnchanted permanent doesn't untap during its controller's untap step.",
     subtypes={"Aura"},
+    setup_interceptors=tractor_beam_setup,
 )
 
 UNRAVEL = make_instant(
@@ -2743,6 +3902,7 @@ UTHROS_PSIONICIST = make_creature(
     colors={Color.BLUE},
     subtypes={"Jellyfish", "Scientist"},
     text="The second spell you cast each turn costs {2} less to cast.",
+    setup_interceptors=uthros_psionicist_setup,
 )
 
 UTHROS_SCANSHIP = make_artifact(
@@ -2758,6 +3918,7 @@ WEFTWALKING = make_enchantment(
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
     text="When this enchantment enters, if you cast it, shuffle your hand and graveyard into your library, then draw seven cards.\nThe first spell each player casts during each of their turns may be cast without paying its mana cost.",
+    setup_interceptors=weftwalking_setup,
 )
 
 ALPHARAEL_STONECHOSEN = make_creature(
@@ -2768,6 +3929,7 @@ ALPHARAEL_STONECHOSEN = make_creature(
     subtypes={"Cleric", "Human"},
     supertypes={"Legendary"},
     text="Ward—Discard a card at random.\nVoid — Whenever Alpharael attacks, if a nonland permanent left the battlefield this turn or a spell was warped this turn, defending player loses half their life, rounded up.",
+    setup_interceptors=alpharael_stonechosen_setup,
 )
 
 ARCHENEMYS_CHARM = make_instant(
@@ -2794,6 +3956,7 @@ BLADE_OF_THE_SWARM = make_creature(
     colors={Color.BLACK},
     subtypes={"Assassin", "Insect"},
     text="When this creature enters, choose one —\n• Put two +1/+1 counters on this creature.\n• Put target exiled card with warp on the bottom of its owner's library.",
+    setup_interceptors=blade_of_the_swarm_setup,
 )
 
 CHORALE_OF_THE_VOID = make_enchantment(
@@ -2802,6 +3965,7 @@ CHORALE_OF_THE_VOID = make_enchantment(
     colors={Color.BLACK},
     text="Enchant creature you control\nWhenever enchanted creature attacks, put target creature card from defending player's graveyard onto the battlefield under your control tapped and attacking.\nVoid — At the beginning of your end step, sacrifice this Aura unless a nonland permanent left the battlefield this turn or a spell was warped this turn.",
     subtypes={"Aura"},
+    setup_interceptors=chorale_of_the_void_setup,
 )
 
 COMET_CRAWLER = make_creature(
@@ -2840,6 +4004,7 @@ DUBIOUS_DELICACY = make_artifact(
     mana_cost="{2}{B}",
     text="Flash\nWhen this artifact enters, up to one target creature gets -3/-3 until end of turn.\n{2}, {T}, Sacrifice this artifact: You gain 3 life.\n{2}, {T}, Sacrifice this artifact: Target opponent loses 3 life.",
     subtypes={"Food"},
+    setup_interceptors=dubious_delicacy_setup,
 )
 
 ELEGY_ACOLYTE = make_creature(
@@ -2864,6 +4029,7 @@ ENTROPIC_BATTLECRUISER = make_artifact(
     mana_cost="{3}{B}",
     text="Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 8+.)\n1+ | Whenever an opponent discards a card, they lose 3 life.\n8+ | Flying, deathtouch\nWhenever this Spacecraft attacks, each opponent discards a card. Each opponent who can't loses 3 life.",
     subtypes={"Spacecraft"},
+    setup_interceptors=entropic_battlecruiser_setup,
 )
 
 FALLERS_FAITHFUL = make_creature(
@@ -2873,6 +4039,7 @@ FALLERS_FAITHFUL = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Wizard"},
     text="When this creature enters, destroy up to one other target creature. If that creature wasn't dealt damage this turn, its controller draws two cards.",
+    setup_interceptors=fallers_faithful_setup,
 )
 
 FELL_GRAVSHIP = make_artifact(
@@ -2924,6 +4091,7 @@ HYLDERBLADE = make_artifact(
     mana_cost="{B}",
     text="Equipped creature gets +3/+1.\nVoid — At the beginning of your end step, if a nonland permanent left the battlefield this turn or a spell was warped this turn, attach this Equipment to target creature you control.\nEquip {4} ({4}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=hylderblade_setup,
 )
 
 HYMN_OF_THE_FALLER = make_sorcery(
@@ -2940,6 +4108,7 @@ INSATIABLE_SKITTERMAW = make_creature(
     colors={Color.BLACK},
     subtypes={"Horror", "Insect"},
     text="Menace (This creature can't be blocked except by two or more creatures.)\nVoid — At the beginning of your end step, if a nonland permanent left the battlefield this turn or a spell was warped this turn, put a +1/+1 counter on this creature.",
+    setup_interceptors=insatiable_skittermaw_setup,
 )
 
 LIGHTLESS_EVANGEL = make_creature(
@@ -2978,12 +4147,14 @@ PERIGEE_BECKONER = make_creature(
     colors={Color.BLACK},
     subtypes={"Horror"},
     text="When this creature enters, until end of turn, another target creature you control gets +2/+0 and gains \"When this creature dies, return it to the battlefield tapped under its owner's control.\"\nWarp {1}{B} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=perigee_beckoner_setup,
 )
 
 REQUIEM_MONOLITH = make_artifact(
     name="Requiem Monolith",
     mana_cost="{2}{B}",
     text="{T}: Until end of turn, target creature gains \"Whenever this creature is dealt damage, you draw that many cards and lose that much life.\" That creature's controller may have this artifact deal 1 damage to it. Activate only as a sorcery.",
+    setup_interceptors=requiem_monolith_setup,
 )
 
 SCROUNGE_FOR_ETERNITY = make_sorcery(
@@ -3009,6 +4180,7 @@ SUNSET_SABOTEUR = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Rogue"},
     text="Menace\nWard—Discard a card.\nWhenever this creature attacks, put a +1/+1 counter on target creature an opponent controls.",
+    setup_interceptors=sunset_saboteur_setup,
 )
 
 SUSURIAN_DIRGECRAFT = make_artifact(
@@ -3053,6 +4225,7 @@ TIMELINE_CULLER = make_creature(
     colors={Color.BLACK},
     subtypes={"Drix", "Warlock"},
     text="Haste\nYou may cast this card from your graveyard using its warp ability.\nWarp—{B}, Pay 2 life. (You may cast this card from your hand or graveyard for its warp cost. If you do, exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=timeline_culler_setup,
 )
 
 TRAGIC_TRAJECTORY = make_sorcery(
@@ -3069,6 +4242,7 @@ UMBRAL_COLLAR_ZEALOT = make_creature(
     colors={Color.BLACK},
     subtypes={"Cleric", "Human"},
     text="Sacrifice another creature or artifact: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=umbral_collar_zealot_setup,
 )
 
 VIRUS_BEETLE = make_artifact_creature(
@@ -3088,6 +4262,7 @@ VOIDFORGED_TITAN = make_artifact_creature(
     colors={Color.BLACK},
     subtypes={"Robot", "Warrior"},
     text="Void — At the beginning of your end step, if a nonland permanent left the battlefield this turn or a spell was warped this turn, you draw a card and lose 1 life.",
+    setup_interceptors=voidforged_titan_setup,
 )
 
 VOTE_OUT = make_sorcery(
@@ -3105,6 +4280,7 @@ XUIFIT_OSTEOHARMONIST = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="{T}: Return target creature card from your graveyard to the battlefield. It's a Skeleton in addition to its other types and has no abilities. Activate only as a sorcery.",
+    setup_interceptors=xuifit_osteoharmonist_setup,
 )
 
 ZERO_POINT_BALLAD = make_sorcery(
@@ -3172,6 +4348,7 @@ GALVANIZING_SAWSHIP = make_artifact(
     mana_cost="{5}{R}",
     text="Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 3+.)\n3+ | Flying, haste",
     subtypes={"Spacecraft"},
+    setup_interceptors=galvanizing_sawship_setup,
 )
 
 INVASIVE_MANEUVERS = make_instant(
@@ -3208,6 +4385,7 @@ KAVARON_SKYWARDEN = make_creature(
     colors={Color.RED},
     subtypes={"Kavu", "Soldier"},
     text="Reach\nVoid — At the beginning of your end step, if a nonland permanent left the battlefield this turn or a spell was warped this turn, put a +1/+1 counter on this creature.",
+    setup_interceptors=kavaron_skywarden_setup,
 )
 
 KAVARON_TURBODRONE = make_artifact_creature(
@@ -3217,6 +4395,7 @@ KAVARON_TURBODRONE = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Robot", "Scout"},
     text="{T}: Target creature you control gets +1/+1 and gains haste until end of turn. Activate only as a sorcery.",
+    setup_interceptors=kavaron_turbodrone_setup,
 )
 
 LITHOBRAKING = make_instant(
@@ -3247,6 +4426,7 @@ MEMORIAL_VAULT = make_artifact(
     name="Memorial Vault",
     mana_cost="{3}{R}",
     text="{T}, Sacrifice another artifact: Exile the top X cards of your library, where X is one plus the mana value of the sacrificed artifact. You may play those cards this turn.",
+    setup_interceptors=memorial_vault_setup,
 )
 
 MOLECULAR_MODIFIER = make_creature(
@@ -3302,6 +4482,7 @@ PAIN_FOR_ALL = make_enchantment(
     colors={Color.RED},
     text="Enchant creature you control\nWhen this Aura enters, enchanted creature deals damage equal to its power to any other target.\nWhenever enchanted creature is dealt damage, it deals that much damage to each opponent.",
     subtypes={"Aura"},
+    setup_interceptors=pain_for_all_setup,
 )
 
 PLASMA_BOLT = make_sorcery(
@@ -3318,6 +4499,7 @@ POSSIBILITY_TECHNICIAN = make_creature(
     colors={Color.RED},
     subtypes={"Artificer", "Kavu"},
     text="Whenever this creature or another Kavu you control enters, exile the top card of your library. For as long as that card remains exiled, you may play it if you control a Kavu.\nWarp {1}{R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=possibility_technician_setup,
 )
 
 RED_TIGER_MECHAN = make_artifact_creature(
@@ -3327,6 +4509,7 @@ RED_TIGER_MECHAN = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Cat", "Robot"},
     text="Haste\nWarp {1}{R} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=red_tiger_mechan_setup,
 )
 
 REMNANT_ELEMENTAL = make_creature(
@@ -3353,6 +4536,7 @@ ROVING_ACTUATOR = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Robot"},
     text="Void — When this creature enters, if a nonland permanent left the battlefield this turn or a spell was warped this turn, exile up to one target instant or sorcery card with mana value 2 or less from your graveyard. Copy it. You may cast the copy without paying its mana cost.",
+    setup_interceptors=roving_actuator_setup,
 )
 
 RUINOUS_RAMPAGE = make_sorcery(
@@ -3369,6 +4553,7 @@ RUST_HARVESTER = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Robot"},
     text="Menace\n{2}, {T}, Exile an artifact card from your graveyard: Put a +1/+1 counter on this creature, then it deals damage equal to its power to any target.",
+    setup_interceptors=rust_harvester_setup,
 )
 
 SLAGDRILL_SCRAPPER = make_artifact_creature(
@@ -3378,6 +4563,7 @@ SLAGDRILL_SCRAPPER = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Robot", "Scout"},
     text="{2}, {T}, Sacrifice another artifact or land: Draw a card.",
+    setup_interceptors=slagdrill_scrapper_setup,
 )
 
 SYSTEMS_OVERRIDE = make_sorcery(
@@ -3412,6 +4598,7 @@ TERRAPACT_INTIMIDATOR = make_creature(
     colors={Color.RED},
     subtypes={"Kavu", "Scout"},
     text="When this creature enters, target opponent may have you create two Lander tokens. If they don't, put two +1/+1 counters on this creature. (A Lander token is an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")",
+    setup_interceptors=terrapact_intimidator_setup,
 )
 
 TERRITORIAL_BRUNTAR = make_creature(
@@ -3421,6 +4608,7 @@ TERRITORIAL_BRUNTAR = make_creature(
     colors={Color.RED},
     subtypes={"Beast"},
     text="Reach\nLandfall — Whenever a land you control enters, exile cards from the top of your library until you exile a nonland card. You may cast that card this turn.",
+    setup_interceptors=territorial_bruntar_setup,
 )
 
 VAULTGUARD_TROOPER = make_creature(
@@ -3466,6 +4654,7 @@ ZOOKEEPER_MECHAN = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Robot"},
     text="{T}: Add {R}.\n{6}{R}: Target creature you control gets +4/+0 until end of turn. Activate only as a sorcery.",
+    setup_interceptors=zookeeper_mechan_setup,
 )
 
 ATMOSPHERIC_GREENHOUSE = make_artifact(
@@ -3481,6 +4670,7 @@ BIOENGINEERED_FUTURE = make_enchantment(
     mana_cost="{1}{G}{G}",
     colors={Color.GREEN},
     text="When this enchantment enters, create a Lander token. (It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")\nEach creature you control enters with an additional +1/+1 counter on it for each land that entered the battlefield under your control this turn.",
+    setup_interceptors=bioengineered_future_setup,
 )
 
 BIOSYNTHIC_BURST = make_instant(
@@ -3507,6 +4697,7 @@ BROODGUARD_ELITE = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect", "Knight"},
     text="This creature enters with X +1/+1 counters on it.\nWhen this creature leaves the battlefield, put its counters on target creature you control.\nWarp {X}{G} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=broodguard_elite_setup,
 )
 
 CLOSE_ENCOUNTER = make_instant(
@@ -3558,6 +4749,7 @@ EUSOCIAL_ENGINEERING = make_enchantment(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     text="Landfall — Whenever a land you control enters, create a 2/2 colorless Robot artifact creature token.\nWarp {1}{G} (You may cast this card from your hand for its warp cost. Exile this enchantment at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=eusocial_engineering_setup,
 )
 
 FAMISHED_WORLDSIRE = make_creature(
@@ -3567,6 +4759,7 @@ FAMISHED_WORLDSIRE = make_creature(
     colors={Color.GREEN},
     subtypes={"Leviathan"},
     text="Ward {3}\nDevour land 3 (As this creature enters, you may sacrifice any number of lands. It enters with three times that many +1/+1 counters on it.)\nWhen this creature enters, look at the top X cards of your library, where X is this creature's power. Put any number of land cards from among them onto the battlefield tapped, then shuffle.",
+    setup_interceptors=famished_worldsire_setup,
 )
 
 FRENZIED_BALOTH = make_creature(
@@ -3576,6 +4769,7 @@ FRENZIED_BALOTH = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast"},
     text="This spell can't be countered.\nTrample, haste\nCreature spells you control can't be countered.\nCombat damage can't be prevented.",
+    setup_interceptors=frenzied_baloth_setup,
 )
 
 FUNGAL_COLOSSUS = make_creature(
@@ -3585,6 +4779,7 @@ FUNGAL_COLOSSUS = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast", "Fungus"},
     text="This spell costs {X} less to cast, where X is the number of differently named lands you control.",
+    setup_interceptors=fungal_colossus_setup,
 )
 
 GALACTIC_WAYFARER = make_creature(
@@ -3604,6 +4799,7 @@ GENE_POLLINATOR = make_artifact_creature(
     colors={Color.GREEN},
     subtypes={"Insect", "Robot"},
     text="{T}, Tap an untapped permanent you control: Add one mana of any color.",
+    setup_interceptors=gene_pollinator_setup,
 )
 
 GERMINATING_WURM = make_creature(
@@ -3663,6 +4859,7 @@ ICETILL_EXPLORER = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect", "Scout"},
     text="You may play an additional land on each of your turns.\nYou may play lands from your graveyard.\nLandfall — Whenever a land you control enters, mill a card.",
+    setup_interceptors=icetill_explorer_setup,
 )
 
 INTREPID_TENDERFOOT = make_creature(
@@ -3672,6 +4869,7 @@ INTREPID_TENDERFOOT = make_creature(
     colors={Color.GREEN},
     subtypes={"Citizen", "Insect"},
     text="{3}: Put a +1/+1 counter on this creature. Activate only as a sorcery.",
+    setup_interceptors=intrepid_tenderfoot_setup,
 )
 
 LARVAL_SCOUTLANDER = make_artifact(
@@ -3679,6 +4877,7 @@ LARVAL_SCOUTLANDER = make_artifact(
     mana_cost="{2}{G}",
     text="When this Spacecraft enters, you may sacrifice a land or Lander. If you do, search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 7+.)\n7+ | Flying",
     subtypes={"Spacecraft"},
+    setup_interceptors=larval_scoutlander_setup,
 )
 
 LASHWHIP_PREDATOR = make_creature(
@@ -3688,6 +4887,7 @@ LASHWHIP_PREDATOR = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast", "Plant"},
     text="This spell costs {2} less to cast if your opponents control three or more creatures.\nReach",
+    setup_interceptors=lashwhip_predator_setup,
 )
 
 LOADING_ZONE = make_enchantment(
@@ -3695,6 +4895,7 @@ LOADING_ZONE = make_enchantment(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="If one or more counters would be put on a creature, Spacecraft, or Planet you control, twice that many of each of those kinds of counters are put on it instead.\nWarp {G} (You may cast this card from your hand for its warp cost. Exile this enchantment at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=loading_zone_setup,
 )
 
 MELTSTRIDER_EULOGIST = make_creature(
@@ -3712,6 +4913,7 @@ MELTSTRIDERS_GEAR = make_artifact(
     mana_cost="{G}",
     text="When this Equipment enters, attach it to target creature you control.\nEquipped creature gets +2/+1 and has reach.\nEquip {5} ({5}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
+    setup_interceptors=meltstriders_gear_setup,
 )
 
 MELTSTRIDERS_RESOLVE = make_enchantment(
@@ -3720,6 +4922,7 @@ MELTSTRIDERS_RESOLVE = make_enchantment(
     colors={Color.GREEN},
     text="Enchant creature you control\nWhen this Aura enters, enchanted creature fights up to one target creature an opponent controls. (Each deals damage equal to its power to the other.)\nEnchanted creature gets +0/+2 and can't be blocked by more than one creature.",
     subtypes={"Aura"},
+    setup_interceptors=meltstriders_resolve_setup,
 )
 
 MIGHTFORM_HARMONIZER = make_creature(
@@ -3729,6 +4932,7 @@ MIGHTFORM_HARMONIZER = make_creature(
     colors={Color.GREEN},
     subtypes={"Druid", "Insect"},
     text="Landfall — Whenever a land you control enters, double the power of target creature you control until end of turn.\nWarp {2}{G} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=mightform_harmonizer_setup,
 )
 
 OUROBOROID = make_creature(
@@ -3794,6 +4998,7 @@ SLEDGECLASS_SEEDSHIP = make_artifact(
     mana_cost="{2}{G}",
     text="Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 7+.)\n7+ | Flying\nWhenever this Spacecraft attacks, you may put a creature card from your hand onto the battlefield.",
     subtypes={"Spacecraft"},
+    setup_interceptors=sledgeclass_seedship_setup,
 )
 
 TAPESTRY_WARDEN = make_artifact_creature(
@@ -3811,6 +5016,7 @@ TERRASYMBIOSIS = make_enchantment(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Whenever you put one or more +1/+1 counters on a creature you control, you may draw that many cards. Do this only once each turn.",
+    setup_interceptors=terrasymbiosis_setup,
 )
 
 THAWBRINGER = make_creature(
@@ -3872,6 +5078,7 @@ DYADRINE_SYNTHESIS_AMALGAM = make_artifact_creature(
     subtypes={"Construct"},
     supertypes={"Legendary"},
     text="Trample\nDyadrine enters with a number of +1/+1 counters on it equal to the amount of mana spent to cast it.\nWhenever you attack, you may remove a +1/+1 counter from each of two creatures you control. If you do, draw a card and create a 2/2 colorless Robot artifact creature token.",
+    setup_interceptors=dyadrine_synthesis_amalgam_setup,
 )
 
 GENEMORPH_IMAGO = make_creature(
@@ -3881,6 +5088,7 @@ GENEMORPH_IMAGO = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Druid", "Insect"},
     text="Flying\nLandfall — Whenever a land you control enters, target creature has base power and toughness 3/3 until end of turn. If you control six or more lands, that creature has base power and toughness 6/6 until end of turn instead.",
+    setup_interceptors=genemorph_imago_setup,
 )
 
 HALIYA_ASCENDANT_CADET = make_creature(
@@ -3900,6 +5108,7 @@ INFINITE_GUIDELINE_STATION = make_artifact(
     text="When Infinite Guideline Station enters, create a tapped 2/2 colorless Robot artifact creature token for each multicolored permanent you control.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 12+.)\n12+ | Flying\nWhenever Infinite Guideline Station attacks, draw a card for each multicolored permanent you control.",
     subtypes={"Spacecraft"},
     supertypes={"Legendary"},
+    setup_interceptors=infinite_guideline_station_setup,
 )
 
 INTERCEPTOR_MECHAN = make_artifact_creature(
@@ -3948,6 +5157,7 @@ RAGOST_DEFT_GASTRONAUT = make_creature(
     subtypes={"Citizen", "Lobster"},
     supertypes={"Legendary"},
     text="Artifacts you control are Foods in addition to their other types and have \"{2}, {T}, Sacrifice this artifact: You gain 3 life.\"\n{1}, {T}, Sacrifice a Food: Ragost deals 3 damage to each opponent.\nAt the beginning of each end step, if you gained life this turn, untap Ragost.",
+    setup_interceptors=ragost_deft_gastronaut_setup,
 )
 
 SAMI_SHIPS_ENGINEER = make_creature(
@@ -3969,6 +5179,7 @@ SAMI_WILDCAT_CAPTAIN = make_creature(
     subtypes={"Artificer", "Human", "Rogue"},
     supertypes={"Legendary"},
     text="Double strike, vigilance\nSpells you cast have affinity for artifacts. (They cost {1} less to cast for each artifact you control.)",
+    setup_interceptors=sami_wildcat_captain_setup,
 )
 
 SEEDSHIP_BROODTENDER = make_creature(
@@ -4042,6 +5253,7 @@ ALLFATES_SCROLL = make_artifact(
     name="All-Fates Scroll",
     mana_cost="{3}",
     text="{T}: Add one mana of any color.\n{7}, {T}, Sacrifice this artifact: Draw X cards, where X is the number of differently named lands you control.",
+    setup_interceptors=allfates_scroll_setup,
 )
 
 BYGONE_COLOSSUS = make_artifact_creature(
@@ -4051,6 +5263,7 @@ BYGONE_COLOSSUS = make_artifact_creature(
     colors=set(),
     subtypes={"Giant", "Robot"},
     text="Warp {3} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+    setup_interceptors=bygone_colossus_setup,
 )
 
 CHROME_COMPANION = make_artifact_creature(
@@ -4079,6 +5292,7 @@ DAWNSIRE_SUNSTAR_DREADNOUGHT = make_artifact(
     text="Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 20+.)\n10+ | Whenever you attack, Dawnsire deals 100 damage to up to one target creature or planeswalker.\n20+ | Flying",
     subtypes={"Spacecraft"},
     supertypes={"Legendary"},
+    setup_interceptors=dawnsire_sunstar_dreadnought_setup,
 )
 
 THE_DOMINION_BRACELET = make_artifact(
@@ -4087,6 +5301,7 @@ THE_DOMINION_BRACELET = make_artifact(
     text="Equipped creature gets +1/+1 and has \"{15}, Exile The Dominion Bracelet: You control target opponent during their next turn. This ability costs {X} less to activate, where X is this creature's power. Activate only as a sorcery.\" (You see all cards that player could see and make all decisions for them.)\nEquip {1}",
     subtypes={"Equipment"},
     supertypes={"Legendary"},
+    setup_interceptors=the_dominion_bracelet_setup,
 )
 
 THE_ENDSTONE = make_artifact(
@@ -4094,6 +5309,7 @@ THE_ENDSTONE = make_artifact(
     mana_cost="{7}",
     text="Whenever you play a land or cast a spell, draw a card.\nAt the beginning of your end step, your life total becomes half your starting life total, rounded up.",
     supertypes={"Legendary"},
+    setup_interceptors=the_endstone_setup,
 )
 
 THE_ETERNITY_ELEVATOR = make_artifact(
@@ -4102,6 +5318,7 @@ THE_ETERNITY_ELEVATOR = make_artifact(
     text="{T}: Add {C}{C}{C}.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery.)\n20+ | {T}: Add X mana of any one color, where X is the number of charge counters on The Eternity Elevator.",
     subtypes={"Spacecraft"},
     supertypes={"Legendary"},
+    setup_interceptors=the_eternity_elevator_setup,
 )
 
 EXTINGUISHER_BATTLESHIP = make_artifact(
@@ -4135,12 +5352,14 @@ SURVEY_MECHAN = make_artifact_creature(
     colors=set(),
     subtypes={"Robot"},
     text="Flying\nHexproof (This creature can't be the target of spells or abilities your opponents control.)\n{10}, Sacrifice this creature: It deals 3 damage to any target. Target player draws three cards and gains 3 life. This ability costs {X} less to activate, where X is the number of differently named lands you control.",
+    setup_interceptors=survey_mechan_setup,
 )
 
 THAUMATON_TORPEDO = make_artifact(
     name="Thaumaton Torpedo",
     mana_cost="{1}",
     text="{6}, {T}, Sacrifice this artifact: Destroy target nonland permanent. This ability costs {3} less to activate if you attacked with a Spacecraft this turn.",
+    setup_interceptors=thaumaton_torpedo_setup,
 )
 
 THRUMMING_HIVEPOOL = make_artifact(
@@ -4172,70 +5391,82 @@ ADAGIA_WINDSWEPT_BASTION = make_land(
     name="Adagia, Windswept Bastion",
     text="This land enters tapped.\n{T}: Add {W}.\nStation (Tap another creature you control: Put charge counters equal to its power on this Planet. Station only as a sorcery.)\n12+ | {3}{W}, {T}: Create a token that's a copy of target artifact or enchantment you control, except it's legendary. Activate only as a sorcery.",
     subtypes={"Planet"},
+    setup_interceptors=adagia_windswept_bastion_setup,
 )
 
 BREEDING_POOL = make_land(
     name="Breeding Pool",
     text="({T}: Add {G} or {U}.)\nAs this land enters, you may pay 2 life. If you don't, it enters tapped.",
     subtypes={"Forest", "Island"},
+    setup_interceptors=breeding_pool_setup,
 )
 
 COMMAND_BRIDGE = make_land(
     name="Command Bridge",
     text="This land enters tapped.\nWhen this land enters, sacrifice it unless you tap an untapped permanent you control.\n{T}: Add one mana of any color.",
+    setup_interceptors=command_bridge_setup,
 )
 
 EVENDO_WAKING_HAVEN = make_land(
     name="Evendo, Waking Haven",
     text="This land enters tapped.\n{T}: Add {G}.\nStation (Tap another creature you control: Put charge counters equal to its power on this Planet. Station only as a sorcery.)\n12+ | {G}, {T}: Add {G} for each creature you control.",
     subtypes={"Planet"},
+    setup_interceptors=evendo_waking_haven_setup,
 )
 
 GODLESS_SHRINE = make_land(
     name="Godless Shrine",
     text="({T}: Add {W} or {B}.)\nAs this land enters, you may pay 2 life. If you don't, it enters tapped.",
     subtypes={"Plains", "Swamp"},
+    setup_interceptors=godless_shrine_setup,
 )
 
 KAVARON_MEMORIAL_WORLD = make_land(
     name="Kavaron, Memorial World",
     text="This land enters tapped.\n{T}: Add {R}.\nStation (Tap another creature you control: Put charge counters equal to its power on this Planet. Station only as a sorcery.)\n12+ | {1}{R}, {T}, Sacrifice a land: Create a 2/2 colorless Robot artifact creature token, then creatures you control get +1/+0 and gain haste until end of turn.",
     subtypes={"Planet"},
+    setup_interceptors=kavaron_memorial_world_setup,
 )
 
 SACRED_FOUNDRY = make_land(
     name="Sacred Foundry",
     text="({T}: Add {R} or {W}.)\nAs this land enters, you may pay 2 life. If you don't, it enters tapped.",
     subtypes={"Mountain", "Plains"},
+    setup_interceptors=sacred_foundry_setup,
 )
 
 SECLUDED_STARFORGE = make_land(
     name="Secluded Starforge",
     text="{T}: Add {C}.\n{2}, {T}, Tap X untapped artifacts you control: Target creature gets +X/+0 until end of turn. Activate only as a sorcery.\n{5}, {T}: Create a 2/2 colorless Robot artifact creature token.",
+    setup_interceptors=secluded_starforge_setup,
 )
 
 STOMPING_GROUND = make_land(
     name="Stomping Ground",
     text="({T}: Add {R} or {G}.)\nAs this land enters, you may pay 2 life. If you don't, it enters tapped.",
     subtypes={"Forest", "Mountain"},
+    setup_interceptors=stomping_ground_setup,
 )
 
 SUSUR_SECUNDI_VOID_ALTAR = make_land(
     name="Susur Secundi, Void Altar",
     text="This land enters tapped.\n{T}: Add {B}.\nStation (Tap another creature you control: Put charge counters equal to its power on this Planet. Station only as a sorcery.)\n12+ | {1}{B}, {T}, Pay 2 life, Sacrifice a creature: Draw cards equal to the sacrificed creature's power. Activate only as a sorcery.",
     subtypes={"Planet"},
+    setup_interceptors=susur_secundi_void_altar_setup,
 )
 
 UTHROS_TITANIC_GODCORE = make_land(
     name="Uthros, Titanic Godcore",
     text="This land enters tapped.\n{T}: Add {U}.\nStation (Tap another creature you control: Put charge counters equal to its power on this Planet. Station only as a sorcery.)\n12+ | {U}, {T}: Add {U} for each artifact you control.",
     subtypes={"Planet"},
+    setup_interceptors=uthros_titanic_godcore_setup,
 )
 
 WATERY_GRAVE = make_land(
     name="Watery Grave",
     text="({T}: Add {U} or {B}.)\nAs this land enters, you may pay 2 life. If you don't, it enters tapped.",
     subtypes={"Island", "Swamp"},
+    setup_interceptors=watery_grave_setup,
 )
 
 PLAINS = make_land(
