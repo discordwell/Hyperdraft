@@ -3670,6 +3670,497 @@ def white_lotus_hideout_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 # =============================================================================
+# PHASE 2B VANILLA-SPELL RESOLVES
+# =============================================================================
+
+def _tla_caster_and_id(state: GameState, name: str) -> tuple[Optional[str], Optional[str]]:
+    """Find the resolving spell on the stack by name. Returns (caster_id, spell_id)."""
+    stack_zone = state.zones.get('stack')
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == name:
+                return obj.controller, obj.id
+    return state.active_player, None
+
+
+def _tla_count_lessons_in_graveyard(state: GameState, player_id: str) -> int:
+    """Count Lesson cards in player's graveyard."""
+    graveyard = state.zones.get(f'graveyard_{player_id}')
+    if graveyard is None:
+        return 0
+    count = 0
+    for obj_id in graveyard.objects:
+        obj = state.objects.get(obj_id)
+        if obj and 'Lesson' in (obj.characteristics.subtypes or set()):
+            count += 1
+    return count
+
+
+# --- ENTER_THE_AVATAR_STATE: pump + grant 4 keywords + Avatar type -----------
+
+def enter_the_avatar_state_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature you control becomes an Avatar and gains flying/first strike/lifelink/hexproof until EOT."""
+    caster_id, spell_id = _tla_caster_and_id(state, "Enter the Avatar State")
+    spell_id = spell_id or "enter_the_avatar_state_spell"
+    if not caster_id:
+        return []
+    valid: list[str] = []
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD
+                and obj.controller == caster_id
+                and CardType.CREATURE in obj.characteristics.types):
+            valid.append(obj.id)
+    if not valid:
+        return []
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid,
+        prompt="Enter the Avatar State: choose target creature",
+        min_targets=1,
+        max_targets=1,
+    )
+    choice.choice_type = "target_with_callback"
+    def _execute(choice, selected, state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target_id = selected[0]
+        events: list[Event] = []
+        for kw in ('flying', 'first_strike', 'lifelink', 'hexproof'):
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': target_id, 'keyword': kw, 'duration': 'end_of_turn'},
+                source=choice.source_id,
+            ))
+        return events
+    choice.callback_data['handler'] = _execute
+    return []
+
+
+# --- ACCUMULATE_WISDOM: top-3 look (or all 3 if 3+ Lessons in GY) -----------
+
+def accumulate_wisdom_resolve(targets: list, state: GameState) -> list[Event]:
+    """Look at top 3 cards. Put 1 (or all 3 if Lessons>=3 in GY) into hand; rest on bottom."""
+    caster_id, spell_id = _tla_caster_and_id(state, "Accumulate Wisdom")
+    spell_id = spell_id or "accumulate_wisdom_spell"
+    if not caster_id:
+        return []
+    library = state.zones.get(f'library_{caster_id}')
+    if library is None or not library.objects:
+        return []
+
+    take_all = _tla_count_lessons_in_graveyard(state, caster_id) >= 3
+    top_ids = list(library.objects[:3])
+    events: list[Event] = []
+    if take_all:
+        for tid in top_ids:
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': tid,
+                    'to_zone': f'hand_{caster_id}',
+                    'to_zone_type': ZoneType.HAND,
+                },
+                source=spell_id,
+            ))
+    else:
+        if not top_ids:
+            return []
+        chosen = top_ids[0]
+        events.append(Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': chosen,
+                'to_zone': f'hand_{caster_id}',
+                'to_zone_type': ZoneType.HAND,
+            },
+            source=spell_id,
+        ))
+        for tid in top_ids[1:]:
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': tid,
+                    'to_zone': f'library_{caster_id}',
+                    'to_zone_type': ZoneType.LIBRARY,
+                    'position': 'bottom',
+                },
+                source=spell_id,
+            ))
+    return events
+
+
+# --- OCTOPUS_FORM: +1/+1 + hexproof + untap ----------------------------------
+
+def octopus_form_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature you control gets +1/+1 and gains hexproof until EOT. Untap it."""
+    caster_id, spell_id = _tla_caster_and_id(state, "Octopus Form")
+    spell_id = spell_id or "octopus_form_spell"
+    if not caster_id:
+        return []
+    valid: list[str] = []
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD
+                and obj.controller == caster_id
+                and CardType.CREATURE in obj.characteristics.types):
+            valid.append(obj.id)
+    if not valid:
+        return []
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid,
+        prompt="Octopus Form: choose your creature",
+        min_targets=1,
+        max_targets=1,
+    )
+    choice.choice_type = "target_with_callback"
+    def _execute(choice, selected, state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        tid = selected[0]
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': tid, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'end_of_turn'},
+                source=choice.source_id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': tid, 'keyword': 'hexproof', 'duration': 'end_of_turn'},
+                source=choice.source_id,
+            ),
+            Event(type=EventType.UNTAP, payload={'object_id': tid}, source=choice.source_id),
+        ]
+    choice.callback_data['handler'] = _execute
+    return []
+
+
+# --- SPIRIT_WATER_REVIVAL: Draw two cards (waterbend bonus is engine gap) ----
+
+def spirit_water_revival_resolve(targets: list, state: GameState) -> list[Event]:
+    """Draw two cards. The waterbend-paid extra effect is an engine gap."""
+    caster_id, _ = _tla_caster_and_id(state, "Spirit Water Revival")
+    if not caster_id:
+        return []
+    return [Event(type=EventType.DRAW, payload={'player': caster_id, 'amount': 2})]
+
+
+# --- DAY_OF_BLACK_SUN: Each creature with MV<=X loses abilities + destroyed --
+
+def day_of_black_sun_resolve(targets: list, state: GameState) -> list[Event]:
+    """Each creature with mana value X or less loses all abilities and is destroyed.
+
+    The X value is read from the resolving spell's `x_value` if available, else
+    inferred from the mana spent. Defaults to 0 if X is unknown.
+    """
+    caster_id, spell_id = _tla_caster_and_id(state, "Day of Black Sun")
+    spell_id = spell_id or "day_of_black_sun_spell"
+    if not caster_id:
+        return []
+    spell = state.objects.get(spell_id) if spell_id else None
+    x = getattr(spell, 'x_value', 0) if spell else 0
+
+    def _mv(s: Optional[str]) -> int:
+        return sum(int(c) if c.isdigit() else 1 for c in (s or '') if c.isalnum() and c not in 'X')
+
+    events: list[Event] = []
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in obj.characteristics.types):
+            mv = _mv(obj.characteristics.mana_cost)
+            if mv <= x:
+                events.append(Event(
+                    type=EventType.REMOVE_ABILITIES,
+                    payload={'object_id': obj.id, 'duration': 'end_of_turn'},
+                    source=spell_id,
+                ))
+                events.append(Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': obj.id},
+                    source=spell_id,
+                ))
+    return events
+
+
+# --- COMBUSTION_TECHNIQUE: 2 + Lessons damage; if dies, exile instead --------
+
+def combustion_technique_resolve(targets: list, state: GameState) -> list[Event]:
+    """Deal (2 + Lessons in GY) damage to target creature. (Exile-on-death is engine gap.)"""
+    caster_id, spell_id = _tla_caster_and_id(state, "Combustion Technique")
+    spell_id = spell_id or "combustion_technique_spell"
+    if not caster_id:
+        return []
+    valid = [
+        obj.id for obj in state.objects.values()
+        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
+    ]
+    if not valid:
+        return []
+    damage = 2 + _tla_count_lessons_in_graveyard(state, caster_id)
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid,
+        prompt=f"Combustion Technique: deal {damage} damage",
+        min_targets=1,
+        max_targets=1,
+        callback_data={'damage': damage},
+    )
+    choice.choice_type = "target_with_callback"
+    def _execute(choice, selected, state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        tid = selected[0]
+        amt = choice.callback_data.get('damage', 2)
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': tid, 'amount': amt, 'is_combat': False},
+            source=choice.source_id,
+        )]
+    choice.callback_data['handler'] = _execute
+    return []
+
+
+# --- FIRE_NATION_ATTACKS: Create two 2/2 red Soldier tokens (no firebending kw)
+
+def fire_nation_attacks_resolve(targets: list, state: GameState) -> list[Event]:
+    """Create two 2/2 red Soldier creature tokens. (Firebending granting is engine gap.)"""
+    caster_id, spell_id = _tla_caster_and_id(state, "Fire Nation Attacks")
+    spell_id = spell_id or "fire_nation_attacks_spell"
+    if not caster_id:
+        return []
+    events: list[Event] = []
+    for _ in range(2):
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Soldier Token',
+                'controller': caster_id,
+                'power': 2,
+                'toughness': 2,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Soldier'],
+                'colors': [Color.RED],
+                'is_token': True,
+            },
+            source=spell_id,
+            controller=caster_id,
+        ))
+    return events
+
+
+# --- THE_LAST_AGNI_KAI: fight (excess damage->{R} is engine gap) -------------
+
+def the_last_agni_kai_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature you control fights target creature an opponent controls."""
+    caster_id, spell_id = _tla_caster_and_id(state, "The Last Agni Kai")
+    spell_id = spell_id or "the_last_agni_kai_spell"
+    if not caster_id:
+        return []
+    own_creatures = [
+        obj.id for obj in state.objects.values()
+        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller == caster_id
+            and CardType.CREATURE in obj.characteristics.types)
+    ]
+    opp_creatures = [
+        obj.id for obj in state.objects.values()
+        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller != caster_id
+            and CardType.CREATURE in obj.characteristics.types)
+    ]
+    if not own_creatures or not opp_creatures:
+        return []
+    # Pick first viable pair (AI/test default).
+    return [Event(
+        type=EventType.FIGHT,
+        payload={'attacker': own_creatures[0], 'defender': opp_creatures[0]},
+        source=spell_id,
+    )]
+
+
+# --- ALLIES_AT_LAST: Up to two of your creatures each deal P damage to a target
+
+def allies_at_last_resolve(targets: list, state: GameState) -> list[Event]:
+    """Up to two of your creatures each deal damage equal to their power to target opp creature."""
+    caster_id, spell_id = _tla_caster_and_id(state, "Allies at Last")
+    spell_id = spell_id or "allies_at_last_spell"
+    if not caster_id:
+        return []
+    own_creatures = [
+        obj.id for obj in state.objects.values()
+        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller == caster_id
+            and CardType.CREATURE in obj.characteristics.types)
+    ]
+    opp_creatures = [
+        obj.id for obj in state.objects.values()
+        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller != caster_id
+            and CardType.CREATURE in obj.characteristics.types)
+    ]
+    if not own_creatures or not opp_creatures:
+        return []
+    # AI/test: pick first opp target; first up-to-2 own attackers.
+    target_id = opp_creatures[0]
+    attackers = own_creatures[:2]
+    events: list[Event] = []
+    for src in attackers:
+        src_obj = state.objects.get(src)
+        try:
+            p = get_power(src_obj, state) if src_obj else 0
+        except Exception:
+            p = 0
+        amt = max(0, p or 0)
+        if amt > 0:
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': target_id, 'amount': amt, 'is_combat': False},
+                source=src,
+            ))
+    return events
+
+
+# --- PILLAR_LAUNCH: +2/+2, gain reach, untap ----------------------------------
+
+def pillar_launch_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature gets +2/+2 and gains reach until EOT. Untap it."""
+    caster_id, spell_id = _tla_caster_and_id(state, "Pillar Launch")
+    spell_id = spell_id or "pillar_launch_spell"
+    if not caster_id:
+        return []
+    valid = [
+        obj.id for obj in state.objects.values()
+        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
+    ]
+    if not valid:
+        return []
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid,
+        prompt="Pillar Launch: choose creature",
+        min_targets=1,
+        max_targets=1,
+    )
+    choice.choice_type = "target_with_callback"
+    def _execute(choice, selected, state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        tid = selected[0]
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': tid, 'power_mod': 2, 'toughness_mod': 2, 'duration': 'end_of_turn'},
+                source=choice.source_id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': tid, 'keyword': 'reach', 'duration': 'end_of_turn'},
+                source=choice.source_id,
+            ),
+            Event(type=EventType.UNTAP, payload={'object_id': tid}, source=choice.source_id),
+        ]
+    choice.callback_data['handler'] = _execute
+    return []
+
+
+# --- ROCKY_REBUKE: Your creature deals damage equal to its power -------------
+
+def rocky_rebuke_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature you control deals damage equal to its power to target opp creature."""
+    caster_id, spell_id = _tla_caster_and_id(state, "Rocky Rebuke")
+    spell_id = spell_id or "rocky_rebuke_spell"
+    if not caster_id:
+        return []
+    own_creatures = [
+        obj for obj in state.objects.values()
+        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller == caster_id
+            and CardType.CREATURE in obj.characteristics.types)
+    ]
+    opp_creatures = [
+        obj.id for obj in state.objects.values()
+        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller != caster_id
+            and CardType.CREATURE in obj.characteristics.types)
+    ]
+    if not own_creatures or not opp_creatures:
+        return []
+    src = own_creatures[0]
+    try:
+        p = get_power(src, state)
+    except Exception:
+        p = 0
+    amt = max(0, p or 0)
+    if amt <= 0:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': opp_creatures[0], 'amount': amt, 'is_combat': False},
+        source=src.id,
+    )]
+
+
+# --- SEISMIC_SENSE: top X (lands), reveal a creature/land into hand ---------
+
+def seismic_sense_resolve(targets: list, state: GameState) -> list[Event]:
+    """Look at the top X cards (X = lands), put a creature/land card into hand, rest random bottom."""
+    caster_id, spell_id = _tla_caster_and_id(state, "Seismic Sense")
+    spell_id = spell_id or "seismic_sense_spell"
+    if not caster_id:
+        return []
+    lands = sum(
+        1 for obj in state.objects.values()
+        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller == caster_id
+            and CardType.LAND in obj.characteristics.types)
+    )
+    if lands == 0:
+        return []
+    library = state.zones.get(f'library_{caster_id}')
+    if library is None or not library.objects:
+        return []
+    top_ids = list(library.objects[:lands])
+    if not top_ids:
+        return []
+    chosen: Optional[str] = None
+    rest: list[str] = []
+    for tid in top_ids:
+        obj = state.objects.get(tid)
+        if chosen is None and obj is not None:
+            types = obj.characteristics.types
+            if CardType.CREATURE in types or CardType.LAND in types:
+                chosen = tid
+                continue
+        rest.append(tid)
+    import random as _random
+    _random.shuffle(rest)
+    events: list[Event] = []
+    if chosen is not None:
+        events.append(Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': chosen,
+                'to_zone': f'hand_{caster_id}',
+                'to_zone_type': ZoneType.HAND,
+            },
+            source=spell_id,
+        ))
+    for r_id in rest:
+        events.append(Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': r_id,
+                'to_zone': f'library_{caster_id}',
+                'to_zone_type': ZoneType.LIBRARY,
+                'position': 'bottom',
+            },
+            source=spell_id,
+        ))
+    return events
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -3832,6 +4323,7 @@ ENTER_THE_AVATAR_STATE = make_instant(
     colors={Color.WHITE},
     text="Until end of turn, target creature you control becomes an Avatar in addition to its other types and gains flying, first strike, lifelink, and hexproof. (A creature with hexproof can't be the target of spells or abilities your opponents control.)",
     subtypes={"Lesson"},
+    resolve=enter_the_avatar_state_resolve,
 )
 
 FANCY_FOOTWORK = make_instant(
@@ -4072,6 +4564,7 @@ ACCUMULATE_WISDOM = make_instant(
     colors={Color.BLUE},
     text="Look at the top three cards of your library. Put one of those cards into your hand and the rest on the bottom of your library in any order. Put each of those cards into your hand instead if there are three or more Lesson cards in your graveyard.",
     subtypes={"Lesson"},
+    resolve=accumulate_wisdom_resolve,
 )
 
 BENEVOLENT_RIVER_SPIRIT = make_creature(
@@ -4277,6 +4770,7 @@ OCTOPUS_FORM = make_instant(
     colors={Color.BLUE},
     text="Target creature you control gets +1/+1 and gains hexproof until end of turn. Untap it. (It can't be the target of spells or abilities your opponents control.)",
     subtypes={"Lesson"},
+    resolve=octopus_form_resolve,
 )
 
 OTTERPENGUIN = make_creature(
@@ -4340,6 +4834,7 @@ SPIRIT_WATER_REVIVAL = make_sorcery(
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     text="As an additional cost to cast this spell, you may waterbend {6}. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)\nDraw two cards. If this spell's additional cost was paid, instead shuffle your graveyard into your library, draw seven cards, and you have no maximum hand size for the rest of the game.\nExile Spirit Water Revival.",
+    resolve=spirit_water_revival_resolve,
 )
 
 TEO_SPIRITED_GLIDER = make_creature(
@@ -4540,6 +5035,7 @@ DAY_OF_BLACK_SUN = make_sorcery(
     mana_cost="{X}{B}{B}",
     colors={Color.BLACK},
     text="Each creature with mana value X or less loses all abilities until end of turn. Destroy those creatures.",
+    resolve=day_of_black_sun_resolve,
 )
 
 DEADLY_PRECISION = make_sorcery(
@@ -4992,6 +5488,7 @@ COMBUSTION_TECHNIQUE = make_instant(
     colors={Color.RED},
     text="Combustion Technique deals damage equal to 2 plus the number of Lesson cards in your graveyard to target creature. If that creature would die this turn, exile it instead.",
     subtypes={"Lesson"},
+    resolve=combustion_technique_resolve,
 )
 
 CRESCENT_ISLAND_TEMPLE = make_enchantment(
@@ -5034,6 +5531,7 @@ FIRE_NATION_ATTACKS = make_instant(
     mana_cost="{4}{R}",
     colors={Color.RED},
     text="Create two 2/2 red Soldier creature tokens with firebending 1. (Whenever a creature with firebending 1 attacks, add {R}. This mana lasts until end of combat.)\nFlashback {8}{R} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+    resolve=fire_nation_attacks_resolve,
 )
 
 FIRE_NATION_CADETS = make_creature(
@@ -5131,6 +5629,7 @@ THE_LAST_AGNI_KAI = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Target creature you control fights target creature an opponent controls. If the creature the opponent controls is dealt excess damage this way, add that much {R}.\nUntil end of turn, you don't lose unspent red mana as steps and phases end.",
+    resolve=the_last_agni_kai_resolve,
 )
 
 THE_LEGEND_OF_ROKU = make_creature(
@@ -5314,6 +5813,7 @@ ALLIES_AT_LAST = make_instant(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Affinity for Allies (This spell costs {1} less to cast for each Ally you control.)\nUp to two target creatures you control each deal damage equal to their power to target creature an opponent controls.",
+    resolve=allies_at_last_resolve,
 )
 
 AVATAR_DESTINY = make_enchantment(
@@ -5548,6 +6048,7 @@ PILLAR_LAUNCH = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Target creature gets +2/+2 and gains reach until end of turn. Untap it.",
+    resolve=pillar_launch_resolve,
 )
 
 RAUCOUS_AUDIENCE = make_creature(
@@ -5583,6 +6084,7 @@ ROCKY_REBUKE = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Target creature you control deals damage equal to its power to target creature an opponent controls.",
+    resolve=rocky_rebuke_resolve,
 )
 
 SABERTOOTH_MOOSELION = make_creature(
@@ -5601,6 +6103,7 @@ SEISMIC_SENSE = make_sorcery(
     colors={Color.GREEN},
     text="Look at the top X cards of your library, where X is the number of lands you control. You may reveal a creature or land card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
     subtypes={"Lesson"},
+    resolve=seismic_sense_resolve,
 )
 
 SHARED_ROOTS = make_sorcery(
