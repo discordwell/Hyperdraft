@@ -497,7 +497,9 @@ def _mikasa_ackerman_setup(obj: GameObject, state: GameState) -> list[Intercepto
 MIKASA_ACKERMAN = make_creature(
     name="Mikasa Ackerman, Humanity's Strongest",
     power=4, toughness=3,
-    mana_cost="{2}{W}{W}",
+    # REBALANCE: cast/copy=0.17 in mono-W test deck; the {2}{W}{W} curve was
+    # too steep on white-aggro. Drop to {1}{W}{W} so she lands on turn 3.
+    mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier", "Ackerman"},
     supertypes={"Legendary"},
@@ -675,7 +677,10 @@ def _historia_reiss_setup(obj: GameObject, state: GameState) -> list[Interceptor
 HISTORIA_REISS = make_creature(
     name="Historia Reiss, True Queen",
     power=2, toughness=3,
-    mana_cost="{2}{W}{W}",
+    # REBALANCE: dead in test (1/36 cast). {2}{W}{W} double-pip was the
+    # blocker on a mono-W test deck where she had to compete with Mikasa
+    # at the same slot. Drop to {1}{W}{W} so she actually plays on turn 3.
+    mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
@@ -713,7 +718,10 @@ def _connie_springer_setup(obj: GameObject, state: GameState) -> list[Intercepto
 CONNIE_SPRINGER = make_creature(
     name="Connie Springer, Loyal Friend",
     power=2, toughness=2,
-    mana_cost="{1}{W}",
+    # REBALANCE: cast/copy=0.14, dmg=22. Underplayed even at {1}{W}. The
+    # 2/2 haste body without combat impact wasn't worth the slot. Drop to
+    # {W} so he can chip in on turn 1 alongside the Scouts he supports.
+    mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
@@ -728,7 +736,11 @@ def _jean_kirstein_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 JEAN_KIRSTEIN = make_creature(
     name="Jean Kirstein, Natural Leader",
     power=3, toughness=2,
-    mana_cost="{2}{W}",
+    # REBALANCE: cast/copy=0.11 (worst weak white card by play rate). The
+    # vigilance grant is conditional on owning other Scouts, so charging
+    # 3 mana for a vanilla 3/2 was bad value. Drop to {1}{W} for a more
+    # competitive 2-drop curve.
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
@@ -747,7 +759,9 @@ def _miche_zacharias_setup(obj: GameObject, state: GameState) -> list[Intercepto
 MICHE_ZACHARIAS = make_creature(
     name="Miche Zacharias, Squad Leader",
     power=3, toughness=3,
-    mana_cost="{2}{W}{W}",
+    # REBALANCE: cast/copy=0.17 — double-{W}{W} kept him on the bench.
+    # Drop to {1}{W}{W} so he competes with Mikasa for the 3-slot.
+    mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
@@ -811,8 +825,11 @@ def _squad_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 SQUAD_CAPTAIN = make_creature(
     name="Squad Captain",
-    power=2, toughness=3,
-    mana_cost="{2}{W}",
+    power=2, toughness=2,
+    # REBALANCE: cast/copy=0.17 at {2}{W}. The token-on-ETB body of 2/3
+    # at 3 mana was uncompetitive in the curve. Drop to {1}{W} as a 2/2
+    # for 2 with a free 1/1 token (effectively a 3-power split).
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     text="When Squad Captain enters the battlefield, create a 1/1 white Human Scout Soldier creature token.",
@@ -898,7 +915,10 @@ def _horse_mounted_scout_setup(obj: GameObject, state: GameState) -> list[Interc
 HORSE_MOUNTED_SCOUT = make_creature(
     name="Horse Mounted Scout",
     power=2, toughness=2,
-    mana_cost="{2}{W}",
+    # REBALANCE: cast/copy=0.14 at {2}{W} for a vanilla 2/2 haste — a
+    # strict downgrade vs. Yeagerist Soldier (red) at {1}{R}. Drop the
+    # generic mana so it matches comparable haste 2/2s in red.
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     text="Haste.",
@@ -1442,7 +1462,12 @@ def _bertholdt_hoover_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 BERTHOLDT_HOOVER = make_creature(
     name="Bertholdt Hoover, Colossal Titan",
-    power=10, toughness=10,
+    power=8, toughness=8,
+    # REBALANCE: 10/10 trample + asymmetric land-wipe + 4 dmg to each opp
+    # creature was effectively a game-over button at 8 mana. The Rumbling
+    # is one card; this also being one card meant either was sufficient.
+    # Trim the body to 8/8 so opposing answers (4-toughness blockers, 5-dmg
+    # removal) can still trade with him after the wipe lands. Cost stays.
     mana_cost="{6}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Warrior", "Titan"},
@@ -1490,7 +1515,11 @@ def _annie_leonhart_setup(obj: GameObject, state: GameState) -> list[Interceptor
 ANNIE_LEONHART = make_creature(
     name="Annie Leonhart, Female Titan",
     power=5, toughness=4,
-    mana_cost="{3}{B}{B}",
+    # REBALANCE: indestructible + auto-exile-on-damage at 5 mana was a
+    # one-card lock. She traded for nothing and exiled everything that
+    # touched her. Push to 6 mana so opponents have an extra turn to
+    # set up a sorcery-speed answer (-X/-X, board wipe, exile spell).
+    mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
@@ -1950,7 +1979,12 @@ def _eren_founding_titan_setup(obj: GameObject, state: GameState) -> list[Interc
 EREN_FOUNDING_TITAN = make_creature(
     name="Eren Yeager, Founding Titan",
     power=10, toughness=10,
-    mana_cost="{5}{R}{R}{R}",
+    # REBALANCE: 8-mana 10/10 with +3/+3 + haste anthem to all your Titans
+    # was a guaranteed game-ender in tournament. The set won 78% of games,
+    # in part because this card single-handedly buried opposing boards.
+    # Push the cost to 9 so it costs an extra turn to land — opponent
+    # gets one more chance to answer.
+    mana_cost="{6}{R}{R}{R}",
     colors={Color.RED},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
@@ -2761,7 +2795,10 @@ def _force_of_nature_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 FORCE_OF_NATURE = make_enchantment(
     name="Force of Nature",
-    mana_cost="{2}{G}",
+    # REBALANCE: 3-mana global anthem on every creature you control was
+    # the strongest pump enchantment in any set. Many cubes price the
+    # equivalent at 4. Push to {2}{G}{G}.
+    mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     text="Creatures you control get +1/+1.",
     setup_interceptors=_force_of_nature_setup,
@@ -2774,7 +2811,11 @@ def _hardened_skin_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 HARDENED_SKIN = make_enchantment(
     name="Hardened Skin",
-    mana_cost="{1}{G}",
+    # REBALANCE: granting blanket hexproof to Titans for 2 mana was an
+    # auto-include in any Titan deck (this set's primary archetype),
+    # locking opponents out of targeted removal. Push to {2}{G} so it
+    # competes with other 3-drop enchantments for the slot.
+    mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Titan creatures you control have hexproof.",
     setup_interceptors=_hardened_skin_setup,
@@ -2958,8 +2999,14 @@ def _colossal_titan_legendary_setup(obj: GameObject, state: GameState) -> list[I
 
 COLOSSAL_TITAN_LEGENDARY = make_creature(
     name="The Colossal Titan",
-    power=15, toughness=15,
-    mana_cost="{7}{B}{G}{G}",
+    power=12, toughness=12,
+    # REBALANCE: 15/15 trample + halve life + destroy lands + 6 dmg to
+    # each opp creature — the most lopsided ETB in the set. We keep the
+    # signature Rumbling effect intact (the test asserts it) but bump the
+    # cost from 10 to 12 so it can't crash down on turn 8 every time, and
+    # trim the body to 12/12 so a topdecked answer (Wrath, exile) still
+    # gets value if the opponent stabilises post-Rumbling.
+    mana_cost="{8}{B}{B}{G}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Titan"},
     supertypes={"Legendary"},
@@ -3658,16 +3705,21 @@ UNDERGROUND_CITY = make_land(
 
 # Additional White Cards
 def _nile_dok_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return ih.make_static_pt_boost(obj, 0, 1, ih.other_creatures_with_subtype(obj, "Soldier"))
+    # REBALANCE: lord buff was +0/+1 (defensive only). Switching to +1/+1
+    # so he competes with the Soldier-curve red lords (Floch +1/+0,
+    # Magath +1/+1) and gives a reason to play him over Dot Pixis.
+    return ih.make_static_pt_boost(obj, 1, 1, ih.other_creatures_with_subtype(obj, "Soldier"))
 
 NILE_DOK = make_creature(
     name="Nile Dok, Military Police Commander",
     power=2, toughness=3,
-    mana_cost="{2}{W}",
+    # REBALANCE: cast/copy=0.14 at {2}{W}. Drop to {1}{W} and beef
+    # the lord effect (above). Now he's a cheap, useful Soldier anchor.
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Noble"},
     supertypes={"Legendary"},
-    text="Other Soldier creatures you control get +0/+1.",
+    text="Other Soldier creatures you control get +1/+1.",
     setup_interceptors=_nile_dok_setup,
 )
 
@@ -3712,7 +3764,10 @@ def _hannes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 HANNES = make_creature(
     name="Hannes, Garrison Captain",
     power=2, toughness=3,
-    mana_cost="{2}{W}",
+    # REBALANCE: cast/copy=0.22 — slightly under threshold but the
+    # damage stat (48) shows he pulled weight when cast. Lower curve
+    # to {1}{W} so he gets cast more often.
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
@@ -3750,7 +3805,10 @@ def _wall_rose_garrison_setup(obj: GameObject, state: GameState) -> list[Interce
 WALL_ROSE_GARRISON = make_creature(
     name="Wall Rose Garrison",
     power=1, toughness=5,
-    mana_cost="{2}{W}",
+    # REBALANCE: cast/copy=0.17 at {2}{W} — three mana for a 1/5 blocker
+    # didn't compete with curve plays. Drop to {1}{W} so the wall-on-2
+    # slot has a real defensive option.
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Wall"},
     text="Whenever Wall Rose Garrison blocks, you gain 3 life.",
@@ -4315,7 +4373,11 @@ def _ymir_fritz_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 YMIR_FRITZ = make_creature(
     name="Ymir Fritz, Source of All Titans",
     power=8, toughness=8,
-    mana_cost="{5}{G}{G}{G}",
+    # REBALANCE: stacking with Hardened Skin made Titans uninteractable.
+    # The 8/8 body + global hexproof for 8 mana was the back-breaker in
+    # several losses. Push to 9 mana so it lines up with comparable Tier-1
+    # finishers and doesn't deploy on turn 6 ramp.
+    mana_cost="{6}{G}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},

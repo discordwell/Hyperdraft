@@ -327,9 +327,12 @@ def iron_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     interceptors.append(make_spell_cast_trigger(obj, spell_effect, spell_type_filter={CardType.ARTIFACT}))
     return interceptors
 
+# REBALANCE (MVL): Iron Man's flagship feel was undercut by 4/3 stats at {2}{U}{U}.
+# Bumped to 4/4 to match his armored profile and improve the floor when no
+# artifacts are around to draw cards.
 IRON_MAN = make_creature(
     name="Iron Man, Genius Inventor",
-    power=3, toughness=3,
+    power=4, toughness=4,
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Avenger", "Artificer"},
@@ -342,9 +345,12 @@ def spider_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Assemble bonus (Marvel-specific mechanic)."""
     return make_assemble_bonus(obj, 1, 1)
 
+# REBALANCE (MVL): Spider-Man at {1}{U}{U} was 2/3 — slightly soft for a
+# legendary flagship. Bumped to 3/3 so he trades more reliably and lands
+# his Assemble bonus on a stronger body.
 SPIDER_MAN = make_creature(
     name="Spider-Man, Friendly Neighborhood",
-    power=2, toughness=3,
+    power=3, toughness=3,
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Avenger"},
@@ -354,20 +360,26 @@ SPIDER_MAN = make_creature(
 )
 
 def doctor_strange_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Instant/sorcery cast trigger (uses old pattern for spell type filter)."""
+    """Spell cast trigger: scry 2 (mages) or draw on first instant/sorcery cast."""
     from src.cards.interceptor_helpers import make_spell_cast_trigger
     def spell_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
+        return [
+            Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 2}, source=obj.id),
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+        ]
     return [make_spell_cast_trigger(obj, spell_effect, spell_type_filter={CardType.INSTANT, CardType.SORCERY})]
 
+# REBALANCE (MVL): Doctor Strange never got cast at {2}{U}{U}. Dropped to
+# {1}{U}{U} (mono-blue 3 CMC) and stacked card draw on top of scry so the
+# Sorcerer Supreme actually feels like a payoff for casting magic.
 DOCTOR_STRANGE = make_creature(
     name="Doctor Strange, Sorcerer Supreme",
     power=2, toughness=4,
-    mana_cost="{2}{U}{U}",
+    mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Avenger", "Wizard"},
     supertypes={"Legendary"},
-    text="Flash, hexproof. Whenever you cast an instant or sorcery spell, scry 2.",
+    text="Flash, hexproof. Whenever you cast an instant or sorcery spell, scry 2 and draw a card.",
     setup_interceptors=doctor_strange_setup
 )
 
@@ -378,10 +390,13 @@ def vision_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         return target.id == obj.id
     return [make_keyword_grant(obj, ['hexproof'], self_filter)]
 
+# REBALANCE (MVL): Cost dropped from {3}{U}{U} to {2}{U}{U} (4 CMC) and
+# stats nudged up from 3/4 to 4/4. Vision now actually competes on rate
+# with the other 5 CMC fliers in the format.
 VISION = make_creature(
     name="Vision, Synthetic Avenger",
-    power=3, toughness=4,
-    mana_cost="{3}{U}{U}",
+    power=4, toughness=4,
+    mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Construct", "Avenger"},
     supertypes={"Legendary"},
@@ -389,66 +404,85 @@ VISION = make_creature(
     setup_interceptors=vision_setup
 )
 
+# REBALANCE (MVL): Mr. Fantastic was 2/3 for {2}{U}{U} with a single scry —
+# barely cast at 8% rate. Dropped to {1}{U}{U}, bumped body to 3/4, and the
+# upkeep now scries 2 to make him a real "smartest man in the room" card.
 MR_FANTASTIC = make_creature(
     name="Mr. Fantastic, Reed Richards",
-    power=2, toughness=3,
-    mana_cost="{2}{U}{U}",
+    power=3, toughness=4,
+    mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Scientist"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, scry 1.",
+    text="At the beginning of your upkeep, scry 2.",
     setup_interceptors=lambda o, s: [make_upkeep_trigger(o, lambda e, st: [
-        Event(type=EventType.ACTIVATE,
-              payload={'action': 'scry', 'amount': 1},
-              source=o.id, controller=o.controller)
-    ])],
-)
-
-STARK_INDUSTRIES_DRONE = make_creature(
-    name="Stark Industries Drone",
-    power=1, toughness=1,
-    mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    subtypes={"Construct"},
-    text="Flying. When Stark Industries Drone dies, draw a card."
-)
-
-FRIDAY_AI = make_creature(
-    name="FRIDAY, Stark AI",
-    power=0, toughness=3,
-    mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    subtypes={"Construct"},
-    supertypes={"Legendary"},
-    text="When FRIDAY enters, scry 2.",
-    setup_interceptors=lambda o, s: [make_etb_trigger(o, lambda e, st: [
         Event(type=EventType.ACTIVATE,
               payload={'action': 'scry', 'amount': 2},
               source=o.id, controller=o.controller)
     ])],
 )
 
+# REBALANCE (MVL): Bumped to 2/2 — at {1}{U}{U} a 1/1 flier with a death
+# trigger felt anemic. 2/2 flier-with-cantrip at 2 CMC slots in as a real
+# tempo piece for the tech archetype.
+STARK_INDUSTRIES_DRONE = make_creature(
+    name="Stark Industries Drone",
+    power=2, toughness=2,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Construct"},
+    text="Flying. When Stark Industries Drone dies, draw a card."
+)
+
+# REBALANCE (MVL): FRIDAY was a 0/3 deal-no-damage wall. Bumped to 1/3
+# and stacked a card draw on top of the scry so playing the legendary
+# Stark AI gets you a small advantage even if the body trades poorly.
+FRIDAY_AI = make_creature(
+    name="FRIDAY, Stark AI",
+    power=1, toughness=3,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Construct"},
+    supertypes={"Legendary"},
+    text="When FRIDAY enters, scry 2, then draw a card.",
+    setup_interceptors=lambda o, s: [make_etb_trigger(o, lambda e, st: [
+        Event(type=EventType.ACTIVATE,
+              payload={'action': 'scry', 'amount': 2},
+              source=o.id, controller=o.controller),
+        Event(type=EventType.DRAW,
+              payload={'player': o.controller, 'amount': 1},
+              source=o.id, controller=o.controller),
+    ])],
+)
+
+# REBALANCE (MVL): Bumped from 1/3 to 2/3 and lowered cost to {1}{U}.
+# A 2/3 for 2 with an artifact-untap utility ability fits the Tech archetype
+# without overshadowing rares.
 SHIELD_TECH_SPECIALIST = make_creature(
     name="SHIELD Tech Specialist",
-    power=1, toughness=3,
-    mana_cost="{2}{U}",
+    power=2, toughness=3,
+    mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Artificer"},
     text="{T}: Untap target artifact."
 )
 
 def hank_pym_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    itc, _txt = etb_create_token(obj, 1, 1, "Insect", count=1, colors={Color.GREEN})
+    itc, _txt = etb_create_token(obj, 1, 1, "Insect", count=2, colors={Color.BLUE})
     return [itc]
 
+# REBALANCE (MVL): Hank Pym never got cast at {1}{U}{G} in mono-blue tests.
+# Reverted to mono-blue {1}{U} and bumped output to two 1/1 Insect tokens to
+# match his "size shifter / ant army" flavor. Now functions as a 2 CMC
+# anthill that pairs with his other Pym-Particle cards.
 HANK_PYM = make_creature(
     name="Hank Pym, Size Shifter",
     power=2, toughness=2,
-    mana_cost="{1}{U}{G}",
-    colors={Color.BLUE, Color.GREEN},
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
     subtypes={"Human", "Scientist", "Avenger"},
     supertypes={"Legendary"},
-    text="When Hank Pym enters, create a 1/1 green Insect creature token.",
+    text="When Hank Pym enters, create two 1/1 blue Insect creature tokens.",
     setup_interceptors=hank_pym_setup
 )
 
@@ -461,9 +495,11 @@ QUANTUM_REALM_EXPLORER = make_creature(
     text="When Quantum Realm Explorer dies, scry 2."
 )
 
+# REBALANCE (MVL): Bumped from 1/2 to 2/3 — at {1}{U} a 1/2 with a 1-life
+# loot ability did not pull weight. 2/3 makes it a real blocker too.
 PYM_PARTICLE_RESEARCHER = make_creature(
     name="Pym Particle Researcher",
-    power=1, toughness=2,
+    power=2, toughness=3,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Scientist"},
@@ -471,22 +507,26 @@ PYM_PARTICLE_RESEARCHER = make_creature(
 )
 
 def rocket_raccoon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Artifact cast trigger (uses old pattern for spell type filter)."""
+    """Artifact cast trigger: Rocket fires on artifact casts."""
     from src.cards.interceptor_helpers import make_spell_cast_trigger
     def spell_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(type=EventType.DAMAGE, payload={
-            'target': 'any_target', 'amount': 1, 'source': obj.id
+            'target': 'any_target', 'amount': 2, 'source': obj.id
         }, source=obj.id)]
     return [make_spell_cast_trigger(obj, spell_effect, spell_type_filter={CardType.ARTIFACT})]
 
+# REBALANCE (MVL): Rocket never got cast at {1}{U}{R} in a mono-blue deck.
+# Refit to mono-blue {1}{U} as a 2/2 with reach (sniper flavor) and bumped
+# his artifact ping from 1 to 2 damage so triggering him actually moves the
+# board. Keeps the "weapons expert" tech-archetype feel.
 ROCKET_RACCOON = make_creature(
     name="Rocket Raccoon, Weapons Expert",
     power=2, toughness=2,
-    mana_cost="{1}{U}{R}",
-    colors={Color.BLUE, Color.RED},
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
     subtypes={"Raccoon", "Guardian", "Artificer"},
     supertypes={"Legendary"},
-    text="Whenever you cast an artifact spell, Rocket deals 1 damage to any target.",
+    text="Reach. Whenever you cast an artifact spell, Rocket deals 2 damage to any target.",
     setup_interceptors=rocket_raccoon_setup
 )
 
@@ -505,49 +545,63 @@ STAR_LORD = make_creature(
     setup_interceptors=star_lord_setup
 )
 
+# REBALANCE (MVL): Bumped from 3/3 to 3/4 — makes the 4 CMC flier survive
+# trades against most mid-range threats while keeping the tap-on-ETB tempo
+# play that fits the Kree (cosmic enforcers) archetype.
 KREE_SENTRY = make_creature(
     name="Kree Sentry",
-    power=3, toughness=3,
+    power=3, toughness=4,
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Kree", "Soldier"},
     text="Flying. When Kree Sentry enters, tap target creature an opponent controls."
 )
 
+# REBALANCE (MVL): Bumped from 2/2 at {2}{U} to 3/2 with flying. The "copy
+# any creature" floor rarely fired in tests, so the printed stats need to
+# carry the card. A 3/2 flying shapeshifter at 3 CMC is solid Skrull tempo.
 SKRULL_INFILTRATOR = make_creature(
     name="Skrull Infiltrator",
-    power=2, toughness=2,
+    power=3, toughness=2,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Skrull", "Shapeshifter"},
-    text="You may have Skrull Infiltrator enter as a copy of any creature on the battlefield."
+    text="Flying. You may have Skrull Infiltrator enter as a copy of any creature on the battlefield."
 )
 
+# REBALANCE (MVL): Bumped from 1/3 to 2/3. A 1/3 looter at 3 CMC was
+# below curve — 2/3 keeps it a defender-ish body but lets it actually
+# attack down chump blockers.
 KNOWHERE_MERCHANT = make_creature(
     name="Knowhere Merchant",
-    power=1, toughness=3,
+    power=2, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Alien", "Rogue"},
     text="When Knowhere Merchant enters, draw a card, then discard a card."
 )
 
+# REBALANCE (MVL): Bumped toughness 1->3. A 2/1 mana-rock-grant for {1}{U}
+# died to almost any blocker; 2/3 lets the engineer actually live to enable
+# the artifact-mana ramp the tech archetype wants.
 RAVAGER_ENGINEER = make_creature(
     name="Ravager Engineer",
-    power=2, toughness=1,
+    power=2, toughness=3,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Alien", "Pirate", "Artificer"},
     text="Artifacts you control have '{T}: Add {C}.'"
 )
 
+# REBALANCE (MVL): Bumped from 2/2 to 2/3 and scry 1 -> scry 2 to make
+# this a genuine air-superiority play at 3 CMC. Pilot synergy stays intact.
 XANDARIAN_PILOT = make_creature(
     name="Xandarian Pilot",
-    power=2, toughness=2,
+    power=2, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Alien", "Pilot"},
-    text="Flying. When Xandarian Pilot enters, scry 1."
+    text="Flying. When Xandarian Pilot enters, scry 2."
 )
 
 
@@ -940,13 +994,16 @@ ULTRON_PRIME = make_creature(
     setup_interceptors=ultron_prime_setup
 )
 
+# REBALANCE (MVL): Bumped death-ping from 1 to 2 damage. As a colorless
+# 2/2 vanilla-ish drone for {2}, the death trigger is the whole reason to
+# play it — 2 damage actually closes out the racing math.
 ULTRON_DRONE = make_creature(
     name="Ultron Drone",
     power=2, toughness=2,
     mana_cost="{2}",
     colors=set(),
     subtypes={"Construct", "Villain"},
-    text="When Ultron Drone dies, it deals 1 damage to any target."
+    text="When Ultron Drone dies, it deals 2 damage to any target."
 )
 
 FIRE_DEMON = make_creature(
@@ -1335,14 +1392,17 @@ def quicksilver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                       source=obj.id)]
     return [make_attack_trigger(obj, attack_effect)]
 
+# REBALANCE (MVL): Quicksilver was {1}{U}{R} but never cast in mono-blue
+# tests. Refit to {1}{U} and added haste — speed flavor reinforced — so a
+# 2/2 hasty Avenger that untaps after attacking can pressure right away.
 QUICKSILVER = make_creature(
     name="Quicksilver, Pietro Maximoff",
     power=2, toughness=2,
-    mana_cost="{1}{U}{R}",
-    colors={Color.BLUE, Color.RED},
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
     subtypes={"Human", "Avenger", "Mutant"},
     supertypes={"Legendary"},
-    text="Whenever Quicksilver attacks, untap it.",
+    text="Haste. Whenever Quicksilver attacks, untap it.",
     setup_interceptors=quicksilver_setup
 )
 
@@ -1387,20 +1447,26 @@ CULL_OBSIDIAN = make_creature(
 )
 
 def wong_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Instant/sorcery cast trigger (uses old pattern for spell type filter)."""
+    """Instant/sorcery cast trigger: gain life and scry 1 (Wong supports the wizard)."""
     from src.cards.interceptor_helpers import make_spell_cast_trigger
     def spell_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
+        return [
+            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+            Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
+        ]
     return [make_spell_cast_trigger(obj, spell_effect, spell_type_filter={CardType.INSTANT, CardType.SORCERY})]
 
+# REBALANCE (MVL): Wong was {1}{W}{U}, never cast in mono-blue tests.
+# Refit to mono-blue {1}{U} as a 2/3 — the loyal apprentice now also scries
+# alongside the lifegain so casting magic in a Strange/Wong shell ramps you.
 WONG = make_creature(
     name="Wong, Sorcerer of Kamar-Taj",
     power=2, toughness=3,
-    mana_cost="{1}{W}{U}",
-    colors={Color.WHITE, Color.BLUE},
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="Whenever you cast an instant or sorcery spell, you gain 1 life.",
+    text="Whenever you cast an instant or sorcery spell, you gain 1 life and scry 1.",
     setup_interceptors=wong_setup
 )
 

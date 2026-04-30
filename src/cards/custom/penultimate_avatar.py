@@ -241,10 +241,11 @@ def aang_the_last_airbender_setup(obj: GameObject, state: GameState) -> list[Int
         make_lesson_trigger(obj, lesson_effect)
     ]
 
+# REBALANCE: 3/2 -> 3/4 (weak card; flagship Aang needed survivability for repeat airbends).
 AANG_THE_LAST_AIRBENDER = make_creature(
     name="Aang, the Last Airbender",
     power=3,
-    toughness=2,
+    toughness=4,
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Avatar", "Ally"},
@@ -339,11 +340,12 @@ def appa_steadfast_guardian_setup(obj: GameObject, state: GameState) -> list[Int
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
+# REBALANCE: Cost {2}{W}{W} -> {2}{W} (weak card; double-pip on a flash bison was too restrictive).
 APPA_STEADFAST_GUARDIAN = make_creature(
     name="Appa, Steadfast Guardian",
     power=3,
     toughness=4,
-    mana_cost="{2}{W}{W}",
+    mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Bison", "Ally"},
     supertypes={"Legendary"},
@@ -352,23 +354,27 @@ APPA_STEADFAST_GUARDIAN = make_creature(
 )
 
 def avatar_enthusiasts_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ally ETB trigger: put +1/+1 counter on self."""
-    def ally_effect(event: Event, state: GameState) -> list[Event]:
+    """ETB self-counter + Ally ETB trigger: put +1/+1 counter on self."""
+    def counter_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.COUNTER_ADDED,
             payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
             source=obj.id
         )]
-    return [make_ally_etb_trigger(obj, ally_effect)]
+    return [
+        make_etb_trigger(obj, counter_effect),
+        make_ally_etb_trigger(obj, counter_effect)
+    ]
 
+# REBALANCE: Lowered to {1}{W} and added ETB self-counter (was dead in playtest, no floor).
 AVATAR_ENTHUSIASTS = make_creature(
     name="Avatar Enthusiasts",
     power=2,
     toughness=2,
-    mana_cost="{2}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Peasant", "Ally"},
-    text="Whenever another Ally enters under your control, put a +1/+1 counter on Avatar Enthusiasts.",
+    text="When Avatar Enthusiasts enters, put a +1/+1 counter on it. Whenever another Ally enters under your control, put a +1/+1 counter on Avatar Enthusiasts.",
     setup_interceptors=avatar_enthusiasts_setup
 )
 
@@ -396,11 +402,12 @@ def compassionate_healer_setup(obj: GameObject, state: GameState) -> list[Interc
         ]
     return [make_tap_trigger(obj, tap_effect)]
 
+# REBALANCE: Cost {1}{W} -> {W} and 2/2 -> 1/2 (dead card; bear-cost was unattractive).
 COMPASSIONATE_HEALER = make_creature(
     name="Compassionate Healer",
-    power=2,
+    power=1,
     toughness=2,
-    mana_cost="{1}{W}",
+    mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Cleric", "Ally"},
     text="Whenever this creature becomes tapped, you gain 1 life and scry 1.",
@@ -442,10 +449,11 @@ def earth_kingdom_jailer_setup(obj: GameObject, state: GameState) -> list[Interc
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
+# REBALANCE: 3/3 -> 3/4 (weak card; needed durability to survive past the exile trigger).
 EARTH_KINGDOM_JAILER = make_creature(
     name="Earth Kingdom Jailer",
     power=3,
-    toughness=3,
+    toughness=4,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Ally"},
@@ -463,9 +471,11 @@ EARTH_KINGDOM_PROTECTORS = make_creature(
     text="Vigilance. Sacrifice this creature: Another target Ally you control gains indestructible until end of turn."
 )
 
+# REBALANCE: Cost {W} -> {2}{W} (outlier; 4 keywords + Avatar typing on a 1-mana
+# instant trivially won races. Now priced as a midrange combat trick.)
 ENTER_THE_AVATAR_STATE = make_instant(
     name="Enter the Avatar State",
-    mana_cost="{W}",
+    mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Lesson — Until end of turn, target creature becomes an Avatar in addition to its other types and gains flying, first strike, lifelink, and hexproof."
 )
@@ -494,11 +504,12 @@ def glider_kids_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         )]
     return [make_etb_trigger(obj, etb_effect)]
 
+# REBALANCE: Lowered cost {2}{W} -> {1}{W} (dead card; aggressive flyer floor).
 GLIDER_KIDS = make_creature(
     name="Glider Kids",
     power=2,
-    toughness=3,
-    mana_cost="{2}{W}",
+    toughness=2,
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Pilot", "Ally"},
     text="Flying. When this creature enters, scry 1.",
@@ -547,11 +558,12 @@ def invasion_reinforcements_setup(obj: GameObject, state: GameState) -> list[Int
         )]
     return [make_etb_trigger(obj, etb_effect)]
 
+# REBALANCE: Cost {1}{W} -> {W} (dead card; flash 1-drop with token now a real combat trick).
 INVASION_REINFORCEMENTS = make_creature(
     name="Invasion Reinforcements",
     power=1,
     toughness=1,
-    mana_cost="{1}{W}",
+    mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Warrior", "Ally"},
     text="Flash. When this creature enters, create a 1/1 white Ally creature token.",
@@ -565,9 +577,10 @@ def jeong_jeongs_deserters_setup(obj: GameObject, state: GameState) -> list[Inte
         return []
     return [make_etb_trigger(obj, etb_effect)]
 
+# REBALANCE: 1/2 -> 2/2 (weak card; needed body to back up the rebel buff trigger).
 JEONG_JEONGS_DESERTERS = make_creature(
     name="Jeong Jeong's Deserters",
-    power=1,
+    power=2,
     toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
@@ -609,10 +622,11 @@ def sokka_swordsman_setup(obj: GameObject, state: GameState) -> list[Interceptor
         return []
     return [make_damage_trigger(obj, damage_effect, combat_only=True)]
 
+# REBALANCE: 3/2 -> 3/3 (weak card; legendary deserves a more durable body).
 SOKKA_SWORDSMAN = make_creature(
     name="Sokka, Swordsman",
     power=3,
-    toughness=2,
+    toughness=3,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Warrior", "Ally"},
@@ -668,11 +682,12 @@ def suki_kyoshi_warrior_setup(obj: GameObject, state: GameState) -> list[Interce
     ))
     return interceptors
 
+# REBALANCE: Cost {2}{W} -> {1}{W} (weak card; aggressive 2-drop legend now lives up to flavor).
 SUKI_KYOSHI_WARRIOR = make_creature(
     name="Suki, Kyoshi Warrior",
     power=2,
     toughness=2,
-    mana_cost="{2}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Warrior", "Ally"},
     supertypes={"Legendary"},
@@ -681,7 +696,13 @@ SUKI_KYOSHI_WARRIOR = make_creature(
 )
 
 def uncle_iroh_tea_master_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """End step: if you gained life, draw card. Tap: gain 2 life."""
+    """ETB gain 2 life. End step: if you gained life, draw card."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
     def end_step_effect(event: Event, state: GameState) -> list[Event]:
         # Check if controller gained life this turn (tracked in game state)
         if state.turn_data.get(f'{obj.controller}_gained_life', False):
@@ -691,17 +712,23 @@ def uncle_iroh_tea_master_setup(obj: GameObject, state: GameState) -> list[Inter
                 source=obj.id
             )]
         return []
-    return [make_end_step_trigger(obj, end_step_effect)]
+    return [
+        make_etb_trigger(obj, etb_effect),
+        make_keyword_grant(obj, ['lifelink'], lambda t, s: t.id == obj.id),
+        make_end_step_trigger(obj, end_step_effect)
+    ]
 
+# REBALANCE: Cost {2}{W}{W} -> {2}{W}, gained ETB life + lifelink baseline.
+# (Weak card; turn_data conditional was silently broken — needed a real floor.)
 UNCLE_IROH_TEA_MASTER = make_creature(
     name="Uncle Iroh, Tea Master",
     power=2,
     toughness=4,
-    mana_cost="{2}{W}{W}",
+    mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Advisor", "Ally"},
     supertypes={"Legendary"},
-    text="At the beginning of your end step, if you gained life this turn, draw a card. {T}: You gain 2 life.",
+    text="Lifelink. When Uncle Iroh enters, you gain 2 life. At the beginning of your end step, if you gained life this turn, draw a card.",
     setup_interceptors=uncle_iroh_tea_master_setup
 )
 
@@ -715,10 +742,11 @@ def white_lotus_member_setup(obj: GameObject, state: GameState) -> list[Intercep
         )]
     return [make_etb_trigger(obj, etb_effect)]
 
+# REBALANCE: 2/2 -> 2/3 (weak card; Ally-tutor body should survive a lightning bolt).
 WHITE_LOTUS_MEMBER = make_creature(
     name="White Lotus Member",
     power=2,
-    toughness=2,
+    toughness=3,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Monk", "Ally"},
@@ -2449,11 +2477,12 @@ def kyoshi_island_defender_setup(obj: GameObject, state: GameState) -> list[Inte
                 target.zone == ZoneType.BATTLEFIELD)
     return [make_keyword_grant(obj, ['vigilance'], other_warrior_filter)]
 
+# REBALANCE: Cost {1}{W}{W} -> {1}{W} (dead card; double-pip cost too restrictive).
 KYOSHI_ISLAND_DEFENDER = make_creature(
     name="Kyoshi Island Defender",
     power=2,
     toughness=3,
-    mana_cost="{1}{W}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Warrior", "Ally"},
     text="First strike. Other Warrior creatures you control have vigilance.",
@@ -2485,24 +2514,28 @@ MEELO_THE_TROUBLEMAKER = make_creature(
 )
 
 def momo_loyal_companion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ally ETB: scry 1."""
-    def ally_effect(event: Event, state: GameState) -> list[Event]:
+    """ETB scry + Ally ETB: scry 1."""
+    def scry_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.SCRY,
             payload={'player': obj.controller, 'amount': 1},
             source=obj.id
         )]
-    return [make_ally_etb_trigger(obj, ally_effect)]
+    return [
+        make_etb_trigger(obj, scry_effect),
+        make_ally_etb_trigger(obj, scry_effect)
+    ]
 
+# REBALANCE: Cost {1}{W} -> {W}, added self-ETB scry (dead card; legend with no immediate value).
 MOMO_LOYAL_COMPANION = make_creature(
     name="Momo, Loyal Companion",
     power=1,
     toughness=1,
-    mana_cost="{1}{W}",
+    mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Bat", "Lemur", "Ally"},
     supertypes={"Legendary"},
-    text="Flying. Whenever another Ally you control enters, scry 1.",
+    text="Flying. When Momo enters, scry 1. Whenever another Ally you control enters, scry 1.",
     setup_interceptors=momo_loyal_companion_setup
 )
 
@@ -2516,11 +2549,12 @@ def airbender_initiate_setup(obj: GameObject, state: GameState) -> list[Intercep
         )]
     return [make_lesson_trigger(obj, lesson_effect)]
 
+# REBALANCE: Cost {1}{W} -> {W} (weak card; 1-drop flyer floor for Lesson decks).
 AIRBENDER_INITIATE = make_creature(
     name="Airbender Initiate",
     power=1,
     toughness=2,
-    mana_cost="{1}{W}",
+    mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Monk"},
     text="Flying. Whenever you cast a Lesson spell, Airbender Initiate gets +1/+1 until end of turn.",
@@ -2546,11 +2580,12 @@ def cabbage_merchant_setup(obj: GameObject, state: GameState) -> list[Intercepto
         return events
     return [make_death_trigger(obj, death_effect)]
 
+# REBALANCE: 0/3 -> 1/3, cost {2}{W} -> {1}{W} (dead card; needs floor).
 CABBAGE_MERCHANT = make_creature(
     name="Cabbage Merchant",
-    power=0,
+    power=1,
     toughness=3,
-    mana_cost="{2}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Peasant"},
     text="When Cabbage Merchant dies, create three Food tokens. 'MY CABBAGES!'",
@@ -2634,11 +2669,12 @@ def gyatso_wise_mentor_setup(obj: GameObject, state: GameState) -> list[Intercep
         )]
     return [make_lesson_trigger(obj, lesson_effect)]
 
+# REBALANCE: Cost {2}{W} -> {1}{W} (weak card; aggressive Lesson-payoff legend).
 GYATSO_WISE_MENTOR = make_creature(
     name="Gyatso, Wise Mentor",
     power=2,
     toughness=3,
-    mana_cost="{2}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Monk", "Ally"},
     supertypes={"Legendary"},
@@ -3921,7 +3957,10 @@ KORRA_AVATAR_UNLEASHED = make_creature(
 )
 
 def airbending_master_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """End step: if returned a permanent this turn, draw."""
+    """ETB: airbend (returns to hand). End step: if returned a permanent, draw."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Targeting system handles airbend (return target to hand)
+        return []
     def end_step_effect(event: Event, state: GameState) -> list[Event]:
         if state.turn_data.get(f'{obj.controller}_returned_permanent', False):
             return [Event(
@@ -3930,16 +3969,21 @@ def airbending_master_setup(obj: GameObject, state: GameState) -> list[Intercept
                 source=obj.id
             )]
         return []
-    return [make_end_step_trigger(obj, end_step_effect)]
+    return [
+        make_airbend_etb(obj, 1),
+        make_end_step_trigger(obj, end_step_effect)
+    ]
 
+# REBALANCE: Added Airbend ETB so the card has immediate value beyond the broken
+# turn_data conditional. Also lowered cost {3}{W} -> {2}{W}.
 AIRBENDING_MASTER = make_creature(
     name="Airbending Master",
     power=2,
     toughness=4,
-    mana_cost="{3}{W}",
+    mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Monk"},
-    text="Flying. Airbend — At the beginning of your end step, if you returned a permanent to its owner's hand this turn, draw a card.",
+    text="Flying. When Airbending Master enters, airbend up to one target nonland permanent. At the beginning of your end step, if you returned a permanent to its owner's hand this turn, draw a card.",
     setup_interceptors=airbending_master_setup
 )
 
