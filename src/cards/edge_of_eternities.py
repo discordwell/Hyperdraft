@@ -3261,6 +3261,417 @@ def watery_grave_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 # =============================================================================
+# PHASE 2B VANILLA-SPELL RESOLVES
+# =============================================================================
+# Resolve callbacks for spells whose effects can't be auto-pattern-matched by
+# the stack manager. Each function has signature (targets, state) -> list[Event]
+# and is wired in via the `resolve=` parameter on the corresponding card def.
+
+def _phase2b_caster_and_spell(state: GameState, name: str) -> tuple:
+    """Locate the controller and stack object for a Phase 2B spell by name."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == name:
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = f"{name}_spell"
+    return caster_id, spell_id
+
+
+def _phase2b_x_value(state: GameState, spell_id: str) -> int:
+    """Best-effort lookup of an X-spell's chosen X value from the stack."""
+    sm = getattr(state, 'stack_manager', None)
+    if sm is not None:
+        for item in getattr(sm, 'items', []) or []:
+            if getattr(item, 'card_id', None) == spell_id:
+                try:
+                    return int(getattr(item, 'x_value', 0) or 0)
+                except Exception:
+                    return 0
+    return 0
+
+
+def beyond_the_quiet_resolve(targets: list, state: GameState) -> list[Event]:
+    """Exile all creatures and Spacecraft."""
+    _caster_id, spell_id = _phase2b_caster_and_spell(state, "Beyond the Quiet")
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        is_creature = CardType.CREATURE in o.characteristics.types
+        is_spacecraft = 'Spacecraft' in o.characteristics.subtypes
+        if is_creature or is_spacecraft:
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': o.id,
+                    'to_zone_type': ZoneType.EXILE,
+                    'to_zone': 'exile',
+                },
+                source=spell_id,
+            ))
+    return events
+
+
+def focus_fire_resolve(targets: list, state: GameState) -> list[Event]:
+    """Focus Fire deals X damage to target attacking or blocking creature,
+    where X is 2 plus the number of creatures and/or Spacecraft you control."""
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Focus Fire")
+    bonus = 0
+    for o in state.objects.values():
+        if o.zone != ZoneType.BATTLEFIELD or o.controller != caster_id:
+            continue
+        is_creature = CardType.CREATURE in o.characteristics.types
+        is_spacecraft = 'Spacecraft' in o.characteristics.subtypes
+        if is_creature or is_spacecraft:
+            bonus += 1
+    damage = 2 + bonus
+    events: list[Event] = []
+    if targets and targets[0]:
+        for t in targets[0]:
+            if t.is_player:
+                continue
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': t.id, 'amount': damage, 'is_combat': False, 'is_player': False},
+                source=spell_id,
+            ))
+    return events
+
+
+def annul_resolve(targets: list, state: GameState) -> list[Event]:
+    """Counter target artifact or enchantment spell."""
+    _caster_id, spell_id = _phase2b_caster_and_spell(state, "Annul")
+    events: list[Event] = []
+    if targets and targets[0]:
+        for t in targets[0]:
+            if t.is_player:
+                continue
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': t.id,
+                    'to_zone_type': ZoneType.GRAVEYARD,
+                    'reason': 'countered',
+                },
+                source=spell_id,
+            ))
+    return events
+
+
+def cerebral_download_resolve(targets: list, state: GameState) -> list[Event]:
+    """Surveil X (X = artifacts you control). Then draw 3 cards."""
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Cerebral Download")
+    artifact_count = 0
+    for o in state.objects.values():
+        if (o.zone == ZoneType.BATTLEFIELD and o.controller == caster_id and
+                CardType.ARTIFACT in o.characteristics.types):
+            artifact_count += 1
+
+    events: list[Event] = []
+    if artifact_count > 0:
+        events.append(Event(
+            type=EventType.SURVEIL,
+            payload={'player': caster_id, 'amount': artifact_count},
+            source=spell_id,
+            controller=caster_id,
+        ))
+    events.append(Event(
+        type=EventType.DRAW,
+        payload={'player': caster_id, 'amount': 3},
+        source=spell_id,
+        controller=caster_id,
+    ))
+    return events
+
+
+def dark_endurance_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature gets +2/+0 and gains indestructible until end of turn."""
+    _caster_id, spell_id = _phase2b_caster_and_spell(state, "Dark Endurance")
+    events: list[Event] = []
+    if targets and targets[0]:
+        for t in targets[0]:
+            if t.is_player:
+                continue
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': t.id, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+                source=spell_id,
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': t.id, 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+                source=spell_id,
+            ))
+    return events
+
+
+def temporal_intervention_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target opponent reveals hand. You choose a nonland card. That player discards it."""
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Temporal Intervention")
+    target_player = None
+    if targets and targets[0]:
+        for t in targets[0]:
+            if t.is_player and t.id != caster_id:
+                target_player = t.id
+                break
+    if target_player is None:
+        for pid in state.players:
+            if pid != caster_id:
+                target_player = pid
+                break
+    if target_player is None:
+        return []
+    return [
+        Event(type=EventType.REVEAL_HAND, payload={'player': target_player}, source=spell_id, controller=caster_id),
+        Event(
+            type=EventType.DISCARD,
+            payload={'player': target_player, 'amount': 1, 'chosen_by': caster_id, 'nonland_only': True},
+            source=spell_id,
+            controller=caster_id,
+        ),
+    ]
+
+
+def zero_point_ballad_resolve(targets: list, state: GameState) -> list[Event]:
+    """Destroy all creatures with toughness X or less. You lose X life.
+    If X is 6 or more, return one such creature card to the battlefield (best-effort skip)."""
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Zero Point Ballad")
+    x_value = _phase2b_x_value(state, spell_id)
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in o.characteristics.types:
+            continue
+        try:
+            t = get_toughness(o, state)
+        except Exception:
+            t = o.characteristics.toughness or 0
+        if t is None:
+            continue
+        if t <= x_value:
+            events.append(Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': o.id},
+                source=spell_id,
+            ))
+    if x_value > 0:
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': caster_id, 'amount': -x_value},
+            source=spell_id,
+        ))
+    # Reanimation rider for X>=6 omitted: requires post-resolution graveyard
+    # tracking + selective revive (engine gap for "this way").
+    return events
+
+
+def cut_propulsion_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature deals damage to itself = its power; doubled if it has flying."""
+    _caster_id, spell_id = _phase2b_caster_and_spell(state, "Cut Propulsion")
+    events: list[Event] = []
+    if targets and targets[0]:
+        for t in targets[0]:
+            if t.is_player:
+                continue
+            obj = state.objects.get(t.id)
+            if obj is None or obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            try:
+                power = get_power(obj, state) or 0
+            except Exception:
+                power = obj.characteristics.power or 0
+            has_flying = any(
+                (a.get('keyword') if isinstance(a, dict) else str(a)).lower() == 'flying'
+                for a in (obj.characteristics.abilities or [])
+            )
+            damage = (power * 2) if has_flying else power
+            if damage > 0:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': t.id, 'amount': damage, 'is_combat': False, 'is_player': False, 'source': t.id},
+                    source=spell_id,
+                ))
+    return events
+
+
+def rig_for_war_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature gets +3/+0 and gains first strike and reach until end of turn."""
+    _caster_id, spell_id = _phase2b_caster_and_spell(state, "Rig for War")
+    events: list[Event] = []
+    if targets and targets[0]:
+        for t in targets[0]:
+            if t.is_player:
+                continue
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': t.id, 'power_mod': 3, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+                source=spell_id,
+            ))
+            for kw in ('first_strike', 'reach'):
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': t.id, 'keyword': kw, 'duration': 'end_of_turn'},
+                    source=spell_id,
+                ))
+    return events
+
+
+def diplomatic_relations_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target creature you control gets +1/+0 and gains vigilance until end
+    of turn. It deals damage equal to its power to target creature an opponent controls."""
+    _caster_id, spell_id = _phase2b_caster_and_spell(state, "Diplomatic Relations")
+    events: list[Event] = []
+    own_id: Optional[str] = None
+    opp_id: Optional[str] = None
+    flat = []
+    if targets:
+        for group in targets:
+            if group:
+                flat.extend(group)
+    # First non-player target = your creature (target group 0); second = opponent's.
+    non_player = [t for t in flat if not t.is_player]
+    if len(non_player) >= 1:
+        own_id = non_player[0].id
+    if len(non_player) >= 2:
+        opp_id = non_player[1].id
+
+    if own_id:
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': own_id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+            source=spell_id,
+        ))
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': own_id, 'keyword': 'vigilance', 'duration': 'end_of_turn'},
+            source=spell_id,
+        ))
+        if opp_id:
+            own_obj = state.objects.get(own_id)
+            if own_obj is not None:
+                try:
+                    power = get_power(own_obj, state) or 0
+                except Exception:
+                    power = own_obj.characteristics.power or 0
+                # Apply +1 since the pump is happening alongside the damage.
+                damage = power + 1
+                if damage > 0:
+                    events.append(Event(
+                        type=EventType.DAMAGE,
+                        payload={'target': opp_id, 'amount': damage, 'is_combat': False, 'is_player': False, 'source': own_id},
+                        source=spell_id,
+                    ))
+    return events
+
+
+def pull_through_the_weft_resolve(targets: list, state: GameState) -> list[Event]:
+    """Return up to two target nonland permanent cards from your graveyard to
+    your hand, then return up to two target land cards from your graveyard to
+    the battlefield tapped."""
+    _caster_id, spell_id = _phase2b_caster_and_spell(state, "Pull Through the Weft")
+    events: list[Event] = []
+    if not targets:
+        return events
+
+    # Group 0: nonland permanent cards in graveyard → return to hand.
+    # Group 1: land cards in graveyard → return to battlefield tapped.
+    if len(targets) >= 1 and targets[0]:
+        for t in targets[0]:
+            if t.is_player:
+                continue
+            obj = state.objects.get(t.id)
+            if obj is None or obj.zone != ZoneType.GRAVEYARD:
+                continue
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': t.id,
+                    'from_zone': f'graveyard_{obj.owner}',
+                    'from_zone_type': ZoneType.GRAVEYARD,
+                    'to_zone': f'hand_{obj.owner}',
+                    'to_zone_type': ZoneType.HAND,
+                },
+                source=spell_id,
+            ))
+    if len(targets) >= 2 and targets[1]:
+        for t in targets[1]:
+            if t.is_player:
+                continue
+            obj = state.objects.get(t.id)
+            if obj is None or obj.zone != ZoneType.GRAVEYARD:
+                continue
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': t.id,
+                    'from_zone': f'graveyard_{obj.owner}',
+                    'from_zone_type': ZoneType.GRAVEYARD,
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                    'tapped': True,
+                },
+                source=spell_id,
+            ))
+    return events
+
+
+def singularity_rupture_resolve(targets: list, state: GameState) -> list[Event]:
+    """Destroy all creatures, then any number of target players each mill
+    half their library, rounded down."""
+    _caster_id, spell_id = _phase2b_caster_and_spell(state, "Singularity Rupture")
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types:
+            events.append(Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': o.id},
+                source=spell_id,
+            ))
+    if targets and targets[0]:
+        for t in targets[0]:
+            if not t.is_player:
+                continue
+            lib = state.zones.get(f"library_{t.id}")
+            half = (len(lib.objects) // 2) if lib else 0
+            if half > 0:
+                events.append(Event(
+                    type=EventType.MILL,
+                    payload={'player': t.id, 'amount': half},
+                    source=spell_id,
+                ))
+    return events
+
+
+def spacetime_anomaly_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target player mills cards equal to your life total."""
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Space-Time Anomaly")
+    caster = state.players.get(caster_id) if caster_id else None
+    amount = max(int(getattr(caster, 'life', 0) or 0), 0) if caster else 0
+    events: list[Event] = []
+    if amount <= 0:
+        return events
+    if targets and targets[0]:
+        for t in targets[0]:
+            if not t.is_player:
+                continue
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': t.id, 'amount': amount},
+                source=spell_id,
+            ))
+    return events
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -3326,6 +3737,7 @@ BEYOND_THE_QUIET = make_sorcery(
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     text="Exile all creatures and Spacecraft.",
+    resolve=beyond_the_quiet_resolve,
 )
 
 BRIGHTSPEAR_ZEALOT = make_creature(
@@ -3426,6 +3838,7 @@ FOCUS_FIRE = make_instant(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Focus Fire deals X damage to target attacking or blocking creature, where X is 2 plus the number of creatures and/or Spacecraft you control.",
+    resolve=focus_fire_resolve,
 )
 
 HALIYA_GUIDED_BY_LIGHT = make_creature(
@@ -3674,6 +4087,7 @@ ANNUL = make_instant(
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Counter target artifact or enchantment spell.",
+    resolve=annul_resolve,
 )
 
 ATOMIC_MICROSIZER = make_artifact(
@@ -3689,6 +4103,7 @@ CEREBRAL_DOWNLOAD = make_instant(
     mana_cost="{4}{U}",
     colors={Color.BLUE},
     text="Surveil X, where X is the number of artifacts you control. Then draw three cards. (To surveil X, look at the top X cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)",
+    resolve=cerebral_download_resolve,
 )
 
 CLOUDSCULPT_TECHNICIAN = make_creature(
@@ -4095,6 +4510,7 @@ DARK_ENDURANCE = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="This spell costs {1} less to cast if it targets a blocking creature.\nTarget creature gets +2/+0 and gains indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)",
+    resolve=dark_endurance_resolve,
 )
 
 DECODE_TRANSMISSIONS = make_sorcery(
@@ -4328,6 +4744,7 @@ TEMPORAL_INTERVENTION = make_sorcery(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Void — This spell costs {2} less to cast if a nonland permanent left the battlefield this turn or a spell was warped this turn.\nTarget opponent reveals their hand. You choose a nonland card from it. That player discards that card.",
+    resolve=temporal_intervention_resolve,
 )
 
 TIMELINE_CULLER = make_creature(
@@ -4400,6 +4817,7 @@ ZERO_POINT_BALLAD = make_sorcery(
     mana_cost="{X}{B}",
     colors={Color.BLACK},
     text="Destroy all creatures with toughness X or less. You lose X life. If X is 6 or more, return a creature card put into a graveyard this way to the battlefield under your control.",
+    resolve=zero_point_ballad_resolve,
 )
 
 BOMBARD = make_instant(
@@ -4414,6 +4832,7 @@ CUT_PROPULSION = make_instant(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Target creature deals damage to itself equal to its power. If that creature has flying, it deals twice that much damage to itself instead.",
+    resolve=cut_propulsion_resolve,
 )
 
 DEBRIS_FIELD_CRUSHER = make_artifact(
@@ -4638,6 +5057,7 @@ RIG_FOR_WAR = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Target creature gets +3/+0 and gains first strike and reach until end of turn.",
+    resolve=rig_for_war_resolve,
 )
 
 ROVING_ACTUATOR = make_artifact_creature(
@@ -4821,6 +5241,7 @@ DIPLOMATIC_RELATIONS = make_instant(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Target creature you control gets +1/+0 and gains vigilance until end of turn. It deals damage equal to its power to target creature an opponent controls.",
+    resolve=diplomatic_relations_resolve,
 )
 
 DRIX_FATEMAKER = make_creature(
@@ -5057,6 +5478,7 @@ PULL_THROUGH_THE_WEFT = make_sorcery(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     text="Return up to two target nonland permanent cards from your graveyard to your hand, then return up to two target land cards from your graveyard to the battlefield tapped.",
+    resolve=pull_through_the_weft_resolve,
 )
 
 SAMIS_CURIOSITY = make_sorcery(
@@ -5304,6 +5726,7 @@ SINGULARITY_RUPTURE = make_sorcery(
     mana_cost="{3}{U}{B}{B}",
     colors={Color.BLACK, Color.BLUE},
     text="Destroy all creatures, then any number of target players each mill half their library, rounded down.",
+    resolve=singularity_rupture_resolve,
 )
 
 SPACETIME_ANOMALY = make_sorcery(
@@ -5311,6 +5734,7 @@ SPACETIME_ANOMALY = make_sorcery(
     mana_cost="{2}{W}{U}",
     colors={Color.BLUE, Color.WHITE},
     text="Target player mills cards equal to your life total.",
+    resolve=spacetime_anomaly_resolve,
 )
 
 STATION_MONITOR = make_creature(

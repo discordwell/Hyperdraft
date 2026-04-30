@@ -5420,6 +5420,159 @@ def charging_hooligan_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 # =============================================================================
+# PHASE 2B VANILLA-SPELL RESOLVES
+# =============================================================================
+# Resolve callbacks for spells whose effects can't be auto-pattern-matched by
+# the stack manager. Each function has signature (targets, state) -> list[Event]
+# and is wired in via the `resolve=` parameter on the corresponding card def.
+
+def _phase2b_caster_and_spell(state: GameState, name: str) -> tuple:
+    """Locate the controller and stack object for a Phase 2B spell by name."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == name:
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = f"{name}_spell"
+    return caster_id, spell_id
+
+
+def _phase2b_make_draw_resolve(amount: int, name: str) -> Callable:
+    """Build a tiny resolve callable that emits a DRAW event for the spell's controller."""
+    def _resolve(targets: list, state: GameState) -> list[Event]:
+        caster_id, spell_id = _phase2b_caster_and_spell(state, name)
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': caster_id, 'amount': amount},
+            source=spell_id,
+            controller=caster_id,
+        )]
+    return _resolve
+
+
+def into_the_fae_court_resolve(targets: list, state: GameState) -> list[Event]:
+    """Draw three cards. Create a 1/1 blue Faerie creature token with flying."""
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Into the Fae Court")
+    return [
+        Event(type=EventType.DRAW, payload={'player': caster_id, 'amount': 3}, source=spell_id),
+        Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Faerie Token',
+                'controller': caster_id,
+                'power': 1, 'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Faerie'],
+                'colors': [Color.BLUE],
+                'abilities': [{'keyword': 'flying'}],
+                'is_token': True,
+            },
+            source=spell_id,
+            controller=caster_id,
+        ),
+    ]
+
+
+def sleight_of_hand_resolve(targets: list, state: GameState) -> list[Event]:
+    """Look at top 2 of library, put one into hand, the other on bottom.
+    Approximated as scry 1 then draw 1 — equivalent decision space for AI/auto."""
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Sleight of Hand")
+    return [
+        Event(type=EventType.SCRY, payload={'player': caster_id, 'amount': 1}, source=spell_id, controller=caster_id),
+        Event(type=EventType.DRAW, payload={'player': caster_id, 'amount': 1}, source=spell_id, controller=caster_id),
+    ]
+
+
+def ego_drain_resolve(targets: list, state: GameState) -> list[Event]:
+    """Target opponent reveals hand; you choose nonland; that player discards
+    that card. If you don't control a Faerie, exile a card from your hand."""
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Ego Drain")
+    target_player = None
+    if targets and targets[0]:
+        for t in targets[0]:
+            if t.is_player and t.id != caster_id:
+                target_player = t.id
+                break
+    if target_player is None:
+        for pid in state.players:
+            if pid != caster_id:
+                target_player = pid
+                break
+    if target_player is None:
+        return []
+
+    events: list[Event] = [
+        Event(type=EventType.REVEAL_HAND, payload={'player': target_player}, source=spell_id, controller=caster_id),
+        Event(type=EventType.DISCARD, payload={'player': target_player, 'amount': 1, 'chosen_by': caster_id, 'nonland_only': True}, source=spell_id, controller=caster_id),
+    ]
+    controls_faerie = any(
+        o.controller == caster_id and o.zone == ZoneType.BATTLEFIELD and
+        'Faerie' in o.characteristics.subtypes
+        for o in state.objects.values()
+    )
+    if not controls_faerie:
+        events.append(Event(
+            type=EventType.DISCARD,
+            payload={'player': caster_id, 'amount': 1, 'discard_to_exile': True},
+            source=spell_id,
+            controller=caster_id,
+        ))
+    return events
+
+
+def song_of_totentanz_resolve(targets: list, state: GameState) -> list[Event]:
+    """Create X 1/1 black Rat creature tokens with 'This token can't block.'
+    Creatures you control gain haste until end of turn."""
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Song of Totentanz")
+    # X-spell: read x_value from the StackItem if available; otherwise default 1.
+    x_value = 0
+    stack_mgr = getattr(state, 'stack_manager', None)
+    if stack_mgr is not None:
+        for item in getattr(stack_mgr, 'items', []) or []:
+            if getattr(item, 'card_id', None) == spell_id:
+                x_value = int(getattr(item, 'x_value', 0) or 0)
+                break
+    if x_value <= 0:
+        x_value = 1
+
+    events: list[Event] = []
+    for _ in range(x_value):
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Rat Token',
+                'controller': caster_id,
+                'power': 1, 'toughness': 1,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Rat'],
+                'colors': [Color.BLACK],
+                'is_token': True,
+                'cant_block': True,
+            },
+            source=spell_id,
+            controller=caster_id,
+        ))
+    # Grant haste to all creatures the caster controls until end of turn.
+    for o in state.objects.values():
+        if (o.controller == caster_id and o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types):
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': o.id, 'keyword': 'haste', 'duration': 'end_of_turn'},
+                source=spell_id,
+            ))
+    return events
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -5928,6 +6081,7 @@ INTO_THE_FAE_COURT = make_sorcery(
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     text="Draw three cards. Create a 1/1 blue Faerie creature token with flying and \"This token can block only creatures with flying.\"",
+    resolve=into_the_fae_court_resolve,
 )
 
 JOHANNS_STOPGAP = make_sorcery(
@@ -5999,6 +6153,7 @@ QUICK_STUDY = make_instant(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Draw two cards.",
+    resolve=_phase2b_make_draw_resolve(2, "Quick Study"),
 )
 
 SLEEPCURSED_FAERIE = make_creature(
@@ -6016,6 +6171,7 @@ SLEIGHT_OF_HAND = make_sorcery(
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Look at the top two cards of your library. Put one of them into your hand and the other on the bottom of your library.",
+    resolve=sleight_of_hand_resolve,
 )
 
 SNAREMASTER_SPRITE = make_creature(
@@ -6185,6 +6341,7 @@ EGO_DRAIN = make_sorcery(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="Target opponent reveals their hand. You choose a nonland card from it. That player discards that card. If you don't control a Faerie, exile a card from your hand.",
+    resolve=ego_drain_resolve,
 )
 
 THE_END = make_instant(
@@ -6763,6 +6920,7 @@ SONG_OF_TOTENTANZ = make_sorcery(
     mana_cost="{X}{R}",
     colors={Color.RED},
     text="Create X 1/1 black Rat creature tokens with \"This token can't block.\" Creatures you control gain haste until end of turn.",
+    resolve=song_of_totentanz_resolve,
 )
 
 STONESPLITTER_BOLT = make_instant(
@@ -7829,6 +7987,7 @@ ROWDY_RESEARCH = make_instant(
     mana_cost="{6}{U}",
     colors={Color.BLUE},
     text="This spell costs {1} less to cast for each creature that attacked this turn.\nDraw three cards.",
+    resolve=_phase2b_make_draw_resolve(3, "Rowdy Research"),
 )
 
 STORYTELLER_PIXIE = make_creature(
