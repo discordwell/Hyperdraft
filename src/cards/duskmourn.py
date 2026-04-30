@@ -38,6 +38,11 @@ from src.cards.interceptor_helpers import (
     make_life_gain_replacer, make_graveyard_to_exile_replacer,
     make_replacement_interceptor,
 )
+from src.engine.spell_resolve import (
+    resolve_chain,
+    resolve_create_token,
+    resolve_draw,
+)
 
 
 # =============================================================================
@@ -2269,6 +2274,38 @@ def valgavoths_lair_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 # =============================================================================
+# PHASE 2B VANILLA-SPELL RESOLVES
+# =============================================================================
+
+# Glimmerburst: "Draw two cards. Create a 1/1 white Glimmer enchantment
+# creature token."
+glimmerburst_resolve = resolve_chain(
+    resolve_draw(2),
+    resolve_create_token(
+        name="Glimmer Token",
+        power=1, toughness=1,
+        types=[CardType.ENCHANTMENT, CardType.CREATURE],
+        subtypes=["Glimmer"],
+        colors=[Color.WHITE],
+        count=1,
+    ),
+)
+
+# Midnight Mayhem: "Create three 1/1 red Gremlin creature tokens."
+# (Note: the keyword grant to all Gremlins until end of turn is an
+# anthem-style temporary effect; tracked as engine gap. Tokens are
+# created with the right subtype so the rest can be wired later.)
+midnight_mayhem_resolve = resolve_create_token(
+    name="Gremlin Token",
+    power=1, toughness=1,
+    types=[CardType.CREATURE],
+    subtypes=["Gremlin"],
+    colors=[Color.RED],
+    count=3,
+)
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -3436,6 +3473,7 @@ GLIMMERBURST = make_instant(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     text="Draw two cards. Create a 1/1 white Glimmer enchantment creature token.",
+    resolve=glimmerburst_resolve,
 )
 
 LEYLINE_OF_TRANSFORMATION = make_enchantment(
@@ -6912,6 +6950,7 @@ MIDNIGHT_MAYHEM = make_sorcery(
     mana_cost="{2}{R}{W}",
     colors={Color.RED, Color.WHITE},
     text="Create three 1/1 red Gremlin creature tokens. Gremlins you control gain menace, lifelink, and haste until end of turn. (A creature with menace can't be blocked except by two or more creatures.)",
+    resolve=midnight_mayhem_resolve,
 )
 
 NASHI_SEARCHER_IN_THE_DARK = make_creature(

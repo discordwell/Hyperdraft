@@ -1,0 +1,69 @@
+{
+  "set": "duskmourn.py",
+  "results": [
+    {
+      "var": "GLIMMERBURST",
+      "disposition": "resolved",
+      "engine_gap": "",
+      "notes": "Wired resolve_chain(resolve_draw(2), resolve_create_token('Glimmer' enchantment-creature 1/1 white)). Auto-pattern wouldn't combine draw + token correctly and 'Glimmer' is not in the default subtype list."
+    },
+    {
+      "var": "DEMONIC_COUNSEL",
+      "disposition": "left",
+      "engine_gap": "library search by subtype + delirium (4+ card types in graveyard) branch to any-card search",
+      "notes": "Library tutor with conditional any-card search based on delirium count; bespoke interactive flow."
+    },
+    {
+      "var": "WALTZ_OF_RAGE",
+      "disposition": "left",
+      "engine_gap": "fight-style damage from target's power to each other creature + delayed 'dies->exile-top, may-play-this-turn' floating effect",
+      "notes": "Two engine gaps in one card: damage-equal-to-power sweep and a delayed conditional exile/play replacement."
+    },
+    {
+      "var": "CATHARTIC_PARTING",
+      "disposition": "left",
+      "engine_gap": "shuffle target permanent into library + may-shuffle up-to-four graveyard cards into library (multi-target graveyard selection)",
+      "notes": "Permanent-into-library is a non-standard zone change; multi-target graveyard selection needs interactive prompt."
+    },
+    {
+      "var": "MONSTROUS_EMERGENCE",
+      "disposition": "left",
+      "engine_gap": "additional cost (choose creature you control or reveal creature card from hand) + damage equal to chosen/revealed creature's power",
+      "notes": "Additional cost choice is a casting-time mechanic; resolve depends on the chosen entity's power."
+    },
+    {
+      "var": "SAY_ITS_NAME",
+      "disposition": "left",
+      "engine_gap": "mill 3 + graveyard target reanim (creature-or-land to hand) + GY-activated ability to fetch named card from any zone",
+      "notes": "Bespoke; needs interactive graveyard target choice and a graveyard activated ability."
+    },
+    {
+      "var": "UNDER_THE_SKIN",
+      "disposition": "left",
+      "engine_gap": "manifest dread (DSK mechanic; resolves to face-down 2/2 + graveyard) + graveyard target reanim (return permanent to hand)",
+      "notes": "Manifest dread emits an event the engine can handle, but the may-return-permanent-to-hand step needs graveyard targeting."
+    },
+    {
+      "var": "MIDNIGHT_MAYHEM",
+      "disposition": "resolved",
+      "engine_gap": "anthem-style temporary keyword grant to all Gremlins you control until end of turn (menace, lifelink, haste)",
+      "notes": "Wired resolve_create_token (3 Gremlins); the temporary tribal anthem is left as engine gap (would need a static interceptor scoped to the spell). Token wiring matters because 'Gremlin' is not in the default auto-pattern subtype list."
+    },
+    {
+      "var": "PEER_PAST_THE_VEIL",
+      "disposition": "left",
+      "engine_gap": "discard-your-hand + draw X based on graveyard card-type count (dynamic X)",
+      "notes": "Discard-entire-hand and dynamic-X draw are both gaps without a way to count card types or read the resolved count."
+    },
+    {
+      "var": "RITE_OF_THE_MOTH",
+      "disposition": "left",
+      "engine_gap": "graveyard target reanim with finality counter + flashback alt-cast",
+      "notes": "Graveyard targeting plus finality counter ETB. Flashback handled separately by setup_interceptors."
+    }
+  ],
+  "summary": {
+    "resolved": 2,
+    "left": 8
+  }
+}
