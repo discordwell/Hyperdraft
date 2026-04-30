@@ -2257,8 +2257,8 @@ def squires_lightblade_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def starport_security_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated ability tap-target with cost reduction; engine gap on dynamic activated cost."""
-    # engine gap: dynamic activated ability cost (-2 if you control creature with +1/+1 counter)
+    """{3}{W},{T}: tap another target creature; -2 cost if you control creature with +1/+1 counter."""
+    # engine gap: tap-activated targeted ability + dynamic activated cost reduction (counter-aware)
     return []
 
 
@@ -2318,7 +2318,8 @@ def sunstar_expansionist_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def atomic_microsizer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Equipment: equipped +1/+0; whenever equipped attacks, target gets unblockable + base 1/1 EOT."""
-    # engine gap: equipped-creature attack trigger; can't-be-blocked + base P/T set
+    # engine gap: equipment system (static buff via attached_to + attack trigger forwarded through equip)
+    # plus targeted can't-be-blocked grant and base-P/T-set effect (until end of turn).
     return []
 
 
@@ -2362,7 +2363,9 @@ def mmmenon_the_right_hand_setup(obj: GameObject, state: GameState) -> list[Inte
 
 def moonlit_meditation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Aura: first time you would create tokens each turn, create copies of enchanted permanent instead."""
-    # engine gap: replacement of token creation by copying enchanted permanent
+    # engine gap: aura attachment tracking + once-per-turn replacement of OBJECT_CREATED
+    # token events into copy-of-attached-permanent token events (needs make_replacement_interceptor
+    # plus per-turn-fired flag and a token-copy primitive).
     return []
 
 
@@ -2556,8 +2559,9 @@ def perigee_beckoner_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def requiem_monolith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: temporary 'when damaged, draw cards and lose life' on target."""
-    # engine gap: activated ability granting temporary damage trigger to a target
+    """{T}: until EOT, target creature gains 'when damaged, controller draws cards and loses life'."""
+    # engine gap: tap-activated targeted ability grant (sorcery-speed) + EOT-bounded
+    # damage-trigger granted to a target + opponent-may-self-ping clause.
     return []
 
 
@@ -2593,7 +2597,8 @@ def voidforged_titan_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 def xuifit_osteoharmonist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{T}: Return target creature card from your GY to BF as a Skeleton, no abilities."""
-    # engine gap: tap-activated reanimation with type/ability rewriting
+    # engine gap: tap-activated reanimation (sorcery-speed) + ability suppression
+    # + Skeleton subtype-add on the returned object (continuous effect).
     return []
 
 
@@ -2620,8 +2625,9 @@ def kavaron_skywarden_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def kavaron_turbodrone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: target creature gets +1/+1 and haste EOT (sorcery speed)."""
-    # engine gap: tap activated targeted +1/+1 + haste EOT
+    """{T}: target creature you control gets +1/+1 and gains haste until EOT (sorcery speed)."""
+    # engine gap: tap-activated targeted ability dispatch + sorcery-speed gating.
+    # Effect itself (PT_MODIFICATION + temporary keyword grant) is supported; activation isn't.
     return []
 
 
@@ -2729,8 +2735,8 @@ def territorial_bruntar_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def zookeeper_mechan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: Add {R}; {6}{R}: target creature +4/+0 EOT (sorcery)."""
-    # engine gap: activated abilities (mana production + targeted pump)
+    """{T}: Add {R}; {6}{R}: target creature you control +4/+0 EOT (sorcery)."""
+    # engine gap: activated mana ability ({T}: {R}) + activated targeted pump (sorcery-speed).
     return []
 
 
@@ -3103,8 +3109,9 @@ def dawnsire_sunstar_dreadnought_setup(obj: GameObject, state: GameState) -> lis
 
 
 def the_dominion_bracelet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipped +1/+1 with control-opponent ability. Equip {1}."""
-    # engine gap: control-opponent activated ability with dynamic cost
+    """Equipment: equipped +1/+1 with granted '{15}, exile bracelet: control opponent's next turn' ability."""
+    # engine gap: equipment system (static buff via attached_to) + ability-grant-to-equipped
+    # + control-opponent action + dynamic cost reduction by equipped creature's power.
     return []
 
 
@@ -3153,26 +3160,30 @@ def the_endstone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def the_eternity_elevator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: Add CCC. Station 20+: tap for X mana (charge counters)."""
-    # engine gap: activated mana abilities with charge-counter scaling
+    """{T}: Add CCC. Station 20+: {T}: Add X mana of any one color (X = charge counters)."""
+    # engine gap: activated mana abilities (basic + threshold-gated alt) with charge-counter
+    # scaling. Station charge tracking exists; activated mana dispatch does not.
     return []
 
 
 def survey_mechan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying; hexproof; {10}, sac: 3 damage + draw 3 + 3 life. Cost reduction by named lands."""
-    # engine gap: activated ability with sac cost + dynamic cost reduction
+    """Flying; hexproof; {10},sac: 3 dmg to any target + target player draws 3 + gains 3 life."""
+    # engine gap: activated ability with sacrifice cost + dynamic cost reduction
+    # (X = differently-named lands you control). Flying/hexproof come from card text.
     return []
 
 
 def thaumaton_torpedo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{6}{T} sac: destroy nonland. -3 cost if attacked with Spacecraft this turn."""
-    # engine gap: activated ability + dynamic cost reduction (per-turn attack tracking)
+    """{6},{T},sac: destroy target nonland permanent. -3 cost if you attacked with a Spacecraft this turn."""
+    # engine gap: activated ability with tap+sacrifice cost + targeted destroy + dynamic
+    # cost reduction (Spacecraft-attacked-this-turn flag tracking).
     return []
 
 
 def adagia_windswept_bastion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Land enters tapped; {T}: W; Station 12+ activated ability."""
-    # engine gap: enters-tapped land + station-charge-counter gated activated ability
+    """Land enters tapped; {T}: Add W; Station 12+ | {3}{W},{T}: copy target artifact/enchantment as legendary token."""
+    # engine gap: enters-tapped land flag + activated mana ability + charge-counter-threshold-gated
+    # activated targeted token-copy (sorcery-speed).
     return []
 
 
@@ -3191,8 +3202,9 @@ def command_bridge_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def evendo_waking_haven_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Enters tapped; {T}: G; Station 12+ activated ability."""
-    # engine gap: station-charge-counter gated activated ability
+    """Enters tapped; {T}: Add G; Station 12+ | {G},{T}: Add G for each creature you control."""
+    # engine gap: enters-tapped land flag + activated mana ability + charge-counter-threshold-gated
+    # activated mana ability (X = creatures-you-control count).
     return []
 
 
@@ -3203,8 +3215,9 @@ def godless_shrine_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def kavaron_memorial_world_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Enters tapped; {T}: R; Station 12+ activated ability."""
-    # engine gap: station-charge-counter gated activated ability
+    """Enters tapped; {T}: Add R; Station 12+ | {1}{R},{T},sac land: 2/2 Robot token + creatures get +1/+0 haste EOT."""
+    # engine gap: enters-tapped land flag + activated mana ability + charge-counter-threshold-gated
+    # activated ability with sacrifice cost (token creation + temporary mass pump-and-haste).
     return []
 
 
@@ -3215,8 +3228,9 @@ def sacred_foundry_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def secluded_starforge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated abilities (Robot tokens, Spacecraft pump)."""
-    # engine gap: tap-X-artifacts activated ability + token-creation activated ability
+    """{T}: Add C; {2},{T},tap X artifacts: target creature +X/+0 EOT (sorcery); {5},{T}: 2/2 Robot token."""
+    # engine gap: activated mana ability + activated ability with variable tap-X-artifacts cost
+    # + activated token-creation ability. Land also has no setup needs beyond activations.
     return []
 
 
@@ -3227,14 +3241,16 @@ def stomping_ground_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def susur_secundi_void_altar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Enters tapped; {T}: B; Station 12+ activated ability (sac creature draw cards)."""
-    # engine gap: station-charge-counter gated activated ability
+    """Enters tapped; {T}: Add B; Station 12+ | {1}{B},{T},pay 2 life,sac a creature: draw cards = sacrificed power."""
+    # engine gap: enters-tapped land flag + activated mana ability + charge-counter-threshold-gated
+    # activated ability with multi-component cost (life payment + sacrifice) + dynamic draw count.
     return []
 
 
 def uthros_titanic_godcore_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Enters tapped; {T}: U; Station 12+ activated ability (U per artifact)."""
-    # engine gap: station-charge-counter gated activated ability
+    """Enters tapped; {T}: Add U; Station 12+ | {U},{T}: Add U for each artifact you control."""
+    # engine gap: enters-tapped land flag + activated mana ability + charge-counter-threshold-gated
+    # activated mana ability (X = artifacts-you-control count).
     return []
 
 
