@@ -249,7 +249,7 @@ def harry_potter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 HARRY_POTTER_THE_CHOSEN_ONE = make_creature(
     name="Harry Potter, the Chosen One",
     power=3, toughness=3,
-    mana_cost="{2}{W}{W}",
+    mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Gryffindor"},
     supertypes={"Legendary"},
@@ -289,8 +289,8 @@ def hermione_granger_setup(obj: GameObject, state: GameState) -> list[Intercepto
 HERMIONE_GRANGER = make_creature(
     name="Hermione Granger, Brightest Witch",
     power=2, toughness=3,
-    mana_cost="{1}{W}{U}",
-    colors={Color.WHITE, Color.BLUE},
+    mana_cost="{1}{W}",
+    colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Gryffindor"},
     supertypes={"Legendary"},
     text="Spell Mastery - Whenever you cast an instant or sorcery, if you've cast 3+ instants/sorceries this game, draw a card.",
@@ -316,17 +316,25 @@ ALBUS_DUMBLEDORE = make_creature(
 
 
 def minerva_mcgonagall_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    kw_itc = _ih.make_keyword_grant(obj, ['vigilance'], _ih.other_creatures_with_subtype(obj, "Gryffindor"))
+    # Grant vigilance to all Gryffindors you control, including Minerva herself.
+    def gryffindor_filter(target: GameObject, state: GameState) -> bool:
+        return (
+            target.zone == ZoneType.BATTLEFIELD
+            and target.controller == obj.controller
+            and CardType.CREATURE in target.characteristics.types
+            and "Gryffindor" in target.characteristics.subtypes
+        )
+    kw_itc = _ih.make_keyword_grant(obj, ['vigilance'], gryffindor_filter)
     return [kw_itc]
 
 MINERVA_MCGONAGALL = make_creature(
     name="Minerva McGonagall, Transfiguration Master",
-    power=3, toughness=4,
+    power=4, toughness=4,
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Gryffindor"},
     supertypes={"Legendary"},
-    text="Other Gryffindor creatures you control have vigilance.",
+    text="Vigilance. Other Gryffindor creatures you control have vigilance.",
     setup_interceptors=minerva_mcgonagall_setup
 )
 
@@ -356,8 +364,8 @@ def neville_longbottom_setup(obj: GameObject, state: GameState) -> list[Intercep
 NEVILLE_LONGBOTTOM = make_creature(
     name="Neville Longbottom, Brave Heart",
     power=2, toughness=3,
-    mana_cost="{1}{W}{G}",
-    colors={Color.WHITE, Color.GREEN},
+    mana_cost="{1}{W}",
+    colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Gryffindor"},
     supertypes={"Legendary"},
     text="Whenever Neville blocks, he gets +2/+2 until end of turn. {T}: Destroy target enchantment.",
@@ -373,8 +381,8 @@ def gryffindor_prefect_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 GRYFFINDOR_PREFECT = make_creature(
     name="Gryffindor Prefect",
-    power=2, toughness=2,
-    mana_cost="{2}{W}",
+    power=2, toughness=3,
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Gryffindor"},
     text="Other Gryffindor creatures you control get +1/+0.",
@@ -399,8 +407,8 @@ AUROR_RECRUIT = make_creature(
 
 HOGWARTS_DEFENDER = make_creature(
     name="Hogwarts Defender",
-    power=1, toughness=4,
-    mana_cost="{1}{W}{W}",
+    power=2, toughness=4,
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard"},
     text="Defender. Whenever Hogwarts Defender blocks, you gain 2 life."
@@ -450,7 +458,7 @@ def patronus_caster_setup(obj: GameObject, state: GameState) -> list[Interceptor
 PATRONUS_CASTER = make_creature(
     name="Patronus Caster",
     power=2, toughness=3,
-    mana_cost="{3}{W}",
+    mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard"},
     text="When Patronus Caster enters, create a 2/2 white Spirit Patronus token with flying and protection from black.",
@@ -480,7 +488,7 @@ DUMBLEDORES_ARMY_RECRUIT = make_creature(
 
 WEASLEY_MATRIARCH = make_creature(
     name="Weasley Matriarch",
-    power=2, toughness=4,
+    power=3, toughness=4,
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard"},
@@ -490,7 +498,7 @@ WEASLEY_MATRIARCH = make_creature(
 
 HOGWARTS_GHOST = make_creature(
     name="Hogwarts Ghost",
-    power=2, toughness=2,
+    power=2, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit"},
@@ -500,7 +508,7 @@ HOGWARTS_GHOST = make_creature(
 
 QUIDDITCH_REFEREE = make_creature(
     name="Quidditch Referee",
-    power=1, toughness=3,
+    power=2, toughness=3,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard"},
@@ -510,7 +518,7 @@ QUIDDITCH_REFEREE = make_creature(
 
 HEALING_WITCH = make_creature(
     name="Healing Witch",
-    power=1, toughness=2,
+    power=2, toughness=3,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Cleric"},
@@ -521,7 +529,7 @@ HEALING_WITCH = make_creature(
 ST_MUNGOS_HEALER = make_creature(
     name="St. Mungo's Healer",
     power=2, toughness=3,
-    mana_cost="{2}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Cleric"},
     text="When St. Mungo's Healer enters, you gain 3 life. {T}: You gain 1 life."
@@ -1435,9 +1443,9 @@ def ron_weasley_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 RON_WEASLEY = make_creature(
     name="Ron Weasley, Loyal Friend",
-    power=2, toughness=2,
-    mana_cost="{1}{R}{W}",
-    colors={Color.RED, Color.WHITE},
+    power=3, toughness=2,
+    mana_cost="{1}{W}",
+    colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Gryffindor"},
     supertypes={"Legendary"},
     text="First strike. House - Ron gets +1/+1 for each other Gryffindor you control.",

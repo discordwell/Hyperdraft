@@ -399,11 +399,14 @@ def changeling_wayfinder_setup(obj: GameObject, state: GameState) -> list[Interc
     return [make_etb_trigger(obj, etb_effect)]
 
 
+# REVISED (rebalance): {3} -> {2}. Library-search effect is stub; without it,
+# 1/2 for 3 was unplayable. 1/2 for 2 is a legitimate Changeling enabler that
+# triggers tribal payoffs across every Lorwyn type.
 CHANGELING_WAYFINDER = make_creature(
     name="Changeling Wayfinder",
     power=1,
     toughness=2,
-    mana_cost="{3}",
+    mana_cost="{2}",
     colors=set(),  # Colorless
     subtypes={"Shapeshifter"},
     text="Changeling. When this creature enters, you may search your library for a basic land card, reveal it, put it into your hand, then shuffle.",
@@ -979,9 +982,11 @@ def formidable_speaker_setup(obj: GameObject, state: GameState) -> list[Intercep
     return [make_etb_trigger(obj, etb_effect)]
 
 
+# REVISED (rebalance): discard-tutor ETB and tap-untap abilities are stubs;
+# 2/4 -> 3/4 so the body alone justifies the {2}{G} slot.
 FORMIDABLE_SPEAKER = make_creature(
     name="Formidable Speaker",
-    power=2,
+    power=3,
     toughness=4,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
@@ -1002,9 +1007,12 @@ def great_forest_druid_setup(obj: GameObject, state: GameState) -> list[Intercep
     return []
 
 
+# REVISED (rebalance): rainbow mana ability is unimplemented; promote
+# 0/4 -> 1/4 so the Treefolk has at least nominal offense for tribal payoffs
+# (Timber Protector, Treefolk Harbinger, etc.).
 GREAT_FOREST_DRUID = make_creature(
     name="Great Forest Druid",
-    power=0,
+    power=1,
     toughness=4,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
@@ -1043,11 +1051,13 @@ def luminollusk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, etb_effect)]
 
 
+# REVISED (rebalance): {3}{G} -> {2}{G}. Vivid life gain is small in mono-color
+# decks, so we charge the deathtouch body at curve.
 LUMINOLLUSK = make_creature(
     name="Luminollusk",
     power=2,
     toughness=4,
-    mana_cost="{3}{G}",
+    mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Elemental"},
     text="Deathtouch. Vivid — When this creature enters, you gain life equal to the number of colors among permanents you control.",
@@ -1067,11 +1077,14 @@ def lysalana_dignitary_setup(obj: GameObject, state: GameState) -> list[Intercep
     return []
 
 
+# REVISED (rebalance): conditional mana ability never fires; bring CMC
+# {1}{G} -> {G} so a 2/3 Elf Advisor curves on turn 1 without paying for a
+# stub ability. (Behold cost in text is also a no-op in autoplay.)
 LYSALANA_DIGNITARY = make_creature(
     name="Lys Alana Dignitary",
     power=2,
     toughness=3,
-    mana_cost="{1}{G}",
+    mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Advisor"},
     text="As an additional cost to cast this spell, behold an Elf or pay {2}. {T}: Add {G}{G}. Activate only if there is an Elf card in your graveyard.",
@@ -1113,10 +1126,12 @@ def lys_alana_informant_setup(obj: GameObject, state: GameState) -> list[Interce
     ]
 
 
+# REVISED (rebalance): surveil triggers are stubs; promote 3/1 -> 3/2 so the
+# Elf Scout survives a 1-power blocker and lives to attack into tribal lords.
 LYSALANA_INFORMANT = make_creature(
     name="Lys Alana Informant",
     power=3,
-    toughness=1,
+    toughness=2,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Scout"},
@@ -1198,11 +1213,13 @@ def moon_vigil_adherents_setup(obj: GameObject, state: GameState) -> list[Interc
     ]
 
 
+# REVISED (rebalance): {2}{G}{G} -> {1}{G}{G} so this dead 0/0 actually deploys
+# while you have creatures to scale off of. Tribal Elf payoff.
 MOON_VIGIL_ADHERENTS = make_creature(
     name="Moon-Vigil Adherents",
     power=0,
     toughness=0,
-    mana_cost="{2}{G}{G}",
+    mana_cost="{1}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},
     text="Trample. This creature gets +1/+1 for each creature you control and each creature card in your graveyard.",
@@ -1232,11 +1249,13 @@ def mutable_explorer_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return [make_etb_trigger(obj, etb_effect)]
 
 
+# REVISED (rebalance): {2}{G} -> {1}{G}. A 1/1 Changeling enabler at 3 mana
+# wasn't competing with curve creatures; at 2 it acts as an early tribal piece.
 MUTABLE_EXPLORER = make_creature(
     name="Mutable Explorer",
     power=1,
     toughness=1,
-    mana_cost="{2}{G}",
+    mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Shapeshifter"},
     text="Changeling. When this creature enters, create a tapped Mutavault token.",
@@ -1346,10 +1365,12 @@ def surly_farrier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 # {T}: Target creature you control gets +1/+1 and gains vigilance until end of turn.
 
+# REVISED (rebalance): activated tap ability doesn't fire in autoplay,
+# so promote 2/2 -> 2/3 to give a real Kithkin body for {1}{G}.
 SURLY_FARRIER = make_creature(
     name="Surly Farrier",
     power=2,
-    toughness=2,
+    toughness=3,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Kithkin", "Citizen"},
@@ -4123,9 +4144,11 @@ def crossroads_watcher_setup(obj: GameObject, state: GameState) -> list[Intercep
     ]
 
 
+# REVISED (rebalance): the +1/+0 ETB rider is a stub; bump 3/3 -> 4/3 so the
+# Kithkin/Ranger has trample-relevant power on its own.
 CROSSROADS_WATCHER = make_creature(
     name="Crossroads Watcher",
-    power=3,
+    power=4,
     toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
@@ -4135,11 +4158,13 @@ CROSSROADS_WATCHER = make_creature(
 )
 
 
-# Dawn's Light Archer - {2}{G} Creature — Elf Archer 4/2
+# Dawn's Light Archer - {2}{G} Creature — Elf Archer 4/3
+# REVISED (rebalance): flash/reach keywords don't fully evaluate; promote 4/2 -> 4/3
+# to survive a fair trade and act as a real Elf-tribal flier-killer body.
 DAWNS_LIGHT_ARCHER = make_creature(
     name="Dawn's Light Archer",
     power=4,
-    toughness=2,
+    toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Archer"},
@@ -4460,10 +4485,12 @@ def virulent_emissary_setup(obj: GameObject, state: GameState) -> list[Intercept
     return interceptors
 
 
+# REVISED (rebalance): wither + drain triggers do work; promote 2/2 -> 2/3
+# so this Elf Druid actually survives long enough to leverage them.
 VIRULENT_EMISSARY = make_creature(
     name="Virulent Emissary",
     power=2,
-    toughness=2,
+    toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},
@@ -5863,10 +5890,12 @@ THUNDERCLOUD_SHAMAN = make_creature(
 # =============================================================================
 
 # Elvish Harbinger - {2}{G} Creature
+# REVISED (rebalance): tutor + mana abilities are stubs; promote 1/2 -> 2/3
+# so the body is a real {2}{G} Elf turn-3 play that fuels lord effects.
 ELVISH_HARBINGER = make_creature(
     name="Elvish Harbinger",
-    power=1,
-    toughness=2,
+    power=2,
+    toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},
@@ -5884,15 +5913,22 @@ HERITAGE_DRUID = make_creature(
     text="Tap three untapped Elves you control: Add {G}{G}{G}."
 )
 
-# Imperious Perfect - {2}{G} Creature
+# Imperious Perfect - {1}{G}{G} Creature
+# REVISED (rebalance): added missing tribal lord interceptor; reduced CMC by 1
+# so the key Elf anthem actually hits the table on curve.
+def imperious_perfect_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return make_tribal_lord(obj, "Elf", power_bonus=1, toughness_bonus=1)
+
+
 IMPERIOUS_PERFECT = make_creature(
     name="Imperious Perfect",
     power=2,
     toughness=2,
-    mana_cost="{2}{G}",
+    mana_cost="{1}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Warrior"},
-    text="Other Elves you control get +1/+1. {G}, {T}: Create a 1/1 green Elf Warrior creature token."
+    text="Other Elves you control get +1/+1. {G}, {T}: Create a 1/1 green Elf Warrior creature token.",
+    setup_interceptors=imperious_perfect_setup
 )
 
 # Nath of the Gilt-Leaf - {3}{B}{G} Creature (Legendary)
@@ -5908,6 +5944,12 @@ NATH_OF_THE_GILT_LEAF = make_creature(
 )
 
 # Timber Protector - {4}{G} Creature
+# REVISED (rebalance): wired up missing Treefolk tribal lord interceptor so
+# the +1/+1 anthem actually applies in tribal Treefolk decks.
+def timber_protector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return make_tribal_lord(obj, "Treefolk", power_bonus=1, toughness_bonus=1)
+
+
 TIMBER_PROTECTOR = make_creature(
     name="Timber Protector",
     power=4,
@@ -5915,7 +5957,8 @@ TIMBER_PROTECTOR = make_creature(
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk", "Warrior"},
-    text="Other Treefolk creatures you control get +1/+1. Other Treefolk and Forests you control have indestructible."
+    text="Other Treefolk creatures you control get +1/+1. Other Treefolk and Forests you control have indestructible.",
+    setup_interceptors=timber_protector_setup
 )
 
 # Treefolk Harbinger - {G} Creature
@@ -7150,11 +7193,14 @@ GARRUK_WILDSPEAKER = make_planeswalker(
     loyalty=3
 )
 
+# REVISED (rebalance): {1}{G}{G} -> {G}{G}. Power = # Elves; without playing on
+# an Elf-flush curve it hits the table as a 1/1 or 2/2. Lower CMC lets it ride
+# turn 2 with another Elf already deployed and scale into a real beater.
 JAGGED_SCAR_ARCHERS = make_creature(
     name="Jagged-Scar Archers",
     power=0,
     toughness=0,
-    mana_cost="{1}{G}{G}",
+    mana_cost="{G}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Archer"},
     text="Jagged-Scar Archers's power and toughness are each equal to the number of Elves you control. {T}: Jagged-Scar Archers deals damage equal to its power to target creature with flying.",
@@ -7171,10 +7217,12 @@ LEAF_CROWNED_ELDER = make_creature(
     text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Leaf-Crowned Elder, you may reveal it. If you do, you may play that card without paying its mana cost."
 )
 
+# REVISED (rebalance): tap-Forest-into-Treefolk effect is unimplemented;
+# 2/2 -> 3/3 so the body itself earns its {2}{G} slot in Elf decks.
 ELVISH_BRANCHBENDER = make_creature(
     name="Elvish Branchbender",
-    power=2,
-    toughness=2,
+    power=3,
+    toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},

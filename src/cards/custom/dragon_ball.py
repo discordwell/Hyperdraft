@@ -471,9 +471,9 @@ REVIVAL = make_sorcery(
 
 DRAGON_BALL_WISH = make_sorcery(
     name="Dragon Ball Wish",
-    mana_cost="{4}{W}{W}",
+    mana_cost="{5}{W}{W}",
     colors={Color.WHITE},
-    text="Choose one: Return all creature cards from your graveyard to your hand; or destroy all creatures with power 4 or greater; or you gain 10 life."
+    text="Choose one: Return all creature cards from your graveyard to your hand; or destroy all creatures with power 4 or greater; or you gain 8 life."
 )
 
 
@@ -575,7 +575,7 @@ def android_16_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 ANDROID_16 = make_creature(
     name="Android 16, Gentle Giant",
-    power=6, toughness=6,
+    power=5, toughness=5,
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Android"},
@@ -929,7 +929,7 @@ def kid_buu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 KID_BUU = make_creature(
     name="Kid Buu, Pure Destruction",
-    power=7, toughness=5,
+    power=6, toughness=5,
     mana_cost="{4}{B}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Demon", "Majin"},
@@ -1233,12 +1233,13 @@ def broly_legendary_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 BROLY_LEGENDARY = make_creature(
     name="Broly, Legendary Super Saiyan",
-    power=8, toughness=8,
-    mana_cost="{4}{R}{R}{R}",
+    power=7, toughness=7,
+    mana_cost="{3}{R}{R}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Berserker"},
     supertypes={"Legendary"},
-    text="Whenever Broly, Legendary Super Saiyan attacks, put two +1/+1 counters on it.",
+    abilities=[{'keyword': 'trample'}],
+    text="Trample. Whenever Broly, Legendary Super Saiyan attacks, put two +1/+1 counters on it.",
     setup_interceptors=broly_legendary_setup,
 )
 
@@ -1246,10 +1247,12 @@ BROLY_LEGENDARY = make_creature(
 FUTURE_TRUNKS = make_creature(
     name="Future Trunks, Time Warrior",
     power=4, toughness=3,
-    mana_cost="{2}{R}{R}",
+    mana_cost="{1}{R}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Z-Fighter", "Warrior"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    abilities=[{'keyword': 'haste'}],
+    text="Haste."
 )
 
 
@@ -1288,20 +1291,24 @@ GOTEN = make_creature(
 NAPPA = make_creature(
     name="Nappa, Saiyan Elite",
     power=5, toughness=4,
-    mana_cost="{3}{R}{R}",
+    mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Warrior"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    abilities=[{'keyword': 'menace'}],
+    text="Menace."
 )
 
 
 RADITZ = make_creature(
     name="Raditz, Saiyan Warrior",
     power=4, toughness=3,
-    mana_cost="{2}{R}{R}",
+    mana_cost="{1}{R}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Warrior"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    abilities=[{'keyword': 'menace'}],
+    text="Menace."
 )
 
 
@@ -1311,7 +1318,9 @@ BARDOCK = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Warrior"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    abilities=[{'keyword': 'haste'}],
+    text="Haste."
 )
 
 
@@ -1321,8 +1330,8 @@ def king_vegeta_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 KING_VEGETA = make_creature(
     name="King Vegeta",
-    power=5, toughness=4,
-    mana_cost="{3}{R}{R}",
+    power=4, toughness=4,
+    mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Noble"},
     supertypes={"Legendary"},
@@ -1343,7 +1352,7 @@ SAIYAN_WARRIOR = make_creature(
 SAIYAN_ELITE = make_creature(
     name="Saiyan Elite",
     power=4, toughness=3,
-    mana_cost="{2}{R}{R}",
+    mana_cost="{1}{R}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Warrior"}
 )
@@ -1361,7 +1370,7 @@ GREAT_APE = make_creature(
 RAGING_SAIYAN = make_creature(
     name="Raging Saiyan",
     power=4, toughness=2,
-    mana_cost="{2}{R}",
+    mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Saiyan", "Berserker"}
 )
@@ -1461,7 +1470,7 @@ SAIYAN_INVASION = make_sorcery(
     name="Saiyan Invasion",
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
-    text="Create three 3/2 red Saiyan Warrior creature tokens with haste."
+    text="Create three 2/2 red Saiyan Warrior creature tokens with haste."
 )
 
 
@@ -1489,7 +1498,7 @@ def saiyan_pride_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 SAIYAN_PRIDE = make_enchantment(
     name="Saiyan Pride",
-    mana_cost="{2}{R}{R}",
+    mana_cost="{3}{R}{R}",
     colors={Color.RED},
     text="Saiyan creatures you control get +2/+1.",
     setup_interceptors=saiyan_pride_setup,
@@ -1848,7 +1857,7 @@ def vegito_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 VEGITO = make_creature(
     name="Vegito, Ultimate Fusion",
-    power=8, toughness=8,
+    power=7, toughness=7,
     mana_cost="{2}{W}{W}{R}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Saiyan", "Z-Fighter", "Fusion"},
@@ -1879,8 +1888,8 @@ def gotenks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 GOTENKS = make_creature(
     name="Gotenks, Young Fusion",
-    power=5, toughness=5,
-    mana_cost="{2}{R}{R}{W}",
+    power=4, toughness=4,
+    mana_cost="{3}{R}{W}",
     colors={Color.RED, Color.WHITE},
     subtypes={"Saiyan", "Z-Fighter", "Fusion"},
     supertypes={"Legendary"},
@@ -1895,7 +1904,9 @@ GOKU_SUPER_SAIYAN = make_creature(
     mana_cost="{3}{W}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Saiyan", "Z-Fighter"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    abilities=[{'keyword': 'haste'}, {'keyword': 'trample'}],
+    text="Haste, trample."
 )
 
 
@@ -1915,7 +1926,9 @@ VEGETA_SUPER_SAIYAN = make_creature(
     mana_cost="{3}{R}{B}",
     colors={Color.RED, Color.BLACK},
     subtypes={"Saiyan", "Noble", "Warrior"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    abilities=[{'keyword': 'haste'}, {'keyword': 'menace'}],
+    text="Haste, menace."
 )
 
 
@@ -2388,7 +2401,7 @@ FOREST_DBZ = make_land(
 
 KAMEHAMEHA = make_instant(
     name="Kamehameha",
-    mana_cost="{2}{W}{R}",
+    mana_cost="{3}{W}{R}",
     colors={Color.WHITE, Color.RED},
     text="Kamehameha deals 5 damage to any target. If you control Goku, it deals 7 damage instead and you gain 3 life."
 )
@@ -2438,7 +2451,7 @@ SOLAR_KAMEHAMEHA = make_instant(
     name="Solar Kamehameha",
     mana_cost="{3}{W}{W}{R}",
     colors={Color.WHITE, Color.RED},
-    text="Solar Kamehameha deals 8 damage to any target. You gain 4 life."
+    text="Solar Kamehameha deals 6 damage to any target. You gain 3 life."
 )
 
 

@@ -426,8 +426,8 @@ def rift_scholar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 # --- Echo Savant (#162) ---
 def echo_savant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Echo {1}{U}. When Echo Savant enters, scry 2."""
-    interceptors = [make_echo(obj, "{1}{U}")]
+    """Echo {U}. When Echo Savant enters, scry 2."""
+    interceptors = [make_echo(obj, "{U}")]
 
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
@@ -1071,8 +1071,8 @@ def temporal_archon_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 # --- Echo Mage (#231) ---
 def echo_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Echo {1}{U}{U}. When Echo Mage enters, draw two cards."""
-    interceptors = [make_echo(obj, "{1}{U}{U}")]
+    """Echo {1}{U}. When Echo Mage enters, draw two cards."""
+    interceptors = [make_echo(obj, "{1}{U}")]
 
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
@@ -1409,7 +1409,7 @@ def time_weaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_upkeep_trigger(obj, lambda e, s: [], controller_only=True)]
 
 def echo_of_tomorrow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_echo(obj, "{2}{U}"), make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)])]
+    return [make_echo(obj, "{1}{U}"), make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)])]
 
 def paradox_entity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, lambda e, s: [])]
@@ -1712,11 +1712,11 @@ CHRONOMANCER_SUPREME = make_creature(
     name="Chronomancer Supreme",
     power=3,
     toughness=4,
-    mana_cost="{2}{U}{U}",
+    mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="Temporal — Whenever you cast a spell from exile or your graveyard, draw a card. {2}{U}: Exile target instant or sorcery card from your graveyard. You may cast it this turn.",
+    text="Temporal — Whenever you cast a spell from exile or your graveyard, draw a card. {1}{U}: Exile target instant or sorcery card from your graveyard. You may cast it this turn.",
     setup_interceptors=chronomancer_supreme_setup
 )
 
@@ -1735,10 +1735,10 @@ ECHO_OF_TOMORROW = make_creature(
     name="Echo of Tomorrow",
     power=3,
     toughness=2,
-    mana_cost="{3}{U}",
+    mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Spirit"},
-    text="Flying. Echo {2}{U}. When Echo of Tomorrow enters, draw a card.",
+    text="Flying. Echo {1}{U}. When Echo of Tomorrow enters, draw a card.",
     setup_interceptors=echo_of_tomorrow_setup
 )
 
@@ -1746,7 +1746,7 @@ PARADOX_ENTITY = make_creature(
     name="Paradox Entity",
     power=4,
     toughness=4,
-    mana_cost="{4}{U}",
+    mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Elemental", "Horror"},
     text="Flash. When Paradox Entity enters, exile target spell. Its controller may cast it for as long as it remains exiled.",
@@ -1802,8 +1802,8 @@ CHRONO_SHIFT = make_instant(
 FUTURE_ECHO = make_creature(
     name="Future Echo",
     power=2,
-    toughness=2,
-    mana_cost="{2}{U}",
+    toughness=3,
+    mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Spirit"},
     text="Flying. When Future Echo enters, look at the top three cards of your library. Put one back and the rest on the bottom.",
@@ -2274,8 +2274,8 @@ RIFT_WALKER = make_creature(
     name="Rift Walker",
     power=3,
     toughness=3,
-    mana_cost="{1}{U}{R}",
-    colors={Color.BLUE, Color.RED},
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
     subtypes={"Elemental"},
     text="Haste. When Rift Walker enters, exile the top card of your library. You may play it this turn. If you don't, put it into your hand at the beginning of the next end step.",
     setup_interceptors=rift_walker_multicolor_setup
@@ -2460,10 +2460,10 @@ TEMPORAL_RIFT_MAGE = make_creature(
     name="Temporal Rift Mage",
     power=2,
     toughness=2,
-    mana_cost="{1}{U}",
+    mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="When Temporal Rift Mage enters, look at the top three cards of your library. Put one into your hand and the rest on the bottom."
+    text="When Temporal Rift Mage enters, look at the top two cards of your library. Put one into your hand and the rest on the bottom."
 )
 
 AGELESS_KNIGHT = make_creature(
@@ -2615,17 +2615,17 @@ ECHO_GOLEM = make_creature(
     name="Echo Golem",
     power=4,
     toughness=4,
-    mana_cost="{4}",
+    mana_cost="{3}",
     colors=set(),
     subtypes={"Golem"},
-    text="Echo {4}. When Echo Golem enters, add {C}{C}{C}."
+    text="Echo {2}. When Echo Golem enters, add {C}{C}{C}."
 )
 
 CHRONO_SENTRY = make_creature(
     name="Chrono-Sentry",
-    power=3,
+    power=2,
     toughness=4,
-    mana_cost="{3}",
+    mana_cost="{2}",
     colors=set(),
     subtypes={"Construct"},
     text="Whenever a creature with a time counter enters under your control, Chrono-Sentry gets +1/+1 until end of turn."
@@ -2831,7 +2831,7 @@ MOMENT_PRESERVED = make_instant(
 TIME_WARDEN = make_creature(
     name="Time Warden",
     power=2,
-    toughness=3,
+    toughness=4,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
@@ -3067,7 +3067,7 @@ PRESERVED_KNIGHT = make_creature(
 
 RIFT_SCHOLAR = make_creature(
     name="Rift Scholar",
-    power=1,
+    power=2,
     toughness=3,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
@@ -3093,11 +3093,11 @@ TEMPORAL_CLONE = make_instant(
 ECHO_SAVANT = make_creature(
     name="Echo Savant",
     power=2,
-    toughness=2,
-    mana_cost="{2}{U}",
+    toughness=3,
+    mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="Echo {1}{U}. When Echo Savant enters, scry 2.",
+    text="Echo {U}. When Echo Savant enters, scry 2.",
     setup_interceptors=echo_savant_setup
 )
 
@@ -3416,8 +3416,8 @@ RIFT_PROPHET = make_creature(
     name="Rift Prophet",
     power=2,
     toughness=3,
-    mana_cost="{1}{U}{B}",
-    colors={Color.BLUE, Color.BLACK},
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
     text="When Rift Prophet enters, look at the top three cards of your library. Put one into your hand and the rest into your graveyard.",
     setup_interceptors=rift_prophet_setup
@@ -3744,10 +3744,10 @@ ECHO_MAGE = make_creature(
     name="Echo Mage",
     power=2,
     toughness=3,
-    mana_cost="{1}{U}{U}",
+    mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="Echo {1}{U}{U}. When Echo Mage enters, draw two cards.",
+    text="Echo {1}{U}. When Echo Mage enters, draw two cards.",
     setup_interceptors=echo_mage_setup
 )
 

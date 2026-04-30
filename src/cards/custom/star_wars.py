@@ -249,7 +249,7 @@ def luke_skywalker_new_hope_setup(obj: GameObject, state: GameState) -> list[Int
 LUKE_SKYWALKER_NEW_HOPE = make_creature(
     name="Luke Skywalker, New Hope",
     power=3, toughness=3,
-    mana_cost="{2}{W}{W}",
+    mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Jedi", "Rebel"},
     supertypes={"Legendary"},
@@ -276,7 +276,7 @@ def leia_organa_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 LEIA_ORGANA = make_creature(
     name="Leia Organa, Rebel Leader",
     power=2, toughness=3,
-    mana_cost="{1}{W}{W}",
+    mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Noble"},
     supertypes={"Legendary"},
@@ -333,7 +333,7 @@ def mace_windu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 MACE_WINDU = make_creature(
     name="Mace Windu, Champion of Light",
     power=4, toughness=3,
-    mana_cost="{2}{W}{W}",
+    mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Jedi"},
     supertypes={"Legendary"},
@@ -400,7 +400,7 @@ REBEL_TROOPER = make_creature(
 ALDERAANIAN_DIPLOMAT = make_creature(
     name="Alderaanian Diplomat",
     power=1, toughness=3,
-    mana_cost="{2}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Advisor"},
     text="Creatures your opponents control can't attack you unless their controller pays {1} for each creature attacking you."
@@ -413,7 +413,7 @@ def jedi_temple_guard_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 JEDI_TEMPLE_GUARD = make_creature(
     name="Jedi Temple Guard",
-    power=2, toughness=3,
+    power=3, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Jedi", "Soldier"},
@@ -444,7 +444,7 @@ def echo_base_defender_setup(obj: GameObject, state: GameState) -> list[Intercep
 ECHO_BASE_DEFENDER = make_creature(
     name="Echo Base Defender",
     power=1, toughness=4,
-    mana_cost="{1}{W}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Soldier"},
     text="Defender. Whenever Echo Base Defender blocks, you gain 2 life.",
@@ -454,7 +454,7 @@ ECHO_BASE_DEFENDER = make_creature(
 
 REBEL_MEDIC = make_creature(
     name="Rebel Medic",
-    power=1, toughness=2,
+    power=1, toughness=3,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Cleric"},
@@ -475,7 +475,7 @@ def hope_of_the_rebellion_setup(obj: GameObject, state: GameState) -> list[Inter
 HOPE_OF_THE_REBELLION = make_creature(
     name="Hope of the Rebellion",
     power=2, toughness=2,
-    mana_cost="{2}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Rebel"},
     text="Whenever you gain life, put a +1/+1 counter on target Rebel creature you control.",
@@ -496,7 +496,7 @@ CORUSCANT_PEACEKEEPER = make_creature(
 RESISTANCE_COMMANDER = make_creature(
     name="Resistance Commander",
     power=2, toughness=3,
-    mana_cost="{3}{W}",
+    mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Soldier"},
     text="When Resistance Commander enters, create a 1/1 white Human Rebel Soldier creature token. Rebel creatures you control get +1/+0."
@@ -505,8 +505,8 @@ RESISTANCE_COMMANDER = make_creature(
 
 JEDI_SENTINEL = make_creature(
     name="Jedi Sentinel",
-    power=3, toughness=2,
-    mana_cost="{2}{W}",
+    power=2, toughness=2,
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Jedi"},
     text="Vigilance, lifelink."
@@ -536,7 +536,7 @@ TATOOINE_HOMESTEADER = make_creature(
 GALACTIC_SENATOR = make_creature(
     name="Galactic Senator",
     power=1, toughness=3,
-    mana_cost="{2}{W}",
+    mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Noble", "Advisor"},
     text="When Galactic Senator enters, choose an opponent. That player can't attack you until your next turn unless they pay {2} for each attacking creature."
@@ -3214,7 +3214,7 @@ CLONE_CAPTAIN_REX = make_creature(
 BAIL_ORGANA = make_creature(
     name="Bail Organa",
     power=2, toughness=3,
-    mana_cost="{1}{W}{W}",
+    mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Noble"},
     supertypes={"Legendary"},
@@ -3224,7 +3224,7 @@ BAIL_ORGANA = make_creature(
 
 MON_MOTHMA = make_creature(
     name="Mon Mothma",
-    power=1, toughness=4,
+    power=2, toughness=4,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Advisor"},
