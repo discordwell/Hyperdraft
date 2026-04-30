@@ -749,6 +749,20 @@ class Game:
         # Mode-specific system interceptors (HS: Divine Shield + Immune).
         self.mode_adapter.register_system_interceptors(self)
 
+        # Turn-state primitive trackers + coin flip observer.
+        # See src/engine/turn_state.py for details. Wired here so any Game
+        # instance gets the trackers automatically.
+        from .turn_state import register_turn_state_tracker
+        register_turn_state_tracker(self)
+
+        # EOE Void mechanic — see src/engine/void.py.
+        from .void import register_void_tracker
+        register_void_tracker(self)
+
+        # EOE Lander mechanic — see src/engine/lander.py.
+        from .lander import register_lander_tracker
+        register_lander_tracker(self)
+
     # =========================================================================
     # Game Flow Methods
     # =========================================================================
