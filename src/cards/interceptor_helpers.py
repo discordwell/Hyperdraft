@@ -3444,3 +3444,87 @@ def combine_setups(*setup_fns):
         return out
 
     return combined
+# === LANDER HELPERS ===
+# =============================================================================
+# Edge of Eternities — Lander mechanic. Re-exports + trigger helpers for cards
+# that create Lander tokens on ETB / death.
+from src.engine.lander import (
+    make_lander_token_event,
+    make_lander_token_events,
+    is_lander,
+    landers_sacced_this_turn,
+)
+
+
+def make_lander_etb_trigger(obj):
+    """ETB: create one Lander token for obj.controller."""
+    def filt(event, state):
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        return event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD
+
+    def handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[make_lander_token_event(obj.controller, source_obj_id=obj.id)],
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=filt,
+        handler=handler,
+        duration='while_on_battlefield',
+    )
+
+
+def make_lander_death_trigger(obj):
+    """Death: create one Lander token for obj.controller."""
+    def filt(event, state):
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        return event.payload.get('object_id') == obj.id
+
+    def handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[make_lander_token_event(obj.controller, source_obj_id=obj.id)],
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=filt,
+        handler=handler,
+        duration='while_on_battlefield',
+    )
+
+
+def make_lander_for_each_player_death_trigger(obj):
+    """Death: each player gets a Lander token (used by 'Each player' effects)."""
+    def filt(event, state):
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        return event.payload.get('object_id') == obj.id
+
+    def handler(event, state):
+        events = []
+        for pid in state.players.keys():
+            events.append(make_lander_token_event(pid, source_obj_id=obj.id))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+    return Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=filt,
+        handler=handler,
+        duration='while_on_battlefield',
+    )

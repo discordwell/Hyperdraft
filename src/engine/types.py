@@ -302,6 +302,10 @@ class EventType(Enum):
     BENDING_WATERBEND = auto()        # Waterbend cost paid: payload = {'amount': X, 'controller', 'source'}
     BENDING_EARTHBEND = auto()        # Earthbend X resolved: payload = {'amount': X, 'controller', 'source', 'land_id'}
     BENDING_AIRBEND = auto()          # Airbend resolved: payload = {'amount': X, 'controller', 'source', 'target_id'}
+    # Edge of Eternities — Lander mechanic
+    LANDER_CREATED = auto()           # A Lander token was created
+    LANDER_SACRIFICED = auto()        # A Lander token was sacrificed (sets turn_data flag)
+    LANDER_SEARCH_LAND = auto()       # Resolve the search-for-basic-land step of Lander activation
 
 
 class EventStatus(Enum):
