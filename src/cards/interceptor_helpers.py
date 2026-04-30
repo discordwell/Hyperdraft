@@ -3528,3 +3528,153 @@ def make_lander_for_each_player_death_trigger(obj):
         handler=handler,
         duration='while_on_battlefield',
     )
+
+
+# =============================================================================
+# === VOID HELPERS ===
+# =============================================================================
+# EOE Void mechanic. Engine logic in src/engine/void.py tracks
+# state.turn_data['void_<player>'] each turn. These card-side helpers
+# wrap that check around common trigger patterns.
+from src.engine.void import is_void_active  # noqa: E402  (re-export)
+
+
+def make_void_end_step_trigger(obj, effect_fn):
+    """Beginning of YOUR end step: if void, run effect_fn. effect_fn(event, state) -> list[Event]."""
+    def filt(event, state):
+        if event.type != EventType.PHASE_START:
+            return False
+        if event.payload.get('phase') != 'end':
+            return False
+        if state.active_player != obj.controller:
+            return False
+        return is_void_active(obj.controller, state)
+
+    def handler(event, state):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(event, state))
+
+    return Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=filt, handler=handler,
+        duration='while_on_battlefield',
+    )
+
+
+def make_void_attack_trigger(obj, effect_fn):
+    """When obj attacks: if void, run effect_fn."""
+    def filt(event, state):
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        if event.payload.get('attacker_id') != obj.id and event.payload.get('attacker') != obj.id:
+            return False
+        return is_void_active(obj.controller, state)
+
+    def handler(event, state):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(event, state))
+
+    return Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=filt, handler=handler,
+        duration='while_on_battlefield',
+    )
+
+
+# =============================================================================
+# === STATION HELPERS ===
+# =============================================================================
+# EOE Station mechanic. A Spacecraft / Planet has thresholds keyed by charge
+# counter count; when count >= threshold, the card gains stats and abilities.
+# Implementation: register QUERY_POWER, QUERY_TOUGHNESS, QUERY_TYPES,
+# and QUERY_ABILITIES interceptors that check the current charge count and
+# return the appropriate tier.
+from src.engine.station import get_station_charge  # noqa: E402  (re-export)
+
+
+def make_station_creature_setup(obj, thresholds):
+    """Wire a Spacecraft/Planet to become a creature when charge crosses a
+    threshold.
+
+    `thresholds` is a list of (min_charge, {power, toughness, keywords})
+    in ascending min_charge order. The highest-applicable tier wins.
+
+    Example:
+        thresholds = [
+            (3, {'power': 4, 'toughness': 3, 'keywords': ['flying']}),
+            (5, {'power': 5, 'toughness': 4, 'keywords': ['flying', 'vigilance']}),
+        ]
+    """
+    def best_tier(state):
+        charge = get_station_charge(obj)
+        match = None
+        for min_c, props in thresholds:
+            if charge >= min_c:
+                match = props
+        return match
+
+    def power_filter(event, state):
+        return (event.type == EventType.QUERY_POWER
+                and event.payload.get('object_id') == obj.id)
+
+    def power_handler(event, state):
+        tier = best_tier(state)
+        if tier is None or 'power' not in tier:
+            return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+        new_event = event.copy()
+        new_event.payload['value'] = tier['power']
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    def tough_filter(event, state):
+        return (event.type == EventType.QUERY_TOUGHNESS
+                and event.payload.get('object_id') == obj.id)
+
+    def tough_handler(event, state):
+        tier = best_tier(state)
+        if tier is None or 'toughness' not in tier:
+            return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+        new_event = event.copy()
+        new_event.payload['value'] = tier['toughness']
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    def types_filter(event, state):
+        return (event.type == EventType.QUERY_TYPES
+                and event.payload.get('object_id') == obj.id)
+
+    def types_handler(event, state):
+        tier = best_tier(state)
+        if tier is None:
+            return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+        new_event = event.copy()
+        types = set(new_event.payload.get('value', set()))
+        types.add(CardType.CREATURE)
+        new_event.payload['value'] = types
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    def kw_filter(event, state):
+        return (event.type == EventType.QUERY_ABILITIES
+                and event.payload.get('object_id') == obj.id)
+
+    def kw_handler(event, state):
+        tier = best_tier(state)
+        if tier is None or 'keywords' not in tier:
+            return InterceptorResult(action=InterceptorAction.PASS, new_events=[])
+        new_event = event.copy()
+        kws = set(new_event.payload.get('value', set()))
+        for kw in tier['keywords']:
+            kws.add(kw)
+        new_event.payload['value'] = kws
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY, filter=power_filter,
+                    handler=power_handler, duration='while_on_battlefield'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY, filter=tough_filter,
+                    handler=tough_handler, duration='while_on_battlefield'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY, filter=types_filter,
+                    handler=types_handler, duration='while_on_battlefield'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY, filter=kw_filter,
+                    handler=kw_handler, duration='while_on_battlefield'),
+    ]
