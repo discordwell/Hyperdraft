@@ -37,6 +37,9 @@ from src.cards.interceptor_helpers import (
     make_void_end_step_trigger, make_void_attack_trigger, is_void_active,
     make_lander_etb_trigger, make_lander_death_trigger,
     make_station_creature_setup,
+    make_activated_ability, make_pump_self_ability, make_draw_ability,
+    make_damage_ability, make_destroy_ability, make_counter_ability,
+    make_token_creation_ability, make_sac_destroy_ability,
 )
 
 
@@ -2153,7 +2156,28 @@ def banishing_light_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def dualsun_adepts_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{5}: Creatures you control get +1/+1 until end of turn."""
-    # engine gap: activated ability that pumps all creatures via temporary P/T
+    def pump_all(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for other_id, other in list(st.objects.items()):
+            if (other.controller == o.controller
+                    and CardType.CREATURE in other.characteristics.types
+                    and other.zone == ZoneType.BATTLEFIELD):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': other.id,
+                        'power_mod': 1,
+                        'toughness_mod': 1,
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id,
+                    controller=o.controller,
+                ))
+        return events
+    make_activated_ability(
+        obj, cost="{5}", effect_fn=pump_all,
+        description="Creatures you control get +1/+1 until end of turn",
+    )
     return []
 
 
@@ -2336,8 +2360,8 @@ def gigastorm_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def illvoi_galeblade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{2}, sac: draw a card."""
-    # engine gap: activated ability with sacrifice cost
+    """{2}, Sacrifice this creature: Draw a card."""
+    make_draw_ability(obj, cost="{2}, Sacrifice this creature", count=1)
     return []
 
 
@@ -2625,9 +2649,41 @@ def kavaron_skywarden_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def kavaron_turbodrone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: target creature you control gets +1/+1 and gains haste until EOT (sorcery speed)."""
-    # engine gap: tap-activated targeted ability dispatch + sorcery-speed gating.
-    # Effect itself (PT_MODIFICATION + temporary keyword grant) is supported; activation isn't.
+    """{T}: Target creature you control gets +1/+1 and gains haste until EOT. Sorcery."""
+    def pump_target(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        if not target_id:
+            return []
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': target_id,
+                    'power_mod': 1,
+                    'toughness_mod': 1,
+                    'duration': 'end_of_turn',
+                },
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': target_id,
+                    'keyword': 'haste',
+                    'duration': 'end_of_turn',
+                },
+                source=o.id, controller=o.controller,
+            ),
+        ]
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=pump_target,
+        description="Target creature you control gets +1/+1 and gains haste until end of turn",
+        targets_required=1, target_kind="creature_you_control",
+        sorcery_speed=True,
+    )
     return []
 
 
@@ -2865,8 +2921,12 @@ def icetill_explorer_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def intrepid_tenderfoot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{3}: +1/+1 counter on self (sorcery)."""
-    # engine gap: activated ability with mana cost
+    """{3}: Put a +1/+1 counter on this creature. Sorcery."""
+    make_counter_ability(
+        obj, cost="{3}",
+        counter_type="+1/+1", amount=1, target_self=True,
+        sorcery_speed=True,
+    )
     return []
 
 
@@ -3174,9 +3234,16 @@ def survey_mechan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def thaumaton_torpedo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{6},{T},sac: destroy target nonland permanent. -3 cost if you attacked with a Spacecraft this turn."""
-    # engine gap: activated ability with tap+sacrifice cost + targeted destroy + dynamic
-    # cost reduction (Spacecraft-attacked-this-turn flag tracking).
+    """{6}, {T}, Sacrifice this artifact: Destroy target nonland permanent.
+
+    Cost-reduction clause (-{3} when you attacked with a Spacecraft this turn)
+    is not yet wired; the base activation works as a sac-tap destroy.
+    """
+    make_destroy_ability(
+        obj, cost="{6}, {T}, Sacrifice this artifact",
+        target_kind="nonland_permanent",
+        description="Destroy target nonland permanent",
+    )
     return []
 
 
@@ -3228,9 +3295,33 @@ def sacred_foundry_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def secluded_starforge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: Add C; {2},{T},tap X artifacts: target creature +X/+0 EOT (sorcery); {5},{T}: 2/2 Robot token."""
-    # engine gap: activated mana ability + activated ability with variable tap-X-artifacts cost
-    # + activated token-creation ability. Land also has no setup needs beyond activations.
+    """{5}, {T}: Create a 2/2 colorless Robot artifact creature token.
+
+    The {T} mana ability and {2},{T}, tap-X-artifacts pump are not yet wired
+    (variable-tap cost requires engine support).
+    """
+    def create_robot_token(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Robot Token',
+                'controller': o.controller,
+                'owner': o.controller,
+                'to_zone_type': ZoneType.BATTLEFIELD,
+                'types': {CardType.ARTIFACT, CardType.CREATURE},
+                'subtypes': {'Robot'},
+                'colors': set(),
+                'power': 2,
+                'toughness': 2,
+                'abilities': [],
+                'is_token': True,
+            },
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{5}, {T}", effect_fn=create_robot_token,
+        description="Create a 2/2 colorless Robot artifact creature token",
+    )
     return []
 
 
@@ -3787,6 +3878,7 @@ DUALSUN_ADEPTS = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Double strike\n{5}: Creatures you control get +1/+1 until end of turn.",
+    setup_interceptors=dualsun_adepts_setup,
 )
 
 DUALSUN_TECHNIQUE = make_instant(
@@ -4190,6 +4282,7 @@ ILLVOI_GALEBLADE = make_creature(
     colors={Color.BLUE},
     subtypes={"Jellyfish", "Warrior"},
     text="Flash\nFlying\n{2}, Sacrifice this creature: Draw a card.",
+    setup_interceptors=illvoi_galeblade_setup,
 )
 
 ILLVOI_INFILTRATOR = make_creature(
@@ -5398,6 +5491,7 @@ INTREPID_TENDERFOOT = make_creature(
     colors={Color.GREEN},
     subtypes={"Citizen", "Insect"},
     text="{3}: Put a +1/+1 counter on this creature. Activate only as a sorcery.",
+    setup_interceptors=intrepid_tenderfoot_setup,
 )
 
 LARVAL_SCOUTLANDER = make_artifact(

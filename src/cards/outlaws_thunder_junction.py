@@ -35,6 +35,9 @@ from src.cards.interceptor_helpers import (
     creatures_you_control, create_target_choice, create_modal_choice,
     make_crime_committed_trigger, is_crime_committed,
     open_library_search,
+    # Phase 4: activated abilities
+    make_activated_ability, make_destroy_ability, make_damage_ability,
+    make_sac_destroy_ability,
 )
 
 
@@ -2014,8 +2017,26 @@ def sheriff_of_safe_passage_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 def sterling_keykeeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated tap ability."""
-    # engine gap: no targeting harness for activated tap-target abilities
+    """{2}, {T}: Tap target non-Mount creature."""
+    def tap_target(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target = st.objects.get(target_id) if isinstance(target_id, str) else None
+        # Filter out Mounts
+        if target and "Mount" in (target.characteristics.subtypes or set()):
+            return []
+        return [Event(
+            type=EventType.TAP_TARGET,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=tap_target,
+        description="Tap target non-Mount creature",
+        targets_required=1, target_kind="creature",
+    )
     return []
 
 
@@ -2404,8 +2425,12 @@ def calamity_galloping_inferno_setup(obj: GameObject, state: GameState) -> list[
 
 
 def deadeye_duelist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Reach (kw); activated tap ping for 1 damage."""
-    # engine gap: activated tap-target damage ability not engine-tracked
+    """Reach (kw); {1}, {T}: This creature deals 1 damage to target opponent."""
+    make_damage_ability(
+        obj, cost="{1}, {T}", damage=1,
+        description="Deadeye Duelist deals 1 damage to target opponent",
+        target_kind="opponent",
+    )
     return []
 
 
@@ -2575,8 +2600,16 @@ def reckless_lackey_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def resilient_roadrunner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Haste, protection from Coyotes; conditional unblockable activated."""
-    # engine gap: protection-from and conditional unblockable not engine-tracked
+    """Haste, protection from Coyotes; {3}: conditional unblockable activated."""
+    def conditional_unblockable(o: GameObject, st: GameState, targets) -> list[Event]:
+        # engine gap: "can't be blocked this turn except by creatures with haste"
+        # is not modeled. Register as a no-op effect for now so the ability is
+        # discoverable and the cost is paid.
+        return []
+    make_activated_ability(
+        obj, cost="{3}", effect_fn=conditional_unblockable,
+        description="This creature can't be blocked this turn except by creatures with haste",
+    )
     return []
 
 
@@ -2743,8 +2776,16 @@ def hardbristle_bandit_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def intrepid_stablemaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Reach; mana abilities."""
-    # engine gap: mana-restriction abilities (Mount/Vehicle only) not engine-tracked
+    """Reach; {T}: Add two mana of any one color. Spend this mana only to cast Mount or Vehicle spells."""
+    def restricted_mana(o: GameObject, st: GameState, targets) -> list[Event]:
+        # engine gap: spend-only-on-Mount/Vehicle restricted mana is not modeled.
+        # Register the ability so it surfaces; the basic {T}: Add {G} mana ability
+        # is handled by the card-factory mana parser.
+        return []
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=restricted_mana,
+        description="Add two mana of any one color. Spend this mana only to cast Mount or Vehicle spells",
+    )
     return []
 
 
@@ -2856,8 +2897,16 @@ def rambling_possum_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def raucous_entertainer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated counter-on-each-creature-that-entered-this-turn."""
-    # engine gap: activated ability + per-turn ETB tracking not engine-tracked
+    """{1}, {T}: Put a +1/+1 counter on each creature you control that entered this turn."""
+    def counters_on_etb_creatures(o: GameObject, st: GameState, targets) -> list[Event]:
+        # engine gap: per-turn ETB tracking is not engine-tracked. The ability
+        # is registered and discoverable so the cost is paid; the conditional
+        # counter-distribution is a no-op pending an entered-this-turn marker.
+        return []
+    make_activated_ability(
+        obj, cost="{1}, {T}", effect_fn=counters_on_etb_creatures,
+        description="Put a +1/+1 counter on each creature you control that entered this turn",
+    )
     return []
 
 
@@ -2912,8 +2961,12 @@ def stubborn_burrowfiend_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def voracious_varmint_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Vigilance (kw); activated sacrifice destroys artifact/enchantment."""
-    # engine gap: activated sacrifice destroy not engine-tracked
+    """Vigilance (kw); {1}, Sacrifice this creature: Destroy target artifact or enchantment."""
+    make_sac_destroy_ability(
+        obj, cost="{1}, Sacrifice this creature",
+        target_kind="artifact_or_enchantment",
+        description="Destroy target artifact or enchantment",
+    )
     return []
 
 
@@ -3474,8 +3527,26 @@ def bandits_haul_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def boom_box_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated 6-mana sac for triple-target destruction."""
-    # engine gap: activated sacrifice + multi-target destruction not engine-tracked
+    """{6}, {T}, Sacrifice this artifact: Destroy up to one target artifact, up to one target creature, and up to one target land."""
+    def destroy_three_targets(o: GameObject, st: GameState, targets) -> list[Event]:
+        # engine gap: framework only supports a single target_kind; the multi-mode
+        # "up to one of each" pattern would need bespoke targeting. Best-effort:
+        # destroy each chosen target if the harness manages to feed any in.
+        events: list[Event] = []
+        for t in targets or []:
+            target_id = getattr(t, "object_id", None) or t
+            if isinstance(target_id, str):
+                events.append(Event(
+                    type=EventType.DESTROY,
+                    payload={'object_id': target_id},
+                    source=o.id, controller=o.controller,
+                ))
+        return events
+    make_activated_ability(
+        obj, cost="{6}, {T}, Sacrifice this artifact",
+        effect_fn=destroy_three_targets,
+        description="Destroy up to one target artifact, up to one target creature, and up to one target land",
+    )
     return []
 
 
@@ -3535,8 +3606,31 @@ def redrock_sentinel_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def tomb_trawler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated put-target-graveyard-card-on-bottom-of-library."""
-    # engine gap: activated graveyard targeting not engine-tracked
+    """{2}: Put target card from your graveyard on the bottom of your library."""
+    def graveyard_to_bottom(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target = st.objects.get(target_id) if isinstance(target_id, str) else None
+        if not target or target.zone != ZoneType.GRAVEYARD:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'to_zone': f'library_{target.owner}',
+                'to_zone_type': ZoneType.LIBRARY,
+                'position': 'bottom',
+            },
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{2}", effect_fn=graveyard_to_bottom,
+        description="Put target card from your graveyard on the bottom of your library",
+        targets_required=1, target_kind="graveyard_card",
+    )
     return []
 
 
@@ -3658,8 +3752,23 @@ def mirage_mesa_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def sandstorm_verge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Mana ability + activated can't-block."""
-    # engine gap: activated can't-block-this-turn not engine-tracked
+    """Mana ability + {3}, {T}: Target creature can't block this turn. Activate only as a sorcery."""
+    def cant_block_target(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.CANT_BLOCK,
+            payload={'object_id': target_id, 'duration': 'end_of_turn'},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{3}, {T}", effect_fn=cant_block_target,
+        description="Target creature can't block this turn. Activate only as a sorcery.",
+        sorcery_speed=True,
+        targets_required=1, target_kind="creature",
+    )
     return []
 
 
@@ -3668,8 +3777,20 @@ def soured_springs_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def bucolic_ranch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Mana abilities + activated peek-for-Mount."""
-    # engine gap: activated library-peek + restricted mana not engine-tracked
+    """Mana abilities + {3}, {T}: Look at top card; if Mount, may put in hand or on bottom."""
+    def peek_for_mount(o: GameObject, st: GameState, targets) -> list[Event]:
+        # engine gap: conditional library-peek + may-reveal-and-put-into-hand for
+        # a specific subtype is not modeled. Register a discoverable ability that
+        # surveils as a best-effort approximation (look + sort top of library).
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': o.controller, 'count': 1},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{3}, {T}", effect_fn=peek_for_mount,
+        description="Look at the top card of your library. If it's a Mount card, you may reveal it and put it into your hand. If you don't put it into your hand, you may put it on the bottom of your library.",
+    )
     return []
 
 
@@ -8132,6 +8253,7 @@ RESILIENT_ROADRUNNER = make_creature(
     colors={Color.RED},
     subtypes={"Bird"},
     text="Haste, protection from Coyotes\n{3}: This creature can't be blocked this turn except by creatures with haste.",
+    setup_interceptors=resilient_roadrunner_setup,
 )
 
 RETURN_THE_FAVOR = make_instant(
@@ -8843,6 +8965,7 @@ INTREPID_STABLEMASTER = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Scout"},
     text="Reach\n{T}: Add {G}.\n{T}: Add two mana of any one color. Spend this mana only to cast Mount or Vehicle spells.",
+    setup_interceptors=intrepid_stablemaster_setup,
 )
 
 MAP_THE_FRONTIER = make_sorcery(
@@ -8920,6 +9043,7 @@ RAUCOUS_ENTERTAINER = make_creature(
     colors={Color.GREEN},
     subtypes={"Bard", "Plant"},
     text="{1}, {T}: Put a +1/+1 counter on each creature you control that entered this turn.",
+    setup_interceptors=raucous_entertainer_setup,
 )
 
 REACH_FOR_THE_SKY = make_enchantment(
@@ -10203,6 +10327,7 @@ BUCOLIC_RANCH = make_land(
     name="Bucolic Ranch",
     text="{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a Mount spell.\n{3}, {T}: Look at the top card of your library. If it's a Mount card, you may reveal it and put it into your hand. If you don't put it into your hand, you may put it on the bottom of your library.",
     subtypes={"Desert"},
+    setup_interceptors=bucolic_ranch_setup,
 )
 
 BLOOMING_MARSH = make_land(

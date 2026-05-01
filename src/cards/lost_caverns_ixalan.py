@@ -29,7 +29,8 @@ from src.cards.interceptor_helpers import (
     make_end_step_trigger, make_life_gain_trigger, make_tap_trigger,
     make_damage_trigger, make_spell_cast_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
-    creatures_you_control, creatures_with_subtype, create_target_choice
+    creatures_you_control, creatures_with_subtype, create_target_choice,
+    make_activated_ability,
 )
 
 
@@ -1863,12 +1864,41 @@ def careening_mine_cart_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def hoverstone_pilgrim_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying + Ward {2} + activated graveyard-bottom ability.
+    """Flying + Ward {2} + {2}: Put target card from a graveyard on the bottom of its owner's library.
 
-    Flying is on the printed card; engine gap: Ward {2} static replacement and
-    the {2} activated graveyard-shuffle ability cannot be wired through
-    setup_interceptors yet.
+    Flying is on the printed card. Ward {2} is an engine-gap replacement effect.
+    The {2} activated ability is wired via make_activated_ability.
     """
+    def _bottom_grave(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target_obj = st.objects.get(target_id)
+        if target_obj is None or target_obj.zone != ZoneType.GRAVEYARD:
+            return []
+        owner = target_obj.owner
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'from_zone_owner': owner,
+                'to_zone_type': ZoneType.LIBRARY,
+                'to_zone_owner': owner,
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{2}",
+        effect_fn=_bottom_grave,
+        description="Put target card from a graveyard on the bottom of its owner's library",
+        targets_required=1,
+        target_kind="card_in_graveyard",
+    )
     return []
 
 

@@ -35,6 +35,16 @@ from src.cards.interceptor_helpers import (
     open_library_search, basic_land_filter,
     make_saga_setup,
     make_replacement_interceptor,
+    make_activated_ability,
+    make_pump_self_ability,
+    make_draw_ability,
+    make_loot_ability,
+    make_life_gain_ability,
+    make_damage_ability,
+    make_destroy_ability,
+    make_counter_ability,
+    make_token_creation_ability,
+    make_sac_destroy_ability,
 )
 
 from src.engine.bending import (
@@ -2017,8 +2027,43 @@ def momo_playful_pet_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 def path_to_redemption_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Aura: enchanted creature can't attack/block (engine gap restriction).
-    Activated sacrifice ability creates token (engine gap)."""
-    # engine gap: aura attack/block restriction + activated sacrifice ability
+    {5}, Sacrifice this Aura: Exile enchanted creature, create a 1/1 white Ally token."""
+    def exile_and_token(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        attached_id = getattr(o.state, 'attached_to', None)
+        if attached_id and attached_id in st.objects:
+            events.append(Event(
+                type=EventType.EXILE,
+                payload={'object_id': attached_id},
+                source=o.id, controller=o.controller,
+            ))
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Ally',
+                'controller': o.controller,
+                'owner': o.controller,
+                'to_zone_type': ZoneType.BATTLEFIELD,
+                'types': {CardType.CREATURE},
+                'subtypes': {'Ally'},
+                'colors': {Color.WHITE},
+                'power': 1,
+                'toughness': 1,
+                'abilities': [],
+                'is_token': True,
+            },
+            source=o.id, controller=o.controller,
+        ))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{5}, Sacrifice this Aura",
+        effect_fn=exile_and_token,
+        description="Exile enchanted creature; create a 1/1 white Ally token",
+        own_turn_only=True,
+    )
+    # engine gap: aura attack/block restriction
     return []
 
 
@@ -2131,8 +2176,29 @@ def vengeful_villagers_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def water_tribe_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{5}: Creatures you control get +1/+1 EOT (activated, engine gap)."""
-    # engine gap: activated abilities require activation system
+    """{5}: Creatures you control get +1/+1 until end of turn."""
+    def anthem_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for cand in st.objects.values():
+            if (cand.controller == o.controller
+                    and cand.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in cand.characteristics.types):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': cand.id,
+                        'power_mod': 1,
+                        'toughness_mod': 1,
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id, controller=o.controller,
+                ))
+        return events
+
+    make_activated_ability(
+        obj, cost="{5}", effect_fn=anthem_effect,
+        description="Creatures you control get +1/+1 until end of turn",
+    )
     return []
 
 
@@ -2264,9 +2330,25 @@ def master_pakku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def north_pole_patrol_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: Untap another permanent. Waterbend {3}, {T}: Tap target opp creature.
-    Both activated, engine gap."""
-    # engine gap: activated + waterbend abilities
+    """{T}: Untap another target permanent you control.
+    Waterbend {3}, {T}: Tap target opp creature (engine gap waterbend)."""
+    def untap_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.UNTAP,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=untap_effect,
+        description="Untap another target permanent you control",
+        targets_required=1, target_kind="permanent_other_yours",
+    )
+    # engine gap: waterbend activated ability
     return []
 
 
@@ -2395,8 +2477,9 @@ def waterbender_ascension_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def waterbending_scroll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{6}, {T}: Draw a card; cost reduces by Islands you control (activated, engine gap)."""
-    # engine gap: dynamic activation cost
+    """{6}, {T}: Draw a card. Cost reduction by Islands is engine gap (uses base cost)."""
+    make_draw_ability(obj, cost="{6}, {T}", count=1)
+    # engine gap: dynamic Island-based cost reduction
     return []
 
 
@@ -2797,8 +2880,23 @@ def combustion_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def deserters_disciple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: Another creature with power 2 or less can't be blocked this turn (engine gap activated)."""
-    # engine gap: activated ability
+    """{T}: Another target creature you control with power 2 or less can't be blocked this turn."""
+    def unblock_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.GRANT_UNBLOCKABLE,
+            payload={'object_id': target_id, 'duration': 'end_of_turn'},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=unblock_effect,
+        description="Target other creature you control with power<=2 is unblockable this turn",
+        targets_required=1, target_kind="creature_yours_power_le_2_other",
+    )
     return []
 
 
@@ -2993,15 +3091,27 @@ def ty_lee_artful_acrobat_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def war_balloon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying. {1}: fire counter (engine gap activated). 3+ counters -> artifact creature (engine gap)."""
-    # engine gap: counter accumulation activated + conditional creature-type
+    """Flying. {1}: Put a fire counter on this Vehicle.
+    3+ fire counters -> artifact creature (engine gap)."""
+    make_counter_ability(
+        obj, cost="{1}",
+        counter_type="fire", amount=1, target_self=True,
+        description="Put a fire counter on this Vehicle",
+    )
+    # engine gap: conditional artifact-creature when 3+ counters
     return []
 
 
 def zhao_the_moon_slayer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Menace. Nonbasic lands enter tapped (engine gap replacement).
-    {7}: conqueror counter (engine gap). With counter, nonbasics are Mountains."""
-    # engine gap: replacement on land ETB + activated counter ability + type-changing static
+    {7}: Put a conqueror counter on Zhao.
+    With counter, nonbasics are Mountains (engine gap type-change static)."""
+    make_counter_ability(
+        obj, cost="{7}",
+        counter_type="conqueror", amount=1, target_self=True,
+        description="Put a conqueror counter on Zhao",
+    )
+    # engine gap: replacement on land ETB + type-changing static
     return []
 
 
@@ -3220,8 +3330,14 @@ def toph_the_blind_bandit_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def turtleduck_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{3}: base power 4 + trample EOT (engine gap activated + base PT change)."""
-    # engine gap: activated ability with base PT swap
+    """{3}: Until end of turn, this creature has base power 4 and gains trample.
+    Approximated as +4/+0 + grant trample (Turtle-Duck's base power is 0)."""
+    make_pump_self_ability(
+        obj, cost="{3}",
+        power_mod=4, toughness_mod=0,
+        grant_keyword="trample",
+        description="+4/+0 and gains trample until end of turn (approximates base power 4)",
+    )
     return []
 
 
@@ -3371,8 +3487,9 @@ def hama_the_bloodbender_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def hermitic_herbalist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Two activated mana abilities (engine gap)."""
-    # engine gap: activated mana abilities
+    """{T}: Add one mana of any color.  (basic mana — handled by engine text parser)
+    {T}: Add two mana in any combination of colors. Spend only on Lessons (engine gap)."""
+    # engine gap: spell-restricted mana
     return []
 
 
@@ -3417,9 +3534,34 @@ def platypusbear_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def professor_zei_anthropologist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated ability {T}, Discard: draw (engine gap).
-    {1}, {T}, Sac: return instant/sorcery from GY (engine gap)."""
-    # engine gap: activated abilities
+    """{T}, Discard a card: Draw a card.
+    {1}, {T}, Sacrifice Professor Zei: Return target instant/sorcery card from GY to hand."""
+    # First ability: {T}, Discard a card: Draw a card
+    make_draw_ability(obj, cost="{T}, Discard a card", count=1)
+
+    # Second ability: {1}, {T}, Sacrifice Professor Zei: return target instant/sorcery from GY
+    def return_from_gy(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'to_zone_type': ZoneType.HAND,
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{1}, {T}, Sacrifice Professor Zei",
+        effect_fn=return_from_gy,
+        description="Return target instant or sorcery from your graveyard to your hand",
+        own_turn_only=True,
+        targets_required=1, target_kind="instant_or_sorcery_in_graveyard_yours",
+    )
     return []
 
 
@@ -3456,8 +3598,14 @@ def zuko_conflicted_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- ARTIFACTS ---
 
 def barrels_of_blasting_jelly_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Two activated abilities (engine gap)."""
-    # engine gap: activated abilities
+    """{1}: Add one mana of any color (engine gap color-choice mana).
+    {5}, {T}, Sacrifice this artifact: 5 damage to target creature."""
+    make_damage_ability(
+        obj, cost="{5}, {T}, Sacrifice this artifact",
+        damage=5, target_kind="creature",
+        description="Deal 5 damage to target creature",
+    )
+    # engine gap: color-choice mana ability
     return []
 
 
@@ -3528,9 +3676,20 @@ def meteor_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def planetarium_of_wan_shi_tong_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{1}, {T}: Scry 2 (engine gap activated).
-    Whenever you scry/surveil: may cast top free (engine gap)."""
-    # engine gap: activated scry + once-per-turn cast-from-top
+    """{1}, {T}: Scry 2.
+    Whenever you scry or surveil: may cast top free, once per turn (engine gap)."""
+    def scry_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': o.controller, 'amount': 2},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{1}, {T}", effect_fn=scry_effect,
+        description="Scry 2",
+    )
+    # engine gap: scry/surveil-triggered free-cast (once per turn)
     return []
 
 
@@ -3562,8 +3721,9 @@ def agna_qela_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def airship_engine_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped (engine gap). {4}, {T}, sac: draw a card (engine gap)."""
-    # engine gap: activated abilities
+    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
+    # engine gap: ETB tapped on land
     return []
 
 
@@ -3574,8 +3734,8 @@ def ba_sing_se_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def boiling_rock_prison_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. Sac for draw (engine gap)."""
-    # engine gap: activated sacrifice ability
+    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
@@ -3586,44 +3746,56 @@ def fire_nation_palace_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def foggy_bottom_swamp_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. Sac for draw (engine gap)."""
-    # engine gap: activated sacrifice ability
+    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
 def jasmine_dragon_tea_shop_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Conditional mana abilities + activated token creation (engine gap)."""
-    # engine gap: restricted mana + activated abilities
+    """{T}: Add {C}.  (basic mana — text parser)
+    {T}: Add one mana of any color, restricted to Allies (engine gap).
+    {5}, {T}: Create a 1/1 white Ally creature token."""
+    make_token_creation_ability(
+        obj, cost="{5}, {T}",
+        token_count=1,
+        token_name="Ally",
+        token_power=1, token_toughness=1,
+        token_subtypes={"Ally"},
+        token_colors={Color.WHITE},
+        sorcery_speed=False,
+        description="Create a 1/1 white Ally creature token",
+    )
+    # engine gap: spell-restricted mana ability
     return []
 
 
 def kyoshi_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. Sac for draw (engine gap)."""
-    # engine gap: activated sacrifice ability
+    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
 def meditation_pools_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. Sac for draw (engine gap)."""
-    # engine gap: activated sacrifice ability
+    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
 def misty_palms_oasis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. Sac for draw (engine gap)."""
-    # engine gap: activated sacrifice ability
+    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
 def north_pole_gates_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. Sac for draw (engine gap)."""
-    # engine gap: activated sacrifice ability
+    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
 def omashu_city_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. Sac for draw (engine gap)."""
-    # engine gap: activated sacrifice ability
+    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
@@ -3645,21 +3817,36 @@ def rumble_arena_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def secret_tunnel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Land can't be blocked (engine gap; lands don't normally attack).
-    Activated unblockable for two creatures (engine gap)."""
-    # engine gap: activated unblockable
+    """Land can't be blocked (vacuous; lands don't attack).
+    {4}, {T}: Two target creatures you control that share a creature type can't be blocked this turn."""
+    def make_two_unblockable(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for t in (targets or []):
+            target_id = getattr(t, "object_id", None) or t
+            events.append(Event(
+                type=EventType.GRANT_UNBLOCKABLE,
+                payload={'object_id': target_id, 'duration': 'end_of_turn'},
+                source=o.id, controller=o.controller,
+            ))
+        return events
+
+    make_activated_ability(
+        obj, cost="{4}, {T}", effect_fn=make_two_unblockable,
+        description="Two target creatures you control sharing a type can't be blocked this turn",
+        targets_required=2, target_kind="two_creatures_yours_shared_type",
+    )
     return []
 
 
 def serpents_pass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. Sac for draw (engine gap)."""
-    # engine gap: activated sacrifice ability
+    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
 def sunblessed_peak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. Sac for draw (engine gap)."""
-    # engine gap: activated sacrifice ability
+    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
@@ -4538,6 +4725,7 @@ WATER_TRIBE_CAPTAIN = make_creature(
     colors={Color.WHITE},
     subtypes={"Ally", "Human", "Soldier"},
     text="{5}: Creatures you control get +1/+1 until end of turn.",
+    setup_interceptors=water_tribe_captain_setup,
 )
 
 WATER_TRIBE_RALLIER = make_creature(
@@ -4911,6 +5099,7 @@ WATERBENDING_SCROLL = make_artifact(
     name="Waterbending Scroll",
     mana_cost="{1}{U}",
     text="{6}, {T}: Draw a card. This ability costs {1} less to activate for each Island you control.",
+    setup_interceptors=waterbending_scroll_setup,
 )
 
 WATERY_GRASP = make_enchantment(
@@ -5765,6 +5954,7 @@ WAR_BALLOON = make_artifact(
     mana_cost="{2}{R}",
     text="Flying\n{1}: Put a fire counter on this Vehicle.\nAs long as this Vehicle has three or more fire counters on it, it's an artifact creature.\nCrew 3 (Tap any number of creatures you control with total power 3 or more: This Vehicle becomes an artifact creature until end of turn.)",
     subtypes={"Vehicle"},
+    setup_interceptors=war_balloon_setup,
 )
 
 WARTIME_PROTESTORS = make_creature(
@@ -5795,6 +5985,7 @@ ZHAO_THE_MOON_SLAYER = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="Menace\nNonbasic lands enter tapped.\n{7}: Put a conqueror counter on Zhao.\nAs long as Zhao has a conqueror counter on him, nonbasic lands are Mountains. (They lose all other land types and abilities and have \"{T}: Add {R}.\")",
+    setup_interceptors=zhao_the_moon_slayer_setup,
 )
 
 ZUKO_EXILED_PRINCE = make_creature(
@@ -6149,6 +6340,7 @@ TURTLEDUCK = make_creature(
     colors={Color.GREEN},
     subtypes={"Bird", "Turtle"},
     text="{3}: Until end of turn, this creature has base power 4 and gains trample.",
+    setup_interceptors=turtleduck_setup,
 )
 
 UNLUCKY_CABBAGE_MERCHANT = make_creature(
@@ -6780,6 +6972,7 @@ AGNA_QELA = make_land(
 AIRSHIP_ENGINE_ROOM = make_land(
     name="Airship Engine Room",
     text="This land enters tapped.\n{T}: Add {U} or {R}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=airship_engine_room_setup,
 )
 
 BA_SING_SE = make_land(
@@ -6790,6 +6983,7 @@ BA_SING_SE = make_land(
 BOILING_ROCK_PRISON = make_land(
     name="Boiling Rock Prison",
     text="This land enters tapped.\n{T}: Add {B} or {R}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=boiling_rock_prison_setup,
 )
 
 FIRE_NATION_PALACE = make_land(
@@ -6801,36 +6995,43 @@ FIRE_NATION_PALACE = make_land(
 FOGGY_BOTTOM_SWAMP = make_land(
     name="Foggy Bottom Swamp",
     text="This land enters tapped.\n{T}: Add {B} or {G}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=foggy_bottom_swamp_setup,
 )
 
 JASMINE_DRAGON_TEA_SHOP = make_land(
     name="Jasmine Dragon Tea Shop",
     text="{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast an Ally spell or activate an ability of an Ally source.\n{5}, {T}: Create a 1/1 white Ally creature token.",
+    setup_interceptors=jasmine_dragon_tea_shop_setup,
 )
 
 KYOSHI_VILLAGE = make_land(
     name="Kyoshi Village",
     text="This land enters tapped.\n{T}: Add {G} or {W}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=kyoshi_village_setup,
 )
 
 MEDITATION_POOLS = make_land(
     name="Meditation Pools",
     text="This land enters tapped.\n{T}: Add {G} or {U}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=meditation_pools_setup,
 )
 
 MISTY_PALMS_OASIS = make_land(
     name="Misty Palms Oasis",
     text="This land enters tapped.\n{T}: Add {W} or {B}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=misty_palms_oasis_setup,
 )
 
 NORTH_POLE_GATES = make_land(
     name="North Pole Gates",
     text="This land enters tapped.\n{T}: Add {W} or {U}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=north_pole_gates_setup,
 )
 
 OMASHU_CITY = make_land(
     name="Omashu City",
     text="This land enters tapped.\n{T}: Add {R} or {G}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=omashu_city_setup,
 )
 
 REALM_OF_KOH = make_land(
@@ -6854,11 +7055,13 @@ SECRET_TUNNEL = make_land(
 SERPENTS_PASS = make_land(
     name="Serpent's Pass",
     text="This land enters tapped.\n{T}: Add {U} or {B}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=serpents_pass_setup,
 )
 
 SUNBLESSED_PEAK = make_land(
     name="Sun-Blessed Peak",
     text="This land enters tapped.\n{T}: Add {R} or {W}.\n{4}, {T}, Sacrifice this land: Draw a card.",
+    setup_interceptors=sunblessed_peak_setup,
 )
 
 WHITE_LOTUS_HIDEOUT = make_land(
