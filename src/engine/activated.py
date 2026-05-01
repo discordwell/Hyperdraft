@@ -223,6 +223,13 @@ def register_activated_ability(
 
     if not isinstance(obj.state.activated_abilities, list):
         obj.state.activated_abilities = []
+    # Guard against double-registration: setup_interceptors runs both during
+    # Game.create_object (HAND-side initialization) and during the ZONE_CHANGE
+    # to BATTLEFIELD. If we already have an ability with the same cost text
+    # registered for this object, return it instead of re-appending.
+    for existing in obj.state.activated_abilities:
+        if existing.cost_text == cost and existing.description == (description or f"{cost}: ..."):
+            return existing
     ability.ability_index = len(obj.state.activated_abilities)
     obj.state.activated_abilities.append(ability)
     return ability

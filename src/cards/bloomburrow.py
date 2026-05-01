@@ -33,6 +33,17 @@ from src.cards.interceptor_helpers import (
     creatures_you_control, creatures_with_subtype, create_target_choice,
     create_modal_choice,
     make_graveyard_to_exile_replacer,
+    # Phase 4: activated abilities
+    make_activated_ability,
+    make_pump_self_ability,
+    make_draw_ability,
+    make_loot_ability,
+    make_life_gain_ability,
+    make_damage_ability,
+    make_destroy_ability,
+    make_counter_ability,
+    make_token_creation_ability,
+    make_sac_destroy_ability,
 )
 from src.engine.blb_mechanics import (
     make_valiant_trigger,
@@ -1903,7 +1914,32 @@ def beza_the_bounding_spring_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def bravekin_duo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated {1}{T} sorcery-speed ability (target +1/+1 UEOT)
+    """{1}, {T}: Target creature gets +1/+1 until end of turn. Activate only as a sorcery."""
+    def _pump_target(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': target_id,
+                'power_mod': 1,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{1}, {T}",
+        effect_fn=_pump_target,
+        description="Target creature gets +1/+1 until end of turn",
+        targets_required=1,
+        target_kind="creature",
+    )
     return []
 
 
@@ -2472,7 +2508,8 @@ def waterspout_warden_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def wishing_well_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated {T}-add-coin-counter ability + conditional gy-cast trigger
+    # engine gap: chained {T}: counter -> gy-cast (mana-value-matching) + grave-to-exile replacement
+    # SKIPPED in Phase 4 — cannot model the conditional cast-from-graveyard with X-cost match yet.
     return []
 
 
@@ -2501,7 +2538,12 @@ def bonebind_orator_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def bonecache_overseer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated draw with conditional cost (cards left graveyard, food sacrificed)
+    """{T}, Pay 1 life: Draw a card.
+
+    The "activate only if 3+ cards left graveyard or sacrificed Food" gating is
+    an engine gap — base ability is wired without the gate.
+    """
+    make_draw_ability(obj, "{T}, Pay 1 life", count=1)
     return []
 
 
@@ -3132,7 +3174,31 @@ def manifold_mouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def raccoon_rallier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated {T} ability with sorcery-speed gate (target gains haste)
+    """{T}: Target creature you control gains haste until end of turn. Activate only as a sorcery."""
+    def _grant_haste(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': target_id,
+                'keyword': 'haste',
+                'duration': 'end_of_turn',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=_grant_haste,
+        description="Target creature you control gains haste until end of turn",
+        targets_required=1,
+        target_kind="creature_you_control",
+    )
     return []
 
 
@@ -3539,8 +3605,31 @@ def innkeepers_talent_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def keeneyed_curator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: "exiled with this creature" provenance tracking + 4-type
-    # threshold static buff; activated {1}: exile-from-graveyard ability.
+    """{1}: Exile target card from a graveyard.
+
+    The "exiled with this creature" provenance + 4-card-types static +4/+4
+    trample buff is still an engine gap; only the activated ability is wired.
+    """
+    def _exile_grave_card(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': target_id},
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{1}",
+        effect_fn=_exile_grave_card,
+        description="Exile target card from a graveyard",
+        targets_required=1,
+        target_kind="card_in_graveyard",
+    )
     return []
 
 
@@ -3684,7 +3773,17 @@ def stocking_the_pantry_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def tender_wildguide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated mana ability + activated +1/+1 counter; Offspring {2}
+    """{T}: Put a +1/+1 counter on this creature.
+
+    The any-color mana ability and Offspring {2} are still engine gaps.
+    """
+    make_counter_ability(
+        obj,
+        cost="{T}",
+        counter_type="+1/+1",
+        amount=1,
+        target_self=True,
+    )
     return []
 
 
@@ -3937,7 +4036,25 @@ def fireglass_mentor_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def glarb_calamitys_augur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: top-of-library reveal/play permission and surveil-2 activated ability
+    """{T}: Surveil 2.
+
+    The "look at top of library" and "play lands/cast spells with MV>=4 from
+    library top" abilities are static engine gaps.
+    """
+    def _surveil(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': o.controller, 'amount': 2},
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=_surveil,
+        description="Surveil 2",
+    )
     return []
 
 
@@ -4295,7 +4412,40 @@ def ygra_eater_of_all_setup(obj: GameObject, state: GameState) -> list[Intercept
 # -----------------------------------------------------------------------------
 
 def barkform_harvester_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Changeling (every creature type); activated {2} bottom-of-library
+    """{2}: Put target card from your graveyard on the bottom of your library.
+
+    Changeling (every creature type) remains an engine gap.
+    """
+    def _bottom_of_library(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target_obj = st.objects.get(target_id) if isinstance(target_id, str) else None
+        if target_obj is None or target_obj.zone != ZoneType.GRAVEYARD:
+            return []
+        owner = target_obj.owner
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'from_zone_owner': owner,
+                'to_zone_type': ZoneType.LIBRARY,
+                'to_zone_owner': owner,
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{2}",
+        effect_fn=_bottom_of_library,
+        description="Put target card from your graveyard on the bottom of your library",
+        targets_required=1,
+        target_kind="card_in_graveyard",
+    )
     return []
 
 
@@ -4323,7 +4473,12 @@ def fountainport_bell_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def heirloom_epic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated ability with creature-tap mana substitution
+    """{4}, {T}: Draw a card. Activate only as a sorcery.
+
+    The "tap an untapped creature instead of paying that mana" cost-substitution
+    is still an engine gap; only the base cost is wired.
+    """
+    make_draw_ability(obj, "{4}, {T}", count=1)
     return []
 
 
@@ -4341,7 +4496,17 @@ def starforged_sword_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def tangle_tumbler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Vehicle (tap-tokens-to-crew); activated {3}{T} counter ability
+    """{3}, {T}: Put a +1/+1 counter on target creature.
+
+    The Vehicle "tap two untapped tokens to crew" mechanic is still an engine gap.
+    """
+    make_counter_ability(
+        obj,
+        cost="{3}, {T}",
+        counter_type="+1/+1",
+        amount=1,
+        target_self=False,
+    )
     return []
 
 
@@ -4355,12 +4520,76 @@ def three_tree_mascot_setup(obj: GameObject, state: GameState) -> list[Intercept
 # -----------------------------------------------------------------------------
 
 def fabled_passage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap-and-sacrifice search; conditional untap based on land count
+    """{T}, Sacrifice this land: Search your library for a basic land card, put it
+    onto the battlefield tapped, then shuffle.
+
+    The "if you control four or more lands, untap that land" rider is still an
+    engine gap.
+    """
+    def _fetch_basic(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'card_type': CardType.LAND,
+                'basic_only': True,
+                'destination': 'battlefield_tapped',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{T}, Sacrifice this land",
+        effect_fn=_fetch_basic,
+        description="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle",
+    )
     return []
 
 
 def fountainport_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: multiple activated abilities (mana, draw, token, treasure)
+    """{3}, {T}, Pay 1 life: Create a 1/1 blue Fish creature token.
+    {4}, {T}: Create a Treasure token.
+
+    The "{T}: Add {C}" pure-mana ability and "{2}, {T}, Sacrifice a token: Draw"
+    (token-as-cost) ability remain engine gaps.
+    """
+    # {3}, {T}, Pay 1 life: Create a 1/1 blue Fish creature token.
+    make_token_creation_ability(
+        obj,
+        cost="{3}, {T}, Pay 1 life",
+        token_count=1,
+        token_name="Fish",
+        token_power=1,
+        token_toughness=1,
+        token_subtypes={"Fish"},
+        token_colors={Color.BLUE},
+        sorcery_speed=False,
+    )
+
+    # {4}, {T}: Create a Treasure token. (Treasure is an artifact — emit a
+    # custom CREATE_TOKEN event since the creature-token framework helper
+    # would mis-type this as a creature.)
+    def _create_treasure(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token_type': 'Artifact',
+                'name': 'Treasure',
+                'subtypes': {'Treasure'},
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{4}, {T}",
+        effect_fn=_create_treasure,
+        description="Create a Treasure token",
+    )
     return []
 
 
@@ -7148,6 +7377,7 @@ BONECACHE_OVERSEER = make_creature(
     colors={Color.BLACK},
     subtypes={"Squirrel", "Warlock"},
     text="{T}, Pay 1 life: Draw a card. Activate only if three or more cards left your graveyard this turn or if you've sacrificed a Food this turn.",
+    setup_interceptors=bonecache_overseer_setup,
 )
 
 COILING_REBIRTH = make_sorcery(
@@ -8354,6 +8584,7 @@ GLARB_CALAMITYS_AUGUR = make_creature(
     subtypes={"Frog", "Noble", "Wizard"},
     supertypes={"Legendary"},
     text="Deathtouch\nYou may look at the top card of your library any time.\nYou may play lands and cast spells with mana value 4 or greater from the top of your library.\n{T}: Surveil 2.",
+    setup_interceptors=glarb_calamitys_augur_setup,
 )
 
 HEAD_OF_THE_HOMESTEAD = make_creature(
@@ -8662,6 +8893,7 @@ HEIRLOOM_EPIC = make_artifact(
     name="Heirloom Epic",
     mana_cost="{1}",
     text="{4}, {T}: Draw a card. For each mana in this ability's activation cost, you may tap an untapped creature you control rather than pay that mana. Activate only as a sorcery.",
+    setup_interceptors=heirloom_epic_setup,
 )
 
 PATCHWORK_BANNER = make_artifact(
@@ -8707,11 +8939,13 @@ THREE_TREE_MASCOT = make_artifact_creature(
 FABLED_PASSAGE = make_land(
     name="Fabled Passage",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Then if you control four or more lands, untap that land.",
+    setup_interceptors=fabled_passage_setup,
 )
 
 FOUNTAINPORT = make_land(
     name="Fountainport",
     text="{T}: Add {C}.\n{2}, {T}, Sacrifice a token: Draw a card.\n{3}, {T}, Pay 1 life: Create a 1/1 blue Fish creature token.\n{4}, {T}: Create a Treasure token.",
+    setup_interceptors=fountainport_setup,
 )
 
 HIDDEN_GROTTO = make_land(

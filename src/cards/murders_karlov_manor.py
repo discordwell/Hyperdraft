@@ -36,6 +36,7 @@ from src.cards.interceptor_helpers import (
     create_hand_reveal_choice,
     make_replacement_interceptor,
     make_draw_ability,
+    make_activated_ability,
 )
 
 
@@ -5642,7 +5643,9 @@ def unyielding_gatekeeper_setup(obj: GameObject, state: GameState) -> list[Inter
 
 def wrench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Equipment: +1/+1, vigilance, granted tap-target activated ability; sac to draw."""
-    # engine gap: equipment static grants + activated tap-target
+    # engine gap: equipment static grants + activated tap-target.
+    # Wire the activated draw ability: {2}, Sacrifice this Equipment: Draw a card.
+    make_draw_ability(obj, cost="{2}, Sacrifice this Equipment", count=1)
     return []
 
 
@@ -5683,7 +5686,9 @@ def burden_of_proof_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def candlestick_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Equipment grants +1/+1 and 'whenever attacks, surveil 2'; sac to draw."""
-    # engine gap: equipment-granted triggered ability
+    # engine gap: equipment-granted triggered ability.
+    # Wire the activated draw ability: {2}, Sacrifice this Equipment: Draw a card.
+    make_draw_ability(obj, cost="{2}, Sacrifice this Equipment", count=1)
     return []
 
 
@@ -5846,7 +5851,24 @@ def fae_flight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def forensic_researcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Activated tap to untap permanent; collect-evidence tap target opponent creature."""
-    # engine gap: activated abilities with cost+target
+    # Wire {T}: Untap another target permanent you control.
+    # SKIP {T}, Collect evidence 3: Tap target creature you don't control (collect-evidence is an engine gap).
+    def untap_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.UNTAP,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=untap_effect,
+        description="Untap another target permanent you control",
+        targets_required=1, target_kind="permanent_other_yours",
+    )
     return []
 
 
@@ -5996,7 +6018,9 @@ def illicit_masquerade_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 def lead_pipe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Equipment: +2/+0; equipped creature dies => each opp loses 1; sac to draw."""
-    # engine gap: equipment-granted death trigger
+    # engine gap: equipment-granted death trigger.
+    # Wire the activated draw ability: {2}, Sacrifice this Equipment: Draw a card.
+    make_draw_ability(obj, cost="{2}, Sacrifice this Equipment", count=1)
     return []
 
 
@@ -6284,7 +6308,9 @@ def reckless_detective_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 def red_herring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Haste. Attacks each combat if able. Activated sac to draw."""
-    # engine gap: must-attack restriction + sacrifice activation
+    # engine gap: must-attack restriction.
+    # Wire the activated draw ability: {2}, Sacrifice this creature: Draw a card.
+    make_draw_ability(obj, cost="{2}, Sacrifice this creature", count=1)
     return []
 
 
@@ -6445,7 +6471,9 @@ def the_pride_of_hull_clade_setup(obj: GameObject, state: GameState) -> list[Int
 
 def rope_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Equipment: +1/+2, reach, can't-be-blocked-by-more-than-one. Sac draw. Equip {3}."""
-    # engine gap: equipment-granted reach + block restriction
+    # engine gap: equipment-granted reach + block restriction.
+    # Wire the activated draw ability: {2}, Sacrifice this Equipment: Draw a card.
+    make_draw_ability(obj, cost="{2}, Sacrifice this Equipment", count=1)
     return []
 
 
@@ -6927,7 +6955,34 @@ def tin_street_gossip_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def trostani_three_whispers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Three activated abilities granting deathtouch / vigilance / double strike."""
-    # engine gap: activated abilities with target + temporary keyword grant
+    def _grant_keyword_effect(keyword: str):
+        def effect_fn(o: GameObject, st: GameState, targets) -> list[Event]:
+            if not targets:
+                return []
+            t = targets[0]
+            target_id = getattr(t, "object_id", None) or t
+            return [Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': target_id, 'keyword': keyword, 'duration': 'end_of_turn'},
+                source=o.id, controller=o.controller,
+            )]
+        return effect_fn
+
+    make_activated_ability(
+        obj, cost="{1}{G}", effect_fn=_grant_keyword_effect("deathtouch"),
+        description="Target creature gains deathtouch until end of turn",
+        targets_required=1, target_kind="creature",
+    )
+    make_activated_ability(
+        obj, cost="{G/W}", effect_fn=_grant_keyword_effect("vigilance"),
+        description="Target creature gains vigilance until end of turn",
+        targets_required=1, target_kind="creature",
+    )
+    make_activated_ability(
+        obj, cost="{2}{W}", effect_fn=_grant_keyword_effect("double strike"),
+        description="Target creature gains double strike until end of turn",
+        targets_required=1, target_kind="creature",
+    )
     return []
 
 
@@ -7028,7 +7083,43 @@ def elegant_parlor_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 def escape_tunnel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Activated abilities to fetch land or unblockable target."""
-    # engine gap: activated land abilities
+    # Wire {T}, Sacrifice this land: Search your library for a basic land card,
+    # put it onto the battlefield tapped, then shuffle.
+    def fetch_basic_land(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'card_type': CardType.LAND,
+                'basic_only': True,
+                'destination': 'battlefield_tapped',
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{T}, Sacrifice this land", effect_fn=fetch_basic_land,
+        description="Search your library for a basic land, put it onto the battlefield tapped",
+    )
+
+    # Wire {T}, Sacrifice this land: Target creature with power 2 or less can't
+    # be blocked this turn.
+    def grant_unblockable(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.GRANT_UNBLOCKABLE,
+            payload={'object_id': target_id, 'duration': 'end_of_turn'},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{T}, Sacrifice this land", effect_fn=grant_unblockable,
+        description="Target creature with power 2 or less can't be blocked this turn",
+        targets_required=1, target_kind="creature_power_le_2",
+    )
     return []
 
 
@@ -7082,7 +7173,10 @@ def raucous_theater_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def scene_of_the_crime_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Land enters tapped; {T}:{C}; tap creature for any color; {2},sac to draw."""
-    # engine gap: complex activated abilities + sacrifice draw
+    # engine gap: ETB tapped + {T}:{C} basic mana + tap-creature-for-any-color
+    # (color-choice + tap-another-creature cost).
+    # Wire the activated draw ability: {2}, Sacrifice this land: Draw a card.
+    make_draw_ability(obj, cost="{2}, Sacrifice this land", count=1)
     return []
 
 
@@ -8415,6 +8509,7 @@ RED_HERRING = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Clue", "Fish"},
     text="Haste\nThis creature attacks each combat if able.\n{2}, Sacrifice this creature: Draw a card.",
+    setup_interceptors=red_herring_setup,
 )
 
 RUBBLEBELT_BRAGGART = make_creature(
@@ -9654,6 +9749,7 @@ SCENE_OF_THE_CRIME = make_artifact(
     mana_cost="",
     text="This land enters tapped.\n{T}: Add {C}.\n{T}, Tap an untapped creature you control: Add one mana of any color.\n{2}, Sacrifice this land: Draw a card.",
     subtypes={"Clue"},
+    setup_interceptors=scene_of_the_crime_setup,
 )
 
 SHADOWY_BACKSTREET = make_land(

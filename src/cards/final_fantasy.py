@@ -41,6 +41,10 @@ from src.cards.interceptor_helpers import (
     creatures_with_subtype,
     all_opponents,
     make_saga_setup,
+    make_activated_ability,
+    make_draw_ability,
+    make_loot_ability,
+    make_destroy_ability,
 )
 
 from src.engine.spell_resolve import (
@@ -3419,8 +3423,14 @@ def the_prima_vista_ff_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def qiqirn_merchant_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Qiqirn Merchant: activated abilities (stub)."""
-    # engine gap: activated abilities not registered through setup_interceptors
+    """Qiqirn Merchant:
+    {1}, {T}: Draw a card, then discard a card.
+    {7}, {T}, Sacrifice this creature: Draw three cards.
+
+    The Town-based cost reduction on the second ability is an engine gap.
+    """
+    make_loot_ability(obj, "{1}, {T}")
+    make_draw_ability(obj, "{7}, {T}, Sacrifice this creature", count=3)
     return []
 
 
@@ -4183,8 +4193,42 @@ def goobbue_gardener_ff_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def gran_pulse_ochu_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Gran Pulse Ochu: deathtouch + activated power boost (stub)."""
-    # engine gap: activated abilities not registered through setup_interceptors
+    """Gran Pulse Ochu: Deathtouch + {8}: +X/+X EOT where X = permanent cards in your graveyard."""
+    def pump_by_graveyard(o: GameObject, st: GameState, targets) -> list[Event]:
+        # Count permanent cards in controller's graveyard.
+        graveyard_key = f"graveyard_{o.controller}"
+        gy = st.zones.get(graveyard_key)
+        x = 0
+        if gy:
+            for card_id in gy.objects:
+                card = st.objects.get(card_id)
+                if not card:
+                    continue
+                ctypes = card.characteristics.types
+                if (CardType.CREATURE in ctypes
+                        or CardType.ARTIFACT in ctypes
+                        or CardType.ENCHANTMENT in ctypes
+                        or CardType.LAND in ctypes
+                        or CardType.PLANESWALKER in ctypes):
+                    x += 1
+        if x <= 0:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': x,
+                'toughness_mod': x,
+                'duration': 'end_of_turn',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{8}", effect_fn=pump_by_graveyard,
+        description="This creature gets +X/+X until end of turn, where X is the number of permanent cards in your graveyard",
+    )
     return []
 
 
@@ -4545,8 +4589,27 @@ def lion_heart_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def lunatic_pandora_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Lunatic Pandora: activated abilities (stub)."""
-    # engine gap: activated abilities not modular here
+    """Lunatic Pandora:
+    {2}, {T}: Surveil 1.
+    {6}, {T}, Sacrifice this artifact: Destroy target nonland permanent.
+    """
+    def surveil_one(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': o.controller, 'amount': 1},
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=surveil_one,
+        description="Surveil 1",
+    )
+    make_destroy_ability(
+        obj, cost="{6}, {T}, Sacrifice this artifact",
+        target_kind="nonland_permanent",
+        description="Destroy target nonland permanent",
+    )
     return []
 
 
@@ -4582,14 +4645,70 @@ def relentless_xatm092_ff_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def ring_of_the_lucii_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ring of the Lucii: activated mana + tap target nonland (stub)."""
-    # engine gap: activated abilities not modular here
+    """Ring of the Lucii: {2}, {T}, Pay 1 life: Tap target nonland permanent.
+
+    The {T}: Add {C}{C} mana ability is left to the engine's mana-ability
+    inference (no special wiring needed here).
+    """
+    def tap_target(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.TAP_TARGET,
+            payload={'object_id': target_id},
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{2}, {T}, Pay 1 life", effect_fn=tap_target,
+        description="Tap target nonland permanent",
+        targets_required=1, target_kind="nonland_permanent",
+    )
     return []
 
 
 def world_map_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """World Map: activated abilities (stub)."""
-    # engine gap: activated abilities not modular here
+    """World Map:
+    {1}, {T}, Sacrifice this artifact: Search your library for a basic land card,
+        reveal it, put it into your hand, then shuffle.
+    {3}, {T}, Sacrifice this artifact: Search your library for a land card,
+        reveal it, put it into your hand, then shuffle.
+    """
+    def search_basic_land(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'card_type': 'basic_land',
+                'destination': 'hand',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    def search_any_land(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'card_type': 'land',
+                'destination': 'hand',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{1}, {T}, Sacrifice this artifact", effect_fn=search_basic_land,
+        description="Search your library for a basic land card, put it into your hand",
+    )
+    make_activated_ability(
+        obj, cost="{3}, {T}, Sacrifice this artifact", effect_fn=search_any_land,
+        description="Search your library for a land card, put it into your hand",
+    )
     return []
 
 
@@ -4614,8 +4733,23 @@ def crossroads_village_ff_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def eden_seat_of_the_sanctum_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eden, Seat of the Sanctum: activated mill + sacrifice (stub)."""
-    # engine gap: activated abilities + delayed reanimation trigger not modular
+    """Eden, Seat of the Sanctum: {5}, {T}: Mill two cards.
+
+    The optional "may sacrifice this land" + delayed reanimation rider is an
+    engine gap and is not wired here.
+    """
+    def mill_two(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': o.controller, 'amount': 2},
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{5}, {T}", effect_fn=mill_two,
+        description="Mill two cards",
+    )
     return []
 
 
@@ -5365,6 +5499,7 @@ QIQIRN_MERCHANT = make_creature(
     colors={Color.BLUE},
     subtypes={"Beast", "Citizen"},
     text="{1}, {T}: Draw a card, then discard a card.\n{7}, {T}, Sacrifice this creature: Draw three cards. This ability costs {1} less to activate for each Town you control.",
+    setup_interceptors=qiqirn_merchant_ff_setup,
 )
 
 QUISTIS_TREPE = make_creature(
@@ -7301,6 +7436,7 @@ WORLD_MAP = make_artifact(
     name="World Map",
     mana_cost="{1}",
     text="{1}, {T}, Sacrifice this artifact: Search your library for a basic land card, reveal it, put it into your hand, then shuffle.\n{3}, {T}, Sacrifice this artifact: Search your library for a land card, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=world_map_ff_setup,
 )
 
 ADVENTURERS_INN = make_land(
