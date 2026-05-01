@@ -4133,3 +4133,386 @@ def make_manifest_etb_event(
         source=source_id,
         controller=controller,
     )
+
+
+# =============================================================================
+# Phase 4: Activated-ability helpers
+# =============================================================================
+#
+# Cards expose activated abilities by registering descriptors on
+# ``obj.state.activated_abilities``. The priority system in ``priority.py``
+# enumerates them in ``_get_activatable_abilities`` and dispatches in
+# ``_handle_activate_ability``.
+#
+# Effect signature: ``(obj, state, targets) -> list[Event]``. ``targets`` is a
+# flat list of ``Target`` objects already chosen by the player (or empty when
+# no targeting was needed).
+# =============================================================================
+
+
+def make_activated_ability(
+    obj: GameObject,
+    cost: str,
+    effect_fn: Callable[[GameObject, GameState, list], list[Event]],
+    *,
+    description: str = "",
+    sorcery_speed: bool = False,
+    own_turn_only: bool = False,
+    once_per_turn: bool = False,
+    targets_required: int = 0,
+    target_kind: str = "any",
+):
+    """Register an activated ability on ``obj`` and return the descriptor.
+
+    Use inside a ``setup_interceptors`` function. The setup function should
+    still return ``[]`` (or any other interceptors it wants to register) — the
+    activated ability is consulted via ``obj.state.activated_abilities``, not
+    via the event pipeline.
+
+    Example::
+
+        def cathar_commando_setup(obj, state):
+            def destroy_target(o, st, targets):
+                if not targets:
+                    return []
+                return [Event(type=EventType.DESTROY,
+                              payload={'object_id': targets[0].object_id},
+                              source=o.id, controller=o.controller)]
+            make_activated_ability(
+                obj,
+                cost="{1}, Sacrifice this creature",
+                effect_fn=destroy_target,
+                description="Destroy target artifact or enchantment",
+                targets_required=1,
+                target_kind="artifact_or_enchantment",
+            )
+            return []
+    """
+    from src.engine.activated import register_activated_ability
+    return register_activated_ability(
+        obj,
+        cost=cost,
+        effect_fn=effect_fn,
+        description=description,
+        sorcery_speed=sorcery_speed,
+        own_turn_only=own_turn_only,
+        once_per_turn=once_per_turn,
+        targets_required=targets_required,
+        target_kind=target_kind,
+    )
+
+
+def make_pump_self_ability(
+    obj: GameObject,
+    cost: str,
+    *,
+    power_mod: int = 1,
+    toughness_mod: int = 0,
+    grant_keyword: Optional[str] = None,
+    description: str = "",
+    once_per_turn: bool = False,
+):
+    """Register ``{cost}: This creature gets +X/+Y [and gains <keyword>] until end of turn``."""
+    desc = description or f"+{power_mod}/+{toughness_mod} until end of turn"
+    if grant_keyword:
+        desc = f"{desc} and gains {grant_keyword}"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        if power_mod or toughness_mod:
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': o.id,
+                    'power_mod': power_mod,
+                    'toughness_mod': toughness_mod,
+                    'duration': 'end_of_turn',
+                },
+                source=o.id,
+                controller=o.controller,
+            ))
+        if grant_keyword:
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': o.id,
+                    'keyword': grant_keyword,
+                    'duration': 'end_of_turn',
+                },
+                source=o.id,
+                controller=o.controller,
+            ))
+        return events
+
+    return make_activated_ability(
+        obj, cost=cost, effect_fn=_effect,
+        description=desc, once_per_turn=once_per_turn,
+    )
+
+
+def make_draw_ability(
+    obj: GameObject,
+    cost: str,
+    count: int = 1,
+    *,
+    description: str = "",
+    sorcery_speed: bool = False,
+    once_per_turn: bool = False,
+):
+    """Register ``{cost}: Draw N cards``."""
+    desc = description or (f"Draw {count} cards" if count > 1 else "Draw a card")
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': o.controller, 'count': count},
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    return make_activated_ability(
+        obj, cost=cost, effect_fn=_effect,
+        description=desc, sorcery_speed=sorcery_speed, once_per_turn=once_per_turn,
+    )
+
+
+def make_loot_ability(
+    obj: GameObject,
+    cost: str,
+    *,
+    description: str = "",
+    once_per_turn: bool = False,
+):
+    """Register ``{cost}: Draw a card, then discard a card`` (looting)."""
+    desc = description or "Draw a card, then discard a card"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        return [
+            Event(
+                type=EventType.DRAW,
+                payload={'player': o.controller, 'count': 1},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.DISCARD_CHOICE,
+                payload={'player': o.controller, 'count': 1},
+                source=o.id, controller=o.controller,
+            ),
+        ]
+
+    return make_activated_ability(
+        obj, cost=cost, effect_fn=_effect,
+        description=desc, once_per_turn=once_per_turn,
+    )
+
+
+def make_life_gain_ability(
+    obj: GameObject,
+    cost: str,
+    amount: int,
+    *,
+    description: str = "",
+    once_per_turn: bool = False,
+):
+    """Register ``{cost}: You gain N life``."""
+    desc = description or f"You gain {amount} life"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': o.controller, 'amount': amount},
+            source=o.id, controller=o.controller,
+        )]
+
+    return make_activated_ability(
+        obj, cost=cost, effect_fn=_effect,
+        description=desc, once_per_turn=once_per_turn,
+    )
+
+
+def make_damage_ability(
+    obj: GameObject,
+    cost: str,
+    damage: int,
+    *,
+    description: str = "",
+    target_kind: str = "any",
+    sorcery_speed: bool = False,
+    once_per_turn: bool = False,
+):
+    """Register ``{cost}: Deal N damage to <target>``.
+
+    Target choice is provided by the caller via the standard targeting flow;
+    the resolve callback reads the first target and emits a DAMAGE event.
+    """
+    desc = description or f"Deal {damage} damage to any target"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or getattr(t, "player_id", None) or t
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': target_id, 'amount': damage, 'source': o.id},
+            source=o.id, controller=o.controller,
+        )]
+
+    return make_activated_ability(
+        obj, cost=cost, effect_fn=_effect,
+        description=desc, sorcery_speed=sorcery_speed,
+        targets_required=1, target_kind=target_kind, once_per_turn=once_per_turn,
+    )
+
+
+def make_destroy_ability(
+    obj: GameObject,
+    cost: str,
+    *,
+    description: str = "",
+    target_kind: str = "permanent",
+    sorcery_speed: bool = False,
+    once_per_turn: bool = False,
+):
+    """Register ``{cost}: Destroy target <type>``."""
+    desc = description or f"Destroy target {target_kind}"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+
+    return make_activated_ability(
+        obj, cost=cost, effect_fn=_effect,
+        description=desc, sorcery_speed=sorcery_speed,
+        targets_required=1, target_kind=target_kind, once_per_turn=once_per_turn,
+    )
+
+
+def make_counter_ability(
+    obj: GameObject,
+    cost: str,
+    *,
+    counter_type: str = "+1/+1",
+    amount: int = 1,
+    target_self: bool = True,
+    description: str = "",
+    sorcery_speed: bool = False,
+    once_per_turn: bool = False,
+):
+    """Register ``{cost}: Put N <type> counters on <self|target creature>``."""
+    desc = description or f"Put {amount} {counter_type} counter(s) on {'this' if target_self else 'target creature'}"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        if target_self:
+            target_id = o.id
+        else:
+            if not targets:
+                return []
+            t = targets[0]
+            target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={
+                'object_id': target_id,
+                'counter_type': counter_type,
+                'amount': amount,
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    return make_activated_ability(
+        obj, cost=cost, effect_fn=_effect,
+        description=desc, sorcery_speed=sorcery_speed,
+        targets_required=0 if target_self else 1,
+        target_kind="creature" if not target_self else "any",
+        once_per_turn=once_per_turn,
+    )
+
+
+def make_token_creation_ability(
+    obj: GameObject,
+    cost: str,
+    *,
+    token_count: int = 1,
+    token_name: str = "Spirit",
+    token_power: int = 1,
+    token_toughness: int = 1,
+    token_subtypes: Optional[set] = None,
+    token_colors: Optional[set] = None,
+    token_keywords: Optional[list] = None,
+    description: str = "",
+    sorcery_speed: bool = True,
+    once_per_turn: bool = False,
+):
+    """Register ``{cost}: Create N <stat> <name> creature tokens``."""
+    desc = description or f"Create {token_count} {token_power}/{token_toughness} {token_name} token(s)"
+    subtypes = token_subtypes or {token_name}
+    colors = token_colors or set()
+    keywords = token_keywords or []
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        events = []
+        for _ in range(token_count):
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': token_name,
+                    'controller': o.controller,
+                    'owner': o.controller,
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                    'types': {CardType.CREATURE},
+                    'subtypes': set(subtypes),
+                    'colors': set(colors),
+                    'power': token_power,
+                    'toughness': token_toughness,
+                    'abilities': list(keywords),
+                    'is_token': True,
+                },
+                source=o.id, controller=o.controller,
+            ))
+        return events
+
+    return make_activated_ability(
+        obj, cost=cost, effect_fn=_effect,
+        description=desc, sorcery_speed=sorcery_speed, once_per_turn=once_per_turn,
+    )
+
+
+def make_sac_destroy_ability(
+    obj: GameObject,
+    cost: str,
+    *,
+    target_kind: str = "artifact_or_enchantment",
+    description: str = "",
+):
+    """Register ``{cost}, Sacrifice this: Destroy target artifact or enchantment``.
+
+    This is a common Cathar-Commando-style pattern. The cost text must include
+    the sac (e.g. ``{1}, Sacrifice this creature``).
+    """
+    return make_destroy_ability(
+        obj, cost=cost,
+        description=description or f"Destroy target {target_kind}",
+        target_kind=target_kind,
+    )
+
+
+__all_phase4__ = [
+    "make_activated_ability",
+    "make_pump_self_ability",
+    "make_draw_ability",
+    "make_loot_ability",
+    "make_life_gain_ability",
+    "make_damage_ability",
+    "make_destroy_ability",
+    "make_counter_ability",
+    "make_token_creation_ability",
+    "make_sac_destroy_ability",
+]

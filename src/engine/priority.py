@@ -1089,11 +1089,44 @@ class PrioritySystem:
         """
         Get activatable abilities on a permanent.
 
-        Current implementation supports:
+        Sources of abilities:
+        - Phase 4: card-registered ``obj.state.activated_abilities`` (preferred path)
         - Planeswalker loyalty abilities without explicit targets
         - Tap-for-mana abilities from rules text
         """
         actions: list[LegalAction] = []
+
+        # Phase 4: registered activated abilities.
+        from .activated import can_pay_activation
+        is_active = (
+            self.turn_manager is not None
+            and self.turn_manager.turn_state.active_player_id == player_id
+        )
+        is_main = False
+        if self.turn_manager is not None:
+            from .turn import Phase as _Phase
+            is_main = self.turn_manager.turn_state.phase in (
+                _Phase.PRECOMBAT_MAIN, _Phase.POSTCOMBAT_MAIN
+            )
+        stack_empty = (self.stack is None) or (len(self.stack.items) == 0)
+        for idx, ability in enumerate(getattr(obj.state, "activated_abilities", []) or []):
+            if not can_pay_activation(
+                ability, obj, self.state, player_id,
+                mana_system=self.mana_system,
+                is_active_player=is_active,
+                is_main_phase=is_main,
+                stack_empty=stack_empty,
+            ):
+                continue
+            actions.append(LegalAction(
+                type=ActionType.ACTIVATE_ABILITY,
+                source_id=obj.id,
+                ability_id=f"activated:{idx}",
+                description=f"Activate {obj.name}: {ability.description}",
+                requires_mana=bool(ability.mana_cost and not ability.mana_cost.is_free()),
+                mana_cost=ability.mana_cost,
+            ))
+
         ability_lines = self._get_activated_ability_lines(obj)
 
         for idx, line in enumerate(ability_lines):
@@ -2133,6 +2166,85 @@ class PrioritySystem:
         source = self.state.objects.get(action.source_id) if action.source_id else None
 
         if source and action.ability_id:
+            # Phase 4: registered activated abilities (cards/interceptor_helpers.make_activated_ability).
+            if action.ability_id.startswith("activated:"):
+                from .activated import (
+                    can_pay_activation,
+                    pay_activation_cost,
+                    record_activation,
+                )
+                try:
+                    idx = int(action.ability_id.split(":", 1)[1])
+                except ValueError:
+                    return []
+                abilities = getattr(source.state, "activated_abilities", []) or []
+                if not (0 <= idx < len(abilities)):
+                    return []
+                ability = abilities[idx]
+                _is_active = (
+                    self.turn_manager is not None
+                    and self.turn_manager.turn_state.active_player_id == action.player_id
+                )
+                _is_main = False
+                if self.turn_manager is not None:
+                    from .turn import Phase as _Phase
+                    _is_main = self.turn_manager.turn_state.phase in (
+                        _Phase.PRECOMBAT_MAIN, _Phase.POSTCOMBAT_MAIN
+                    )
+                _stack_empty = (self.stack is None) or (len(self.stack.items) == 0)
+                if not can_pay_activation(
+                    ability, source, self.state, action.player_id,
+                    mana_system=self.mana_system,
+                    is_active_player=_is_active,
+                    is_main_phase=_is_main,
+                    stack_empty=_stack_empty,
+                ):
+                    return []
+                # Pay costs (mana paid via mana_system; tap/sac/etc emit events).
+                events.extend(pay_activation_cost(
+                    ability, source, self.state, action.player_id, mana_system=self.mana_system
+                ))
+                # Capture references for the resolve closure.
+                _src_id = source.id
+                _ctrl = action.player_id
+                _effect_fn = ability.effect_fn
+
+                def _resolve_activated(targets, st: GameState) -> list[Event]:
+                    obj = st.objects.get(_src_id)
+                    if obj is None:
+                        return []
+                    flat: list = []
+                    for group in (targets or []):
+                        if isinstance(group, list):
+                            flat.extend(group)
+                        else:
+                            flat.append(group)
+                    try:
+                        return list(_effect_fn(obj, st, flat) or [])
+                    except Exception:
+                        return []
+
+                if self.stack:
+                    self.stack.push(StackItem(
+                        id="",
+                        type=StackItemType.ACTIVATED_ABILITY,
+                        source_id=source.id,
+                        controller_id=action.player_id,
+                        chosen_targets=action.targets,
+                        resolve_fn=_resolve_activated,
+                    ))
+                    pushed_stack_item = True
+                record_activation(ability, self.state)
+                events.append(Event(
+                    type=EventType.ACTIVATE,
+                    payload={
+                        'source_id': action.source_id,
+                        'ability_id': action.ability_id,
+                        'controller': action.player_id,
+                    },
+                ))
+                return events
+
             # Graveyard activated abilities (Unearth/Embalm/Eternalize).
             if action.ability_id.startswith("graveyard:") and self.stack:
                 kind = action.ability_id.split(":", 1)[1]
