@@ -542,6 +542,9 @@ class ObjectState:
     last_discarded_turn: Optional[int] = None
     last_discarded_by: Optional[str] = None
 
+    # Phase 4: registered activated abilities (list of ActivatedAbility descriptors).
+    activated_abilities: list = field(default_factory=list)
+
     # Hearthstone-specific (optional, unused in MTG)
     divine_shield: bool = False       # Prevents first damage
     frozen: bool = False              # Can't attack next turn
