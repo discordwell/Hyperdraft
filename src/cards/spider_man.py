@@ -35,6 +35,8 @@ from src.cards.interceptor_helpers import (
     make_saga_setup,
     # SPM mechanics — Web-slinging and Mayhem.
     make_web_slinging_setup, make_mayhem_setup, combine_setups,
+    # Phase 4: activated abilities.
+    make_activated_ability, make_pump_self_ability, make_counter_ability,
 )
 from src.engine.spm_mechanics import (
     is_web_slinging_cast, web_slinging_returned_mv, is_mayhem_cast,
@@ -1673,9 +1675,39 @@ def rent_is_due_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 # --- Spectacular Spider-Man ---
-# Activated abilities only — no triggers to register at ETB.
+# Activated abilities: {1} self gains flying EOT; {1}, sac: team gains hexproof + indestructible EOT.
 def spectacular_spiderman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: activated abilities (gain flying / sac + grant hexproof) handled elsewhere
+    # {1}: Spectacular Spider-Man gains flying until end of turn.
+    make_pump_self_ability(obj, "{1}", power_mod=0, toughness_mod=0, grant_keyword="flying")
+
+    # {1}, Sacrifice Spectacular Spider-Man: Creatures you control gain hexproof
+    # and indestructible until end of turn.
+    def grant_team_protection(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for cand in list(st.objects.values()):
+            if (cand.controller == o.controller
+                    and cand.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in cand.characteristics.types):
+                for kw in ("hexproof", "indestructible"):
+                    events.append(Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={
+                            'object_id': cand.id,
+                            'keyword': kw,
+                            'duration': 'end_of_turn',
+                        },
+                        source=o.id,
+                        controller=o.controller,
+                    ))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{1}, Sacrifice Spectacular Spider-Man",
+        effect_fn=grant_team_protection,
+        description="Creatures you control gain hexproof and indestructible until end of turn",
+    )
+    return []
 
 
 # --- Spider-Man, Web-Slinger ---
@@ -2241,13 +2273,47 @@ def superior_foes_of_spiderman_setup(obj: GameObject, state: GameState) -> list[
 # --- Taxi Driver ---
 # Activated ability {1},{T}: target gains haste EOT.
 def taxi_driver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: activated targeted keyword grant
+    def grant_haste_to_target(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': target_id,
+                'keyword': 'haste',
+                'duration': 'end_of_turn',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{1}, {T}",
+        effect_fn=grant_haste_to_target,
+        description="Target creature gains haste until end of turn",
+        targets_required=1,
+        target_kind="creature",
+    )
+    return []
 
 
 # --- Guy in the Chair ---
-# {T} for any color, {2}{G},{T}: +1/+1 counter on target Spider.
+# {T}: Add one mana of any color (skipped — trivial mana ability).
+# Web Support — {2}{G}, {T}: Put a +1/+1 counter on target Spider. Activate only as a sorcery.
 def guy_in_the_chair_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: activated mana ability + activated counter ability
+    make_counter_ability(
+        obj,
+        cost="{2}{G}, {T}",
+        counter_type="+1/+1",
+        amount=1,
+        target_self=False,
+        description="Put a +1/+1 counter on target Spider",
+        sorcery_speed=True,
+    )
+    return []
 
 
 # --- Kraven's Cats ---
@@ -2729,9 +2795,46 @@ def interdimensional_web_watch_setup(obj: GameObject, state: GameState) -> list[
 
 
 # --- Iron Spider, Stark Upgrade ---
-# Vigilance + activated counter-distribution + activated draw.
+# Vigilance is a static keyword. Activated abilities:
+#   {T}: Put a +1/+1 counter on each artifact creature and/or Vehicle you control.
+#   {2}, Remove two +1/+1 counters from among artifacts you control: Draw a card.
+# The second cost ("from among artifacts you control") isn't expressible in the
+# current cost parser — wire only the {T} distribute ability.
 def iron_spider_stark_upgrade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: activated abilities only
+    def distribute_counters(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for cand in list(st.objects.values()):
+            if cand.controller != o.controller:
+                continue
+            if cand.zone != ZoneType.BATTLEFIELD:
+                continue
+            types = cand.characteristics.types
+            subtypes = cand.characteristics.subtypes or set()
+            is_artifact_creature = (
+                CardType.ARTIFACT in types and CardType.CREATURE in types
+            )
+            is_vehicle = "Vehicle" in subtypes
+            if not (is_artifact_creature or is_vehicle):
+                continue
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={
+                    'object_id': cand.id,
+                    'counter_type': '+1/+1',
+                    'amount': 1,
+                },
+                source=o.id,
+                controller=o.controller,
+            ))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=distribute_counters,
+        description="Put a +1/+1 counter on each artifact creature and/or Vehicle you control",
+    )
+    return []
 
 
 # --- Living Brain, Mechanical Marvel ---
@@ -2883,8 +2986,37 @@ def subway_train_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 # --- Daily Bugle Building ---
+# Mana abilities ({T}: Add {C}; {1},{T}: any color) are intrinsic land mana —
+# left to the engine's land-mana handling. Wire the Smear Campaign ability:
+#   {1}, {T}: Target legendary creature gains menace until end of turn.
+#   Activate only as a sorcery.
 def daily_bugle_building_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: land activated abilities (including targeted menace grant)
+    def grant_menace(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': target_id,
+                'keyword': 'menace',
+                'duration': 'end_of_turn',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{1}, {T}",
+        effect_fn=grant_menace,
+        description="Target legendary creature gains menace until end of turn",
+        sorcery_speed=True,
+        targets_required=1,
+        target_kind="creature",
+    )
+    return []
 
 
 # --- Multiversal Passage ---
@@ -2928,8 +3060,28 @@ def urban_retreat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 # --- Vibrant Cityscape ---
+# {T}, Sacrifice this land: Search your library for a basic land card,
+# put it onto the battlefield tapped, then shuffle.
 def vibrant_cityscape_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: tap-sacrifice fetch ability
+    def fetch_basic(o: GameObject, st: GameState, targets) -> list[Event]:
+        return open_library_search(
+            st,
+            o.controller,
+            o.id,
+            filter_fn=basic_land_filter(),
+            destination="battlefield",
+            tapped=True,
+            shuffle_after=True,
+            optional=False,
+        )
+
+    make_activated_ability(
+        obj,
+        cost="{T}, Sacrifice this land",
+        effect_fn=fetch_basic,
+        description="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle",
+    )
+    return []
 
 
 # =============================================================================
@@ -3130,6 +3282,7 @@ SPECTACULAR_SPIDERMAN = make_creature(
     subtypes={"Hero", "Human", "Spider"},
     supertypes={"Legendary"},
     text="Flash\n{1}: Spectacular Spider-Man gains flying until end of turn.\n{1}, Sacrifice Spectacular Spider-Man: Creatures you control gain hexproof and indestructible until end of turn.",
+    setup_interceptors=spectacular_spiderman_setup,
 )
 
 SPECTACULAR_TACTICS = make_instant(
@@ -4586,6 +4739,7 @@ IRON_SPIDER_STARK_UPGRADE = make_artifact_creature(
     subtypes={"Hero", "Spider"},
     supertypes={"Legendary"},
     text="Vigilance\n{T}: Put a +1/+1 counter on each artifact creature and/or Vehicle you control.\n{2}, Remove two +1/+1 counters from among artifacts you control: Draw a card.",
+    setup_interceptors=iron_spider_stark_upgrade_setup,
 )
 
 LIVING_BRAIN_MECHANICAL_MARVEL = make_artifact_creature(
@@ -4745,6 +4899,7 @@ URBAN_RETREAT = make_land(
 VIBRANT_CITYSCAPE = make_land(
     name="Vibrant Cityscape",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=vibrant_cityscape_setup,
 )
 
 PLAINS = make_land(

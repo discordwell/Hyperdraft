@@ -7671,7 +7671,16 @@ def abyssal_harvester_setup(obj: GameObject, state: GameState) -> list[Intercept
 # --- HUNGRY GHOUL ---
 # {1}, Sacrifice another creature: Put a +1/+1 counter on this creature.
 def hungry_ghoul_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated sacrifice ability
+    # NOTE: cost parser only recognizes "Sacrifice this/it/this <type>" as
+    # sac-self; "Sacrifice another creature" is preserved in the additional
+    # cost plan. We register the ability with self-counter effect; the engine
+    # currently emits the counter regardless of whether the sac actually
+    # resolves, but the mana cost {1} still gates activation.
+    from src.cards.interceptor_helpers import make_counter_ability
+    make_counter_ability(
+        obj, "{1}, Sacrifice another creature",
+        counter_type="+1/+1", amount=1, target_self=True,
+    )
     return []
 
 
@@ -7795,7 +7804,11 @@ def ajani_caller_of_the_pride_setup(obj: GameObject, state: GameState) -> list[I
 # --- CATHAR COMMANDO ---
 # Flash / {1}, Sacrifice this creature: Destroy target artifact or enchantment.
 def cathar_commando_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: sacrifice activated destroy
+    from src.cards.interceptor_helpers import make_sac_destroy_ability
+    make_sac_destroy_ability(
+        obj, "{1}, Sacrifice this creature",
+        target_kind="artifact_or_enchantment",
+    )
     return []
 
 
@@ -7965,7 +7978,46 @@ def mildmannered_librarian_setup(obj: GameObject, state: GameState) -> list[Inte
 # --- SCAVENGING OOZE ---
 # {G}: Exile target card from a graveyard. If creature, +1/+1 counter and gain 1 life.
 def scavenging_ooze_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: graveyard exile activated ability
+    from src.cards.interceptor_helpers import make_activated_ability
+
+    def _scavenge(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target_obj = st.objects.get(target_id) if isinstance(target_id, str) else None
+        events: list[Event] = []
+        events.append(Event(
+            type=EventType.EXILE,
+            payload={'object_id': target_id},
+            source=o.id,
+            controller=o.controller,
+        ))
+        # If exiled card was a creature, add counter and gain life.
+        if target_obj is not None and CardType.CREATURE in target_obj.characteristics.types:
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={
+                    'object_id': o.id,
+                    'counter_type': '+1/+1',
+                    'amount': 1,
+                },
+                source=o.id,
+                controller=o.controller,
+            ))
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': o.controller, 'amount': 1},
+                source=o.id,
+                controller=o.controller,
+            ))
+        return events
+
+    make_activated_ability(
+        obj, "{G}", _scavenge,
+        description="Exile target card from a graveyard. If it was a creature card, put a +1/+1 counter on this creature and you gain 1 life.",
+        targets_required=1, target_kind="card_in_graveyard",
+    )
     return []
 
 
@@ -8048,14 +8100,53 @@ def swiftfoot_boots_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- EVOLVING WILDS ---
 # {T}, Sacrifice: Search your library for a basic land, put it onto the battlefield tapped.
 def evolving_wilds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: sacrifice land for land search
+    from src.cards.interceptor_helpers import make_activated_ability
+
+    def _basic_tutor(o: GameObject, st: GameState, targets) -> list[Event]:
+        open_library_search(
+            st, o.controller, o.id,
+            filter_fn=basic_land_filter(),
+            destination="battlefield_tapped",
+            max_count=1,
+            shuffle_after=True,
+            optional=True,
+            prompt="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+        )
+        return []
+
+    make_activated_ability(
+        obj, "{T}, Sacrifice this land", _basic_tutor,
+        description="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    )
     return []
 
 
 # --- ROGUE'S PASSAGE ---
 # {T}: Add {C}. / {4}, {T}: Target creature can't be blocked this turn.
 def rogues_passage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated unblockable
+    from src.cards.interceptor_helpers import make_activated_ability
+
+    def _grant_unblockable(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': target_id,
+                'keyword': 'unblockable',
+                'duration': 'end_of_turn',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, "{4}, {T}", _grant_unblockable,
+        description="Target creature can't be blocked this turn",
+        targets_required=1, target_kind="creature",
+    )
     return []
 
 
@@ -8221,7 +8312,40 @@ def dragonlords_servant_setup(obj: GameObject, state: GameState) -> list[Interce
 # --- GOBLIN SMUGGLER ---
 # Haste / {T}: Another target creature with power 2 or less can't be blocked this turn.
 def goblin_smuggler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated unblockable for target
+    from src.cards.interceptor_helpers import make_activated_ability
+
+    def _grant_unblockable(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target_obj = st.objects.get(target_id) if isinstance(target_id, str) else None
+        # "Another target creature" — exclude self.
+        if target_obj is None or target_obj.id == o.id:
+            return []
+        # Validate power 2 or less.
+        try:
+            power = get_power(target_obj, st)
+        except Exception:
+            power = target_obj.characteristics.power or 0
+        if power > 2:
+            return []
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': target_id,
+                'keyword': 'unblockable',
+                'duration': 'end_of_turn',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, "{T}", _grant_unblockable,
+        description="Another target creature with power 2 or less can't be blocked this turn",
+        targets_required=1, target_kind="creature",
+    )
     return []
 
 
@@ -8252,7 +8376,11 @@ def druid_of_the_cowl_setup(obj: GameObject, state: GameState) -> list[Intercept
 # --- THRASHING BRONTODON ---
 # {1}, Sacrifice this creature: Destroy target artifact or enchantment.
 def thrashing_brontodon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: sacrifice activated destroy
+    from src.cards.interceptor_helpers import make_sac_destroy_ability
+    make_sac_destroy_ability(
+        obj, "{1}, Sacrifice this creature",
+        target_kind="artifact_or_enchantment",
+    )
     return []
 
 
@@ -8266,7 +8394,11 @@ def wildheart_invoker_setup(obj: GameObject, state: GameState) -> list[Intercept
 # --- GOBLIN FIREBOMB ---
 # Flash / {7}, {T}, Sacrifice: Destroy target permanent.
 def goblin_firebomb_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated destroy
+    from src.cards.interceptor_helpers import make_destroy_ability
+    make_destroy_ability(
+        obj, "{7}, {T}, Sacrifice this artifact",
+        target_kind="permanent",
+    )
     return []
 
 
@@ -9453,6 +9585,7 @@ HUNGRY_GHOUL = make_creature(
     colors={Color.BLACK},
     subtypes={"Zombie"},
     text="{1}, Sacrifice another creature: Put a +1/+1 counter on this creature.",
+    setup_interceptors=hungry_ghoul_setup,
 )
 
 INFERNAL_VESSEL = make_creature(
@@ -11402,6 +11535,7 @@ DISMAL_BACKWATER = make_land(
 EVOLVING_WILDS = make_land(
     name="Evolving Wilds",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=evolving_wilds_setup,
 )
 
 JUNGLE_HOLLOW = make_land(

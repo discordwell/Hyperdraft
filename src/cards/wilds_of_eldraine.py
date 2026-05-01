@@ -31,6 +31,9 @@ from src.cards.interceptor_helpers import (
     creatures_you_control, creatures_with_subtype, create_target_choice,
     create_modal_choice,
     make_saga_setup,
+    make_activated_ability,
+    make_loot_ability,
+    make_life_gain_ability,
 )
 
 
@@ -5240,7 +5243,8 @@ def johann_apprentice_sorcerer_setup(obj: GameObject, state: GameState) -> list[
 
 def likeness_looter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Flying; tap draw-discard; {X}: become copy of target creature card in graveyard with MV X."""
-    # engine gap: copy effect from graveyard + activated abilities.
+    # {T}: Draw a card, then discard a card. (Copy-from-graveyard X ability is a Phase-5 gap.)
+    make_loot_ability(obj, "{T}")
     return []
 
 
@@ -5252,7 +5256,9 @@ def rowan_scion_of_war_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 def troyan_gutsy_explorer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{T}: Add {G}{U} (only for MV5+ or X spells); {U},{T}: draw-discard."""
-    # engine gap: restricted-mana production + activated draw-discard.
+    # The restricted-mana ({T}: Add {G}{U} for MV5+/X spells) is an engine gap.
+    # Wire {U}, {T}: Draw a card, then discard a card.
+    make_loot_ability(obj, "{U}, {T}")
     return []
 
 
@@ -5272,7 +5278,24 @@ def yenna_redtooth_regent_setup(obj: GameObject, state: GameState) -> list[Inter
 
 def agathas_soul_cauldron_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Mana coloring; granted activated abilities; {T} exile from gy."""
-    # engine gap: mana-as-any-color + ability-grant from exiled cards + counter activated.
+    # The two static abilities (mana-as-any-color, grant exiled-creature abilities) are gaps.
+    # The "When a creature card is exiled this way, put a +1/+1 counter on target creature" rider
+    # is also a delayed-trigger gap. Wire just the basic exile-from-graveyard portion.
+    def exile_from_gy(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, "{T}", exile_from_gy,
+        description="Exile target card from a graveyard",
+        targets_required=1, target_kind="card_in_graveyard",
+    )
     return []
 
 
@@ -5341,13 +5364,51 @@ def eriettes_tempting_apple_setup(obj: GameObject, state: GameState) -> list[Int
 
 def gingerbrute_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Haste; activated unblockable except by haste; sac for 3 life."""
-    # engine gap: activated abilities + conditional unblockable. Static haste comes from keywords on card.
+    # Static haste is on the keyword line. Conditional unblockable-except-by-haste is a gap.
+    # Wire the {2}, {T}, Sacrifice this creature: You gain 3 life.
+    make_life_gain_ability(obj, "{2}, {T}, Sacrifice this creature", 3)
     return []
 
 
 def hyldas_crown_of_winter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{1},{T}: tap target (cheaper on your turn); {3}, sac: draw per tapped opponent creature."""
-    # engine gap: activated abilities with cost reduction + sac-draw.
+    # Tap target creature for {1}{T}. Cost-reduction during your turn is a gap.
+    def tap_target(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.TAP,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, "{1}, {T}", tap_target,
+        description="Tap target creature",
+        targets_required=1, target_kind="creature",
+    )
+
+    # {3}, Sacrifice this: Draw a card for each tapped creature opponents control.
+    def sac_draw(o: GameObject, st: GameState, targets) -> list[Event]:
+        count = 0
+        for go in st.objects.values():
+            if (go.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in go.characteristics.types and
+                go.controller != o.controller and
+                go.state.tapped):
+                count += 1
+        if count <= 0:
+            return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': o.controller, 'count': count},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, "{3}, Sacrifice Hylda's Crown of Winter", sac_draw,
+        description="Draw a card for each tapped creature your opponents control",
+    )
     return []
 
 
@@ -5367,13 +5428,47 @@ def three_bowls_of_porridge_setup(obj: GameObject, state: GameState) -> list[Int
 
 def edgewall_inn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB tapped; choose color on enter; tap for chosen mana; sac to return Adventure card."""
-    # engine gap: as-enter color choice + colorful mana ability + sacrifice activation.
+    # The as-enter color choice + colorful mana ability are an engine gap.
+    # We wire the {3}, {T}, sac: return target Adventure card.
+    def return_adventure(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+            payload={
+                'player': o.controller,
+                'object_id': target_id,
+            },
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, "{3}, {T}, Sacrifice this land", return_adventure,
+        description="Return target Adventure card from your graveyard to your hand",
+        targets_required=1, target_kind="card_in_graveyard",
+    )
     return []
 
 
 def evolving_wilds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{T}, sac: search basic land, put onto battlefield tapped, shuffle."""
-    # engine gap: library search activated ability.
+    def search_basic(o: GameObject, st: GameState, targets) -> list[Event]:
+        from src.engine.library_search import (
+            create_library_search_choice, is_basic_land,
+        )
+        create_library_search_choice(
+            st, o.controller, o.id,
+            filter_fn=is_basic_land(),
+            destination="battlefield_tapped",
+            shuffle_after=True,
+            prompt="Search your library for a basic land card",
+        )
+        return []
+    make_activated_ability(
+        obj, "{T}, Sacrifice this land", search_basic,
+        description="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle",
+    )
     return []
 
 
@@ -7544,6 +7639,7 @@ TROYAN_GUTSY_EXPLORER = make_creature(
     subtypes={"Scout", "Vedalken"},
     supertypes={"Legendary"},
     text="{T}: Add {G}{U}. Spend this mana only to cast spells with mana value 5 or greater or spells with {X} in their mana costs.\n{U}, {T}: Draw a card, then discard a card.",
+    setup_interceptors=troyan_gutsy_explorer_setup,
 )
 
 WILL_SCION_OF_PEACE = make_creature(
@@ -7805,6 +7901,7 @@ GINGERBRUTE = make_artifact_creature(
     colors=set(),
     subtypes={"Food", "Golem"},
     text="Haste (This creature can attack and {T} as soon as it comes under your control.)\n{1}: This creature can't be blocked this turn except by creatures with haste.\n{2}, {T}, Sacrifice this creature: You gain 3 life.",
+    setup_interceptors=gingerbrute_setup,
 )
 
 HYLDAS_CROWN_OF_WINTER = make_artifact(
@@ -7880,6 +7977,7 @@ EDGEWALL_INN = make_land(
 EVOLVING_WILDS = make_land(
     name="Evolving Wilds",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=evolving_wilds_setup,
 )
 
 RESTLESS_BIVOUAC = make_land(

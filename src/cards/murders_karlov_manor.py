@@ -35,6 +35,7 @@ from src.cards.interceptor_helpers import (
     create_modal_choice, create_sacrifice_choice, create_target_choice,
     create_hand_reveal_choice,
     make_replacement_interceptor,
+    make_draw_ability,
 )
 
 
@@ -6231,7 +6232,9 @@ def incinerator_of_the_guilty_setup(obj: GameObject, state: GameState) -> list[I
 
 def knife_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Equipment: +1/+0 and first strike during your turn; sac to draw; equip {2}."""
-    # engine gap: conditional equipment grant (during your turn)
+    # engine gap: conditional equipment grant (during your turn) + equip cost.
+    # Wire the activated draw ability: {2}, Sacrifice this Equipment: Draw a card.
+    make_draw_ability(obj, "{2}, Sacrifice this Equipment", count=1)
     return []
 
 
