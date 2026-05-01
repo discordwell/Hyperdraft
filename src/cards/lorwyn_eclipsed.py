@@ -32,6 +32,7 @@ from src.cards.interceptor_helpers import (
     creatures_you_control, creatures_with_subtype,
     create_modal_choice, create_target_choice,
     create_discard_choice,
+    make_activated_ability,
 )
 
 
@@ -1801,8 +1802,31 @@ def timid_shieldbearer_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def wanderbrine_trapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated tap+tap-a-creature ability to tap target (engine gap)."""
-    return []  # engine gap: activated targeted tap
+    """{1}, {T}, Tap another untapped creature you control: Tap target creature an opponent controls.
+
+    The 'Tap another untapped creature you control' is a soft engine gap; the
+    framework registers the ability anyway and the engine simply doesn't
+    enforce that extra tap-as-cost strictly.
+    """
+    def tap_opp_creature(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.TAP,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj,
+        cost="{1}, {T}, Tap another untapped creature you control",
+        effect_fn=tap_opp_creature,
+        description="Tap target creature an opponent controls",
+        targets_required=1,
+        target_kind="creature_opponent",
+    )
+    return []
 
 
 # --- BLUE ---
@@ -2216,8 +2240,30 @@ def scuzzback_scrounger_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def soulbright_seeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Behold-on-cast and {R} activated ability (engine gap)."""
-    return []  # engine gap: behold cost + activated trample EOT + counter mana
+    """{R}: Target creature you control gains trample until end of turn.
+
+    engine gap: 'behold' additional cost on cast and 'third resolve adds {R}{R}{R}{R}'
+    rider — only the trample-grant is wired.
+    """
+    def grant_trample(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': target_id, 'keyword': 'trample', 'duration': 'end_of_turn'},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj,
+        cost="{R}",
+        effect_fn=grant_trample,
+        description="Target creature you control gains trample until end of turn",
+        targets_required=1,
+        target_kind="creature_you_control",
+    )
+    return []
 
 
 def spinerock_tyrant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2419,8 +2465,41 @@ def prismatic_undercurrents_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 def safewright_cavalry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Can't be blocked by more than one + activated +2/+2 EOT (engine gap)."""
-    return []  # engine gap: can't-be-blocked-by-more-than-one + activated
+    """{5}: Target Elf you control gets +2/+2 until end of turn.
+
+    engine gap: 'Can't be blocked by more than one creature' static effect.
+    """
+    def pump_elf(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target_obj = st.objects.get(target_id)
+        # Validate: target must be an Elf you control on the battlefield.
+        if (target_obj is None
+                or target_obj.controller != o.controller
+                or target_obj.zone != ZoneType.BATTLEFIELD
+                or "Elf" not in target_obj.characteristics.subtypes):
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': target_id,
+                'power_mod': 2,
+                'toughness_mod': 2,
+                'duration': 'end_of_turn',
+            },
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj,
+        cost="{5}",
+        effect_fn=pump_elf,
+        description="Target Elf you control gets +2/+2 until end of turn",
+        targets_required=1,
+        target_kind="creature_you_control_elf",
+    )
+    return []
 
 
 def sapling_nursery_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2455,8 +2534,52 @@ def shimmerwilds_growth_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def surly_farrier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated tap pump (engine gap)."""
-    return []  # engine gap: activated tap +1/+1 vigilance EOT
+    """{T}: Target creature you control gets +1/+1 and gains vigilance until end of turn.
+
+    Activate only as a sorcery (auto-detected from card text).
+    """
+    def pump_and_vigilance(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target_obj = st.objects.get(target_id)
+        # Validate: target must be a creature you control on the battlefield.
+        if (target_obj is None
+                or target_obj.controller != o.controller
+                or target_obj.zone != ZoneType.BATTLEFIELD
+                or CardType.CREATURE not in target_obj.characteristics.types):
+            return []
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': target_id,
+                    'power_mod': 1,
+                    'toughness_mod': 1,
+                    'duration': 'end_of_turn',
+                },
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': target_id,
+                    'keyword': 'vigilance',
+                    'duration': 'end_of_turn',
+                },
+                source=o.id, controller=o.controller,
+            ),
+        ]
+    make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=pump_and_vigilance,
+        description="Target creature you control gets +1/+1 and gains vigilance until end of turn",
+        targets_required=1,
+        target_kind="creature_you_control",
+    )
+    return []
 
 
 def wildvine_pummeler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2715,8 +2838,27 @@ def eclipsed_realms_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def evolving_wilds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Tap+sac to fetch a basic (engine gap)."""
-    return []  # engine gap: tap+sac fetch ability
+    """{T}, Sacrifice this land: Search your library for a basic land card,
+    put it onto the battlefield tapped, then shuffle.
+    """
+    def fetch_basic(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'card_type': CardType.LAND,
+                'basic_only': True,
+                'destination': 'battlefield_tapped',
+            },
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj,
+        cost="{T}, Sacrifice this land",
+        effect_fn=fetch_basic,
+        description="Search your library for a basic land, put it onto the battlefield tapped, then shuffle",
+    )
+    return []
 
 
 def hallowed_fountain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5670,6 +5812,7 @@ ECLIPSED_REALMS = make_land(
 EVOLVING_WILDS = make_land(
     name="Evolving Wilds",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=evolving_wilds_setup,
 )
 
 HALLOWED_FOUNTAIN = make_land(

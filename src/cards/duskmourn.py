@@ -37,6 +37,8 @@ from src.cards.interceptor_helpers import (
     make_face_down_setup, make_manifest_etb_event,
     make_life_gain_replacer, make_graveyard_to_exile_replacer,
     make_replacement_interceptor,
+    make_activated_ability, make_counter_ability, make_damage_ability,
+    open_library_search, basic_land_filter,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -785,8 +787,17 @@ def marina_vendrell_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def sawblade_skinripper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """At the beginning of your end step, if you sacrificed one or more permanents this turn, deal that much damage."""
-    # engine gap: per-turn sacrifice count tracker; targeted variable damage.
+    """{2}, Sacrifice another creature or enchantment: Put a +1/+1 counter on this creature.
+    At the beginning of your end step, if you sacrificed one or more permanents this turn,
+    this creature deals that much damage to any target."""
+    # End-step variable damage uses an unimplemented per-turn sacrifice tracker.
+    # Wire the activated +1/+1 ability as best-effort (framework can't enforce
+    # 'sacrifice another creature or enchantment' as part of the cost yet).
+    make_counter_ability(
+        obj, cost="{2}, Sacrifice another creature or enchantment",
+        counter_type="+1/+1", amount=1, target_self=True,
+        description="Put a +1/+1 counter on this creature",
+    )
     return []
 
 
@@ -1661,8 +1672,28 @@ def piggy_bank_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def ragged_playmate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{1}{T}: target creature with power 2- can't be blocked."""
-    # engine gap: activated 'can't be blocked' grant
+    """{1}, {T}: Target creature with power 2 or less can't be blocked this turn."""
+    def _grant_unblockable(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': target_id,
+                'keyword': 'unblockable',
+                'duration': 'end_of_turn',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{1}, {T}", effect_fn=_grant_unblockable,
+        description="Target creature with power 2 or less can't be blocked this turn",
+        targets_required=1, target_kind="creature_power_le_2",
+    )
     return []
 
 
@@ -2081,8 +2112,12 @@ def attackinthebox_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def bear_trap_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated ability: {3}, {T}, Sacrifice: 3 damage to target creature.
-    engine gap: interactive target selection for activated abilities."""
+    """Flash; {3}, {T}, Sacrifice this artifact: It deals 3 damage to target creature."""
+    make_damage_ability(
+        obj, cost="{3}, {T}, Sacrifice this artifact",
+        damage=3, target_kind="creature",
+        description="Deal 3 damage to target creature",
+    )
     return []
 
 
@@ -2119,8 +2154,26 @@ def friendly_teddy_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def ghost_vacuum_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: exile from a graveyard; activated bring-back-as-Spirits."""
-    # engine gap: activated abilities w/ exile-with-this tracking
+    """{T}: Exile target card from a graveyard.
+    {6}, {T}, Sacrifice: bring exiled creatures back as 1/1 Spirits with flying counter (engine gap).
+    """
+    def _exile_from_gy(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=_exile_from_gy,
+        description="Exile target card from a graveyard",
+        targets_required=1, target_kind="card_in_graveyard",
+    )
+    # engine gap: re-create exiled-with-this creatures as 1/1 Spirits with a flying counter.
     return []
 
 
@@ -2148,14 +2201,59 @@ def haunted_screen_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def keys_to_the_house_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{1T}+sac: search basic land. {3T}+sac: lock/unlock door."""
-    # engine gap: activated sacrifice abilities; door state mutation
+    """{1}, {T}, Sacrifice this artifact: Search your library for a basic land card,
+    reveal it, put it into your hand, then shuffle.
+    {3}, {T}, Sacrifice this artifact: Lock or unlock a door of target Room you control
+    (engine gap — Room mechanic)."""
+    def _basic_to_hand(o: GameObject, st: GameState, targets) -> list[Event]:
+        open_library_search(
+            st, o.controller, o.id,
+            filter_fn=basic_land_filter(),
+            destination="hand",
+            max_count=1,
+            shuffle_after=True,
+            reveal=True,
+            optional=True,
+            prompt="Search your library for a basic land card, reveal it, put it into your hand, then shuffle.",
+        )
+        return []
+
+    make_activated_ability(
+        obj, cost="{1}, {T}, Sacrifice this artifact", effect_fn=_basic_to_hand,
+        description="Search your library for a basic land card, reveal it, put it into your hand, then shuffle.",
+    )
+    # engine gap: Room mechanic (lock/unlock doors).
     return []
 
 
 def malevolent_chandelier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying; {2}: graveyard hate."""
-    # engine gap: activated abilities
+    """Flying; {2}: Put target card from a graveyard on the bottom of its owner's library.
+    Activate only as a sorcery."""
+    def _gy_to_library_bottom(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target_obj = st.objects.get(target_id) if isinstance(target_id, str) else None
+        owner = target_obj.owner if target_obj else None
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'to_zone_type': ZoneType.LIBRARY,
+                'to_zone_owner': owner,
+                'library_position': 'bottom',
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{2}", effect_fn=_gy_to_library_bottom,
+        description="Put target card from a graveyard on the bottom of its owner's library",
+        sorcery_speed=True,
+        targets_required=1, target_kind="card_in_graveyard",
+    )
     return []
 
 
@@ -2820,6 +2918,19 @@ PATCHED_PLAYTHING = make_artifact_creature(
     setup_interceptors=patched_plaything_setup,
 )
 
+def possessed_goat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{3}, Discard a card: Put three +1/+1 counters on this creature... Activate only once.
+
+    Wires the +1/+1 counter portion (engine gap: become-Demon type/color overlay)."""
+    make_counter_ability(
+        obj, cost="{3}, Discard a card",
+        counter_type="+1/+1", amount=3, target_self=True,
+        once_per_turn=True,
+        description="Put three +1/+1 counters on this creature",
+    )
+    return []
+
+
 POSSESSED_GOAT = make_creature(
     name="Possessed Goat",
     power=1, toughness=1,
@@ -2827,6 +2938,7 @@ POSSESSED_GOAT = make_creature(
     colors={Color.WHITE},
     subtypes={"Goat"},
     text="{3}, Discard a card: Put three +1/+1 counters on this creature and it becomes a black Demon in addition to its other colors and types. Activate only once.",
+    setup_interceptors=possessed_goat_setup,
 )
 
 RELUCTANT_ROLE_MODEL = make_creature(
@@ -7316,9 +7428,32 @@ STRANGLED_CEMETERY = make_land(
     text="This land enters tapped unless a player has 13 or less life.\n{T}: Add {B} or {G}.",
 )
 
+def terramorphic_expanse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}, Sacrifice this land: Search your library for a basic land card,
+    put it onto the battlefield tapped, then shuffle."""
+    def _basic_tutor(o: GameObject, st: GameState, targets) -> list[Event]:
+        open_library_search(
+            st, o.controller, o.id,
+            filter_fn=basic_land_filter(),
+            destination="battlefield_tapped",
+            max_count=1,
+            shuffle_after=True,
+            optional=True,
+            prompt="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+        )
+        return []
+
+    make_activated_ability(
+        obj, cost="{T}, Sacrifice this land", effect_fn=_basic_tutor,
+        description="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    )
+    return []
+
+
 TERRAMORPHIC_EXPANSE = make_land(
     name="Terramorphic Expanse",
     text="{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=terramorphic_expanse_setup,
 )
 
 THORNSPIRE_VERGE = make_land(
