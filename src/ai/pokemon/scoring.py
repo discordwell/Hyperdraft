@@ -207,6 +207,11 @@ def _score_attack(adapter, attacker: 'GameObject', attack: dict,
 
     damage = attack.get('damage', 0)
     score += damage / 5.0  # Base: more damage is better
+    final_damage = damage
+    opp = None
+    opp_remaining: Optional[int] = None
+    prize_value = 1
+    winning_ko = False
 
     # Effect attacks with 0 damage may still be valuable
     effect_fn = attack.get('effect_fn')
@@ -245,6 +250,7 @@ def _score_attack(adapter, attacker: 'GameObject', attack: dict,
             opp = state.objects.get(opp_active_id)
             if opp:
                 final_dmg = _estimate_damage(attacker, opp, damage, state)
+                final_damage = final_dmg
                 # Replace raw damage score with effective damage score
                 score = score - damage / 5.0 + final_dmg / 5.0
 
@@ -257,6 +263,7 @@ def _score_attack(adapter, attacker: 'GameObject', attack: dict,
             if opp:
                 opp_remaining = adapter._remaining_hp(opp)
                 final_dmg = _estimate_damage(attacker, opp, damage, state)
+                final_damage = final_dmg
                 if final_dmg >= opp_remaining:
                     score += 40.0  # KO bonus
                     if opp.card_def and opp.card_def.is_ex:
@@ -268,6 +275,7 @@ def _score_attack(adapter, attacker: 'GameObject', attack: dict,
                         if player:
                             prize_value = opp.card_def.prize_count if opp.card_def else 1
                             if player.prizes_remaining <= prize_value:
+                                winning_ko = True
                                 score += 100.0  # This wins the game!
 
                     # Prize strategy: target EX when behind
@@ -275,6 +283,43 @@ def _score_attack(adapter, attacker: 'GameObject', attack: dict,
                         if (adapter._current_context.prize_gap < 0 and
                                 opp.card_def and opp.card_def.is_ex):
                             score += 10.0
+
+    # Codex: prefer efficient prize-taking damage over wasteful overkill, and
+    # be much stricter about attacks that spend attached Energy unless they
+    # take prizes immediately.
+    if settings.get('use_resource_conservation') and damage > 0:
+        if opp is None:
+            opp_id = adapter._opponent_id(state, player_id)
+            opp_active_id = adapter._get_active(state, opp_id or '') if opp_id else None
+            opp = state.objects.get(opp_active_id) if opp_active_id else None
+        if opp:
+            if opp_remaining is None:
+                opp_remaining = adapter._remaining_hp(opp)
+            final_damage = _estimate_damage(attacker, opp, damage, state)
+            useful_damage = min(final_damage, max(0, opp_remaining))
+            score = score - final_damage / 5.0 + useful_damage / 4.0
+            if opp_remaining > 0 and final_damage > opp_remaining:
+                score -= min(8.0, (final_damage - opp_remaining) / 20.0)
+            if final_damage >= opp_remaining:
+                prize_value = opp.card_def.prize_count if opp.card_def else 1
+                score += prize_value * 8.0
+                player = state.players.get(player_id)
+                winning_ko = bool(player and player.prizes_remaining <= prize_value)
+
+        text_discard_penalty = 0.0
+        if 'discard all energy' in attack_text:
+            text_discard_penalty = 18.0
+        elif 'discard 2 energy' in attack_text or 'discard two energy' in attack_text:
+            text_discard_penalty = 14.0
+        elif 'discard an energy' in attack_text or 'discard 1 energy' in attack_text:
+            text_discard_penalty = 7.0
+
+        if text_discard_penalty:
+            if winning_ko:
+                text_discard_penalty *= 0.1
+            elif opp_remaining is not None and final_damage >= opp_remaining:
+                text_discard_penalty *= 0.35
+            score -= text_discard_penalty
 
     # Bench damage attacks
     if 'bench' in attack_text and 'damage' in attack_text:
@@ -361,12 +406,15 @@ def _score_basic_play(adapter, card: 'GameObject', state: GameState,
     hp = card.card_def.hp or 0
     score += hp / 20.0
 
+    has_matching_evolution = False
+
     # Has evolutions in hand? Prioritize benching the base
     if settings['use_evolution_priority']:
         hand = adapter._get_hand(state, player_id)
         for cid in hand:
             evo = state.objects.get(cid)
             if evo and evo.card_def and evo.card_def.evolves_from == card.name:
+                has_matching_evolution = True
                 score += 25.0
                 break
 
@@ -390,6 +438,35 @@ def _score_basic_play(adapter, card: 'GameObject', state: GameState,
         if total_cost <= 1:
             score += 5.0  # Can attack soon
             break
+
+    if settings.get('use_setup_consistency'):
+        bench_count = len(adapter._get_bench(state, player_id))
+        ability_text = ''
+        if card.card_def.ability:
+            ability_text = (card.card_def.ability.get('text', '') or '').lower()
+        card_text = ((card.card_def.text or '') + ' ' + ability_text).lower()
+
+        if bench_count <= 1:
+            score += 18.0
+        elif bench_count <= 2:
+            score += 8.0
+
+        if 'draw' in card_text:
+            score += 14.0
+        if 'search' in card_text or 'put it into your hand' in card_text:
+            score += 16.0
+        if 'attach' in card_text and 'energy' in card_text:
+            score += 12.0
+
+        has_low_cost_attack = any(
+            sum(req.get('count', 0) for req in attack.get('cost', [])) <= 1
+            for attack in (card.card_def.attacks or [])
+        )
+        if bench_count >= 3 and not has_matching_evolution:
+            if not ability_text and hp <= 90 and not has_low_cost_attack:
+                score -= 12.0
+        if bench_count >= 4 and not has_matching_evolution and not ability_text:
+            score -= 8.0
 
     return score
 
@@ -576,9 +653,70 @@ def _score_trainer(adapter, card: 'GameObject', state: GameState,
     if settings.get('use_trainer_registry') and adapter._current_context:
         scorer = TRAINER_SCORERS.get(name)
         if scorer:
-            return scorer(adapter._current_context, state, player_id)
+            score = scorer(adapter._current_context, state, player_id)
+            if settings.get('use_resource_conservation'):
+                score = _adjust_trainer_for_deck_risk(
+                    adapter, card, state, player_id, score)
+            return score
 
-    return _score_trainer_text_fallback(adapter, card, state, player_id)
+    score = _score_trainer_text_fallback(adapter, card, state, player_id)
+    if settings.get('use_resource_conservation'):
+        score = _adjust_trainer_for_deck_risk(
+            adapter, card, state, player_id, score)
+    return score
+
+
+def _adjust_trainer_for_deck_risk(adapter, card: 'GameObject',
+                                  state: GameState, player_id: str,
+                                  score: float) -> float:
+    """Codex-only guardrail for Pokemon's deck-out loss condition."""
+    if not card.card_def:
+        return score
+
+    library = state.zones.get(f"library_{player_id}")
+    library_count = len(library.objects) if library else 0
+    hand_size = len(adapter._get_hand(state, player_id))
+    name = card.card_def.name
+    text = (card.card_def.text or '').lower()
+
+    player = state.players.get(player_id)
+    draw_amount = 0
+    if name == "Professor's Research":
+        draw_amount = 7
+        if hand_size >= 5:
+            score -= 14.0
+    elif name == "Iono":
+        draw_amount = player.prizes_remaining if player else 0
+    elif name == "Judge":
+        draw_amount = 4
+    elif 'draw 7' in text:
+        draw_amount = 7
+    elif 'draw 4' in text:
+        draw_amount = 4
+    elif 'draw 3' in text:
+        draw_amount = 3
+    elif 'draw 2' in text:
+        draw_amount = 2
+
+    if draw_amount:
+        remaining_after = library_count - draw_amount
+        if remaining_after <= 0:
+            score -= 120.0
+        elif remaining_after <= 3:
+            score -= 45.0
+        elif remaining_after <= 6:
+            score -= 22.0
+
+    if name in {"Nest Ball", "Ultra Ball"} or 'search your deck' in text:
+        if library_count <= 4:
+            score -= 30.0
+        elif library_count <= 8:
+            score -= 12.0
+
+    if name == "Super Rod" and library_count <= 10:
+        score += 30.0
+
+    return score
 
 
 def _score_trainer_text_fallback(adapter, card: 'GameObject', state: GameState,

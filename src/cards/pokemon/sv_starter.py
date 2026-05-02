@@ -6,6 +6,7 @@ Includes a mix of types, evolution lines, trainers, and energy
 sufficient for 2 playable 30-card decks.
 """
 
+import copy
 import random
 
 from src.engine.game import (
@@ -38,23 +39,10 @@ def _professors_research_effect(event, state):
             if graveyard:
                 graveyard.objects.append(card_id)
             obj.zone = ZoneType.GRAVEYARD
-    # Draw 7
-    events = []
-    library_key = f"library_{player_id}"
-    library = state.zones.get(library_key)
-    if library:
-        for _ in range(min(7, len(library.objects))):
-            if library.objects:
-                drawn_id = library.objects.pop(0)
-                hand.objects.append(drawn_id)
-                obj = state.objects.get(drawn_id)
-                if obj:
-                    obj.zone = ZoneType.HAND
-                events.append(Event(
-                    type=EventType.DRAW,
-                    payload={'player': player_id, 'count': 1},
-                ))
-    return events
+    return [Event(
+        type=EventType.DRAW,
+        payload={'player': player_id, 'count': 7},
+    )]
 
 
 def _nest_ball_effect(event, state):
@@ -173,9 +161,113 @@ def _ultra_ball_effect(event, state):
     if obj:
         obj.zone = ZoneType.HAND
     random.shuffle(library.objects)
+    return []
+
+
+def _rare_candy_effect(event, state):
+    """Evolve a Basic Pokemon directly into a matching Stage 2 from hand."""
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+
+    game = getattr(state, '_game', None)
+    turn_mgr = getattr(game, 'turn_manager', None)
+    pkm_turn_state = getattr(turn_mgr, 'pkm_turn_state', None)
+    if pkm_turn_state and pkm_turn_state.game_turn_count <= 2:
+        return []
+
+    hand_key = f"hand_{player_id}"
+    hand = state.zones.get(hand_key)
+    if not hand:
+        return []
+
+    basics = []
+    for zone_key, zone in state.zones.items():
+        if zone.owner != player_id:
+            continue
+        if zone.type not in (ZoneType.ACTIVE_SPOT, ZoneType.BENCH):
+            continue
+        for pokemon_id in zone.objects:
+            pokemon = state.objects.get(pokemon_id)
+            if not pokemon or not pokemon.card_def:
+                continue
+            if pokemon.card_def.evolution_stage != "Basic":
+                continue
+            if pokemon.state.turns_in_play < 1 or pokemon.state.evolved_this_turn:
+                continue
+            basics.append(pokemon)
+
+    if not basics:
+        return []
+
+    stage2_cards = []
+    for card_id in list(hand.objects):
+        obj = state.objects.get(card_id)
+        if not obj or not obj.card_def:
+            continue
+        if CardType.POKEMON not in (obj.characteristics.types if obj.characteristics else set()):
+            continue
+        if obj.card_def.evolution_stage == "Stage 2":
+            stage2_cards.append(obj)
+
+    if not stage2_cards:
+        return []
+
+    best_pair = None
+    best_score = -1
+    for basic in basics:
+        for stage2 in stage2_cards:
+            stage1_name = stage2.card_def.evolves_from
+            if not stage1_name:
+                continue
+            stage1_matches_basic = any(
+                obj.card_def
+                and obj.name == stage1_name
+                and obj.card_def.evolves_from == basic.name
+                for obj in state.objects.values()
+            )
+            if not stage1_matches_basic:
+                continue
+            attack_damage = max(
+                (attack.get('damage', 0) for attack in (stage2.card_def.attacks or [])),
+                default=0,
+            )
+            score = (stage2.card_def.hp or 0) + attack_damage
+            if stage2.card_def.is_ex:
+                score += 100
+            if score > best_score:
+                best_score = score
+                best_pair = (basic, stage2)
+
+    if not best_pair:
+        return []
+
+    basic, stage2 = best_pair
+    if stage2.id in hand.objects:
+        hand.objects.remove(stage2.id)
+
+    old_name = basic.name
+    basic.name = stage2.name
+    basic.card_def = stage2.card_def
+    basic.characteristics = copy.deepcopy(stage2.card_def.characteristics)
+    basic.state.evolution_stage_num += 2
+    basic.state.evolved_from_id = stage2.id
+    basic.state.evolved_this_turn = True
+    basic.state.status_conditions = set()
+
+    if stage2.id in state.objects:
+        del state.objects[stage2.id]
+
     return [Event(
-        type=EventType.DRAW,
-        payload={'player': player_id, 'count': 1},
+        type=EventType.PKM_EVOLVE,
+        payload={
+            'pokemon_id': basic.id,
+            'from_name': old_name,
+            'to_name': basic.name,
+            'player': player_id,
+            'via': 'Rare Candy',
+        },
+        source=basic.id,
     )]
 
 
@@ -752,6 +844,7 @@ RARE_CANDY = make_trainer_item(
     text="Choose 1 of your Basic Pokemon in play. If you have a Stage 2 card in your hand that evolves from that Pokemon, put that card onto the Basic Pokemon to evolve it, skipping the Stage 1.",
     rarity="uncommon",
     image_url="https://images.pokemontcg.io/sv1/191.png",
+    resolve=_rare_candy_effect,
 )
 
 SWITCH = make_trainer_item(
