@@ -56,7 +56,46 @@ from src.cards.interceptor_helpers import (
     create_target_choice,
     # Cost reduction
     make_cost_reduction,
+    # Cycling
+    make_cycling_setup,
 )
+
+
+def _make_typecycling_setup(mana_cost: str, land_subtype):
+    """Local helper: typecycling activated ability registered via setup_in_hand.
+
+    Cost: ``{mana}, Discard this card``. Effect emits a SEARCH_LIBRARY event
+    for a basic land (with optional subtype). The SEARCH_LIBRARY handler is
+    an engine gap, but the discard cost + activation registration still wire.
+    """
+    cost_text = f"{mana_cost}, Discard this card"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        payload = {
+            'player': o.controller,
+            'card_type': 'basic_land',
+            'destination': 'hand',
+        }
+        if land_subtype:
+            payload['subtype'] = land_subtype
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload=payload,
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        make_activated_ability(
+            obj,
+            cost=cost_text,
+            effect_fn=_effect,
+            description=f"Typecycling {mana_cost}",
+            sorcery_speed=False,
+        )
+        return []
+
+    return _setup
 
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -5139,6 +5178,7 @@ CLOUDBOUND_MOOGLE = make_creature(
     text="Flying\nWhen this creature enters, put a +1/+1 counter on target creature.\nPlainscycling {2} ({2}, Discard this card: Search your library for a Plains card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=cloudbound_moogle_setup,
 )
+CLOUDBOUND_MOOGLE.setup_in_hand = _make_typecycling_setup("{2}", "Plains")
 
 COEURL = make_creature(
     name="Coeurl",
@@ -5542,6 +5582,7 @@ ICE_FLAN = make_creature(
     text="When this creature enters, tap target artifact or creature an opponent controls. Put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)\nIslandcycling {2} ({2}, Discard this card: Search your library for an Island card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=ice_flan_setup,
 )
+ICE_FLAN.setup_in_hand = _make_typecycling_setup("{2}", "Island")
 
 ICE_MAGIC = make_instant(
     name="Ice Magic",
@@ -6034,6 +6075,7 @@ MALBORO = make_creature(
     text="Bad Breath — When this creature enters, each opponent discards a card, loses 2 life, and exiles the top three cards of their library.\nSwampcycling {2} ({2}, Discard this card: Search your library for a Swamp card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=malboro_setup,
 )
+MALBORO.setup_in_hand = _make_typecycling_setup("{2}", "Swamp")
 
 NAMAZU_TRADER = make_creature(
     name="Namazu Trader",
@@ -6353,6 +6395,7 @@ HILL_GIGAS = make_creature(
     text="Trample, haste\nMountaincycling {2} ({2}, Discard this card: Search your library for a Mountain card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=hill_gigas_ff_setup,
 )
+HILL_GIGAS.setup_in_hand = _make_typecycling_setup("{2}", "Mountain")
 
 ITEM_SHOPKEEP = make_creature(
     name="Item Shopkeep",
@@ -6620,6 +6663,7 @@ AIRSHIP_CRASH = make_instant(
     colors={Color.GREEN},
     text="Destroy target artifact, enchantment, or creature with flying.\nCycling {2} ({2}, Discard this card: Draw a card.)",
 )
+AIRSHIP_CRASH.setup_in_hand = make_cycling_setup("{2}")
 
 ANCIENT_ADAMANTOISE = make_creature(
     name="Ancient Adamantoise",
@@ -6640,6 +6684,7 @@ BALAMB_TREXAUR = make_creature(
     text="Trample\nWhen this creature enters, you gain 3 life.\nForestcycling {2} ({2}, Discard this card: Search your library for a Forest card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=balamb_trexaur_setup,
 )
+BALAMB_TREXAUR.setup_in_hand = _make_typecycling_setup("{2}", "Forest")
 
 BARDS_BOW = make_artifact(
     name="Bard's Bow",
@@ -7045,6 +7090,7 @@ CID_TIMELESS_ARTIFICER = make_creature(
     text="Artifact creatures and Heroes you control get +1/+1 for each Artificer you control and each Artificer card in your graveyard.\nA deck can have any number of cards named Cid, Timeless Artificer.\nCycling {W}{U} ({W}{U}, Discard this card: Draw a card.)",
     setup_interceptors=cid_timeless_artificer_setup,
 )
+CID_TIMELESS_ARTIFICER.setup_in_hand = make_cycling_setup("{W}{U}")
 
 CLOUD_OF_DARKNESS = make_creature(
     name="Cloud of Darkness",
@@ -7624,6 +7670,7 @@ CAPITAL_CITY = make_land(
     text="{T}: Add {C}.\n{1}, {T}: Add one mana of any color.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     subtypes={"Town"},
 )
+CAPITAL_CITY.setup_in_hand = make_cycling_setup("{2}")
 
 CLIVES_HIDEAWAY = make_land(
     name="Clive's Hideaway",

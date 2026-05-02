@@ -49,12 +49,51 @@ from src.cards.interceptor_helpers import (
     becomes_creature,
     # Cost reduction
     make_cost_reduction,
+    # Cycling
+    make_cycling_setup,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
     resolve_create_token,
     resolve_draw,
 )
+
+
+def _make_typecycling_setup(mana_cost: str, land_subtype):
+    """Local helper: typecycling activated ability registered via setup_in_hand.
+
+    Cost: ``{mana}, Discard this card``. Effect emits a SEARCH_LIBRARY event
+    for a basic land (with optional subtype). The SEARCH_LIBRARY handler is
+    an engine gap, but the discard cost + activation registration still wire.
+    """
+    cost_text = f"{mana_cost}, Discard this card"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        payload = {
+            'player': o.controller,
+            'card_type': 'basic_land',
+            'destination': 'hand',
+        }
+        if land_subtype:
+            payload['subtype'] = land_subtype
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload=payload,
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        make_activated_ability(
+            obj,
+            cost=cost_text,
+            effect_fn=_effect,
+            description=f"Typecycling {mana_cost}",
+            sorcery_speed=False,
+        )
+        return []
+
+    return _setup
 
 
 # =============================================================================
@@ -4349,6 +4388,7 @@ SHEPHERDING_SPIRITS = make_creature(
     text="Flying\nPlainscycling {2} ({2}, Discard this card: Search your library for a Plains card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=shepherding_spirits_setup,
 )
+SHEPHERDING_SPIRITS.setup_in_hand = _make_typecycling_setup("{2}", "Plains")
 
 def _split_up_execute_mode(choice, selected, state: GameState) -> list[Event]:
     """
@@ -4601,6 +4641,7 @@ DAGGERMAW_MEGALODON = make_creature(
     text="Vigilance\nIslandcycling {2} ({2}, Discard this card: Search your library for an Island card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=daggermaw_megalodon_setup,
 )
+DAGGERMAW_MEGALODON.setup_in_hand = _make_typecycling_setup("{2}", "Island")
 
 DONT_MAKE_A_SOUND = make_instant(
     name="Don't Make a Sound",
@@ -6139,6 +6180,7 @@ SPECTRAL_SNATCHER = make_creature(
     text="Ward—Discard a card. (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player discards a card.)\nSwampcycling {2} ({2}, Discard this card: Search your library for a Swamp card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=spectral_snatcher_setup,
 )
+SPECTRAL_SNATCHER.setup_in_hand = _make_typecycling_setup("{2}", "Swamp")
 
 SPOROGENIC_INFECTION = make_enchantment(
     name="Sporogenic Infection",
@@ -6368,6 +6410,7 @@ BEDHEAD_BEASTIE = make_creature(
     text="Menace (This creature can't be blocked except by two or more creatures.)\nMountaincycling {2} ({2}, Discard this card: Search your library for a Mountain card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=bedhead_beastie_setup,
 )
+BEDHEAD_BEASTIE.setup_in_hand = _make_typecycling_setup("{2}", "Mountain")
 
 def _betrayers_bargain_execute(choice, selected, state: GameState) -> list[Event]:
     """Execute Betrayer's Bargain after target selection."""
@@ -8198,6 +8241,7 @@ SLAVERING_BRANCHSNAPPER = make_creature(
     text="Trample\nForestcycling {2} ({2}, Discard this card: Search your library for a Forest card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=slavering_branchsnapper_setup,
 )
+SLAVERING_BRANCHSNAPPER.setup_in_hand = _make_typecycling_setup("{2}", "Forest")
 
 SPINESEEKER_CENTIPEDE = make_creature(
     name="Spineseeker Centipede",
