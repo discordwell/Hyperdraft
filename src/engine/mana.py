@@ -8,10 +8,17 @@ Also supports hybrid {W/U}, Phyrexian {W/P}, and snow {S}.
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Callable, Optional
 from enum import Enum, auto
 
-from .types import Color, GameState
+from .types import CardType, Color, GameState
+
+# Type alias: a restriction is a predicate over a "card-like" object (typically
+# a CardDefinition or GameObject). It returns True if this card may be paid for
+# with the restricted mana unit. Receiving an arbitrary object lets callers pass
+# either the in-flight ``GameObject`` (for printed characteristics) or its
+# ``CardDefinition`` — whichever they have on hand.
+RestrictionFn = Callable[[Any], bool]
 
 
 class ManaType(Enum):
@@ -27,11 +34,28 @@ class ManaType(Enum):
 
 @dataclass
 class ManaUnit:
-    """A single unit of mana in a pool."""
+    """A single unit of mana in a pool.
+
+    ``restriction`` is an optional predicate that gates spending this unit on
+    a spell. When ``None`` the unit is unrestricted. When set, the unit may
+    only be spent on a card for which ``restriction(card_def)`` returns True.
+    Restricted units are only spent on a spell-cast path that passes
+    ``for_card=...`` to ``ManaPool.can_pay`` / ``pay``; on cost-payment paths
+    that don't supply a card (e.g. activated-ability mana costs), restricted
+    units are skipped.
+
+    ``restriction_text`` is a human-readable description of the rule, used for
+    debug printing and the cast UI.
+    """
     color: ManaType
     snow: bool = False
-    restrictions: list[str] = field(default_factory=list)  # e.g., ["creature spells only"]
+    # Legacy free-form restriction tags retained for compatibility with older
+    # call sites; treated as informational only.
+    restrictions: list[str] = field(default_factory=list)
     source_id: Optional[str] = None
+    # Spend-restriction predicate. None = unrestricted.
+    restriction: Optional[RestrictionFn] = None
+    restriction_text: str = ""
 
 
 @dataclass
@@ -229,15 +253,24 @@ class ManaPool:
         amount: int = 1,
         snow: bool = False,
         restrictions: list[str] = None,
-        source_id: str = None
+        source_id: str = None,
+        *,
+        restriction: Optional[RestrictionFn] = None,
+        restriction_text: str = "",
     ):
-        """Add mana to the pool."""
+        """Add mana to the pool.
+
+        ``restriction`` (if set) marks each added unit with a spend-restriction
+        predicate. ``restriction_text`` is a human-readable summary.
+        """
         for _ in range(amount):
             self.mana.append(ManaUnit(
                 color=color,
                 snow=snow,
                 restrictions=restrictions or [],
-                source_id=source_id
+                source_id=source_id,
+                restriction=restriction,
+                restriction_text=restriction_text,
             ))
 
     def add_any_color(self, amount: int = 1, snow: bool = False, source_id: str = None):
@@ -262,23 +295,66 @@ class ManaPool:
         """Total mana in pool."""
         return len(self.mana)
 
-    def can_pay(self, cost: ManaCost, x_value: int = 0) -> bool:
+    def can_pay(
+        self,
+        cost: ManaCost,
+        x_value: int = 0,
+        *,
+        for_card: Any = None,
+    ) -> bool:
         """
         Check if the pool can pay a mana cost.
 
         Uses a greedy algorithm that tries to pay specific costs first,
         then generic with remaining mana.
-        """
-        return self._try_pay(cost, x_value, actually_pay=False)
 
-    def pay(self, cost: ManaCost, x_value: int = 0) -> bool:
+        ``for_card`` is the card being cast (or its CardDefinition / GameObject).
+        Restricted mana units only count toward payment when their restriction
+        predicate returns True for ``for_card``. When ``for_card`` is None
+        (e.g. paying an activated-ability mana cost), restricted units are
+        not used.
+        """
+        return self._try_pay(cost, x_value, actually_pay=False, for_card=for_card)
+
+    def pay(
+        self,
+        cost: ManaCost,
+        x_value: int = 0,
+        *,
+        for_card: Any = None,
+    ) -> bool:
         """
         Actually pay a mana cost, removing mana from pool.
         Returns True if successful, False if unable to pay.
-        """
-        return self._try_pay(cost, x_value, actually_pay=True)
 
-    def _try_pay(self, cost: ManaCost, x_value: int, actually_pay: bool) -> bool:
+        ``for_card`` semantics match ``can_pay``.
+        """
+        return self._try_pay(cost, x_value, actually_pay=True, for_card=for_card)
+
+    def _unit_is_spendable(self, unit: ManaUnit, for_card: Any) -> bool:
+        """Return True if ``unit`` can legally be spent on ``for_card``.
+
+        Unrestricted units are always spendable. Restricted units are
+        spendable only when ``for_card`` is supplied and the unit's
+        restriction predicate returns True for it.
+        """
+        if unit.restriction is None:
+            return True
+        if for_card is None:
+            return False
+        try:
+            return bool(unit.restriction(for_card))
+        except Exception:
+            return False
+
+    def _try_pay(
+        self,
+        cost: ManaCost,
+        x_value: int,
+        actually_pay: bool,
+        *,
+        for_card: Any = None,
+    ) -> bool:
         """
         Attempt to pay a cost.
 
@@ -290,49 +366,61 @@ class ManaPool:
         5. Pay phyrexian costs (mana or life - for now, assume mana)
         6. Pay X costs
         7. Pay generic costs with remaining mana
+
+        Within each step, restricted units are tried last so unrestricted mana
+        is preserved for parts of the cost where it might be the only option.
         """
         # Work with a copy if not actually paying
         available = list(self.mana) if not actually_pay else self.mana
 
+        def _candidate_indices(predicate: Callable[[ManaUnit], bool]) -> list[int]:
+            """Return indices of spendable units satisfying ``predicate``,
+            with unrestricted units listed before restricted ones so the
+            greedy algorithm spends unrestricted mana first."""
+            unrestricted: list[int] = []
+            restricted: list[int] = []
+            for i, unit in enumerate(available):
+                if not predicate(unit):
+                    continue
+                if not self._unit_is_spendable(unit, for_card):
+                    continue
+                if unit.restriction is None:
+                    unrestricted.append(i)
+                else:
+                    restricted.append(i)
+            return unrestricted + restricted
+
         def remove_mana(color: ManaType, count: int, snow_required: bool = False) -> bool:
             """Remove specified mana from available pool."""
-            removed = 0
-            to_remove = []
+            def _pred(u: ManaUnit) -> bool:
+                if u.color != color:
+                    return False
+                if snow_required and not u.snow:
+                    return False
+                return True
 
-            for i, unit in enumerate(available):
-                if removed >= count:
-                    break
-                if unit.color == color:
-                    if snow_required and not unit.snow:
-                        continue
-                    to_remove.append(i)
-                    removed += 1
-
-            if removed < count:
+            indices = _candidate_indices(_pred)
+            if len(indices) < count:
                 return False
 
-            # Remove in reverse order to maintain indices
-            for i in reversed(to_remove):
+            to_remove = sorted(indices[:count], reverse=True)
+            for i in to_remove:
                 available.pop(i)
             return True
 
         def remove_any(count: int, snow_required: bool = False) -> bool:
             """Remove any mana from pool."""
-            removed = 0
-            to_remove = []
+            def _pred(u: ManaUnit) -> bool:
+                if snow_required and not u.snow:
+                    return False
+                return True
 
-            for i, unit in enumerate(available):
-                if removed >= count:
-                    break
-                if snow_required and not unit.snow:
-                    continue
-                to_remove.append(i)
-                removed += 1
-
-            if removed < count:
+            indices = _candidate_indices(_pred)
+            if len(indices) < count:
                 return False
 
-            for i in reversed(to_remove):
+            to_remove = sorted(indices[:count], reverse=True)
+            for i in to_remove:
                 available.pop(i)
             return True
 
@@ -585,20 +673,69 @@ class ManaSystem:
 
         return available
 
-    def can_cast(self, player_id: str, cost: ManaCost, x_value: int = 0) -> bool:
+    def can_cast(
+        self,
+        player_id: str,
+        cost: ManaCost,
+        x_value: int = 0,
+        *,
+        for_card: Any = None,
+    ) -> bool:
         """
         Check if a player can pay a mana cost using their untapped lands.
 
         This checks potential mana from lands, not just the mana pool.
+        ``for_card`` is the card being cast (or its CardDefinition); restricted
+        mana in the pool only counts when its predicate matches.
         """
         # First check if pool already has enough
         pool = self.get_pool(player_id)
-        if pool.can_pay(cost, x_value):
+        if pool.can_pay(cost, x_value, for_card=for_card):
             return True
 
-        # Check if untapped lands can provide enough mana
+        # If the pool has restricted mana matching this card, attempt to pay
+        # using a fresh combined view of pool + untapped lands. We don't
+        # currently auto-tap restricted-mana sources here; restricted mana is
+        # only honoured when it's already been added to the pool by an
+        # explicit activation.
         sources = self.get_untapped_lands(player_id)
-        return self._can_pay_with_lands(sources, cost, x_value)
+        if not sources:
+            # No additional mana available from untapped lands; the pool check
+            # above already failed.
+            return False
+
+        # Project untapped lands into a synthetic pool that still respects the
+        # caller's existing pool restrictions, then test affordability.
+        return self._can_pay_with_pool_and_lands(pool, sources, cost, x_value, for_card=for_card)
+
+    def _can_pay_with_pool_and_lands(
+        self,
+        pool: 'ManaPool',
+        sources: list['LandManaSource'],
+        cost: ManaCost,
+        x_value: int,
+        *,
+        for_card: Any = None,
+    ) -> bool:
+        """Check affordability using the existing pool plus potential land mana.
+
+        Lands always produce unrestricted mana for purposes of this check
+        (basic land tap abilities are unrestricted in the rules). Pool units
+        retain their restrictions.
+        """
+        # Build a synthetic pool: copy current pool units (preserving restrictions),
+        # then add one unit per untapped land (always unrestricted, picking the
+        # first declared color as the produced color).
+        synthetic = ManaPool()
+        synthetic.mana = list(pool.mana)
+        for source in sources:
+            if not source.produces:
+                continue
+            # Take any single color the land produces — for affordability
+            # this is conservative since multi-color lands could produce
+            # more flexible color combinations than what we project.
+            synthetic.add(source.produces[0], 1, snow=source.is_snow)
+        return synthetic.can_pay(cost, x_value, for_card=for_card)
 
     def _can_pay_with_lands(self, sources: list[LandManaSource], cost: ManaCost, x_value: int = 0) -> bool:
         """Check if the given land sources can pay a cost."""
@@ -759,7 +896,14 @@ class ManaSystem:
             is_unique=not has_choices
         )
 
-    def auto_tap_and_pay(self, player_id: str, cost: ManaCost, x_value: int = 0) -> tuple[bool, Optional[TapSolution]]:
+    def auto_tap_and_pay(
+        self,
+        player_id: str,
+        cost: ManaCost,
+        x_value: int = 0,
+        *,
+        for_card: Any = None,
+    ) -> tuple[bool, Optional[TapSolution]]:
         """
         Automatically tap lands and pay a cost if there's no ambiguity.
 
@@ -781,17 +925,25 @@ class ManaSystem:
 
         # Pay from pool
         pool = self.get_pool(player_id)
-        pool.pay(cost, x_value)
+        pool.pay(cost, x_value, for_card=for_card)
 
         return (True, solution)
 
-    def execute_tap_solution(self, player_id: str, solution: TapSolution, cost: ManaCost, x_value: int = 0) -> bool:
+    def execute_tap_solution(
+        self,
+        player_id: str,
+        solution: TapSolution,
+        cost: ManaCost,
+        x_value: int = 0,
+        *,
+        for_card: Any = None,
+    ) -> bool:
         """Execute a specific tap solution (used when player selects lands manually)."""
         self._execute_tap_solution(player_id, solution)
 
         # Pay from pool
         pool = self.get_pool(player_id)
-        return pool.pay(cost, x_value)
+        return pool.pay(cost, x_value, for_card=for_card)
 
     def _execute_tap_solution(self, player_id: str, solution: TapSolution):
         """Actually tap the lands and add mana to pool."""
@@ -808,27 +960,38 @@ class ManaSystem:
             if amount > 0:
                 pool.add(mana_type, amount)
 
-    def pay_cost(self, player_id: str, cost: ManaCost, x_value: int = 0) -> bool:
+    def pay_cost(
+        self,
+        player_id: str,
+        cost: ManaCost,
+        x_value: int = 0,
+        *,
+        for_card: Any = None,
+    ) -> bool:
         """
         Pay a mana cost, auto-tapping lands if needed.
 
         For simple cases, this auto-taps. For complex cases,
         the caller should use find_auto_tap_solution and execute_tap_solution.
+
+        ``for_card`` is the card whose cost is being paid; restricted mana in
+        the pool is only spent when its predicate matches.
         """
         # First try to pay from existing pool
         pool = self.get_pool(player_id)
-        if pool.can_pay(cost, x_value):
-            return pool.pay(cost, x_value)
+        if pool.can_pay(cost, x_value, for_card=for_card):
+            return pool.pay(cost, x_value, for_card=for_card)
 
-        # Try auto-tap
-        success, solution = self.auto_tap_and_pay(player_id, cost, x_value)
+        # Try auto-tap (auto-tap doesn't know about restrictions; it just
+        # adds unrestricted mana to the pool, then we re-attempt to pay).
+        success, solution = self.auto_tap_and_pay(player_id, cost, x_value, for_card=for_card)
         if success:
             return True
 
         # If we got a solution but it's ambiguous, use it anyway (default behavior)
         if solution:
             self._execute_tap_solution(player_id, solution)
-            return pool.pay(cost, x_value)
+            return pool.pay(cost, x_value, for_card=for_card)
 
         return False
 
@@ -838,11 +1001,43 @@ class ManaSystem:
         color: ManaType,
         amount: int = 1,
         snow: bool = False,
-        source_id: str = None
+        source_id: str = None,
+        *,
+        restriction: Optional[RestrictionFn] = None,
+        restriction_text: str = "",
     ):
-        """Add mana to a player's pool."""
+        """Add mana to a player's pool.
+
+        When ``restriction`` is set, the produced unit(s) carry that
+        spend-restriction predicate (see ``ManaUnit.restriction``).
+        """
         pool = self.get_pool(player_id)
-        pool.add(color, amount, snow, source_id=source_id)
+        pool.add(
+            color, amount, snow, source_id=source_id,
+            restriction=restriction, restriction_text=restriction_text,
+        )
+
+    def produce_mana_restricted(
+        self,
+        player_id: str,
+        color: ManaType,
+        amount: int,
+        restriction: RestrictionFn,
+        *,
+        snow: bool = False,
+        source_id: str = None,
+        restriction_text: str = "",
+    ):
+        """Add restricted mana to a player's pool.
+
+        Convenience wrapper around ``produce_mana`` for cards that produce
+        "Spend this mana only to ..." mana. Each unit will only be spent on
+        a spell for which ``restriction(card_def)`` returns True.
+        """
+        self.produce_mana(
+            player_id, color, amount, snow=snow, source_id=source_id,
+            restriction=restriction, restriction_text=restriction_text,
+        )
 
     def empty_pools(self):
         """Empty all mana pools (phase/step transition)."""
@@ -873,3 +1068,264 @@ def parse_cost(cost_string: str) -> ManaCost:
 def color_identity(cost_string: str) -> set[Color]:
     """Get color identity from a mana cost string."""
     return ManaCost.parse(cost_string).colors
+
+
+# ----------------------------------------------------------------------
+# Restriction predicates
+# ----------------------------------------------------------------------
+#
+# Predicates take a "card-like" argument: the in-flight ``GameObject`` (so we
+# can read ``.characteristics``) or a ``CardDefinition`` (so we can read
+# ``.characteristics`` directly). All accessors below tolerate either.
+
+
+def _card_chars(card: Any):
+    """Return the Characteristics object for ``card``, or None if missing."""
+    if card is None:
+        return None
+    chars = getattr(card, "characteristics", None)
+    return chars
+
+
+def _card_subtypes(card: Any) -> set[str]:
+    chars = _card_chars(card)
+    if chars is None:
+        return set()
+    subs = getattr(chars, "subtypes", None) or set()
+    return {str(s) for s in subs}
+
+
+def _card_types(card: Any) -> set:
+    chars = _card_chars(card)
+    if chars is None:
+        return set()
+    return set(getattr(chars, "types", None) or set())
+
+
+def _card_mana_value(card: Any) -> int:
+    chars = _card_chars(card)
+    if chars is None:
+        return 0
+    cost_str = getattr(chars, "mana_cost", None)
+    if cost_str is None:
+        cost_str = getattr(card, "mana_cost", None)
+    if not cost_str:
+        return 0
+    try:
+        return int(ManaCost.parse(cost_str).mana_value)
+    except Exception:
+        return 0
+
+
+def _card_has_x_in_cost(card: Any) -> bool:
+    chars = _card_chars(card)
+    if chars is None:
+        return False
+    cost_str = getattr(chars, "mana_cost", None)
+    if cost_str is None:
+        cost_str = getattr(card, "mana_cost", None)
+    if not cost_str:
+        return False
+    try:
+        return ManaCost.parse(cost_str).x_count > 0
+    except Exception:
+        return False
+
+
+def restriction_subtype(*subtypes: str) -> RestrictionFn:
+    """Return a predicate that accepts cards with any of the given subtypes.
+
+    Subtypes are compared case-insensitively against the card's printed
+    subtypes (``card.characteristics.subtypes``).
+    """
+    wanted = {s.lower() for s in subtypes}
+
+    def _pred(card: Any) -> bool:
+        if card is None:
+            return False
+        return any(s.lower() in wanted for s in _card_subtypes(card))
+
+    return _pred
+
+
+def restriction_card_type(*card_types) -> RestrictionFn:
+    """Return a predicate that accepts cards with any of the given card types
+    (CardType enum values, e.g. CardType.CREATURE)."""
+    wanted = set(card_types)
+
+    def _pred(card: Any) -> bool:
+        if card is None:
+            return False
+        return bool(_card_types(card) & wanted)
+
+    return _pred
+
+
+def restriction_min_mana_value(min_mv: int, include_x: bool = True) -> RestrictionFn:
+    """Return a predicate that accepts cards with mana value >= ``min_mv``.
+
+    When ``include_x`` is True (default) cards with ``{X}`` in their cost
+    also pass — matching the common "spells with mana value 5+ or with {X}
+    in their costs" pattern.
+    """
+    def _pred(card: Any) -> bool:
+        if card is None:
+            return False
+        mv = _card_mana_value(card)
+        if mv >= min_mv:
+            return True
+        if include_x and _card_has_x_in_cost(card):
+            return True
+        return False
+
+    return _pred
+
+
+def restriction_or(*predicates: RestrictionFn) -> RestrictionFn:
+    """Combine predicates with OR — passes if any sub-predicate passes."""
+    preds = [p for p in predicates if p is not None]
+
+    def _pred(card: Any) -> bool:
+        return any(p(card) for p in preds)
+
+    return _pred
+
+
+def restriction_and(*predicates: RestrictionFn) -> RestrictionFn:
+    """Combine predicates with AND — passes only if all sub-predicates pass."""
+    preds = [p for p in predicates if p is not None]
+    if not preds:
+        return lambda _card: True
+
+    def _pred(card: Any) -> bool:
+        return all(p(card) for p in preds)
+
+    return _pred
+
+
+def parse_spend_restriction(text: str) -> Optional[tuple[RestrictionFn, str]]:
+    """Try to extract a "Spend this mana only to ..." restriction from rules text.
+
+    Returns ``(predicate, summary)`` on a hit, or ``None`` if no recognised
+    spell-cast restriction is found. Activated-ability-only restrictions
+    (``Spend this mana only to activate abilities``) intentionally return
+    ``None`` — the engine's restricted-mana support is currently scoped to
+    spell casting; cards that mix the two are wired with the spell portion
+    only and the activated-ability portion is treated as unrestricted.
+    """
+    if not text:
+        return None
+    # Find the clause after the trigger phrase, stopping at the next sentence.
+    m = re.search(
+        r"spend this mana only to\s+(?P<clause>[^.]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if not m:
+        return None
+    clause = m.group("clause").strip().lower()
+
+    preds: list[RestrictionFn] = []
+    summary_parts: list[str] = []
+
+    ctype_map = {
+        "creature": CardType.CREATURE,
+        "instant": CardType.INSTANT,
+        "sorcery": CardType.SORCERY,
+        "enchantment": CardType.ENCHANTMENT,
+        "artifact": CardType.ARTIFACT,
+        "land": CardType.LAND,
+        "planeswalker": CardType.PLANESWALKER,
+    }
+    stop = {
+        "of", "the", "chosen", "type", "with", "and", "or",
+        "a", "an", "this", "that", "from", "exile", "spell", "spells",
+        "to", "cast", "card", "cards", "or",
+    }
+
+    # Split the clause into "cast ..." segments. We only handle spell-cast
+    # restrictions; "or activate abilities of ..." trailers are ignored
+    # (treated as no extra restriction beyond the spell side).
+    # Strip a trailing "or activate abilities ..." disjunction since that
+    # broadens the restriction outside our scope and confuses the parser.
+    clause_for_cast = re.sub(
+        r"\s*or\s+activate\s+(?:an?\s+)?abilit(?:y|ies)\s+of\s+[^.,]*",
+        "",
+        clause,
+        flags=re.IGNORECASE,
+    )
+    # Find every "cast X" where X is everything up to the next "or cast",
+    # the next sentence/comma, or the end of clause.
+    cast_segments = re.findall(
+        r"cast\s+([^.]+?)(?=(?:\bor\s+cast\b)|$)",
+        clause_for_cast,
+        re.IGNORECASE,
+    )
+    if not cast_segments:
+        # Fall back to a single "cast ..." prefix if regex didn't lock on.
+        m2 = re.search(r"cast\s+(.+)$", clause_for_cast, re.IGNORECASE)
+        if m2:
+            cast_segments = [m2.group(1)]
+
+    for seg in cast_segments:
+        descriptor = seg.strip()
+        # Strip articles and a leading "an?".
+        descriptor = re.sub(r"^\s*(?:a|an)\s+", "", descriptor)
+        # Mana-value patterns first.
+        mv_match = re.search(
+            r"with\s+mana\s+value\s+(\d+)\s+or\s+greater",
+            descriptor,
+        )
+        x_in_cost = re.search(
+            r"with\s+\{x\}\s+in\s+(?:its|their)\s+mana\s+cost",
+            descriptor,
+        )
+        if mv_match:
+            mv = int(mv_match.group(1))
+            preds.append(restriction_min_mana_value(mv, include_x=bool(x_in_cost)))
+            summary_parts.append(f"MV {mv}+")
+            continue
+        if x_in_cost and not mv_match:
+            # "spells with {X} in their mana costs" — only X-cost spells qualify.
+            preds.append(restriction_min_mana_value(10**9, include_x=True))
+            summary_parts.append("{X} in cost")
+            continue
+
+        # Tokenise the descriptor and split on "or" / "and" disjunctions so
+        # alternatives like "Mount or Vehicle" become two subtype options.
+        # Replace conjunctions with a sentinel and split.
+        normalised = re.sub(r"\s+(or|and)\s+", " | ", descriptor)
+        parts = [p.strip() for p in normalised.split("|") if p.strip()]
+
+        seg_subtypes: list[str] = []
+        seg_ctypes: list = []
+        for part in parts:
+            # Trim trailing "spell(s)" / leading articles.
+            part = re.sub(r"\b(spell|spells|cards?)\b", "", part)
+            part = re.sub(r"^\s*(?:a|an)\s+", "", part).strip()
+            tokens = [t for t in re.split(r"\s+", part) if t and t not in stop]
+            for tok in tokens:
+                # Drop trailing punctuation.
+                tok = tok.strip(".,;:")
+                if not tok:
+                    continue
+                if tok in ctype_map:
+                    seg_ctypes.append(ctype_map[tok])
+                    continue
+                # Treat as a subtype name (title-case).
+                seg_subtypes.append(tok.title())
+
+        if seg_subtypes:
+            preds.append(restriction_subtype(*seg_subtypes))
+            summary_parts.append(" or ".join(seg_subtypes) + " spells")
+        elif seg_ctypes:
+            preds.append(restriction_card_type(*seg_ctypes))
+            summary_parts.append(
+                " or ".join(t.name.lower() for t in seg_ctypes) + " spells"
+            )
+
+    if not preds:
+        return None
+    combined = preds[0] if len(preds) == 1 else restriction_or(*preds)
+    summary = " / ".join(summary_parts) if summary_parts else "restricted"
+    return combined, summary
