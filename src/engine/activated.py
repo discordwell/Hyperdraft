@@ -55,6 +55,7 @@ class ActivatedAbility:
     requires_tap: bool = False
     sac_self: bool = False
     discard_self: bool = False
+    exile_self: bool = False
     additional_cost_plan: Optional[CostPlan] = None
     counter_removal: Optional[tuple[str, int]] = None  # (counter_name, amount) on self
 
@@ -94,11 +95,11 @@ def _is_mana_symbol(part: str) -> bool:
 
 
 def parse_activation_cost(cost_text: str, source_name: str = "") -> tuple[
-    Optional[ManaCost], bool, bool, bool, Optional[CostPlan], Optional[tuple[str, int]]
+    Optional[ManaCost], bool, bool, bool, bool, Optional[CostPlan], Optional[tuple[str, int]]
 ]:
     """Parse a cost expression like ``{2}, {T}, Sacrifice this``.
 
-    Returns ``(mana_cost, requires_tap, sac_self, discard_self,
+    Returns ``(mana_cost, requires_tap, sac_self, discard_self, exile_self,
     additional_cost_plan, counter_removal)``.
     """
     parts = [p.strip() for p in cost_text.split(",") if p.strip()]
@@ -106,6 +107,7 @@ def parse_activation_cost(cost_text: str, source_name: str = "") -> tuple[
     has_tap = False
     sac_self = False
     discard_self = False
+    exile_self = False
     additional_phrases: list[str] = []
     counter_removal: Optional[tuple[str, int]] = None
 
@@ -121,6 +123,10 @@ def parse_activation_cost(cost_text: str, source_name: str = "") -> tuple[
             continue
         if _is_mana_symbol(part):
             mana_parts.append(part)
+            continue
+        # Self-exile (Adventure-style "Exile this card").
+        if re.match(r"^exile\s+this\s+card\b", lower):
+            exile_self = True
             continue
         # Self-discard (cycling-style "Discard this card").
         if re.match(r"^discard\s+(?:this|" + re.escape(sname_lower) + r")(?:\s+card)?\b", lower):
@@ -157,7 +163,7 @@ def parse_activation_cost(cost_text: str, source_name: str = "") -> tuple[
         joined = " and ".join(additional_phrases)
         add_plan = parse_cost_expression(joined)
 
-    return mana_cost, has_tap, sac_self, discard_self, add_plan, counter_removal
+    return mana_cost, has_tap, sac_self, discard_self, exile_self, add_plan, counter_removal
 
 
 # ----------------------------------------------------------------------
@@ -204,7 +210,7 @@ def register_activated_ability(
     The setup function calling this typically returns ``[]`` (no interceptors)
     since the ability is consulted via the registry rather than the event pipeline.
     """
-    mana_cost, requires_tap, sac_self, discard_self, add_plan, counter_removal = parse_activation_cost(
+    mana_cost, requires_tap, sac_self, discard_self, exile_self, add_plan, counter_removal = parse_activation_cost(
         cost, source_name=obj.name
     )
 
@@ -223,6 +229,7 @@ def register_activated_ability(
         requires_tap=requires_tap,
         sac_self=sac_self,
         discard_self=discard_self,
+        exile_self=exile_self,
         additional_cost_plan=add_plan,
         counter_removal=counter_removal,
         sorcery_speed=sorcery_speed,
@@ -351,6 +358,15 @@ def pay_activation_cost(
         events.append(Event(
             type=EventType.DISCARD,
             payload={"player": player_id, "object_id": obj.id},
+            source=obj.id,
+            controller=player_id,
+        ))
+
+    # Self-exile (Adventure cost: "Exile this card").
+    if ability.exile_self:
+        events.append(Event(
+            type=EventType.EXILE,
+            payload={"object_id": obj.id, "controller": player_id},
             source=obj.id,
             controller=player_id,
         ))
