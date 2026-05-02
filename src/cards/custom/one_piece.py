@@ -455,7 +455,7 @@ MARINE_BATTLESHIP = make_artifact_creature(
     name="Marine Battleship",
     power=2,
     toughness=3,
-    mana_cost="{1}{W}",
+    mana_cost="{2}",
     subtypes={"Vehicle"},
     text="Vigilance. Crew 3. Marines you control have ward {1}."
 )
