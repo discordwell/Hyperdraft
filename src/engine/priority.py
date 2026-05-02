@@ -581,6 +581,53 @@ class PrioritySystem:
                         mana_cost=eternalize_cost,
                     ))
 
+        # WOE Adventure: cast the main half of an Adventure card from exile.
+        # Only the owner of a card flagged ``adventure_exile=True`` can cast
+        # it from exile, and only for its printed mana cost.
+        exile_zone = self.state.zones.get('exile')
+        if exile_zone:
+            for card_id in exile_zone.objects:
+                card = self.state.objects.get(card_id)
+                if not card or card.owner != player_id:
+                    continue
+                if not getattr(card.state, 'adventure_exile', False):
+                    continue
+
+                mana_cost_str = card.characteristics.mana_cost
+                printed = ManaCost.parse(mana_cost_str or "")
+                cost = get_effective_mana_cost(card, player_id, self.state, base_cost=printed)
+                std_plan = self._get_standard_additional_cost_plan(card)
+                ctx = CastCostContext(
+                    state=self.state,
+                    mana_system=self.mana_system,
+                    player_id=player_id,
+                    casting_card_id=card_id,
+                    casting_card_name=card.name,
+                    casting_zone=card.zone,
+                    base_mana_cost=cost,
+                    x_value=0,
+                )
+
+                cost_override = cost if (mana_cost_str and mana_cost_str.strip() != "") else None
+                if cost_override is None:
+                    continue
+                if not self._can_cast(card, player_id, cost_override=cost_override):
+                    continue
+                if not self._can_pay_cost_plan(std_plan, ctx):
+                    continue
+
+                desc = f"Cast {card.name} (from exile, Adventure)"
+                if std_plan:
+                    desc = f"{desc}; {describe_plan(std_plan)}"
+                actions.append(LegalAction(
+                    type=ActionType.CAST_SPELL,
+                    card_id=card_id,
+                    ability_id="exile:adventure",
+                    description=desc,
+                    requires_mana=not cost.is_free(),
+                    mana_cost=cost,
+                ))
+
         # Check if player can play lands
         if self._can_play_land(player_id):
             if hand:
@@ -1471,6 +1518,17 @@ class PrioritySystem:
 
         from_graveyard = card.zone == ZoneType.GRAVEYARD
 
+        # WOE Adventure: cast the main half from exile for the printed cost.
+        # The card must be flagged ``adventure_exile=True`` (set when the
+        # Adventure activation paid its ``Exile this card`` cost) and owned
+        # by the casting player.
+        from_adventure_exile = (
+            card.zone == ZoneType.EXILE
+            and getattr(card.state, 'adventure_exile', False)
+            and card.owner == action.player_id
+            and (action.ability_id == "exile:adventure" or action.ability_id is None)
+        )
+
         # Choose a single casting option when casting from the graveyard.
         # We still do not expose option selection via the action payload yet,
         # so we pick the first supported option (flashback/harmonize/mayhem/etc.).
@@ -1514,6 +1572,12 @@ class PrioritySystem:
                 return []
             paid_cost = warp_cost
             used_warp = True
+        elif from_adventure_exile:
+            # WOE Adventure recursion: pay the printed mana cost. The
+            # ``adventure_exile`` flag is cleared once the card actually
+            # leaves exile (post stack-push), so an aborted cast leaves
+            # the card castable from exile next time.
+            paid_cost = ManaCost.parse(card.characteristics.mana_cost or "")
         else:
             paid_cost = ManaCost.parse(card.characteristics.mana_cost or "")
 
@@ -1683,6 +1747,12 @@ class PrioritySystem:
                 if expend_events and self.pipeline:
                     for ev in expend_events:
                         self.pipeline.emit(ev)
+
+            # WOE Adventure recursion: clear the cast-from-exile flag now that
+            # we're committed to moving the card from exile to the stack. This
+            # ensures an aborted cast (rare path) leaves the card still flagged.
+            if card.zone == ZoneType.EXILE and getattr(card.state, 'adventure_exile', False):
+                card.state.adventure_exile = False
 
             if self.stack:
                 from .stack import SpellBuilder

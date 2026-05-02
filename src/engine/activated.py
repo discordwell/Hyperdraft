@@ -75,6 +75,11 @@ class ActivatedAbility:
     # Identity.
     ability_index: int = 0
 
+    # WOE Adventure marker. When True, paying ``exile_self`` flags the source
+    # object's ``state.adventure_exile`` so the cast subsystem can offer
+    # casting the main half from exile.
+    is_adventure: bool = False
+
 
 # ----------------------------------------------------------------------
 # Cost parsing
@@ -204,6 +209,7 @@ def register_activated_ability(
     once_per_turn: bool = False,
     targets_required: int = 0,
     target_kind: str = "any",
+    is_adventure: bool = False,
 ) -> ActivatedAbility:
     """Register an activated ability descriptor on ``obj.state.activated_abilities``.
 
@@ -237,6 +243,7 @@ def register_activated_ability(
         once_per_turn=once_per_turn,
         targets_required=targets_required,
         target_kind=target_kind,
+        is_adventure=is_adventure,
     )
 
     if not isinstance(obj.state.activated_abilities, list):
@@ -370,6 +377,13 @@ def pay_activation_cost(
             source=obj.id,
             controller=player_id,
         ))
+        # WOE Adventure: mark the source so the cast subsystem can surface
+        # casting the main (creature/enchantment) half from exile after the
+        # Adventure spell resolves. We set the flag here at cost-pay time
+        # because the EXILE handler runs later in the pipeline; setting it
+        # on obj.state persists through the zone change.
+        if ability.is_adventure:
+            obj.state.adventure_exile = True
 
     # Counter removal from self
     if ability.counter_removal:
