@@ -122,6 +122,21 @@ class MidrangeStrategy(AIStrategy):
                 if self._has_ability(card, 'deathtouch', state):
                     score += 0.35
 
+            # Burn / damage spells — direct damage to face is reach. Score
+            # higher when the opponent is closer to lethal.
+            elif self._is_damage_spell(card):
+                opponent_id = self._get_opponent_id(player_id, state)
+                opponent = state.players.get(opponent_id) if opponent_id else None
+                if opponent and opponent.life <= 8:
+                    score = 1.7  # Closing damage — top priority
+                elif opponent and opponent.life <= 14:
+                    score = 1.2
+                else:
+                    score = 0.9  # Always playable, less urgent
+                # Beatdown role: burn is critical reach
+                if is_beatdown:
+                    score += 0.3
+
             # Removal — score by the most dangerous threat on board, not
             # a generic creature count. A removal spell against a 1/1 token
             # is very different from one against a 5/5 with deathtouch.
@@ -526,6 +541,14 @@ class MidrangeStrategy(AIStrategy):
         if card.card_def and card.card_def.text:
             text = card.card_def.text.lower()
             return 'destroy' in text or 'exile' in text
+        return False
+
+    def _is_damage_spell(self, card) -> bool:
+        """Check if card deals direct damage (burn). Excludes creature
+        triggers — those are scored as creatures."""
+        if card.card_def and card.card_def.text:
+            text = card.card_def.text.lower()
+            return 'deal' in text and 'damage' in text
         return False
 
     def _is_card_draw(self, card) -> bool:
