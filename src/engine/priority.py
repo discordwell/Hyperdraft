@@ -575,6 +575,18 @@ class PrioritySystem:
             crew_actions = self._get_crew_actions(player_id, battlefield)
             actions.extend(crew_actions)
 
+        # Phase: graveyard-zone activated abilities. These are registered by
+        # card_def.setup_in_graveyard on ZONE_CHANGE → GRAVEYARD and live on
+        # obj.state.activated_abilities like normal. Only the card's owner
+        # can activate them.
+        graveyard = self.state.zones.get(f'graveyard_{player_id}')
+        if graveyard:
+            for obj_id in graveyard.objects:
+                obj = self.state.objects.get(obj_id)
+                if obj and obj.owner == player_id and getattr(obj.state, 'activated_abilities', None):
+                    abilities = self._get_activatable_abilities(obj, player_id)
+                    actions.extend(abilities)
+
         return actions
 
     def _get_standard_additional_cost_plan(self, card) -> Optional[CostPlan]:

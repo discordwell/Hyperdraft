@@ -784,6 +784,12 @@ class CardDefinition:
     # Function to set up interceptors when this card enters play
     setup_interceptors: Optional[Callable[['GameObject', 'GameState'], list[Interceptor]]] = None
 
+    # Phase: optional setup that runs on entry to the GRAVEYARD zone, used
+    # for cards whose abilities activate from the graveyard (e.g. Goldmeadow
+    # Nomad's "{W}, Exile this card from your graveyard: Create a token...").
+    # Same signature as setup_interceptors.
+    setup_in_graveyard: Optional[Callable[['GameObject', 'GameState'], list[Interceptor]]] = None
+
     # Function for spell/ability resolution
     resolve: Optional[Callable[['Event', 'GameState'], list[Event]]] = None
 
