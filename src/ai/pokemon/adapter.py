@@ -55,6 +55,7 @@ class PokemonAIAdapter:
     """
 
     # Difficulty settings tuned for Pokemon TCG decision-making
+    DEFAULT_DIFFICULTY = "medium"
     PKM_DIFFICULTY_SETTINGS = {
         'easy': {
             'random_factor': 0.5,
@@ -135,34 +136,14 @@ class PokemonAIAdapter:
             'use_smart_retreat': True,
             'use_energy_planning': True,
             'use_prize_tracking': True,
-        },
-        'codex': {
-            'random_factor': 0.0,
-            'mistake_chance': 0.0,
-            'use_context': True,
-            'use_energy_commitment': True,
-            'use_trainer_registry': True,
-            'use_retreat_analysis': True,
-            'use_ko_math': True,
-            'use_prize_strategy': True,
-            'use_lethal_check': True,
-            'use_weakness_aware': True,
-            'use_board_eval': True,
-            'use_evolution_priority': True,
-            'use_ability_eval': True,
-            'use_anti_lethal': True,
-            'use_action_reordering': True,
-            'use_smart_retreat': True,
-            'use_energy_planning': True,
-            'use_prize_tracking': True,
             'use_resource_conservation': True,
             'use_setup_consistency': True,
             'use_attack_pressure': True,
         },
     }
 
-    def __init__(self, difficulty: str = "medium"):
-        self.difficulty = difficulty
+    def __init__(self, difficulty: str = DEFAULT_DIFFICULTY):
+        self.difficulty = str(difficulty or self.DEFAULT_DIFFICULTY).strip().lower()
         # Per-player difficulty overrides (for bot-vs-bot with different levels)
         self.player_difficulties: dict[str, str] = {}
         self._energy_plans: dict[str, EnergyPlan] = {}
@@ -172,12 +153,15 @@ class PokemonAIAdapter:
 
     def _get_difficulty(self, player_id: str = None) -> str:
         if player_id and player_id in self.player_difficulties:
-            return self.player_difficulties[player_id]
+            return str(self.player_difficulties[player_id]).strip().lower()
         return self.difficulty
 
     def _get_settings(self, player_id: str = None) -> dict:
         diff = self._get_difficulty(player_id)
-        return self.PKM_DIFFICULTY_SETTINGS.get(diff, self.PKM_DIFFICULTY_SETTINGS['medium'])
+        return self.PKM_DIFFICULTY_SETTINGS.get(
+            diff,
+            self.PKM_DIFFICULTY_SETTINGS[self.DEFAULT_DIFFICULTY],
+        )
 
     def _opponent_id(self, state: GameState, player_id: str) -> Optional[str]:
         for pid in state.players:

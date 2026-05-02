@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { matchAPI, botGameAPI } from '../services/api';
-import type { DeckSummary, YgoDeckSummary } from '../types';
+import type { AIDifficulty, DeckSummary, YgoDeckSummary } from '../types';
 import { useGameStore } from '../stores/gameStore';
 
 // Legacy alias — DeckSummary is the canonical type from the API
@@ -23,7 +23,7 @@ export function Home() {
   const [hsVariant, setHsVariant] = useState<string | null>('riftclash');
   const [heroClass, setHeroClass] = useState<string>('Pyromancer');
   const [playerName, setPlayerName] = useState('Player');
-  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard' | 'ultra'>('ultra');
+  const [difficulty, setDifficulty] = useState<AIDifficulty>('ultra');
   const [decks, setDecks] = useState<DeckInfo[]>([]);
   const [playerDeck, setPlayerDeck] = useState<string>('');
   const [aiDeck, setAiDeck] = useState<string>('');

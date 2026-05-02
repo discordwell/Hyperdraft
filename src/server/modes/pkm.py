@@ -28,9 +28,12 @@ class PokemonModeAdapter(ModeAdapter):
 
         if session.ai_profiles_by_player:
             first_profile = next(iter(session.ai_profiles_by_player.values()))
-            difficulty = first_profile.get("difficulty", session.ai_difficulty or "medium")
+            difficulty = first_profile.get(
+                "difficulty",
+                session.ai_difficulty or PokemonAIAdapter.DEFAULT_DIFFICULTY,
+            )
         else:
-            difficulty = session.ai_difficulty or "medium"
+            difficulty = session.ai_difficulty or PokemonAIAdapter.DEFAULT_DIFFICULTY
         if hasattr(difficulty, "value"):
             difficulty = difficulty.value
         difficulty = str(difficulty).strip().lower()
