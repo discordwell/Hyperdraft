@@ -38,6 +38,7 @@ from src.cards.interceptor_helpers import (
     make_aura_setup,
     make_ward,
     was_bargained,
+    make_adventure_setup,
 )
 
 
@@ -6283,12 +6284,39 @@ UNASSUMING_SAGE = make_creature(
     setup_interceptors=unassuming_sage_setup,
 )
 
+def _virtue_of_loyalty_adventure(obj, state, targets):
+    """Ardenvale Fealty: Create a 2/2 white Knight creature token with vigilance."""
+    return [Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'name': 'Knight',
+            'controller': obj.controller,
+            'owner': obj.controller,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'types': {CardType.CREATURE},
+            'subtypes': {'Knight'},
+            'colors': {Color.WHITE},
+            'power': 2,
+            'toughness': 2,
+            'abilities': ['vigilance'],
+            'is_token': True,
+        },
+        source=obj.id,
+        controller=obj.controller,
+    )]
+
+
 VIRTUE_OF_LOYALTY = make_enchantment(
     name="Virtue of Loyalty",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     text="At the beginning of your end step, put a +1/+1 counter on each creature you control. Untap those creatures.\n// Adventure — Ardenvale Fealty {1}{W} (Instant)\nCreate a 2/2 white Knight creature token with vigilance.",
     setup_interceptors=virtue_of_loyalty_setup,
+)
+VIRTUE_OF_LOYALTY.setup_in_hand = make_adventure_setup(
+    adventure_cost="{1}{W}",
+    effect_fn=_virtue_of_loyalty_adventure,
+    description="Adventure: Create a 2/2 white Knight token with vigilance",
 )
 
 WEREFOX_BODYGUARD = make_creature(
@@ -6969,12 +6997,42 @@ TWISTED_SEWERWITCH = make_creature(
     setup_interceptors=twisted_sewer_witch_setup,
 )
 
+def _virtue_of_persistence_adventure(obj, state, targets):
+    """Locthwain Scorn: -3/-3 EOT to target creature, you gain 2 life."""
+    events: list[Event] = [
+        Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id, controller=obj.controller,
+        )
+    ]
+    if targets:
+        t = targets[0]
+        target_id = getattr(t, "id", None) or t
+        events.insert(0, Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': target_id,
+                'power_mod': -3, 'toughness_mod': -3,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id, controller=obj.controller,
+        ))
+    return events
+
+
 VIRTUE_OF_PERSISTENCE = make_enchantment(
     name="Virtue of Persistence",
     mana_cost="{5}{B}{B}",
     colors={Color.BLACK},
     text="At the beginning of your upkeep, put target creature card from a graveyard onto the battlefield under your control.\n// Adventure — Locthwain Scorn {1}{B}\nTarget creature gets -3/-3 until end of turn. You gain 2 life.",
     setup_interceptors=virtue_of_persistence_setup,
+)
+VIRTUE_OF_PERSISTENCE.setup_in_hand = make_adventure_setup(
+    adventure_cost="{1}{B}",
+    effect_fn=_virtue_of_persistence_adventure,
+    description="Adventure: target creature -3/-3 EOT, gain 2 life",
+    targets_required=1, target_kind="creature",
 )
 
 VORACIOUS_VERMIN = make_creature(
@@ -7387,12 +7445,31 @@ UNRULY_CATAPULT = make_artifact_creature(
     setup_interceptors=unruly_catapult_setup
 )
 
+def _virtue_of_courage_adventure(obj, state, targets):
+    """Embereth Blaze: 2 damage to any target."""
+    if not targets:
+        return []
+    t = targets[0]
+    target_id = getattr(t, "id", None) or t
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target_id, 'amount': 2, 'source': obj.id},
+        source=obj.id, controller=obj.controller,
+    )]
+
+
 VIRTUE_OF_COURAGE = make_enchantment(
     name="Virtue of Courage",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     text="Whenever a source you control deals noncombat damage to an opponent, you may exile that many cards from the top of your library. You may play those cards this turn.\n// Adventure — Embereth Blaze {1}{R} (Instant)\nEmbereth Blaze deals 2 damage to any target.",
     setup_interceptors=virtue_of_courage_setup,
+)
+VIRTUE_OF_COURAGE.setup_in_hand = make_adventure_setup(
+    adventure_cost="{1}{R}",
+    effect_fn=_virtue_of_courage_adventure,
+    description="Adventure: deal 2 damage to any target",
+    targets_required=1, target_kind="any",
 )
 
 WITCHS_MARK = make_sorcery(
@@ -7740,12 +7817,40 @@ VERDANT_OUTRIDER = make_creature(
     setup_interceptors=verdant_outrider_setup,
 )
 
+def _virtue_of_strength_adventure(obj, state, targets):
+    """Garenbrig Growth: return target creature or land card from gy to hand."""
+    if not targets:
+        return []
+    t = targets[0]
+    target_id = getattr(t, "id", None) or t
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    return [Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': target_id,
+            'from_zone_type': ZoneType.GRAVEYARD,
+            'from_zone': f'graveyard_{target.owner}',
+            'to_zone_type': ZoneType.HAND,
+            'to_zone': f'hand_{target.owner}',
+        },
+        source=obj.id, controller=obj.controller,
+    )]
+
+
 VIRTUE_OF_STRENGTH = make_enchantment(
     name="Virtue of Strength",
     mana_cost="{5}{G}{G}",
     colors={Color.GREEN},
     text="If you tap a basic land for mana, it produces three times as much of that mana instead.\n// Adventure — Garenbrig Growth {G} (Sorcery)\nReturn target creature or land card from your graveyard to your hand.",
     setup_interceptors=virtue_of_strength_setup,
+)
+VIRTUE_OF_STRENGTH.setup_in_hand = make_adventure_setup(
+    adventure_cost="{G}",
+    effect_fn=_virtue_of_strength_adventure,
+    description="Adventure: return target creature/land card from gy to hand",
+    targets_required=1, target_kind="creature_or_land_in_graveyard",
 )
 
 WELCOME_TO_SWEETTOOTH = make_enchantment(
