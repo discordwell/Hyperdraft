@@ -445,8 +445,24 @@ class TurnManager:
                         obj.controller = getattr(obj.state, "_restore_controller_eot")
                         delattr(obj.state, "_restore_controller_eot")
 
-        # End "until end of turn" effects
-        # (Would be handled by interceptor duration system)
+        # End "until end of turn" effects — sweep duration='end_of_turn'
+        # interceptors out of state.interceptors. Granted triggered abilities
+        # (grant_triggered_ability), make_pump_self_ability EOT registrations
+        # going through the QUERY layer, etc. all rely on this.
+        eot_aliases = {"end_of_turn", "until_end_of_turn", "until_eot", "eot",
+                       "next_end_step", "end_of_this_turn", "this_turn"}
+        to_remove = [
+            iid for iid, ic in self.state.interceptors.items()
+            if isinstance(getattr(ic, "duration", None), str)
+            and ic.duration.strip().lower().replace(" ", "_") in eot_aliases
+        ]
+        for iid in to_remove:
+            ic = self.state.interceptors.pop(iid, None)
+            # Also detach from owning object's interceptor_ids list, if any.
+            if ic is not None:
+                src = self.state.objects.get(getattr(ic, "source", None))
+                if src is not None and iid in src.interceptor_ids:
+                    src.interceptor_ids.remove(iid)
 
         # Empty mana pools
         # (Would be handled by mana system)

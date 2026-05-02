@@ -447,7 +447,7 @@ def test_cast_pipeline_consumes_reduced_cost():
     p1 = game.add_player("P1")
     p2 = game.add_player("P2")
     # Set up turn manager so casting timing works.
-    game.start_game()
+    asyncio.run(game.start_game())
 
     # Active player is whichever is_first; force p1 to active.
     if game.turn_manager.active_player != p1.id:
@@ -503,7 +503,7 @@ def test_cast_pipeline_blocks_when_unreduced_cost_unaffordable():
     game = Game()
     p1 = game.add_player("P1")
     p2 = game.add_player("P2")
-    game.start_game()
+    asyncio.run(game.start_game())
     if game.turn_manager.active_player != p1.id:
         game.turn_manager.turn_state.active_player_id = p1.id
 

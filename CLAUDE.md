@@ -51,14 +51,56 @@ CARD_NAME = make_creature(
 ```
 
 ### Available Helpers (interceptor_helpers.py)
-- `make_etb_trigger` - Enter the battlefield
-- `make_death_trigger` - When dies
-- `make_attack_trigger` - When attacks
-- `make_damage_trigger` - When deals damage
-- `make_static_pt_boost` - Lord effects (+X/+Y)
-- `make_keyword_grant` - Grant keywords
-- `make_upkeep_trigger` - Upkeep triggers
-- `make_spell_cast_trigger` - Spell cast triggers
+
+Triggers / static effects:
+- `make_etb_trigger`, `make_death_trigger`, `make_attack_trigger`,
+  `make_damage_trigger`, `make_upkeep_trigger`, `make_end_step_trigger`,
+  `make_spell_cast_trigger`, `make_leaves_battlefield_trigger`
+- `make_static_pt_boost` — flat lord effect (+X/+Y)
+- `make_dynamic_pt_boost` / `make_attached_dynamic_pt_boost` — "+X/+Y per
+  Forest" via state-time `mod_fn`
+- `make_keyword_grant` — grant keywords statically
+
+Activated abilities (Phase 4):
+- `make_activated_ability(obj, cost, effect_fn, ...)` — generic registration
+- Specialised wrappers: `make_pump_self_ability`, `make_draw_ability`,
+  `make_loot_ability`, `make_life_gain_ability`, `make_damage_ability`,
+  `make_destroy_ability`, `make_counter_ability`,
+  `make_token_creation_ability`, `make_sac_destroy_ability`
+
+Equipment / Aura attach (Phase 3):
+- `make_equipment_setup` and `make_aura_setup` accept
+  `power_mod`, `toughness_mod`, `keywords`, `subtypes_to_add`,
+  `equip_cost`, `ward_cost`
+
+Set mechanics (Phase 5):
+- `suspect_creature(target_id, source_id, controller, state)`
+- `collect_evidence(player_id, n, state)` — greedy MV cost
+- `was_bargained(state, card_name)` — read the WOE Bargain marker
+- `make_room_setup(...)` + `is_door_unlocked(obj, door_name)`
+
+Sweep helpers:
+- `becomes_creature(target, state, *, power, toughness, subtypes, keywords)`
+- `threaten_creature(target_id, new_controller, source_id)` — gain control + untap + haste EOT
+- `grant_death_trigger(target, source, state, effect_fn, *, duration='end_of_turn')`
+- `grant_triggered_ability(target, source, state, *, event_filter, effect_fn, duration, one_shot=False)`
+- `make_cost_reduction(source, *, applies_to, amount, self_only=False)` — spell-cast cost reduction
+- `make_ward(source, *, mana_cost=None, life_cost=None, custom_cost=None)` — ward replacement
+
+Counts / queries:
+- `count_permanents_with_subtype`, `count_permanents_of_type`,
+  `count_cards_in_graveyard`, `count_cards_in_hand`
+
+Pipeline events you may emit directly:
+- `EventType.ATTACH` / `UNATTACH` (attach mechanic)
+- `EventType.MANIFEST_DREAD` (DSK manifest dread)
+- `EventType.UNLOCK_DOOR` (DSK Rooms)
+- `EventType.TARGET_CHOSEN` (ward post-target hook)
+- `EventType.QUERY_COST` (cost reduction query)
+
+CardDefinition fields beyond setup_interceptors:
+- `setup_in_graveyard` — runs when the card enters the GRAVEYARD zone
+  (for graveyard-activated abilities)
 
 ### Filter Factories
 - `other_creatures_you_control(obj)`
