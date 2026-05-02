@@ -1,0 +1,2261 @@
+[
+  {
+    "card": "Akki Coalflinger",
+    "ref": "beast_light_lv4",
+    "out": "assets/card_art/beyond/kamigawa/akki_coalflinger.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Argentum Armor",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/argentum_armor.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Asari Captain",
+    "ref": "warrior_earth_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/asari_captain.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Asari Captain (Cyborg)",
+    "ref": "machine_earth_lv4",
+    "out": "assets/card_art/beyond/kamigawa/asari_captain_cyborg.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ascendant Spirit",
+    "ref": "machine_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/ascendant_spirit.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Atsushi, the Blazing Sky",
+    "ref": "dragon_fire_lv7_9",
+    "out": "assets/card_art/beyond/kamigawa/atsushi_the_blazing_sky.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Auto-Repair Module",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/auto_repair_module.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Awakening Hour",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/awakening_hour.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Birds of Paradise",
+    "ref": "wingbeast_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/birds_of_paradise.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Boomerang",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/boomerang.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Boseiju Mechanical Bridgekeeper",
+    "ref": "machine_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/boseiju_mechanical_bridgekeeper.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Boseiju's Reach",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/boseijus_reach.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Boseiju, Who Shelters All",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/boseiju_who_shelters_all.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Brainstorm",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/brainstorm.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Brilliant Halberd",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/brilliant_halberd.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Brothers Yamazaki",
+    "ref": "warrior_earth_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/brothers_yamazaki.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Bug-Eyes Augmenter",
+    "ref": "machine_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/bug_eyes_augmenter.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Bushido Drill",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/bushido_drill.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Bushido Honor",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/bushido_honor.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Cancel",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/cancel.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Charge of the Five Stars",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/charge_of_the_five_stars.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Cleaving Reach",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/cleaving_reach.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Cloak and Dagger",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/cloak_and_dagger.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Cloak of Mists",
+    "ref": "warrior_dark_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/cloak_of_mists.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Cloud Cuckoo Land",
+    "ref": "spellcaster_water_lv4",
+    "out": "assets/card_art/beyond/kamigawa/cloud_cuckoo_land.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Cogwork Ambush",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/cogwork_ambush.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Coiled Tomb",
+    "ref": "reptile_earth_lv3",
+    "out": "assets/card_art/beyond/kamigawa/coiled_tomb.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Counterspell, Lite Edition",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/counterspell_lite_edition.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Cranial Plating",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/cranial_plating.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Cyber Salvage",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/cyber_salvage.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Cyber-Spirit Conduit",
+    "ref": "machine_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/cyber_spirit_conduit.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Daimyo's Spirit Steed",
+    "ref": "beast_light_lv4",
+    "out": "assets/card_art/beyond/kamigawa/daimyos_spirit_steed.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Dark Ritual",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/dark_ritual.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Day of Judgment",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/day_of_judgment.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Demonic Tutor",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/demonic_tutor.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Devoted Retainer",
+    "ref": "warrior_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/devoted_retainer.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Devouring Greed",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/devouring_greed.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Disciple of Atsushi",
+    "ref": "machine_earth_lv4",
+    "out": "assets/card_art/beyond/kamigawa/disciple_of_atsushi.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Doom Blade",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/doom_blade.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Eiganjo Castle",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/eiganjo_castle.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Eiganjo Free-Rider",
+    "ref": "warrior_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/eiganjo_free_rider.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Eight-and-a-Half-Tails",
+    "ref": "spellcaster_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/eight_and_a_half_tails.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Embercleave",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/embercleave.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Empyrial Plate",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/empyrial_plate.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Esoteric Reactor",
+    "ref": "link_warrior",
+    "out": "assets/card_art/beyond/kamigawa/esoteric_reactor.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Eye of Nowhere",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/eye_of_nowhere.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Eye of Nowhere Diviner",
+    "ref": "spellcaster_water_lv4",
+    "out": "assets/card_art/beyond/kamigawa/eye_of_nowhere_diviner.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Fact or Fiction",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/fact_or_fiction.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Final Flourish",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/final_flourish.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Final Smoke",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/final_smoke.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Final Word",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/final_word.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Force Spike",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/force_spike.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Foresight Sphinx",
+    "ref": "trap_continuous",
+    "out": "assets/card_art/beyond/kamigawa/foresight_sphinx.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Forest, Whispering Glade",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/forest_whispering_glade.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Forge Reflex",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/forge_reflex.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "General Fumiko",
+    "ref": "warrior_earth_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/general_fumiko.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Glistening Katana",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/glistening_katana.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Glistening Path",
+    "ref": "trap_continuous",
+    "out": "assets/card_art/beyond/kamigawa/glistening_path.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Goblin Welder",
+    "ref": "warrior_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/goblin_welder.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Goro-Goro, Disciple of Ryusei",
+    "ref": "pendulum_dragon",
+    "out": "assets/card_art/beyond/kamigawa/goro_goro_disciple_of_ryusei.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Goro-Goro, Pendulum Ascendant",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/goro_goro_pendulum_ascendant.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Greater Kami Wakening",
+    "ref": "xyz_warrior_rank4",
+    "out": "assets/card_art/beyond/kamigawa/greater_kami_wakening.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Greaves Bearer",
+    "ref": "warrior_earth_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/greaves_bearer.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Hana Kami",
+    "ref": "plant_earth_lv2",
+    "out": "assets/card_art/beyond/kamigawa/hana_kami.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Hana Sash",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/hana_sash.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Hand of Cruelty",
+    "ref": "warrior_dark_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/hand_of_cruelty.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Hand of Honor",
+    "ref": "warrior_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/hand_of_honor.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Heart of Light",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/heart_of_light.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Heavy Boots",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/heavy_boots.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Heiko Yamazaki, the General",
+    "ref": "warrior_earth_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/heiko_yamazaki_the_general.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Heroic Sacrifice",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/heroic_sacrifice.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Hidetsugu, Abyssal Lord",
+    "ref": "xyz_warrior_rank4",
+    "out": "assets/card_art/beyond/kamigawa/hidetsugu_abyssal_lord.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Hidetsugu, Devouring Chaos",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/hidetsugu_devouring_chaos.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Higure's Apprentice",
+    "ref": "warrior_water_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/higures_apprentice.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Higure's Last Will",
+    "ref": "trap_continuous",
+    "out": "assets/card_art/beyond/kamigawa/higures_last_will.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Higure, Mirror Reflection",
+    "ref": "xyz_warrior_rank4",
+    "out": "assets/card_art/beyond/kamigawa/higure_mirror_reflection.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Higure, the Still Wind",
+    "ref": "warrior_dark_lv5_6",
+    "out": "assets/card_art/beyond/kamigawa/higure_the_still_wind.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Hikari, Twilight Guardian",
+    "ref": "warrior_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/hikari_twilight_guardian.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Hinder",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/hinder.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Honden Acolyte",
+    "ref": "spellcaster_light_lv1_2",
+    "out": "assets/card_art/beyond/kamigawa/honden_acolyte.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Honden of Cleansing Fire",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/honden_of_cleansing_fire.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Honden of Infinite Rage",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/honden_of_infinite_rage.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Honden of Life's Web",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/honden_of_lifes_web.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Honden of Night's Reach",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/honden_of_nights_reach.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Honden of Seeing Winds",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/honden_of_seeing_winds.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Honor-Worn Shaku",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/honor_worn_shaku.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Howling Mine",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/howling_mine.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Iga-Style Cooper",
+    "ref": "warrior_water_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/iga_style_cooper.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Imperial Edict",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/imperial_edict.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Imperial Mobilization",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/imperial_mobilization.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Imperial Recovery (Cyborg)",
+    "ref": "machine_earth_lv4",
+    "out": "assets/card_art/beyond/kamigawa/imperial_recovery_cyborg.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Imperial Recovery Unit",
+    "ref": "machine_earth_lv4",
+    "out": "assets/card_art/beyond/kamigawa/imperial_recovery_unit.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Iname, Death Aspect",
+    "ref": "spellcaster_dark_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/iname_death_aspect.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Iname, Life Aspect",
+    "ref": "spellcaster_light_lv1_2",
+    "out": "assets/card_art/beyond/kamigawa/iname_life_aspect.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Inari Ascendant Foxguard",
+    "ref": "beast_light_lv4",
+    "out": "assets/card_art/beyond/kamigawa/inari_ascendant_foxguard.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ink-Eyes, Servant of Oni",
+    "ref": "beast_light_lv4",
+    "out": "assets/card_art/beyond/kamigawa/ink_eyes_servant_of_oni.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Inkblot",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/inkblot.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Isamaru, Hound of Konda",
+    "ref": "beastwarrior_earth_lv4",
+    "out": "assets/card_art/beyond/kamigawa/isamaru_hound_of_konda.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Island, Mirror's Edge",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/island_mirrors_edge.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Jugan, the Rising Star",
+    "ref": "dragon_earth_lv7_9",
+    "out": "assets/card_art/beyond/kamigawa/jugan_the_rising_star.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kabuto-Mushi",
+    "ref": "insect_earth_lv2",
+    "out": "assets/card_art/beyond/kamigawa/kabuto_mushi.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kaito Shizuki",
+    "ref": "warrior_water_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/kaito_shizuki.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kaito, Bane of Nightmares",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/kaito_bane_of_nightmares.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kaito, Cunning Infiltrator",
+    "ref": "machine_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/kaito_cunning_infiltrator.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kami of Ancient Law",
+    "ref": "spellcaster_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/kami_of_ancient_law.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kami of False Hope",
+    "ref": "warrior_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/kami_of_false_hope.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kami of Hopeful Strength",
+    "ref": "beast_earth_lv4",
+    "out": "assets/card_art/beyond/kamigawa/kami_of_hopeful_strength.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Karma",
+    "ref": "trap_continuous",
+    "out": "assets/card_art/beyond/kamigawa/karma.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Keiga, the Tide Star",
+    "ref": "dragon_water_lv7_9",
+    "out": "assets/card_art/beyond/kamigawa/keiga_the_tide_star.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kira, Great Glass-Spinner",
+    "ref": "spellcaster_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/kira_great_glass_spinner.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kirin of the First Wind",
+    "ref": "beast_light_lv4",
+    "out": "assets/card_art/beyond/kamigawa/kirin_of_the_first_wind.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kitsune Diviner",
+    "ref": "spellcaster_light_lv1_2",
+    "out": "assets/card_art/beyond/kamigawa/kitsune_diviner.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kitsune-Tsuki",
+    "ref": "trap_continuous",
+    "out": "assets/card_art/beyond/kamigawa/kitsune_tsuki.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kokusho, the Evening Star",
+    "ref": "dragon_dark_lv7_9",
+    "out": "assets/card_art/beyond/kamigawa/kokusho_the_evening_star.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Konda's Apex Dragon",
+    "ref": "synchro_dragon_lv8",
+    "out": "assets/card_art/beyond/kamigawa/kondas_apex_dragon.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Konda's Banner-Bearer",
+    "ref": "warrior_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/kondas_banner_bearer.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Konda's Hatamoto",
+    "ref": "warrior_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/kondas_hatamoto.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Konda, Lord of Eiganjo",
+    "ref": "warrior_light_lv7_8",
+    "out": "assets/card_art/beyond/kamigawa/konda_lord_of_eiganjo.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Kotori, the Pearl-Shell Dragon",
+    "ref": "dragon_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/kotori_the_pearl_shell_dragon.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Light-Paws, Emperor's Voice",
+    "ref": "beast_light_lv4",
+    "out": "assets/card_art/beyond/kamigawa/light_paws_emperors_voice.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Lightning Bolt",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/lightning_bolt.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Lightning Greaves",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/lightning_greaves.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Llanowar Elves",
+    "ref": "plant_earth_lv2",
+    "out": "assets/card_art/beyond/kamigawa/llanowar_elves.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mana Leak",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/mana_leak.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Meloku the Clouded Mirror",
+    "ref": "spellcaster_water_lv4",
+    "out": "assets/card_art/beyond/kamigawa/meloku_the_clouded_mirror.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mirror Realm",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/mirror_realm.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mirror Stone of Five Suns",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/mirror_stone_of_five_suns.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Misdirection Master",
+    "ref": "spellcaster_water_lv4",
+    "out": "assets/card_art/beyond/kamigawa/misdirection_master.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mishra's Bauble",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/mishras_bauble.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mistblade Shinobi",
+    "ref": "warrior_water_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/mistblade_shinobi.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mistblade's Cunning",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/mistblades_cunning.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Modified Token Generator",
+    "ref": "machine_earth_lv4",
+    "out": "assets/card_art/beyond/kamigawa/modified_token_generator.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Modular Upgrade",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/modular_upgrade.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mothrider Samurai",
+    "ref": "wingbeast_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/mothrider_samurai.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mountain, Smoldering Crag",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/mountain_smoldering_crag.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mox Diamond",
+    "ref": "rock_earth_lv1_2",
+    "out": "assets/card_art/beyond/kamigawa/mox_diamond.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mox Opal",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/mox_opal.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mukotai Ambusher",
+    "ref": "warrior_dark_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/mukotai_ambusher.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mukotai Reaper-Engine",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/mukotai_reaper_engine.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Mukotai Soulripper",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/mukotai_soulripper.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Negate",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/negate.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ninja Grandmaster Sasuke",
+    "ref": "warrior_dark_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/ninja_grandmaster_sasuke.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ninja Strike Force",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/ninja_strike_force.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ninja of the Deep Hours",
+    "ref": "warrior_water_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/ninja_of_the_deep_hours.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ninja's Cunning",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/ninjas_cunning.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ninja's Echo",
+    "ref": "trap_continuous",
+    "out": "assets/card_art/beyond/kamigawa/ninjas_echo.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ninjitsu Art of Decoy",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/ninjitsu_art_of_decoy.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ninjitsu Art of Duplication",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/ninjitsu_art_of_duplication.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ninjitsu Art of Transformation",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/ninjitsu_art_of_transformation.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ninjutsu Apprentice",
+    "ref": "warrior_dark_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/ninjutsu_apprentice.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima"
+    ],
+    "success": false
+  },
+  {
+    "card": "O-Kagachi, Vengeful Kami",
+    "ref": "fusion_dragon_high",
+    "out": "assets/card_art/beyond/kamigawa/o_kagachi_vengeful_kami.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Otawara, Imperial Stronghold",
+    "ref": "link_warrior",
+    "out": "assets/card_art/beyond/kamigawa/otawara_imperial_stronghold.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Otawara, Soaring City",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/otawara_soaring_city.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Otherworldly Journey",
+    "ref": "spellcaster_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/otherworldly_journey.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Path of Bravery",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/path_of_bravery.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Path of Shadows",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/path_of_shadows.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Path of the Shadow",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/path_of_the_shadow.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Path to Exile",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/path_to_exile.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Patron of the Moon",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/patron_of_the_moon.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Pearl-Dragon Concord",
+    "ref": "synchro_dragon_lv8",
+    "out": "assets/card_art/beyond/kamigawa/pearl_dragon_concord.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Petalmane Baku",
+    "ref": "beast_earth_lv4",
+    "out": "assets/card_art/beyond/kamigawa/petalmane_baku.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Petals of Insight",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/petals_of_insight.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Phyrexian Arena",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/phyrexian_arena.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Phyrexian Borrower",
+    "ref": "machine_light_lv5",
+    "out": "assets/card_art/beyond/kamigawa/phyrexian_borrower.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Plains, Sanctified Ground",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/plains_sanctified_ground.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ponder",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/ponder.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Preordain",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/preordain.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Reach Through Mists",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/reach_through_mists.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Reality Chip Bearer",
+    "ref": "spellcaster_water_lv4",
+    "out": "assets/card_art/beyond/kamigawa/reality_chip_bearer.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Reality Stutter",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/reality_stutter.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Reciprocate",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/reciprocate.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Reckoner Bankbuster",
+    "ref": "machine_earth_lv4",
+    "out": "assets/card_art/beyond/kamigawa/reckoner_bankbuster.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Reconstruct",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/reconstruct.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Reflect Lord of the Soratami",
+    "ref": "spellcaster_water_lv4",
+    "out": "assets/card_art/beyond/kamigawa/reflect_lord_of_the_soratami.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Refurbish",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/refurbish.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Resonator Shield",
+    "ref": "trap_continuous",
+    "out": "assets/card_art/beyond/kamigawa/resonator_shield.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Resounding Roar",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/resounding_roar.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Reverberate",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/reverberate.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ronin Houndmaster",
+    "ref": "warrior_earth_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/ronin_houndmaster.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ryusei, the Falling Star",
+    "ref": "dragon_fire_lv7_9",
+    "out": "assets/card_art/beyond/kamigawa/ryusei_the_falling_star.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Sage of Mountain Path",
+    "ref": "spellcaster_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/sage_of_mountain_path.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Saheeli's Imperial Lattice",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/saheelis_imperial_lattice.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Saheeli, Filigree Master",
+    "ref": "machine_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/saheeli_filigree_master.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Saheeli, Filigree Master (Synchro)",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/saheeli_filigree_master_synchro.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Saheeli, the Gifted",
+    "ref": "link_warrior",
+    "out": "assets/card_art/beyond/kamigawa/saheeli_the_gifted.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Sai of the Shinobi",
+    "ref": "warrior_earth_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/sai_of_the_shinobi.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Sakashima the Imposter",
+    "ref": "warrior_water_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/sakashima_the_imposter.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Sakura-Tribe Scout",
+    "ref": "plant_earth_lv2",
+    "out": "assets/card_art/beyond/kamigawa/sakura_tribe_scout.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Sangromancer",
+    "ref": "spellcaster_dark_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/sangromancer.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Satoru Umezawa",
+    "ref": "warrior_dark_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/satoru_umezawa.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Satoru Umezawa, Bridgekeeper",
+    "ref": "link_warrior",
+    "out": "assets/card_art/beyond/kamigawa/satoru_umezawa_bridgekeeper.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Sealing Tag",
+    "ref": "trap_continuous",
+    "out": "assets/card_art/beyond/kamigawa/sealing_tag.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Shroud of the Eternal",
+    "ref": "trap_continuous",
+    "out": "assets/card_art/beyond/kamigawa/shroud_of_the_eternal.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Smoke Bomb",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/smoke_bomb.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Sokenzan Renegade",
+    "ref": "warrior_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/sokenzan_renegade.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Solemn Wayfarer",
+    "ref": "warrior_earth_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/solemn_wayfarer.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Solitary Confinement",
+    "ref": "spellcaster_light_lv1_2",
+    "out": "assets/card_art/beyond/kamigawa/solitary_confinement.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Soratami Cloudskater",
+    "ref": "wingbeast_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/soratami_cloudskater.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Soratami Mirror-Guard",
+    "ref": "wingbeast_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/soratami_mirror_guard.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Soratami Mirror-Mage",
+    "ref": "wingbeast_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/soratami_mirror_mage.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Soratami Savant",
+    "ref": "wingbeast_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/soratami_savant.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Soulless Ringing",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/soulless_ringing.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Soulshift Brand",
+    "ref": "spell_continuous",
+    "out": "assets/card_art/beyond/kamigawa/soulshift_brand.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Spell Pierce",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/spell_pierce.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Spirit Bond",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/spirit_bond.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Spirit-Hatch Trill",
+    "ref": "link_warrior",
+    "out": "assets/card_art/beyond/kamigawa/spirit_hatch_trill.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Splice Bushido",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/splice_bushido.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Squee, Goblin Nabob",
+    "ref": "pyro_fire_lv1",
+    "out": "assets/card_art/beyond/kamigawa/squee_goblin_nabob.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Stand Together",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/stand_together.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Stoneforge Mystic",
+    "ref": "spellcaster_light_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/stoneforge_mystic.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Storm of Saito",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/storm_of_saito.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Swamp, Choking Mire",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/swamp_choking_mire.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Sword and Shield",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/sword_and_shield.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Sword of Light and Shadow",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/sword_of_light_and_shadow.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Swords to Plowshares",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/swords_to_plowshares.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Tamiyo, Compleated Sage",
+    "ref": "pendulum_dragon",
+    "out": "assets/card_art/beyond/kamigawa/tamiyo_compleated_sage.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Tamiyo, Field Researcher",
+    "ref": "spellcaster_water_lv4",
+    "out": "assets/card_art/beyond/kamigawa/tamiyo_field_researcher.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Tezzeret's Edict",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/tezzerets_edict.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Tezzeret's Touch",
+    "ref": "machine_light_lv5",
+    "out": "assets/card_art/beyond/kamigawa/tezzerets_touch.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Tezzeret, Schemer of Lattices",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/tezzeret_schemer_of_lattices.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "The Reality Chip",
+    "ref": "spell_field",
+    "out": "assets/card_art/beyond/kamigawa/the_reality_chip.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "The Wandering Decree",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/the_wandering_decree.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "The Wandering Emperor",
+    "ref": "xyz_warrior_rank4",
+    "out": "assets/card_art/beyond/kamigawa/the_wandering_emperor.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "The Wandering Emperor, Cloud Sovereign",
+    "ref": "spellcaster_water_lv4",
+    "out": "assets/card_art/beyond/kamigawa/the_wandering_emperor_cloud_sovereign.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "The Wandering Emperor, Modified Variant",
+    "ref": "machine_wind_lv4",
+    "out": "assets/card_art/beyond/kamigawa/the_wandering_emperor_modified_variant.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "The Wandering Heir",
+    "ref": "warrior_light_lv5_6",
+    "out": "assets/card_art/beyond/kamigawa/the_wandering_heir.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Throat Slitter",
+    "ref": "warrior_dark_lv5_6",
+    "out": "assets/card_art/beyond/kamigawa/throat_slitter.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Throwing Stars",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/throwing_stars.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Tide of Knowledge",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/tide_of_knowledge.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Tide-Star Acolyte",
+    "ref": "spellcaster_water_lv4",
+    "out": "assets/card_art/beyond/kamigawa/tide_star_acolyte.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Tideshepherd Koi Spirit",
+    "ref": "warrior_water_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/tideshepherd_koi_spirit.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Toshiro Umezawa",
+    "ref": "warrior_dark_lv5_6",
+    "out": "assets/card_art/beyond/kamigawa/toshiro_umezawa.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Trial of the Moonless Night",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/trial_of_the_moonless_night.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Vapor Snag",
+    "ref": "spell_quickplay",
+    "out": "assets/card_art/beyond/kamigawa/vapor_snag.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Village Guide Spirit",
+    "ref": "beast_light_lv4",
+    "out": "assets/card_art/beyond/kamigawa/village_guide_spirit.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Voltron Construct",
+    "ref": "machine_earth_lv4",
+    "out": "assets/card_art/beyond/kamigawa/voltron_construct.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Vow of Reverence",
+    "ref": "trap_normal",
+    "out": "assets/card_art/beyond/kamigawa/vow_of_reverence.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Walker of Secret Ways",
+    "ref": "warrior_water_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/walker_of_secret_ways.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Wandering Negation",
+    "ref": "trap_counter",
+    "out": "assets/card_art/beyond/kamigawa/wandering_negation.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Wheel of Fortune",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/wheel_of_fortune.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Whispersilk Cloak",
+    "ref": "spell_equip",
+    "out": "assets/card_art/beyond/kamigawa/whispersilk_cloak.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Workshop Assembly",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/workshop_assembly.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Wrath of God",
+    "ref": "spell_normal",
+    "out": "assets/card_art/beyond/kamigawa/wrath_of_god.png",
+    "attempts": [
+      "Images API failed (403): {\n  \"error\": {\n    \"message\": \"Your organization must be verified to use the model `chatgpt-ima",
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Yosei, the Morning Star",
+    "ref": "dragon_light_lv7_9",
+    "out": "assets/card_art/beyond/kamigawa/yosei_the_morning_star.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Yukora, the Prisoner",
+    "ref": "warrior_dark_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/yukora_the_prisoner.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Yuriko, the Tiger's Shadow",
+    "ref": "synchro_warrior_lv5",
+    "out": "assets/card_art/beyond/kamigawa/yuriko_the_tigers_shadow.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  },
+  {
+    "card": "Ninjutsu Apprentice",
+    "ref": "warrior_dark_lv3_4",
+    "out": "assets/card_art/beyond/kamigawa/ninjutsu_apprentice.png",
+    "attempts": [
+      "ok"
+    ],
+    "success": true
+  }
+]
