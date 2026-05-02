@@ -192,6 +192,190 @@ def make_death_trigger(
 
 
 # =============================================================================
+# COUNTER-TRANSFER-ON-DEATH (Reluctant Role Model template)
+# =============================================================================
+
+def make_counter_transfer_on_death(
+    source_obj: GameObject,
+    filter_fn: Optional[Callable[[GameObject, GameState], bool]] = None,
+    *,
+    prompt: str = "Choose a creature to receive the transferred counters",
+    optional: bool = True,
+) -> Interceptor:
+    """
+    Trigger that fires when a creature (matching ``filter_fn``) dies and had
+    counters on it; emit a target choice for a recipient and transfer all
+    counters that were on the dying creature to the chosen target.
+
+    Default ``filter_fn`` is "this creature or another creature you control",
+    matching cards like Reluctant Role Model whose own death also triggers.
+
+    Args:
+        source_obj: The card whose ability is doing the transfer.
+        filter_fn: ``(dying_obj, state) -> bool``. Default: source itself OR
+            any creature controlled by source.controller, on battlefield-leave.
+        prompt: Choice prompt the player sees.
+        optional: If True, recipient choice has min_choices=0 (player may decline).
+
+    Behaviour:
+        Listens on OBJECT_DESTROYED / ZONE_CHANGE (BF -> GY) / SACRIFICE
+        for objects matching ``filter_fn`` that had at least one counter at
+        time of death. On match, a PendingChoice of choice_type='target' is
+        opened; when the player picks a recipient, COUNTER_ADDED events
+        (and COUNTER_REMOVED events on the dying creature) are emitted to
+        carry out the transfer.
+
+    Returns:
+        An Interceptor with duration='until_leaves' so a self-death also fires.
+    """
+    source_id = source_obj.id
+    controller_id = source_obj.controller
+
+    def default_filter(dying: GameObject, state: GameState) -> bool:
+        # Self OR any creature controlled by source.controller. Source itself
+        # may already be in graveyard at trigger time; resolve from state to
+        # learn its (now-old) controller for the team check.
+        if dying.id == source_id:
+            return True
+        if CardType.CREATURE not in dying.characteristics.types:
+            return False
+        return dying.controller == controller_id
+
+    actual_filter = filter_fn or default_filter
+
+    def _resolve_dying_id(event: Event) -> Optional[str]:
+        if event.type == EventType.OBJECT_DESTROYED:
+            return event.payload.get('object_id')
+        if event.type == EventType.SACRIFICE:
+            return event.payload.get('object_id')
+        if event.type == EventType.ZONE_CHANGE:
+            if (event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD and
+                    event.payload.get('to_zone_type') == ZoneType.GRAVEYARD):
+                return event.payload.get('object_id')
+        return None
+
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        # Source must still exist (and be on battlefield) for the trigger to
+        # remain active. We allow self-death (source in graveyard) because the
+        # interceptor is duration='until_leaves' — it gets one chance to fire
+        # before the cleanup pass removes it.
+        source = state.objects.get(source_id)
+        if source is None:
+            return False
+        # If this is a non-self death, the source must still be on battlefield.
+        dying_id = _resolve_dying_id(event)
+        if dying_id is None:
+            return False
+        if dying_id != source_id and source.zone != ZoneType.BATTLEFIELD:
+            return False
+        dying = state.objects.get(dying_id)
+        if dying is None:
+            return False
+        # Counters persist on obj.state.counters even after the move to GY.
+        counters = getattr(dying.state, 'counters', None) or {}
+        total = sum(int(v) for v in counters.values())
+        if total <= 0:
+            return False
+        return actual_filter(dying, state)
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        dying_id = _resolve_dying_id(event)
+        dying = state.objects.get(dying_id) if dying_id else None
+        if dying is None:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        # Snapshot counters BEFORE we open the choice (the chosen recipient
+        # may not be picked until later, by which point a parallel effect
+        # could have moved/removed the dying object). We freeze the data
+        # into the choice's callback_data.
+        counters_snapshot = dict(getattr(dying.state, 'counters', {}) or {})
+        if not counters_snapshot:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        # Legal targets: any creature on the battlefield that isn't the dying
+        # one. (The card text says "up to one target creature" — opponent's
+        # creatures are legal.)
+        legal_targets = [
+            oid for oid, ob in state.objects.items()
+            if (ob.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in ob.characteristics.types
+                and oid != dying_id)
+        ]
+
+        def _on_chosen(choice: PendingChoice, selected: list, st: GameState) -> list[Event]:
+            if not selected:
+                return []
+            target_id = selected[0]
+            # Validate the target is still legal.
+            target = st.objects.get(target_id)
+            if (target is None or target.zone != ZoneType.BATTLEFIELD
+                    or CardType.CREATURE not in target.characteristics.types):
+                return []
+            events: list[Event] = []
+            for ctype, amount in counters_snapshot.items():
+                if amount <= 0:
+                    continue
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={
+                        'object_id': target_id,
+                        'counter_type': ctype,
+                        'amount': int(amount),
+                    },
+                    source=source_id,
+                    controller=controller_id,
+                ))
+                # Also clear the counters on the dying creature (it's now in GY,
+                # but if it's returned to play later the counters shouldn't
+                # double up). This mirrors actual MTG: counters move, they
+                # don't duplicate.
+                events.append(Event(
+                    type=EventType.COUNTER_REMOVED,
+                    payload={
+                        'object_id': dying_id,
+                        'counter_type': ctype,
+                        'amount': int(amount),
+                    },
+                    source=source_id,
+                    controller=controller_id,
+                ))
+            return events
+
+        # If there are no legal targets, the trigger still fires (per MTG
+        # rules a "may" target with no legal targets is a no-op), but we
+        # don't open a choice.
+        if not legal_targets:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        choice = PendingChoice(
+            choice_type="target",
+            player=controller_id,
+            prompt=prompt,
+            options=legal_targets,
+            source_id=source_id,
+            min_choices=0 if optional else 1,
+            max_choices=1,
+            callback_data={
+                'handler': _on_chosen,
+                'counters_snapshot': counters_snapshot,
+                'dying_id': dying_id,
+            },
+        )
+        state.pending_choice = choice
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='until_leaves',
+    )
+
+
+# =============================================================================
 # ATTACK TRIGGER
 # =============================================================================
 
@@ -1033,6 +1217,54 @@ def make_survival_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield',
     )
+
+
+# =============================================================================
+# EXILE-WITH-SOURCE TRACKING (Veteran Survivor template)
+# =============================================================================
+#
+# Cards like Veteran Survivor count "cards exiled with this creature" to
+# scale a static effect ("As long as there are three or more cards exiled
+# with this creature, ..."). The tracking lives on
+# ``ObjectState.exiled_with_source`` (a list[str] of object ids).
+#
+# Use ``track_exile_with`` when emitting/resolving the EXILE event for a
+# specific source, and ``count_exiled_with`` from a static interceptor
+# (QUERY_POWER / QUERY_TOUGHNESS / QUERY_ABILITIES) to read the count.
+# =============================================================================
+
+
+def track_exile_with(state: GameState, source_id: str, exiled_id: str) -> None:
+    """Record that ``exiled_id`` was exiled by ``source_id`` (additive).
+
+    Safe to call repeatedly; duplicates are ignored. The card is *not*
+    removed when the exiling source leaves play — Veteran Survivor's static
+    ability is gated by source-on-battlefield, so the count effectively
+    becomes inert (still readable for log/debug).
+    """
+    source = state.objects.get(source_id)
+    if source is None:
+        return
+    tracker = getattr(source.state, 'exiled_with_source', None)
+    if tracker is None:
+        tracker = []
+        source.state.exiled_with_source = tracker
+    if exiled_id and exiled_id not in tracker:
+        tracker.append(exiled_id)
+
+
+def count_exiled_with(state: GameState, source_id: str) -> int:
+    """Return the number of cards exiled with ``source_id``.
+
+    Cards that have since left the exile zone (e.g. a saga that returned
+    them, a flicker effect) are still counted — Veteran Survivor's reminder
+    text is "exiled with this creature" without a "still in exile" rider.
+    """
+    source = state.objects.get(source_id)
+    if source is None:
+        return 0
+    tracker = getattr(source.state, 'exiled_with_source', None) or []
+    return len(tracker)
 
 
 # =============================================================================
@@ -3225,6 +3457,385 @@ def any_card_filter() -> Callable[[GameObject, GameState], bool]:
     """Filter: any card in library (unconditional tutor)."""
     from src.engine.library_search import any_card
     return any_card()
+
+
+# =============================================================================
+# HAND -> BATTLEFIELD CHOICE (Kona, Rescue Beastie / Ghalta template)
+# =============================================================================
+#
+# Many cards say "you may put a [permanent] card from your hand onto the
+# battlefield". The engine handles ZONE_CHANGE from HAND to BATTLEFIELD
+# directly, but choosing the card requires a PendingChoice over the player's
+# hand filtered to the relevant card kind. ``make_hand_to_battlefield_choice``
+# builds the events needed to open that choice from inside an effect_fn.
+# =============================================================================
+
+
+def _is_permanent_card(obj: GameObject, _state: GameState) -> bool:
+    """Default permanent filter: anything that becomes a permanent on the
+    battlefield (creature, artifact, enchantment, planeswalker, land,
+    battle). Excludes instants and sorceries.
+    """
+    permanent_types = {
+        CardType.CREATURE,
+        CardType.ARTIFACT,
+        CardType.ENCHANTMENT,
+        CardType.PLANESWALKER,
+        CardType.LAND,
+    }
+    # MTG "Battle" type — added in March of the Machine. Not yet in our enum,
+    # but include it dynamically if/when added.
+    if hasattr(CardType, 'BATTLE'):
+        permanent_types.add(getattr(CardType, 'BATTLE'))
+    types = getattr(obj.characteristics, 'types', set()) or set()
+    return any(t in types for t in permanent_types)
+
+
+def make_hand_to_battlefield_choice(
+    state: GameState,
+    player_id: str,
+    source_id: str,
+    *,
+    filter_fn: Optional[Callable[[GameObject, GameState], bool]] = None,
+    optional: bool = True,
+    tapped: bool = False,
+    prompt: Optional[str] = None,
+) -> list[Event]:
+    """Open a PendingChoice over ``player_id``'s hand for "put a card from
+    hand onto the battlefield" effects.
+
+    Args:
+        state: The game state. ``state.pending_choice`` will be set on success.
+        player_id: The owner of the hand we're searching.
+        source_id: Card/ability id (for log + targeting).
+        filter_fn: ``(card_obj, state) -> bool``. Defaults to "any permanent
+            card" (creature, artifact, enchantment, planeswalker, land,
+            battle — excludes instants and sorceries).
+        optional: If True (default), player may decline (min_choices=0).
+        tapped: If True, the chosen card enters tapped.
+        prompt: Optional UI prompt. Auto-generated if absent.
+
+    Returns:
+        ``[]`` (the PendingChoice does the work). Use this as the return value
+        of an ``effect_fn``. If the hand has no legal cards and the choice is
+        optional, no choice is opened and ``[]`` is returned.
+    """
+    actual_filter = filter_fn or _is_permanent_card
+
+    hand_key = f"hand_{player_id}"
+    hand = state.zones.get(hand_key)
+    if hand is None:
+        return []
+
+    legal_ids: list[str] = []
+    for cid in hand.objects:
+        cobj = state.objects.get(cid)
+        if cobj is None:
+            continue
+        try:
+            if actual_filter(cobj, state):
+                legal_ids.append(cid)
+        except Exception:
+            continue
+
+    if not legal_ids:
+        return []
+
+    def _on_chosen(choice: PendingChoice, selected: list, st: GameState) -> list[Event]:
+        if not selected:
+            return []
+        chosen_id = selected[0]
+        chosen = st.objects.get(chosen_id)
+        if chosen is None or chosen.zone != ZoneType.HAND:
+            return []
+        # Emit ZONE_CHANGE from HAND -> BATTLEFIELD. The pipeline's
+        # _handle_zone_change handler will move the object, fire ETB,
+        # run setup_interceptors, etc.
+        zc_payload = {
+            'object_id': chosen_id,
+            'from_zone_type': ZoneType.HAND,
+            'from_zone_owner': chosen.owner,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+        }
+        events = [Event(
+            type=EventType.ZONE_CHANGE,
+            payload=zc_payload,
+            source=source_id,
+            controller=player_id,
+        )]
+        if tapped:
+            # Schedule a follow-up TAP after the ZONE_CHANGE resolves.
+            events.append(Event(
+                type=EventType.TAP,
+                payload={'object_id': chosen_id},
+                source=source_id,
+                controller=player_id,
+            ))
+        return events
+
+    choice_prompt = prompt or (
+        "Choose a permanent card to put onto the battlefield"
+        if filter_fn is None
+        else "Choose a card to put onto the battlefield"
+    )
+
+    choice = PendingChoice(
+        choice_type="hand_to_battlefield",
+        player=player_id,
+        prompt=choice_prompt,
+        options=legal_ids,
+        source_id=source_id,
+        min_choices=0 if optional else 1,
+        max_choices=1,
+        callback_data={
+            'handler': _on_chosen,
+            'tapped': bool(tapped),
+        },
+    )
+    state.pending_choice = choice
+    return []
+
+
+# =============================================================================
+# REVEAL TOP N WITH DISTINCT-ATTR FILTER (Rip, Spawn Hunter template)
+# =============================================================================
+#
+# Some cards reveal the top N of the library, then let the player put any
+# number of revealed cards matching some filter into hand (or another zone),
+# subject to a "different X" constraint (e.g. "with different powers").
+# Cards not chosen go to a configurable destination — typically the bottom
+# of the library in random order ("randomize the rest").
+# =============================================================================
+
+
+def reveal_top_n_with_distinct_filter(
+    state: GameState,
+    player_id: str,
+    source_id: str,
+    n: int,
+    *,
+    filter_fn: Optional[Callable[[GameObject, GameState], bool]] = None,
+    distinct_attr: str = 'power',
+    destination: str = 'hand',
+    remainder: str = 'bottom_random',
+    prompt: Optional[str] = None,
+) -> list[Event]:
+    """Reveal the top ``n`` cards of ``player_id``'s library and open a choice
+    where the player picks any subset matching ``filter_fn`` such that all
+    chosen cards have *distinct* values for ``distinct_attr``. Selected cards
+    go to ``destination``; the rest go per ``remainder``.
+
+    Sibling of :func:`src.engine.face_down._handle_manifest_dread`: pulls cards
+    off the top of the library, but instead of manifesting one and milling the
+    rest, surfaces a multi-target PendingChoice gated by a distinctness rule.
+
+    Args:
+        state: Game state.
+        player_id: Library owner / chooser.
+        source_id: Card/ability id (for log + targeting).
+        n: Number of cards to reveal from the top.
+        filter_fn: Eligibility check, ``(obj, state) -> bool``. Cards failing
+            the filter still go to ``remainder`` automatically; they're not
+            offered as options.
+        distinct_attr: Power-name to enforce distinctness over. Default 'power'
+            (Rip, Spawn Hunter). Other plausible values: 'toughness',
+            'mana_value'. Read off ``obj.characteristics`` (or the helpers
+            ``get_power``/``get_toughness`` if available) at choice-open time.
+        destination: Where chosen cards go. Currently 'hand' (Rip).
+            Other supported destinations route through ZONE_CHANGE events.
+        remainder: Where unchosen + non-eligible revealed cards go. Default
+            'bottom_random' (per Rip's text). Other values: 'bottom' (top->
+            bottom, preserving order), 'graveyard'.
+        prompt: Optional UI prompt.
+
+    Returns:
+        ``[]`` — the choice does the work. If the library is empty or
+        ``n <= 0``, nothing happens.
+    """
+    import random as _random
+
+    if n <= 0:
+        return []
+
+    library = state.zones.get(f"library_{player_id}")
+    if library is None or not library.objects:
+        return []
+
+    # Pull up to n from the top, strictly off the front of the list.
+    revealed_ids: list[str] = []
+    while library.objects and len(revealed_ids) < n:
+        revealed_ids.append(library.objects.pop(0))
+
+    if not revealed_ids:
+        return []
+
+    def _attr_value(obj: GameObject, attr: str) -> Any:
+        chars = getattr(obj, 'characteristics', None)
+        if chars is None:
+            return None
+        if attr == 'power':
+            return getattr(chars, 'power', None)
+        if attr == 'toughness':
+            return getattr(chars, 'toughness', None)
+        if attr in ('mana_value', 'mv', 'cmc'):
+            mc = getattr(chars, 'mana_cost', None)
+            if mc is None:
+                return 0
+            try:
+                return int(getattr(mc, 'mana_value', 0)) if hasattr(mc, 'mana_value') else int(mc)
+            except Exception:
+                return 0
+        return getattr(chars, attr, None)
+
+    # Eligible set: cards whose filter_fn returns True. Ineligible cards are
+    # routed straight to the remainder. We keep them in a secondary list.
+    eligible_ids: list[str] = []
+    ineligible_ids: list[str] = []
+    for cid in revealed_ids:
+        cobj = state.objects.get(cid)
+        if cobj is None:
+            ineligible_ids.append(cid)
+            continue
+        try:
+            if filter_fn is None or filter_fn(cobj, state):
+                eligible_ids.append(cid)
+            else:
+                ineligible_ids.append(cid)
+        except Exception:
+            ineligible_ids.append(cid)
+
+    def _route_to_remainder(ids: list[str]) -> list[Event]:
+        """Build events that move ``ids`` to ``remainder``."""
+        evs: list[Event] = []
+        if not ids:
+            return evs
+        if remainder == 'bottom_random':
+            order = list(ids)
+            _random.shuffle(order)
+            lib = state.zones.get(f"library_{player_id}")
+            if lib is None:
+                return []
+            for oid in order:
+                ob = state.objects.get(oid)
+                if ob is None:
+                    continue
+                lib.objects.append(oid)
+                ob.zone = ZoneType.LIBRARY
+                ob.entered_zone_at = state.timestamp
+        elif remainder == 'bottom':
+            lib = state.zones.get(f"library_{player_id}")
+            if lib is None:
+                return []
+            for oid in ids:
+                ob = state.objects.get(oid)
+                if ob is None:
+                    continue
+                lib.objects.append(oid)
+                ob.zone = ZoneType.LIBRARY
+                ob.entered_zone_at = state.timestamp
+        elif remainder == 'graveyard':
+            gy = state.zones.get(f"graveyard_{player_id}")
+            if gy is None:
+                return []
+            for oid in ids:
+                ob = state.objects.get(oid)
+                if ob is None:
+                    continue
+                gy.objects.append(oid)
+                ob.zone = ZoneType.GRAVEYARD
+                ob.entered_zone_at = state.timestamp
+        return evs
+
+    def _on_chosen(choice: PendingChoice, selected: list, st: GameState) -> list[Event]:
+        # Validate the distinctness constraint.
+        seen_attr_values: set = set()
+        accepted: list[str] = []
+        for cid in selected:
+            if cid not in eligible_ids:
+                continue
+            cobj = st.objects.get(cid)
+            if cobj is None:
+                continue
+            v = _attr_value(cobj, distinct_attr)
+            if v in seen_attr_values:
+                # Skip duplicate-attr picks. We can't error here without
+                # re-opening the choice; tolerate by ignoring extras.
+                continue
+            seen_attr_values.add(v)
+            accepted.append(cid)
+
+        events: list[Event] = []
+        # Move accepted to destination.
+        for cid in accepted:
+            cobj = st.objects.get(cid)
+            if cobj is None:
+                continue
+            if destination == 'hand':
+                hand = st.zones.get(f"hand_{player_id}")
+                if hand is None:
+                    continue
+                hand.objects.append(cid)
+                cobj.zone = ZoneType.HAND
+                cobj.entered_zone_at = st.timestamp
+            elif destination == 'battlefield':
+                events.append(Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': cid,
+                        'from_zone_type': ZoneType.LIBRARY,
+                        'to_zone_type': ZoneType.BATTLEFIELD,
+                    },
+                    source=source_id,
+                    controller=player_id,
+                ))
+            elif destination == 'graveyard':
+                gy = st.zones.get(f"graveyard_{player_id}")
+                if gy is None:
+                    continue
+                gy.objects.append(cid)
+                cobj.zone = ZoneType.GRAVEYARD
+                cobj.entered_zone_at = st.timestamp
+            elif destination == 'exile':
+                ex = st.zones.get('exile')
+                if ex is None:
+                    continue
+                ex.objects.append(cid)
+                cobj.zone = ZoneType.EXILE
+                cobj.entered_zone_at = st.timestamp
+
+        # Route non-accepted (eligible-but-not-chosen + ineligible) to remainder.
+        rest = [cid for cid in eligible_ids if cid not in accepted] + ineligible_ids
+        events.extend(_route_to_remainder(rest))
+        return events
+
+    if not eligible_ids:
+        # Nothing to choose — route everything to remainder and finish.
+        _route_to_remainder(ineligible_ids)
+        return []
+
+    choice_prompt = prompt or (
+        f"Choose any number of cards (with different {distinct_attr}s)"
+    )
+
+    choice = PendingChoice(
+        choice_type="reveal_distinct",
+        player=player_id,
+        prompt=choice_prompt,
+        options=list(eligible_ids),
+        source_id=source_id,
+        min_choices=0,
+        max_choices=len(eligible_ids),
+        callback_data={
+            'handler': _on_chosen,
+            'distinct_attr': distinct_attr,
+            'destination': destination,
+            'remainder': remainder,
+            'eligible_ids': list(eligible_ids),
+            'ineligible_ids': list(ineligible_ids),
+        },
+    )
+    state.pending_choice = choice
+    return []
 
 
 # === SAGA HELPERS ===
