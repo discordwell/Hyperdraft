@@ -102,8 +102,60 @@ class StackItem:
     timestamp: int = 0
     can_be_countered: bool = True
 
+    # When True, this item can't be copied (e.g., Gogo's "This ability can't be copied").
+    can_be_copied: bool = True
+
+    # Marks this item as a copy (e.g., from "copy target activated or triggered ability").
+    # Copies don't get put into a graveyard/exile when they resolve — they simply cease
+    # to exist after producing their effect.
+    is_copy: bool = False
+
     def __repr__(self) -> str:
         return f"StackItem({self.type.name}, source={self.source_id})"
+
+    def copy(
+        self,
+        *,
+        new_targets: Optional[list[list[Target]]] = None,
+        new_id_override: Optional[str] = None,
+    ) -> 'StackItem':
+        """Create a deep copy of this stack item.
+
+        The copy gets a fresh id and is marked ``is_copy=True``. It preserves
+        ``resolve_fn``, ``source_id``, ``controller_id``, and ``additional_data``
+        so the copy resolves with the same effect as the original.
+
+        Args:
+            new_targets: If provided, the copy uses these targets instead of the
+                original ``chosen_targets``. Must be the engine's standard
+                ``list[list[Target]]`` shape (one list per requirement).
+            new_id_override: If provided, use this as the copy's id. Mostly for
+                tests; production callers should let StackManager pick.
+        """
+        # chosen_targets are list[list[Target]]; Target instances are dataclasses
+        # of plain values, so a shallow copy of the inner list is sufficient.
+        if new_targets is not None:
+            copied_targets = [list(group) for group in new_targets]
+        else:
+            copied_targets = [list(group) for group in self.chosen_targets]
+
+        return StackItem(
+            id=new_id_override or new_id(),
+            type=self.type,
+            source_id=self.source_id,
+            controller_id=self.controller_id,
+            card_id=self.card_id,
+            target_requirements=list(self.target_requirements),
+            chosen_targets=copied_targets,
+            resolve_fn=self.resolve_fn,
+            x_value=self.x_value,
+            chosen_modes=list(self.chosen_modes),
+            additional_data=dict(self.additional_data),
+            timestamp=0,  # Will be reassigned by StackManager.push
+            can_be_countered=self.can_be_countered,
+            can_be_copied=self.can_be_copied,
+            is_copy=True,
+        )
 
 
 @dataclass
@@ -161,11 +213,48 @@ class StackManager:
         item.id = item.id or new_id()
         self.items.append(item)
 
-        # If it's a spell, move the card to the stack zone
-        if item.type == StackItemType.SPELL and item.card_id:
+        # If it's a spell, move the card to the stack zone.
+        # Copies of spells don't move any card around — there's no card object
+        # for the copy; the copy is a stack item only (a "copy of a spell").
+        if (
+            item.type == StackItemType.SPELL
+            and item.card_id
+            and not item.is_copy
+        ):
             self._move_to_stack(item.card_id)
 
         self._emit_event(StackEvent('push', item))
+
+    def push_copy(
+        self,
+        item_or_id,
+        *,
+        new_targets: Optional[list[list[Target]]] = None,
+    ) -> Optional[StackItem]:
+        """Copy a stack item and push the copy onto the stack.
+
+        Args:
+            item_or_id: A ``StackItem`` to copy, or a string id of an item
+                currently on the stack.
+            new_targets: Optional new targets (engine ``list[list[Target]]``
+                shape). If omitted, the copy keeps the original's targets.
+
+        Returns the newly pushed copy, or ``None`` if the source item couldn't
+        be found or refused to be copied (``can_be_copied=False``).
+        """
+        if isinstance(item_or_id, StackItem):
+            original = item_or_id
+        else:
+            original = self.get_item(item_or_id) if item_or_id else None
+
+        if original is None:
+            return None
+        if not getattr(original, "can_be_copied", True):
+            return None
+
+        copy_item = original.copy(new_targets=new_targets)
+        self.push(copy_item)
+        return copy_item
 
     def pop(self) -> Optional[StackItem]:
         """
@@ -274,8 +363,15 @@ class StackManager:
                 if os.environ.get("HYPERDRAFT_STRICT_STACK") == "1":
                     raise
 
-        # Handle post-resolution
-        if item.type == StackItemType.SPELL and item.card_id:
+        # Handle post-resolution.
+        # Copies of spells/abilities cease to exist after they resolve — they
+        # don't move a card to graveyard or onto the battlefield (there's no
+        # card associated with the copy).
+        if (
+            item.type == StackItemType.SPELL
+            and item.card_id
+            and not item.is_copy
+        ):
             events.extend(self._handle_spell_resolution(item))
 
         self._emit_event(StackEvent('resolve', item, result=events))
