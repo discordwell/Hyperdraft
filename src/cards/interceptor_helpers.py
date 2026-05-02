@@ -4825,4 +4825,119 @@ def suspect_creature(target_id: str, source_id: str, controller: str,
 
 __all_phase5__ = [
     "suspect_creature",
+    "collect_evidence",
+    "was_bargained",
 ]
+
+
+# =============================================================================
+# Phase 5: Collect Evidence (Murders at Karlov Manor)
+# =============================================================================
+#
+# "Collect evidence N" is a cost: exile any number of cards from your
+# graveyard with total mana value at least N. Used as both a cost on
+# activated abilities and as a triggered-ability gate.
+# =============================================================================
+
+
+def collect_evidence(player_id: str, n: int, state: GameState,
+                     source_id: str = "") -> Optional[list[Event]]:
+    """Greedy collect-evidence: exile graveyard cards (highest MV first) until
+    total MV ≥ ``n``. Returns the EXILE events to enqueue, or ``None`` if the
+    player can't meet the requirement.
+
+    The pipeline's EXILE handler moves the cards to exile; we do not need to
+    mutate state here.
+    """
+    from src.engine.types import CardType
+    grave = state.zones.get(f"graveyard_{player_id}")
+    if not grave:
+        return None
+
+    candidates: list[tuple[int, str]] = []
+    for cid in grave.objects:
+        obj = state.objects.get(cid)
+        if obj is None or obj.card_def is None:
+            continue
+        # Use mana_cost CMC if available; lands and 0-cost cards count as 0.
+        try:
+            mv = obj.card_def.characteristics.mana_cost_value()
+        except AttributeError:
+            mv = _approx_mana_value(obj.card_def.mana_cost or "")
+        candidates.append((mv, cid))
+
+    candidates.sort(key=lambda x: -x[0])
+    total = 0
+    chosen: list[str] = []
+    for mv, cid in candidates:
+        if total >= n:
+            break
+        chosen.append(cid)
+        total += mv
+    if total < n:
+        return None
+
+    return [
+        Event(
+            type=EventType.EXILE,
+            payload={'object_id': cid},
+            source=source_id or cid,
+            controller=player_id,
+        )
+        for cid in chosen
+    ]
+
+
+def _approx_mana_value(mana_cost: str) -> int:
+    """Approximate the mana value of a cost string. Treats X as 0."""
+    if not mana_cost:
+        return 0
+    import re as _re
+    total = 0
+    for sym in _re.findall(r'\{([^}]+)\}', mana_cost):
+        s = sym.upper()
+        if s.isdigit():
+            total += int(s)
+        elif s in ('W', 'U', 'B', 'R', 'G', 'C', 'S'):
+            total += 1
+        elif s == 'X' or s == 'Y' or s == 'Z':
+            total += 0
+        elif '/' in s:
+            # Hybrid mana — counts as 1
+            total += 1
+        elif 'P' in s:
+            total += 1
+    return total
+
+
+# =============================================================================
+# Phase 5: Bargain (Wilds of Eldraine)
+# =============================================================================
+#
+# "Bargain (You may sacrifice an artifact, enchantment, or token as you cast
+#  this spell.)"
+# Cards with Bargain have a base effect plus an "If this spell was bargained,
+# ..." bonus. Resolve callbacks consult was_bargained() to decide.
+#
+# The cast subsystem must set obj.state.was_bargained = True on the spell
+# card object before resolve when the bargain cost is paid. (For now this
+# isn't auto-prompted by the cast UI — the flag can be set via test fixtures
+# or a future cast-option extension.)
+# =============================================================================
+
+
+def was_bargained(state: GameState, card_name: str) -> bool:
+    """Look up the spell currently being resolved by name and return its
+    was_bargained flag.
+
+    Use inside a card's ``resolve=`` callback to branch on the bargain
+    bonus path.
+    """
+    stack_zone = state.zones.get('stack')
+    if not stack_zone:
+        return False
+    for cid in stack_zone.objects:
+        obj = state.objects.get(cid)
+        if obj and obj.name == card_name:
+            return bool(getattr(obj.state, 'was_bargained', False))
+    return False
