@@ -51,7 +51,47 @@ from src.cards.interceptor_helpers import (
     count_cards_in_graveyard,
     # Cost reduction.
     make_cost_reduction,
+    # Cycling.
+    make_cycling_setup,
 )
+
+
+def _make_typecycling_setup(mana_cost: str, land_subtype):
+    """Local helper: typecycling activated ability registered via setup_in_hand.
+
+    Cost: ``{mana}, Discard this card``. Effect emits a SEARCH_LIBRARY event
+    for a basic land (with optional subtype). The SEARCH_LIBRARY handler is
+    an engine gap, but the discard cost + activation registration still wire.
+    """
+    cost_text = f"{mana_cost}, Discard this card"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        payload = {
+            'player': o.controller,
+            'card_type': 'basic_land',
+            'destination': 'hand',
+        }
+        if land_subtype:
+            payload['subtype'] = land_subtype
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload=payload,
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        make_activated_ability(
+            obj,
+            cost=cost_text,
+            effect_fn=_effect,
+            description=f"Typecycling {mana_cost}",
+            sorcery_speed=False,
+        )
+        return []
+
+    return _setup
+
 
 from src.engine.bending import (
     make_firebend_attack_trigger,
@@ -4728,6 +4768,7 @@ RABAROO_TROOP = make_creature(
     text="Landfall — Whenever a land you control enters, this creature gains flying until end of turn and you gain 1 life.\nPlainscycling {2} ({2}, Discard this card: Search your library for a Plains card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=rabaroo_troop_setup,
 )
+RABAROO_TROOP.setup_in_hand = _make_typecycling_setup("{2}", "Plains")
 
 RAZOR_RINGS = make_instant(
     name="Razor Rings",
@@ -4917,6 +4958,7 @@ GIANT_KOI = make_creature(
     text="Waterbend {3}: This creature can't be blocked this turn. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)\nIslandcycling {2} ({2}, Discard this card: Search your library for an Island card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=giant_koi_setup,
 )
+GIANT_KOI.setup_in_hand = _make_typecycling_setup("{2}", "Island")
 
 GRANGRAN = make_creature(
     name="Gran-Gran",
@@ -5271,6 +5313,7 @@ CANYON_CRAWLER = make_creature(
     text="Deathtouch\nWhen this creature enters, create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")\nSwampcycling {2} ({2}, Discard this card: Search your library for a Swamp card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=canyon_crawler_setup,
 )
+CANYON_CRAWLER.setup_in_hand = _make_typecycling_setup("{2}", "Swamp")
 
 CATGATOR = make_creature(
     name="Cat-Gator",
@@ -5938,6 +5981,7 @@ MONGOOSE_LIZARD = make_creature(
     text="Menace (This creature can't be blocked except by two or more creatures.)\nWhen this creature enters, it deals 1 damage to any target.\nMountaincycling {2} ({2}, Discard this card: Search your library for a Mountain card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=mongoose_lizard_setup,
 )
+MONGOOSE_LIZARD.setup_in_hand = _make_typecycling_setup("{2}", "Mountain")
 
 PRICE_OF_FREEDOM = make_sorcery(
     name="Price of Freedom",
@@ -6368,6 +6412,7 @@ SABERTOOTH_MOOSELION = make_creature(
     text="Reach\nForestcycling {2} ({2}, Discard this card: Search your library for a Forest card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=sabertooth_mooselion_setup,
 )
+SABERTOOTH_MOOSELION.setup_in_hand = _make_typecycling_setup("{2}", "Forest")
 
 SEISMIC_SENSE = make_sorcery(
     name="Seismic Sense",
