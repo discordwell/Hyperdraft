@@ -201,6 +201,32 @@ class MidrangeStrategy(AIStrategy):
                     if not obj.state.tapped:
                         opp_blockers.append(obj)
 
+        # Lethal-swing detection. If all attackers together can deal lethal AND
+        # opponent has no realistic block coverage, swing with everything. Two
+        # cheap scenarios that catch the common case:
+        #   (a) opponent has zero untapped blockers and our total power >= life,
+        #   (b) total evasive (flying/unblockable) power >= life regardless of blockers.
+        # Without this short-circuit, midrange logic at parity often under-attacks.
+        if opponent and opponent.life is not None:
+            total_power = 0
+            evasive_power = 0
+            for aid in legal_attackers:
+                a = state.objects.get(aid)
+                if not a:
+                    continue
+                p = get_power(a, state)
+                total_power += p
+                if (self._has_ability(a, 'flying', state)
+                    or self._has_ability(a, 'unblockable', state)
+                    or self._has_ability(a, 'menace', state) and len(opp_blockers) < 2):
+                    evasive_power += p
+            if (not opp_blockers and total_power >= opponent.life) or evasive_power >= opponent.life:
+                return [AttackDeclaration(
+                    attacker_id=aid,
+                    defending_player_id=opponent_id,
+                    is_attacking_planeswalker=False,
+                ) for aid in legal_attackers if state.objects.get(aid)]
+
         attacks = []
 
         for attacker_id in legal_attackers:
