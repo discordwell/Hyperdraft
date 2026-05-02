@@ -242,14 +242,22 @@ def _handle_search_library_event(event: Event, state: GameState):
     if destination == "battlefield" and event.payload.get("tapped"):
         destination = "battlefield_tapped"
 
-    # Counts
+    # Counts. Cards may pass "all" for max_count when they want to grab every
+    # matching card from the searched scope (e.g. Ragdoll: "Put all Hero
+    # cards revealed into your hand"). Resolve "all" against the library size.
     max_count = (
         event.payload.get("max_count")
         or event.payload.get("count")
         or event.payload.get("amount")
         or 1
     )
+    if isinstance(max_count, str) and max_count.lower() == "all":
+        library_key = f"library_{player_id}"
+        library_zone = state.zones.get(library_key)
+        max_count = len(library_zone.objects) if library_zone else 0
     min_count = event.payload.get("min_count", 0)
+    if isinstance(min_count, str) and min_count.lower() == "all":
+        min_count = 0
 
     # Filter resolution
     filter_str = event.payload.get("filter")

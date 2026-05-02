@@ -3998,6 +3998,24 @@ def make_saga_setup(
                 source=saga_id,
                 controller=controller_id,
             ))
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events,
+        )
+
+    chapter_interceptor = Interceptor(
+        id=new_id(),
+        source=saga_id,
+        controller=controller_id,
+        priority=InterceptorPriority.REACT,
+        filter=chapter_filter,
+        handler=chapter_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [etb_interceptor, draw_interceptor, chapter_interceptor]
+
+
 # === CRIME HELPERS ===
 # =============================================================================
 # OTJ Crime mechanic: a player commits a crime when they target an opponent,

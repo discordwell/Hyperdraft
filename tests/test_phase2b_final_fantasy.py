@@ -349,9 +349,11 @@ def test_chocobo_kick_kicked_doubles():
 def test_left_cards_have_no_resolve():
     """Cards intentionally left for engine gaps must keep resolve=None."""
     print("\n=== Test: engine-gap cards remain unwired ===")
+    # UNEXPECTED_REQUEST was wired (threaten_creature steal) and is no
+    # longer an engine gap — removed from this list.
     left = [
         'MEMORIES_RETURNING', 'STOLEN_UNIFORM', 'VINCENTS_LIMIT_BREAK',
-        'RANDOM_ENCOUNTER', 'UNEXPECTED_REQUEST', 'CLASH_OF_THE_EIKONS',
+        'RANDOM_ENCOUNTER', 'CLASH_OF_THE_EIKONS',
         'ISHGARD_THE_HOLY_SEE', 'JIDOOR_ARISTOCRATIC_CAPITAL',
         'LINDBLUM_INDUSTRIAL_REGENCY', 'MIDGAR_CITY_OF_MAKO',
         'ZANARKAND_ANCIENT_METROPOLIS',

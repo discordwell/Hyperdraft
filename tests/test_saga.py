@@ -7,9 +7,6 @@ helper in ``src/cards/interceptor_helpers.py``.
 """
 
 import asyncio
-import sys
-
-sys.path.insert(0, '/Users/discordwell/Projects/HYPERDRAFT/.claude/worktrees/agent-a3f5b4657c792cc38')
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color,
