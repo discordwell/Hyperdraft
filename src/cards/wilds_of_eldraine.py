@@ -40,6 +40,7 @@ from src.cards.interceptor_helpers import (
     make_ward,
     was_bargained,
     make_adventure_setup,
+    becomes_copy_of,
 )
 
 
@@ -5362,9 +5363,42 @@ def johann_apprentice_sorcerer_setup(obj: GameObject, state: GameState) -> list[
 
 
 def likeness_looter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying; tap draw-discard; {X}: become copy of target creature card in graveyard with MV X."""
-    # {T}: Draw a card, then discard a card. (Copy-from-graveyard X ability is a Phase-5 gap.)
+    """Flying; {T}: loot; {X}: this creature becomes a copy of target creature
+    card in your graveyard with mana value X, except it has flying and this
+    ability. Activate only as a sorcery."""
+    # {T}: Draw a card, then discard a card.
     make_loot_ability(obj, "{T}")
+
+    # {X}: become copy of target creature card in your own graveyard. We
+    # honour the "with mana value X" filter at activation time. The
+    # "Activate only as a sorcery" timing restriction relies on the
+    # activated-ability framework's existing sorcery_speed flag.
+    from src.engine.library_search import _mana_value as _mv
+
+    def _copy_from_gy(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        chosen = st.objects.get(target_id)
+        if chosen is None:
+            return []
+        # Looter copies: except it has flying + this ability. We model
+        # "this ability" by tagging keywords with 'flying' (the user-visible
+        # rider) and the activated ability rider stays implicit.
+        becomes_copy_of(
+            o, chosen, st,
+            duration='end_of_turn',
+            except_keywords=['flying'],
+        )
+        return []
+
+    make_activated_ability(
+        obj, "{X}", _copy_from_gy,
+        description="Become a copy of target creature card in your graveyard with MV X",
+        targets_required=1, target_kind="card_in_graveyard",
+        sorcery_speed=True,
+    )
     return []
 
 

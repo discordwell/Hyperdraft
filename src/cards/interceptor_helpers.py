@@ -5572,6 +5572,391 @@ __all_sweep4__ = [
 
 
 # =============================================================================
+# Sweep 4b: becomes_copy_of (continuous-effect copy)
+# =============================================================================
+#
+# Implements "X becomes a copy of Y until end of turn" — distinct from
+# token-copy (which creates a fresh permanent) in that it OVERRIDES an
+# existing permanent's queryable characteristics via QUERY interceptors.
+#
+# Reference cards:
+#   * Oko, the Ringleader: "Oko becomes a copy of up to one target creature
+#     you control until end of turn, except he has hexproof."
+#   * Fleeting Reflection: "Until end of turn, [target] becomes a copy of up
+#     to one other target creature."
+#   * Likeness Looter: "{X}: This creature becomes a copy of target creature
+#     card in your graveyard with mana value X, except it has flying ..."
+#
+# Implementation notes (CR 707.2):
+#   - Copy is a continuous effect that re-evaluates each query, so the
+#     installed handlers read **live** from the source object whenever
+#     possible (so a +1/+1 counter, a pump effect, or a layered enchant
+#     applied to the source after install propagates to the target).
+#   - If the source leaves the zone, fall back to the snapshot taken at
+#     install time (CR 707.4 — once a copy effect has copied the
+#     characteristics it doesn't lose them when the source leaves).
+#   - `except_*` overrides are applied LAST so they win over the live read.
+#   - Subtypes are dual-written onto target.characteristics.subtypes so the
+#     ~250 direct readers across the codebase stay consistent. Snapshot
+#     of the original printed subtypes is kept for cleanup.
+# =============================================================================
+
+
+def becomes_copy_of(
+    target: GameObject,
+    source: GameObject,
+    state: GameState,
+    *,
+    duration: str = "end_of_turn",
+    except_subtypes: Optional[set[str]] = None,
+    add_subtypes: Optional[set[str]] = None,
+    except_keywords: Optional[list[str]] = None,
+    except_pt: Optional[tuple] = None,
+    except_colors: Optional[set] = None,
+    except_types: Optional[set] = None,
+    keep_card_def: bool = True,
+) -> list[Event]:
+    """Make ``target`` become a copy of ``source`` for ``duration``.
+
+    Installs QUERY interceptors on ``target`` for POWER, TOUGHNESS, TYPES,
+    SUBTYPES, COLORS, and ABILITIES that read live from
+    ``state.objects.get(source.id)`` whenever the source is still on the
+    battlefield (CR 707.2 — copy is a continuous effect that re-evaluates
+    each query). If the source has since left, the handlers fall back to a
+    snapshot of the source's characteristics taken at install time.
+
+    The ``except_*`` overrides apply LAST, so e.g. Oko's
+    ``except_keywords=['hexproof']`` keeps hexproof even if the live source
+    later loses it.
+
+    Subtypes are dual-written onto ``target.characteristics.subtypes`` to
+    keep the 250+ direct readers across the codebase consistent. The
+    original printed subtypes are stashed on a snapshot and restored when
+    the EOT sweep removes the QUERY interceptors.
+
+    Cycle guard: copying-from-a-copy recurses into the source's queries
+    (so chains "C copies B copies A" work). A per-state stack
+    (``state._copy_resolution_stack``) breaks self-cycles by falling back
+    to the snapshot.
+    """
+    import copy as _copy
+
+    # Late import: ``queries`` lives next to the engine, but importing it
+    # at module load time creates a circular import (interceptor_helpers
+    # is imported by card files which are loaded by engine startup).
+    from src.engine.queries import (
+        get_power, get_toughness, get_types, get_subtypes,
+        get_colors, _make_query_event, _is_abilities_query,
+    )
+
+    target_id = target.id
+    source_id = source.id
+    tag_id = new_id()
+
+    # Snapshot of source characteristics for the source-leaves-zone path.
+    # Use deepcopy so later mutation of source.characteristics can't bleed
+    # into the snapshot.
+    snapshot = _copy.deepcopy(source.characteristics)
+    snapshot_card_def = source.card_def
+
+    # Snapshot of target's printed subtypes for cleanup.
+    original_target_subtypes = set(target.characteristics.subtypes)
+
+    # Pre-compute except_* canonical forms.
+    except_keywords_lower = (
+        [str(k).lower() for k in (except_keywords or [])]
+    )
+    except_subtypes_set = set(except_subtypes) if except_subtypes else None
+    add_subtypes_set = set(add_subtypes or set())
+
+    # ------------------------------------------------------------------
+    # Helpers shared by the handlers below.
+    # ------------------------------------------------------------------
+    def _live_source(st: GameState):
+        """Return the live source object iff it's still on the battlefield."""
+        live = st.objects.get(source_id)
+        if live is None:
+            return None
+        if getattr(live, 'zone', None) != ZoneType.BATTLEFIELD:
+            return None
+        return live
+
+    def _push_cycle_guard(st: GameState) -> bool:
+        """Push target_id onto the copy-resolution stack; return False if
+        we're already mid-resolution for this target (cycle)."""
+        stack = getattr(st, '_copy_resolution_stack', None)
+        if stack is None:
+            stack = set()
+            st._copy_resolution_stack = stack
+        if target_id in stack:
+            return False
+        stack.add(target_id)
+        return True
+
+    def _pop_cycle_guard(st: GameState) -> None:
+        stack = getattr(st, '_copy_resolution_stack', None)
+        if stack and target_id in stack:
+            stack.discard(target_id)
+
+    # ------------------------------------------------------------------
+    # POWER
+    # ------------------------------------------------------------------
+    def power_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_POWER
+                and event.payload.get('object_id') == target_id)
+
+    def power_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        if not _push_cycle_guard(st):
+            # Self-cycle: fall back to snapshot.
+            value = snapshot.power if snapshot.power is not None else 0
+        else:
+            try:
+                live = _live_source(st)
+                if live is not None:
+                    # Recurse into queries so layered effects on source
+                    # (counters, pump, becomes_copy chains) propagate.
+                    value = get_power(live, st)
+                else:
+                    value = snapshot.power if snapshot.power is not None else 0
+            finally:
+                _pop_cycle_guard(st)
+        if except_pt is not None:
+            value = except_pt[0]
+        new_event.payload['value'] = value
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # TOUGHNESS
+    # ------------------------------------------------------------------
+    def tough_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_TOUGHNESS
+                and event.payload.get('object_id') == target_id)
+
+    def tough_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        if not _push_cycle_guard(st):
+            value = snapshot.toughness if snapshot.toughness is not None else 0
+        else:
+            try:
+                live = _live_source(st)
+                if live is not None:
+                    value = get_toughness(live, st)
+                else:
+                    value = snapshot.toughness if snapshot.toughness is not None else 0
+            finally:
+                _pop_cycle_guard(st)
+        if except_pt is not None:
+            value = except_pt[1]
+        new_event.payload['value'] = value
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # TYPES
+    # ------------------------------------------------------------------
+    def types_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_TYPES
+                and event.payload.get('object_id') == target_id)
+
+    def types_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        if not _push_cycle_guard(st):
+            value = set(snapshot.types)
+        else:
+            try:
+                live = _live_source(st)
+                if live is not None:
+                    value = set(get_types(live, st))
+                else:
+                    value = set(snapshot.types)
+            finally:
+                _pop_cycle_guard(st)
+        if except_types is not None:
+            value = set(except_types)
+        new_event.payload['value'] = value
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # SUBTYPES
+    # ------------------------------------------------------------------
+    def subtypes_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_SUBTYPES
+                and event.payload.get('object_id') == target_id)
+
+    def subtypes_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        if not _push_cycle_guard(st):
+            value = set(snapshot.subtypes)
+        else:
+            try:
+                live = _live_source(st)
+                if live is not None:
+                    value = set(get_subtypes(live, st))
+                else:
+                    value = set(snapshot.subtypes)
+            finally:
+                _pop_cycle_guard(st)
+        if except_subtypes_set is not None:
+            value = set(except_subtypes_set)
+        if add_subtypes_set:
+            value = value | add_subtypes_set
+        new_event.payload['value'] = value
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # COLORS
+    # ------------------------------------------------------------------
+    def colors_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_COLORS
+                and event.payload.get('object_id') == target_id)
+
+    def colors_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        if not _push_cycle_guard(st):
+            value = set(snapshot.colors)
+        else:
+            try:
+                live = _live_source(st)
+                if live is not None:
+                    value = set(get_colors(live, st))
+                else:
+                    value = set(snapshot.colors)
+            finally:
+                _pop_cycle_guard(st)
+        if except_colors is not None:
+            value = set(except_colors)
+        new_event.payload['value'] = value
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # ABILITIES
+    # ------------------------------------------------------------------
+    def abilities_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_ABILITIES
+                and event.payload.get('object_id') == target_id)
+
+    def abilities_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        # Build the ability/keyword set from the source.
+        source_keywords: set[str] = set()
+        if not _push_cycle_guard(st):
+            for ab in snapshot.abilities or []:
+                if isinstance(ab, dict) and ab.get('keyword'):
+                    source_keywords.add(str(ab['keyword']).lower())
+        else:
+            try:
+                live = _live_source(st)
+                if live is not None:
+                    # Read printed abilities from the live source.
+                    for ab in (live.characteristics.abilities or []):
+                        if isinstance(ab, dict) and ab.get('keyword'):
+                            source_keywords.add(str(ab['keyword']).lower())
+                    # AND chain through any QUERY_ABILITIES interceptors on
+                    # the source (so copy-of-copy granted keywords flow up).
+                    sub_event = _make_query_event('abilities', live, [])
+                    for ic in sorted(
+                        [i for i in st.interceptors.values()
+                         if i.priority == InterceptorPriority.QUERY
+                         and _is_abilities_query(i, live, st)],
+                        key=lambda i: i.timestamp,
+                    ):
+                        result = ic.handler(sub_event, st)
+                        if result.transformed_event is not None:
+                            sub_event = result.transformed_event
+                    granted = sub_event.payload.get('granted') or []
+                    for kw in granted:
+                        source_keywords.add(str(kw).lower())
+                else:
+                    for ab in snapshot.abilities or []:
+                        if isinstance(ab, dict) and ab.get('keyword'):
+                            source_keywords.add(str(ab['keyword']).lower())
+            finally:
+                _pop_cycle_guard(st)
+
+        # except_keywords: REPLACE rather than augment (matches token-copy
+        # semantics in zone.py which sets characteristics.abilities to the
+        # except_keywords list verbatim).
+        if except_keywords is not None:
+            keywords = set(except_keywords_lower)
+        else:
+            keywords = source_keywords
+
+        granted = list(new_event.payload.get('granted', []) or [])
+        for kw in keywords:
+            if kw not in granted:
+                granted.append(kw)
+        new_event.payload['granted'] = granted
+
+        existing_value = new_event.payload.get('value')
+        if isinstance(existing_value, (set, list)):
+            new_event.payload['value'] = set(existing_value) | set(keywords)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # Register all six interceptors.
+    # ------------------------------------------------------------------
+    pairs = [
+        (power_filter, power_handler),
+        (tough_filter, tough_handler),
+        (types_filter, types_handler),
+        (subtypes_filter, subtypes_handler),
+        (colors_filter, colors_handler),
+        (abilities_filter, abilities_handler),
+    ]
+
+    interceptor_ids: list[str] = []
+    for filt, hand in pairs:
+        ic = Interceptor(
+            id=new_id(),
+            source=target_id,
+            controller=target.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=filt,
+            handler=hand,
+            duration=duration,
+        )
+        setattr(ic, '_becomes_copy_tag', tag_id)
+        setattr(ic, '_becomes_copy_target', target_id)
+        state.interceptors[ic.id] = ic
+        ic.timestamp = state.next_timestamp()
+        interceptor_ids.append(ic.id)
+
+    # ------------------------------------------------------------------
+    # Dual-write subtypes onto the target so direct readers stay
+    # consistent. Stash the original for restoration in cleanup.
+    # ------------------------------------------------------------------
+    new_subtypes = set(snapshot.subtypes)
+    if except_subtypes_set is not None:
+        new_subtypes = set(except_subtypes_set)
+    if add_subtypes_set:
+        new_subtypes = new_subtypes | add_subtypes_set
+    target.characteristics.subtypes = set(new_subtypes)
+
+    # Register a cleanup hook on the state that the EOT sweep will run to
+    # restore the dual-write fields. The existing _do_cleanup_step removes
+    # interceptors with duration='end_of_turn' but doesn't touch
+    # obj.characteristics, so we attach a small restoration callback list
+    # keyed by tag.
+    if duration == "end_of_turn":
+        cleanups = getattr(state, '_becomes_copy_cleanups', None)
+        if cleanups is None:
+            cleanups = {}
+            state._becomes_copy_cleanups = cleanups
+        cleanups[tag_id] = {
+            'target_id': target_id,
+            'original_subtypes': original_target_subtypes,
+            'interceptor_ids': interceptor_ids,
+        }
+
+    return []
+
+
+__all_sweep4b__ = [
+    "becomes_copy_of",
+]
+
+
+# =============================================================================
 # Sweep 7: Threaten — "Gain control of target + untap + haste EOT"
 # =============================================================================
 #
