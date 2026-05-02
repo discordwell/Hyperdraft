@@ -30,7 +30,7 @@ from src.cards.interceptor_helpers import (
     make_damage_trigger, make_spell_cast_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype, create_target_choice,
-    make_activated_ability,
+    make_activated_ability, becomes_creature,
 )
 
 
@@ -2989,6 +2989,96 @@ def _acrobatic_leap_execute(choice, selected, state: GameState) -> list[Event]:
     ]
 
 
+def _lci_get_spell_and_caster(state: GameState, spell_name: str) -> tuple:
+    """Locate (spell_id, caster_id) for a spell on the stack by name."""
+    stack_zone = state.zones.get('stack')
+    spell_id = None
+    caster_id = None
+    if stack_zone:
+        for oid in stack_zone.objects:
+            obj = state.objects.get(oid)
+            if obj and obj.name == spell_name:
+                spell_id = obj.id
+                caster_id = obj.controller
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = f"{spell_name.lower().replace(' ', '_').replace(chr(39), '')}_spell"
+    return spell_id, caster_id
+
+
+def relics_roar_resolve(targets: list, state: GameState) -> list[Event]:
+    """Relic's Roar: target artifact or creature becomes a 4/3 Dinosaur artifact creature
+    in addition to its other types until end of turn."""
+    spell_id, caster_id = _lci_get_spell_and_caster(state, "Relic's Roar")
+    legal = [
+        oid for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and (CardType.ARTIFACT in obj.characteristics.types
+             or CardType.CREATURE in obj.characteristics.types)
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tgt = gs.objects.get(selected[0])
+        if not tgt:
+            return []
+        becomes_creature(tgt, gs, power=4, toughness=3,
+                         subtypes={"Dinosaur"}, keep_land=True)
+        return []
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal,
+        prompt="Relic's Roar: Choose target artifact or creature",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def disturbed_slumber_resolve(targets: list, state: GameState) -> list[Event]:
+    """Disturbed Slumber: target land you control becomes a 4/4 Dinosaur creature
+    with reach and haste until end of turn. (Skip the must-be-blocked rider — engine gap.)"""
+    spell_id, caster_id = _lci_get_spell_and_caster(state, "Disturbed Slumber")
+    legal = [
+        oid for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and obj.controller == caster_id
+        and CardType.LAND in obj.characteristics.types
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tgt = gs.objects.get(selected[0])
+        if not tgt:
+            return []
+        becomes_creature(tgt, gs, power=4, toughness=4,
+                         subtypes={"Dinosaur"},
+                         keywords=["reach", "haste"], keep_land=True)
+        return []
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal,
+        prompt="Disturbed Slumber: Choose target land you control",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
 def acrobatic_leap_resolve(targets: list, state: GameState) -> list[Event]:
     """Resolve Acrobatic Leap: +1/+3, flying until end of turn, untap."""
     stack_zone = state.zones.get('stack')
@@ -5478,6 +5568,7 @@ RELICS_ROAR = make_instant(
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Until end of turn, target artifact or creature becomes a Dinosaur artifact creature with base power and toughness 4/3 in addition to its other types.",
+    resolve=relics_roar_resolve,
 )
 
 RIVER_HERALD_SCOUT = make_creature(
@@ -6569,6 +6660,7 @@ DISTURBED_SLUMBER = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Until end of turn, target land you control becomes a 4/4 Dinosaur creature with reach and haste. It's still a land. It must be blocked this turn if able.",
+    resolve=disturbed_slumber_resolve,
 )
 
 EARTHSHAKER_DREADMAW = make_creature(

@@ -43,7 +43,10 @@ from src.cards.interceptor_helpers import (
     # Dynamic P/T helpers
     count_permanents_with_subtype,
     count_permanents_of_type,
+    # Sweep 4: becomes-creature
+    becomes_creature,
 )
+from src.engine.turn_state import spells_cast_this_turn
 
 
 # =============================================================================
@@ -2141,9 +2144,25 @@ def double_down_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def emergent_haunting_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """End-step conditional become-creature; activated surveil 1."""
-    # engine gap: enchantment-becomes-creature transformation not modeled
-    return []
+    """At the beginning of your end step, if you haven't cast a spell from your hand
+    this turn and this enchantment isn't a creature, it becomes a 3/3 Spirit creature
+    with flying. (We approximate "from hand" via the engine's spells_cast counter.)"""
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        # Only activate on controller's end step (handled by make_end_step_trigger).
+        if spells_cast_this_turn(obj.controller, state) > 0:
+            return []
+        if CardType.CREATURE in obj.characteristics.types:
+            return []
+        becomes_creature(
+            obj, state,
+            power=3, toughness=3,
+            subtypes={"Spirit"},
+            keywords=["flying"],
+            duration='while_on_battlefield',
+        )
+        return []
+
+    return [make_end_step_trigger(obj, end_step_effect)]
 
 
 def fblthp_lost_on_the_range_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

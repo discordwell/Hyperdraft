@@ -55,6 +55,8 @@ from src.cards.interceptor_helpers import (
     make_activated_ability,
     make_attached_dynamic_pt_boost,
     count_permanents_with_subtype,
+    # Sweep 4: becomes-creature
+    becomes_creature,
 )
 
 from src.engine.spell_resolve import (
@@ -7852,7 +7854,24 @@ def ravenous_amulet_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- SOULSTONE SANCTUARY ---
 # {T}: Add {C}. / {4}: Becomes 3/3 creature with vigilance and all creature types.
 def soulstone_sanctuary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: land-becomes-creature animation
+    """{4}: This land becomes a 3/3 creature with vigilance and all creature
+    types until end of turn. (Skip "all creature types" — engine has no
+    enumeration helper, so the changeling-style universal subtype is unwired.)"""
+    def effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        becomes_creature(
+            o, st,
+            power=3, toughness=3,
+            keywords=["vigilance"],
+            keep_land=True,
+        )
+        return []
+
+    make_activated_ability(
+        obj,
+        cost="{4}",
+        effect_fn=effect,
+        description="This land becomes a 3/3 creature with vigilance until end of turn.",
+    )
     return []
 
 
@@ -8956,7 +8975,38 @@ def boros_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- CRAWLING BARRENS ---
 # {T}: Add {C}. / {4}: Two +1/+1 counters; may become 0/0 Elemental.
 def crawling_barrens_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: land animation with counter buildup
+    """{4}: Put two +1/+1 counters on this land. Then you may have it become a
+    0/0 Elemental creature until end of turn. It's still a land. (We always opt
+    in to the becomes-creature mode — the "you may" choice is unmodeled.)"""
+    def effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        events = [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=o.id,
+                controller=o.controller,
+            ),
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=o.id,
+                controller=o.controller,
+            ),
+        ]
+        becomes_creature(
+            o, st,
+            power=0, toughness=0,
+            subtypes={"Elemental"},
+            keep_land=True,
+        )
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{4}",
+        effect_fn=effect,
+        description="Put two +1/+1 counters on this land; it becomes a 0/0 Elemental creature until end of turn.",
+    )
     return []
 
 
@@ -10365,6 +10415,7 @@ SCRAWLING_CRAWLER = make_artifact_creature(
 SOULSTONE_SANCTUARY = make_land(
     name="Soulstone Sanctuary",
     text="{T}: Add {C}.\n{4}: This land becomes a 3/3 creature with vigilance and all creature types. It's still a land.",
+    setup_interceptors=soulstone_sanctuary_setup,
 )
 
 AJANI_CALLER_OF_THE_PRIDE = make_planeswalker(
@@ -13667,6 +13718,7 @@ BOROS_GUILDGATE = make_land(
 CRAWLING_BARRENS = make_land(
     name="Crawling Barrens",
     text="{T}: Add {C}.\n{4}: Put two +1/+1 counters on this land. Then you may have it become a 0/0 Elemental creature until end of turn. It's still a land.",
+    setup_interceptors=crawling_barrens_setup,
 )
 
 CRYPTIC_CAVES = make_land(

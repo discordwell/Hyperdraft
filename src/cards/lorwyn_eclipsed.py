@@ -33,6 +33,8 @@ from src.cards.interceptor_helpers import (
     create_modal_choice, create_target_choice,
     create_discard_choice,
     make_activated_ability,
+    # Sweep 4: becomes-creature
+    becomes_creature,
 )
 
 
@@ -2816,8 +2818,19 @@ def dawnblessed_pennant_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def firdoch_core_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Mana ability + activated 4/4 (engine gap)."""
-    return []  # engine gap: activated 'become creature' + any-color mana
+    """{4}: This artifact becomes a 4/4 artifact creature until end of turn.
+    (The "{T}: Add one mana of any color" mana ability remains an engine gap.)"""
+    def effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        becomes_creature(o, st, power=4, toughness=4)
+        return []
+
+    make_activated_ability(
+        obj,
+        cost="{4}",
+        effect_fn=effect,
+        description="This artifact becomes a 4/4 artifact creature until end of turn.",
+    )
+    return []
 
 
 def gathering_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5788,6 +5801,7 @@ FIRDOCH_CORE = make_artifact(
     mana_cost="{3}",
     text="Changeling (This card is every creature type.)\n{T}: Add one mana of any color.\n{4}: This artifact becomes a 4/4 artifact creature until end of turn.",
     subtypes={"Shapeshifter"},
+    setup_interceptors=firdoch_core_setup,
 )
 
 FORAGING_WICKERMAW = make_artifact_creature(
