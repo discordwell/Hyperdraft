@@ -298,6 +298,14 @@ def make_earthbend_end_step_trigger(
     )
 
 
+def earthbend_events(obj: GameObject, state: GameState, amount: int) -> list[Event]:
+    """Public alias for ``_earthbend_events`` so card scripts can resolve
+    an earthbend X event list directly (e.g. inside an Exhaust effect_fn
+    or any ad-hoc rider). Behaves identically to the internal helper.
+    """
+    return _earthbend_events(obj, state, amount)
+
+
 def _earthbend_events(obj: GameObject, state: GameState, x: int) -> list[Event]:
     """Build the events for a single earthbend X resolution.
 

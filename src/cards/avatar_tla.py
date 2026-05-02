@@ -36,6 +36,7 @@ from src.cards.interceptor_helpers import (
     make_saga_setup,
     make_replacement_interceptor,
     make_activated_ability,
+    make_exhaust_ability,
     make_pump_self_ability,
     make_draw_ability,
     make_loot_ability,
@@ -105,6 +106,7 @@ from src.engine.bending import (
     make_airbend_etb_trigger,
     make_airbend_attack_trigger,
     emit_waterbend_marker,
+    earthbend_events,
 )
 
 
@@ -2726,7 +2728,7 @@ def foggy_swamp_hunters_setup(obj: GameObject, state: GameState) -> list[Interce
 
 def hogmonkey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Beg of combat: target creature with +1/+1 counter gains menace EOT.
-    Exhaust {5}: two +1/+1 counters (engine gap activated)."""
+    Exhaust — {5}: Put two +1/+1 counters on this creature."""
     def combat_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.PHASE_START:
             return False
@@ -2748,6 +2750,17 @@ def hogmonkey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             payload={'object_id': candidates[0].id, 'keyword': 'menace', 'duration': 'end_of_turn'},
             source=obj.id
         )]
+
+    def _h_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 2},
+            source=o.id, controller=o.controller,
+        )]
+    make_exhaust_ability(
+        obj, cost="{5}", effect_fn=_h_effect,
+        description="{5}: Put two +1/+1 counters on this creature.",
+    )
 
     return [Interceptor(
         id=new_id(),
@@ -3109,7 +3122,7 @@ def jeong_jeong_the_deserter_setup(obj: GameObject, state: GameState) -> list[In
 
 def mai_jaded_edge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Prowess: +1/+1 UEOT whenever you cast a noncreature spell.
-    Exhaust — {3}: Put a double strike counter on Mai (engine gap activated)."""
+    Exhaust — {3}: Put a double strike counter on Mai."""
     def noncreature_filter(event: Event, st: GameState, source: GameObject) -> bool:
         if event.type not in (EventType.CAST, EventType.SPELL_CAST):
             return False
@@ -3130,7 +3143,18 @@ def mai_jaded_edge_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             },
             source=obj.id,
         )]
-    # engine gap: exhaust activated ability for double-strike counter
+
+    def _ds_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': o.id, 'counter_type': 'double strike', 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+    make_exhaust_ability(
+        obj, cost="{3}", effect_fn=_ds_effect,
+        description="{3}: Put a double strike counter on this creature.",
+    )
+
     return [make_spell_cast_trigger(obj, prowess_effect, filter_fn=noncreature_filter)]
 
 
@@ -3142,8 +3166,24 @@ def ran_and_shaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def rough_rhino_cavalry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Firebending 2. Exhaust {8}: two +1/+1 counters and trample EOT (engine gap)."""
-    # engine gap: exhaust activated ability
+    """Firebending 2. Exhaust — {8}: two +1/+1 counters and trample EOT."""
+    def _r_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 2},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': o.id, 'keyword': 'trample', 'duration': 'end_of_turn'},
+                source=o.id, controller=o.controller,
+            ),
+        ]
+    make_exhaust_ability(
+        obj, cost="{8}", effect_fn=_r_effect,
+        description="{8}: Put two +1/+1 counters on this creature. It gains trample until end of turn.",
+    )
     return [make_firebend_attack_trigger(obj, 2)]
 
 
@@ -3413,8 +3453,20 @@ def raucous_audience_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def rebellious_captives_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Exhaust {6}: two +1/+1 counters and earthbend 2 (engine gap activated)."""
-    # engine gap: exhaust activated ability + earthbend
+    """Exhaust — {6}: two +1/+1 counters on this creature, then earthbend 2."""
+    def _e_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 2},
+                source=o.id, controller=o.controller,
+            ),
+            *earthbend_events(o, st, 2),
+        ]
+    make_exhaust_ability(
+        obj, cost="{6}", effect_fn=_e_effect,
+        description="{6}: Put two +1/+1 counters on this creature, then earthbend 2.",
+    )
     return []
 
 
@@ -3470,7 +3522,7 @@ def azula_cunning_usurper_setup(obj: GameObject, state: GameState) -> list[Inter
 
 def bitter_work_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever you attack a player with creature(s) of power 4+, draw a card.
-    Exhaust {4}: earthbend 4 (engine gap activated)."""
+    Exhaust — {4}: Earthbend 4. Activate only during your turn."""
     def attack_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.ATTACK_DECLARED:
             return False
@@ -3489,6 +3541,14 @@ def bitter_work_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             payload={'player': obj.controller, 'amount': 1},
             source=obj.id
         )]
+
+    def _bw_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return list(earthbend_events(o, st, 4))
+    make_exhaust_ability(
+        obj, cost="{4}", effect_fn=_bw_effect,
+        description="{4}: Earthbend 4.",
+        own_turn_only=True,
+    )
 
     return [Interceptor(
         id=new_id(),
