@@ -48,6 +48,8 @@ from src.cards.interceptor_helpers import (
     # Phase 3: Equipment / Aura attach statics.
     make_equipment_setup,
     make_aura_setup,
+    # Sweep 4: becomes-creature
+    becomes_creature,
 )
 
 from src.engine.spell_resolve import (
@@ -3780,8 +3782,33 @@ def ninjas_blades_ff_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def phantom_train_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Phantom Train Vehicle: sacrifice -> +1/+1 counter (stub)."""
-    # engine gap: activated sacrifice cost ability not registered through setup_interceptors
+    """Phantom Train: Sacrifice another artifact or creature: Put a +1/+1 counter
+    on this Vehicle. It becomes a Spirit artifact creature in addition to its
+    other types until end of turn.
+
+    NOTE: text doesn't specify P/T for the activation. We default to 0/0 — the
+    +1/+1 counter accumulating with each activation provides the body. The
+    becomes_creature helper sets base P/T; counters layer on top via the engine's
+    counter handling.
+    """
+    def effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=o.id,
+                controller=o.controller,
+            ),
+        ]
+        becomes_creature(o, st, power=0, toughness=0, subtypes={"Spirit"})
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="Sacrifice another artifact or creature",
+        effect_fn=effect,
+        description="Put a +1/+1 counter on this Vehicle; it becomes a Spirit artifact creature until end of turn.",
+    )
     return []
 
 

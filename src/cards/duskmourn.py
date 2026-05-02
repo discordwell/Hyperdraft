@@ -44,6 +44,8 @@ from src.cards.interceptor_helpers import (
     # Dynamic P/T helpers
     make_attached_dynamic_pt_boost,
     count_permanents_of_type,
+    # Sweep 4: becomes-creature
+    becomes_creature,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -2619,9 +2621,21 @@ def cautious_survivor_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def defiant_survivor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — manifest dread if tapped at second main."""
-    # engine gap: Survival
-    return []
+    """Survival — At the beginning of your second main phase, if this creature is
+    tapped, manifest dread. Approximated via end-step trigger (engine has no
+    'second main' phase event); same once-per-turn cadence on controller's turn.
+    """
+    def end_effect(event: Event, state: GameState) -> list[Event]:
+        # Only fire if this creature is tapped on its controller's end step.
+        if not obj.state.tapped:
+            return []
+        return [Event(
+            type=EventType.MANIFEST_DREAD,
+            payload={'controller': obj.controller, 'source_id': obj.id},
+            source=obj.id,
+        )]
+
+    return [make_end_step_trigger(obj, end_effect)]
 
 
 def fear_of_exposure_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3358,8 +3372,35 @@ def glimmerlight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def haunted_screen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Mana abilities; activated turn-on-as-Spirit."""
-    # engine gap: activated mana abilities w/ life cost
+    """{7}: Put seven +1/+1 counters on this artifact. It becomes a 0/0 Spirit
+    creature in addition to its other types. Activate only once.
+
+    NOTE: 'Activate only once' is approximated with once_per_turn=True. (Real
+    rule restricts the ability to a single use over the whole game; the engine
+    has no permanent-ability latch yet, so the once-per-turn approximation will
+    fire each turn instead of at most once total.)
+    Mana abilities ({T}: {W}/{B}; {T},Pay 1 life: {G}/{U}/{R}) are still an
+    engine gap — not wired here.
+    """
+    def effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for _ in range(7):
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=o.id,
+                controller=o.controller,
+            ))
+        becomes_creature(o, st, power=0, toughness=0, subtypes={"Spirit"})
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{7}",
+        effect_fn=effect,
+        description="Put seven +1/+1 counters on this artifact. It becomes a 0/0 Spirit creature.",
+        once_per_turn=True,
+    )
     return []
 
 
@@ -8055,11 +8096,64 @@ TYVAR_THE_PUMMELER = make_creature(
     setup_interceptors=tyvar_the_pummeler_setup,
 )
 
+def _dsk_get_spell_and_caster(state: GameState, spell_name: str) -> tuple:
+    """Locate (spell_id, caster_id) for a spell on the stack by name."""
+    stack_zone = state.zones.get('stack')
+    spell_id = None
+    caster_id = None
+    if stack_zone:
+        for oid in stack_zone.objects:
+            obj = state.objects.get(oid)
+            if obj and obj.name == spell_name:
+                spell_id = obj.id
+                caster_id = obj.controller
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = f"{spell_name.lower().replace(' ', '_').replace(chr(39), '')}_spell"
+    return spell_id, caster_id
+
+
+def under_the_skin_resolve(targets: list, state: GameState) -> list[Event]:
+    """Under the Skin: Manifest dread. (Skip the optional graveyard return rider —
+    engine gap for "you may" graveyard-to-hand on a permanent card.)"""
+    spell_id, caster_id = _dsk_get_spell_and_caster(state, "Under the Skin")
+    return [Event(
+        type=EventType.MANIFEST_DREAD,
+        payload={'controller': caster_id, 'source_id': spell_id},
+        source=spell_id,
+    )]
+
+
+def valgavoths_onslaught_resolve(targets: list, state: GameState) -> list[Event]:
+    """Valgavoth's Onslaught: Manifest dread X times. (Skip the +1/+1 counter
+    rider on each manifested creature — engine gap: no per-manifest tracking.)"""
+    spell_id, caster_id = _dsk_get_spell_and_caster(state, "Valgavoth's Onslaught")
+    # Recover the X value the caster paid. The engine stores it on the spell
+    # object's state as ``x_value`` if known, otherwise default to 0.
+    x_value = 0
+    spell_obj = state.objects.get(spell_id)
+    if spell_obj is not None:
+        x_value = int(getattr(spell_obj.state, 'x_value', 0) or 0)
+    if x_value <= 0:
+        return []
+    return [
+        Event(
+            type=EventType.MANIFEST_DREAD,
+            payload={'controller': caster_id, 'source_id': spell_id},
+            source=spell_id,
+        )
+        for _ in range(x_value)
+    ]
+
+
 UNDER_THE_SKIN = make_sorcery(
     name="Under the Skin",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)\nYou may return a permanent card from your graveyard to your hand.",
+    resolve=under_the_skin_resolve,
 )
 
 VALGAVOTHS_ONSLAUGHT = make_sorcery(
@@ -8067,6 +8161,7 @@ VALGAVOTHS_ONSLAUGHT = make_sorcery(
     mana_cost="{X}{X}{G}",
     colors={Color.GREEN},
     text="Manifest dread X times, then put X +1/+1 counters on each of those creatures. (To manifest dread, look at the top two cards of your library, then put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+    resolve=valgavoths_onslaught_resolve,
 )
 
 WALKIN_CLOSET = make_enchantment(
@@ -8492,6 +8587,7 @@ HAUNTED_SCREEN = make_artifact(
     name="Haunted Screen",
     mana_cost="{3}",
     text="{T}: Add {W} or {B}.\n{T}, Pay 1 life: Add {G}, {U}, or {R}.\n{7}: Put seven +1/+1 counters on this artifact. It becomes a 0/0 Spirit creature in addition to its other types. Activate only once.",
+    setup_interceptors=haunted_screen_setup,
 )
 
 KEYS_TO_THE_HOUSE = make_artifact(
