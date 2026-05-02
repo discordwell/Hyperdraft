@@ -55,6 +55,12 @@ class UltraStrategy(AIStrategy):
         self._deck_analysis = None
         self._matchup_analysis = None
         self._decision_cache: dict[str, dict] = {}
+        self._trace_stats = {
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "fallbacks": 0,
+            "provider_calls": 0,
+        }
 
     def set_card_layers(self, card_name: str, layers: 'CardLayers'):
         super().set_card_layers(card_name, layers)
@@ -359,7 +365,9 @@ class UltraStrategy(AIStrategy):
         # Check cache
         cache_key = self._hash_decision(card.name, state, player_id)
         if cache_key in self._decision_cache:
+            self._trace_stats["cache_hits"] += 1
             return self._decision_cache[cache_key]
+        self._trace_stats["cache_misses"] += 1
 
         # Get layers
         layers = self.get_layers(card.name)
@@ -374,6 +382,7 @@ class UltraStrategy(AIStrategy):
                 "reasoning": "Scored by heuristics",
                 "target": None
             }
+            self._trace_stats["fallbacks"] += 1
             self._decision_cache[cache_key] = result
             return result
 
@@ -382,6 +391,7 @@ class UltraStrategy(AIStrategy):
 
         try:
             from src.ai.llm.prompts import DECISION_SYSTEM, DECISION_SCHEMA
+            self._trace_stats["provider_calls"] += 1
             response = await self.provider.complete_json(
                 prompt=context,
                 schema=DECISION_SCHEMA,
@@ -406,6 +416,7 @@ class UltraStrategy(AIStrategy):
                 "reasoning": f"Fallback: {e}",
                 "target": None
             }
+            self._trace_stats["fallbacks"] += 1
 
         self._decision_cache[cache_key] = result
         return result
@@ -448,11 +459,50 @@ class UltraStrategy(AIStrategy):
 
     def _hash_decision(self, card_name: str, state: 'GameState', player_id: str) -> str:
         """Create a hash key for decision caching."""
-        # Include relevant board state in hash
         turn = state.turn_number if hasattr(state, 'turn_number') else 0
-        life = state.players.get(player_id).life if state.players.get(player_id) else 20
+        phase = getattr(getattr(state, "turn_state", None), "phase", getattr(state, "phase", ""))
+        phase_name = phase.name if hasattr(phase, "name") else str(phase)
+        stack_depth = 0
+        if hasattr(state, "stack") and state.stack:
+            if hasattr(state.stack, "get_items"):
+                stack_depth = len(state.stack.get_items())
+            elif hasattr(state.stack, "items"):
+                stack_depth = len(state.stack.items)
 
-        key = f"{card_name}:{turn}:{life}"
+        player = state.players.get(player_id)
+        life = player.life if player else 20
+        board_parts = []
+        hand_parts = []
+        battlefield = state.zones.get("battlefield")
+        if battlefield:
+            for obj_id in battlefield.objects:
+                obj = state.objects.get(obj_id)
+                if not obj:
+                    continue
+                board_parts.append(
+                    f"{obj.controller}:{obj.name}:{int(obj.state.tapped)}:"
+                    f"{obj.characteristics.power}:{obj.characteristics.toughness}"
+                )
+        hand = state.zones.get(f"hand_{player_id}")
+        if hand:
+            for obj_id in hand.objects:
+                obj = state.objects.get(obj_id)
+                if obj:
+                    hand_parts.append(obj.name)
+
+        mana = self._count_mana(state, player_id)
+        matchup_role = getattr(self._matchup_analysis, "our_role", "") if self._matchup_analysis else ""
+        key = "|".join([
+            card_name,
+            str(turn),
+            phase_name,
+            str(life),
+            str(mana),
+            str(stack_depth),
+            matchup_role,
+            ",".join(sorted(board_parts)),
+            ",".join(sorted(hand_parts)),
+        ])
         return hashlib.sha256(key.encode()).hexdigest()[:12]
 
     def plan_attacks(
@@ -463,8 +513,37 @@ class UltraStrategy(AIStrategy):
         legal_attackers: list[str]
     ) -> list['AttackDeclaration']:
         """Plan attacks using layer knowledge."""
+        from src.engine import AttackDeclaration, has_ability
+
         pilot = self._get_pilot_strategy()
-        return pilot.plan_attacks(state, player_id, evaluator, legal_attackers)
+        attacks = pilot.plan_attacks(state, player_id, evaluator, legal_attackers)
+        role = (getattr(self._matchup_analysis, "our_role", "") or evaluator.detect_role(player_id)).lower()
+
+        if role == "beatdown" and evaluator.analyze(player_id).crack_back_risk < 0.6:
+            attacked = {a.attacker_id for a in attacks}
+            opponent_id = self._get_opponent_id(player_id, state)
+            for attacker_id in legal_attackers:
+                if attacker_id in attacked:
+                    continue
+                attacker = state.objects.get(attacker_id)
+                if not attacker:
+                    continue
+                if evaluator._has_ability(attacker, "flying", "unblockable", "haste", "trample"):
+                    attacks.append(AttackDeclaration(
+                        attacker_id=attacker_id,
+                        defending_player_id=opponent_id,
+                        is_attacking_planeswalker=False,
+                    ))
+
+        elif role == "control" and evaluator.analyze(player_id).crack_back_risk > 0.3:
+            filtered = []
+            for attack in attacks:
+                attacker = state.objects.get(attack.attacker_id)
+                if attacker and has_ability(attacker, "vigilance", state):
+                    filtered.append(attack)
+            attacks = filtered
+
+        return attacks
 
     def plan_blocks(
         self,
@@ -476,7 +555,43 @@ class UltraStrategy(AIStrategy):
     ) -> list['BlockDeclaration']:
         """Plan blocks using layer knowledge."""
         pilot = self._get_pilot_strategy()
-        return pilot.plan_blocks(state, player_id, evaluator, attackers, legal_blockers)
+        blocks = pilot.plan_blocks(state, player_id, evaluator, attackers, legal_blockers)
+        if blocks or not attackers or not legal_blockers:
+            return blocks
+
+        player = state.players.get(player_id)
+        if not player:
+            return blocks
+
+        # Ultra fallback: if the pilot declines blocks but incoming damage is
+        # lethal, find the highest-value single block available.
+        from src.engine import BlockDeclaration, get_power
+
+        incoming = sum(
+            max(0, get_power(state.objects.get(a.attacker_id), state))
+            for a in attackers
+            if state.objects.get(a.attacker_id)
+        )
+        if incoming < player.life:
+            return blocks
+
+        best = None
+        best_score = -999.0
+        for attack in attackers:
+            attacker = state.objects.get(attack.attacker_id)
+            if not attacker:
+                continue
+            for blocker_id in legal_blockers:
+                blocker = state.objects.get(blocker_id)
+                if not blocker or not evaluator._can_block_attacker(blocker, attacker):
+                    continue
+                score = evaluator.target_threat_value(attacker.id, player_id) - evaluator._creature_value(blocker)
+                if evaluator._has_ability(blocker, "deathtouch"):
+                    score += 5
+                if score > best_score:
+                    best_score = score
+                    best = BlockDeclaration(blocker_id=blocker_id, blocking_attacker_id=attack.attacker_id)
+        return [best] if best else blocks
 
     def should_counter(
         self,
@@ -504,6 +619,22 @@ class UltraStrategy(AIStrategy):
     def clear_decision_cache(self):
         """Clear the decision cache."""
         self._decision_cache.clear()
+
+    def trace_metadata(self) -> dict:
+        """Expose lightweight Ultra telemetry for AI traces."""
+        total_cache = self._trace_stats["cache_hits"] + self._trace_stats["cache_misses"]
+        return {
+            "strategy": "Ultra",
+            "cache_hit": self._trace_stats["cache_hits"] > 0,
+            "cache_miss": self._trace_stats["cache_misses"] > 0,
+            "cache_hits": self._trace_stats["cache_hits"],
+            "cache_misses": self._trace_stats["cache_misses"],
+            "cache_hit_rate": round(self._trace_stats["cache_hits"] / total_cache, 3) if total_cache else 0.0,
+            "fallback_used": self._trace_stats["fallbacks"] > 0,
+            "fallbacks": self._trace_stats["fallbacks"],
+            "provider_calls": self._trace_stats["provider_calls"],
+            "pilot": self._get_pilot_strategy().name,
+        }
 
     # === Helper Methods ===
 

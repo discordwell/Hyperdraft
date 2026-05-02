@@ -36,6 +36,8 @@ def _handle_draw(event: Event, state: GameState):
     library = state.zones[library_key]
     hand = state.zones[hand_key]
     fatigue_events = []
+    drawn_card_ids = []
+    overdrawn_card_ids = []
 
     for _ in range(count):
         if not library.objects:
@@ -57,6 +59,7 @@ def _handle_draw(event: Event, state: GameState):
                 and len(hand.objects) >= hand_limit):
             # Overdraw - burn the card
             card_id = library.objects.pop(0)
+            overdrawn_card_ids.append(card_id)
             graveyard_key = f"graveyard_{player_id}"
             if graveyard_key in state.zones:
                 _remove_object_from_all_zones(card_id, state)
@@ -67,6 +70,7 @@ def _handle_draw(event: Event, state: GameState):
             continue
 
         card_id = library.objects.pop(0)  # Top of library
+        drawn_card_ids.append(card_id)
         # Be robust against zone corruption: ensure the card isn't referenced in
         # any other zone list before we put it into the hand.
         _remove_object_from_all_zones(card_id, state)
@@ -75,6 +79,10 @@ def _handle_draw(event: Event, state: GameState):
         if card_id in state.objects:
             state.objects[card_id].zone = ZoneType.HAND
             state.objects[card_id].entered_zone_at = state.timestamp
+
+    event.payload["drawn_card_ids"] = drawn_card_ids
+    event.payload["overdrawn_card_ids"] = overdrawn_card_ids
+    event.payload["resolved_count"] = len(drawn_card_ids)
 
     # Return fatigue damage events so the pipeline processes them
     if fatigue_events:
