@@ -2010,6 +2010,69 @@ EXPLOSION_STAR = make_instant(
     text="Deal 4 damage to target creature or planeswalker. If excess damage would be dealt, deal that damage to that permanent's controller instead."
 )
 
+
+# =============================================================================
+# RED BURN SPELLS — adds reach for OPC's mono-red aggro plan. Existing
+# burn (Fire Fist, Explosion Star, Gomu Gomu no Pistol) was cosmetic
+# (no resolve callback wired). These three have proper resolve fns
+# that emit DAMAGE events targeting each opponent of the caster.
+# =============================================================================
+
+def _opc_burn_resolve(card_name: str, amount: int):
+    """Resolve callback: deal `amount` damage to each opponent of the caster.
+
+    Auto-targets so the spell never fizzles on AI target-selection.
+    Finds the spell on the stack by name to attribute the damage events.
+    """
+    def resolve(targets, state):
+        stack_zone = state.zones.get('stack')
+        spell_id = None
+        controller = None
+        if stack_zone:
+            for obj_id in reversed(list(stack_zone.objects or [])):
+                so = state.objects.get(obj_id)
+                if so and so.name == card_name:
+                    spell_id = so.id
+                    controller = so.controller
+                    break
+        if controller is None:
+            return []
+        events = []
+        for pid in state.players:
+            if pid != controller:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': pid, 'amount': amount, 'source': spell_id},
+                    source=spell_id,
+                ))
+        return events
+    return resolve
+
+
+PIRATE_CANNON_SHOT = make_instant(
+    name="Pirate Cannon Shot",
+    mana_cost="{R}",
+    colors={Color.RED},
+    text="Deal 2 damage to each opponent.",
+    resolve=_opc_burn_resolve("Pirate Cannon Shot", 2),
+)
+
+CANNONBALL_VOLLEY = make_sorcery(
+    name="Cannonball Volley",
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    text="Deal 3 damage to each opponent.",
+    resolve=_opc_burn_resolve("Cannonball Volley", 3),
+)
+
+WHITEBEARDS_QUAKE = make_sorcery(
+    name="Whitebeard's Quake",
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    text="Deal 5 damage to each opponent.",
+    resolve=_opc_burn_resolve("Whitebeard's Quake", 5),
+)
+
 REVOLUTIONARY_FERVOR = make_enchantment(
     name="Revolutionary Fervor",
     mana_cost="{2}{R}",
@@ -3517,6 +3580,11 @@ ONE_PIECE_CARDS = {
     "Drum Island Sailor": DRUM_ISLAND_SAILOR,
     "Marine Patrol": MARINE_PATROL,
     "Skypiea Warrior": SKYPIEA_WARRIOR,
+
+    # MONO-RED BURN PASS (functional resolve= callbacks)
+    "Pirate Cannon Shot": PIRATE_CANNON_SHOT,
+    "Cannonball Volley": CANNONBALL_VOLLEY,
+    "Whitebeard's Quake": WHITEBEARDS_QUAKE,
 }
 
 print(f"Loaded {len(ONE_PIECE_CARDS)} One Piece: Grand Line cards")
@@ -3806,4 +3874,7 @@ CARDS = [
     DRUM_ISLAND_SAILOR,
     MARINE_PATROL,
     SKYPIEA_WARRIOR,
+    PIRATE_CANNON_SHOT,
+    CANNONBALL_VOLLEY,
+    WHITEBEARDS_QUAKE,
 ]
