@@ -6307,6 +6307,12 @@ def _virtue_of_loyalty_adventure(obj, state, targets):
     )]
 
 
+# WOE Virtue cycle Adventure wiring. ``make_adventure_setup`` registers the
+# Adventure side as a hand-zone activated ability whose cost includes
+# "Exile this card". Paying that cost flags ``state.adventure_exile``, which
+# the cast subsystem (priority.get_legal_actions / _handle_cast_spell_sync)
+# uses to surface a printed-cost cast from exile after the Adventure resolves.
+# The flag is cleared as the card moves from exile to the stack.
 VIRTUE_OF_LOYALTY = make_enchantment(
     name="Virtue of Loyalty",
     mana_cost="{3}{W}{W}",
