@@ -69,6 +69,7 @@ from ...saga import SAGA_EVENT_HANDLERS
 from ...face_down import _handle_turn_face_up, _handle_manifest_dread
 from ...attach import ATTACH_EVENT_HANDLERS
 from ...rooms import ROOMS_EVENT_HANDLERS
+from ...library_search import _handle_search_library_event
 
 
 EVENT_HANDLERS = {
@@ -130,6 +131,8 @@ EVENT_HANDLERS = {
     EventType.TURN_FACE_UP: _handle_turn_face_up,
     EventType.MANIFEST_DREAD: _handle_manifest_dread,
     EventType.COPY_STACK_ITEM: _handle_copy_stack_item,
+    EventType.SEARCH_LIBRARY: _handle_search_library_event,
+    EventType.LIBRARY_SEARCH: _handle_search_library_event,
 }
 
 # Merge in saga handlers (defined in src/engine/saga.py).
