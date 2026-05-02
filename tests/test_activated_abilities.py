@@ -91,7 +91,7 @@ def test_cost_parser_handles_common_patterns():
         ("{1}, {T}, Remove a wish counter from this artifact", True, True, False, ("wish", 1), 1),
     ]
     for cost, has_mana, has_tap, sac_self, ctr_expected, generic in cases:
-        m, t, s, _ds, _plan, ctr = parse_activation_cost(cost, source_name="Test")
+        m, t, s, _ds, _es, _plan, ctr = parse_activation_cost(cost, source_name="Test")
         assert (m is not None) == has_mana, f"mana mismatch for {cost!r}: got {m}"
         assert t == has_tap, f"tap mismatch for {cost!r}"
         assert s == sac_self, f"sac_self mismatch for {cost!r}"

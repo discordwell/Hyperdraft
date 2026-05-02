@@ -5669,6 +5669,71 @@ __all_cycling__ = [
 
 
 # =============================================================================
+# Adventure
+# =============================================================================
+#
+# A card with Adventure has two halves separated by ``// Adventure —``.
+# The "main" half is a creature/permanent, the Adventure half is an
+# instant/sorcery. Casting the Adventure half exiles the card.
+#
+# v1 implementation:
+#   - The Adventure side is registered as a hand-zone activated ability whose
+#     cost is "{adventure_mana}, Exile this card" — the cost parser
+#     recognises "Exile this card" and the activated framework emits an
+#     EXILE event for self.
+#   - The effect_fn returns the events of the Adventure spell's effect.
+#
+# Limitation: cast-from-exile (the path where the original card is later
+# cast as the creature/permanent half) is not implemented. The Adventure
+# spell's effect resolves and the card is exiled permanently. Tracked as
+# an engine gap; the current behaviour at least unblocks the Adventure
+# side for the 5 WOE Virtue cycle cards and similar designs.
+# =============================================================================
+
+
+def make_adventure_setup(
+    adventure_cost: str,
+    effect_fn: Callable[["GameObject", "GameState", list], list[Event]],
+    *,
+    description: str = "",
+    targets_required: int = 0,
+    target_kind: str = "any",
+):
+    """Return a ``setup_in_hand`` callable that registers the Adventure
+    half of a split card as a hand-zone activated ability.
+
+    ``adventure_cost`` is the mana portion of the Adventure spell's cost
+    ("{1}{R}", etc.). The "Exile this card" portion is added automatically.
+
+    ``effect_fn(obj, state, targets) -> list[Event]`` returns the events
+    the Adventure spell produces. Targets are pre-selected via the standard
+    targeting flow before the effect_fn fires.
+    """
+    from src.engine.activated import register_activated_ability
+
+    cost_text = f"{adventure_cost}, Exile this card"
+
+    def _setup(obj: "GameObject", state: "GameState") -> list[Interceptor]:
+        register_activated_ability(
+            obj,
+            cost=cost_text,
+            effect_fn=effect_fn,
+            description=description or f"Adventure ({adventure_cost})",
+            sorcery_speed=False,
+            targets_required=targets_required,
+            target_kind=target_kind,
+        )
+        return []
+
+    return _setup
+
+
+__all_adventure__ = [
+    "make_adventure_setup",
+]
+
+
+# =============================================================================
 # Sweep helpers: count_* primitives for dynamic P/T scaling
 # =============================================================================
 #
