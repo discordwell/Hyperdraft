@@ -80,13 +80,22 @@ def make_etb_trigger(
         effect_fn: Function(event, state) -> list[Event] to execute when trigger fires
         filter_fn: Optional custom filter (receives event, state, source_obj)
 
-    Event: ZONE_CHANGE with to_zone_type == BATTLEFIELD and object_id == source_obj.id
+    Events matched (default filter):
+        - ZONE_CHANGE with to_zone_type == BATTLEFIELD and object_id == source.id
+        - OBJECT_CREATED with object_id == source.id and to_zone_type ==
+          BATTLEFIELD. This covers copy-tokens, whose setup_interceptors are
+          registered inside ``_handle_object_created`` before any ZONE_CHANGE
+          is emitted, so we have to dispatch off OBJECT_CREATED itself.
     Priority: REACT
     """
     def default_filter(event: Event, state: GameState, obj: GameObject) -> bool:
-        return (event.type == EventType.ZONE_CHANGE and
-                event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD and
-                event.payload.get('object_id') == obj.id)
+        if event.type == EventType.ZONE_CHANGE:
+            return (event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD and
+                    event.payload.get('object_id') == obj.id)
+        if event.type == EventType.OBJECT_CREATED:
+            return (event.payload.get('object_id') == obj.id and
+                    event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD)
+        return False
 
     actual_filter = filter_fn or default_filter
 
@@ -4728,6 +4737,85 @@ def make_token_creation_ability(
         obj, cost=cost, effect_fn=_effect,
         description=desc, sorcery_speed=sorcery_speed, once_per_turn=once_per_turn,
     )
+
+
+def make_copy_token_event(
+    target_id: str,
+    controller: str,
+    source_id: Optional[str] = None,
+    *,
+    count: int = 1,
+    owner: Optional[str] = None,
+    tapped: bool = False,
+    add_subtypes: Optional[set] = None,
+    except_subtypes: Optional[set] = None,
+    except_power: Optional[int] = None,
+    except_toughness: Optional[int] = None,
+    except_colors: Optional[set] = None,
+    except_keywords: Optional[list] = None,
+    except_name: Optional[str] = None,
+) -> list[Event]:
+    """Build OBJECT_CREATED events that create N tokens copying ``target_id``.
+
+    The copy gets the original's printed characteristics (types, subtypes,
+    colors, P/T, abilities) and inherits its ``card_def`` so the original's
+    setup_interceptors fire when the copy enters the battlefield.
+
+    Args:
+        target_id: object id of the permanent to copy.
+        controller: player id who will control the copy.
+        source_id: object id of the spell/ability creating the copy
+            (used as ``Event.source`` for downstream triggers).
+        count: number of copies to create. Default 1.
+        owner: optional owner override (defaults to ``controller``).
+        tapped: whether the copy enters tapped.
+        add_subtypes: subtypes to add *in addition* to the copied subtypes
+            (e.g. "...except it's a Reflection in addition to its other
+            creature types").
+        except_subtypes: replace the copied subtypes entirely.
+        except_power: override the copied power.
+        except_toughness: override the copied toughness.
+        except_colors: replace the copied colors entirely.
+        except_keywords: replace the copied keyword abilities entirely
+            (list of lowercase keyword strings).
+        except_name: override the copied name.
+
+    Returns:
+        ``count`` OBJECT_CREATED events; emit each through ``state.emit`` /
+        ``game.emit`` to instantiate the tokens.
+    """
+    payload_template: dict = {
+        'copy_of': target_id,
+        'controller': controller,
+        'owner': owner or controller,
+        'is_token': True,
+        'to_zone_type': ZoneType.BATTLEFIELD,
+        'tapped': bool(tapped),
+    }
+    if add_subtypes:
+        payload_template['add_subtypes'] = set(add_subtypes)
+    if except_subtypes is not None:
+        payload_template['except_subtypes'] = set(except_subtypes)
+    if except_power is not None:
+        payload_template['except_power'] = int(except_power)
+    if except_toughness is not None:
+        payload_template['except_toughness'] = int(except_toughness)
+    if except_colors is not None:
+        payload_template['except_colors'] = set(except_colors)
+    if except_keywords is not None:
+        payload_template['except_keywords'] = list(except_keywords)
+    if except_name is not None:
+        payload_template['except_name'] = str(except_name)
+
+    events: list[Event] = []
+    for _ in range(max(0, int(count))):
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload=dict(payload_template),
+            source=source_id,
+            controller=controller,
+        ))
+    return events
 
 
 def make_sac_destroy_ability(
