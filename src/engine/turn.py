@@ -515,6 +515,13 @@ class TurnManager:
         # Many card files treat "phase" as a semantic step marker.
         if self.turn_state.step == Step.BEGINNING_OF_COMBAT:
             phase = 'combat'
+        elif self.turn_state.step == Step.MAIN:
+            # Distinguish first/second main so phase-keyed triggers (e.g. Survival,
+            # "at the beginning of your second main phase") can filter on it.
+            if self.turn_state.phase == Phase.POSTCOMBAT_MAIN:
+                phase = 'postcombat_main'
+            else:
+                phase = 'precombat_main'
         else:
             phase = step
 
