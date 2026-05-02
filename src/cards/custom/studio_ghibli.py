@@ -132,7 +132,7 @@ def make_natures_wrath(source_obj: GameObject, power_per_forest: int, toughness_
         return event.payload.get('object_id') == source_obj.id
 
     def forest_power_handler(event: Event, state: GameState) -> InterceptorResult:
-        forest_count = count_forests(source_obj.controller, state)
+        forest_count = min(count_forests(source_obj.controller, state), 3)
         current = event.payload.get('value', 0)
         new_event = event.copy()
         new_event.payload['value'] = current + (forest_count * power_per_forest)
@@ -144,7 +144,7 @@ def make_natures_wrath(source_obj: GameObject, power_per_forest: int, toughness_
         return event.payload.get('object_id') == source_obj.id
 
     def forest_toughness_handler(event: Event, state: GameState) -> InterceptorResult:
-        forest_count = count_forests(source_obj.controller, state)
+        forest_count = min(count_forests(source_obj.controller, state), 3)
         current = event.payload.get('value', 0)
         new_event = event.copy()
         new_event.payload['value'] = current + (forest_count * toughness_per_forest)
@@ -2733,72 +2733,8 @@ WAR_DRUMS = make_enchantment(
 # --- My Neighbor Totoro ---
 
 def totoro_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Nature's Wrath, other Spirits get +1/+1"""
-    interceptors = []
-    interceptors.extend(make_natures_wrath(obj, 1, 1))
-
-    # Other Spirits get +1/+1
-    def spirit_power_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.QUERY_POWER:
-            return False
-        target_id = event.payload.get('object_id')
-        target = state.objects.get(target_id)
-        if not target or target.id == obj.id:
-            return False
-        if target.controller != obj.controller:
-            return False
-        if target.zone != ZoneType.BATTLEFIELD:
-            return False
-        if CardType.CREATURE not in target.characteristics.types:
-            return False
-        return 'Spirit' in target.characteristics.subtypes
-
-    def spirit_power_handler(event: Event, state: GameState) -> InterceptorResult:
-        current = event.payload.get('value', 0)
-        new_event = event.copy()
-        new_event.payload['value'] = current + 1
-        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
-
-    def spirit_toughness_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.QUERY_TOUGHNESS:
-            return False
-        target_id = event.payload.get('object_id')
-        target = state.objects.get(target_id)
-        if not target or target.id == obj.id:
-            return False
-        if target.controller != obj.controller:
-            return False
-        if target.zone != ZoneType.BATTLEFIELD:
-            return False
-        if CardType.CREATURE not in target.characteristics.types:
-            return False
-        return 'Spirit' in target.characteristics.subtypes
-
-    def spirit_toughness_handler(event: Event, state: GameState) -> InterceptorResult:
-        current = event.payload.get('value', 0)
-        new_event = event.copy()
-        new_event.payload['value'] = current + 1
-        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
-
-    interceptors.append(Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.QUERY,
-        filter=spirit_power_filter,
-        handler=spirit_power_handler,
-        duration='while_on_battlefield'
-    ))
-    interceptors.append(Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.QUERY,
-        filter=spirit_toughness_filter,
-        handler=spirit_toughness_handler,
-        duration='while_on_battlefield'
-    ))
-    return interceptors
+    """Nature's Wrath (capped at +3/+3 in helper)."""
+    return list(make_natures_wrath(obj, 1, 1))
 
 TOTORO_KING_OF_THE_FOREST = make_creature(
     name="Totoro, King of the Forest",
@@ -2807,7 +2743,7 @@ TOTORO_KING_OF_THE_FOREST = make_creature(
     colors={Color.GREEN},
     subtypes={"Spirit", "God"},
     supertypes={"Legendary"},
-    text="Vigilance. Nature's Wrath - Totoro gets +1/+1 for each Forest you control. Other Spirit creatures you control get +1/+1.",
+    text="Vigilance. Nature's Wrath - Totoro gets +1/+1 for each Forest you control (max +3/+3).",
     setup_interceptors=totoro_setup
 )
 
@@ -2835,7 +2771,7 @@ CHIBI_TOTORO = make_creature(
 
 MEDIUM_TOTORO = make_creature(
     name="Medium Totoro",
-    power=2, toughness=3,
+    power=1, toughness=2,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit"},
@@ -2985,7 +2921,7 @@ OHMU_KING = make_creature(
 
 BABY_OHMU = make_creature(
     name="Baby Ohmu",
-    power=2, toughness=3,
+    power=1, toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Insect", "Spirit"},
@@ -3144,7 +3080,7 @@ def _soot_sprites_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 SOOT_SPRITES = make_creature(
     name="Soot Sprites",
     power=1, toughness=1,
-    mana_cost="{1}{G}",
+    mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit"},
     text="When Soot Sprites enters, create two 0/1 black Spirit creature tokens.",
