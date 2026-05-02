@@ -3497,12 +3497,6 @@ def astrologians_planisphere_ff_setup(obj: GameObject, state: GameState) -> list
     return [make_etb_trigger(obj, etb_effect)]
 
 
-def cargo_ship_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cargo Ship Vehicle: flying/vigilance, restricted mana, crew (stub)."""
-    # engine gap: Vehicle crewing + restricted mana not yet implemented
-    return []
-
-
 def ether_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Ether: activated ability with delayed copy trigger (stub)."""
     # engine gap: activated abilities + delayed spell copy not modular
@@ -4075,12 +4069,6 @@ def blazing_bomb_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
                                                        CardType.ENCHANTMENT, CardType.ARTIFACT})]
 
 
-def freya_crescent_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Freya Crescent: Jump (flying during your turn) + activated mana (stub)."""
-    # engine gap: conditional 'during your turn' keyword + restricted-use mana not modular
-    return []
-
-
 def hill_gigas_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Hill Gigas: trample/haste keywords already on stat; cycling stub."""
     # No setup needed for keywords; cycling is engine-handled via text. Return empty.
@@ -4412,12 +4400,6 @@ def gigantoad_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     )]
 
 
-def goobbue_gardener_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Goobbue Gardener: {T}: Add {G} - mana ability (stub)."""
-    # engine gap: creature mana abilities not registered through setup_interceptors here
-    return []
-
-
 def gran_pulse_ochu_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Gran Pulse Ochu: Deathtouch + {8}: +X/+X EOT where X = permanent cards in your graveyard."""
     def pump_by_graveyard(o: GameObject, st: GameState, targets) -> list[Event]:
@@ -4573,13 +4555,6 @@ def summon_titan_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
     def iii(_o, _s): return []  # engine gap: target + dynamic +X/+X
 
     return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
-
-
-def summoners_grimoire_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Summoner's Grimoire Equipment: Job select (no token text but include hero token to match other Equipment)."""
-    # Note: this Equipment text doesn't include 'create Hero token' explicitly so just stub
-    # engine gap: Job select implicit on Equipment not modular here
-    return []
 
 
 def torgal_a_fine_hound_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4777,18 +4752,6 @@ def aettir_and_priwen_ff_setup(obj: GameObject, state: GameState) -> list[Interc
     return []
 
 
-def blitzball_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Blitzball: mana ability + sacrifice draw two (conditional) (stub)."""
-    # engine gap: activated abilities + 'opponent dealt damage by legendary creature this turn' tracking not modular
-    return []
-
-
-def buster_sword_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Buster Sword Equipment: equipped creature combat damage -> draw + may cast free (stub)."""
-    # engine gap: combat damage trigger on equipped creature + cast-from-hand-free not modular here
-    return []
-
-
 def excalibur_ii_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Excalibur II: gain life -> charge counter."""
     def life_gain_effect(event: Event, state: GameState) -> list[Event]:
@@ -4798,12 +4761,6 @@ def excalibur_ii_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
             source=obj.id
         )]
     return [make_life_gain_trigger(obj, life_gain_effect)]
-
-
-def genji_glove_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Genji Glove Equipment: equipped creature double strike + extra combat (stub)."""
-    # engine gap: double strike grant via attached + extra combat phase logic not modular
-    return []
 
 
 def lion_heart_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4862,12 +4819,6 @@ def monks_fist_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             source=obj.id
         )]
     return [make_etb_trigger(obj, etb_effect)]
-
-
-def relentless_xatm092_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Relentless X-ATM092: can't be blocked except by 3+ + activated graveyard return (stub)."""
-    # engine gap: 'must be blocked by 3+' modifier + reanimation activated ability not modular
-    return []
 
 
 def ring_of_the_lucii_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4938,24 +4889,12 @@ def world_map_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return []
 
 
-def capital_city_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Capital City: mana abilities + cycling (stub)."""
-    # engine gap: activated mana abilities + cycling not modular here
-    return []
-
-
 def clives_hideaway_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Clive's Hideaway: Hideaway + activated ability (stub)."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         # engine gap: Hideaway mechanic (look at top 4, exile face down) not implemented
         return []
     return [make_etb_trigger(obj, etb_effect)]
-
-
-def crossroads_village_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Crossroads Village: choose color on enter (stub)."""
-    # engine gap: choose-a-color on enter + restricted-color mana production not modular
-    return []
 
 
 def eden_seat_of_the_sanctum_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4976,18 +4915,6 @@ def eden_seat_of_the_sanctum_ff_setup(obj: GameObject, state: GameState) -> list
         obj, cost="{5}, {T}", effect_fn=mill_two,
         description="Mill two cards",
     )
-    return []
-
-
-def the_gold_saucer_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """The Gold Saucer: activated abilities incl. coin flip (stub)."""
-    # engine gap: activated abilities + coin flip not modular here
-    return []
-
-
-def starting_town_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Starting Town: enters tapped unless turn 1-3 (stub)."""
-    # engine gap: 'enters tapped unless' conditional based on turn count not modular
     return []
 
 
@@ -5053,72 +4980,6 @@ def xande_dark_mage_ff_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.QUERY, filter=stat_filter, handler=stat_handler,
         duration='while_on_battlefield'
     )]
-
-
-def baron_airship_kingdom_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Baron, Airship Kingdom: ETB tapped + dual-color mana ability (stub)."""
-    # engine gap: ETB-tapped state and activated dual mana abilities not modular
-    return []
-
-
-def gohn_town_of_ruin_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Gohn, Town of Ruin: ETB tapped + dual {B}/{G} mana (stub)."""
-    # engine gap: ETB-tapped state and activated dual mana abilities not modular
-    return []
-
-
-def gongaga_reactor_town_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Gongaga, Reactor Town: ETB tapped + dual {R}/{G} mana (stub)."""
-    # engine gap: ETB-tapped state and activated dual mana abilities not modular
-    return []
-
-
-def guadosalam_farplane_gateway_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Guadosalam, Farplane Gateway: ETB tapped + dual {G}/{U} mana (stub)."""
-    # engine gap: ETB-tapped state and activated dual mana abilities not modular
-    return []
-
-
-def insomnia_crown_city_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Insomnia, Crown City: ETB tapped + dual {W}/{B} mana (stub)."""
-    # engine gap: ETB-tapped state and activated dual mana abilities not modular
-    return []
-
-
-def rabanastre_royal_city_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Rabanastre, Royal City: ETB tapped + dual {R}/{W} mana (stub)."""
-    # engine gap: ETB-tapped state and activated dual mana abilities not modular
-    return []
-
-
-def sharlayan_nation_of_scholars_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sharlayan, Nation of Scholars: ETB tapped + dual {W}/{U} mana (stub)."""
-    # engine gap: ETB-tapped state and activated dual mana abilities not modular
-    return []
-
-
-def treno_dark_city_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Treno, Dark City: ETB tapped + dual {U}/{B} mana (stub)."""
-    # engine gap: ETB-tapped state and activated dual mana abilities not modular
-    return []
-
-
-def vector_imperial_capital_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Vector, Imperial Capital: ETB tapped + dual {B}/{R} mana (stub)."""
-    # engine gap: ETB-tapped state and activated dual mana abilities not modular
-    return []
-
-
-def windurst_federation_center_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Windurst, Federation Center: ETB tapped + dual {G}/{W} mana (stub)."""
-    # engine gap: ETB-tapped state and activated dual mana abilities not modular
-    return []
-
-
-def wastes_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Wastes (basic): {T}: Add {C} (stub)."""
-    # engine gap: activated tap-for-mana abilities for basic lands not registered here
-    return []
 
 
 # =============================================================================

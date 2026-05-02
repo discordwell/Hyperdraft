@@ -2399,12 +2399,6 @@ def tinybones_the_pickpocket_setup(obj: GameObject, state: GameState) -> list[In
     return [make_damage_trigger(obj, damage_effect, combat_only=True)]
 
 
-def treasure_dredger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated tap ability creating Treasure."""
-    # engine gap: activated tap+sac+life-payment ability not engine-tracked
-    return []
-
-
 def unscrupulous_contractor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, you may sacrifice a creature. When you do, target player draws two cards and loses 2 life."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
@@ -3779,12 +3773,6 @@ def mobile_homestead_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return [make_attack_trigger(obj, attack_effect)]
 
 
-def redrock_sentinel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Defender; activated sac-a-land for draw + Treasure."""
-    # engine gap: activated land-sacrifice ability not engine-tracked
-    return []
-
-
 def tomb_trawler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{2}: Put target card from your graveyard on the bottom of your library."""
     def graveyard_to_bottom(o: GameObject, st: GameState, targets) -> list[Event]:
@@ -3923,12 +3911,6 @@ def lonely_arroyo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def lush_oasis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, _ping_land_etb_effect(obj, state))]
-
-
-def mirage_mesa_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped; choose a color (color-choice) for mana production."""
-    # engine gap: ETB color choice not engine-tracked
-    return []
 
 
 def sandstorm_verge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

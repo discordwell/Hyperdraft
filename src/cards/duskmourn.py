@@ -967,12 +967,6 @@ def dollmakers_shop_setup(obj: GameObject, state: GameState) -> list[Interceptor
     return []
 
 
-def ethereal_armor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura — enchanted creature gets +1/+1 per enchantment and has first strike."""
-    # engine gap: Aura attachment / enchanted-target lookup not modeled here
-    return []
-
-
 def fear_of_immobility_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB: tap up to one creature; if opponent's, stun-counter it."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
@@ -2413,12 +2407,6 @@ def cursed_recording_setup(obj: GameObject, state: GameState) -> list[Intercepto
                                     spell_type_filter={CardType.INSTANT, CardType.SORCERY})]
 
 
-def diversion_specialist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Menace; {1}+sac: impulse exile."""
-    # engine gap: activated abilities
-    return []
-
-
 def fear_of_being_hunted_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Haste; must-be-blocked. Keyword-only."""
     # engine gap: must-be-blocked restriction
@@ -2979,12 +2967,6 @@ def moldering_gym_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     )(obj, state)
 
 
-def overgrown_zealot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: any color; {T}: 2 of one for face-up only."""
-    # engine gap: activated mana abilities w/ restrictions
-    return []
-
-
 def overlord_of_the_hauntwoods_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Impending; on enter/attack, create tapped omni-basic land token."""
     def effect(event: Event, state: GameState) -> list[Event]:
@@ -3018,12 +3000,6 @@ def rootwise_survivor_setup(obj: GameObject, state: GameState) -> list[Intercept
 def slavering_branchsnapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Trample; forestcycling 2 — keyword-only."""
     # engine gap: typecycling
-    return []
-
-
-def twitching_doll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: any-color + nest counter; {T}+sac: tokens per counter."""
-    # engine gap: activated abilities
     return []
 
 
@@ -3241,12 +3217,6 @@ def inquisitive_glimmer_setup(obj: GameObject, state: GameState) -> list[Interce
         return CardType.ENCHANTMENT in card.characteristics.types
 
     return [make_cost_reduction(obj, applies_to=applies, amount=1)]
-
-
-def intruding_soulrager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Vigilance; {T}+sac Room: 2 dmg to each opp + draw."""
-    # engine gap: activated abilities w/ Room cost
-    return []
 
 
 def the_jolly_balloon_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3549,12 +3519,6 @@ def dissection_tools_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return [make_etb_trigger(obj, etb_effect)]
 
 
-def found_footage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Look at face-down creatures; activated surveil 2 + draw."""
-    # engine gap: peek + activated abilities
-    return []
-
-
 def friendly_teddy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When dies, each player draws a card."""
     def death_effect(event: Event, state: GameState) -> list[Event]:
@@ -3700,111 +3664,9 @@ def marvin_murderous_mimic_setup(obj: GameObject, state: GameState) -> list[Inte
     return []
 
 
-def saw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment +2/+0; on attack may sac for draw."""
-    # engine gap: 'equipped creature attacks' trigger
-    return []
-
-
-def abandoned_campground_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless any player has 13- life. Mana ability."""
-    # engine gap: conditional ETB-tapped + dual-land mana
-    return []
-
-
-def blazemire_verge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Verge — restricted activated mana ability."""
-    # engine gap: activated mana w/ control-check
-    return []
-
-
-def bleeding_woods_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless 13- life. Dual."""
-    # engine gap
-    return []
-
-
-def etched_cornfield_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless 13- life. Dual."""
-    # engine gap
-    return []
-
-
-def floodfarm_verge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Verge."""
-    # engine gap
-    return []
-
-
-def gloomlake_verge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Verge."""
-    # engine gap
-    return []
-
-
-def hushwood_verge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Verge."""
-    # engine gap
-    return []
-
-
-def lakeside_shack_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless 13- life. Dual."""
-    # engine gap
-    return []
-
-
-def murky_sewer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless 13- life. Dual."""
-    # engine gap
-    return []
-
-
-def neglected_manor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless 13- life. Dual."""
-    # engine gap
-    return []
-
-
-def peculiar_lighthouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless 13- life. Dual."""
-    # engine gap
-    return []
-
-
-def raucous_carnival_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless 13- life. Dual."""
-    # engine gap
-    return []
-
-
-def razortrap_gorge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless 13- life. Dual."""
-    # engine gap
-    return []
-
-
-def strangled_cemetery_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless 13- life. Dual."""
-    # engine gap
-    return []
-
-
 def terramorphic_expanse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{T}+sac: search basic land tapped."""
     # engine gap: activated mana abilities
-    return []
-
-
-def thornspire_verge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Verge."""
-    # engine gap
-    return []
-
-
-def valgavoths_lair_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Hexproof; ETB tapped, choose color; tap-add chosen."""
-    # engine gap: choose-on-enter + chosen-color mana
     return []
 
 

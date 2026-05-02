@@ -2147,8 +2147,6 @@ def spiderman_no_more_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 # --- Alien Symbiosis ---
 # Aura giving +1/+1, menace, Symbiote type. Discard-from-graveyard alt cost.
-def alien_symbiosis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: aura attribute layering + alternative cast cost from graveyard
 
 
 # --- The Death of Gwen Stacy ---
@@ -2654,8 +2652,6 @@ def web_of_life_and_destiny_setup(obj: GameObject, state: GameState) -> list[Int
 
 # --- Biorganic Carapace ---
 # Equipment - ETB self-attach, +2/+2, combat-damage draw per modified creature.
-def biorganic_carapace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: equipment ETB-attach + dynamic per-modified-creature draw
 
 
 # --- Cheering Crowd ---
@@ -3259,8 +3255,6 @@ def multiversal_passage_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 # --- Ominous Asylum ---
-def ominous_asylum_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: ETB tapped + activated surveil
 
 
 # --- Oscorp Industries ---
@@ -3269,28 +3263,18 @@ def oscorp_industries_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 # --- Savage Mansion ---
-def savage_mansion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: ETB tapped + activated surveil
 
 
 # --- Sinister Hideout ---
-def sinister_hideout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: ETB tapped + activated surveil
 
 
 # --- Suburban Sanctuary ---
-def suburban_sanctuary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: ETB tapped + activated surveil
 
 
 # --- University Campus ---
-def university_campus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: ETB tapped + activated surveil
 
 
 # --- Urban Retreat ---
-def urban_retreat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: ETB tapped + bounce-creature-to-flicker activation
 
 
 # --- Vibrant Cityscape ---
