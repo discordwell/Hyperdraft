@@ -210,8 +210,8 @@ def _zelda_princess_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 ZELDA_PRINCESS_OF_HYRULE = make_creature(
     name="Zelda, Princess of Hyrule",
-    power=2, toughness=4,
-    mana_cost="{2}{W}{W}",
+    power=2, toughness=3,
+    mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Noble"},
     supertypes={"Legendary"},
@@ -246,8 +246,8 @@ IMPA_SHEIKAH_GUARDIAN = make_creature(
 
 RAURU_SAGE_OF_LIGHT = make_creature(
     name="Rauru, Sage of Light",
-    power=2, toughness=5,
-    mana_cost="{3}{W}{W}",
+    power=2, toughness=4,
+    mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit", "Cleric"},
     supertypes={"Legendary"},
@@ -2103,6 +2103,29 @@ ROBBIE_ANCIENT_TECH = make_creature(
 
 
 # =============================================================================
+# WAVE 4 BUFF COMMONS (White, Hylian/Sheikah-flavored)
+# =============================================================================
+
+HYLIAN_SOLDIER_BUFF = make_creature(
+    name="Hylian Soldier",
+    power=2, toughness=1, mana_cost="{W}", colors={Color.WHITE},
+    subtypes={"Hylian", "Soldier"}, text=""
+)
+
+HYRULE_SQUIRE = make_creature(
+    name="Hyrule Squire",
+    power=2, toughness=3, mana_cost="{1}{W}", colors={Color.WHITE},
+    subtypes={"Hylian", "Knight"}, text="Vigilance"
+)
+
+SHEIKAH_SENTINEL = make_creature(
+    name="Sheikah Sentinel",
+    power=3, toughness=1, mana_cost="{1}{W}", colors={Color.WHITE},
+    subtypes={"Sheikah", "Knight"}, text="First strike"
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -2356,6 +2379,11 @@ LEGEND_OF_ZELDA_CARDS = {
     "Swamp": SWAMP_LOZ,
     "Mountain": MOUNTAIN_LOZ,
     "Forest": FOREST_LOZ,
+
+    # WAVE 4 BUFF COMMONS
+    "Hylian Soldier": HYLIAN_SOLDIER_BUFF,
+    "Hyrule Squire": HYRULE_SQUIRE,
+    "Sheikah Sentinel": SHEIKAH_SENTINEL,
 }
 
 print(f"Loaded {len(LEGEND_OF_ZELDA_CARDS)} Legend of Zelda: Hyrule Chronicles cards")
@@ -2567,5 +2595,8 @@ CARDS = [
     KASS_RITO_BARD,
     BEEDLE_TRAVELING_MERCHANT,
     PURAH_SHEIKAH_RESEARCHER,
-    ROBBIE_ANCIENT_TECH
+    ROBBIE_ANCIENT_TECH,
+    HYLIAN_SOLDIER_BUFF,
+    HYRULE_SQUIRE,
+    SHEIKAH_SENTINEL,
 ]
