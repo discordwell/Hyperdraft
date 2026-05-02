@@ -341,9 +341,9 @@ def test_wired_bonus_resolve_lowers_score_more_than_setup():
     assert (s_setup - s_resolve) > 4.0
 
 
-def test_archetype_templates_has_all_five_keys():
-    """ARCHETYPE_TEMPLATES exposes Aggro, Midrange, Control, Tempo, Ramp."""
-    expected = {"Aggro", "Midrange", "Control", "Tempo", "Ramp"}
+def test_archetype_templates_has_all_six_keys():
+    """ARCHETYPE_TEMPLATES exposes Aggro, Midrange, Control, Tempo, Ramp, Combo."""
+    expected = {"Aggro", "Midrange", "Control", "Tempo", "Ramp", "Combo"}
     assert set(ARCHETYPE_TEMPLATES.keys()) == expected
     for name, tmpl in ARCHETYPE_TEMPLATES.items():
         assert isinstance(tmpl, ArchetypeTemplate), name

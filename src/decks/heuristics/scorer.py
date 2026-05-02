@@ -57,6 +57,7 @@ _CMC_SWEET: dict[str, int] = {
     "Midrange": 3,
     "Control": 4,
     "Ramp": 5,
+    "Combo": 2,
 }
 
 # Body baseline: a vanilla 2/3 for {2} ≈ 0 contribution
@@ -71,6 +72,7 @@ _KEYWORDS_BY_ARCHETYPE: dict[str, set[str]] = {
     "Midrange": {"lifelink", "ward", "deathtouch", "vigilance"},
     "Control": {"flash", "defender", "vigilance", "ward"},
     "Ramp": {"reach", "trample", "ward", "vigilance"},
+    "Combo": {"flash", "ward", "hexproof"},
 }
 _KEYWORD_BONUS_PER_HIT = 0.4
 
@@ -152,7 +154,7 @@ _ROLE_WEIGHTS: dict[str, dict[str, float]] = {
         "removal": -1.0,
         "counterspell": -1.0,
         "card_draw": -0.8,
-        "wincon": -0.3,
+        "wincon": -0.7,
         "ramp": -0.1,
         "utility": 0.0,
     },
@@ -162,6 +164,14 @@ _ROLE_WEIGHTS: dict[str, dict[str, float]] = {
         "wincon": -0.8,
         "removal": -0.3,
         "counterspell": -0.1,
+        "utility": 0.0,
+    },
+    "Combo": {
+        "card_draw": -1.0,
+        "wincon": -1.0,
+        "counterspell": -0.5,
+        "ramp": -0.5,
+        "removal": -0.2,
         "utility": 0.0,
     },
 }
