@@ -383,7 +383,8 @@ class Game:
                 if obj.state.damage >= toughness:
                     events.extend(self.emit(Event(
                         type=EventType.OBJECT_DESTROYED,
-                        payload={'object_id': obj_id, 'reason': 'lethal_damage'}
+                        payload={'object_id': obj_id, 'reason': 'lethal_damage'},
+                        source=obj.state.last_damage_source,
                     )))
 
         return events

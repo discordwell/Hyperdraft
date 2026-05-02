@@ -543,6 +543,10 @@ class ObjectState:
     # Track discard timing for mechanics like Mayhem.
     last_discarded_turn: Optional[int] = None
     last_discarded_by: Optional[str] = None
+    # Source of the most recent damage applied to this object. Used by the
+    # SBA-driven lethal-damage check so OBJECT_DESTROYED can credit the
+    # damager (otherwise the harness's kill-tracking sees no source).
+    last_damage_source: Optional[str] = None
 
     # Phase 4: registered activated abilities (list of ActivatedAbility descriptors).
     activated_abilities: list = field(default_factory=list)
