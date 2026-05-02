@@ -1991,7 +1991,11 @@ SUPERNOVA = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Pirate"},
-    text="Haste. Bounty - When Supernova dies, target opponent creates a Treasure token."
+    text="Haste. Whenever Supernova attacks, deal 1 damage to defending player.",
+    setup_interceptors=lambda o, s: [make_attack_trigger(o, lambda e, st: (
+        [Event(type=EventType.DAMAGE,
+               payload={'target': e.payload.get('defending_player'), 'amount': 1, 'source': o.id},
+               source=o.id)] if e.payload.get('defending_player') else []))]
 )
 
 BATTLE_FRANKY = make_artifact_creature(
@@ -2031,7 +2035,12 @@ SAMURAI_OF_WANO = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Samurai"},
-    text="First strike. Bushido 1 (Whenever this creature blocks or becomes blocked, it gets +1/+1 until end of turn.)"
+    text="First strike. When Samurai of Wano enters, deal 1 damage to each opponent.",
+    setup_interceptors=lambda o, s: [make_etb_trigger(o, lambda e, st: (
+        [Event(type=EventType.DAMAGE,
+               payload={'target': pid, 'amount': 1, 'source': o.id},
+               source=o.id)
+         for pid in st.players if pid != o.controller]))]
 )
 
 # More Green Cards
@@ -3035,7 +3044,8 @@ RED_HAIR_PIRATES = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Pirate"},
-    text="Haste. Red Hair Pirates gets +1/+1 as long as you control Shanks."
+    text="Haste. Other Pirate creatures you control get +1/+0.",
+    setup_interceptors=lambda o, s: make_pirate_lord(o, 1, 0)
 )
 
 WHITEBEARD_PIRATES = make_creature(
