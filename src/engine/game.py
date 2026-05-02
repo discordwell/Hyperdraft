@@ -275,6 +275,12 @@ class Game:
             for interceptor in (interceptors or []):
                 self.register_interceptor(interceptor, obj)
 
+        # Hand-zone setup (Cycling, Evoke, etc.). Runs in addition to
+        # setup_interceptors so the card can register both kinds of effects.
+        if zone == ZoneType.HAND and card_def and card_def.setup_in_hand:
+            for interceptor in (card_def.setup_in_hand(obj, self.state) or []):
+                self.register_interceptor(interceptor, obj)
+
         return obj
 
     def _get_zone_key(self, zone_type: ZoneType, owner_id: str) -> Optional[str]:

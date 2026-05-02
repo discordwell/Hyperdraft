@@ -804,6 +804,11 @@ class CardDefinition:
     # Same signature as setup_interceptors.
     setup_in_graveyard: Optional[Callable[['GameObject', 'GameState'], list[Interceptor]]] = None
 
+    # Optional setup that runs on entry to (and creation in) the HAND zone,
+    # for hand-activated abilities like Cycling ("{cost}, Discard this card:
+    # Draw a card.") and Evoke. Same signature as setup_interceptors.
+    setup_in_hand: Optional[Callable[['GameObject', 'GameState'], list[Interceptor]]] = None
+
     # Function for spell/ability resolution
     resolve: Optional[Callable[['Event', 'GameState'], list[Event]]] = None
 
