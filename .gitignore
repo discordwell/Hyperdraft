@@ -21,6 +21,27 @@ dist/
 claudepad.md
 oldpad.md
 
+# Agent runtime / scratch
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+
+# One-shot agent briefing dumps (regeneratable via scripts/build_phase*_briefings.py)
+.phase1_briefings/
+.phase2_briefings/
+.phase3_briefings/
+.phase4_briefings/
+.missing_briefings/
+.orphan_briefings/
+.trigger_empty_briefings/
+
+# Codex agent scratch dirs
+codex-strategy/
+codex-pokemon-strategy/
+
+# One-shot triage / worksheet outputs
+orphan_triage.json
+noop_cleanup_worksheet.json
+
 # IDE
 .vscode/
 .idea/
