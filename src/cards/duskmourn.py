@@ -40,6 +40,7 @@ from src.cards.interceptor_helpers import (
     make_activated_ability, make_counter_ability, make_damage_ability,
     open_library_search, basic_land_filter,
     make_equipment_setup, make_aura_setup,
+    make_room_setup, is_door_unlocked, make_attacks_alone_trigger,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -925,9 +926,66 @@ def glimmer_seeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def grand_entryway_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — Glimmer token on unlock; +1/+1 counter on two creatures on Rotunda unlock."""
-    # engine gap: UNLOCK_DOOR per-door triggers not modeled
-    return []
+    """Room — Glimmer token on unlock; +1/+1 counter on up to two creatures on Rotunda unlock."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Create a 1/1 white Glimmer enchantment creature token.
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller, 'name': 'Glimmer',
+                'power': 1, 'toughness': 1,
+                'colors': {Color.WHITE},
+                'types': {CardType.ENCHANTMENT, CardType.CREATURE},
+                'subtypes': {'Glimmer'},
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    def door2_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Put a +1/+1 counter on each of up to two target creatures.
+        legal = [
+            cid for cid, gobj in st.objects.items()
+            if (gobj.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in gobj.characteristics.types)
+        ]
+        if not legal:
+            return []
+
+        def _on_choose(choice, selected, st_inner: GameState) -> list[Event]:
+            picked: list[str] = []
+            for s in selected or []:
+                if isinstance(s, dict):
+                    sid = s.get("id") or s.get("target_id")
+                    if sid is not None:
+                        picked.append(str(sid))
+                else:
+                    picked.append(str(s))
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': cid, 'counter_type': '+1/+1', 'count': 1},
+                source=o.id, controller=o.controller,
+            ) for cid in picked]
+
+        from src.engine.types import PendingChoice
+        st.pending_choice = PendingChoice(
+            choice_type="target_with_callback",
+            player=o.controller,
+            prompt="Choose up to two target creatures to receive +1/+1 counters",
+            options=legal,
+            source_id=o.id,
+            min_choices=0,
+            max_choices=min(2, len(legal)),
+            callback_data={"handler": _on_choose},
+        )
+        return []
+
+    return make_room_setup(
+        door1_name="Grand Entryway",
+        door1_unlock_effect=door1_effect,
+        door2_name="Elegant Rotunda",
+        door2_cost="{2}{W}",
+        door2_unlock_effect=door2_effect,
+    )(obj, state)
 
 
 def hardened_escort_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1046,9 +1104,80 @@ def shepherding_spirits_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def surgical_suite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — return creature MV<=3 from GY; on attack, +1/+1 counter."""
-    # engine gap: Room unlock trigger
-    return []
+    """Room — return creature MV<=3 from GY; Hospital Room: +1/+1 on target attacker on attack."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Return target creature card with mana value 3 or less from your graveyard to the battlefield.
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={'player': o.controller, 'card_type': 'creature', 'max_mv': 3, 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 2 is a recurring trigger ("Hospital Room"); the unlock itself does nothing.
+        return []
+
+    def hospital_room_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # While Hospital Room is unlocked, whenever you attack put a +1/+1 counter on
+        # target attacking creature.
+        def attack_filter(event: Event, state: GameState) -> bool:
+            if event.type != EventType.COMBAT_DECLARED:
+                return False
+            current = state.objects.get(o.id)
+            if current is None:
+                return False
+            if not is_door_unlocked(current, "Hospital Room"):
+                return False
+            return event.payload.get('attacking_player') == o.controller
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            attackers = list(event.payload.get('attackers') or [])
+            if not attackers:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            # Choose target attacker, then add a +1/+1 counter.
+            def _on_choose(choice, selected, st_inner: GameState) -> list[Event]:
+                tid = None
+                if selected:
+                    s = selected[0]
+                    tid = s.get("id") if isinstance(s, dict) else str(s)
+                if tid is None:
+                    return []
+                return [Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': tid, 'counter_type': '+1/+1', 'count': 1},
+                    source=o.id, controller=o.controller,
+                )]
+            from src.engine.types import PendingChoice
+            state.pending_choice = PendingChoice(
+                choice_type="target_with_callback",
+                player=o.controller,
+                prompt="Choose an attacking creature to receive a +1/+1 counter",
+                options=attackers,
+                source_id=o.id,
+                min_choices=1,
+                max_choices=1,
+                callback_data={"handler": _on_choose},
+            )
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=attack_filter,
+            handler=handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Surgical Suite",
+        door1_unlock_effect=door1_effect,
+        door2_name="Hospital Room",
+        door2_cost="{3}{W}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=hospital_room_extra,
+    )(obj, state)
 
 
 def trapped_in_the_screen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1104,15 +1233,123 @@ def abhorrent_oculus_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def bottomless_pool_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — bounce a creature; on combat damage to player, draw."""
-    # engine gap: Room unlock; team-combat-damage trigger
-    return []
+    """Room — bounce up to one creature; Locker Room: on team combat damage, draw."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Return up to one target creature to its owner's hand.
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={'source': o.id, 'effect': 'bounce', 'filter': 'creature',
+                     'min_targets': 0, 'max_targets': 1},
+            source=o.id, controller=o.controller,
+        )]
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 2 is a recurring trigger ("Locker Room"); the unlock itself does nothing.
+        return []
+
+    def locker_room_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # Whenever creatures you control deal combat damage to a player, draw a card.
+        # Fires once per damage-dealing event from a creature you control to a player.
+        # Track damage events per turn so we don't double-fire on a single combat step.
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.DAMAGE:
+                return False
+            current = state.objects.get(o.id)
+            if current is None or not is_door_unlocked(current, "Locker Room"):
+                return False
+            if not event.payload.get('is_combat'):
+                return False
+            src_id = event.payload.get('source')
+            src_obj = state.objects.get(src_id) if src_id else None
+            if not src_obj or src_obj.controller != o.controller:
+                return False
+            if CardType.CREATURE not in src_obj.characteristics.types:
+                return False
+            target = event.payload.get('target')
+            return isinstance(target, str) and target in state.players
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.DRAW,
+                    payload={'player': o.controller, 'count': 1},
+                    source=o.id, controller=o.controller,
+                )],
+            )
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Bottomless Pool",
+        door1_unlock_effect=door1_effect,
+        door2_name="Locker Room",
+        door2_cost="{4}{U}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=locker_room_extra,
+    )(obj, state)
 
 
 def central_elevator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — search Room into hand; surveil 1 + win condition (8 distinct doors)."""
-    # engine gap: Room unlock, alt win condition
-    return []
+    """Room — Door 1 search-for-Room (skipped); Promising Stairs: upkeep surveil 1 (win condition skipped)."""
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # SKIP: search library for a Room card with a different name -- requires
+        # complex tutoring with name-comparison filters; engine gap.
+        return []
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 2 is a recurring trigger ("Promising Stairs"); the unlock itself does nothing.
+        return []
+
+    def promising_stairs_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # At beginning of upkeep, surveil 1 if Promising Stairs is unlocked.
+        # SKIP the win-the-game-on-8-doors clause (engine gap: alt win conditions).
+        def upkeep_filter(event: Event, state: GameState) -> bool:
+            if event.type != EventType.PHASE_START:
+                return False
+            if event.payload.get('phase') != 'upkeep':
+                return False
+            if state.active_player != o.controller:
+                return False
+            current = state.objects.get(o.id)
+            return current is not None and is_door_unlocked(current, "Promising Stairs")
+
+        def upkeep_handler(event: Event, state: GameState) -> InterceptorResult:
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.SURVEIL,
+                    payload={'player': o.controller, 'count': 1},
+                    source=o.id, controller=o.controller,
+                )],
+            )
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=upkeep_filter,
+            handler=upkeep_handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Central Elevator",
+        door1_unlock_effect=door1_effect,
+        door2_name="Promising Stairs",
+        door2_cost="{2}{U}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=promising_stairs_extra,
+    )(obj, state)
 
 
 def creeping_peeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1183,9 +1420,64 @@ def marina_vendrells_grimoire_setup(obj: GameObject, state: GameState) -> list[I
 
 
 def meat_locker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — tap+2 stun on creature / draw three discard one."""
-    # engine gap: Room unlock
-    return []
+    """Room — tap up to one creature with 2 stun counters / draw 3 discard 1."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Tap up to one target creature, then put 2 stun counters on it.
+        legal = [
+            cid for cid, gobj in st.objects.items()
+            if (gobj.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in gobj.characteristics.types)
+        ]
+        if not legal:
+            return []
+
+        def _on_choose(choice, selected, st_inner: GameState) -> list[Event]:
+            tid = None
+            if selected:
+                s = selected[0]
+                tid = s.get("id") if isinstance(s, dict) else str(s)
+            if tid is None:
+                return []
+            return [
+                Event(type=EventType.TAP_TARGET,
+                      payload={'object_id': tid},
+                      source=o.id, controller=o.controller),
+                Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': tid, 'counter_type': 'stun', 'count': 2},
+                      source=o.id, controller=o.controller),
+            ]
+
+        from src.engine.types import PendingChoice
+        st.pending_choice = PendingChoice(
+            choice_type="target_with_callback",
+            player=o.controller,
+            prompt="Choose up to one target creature to tap and stun",
+            options=legal,
+            source_id=o.id,
+            min_choices=0,
+            max_choices=1,
+            callback_data={"handler": _on_choose},
+        )
+        return []
+
+    def door2_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Draw three cards, then discard a card.
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'count': 3},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.DISCARD,
+                  payload={'player': o.controller, 'count': 1},
+                  source=o.id, controller=o.controller),
+        ]
+
+    return make_room_setup(
+        door1_name="Meat Locker",
+        door1_unlock_effect=door1_effect,
+        door2_name="Drowned Diner",
+        door2_cost="{3}{U}{U}",
+        door2_unlock_effect=door2_effect,
+    )(obj, state)
 
 
 def the_mindskinner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1195,9 +1487,22 @@ def the_mindskinner_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def mirror_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — copy a creature / triggered ability double."""
-    # engine gap: Room unlock; trigger-doubling effect
-    return []
+    """Room — copy a creature (SKIP) / trigger-doubling (SKIP)."""
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # SKIP: token copy of target creature you control. Engine gap (token-copy machinery).
+        return []
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # SKIP: "if a triggered ability ... triggers an additional time" — engine gap.
+        return []
+
+    return make_room_setup(
+        door1_name="Mirror Room",
+        door1_unlock_effect=door1_effect,
+        door2_name="Fractured Realm",
+        door2_cost="{5}{U}{U}",
+        door2_unlock_effect=door2_effect,
+    )(obj, state)
 
 
 def overlord_of_the_floodpits_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1303,9 +1608,32 @@ def unable_to_scream_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def underwater_tunnel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — surveil 2 / manifest dread + +1/+1 counter."""
-    # engine gap: Room unlock
-    return []
+    """Room — Door 1 surveil 2 / Slimy Aquarium manifest dread + counter (manifest part SKIPPED)."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Surveil 2.
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': o.controller, 'count': 2},
+            source=o.id, controller=o.controller,
+        )]
+
+    def door2_effect(o: GameObject, st: GameState) -> list[Event]:
+        # SKIP the +1/+1 counter on the manifested creature (engine gap: chaining
+        # the counter onto the *just-manifested* face-down). Just emit the
+        # MANIFEST_DREAD; the counter portion is left as a no-op.
+        return [Event(
+            type=EventType.MANIFEST_DREAD,
+            payload={'player': o.controller},
+            source=o.id, controller=o.controller,
+        )]
+
+    return make_room_setup(
+        door1_name="Underwater Tunnel",
+        door1_unlock_effect=door1_effect,
+        door2_name="Slimy Aquarium",
+        door2_cost="{3}{U}",
+        door2_unlock_effect=door2_effect,
+    )(obj, state)
 
 
 def appendage_amalgam_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1339,15 +1667,186 @@ def cynical_loner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def defiled_crypt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — Horror token when GY-leave triggers; on unlock, return creature from GY."""
-    # engine gap: Room unlock; once-per-turn cards-leave-graveyard trigger
-    return []
+    """Room — Defiled Crypt: GY-leave -> Horror token (once/turn). Cadaver Lab: return creature from GY."""
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 1 is a recurring trigger ("Defiled Crypt"); the unlock itself does nothing.
+        return []
+
+    def door2_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Cadaver Lab unlock: return target creature card from your graveyard to your hand.
+        grave = st.zones.get(f"graveyard_{o.controller}")
+        if not grave:
+            return []
+        legal = [
+            cid for cid in grave.objects
+            if (gobj := st.objects.get(cid)) is not None
+            and CardType.CREATURE in gobj.characteristics.types
+        ]
+        if not legal:
+            return []
+
+        def _on_choose(choice, selected, st_inner: GameState) -> list[Event]:
+            tid = None
+            if selected:
+                s = selected[0]
+                tid = s.get("id") if isinstance(s, dict) else str(s)
+            if tid is None:
+                return []
+            return [Event(
+                type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+                payload={'player': o.controller, 'object_id': tid},
+                source=o.id, controller=o.controller,
+            )]
+
+        from src.engine.types import PendingChoice
+        st.pending_choice = PendingChoice(
+            choice_type="target_with_callback",
+            player=o.controller,
+            prompt="Choose a creature card from your graveyard to return to your hand",
+            options=legal,
+            source_id=o.id,
+            min_choices=1,
+            max_choices=1,
+            callback_data={"handler": _on_choose},
+        )
+        return []
+
+    def defiled_crypt_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # Whenever one or more cards leave your graveyard, create a 2/2 black Horror
+        # enchantment creature token. Limit once per turn.
+        # We track the last turn it fired in obj.state.<key>.
+        FIRED_KEY = "_defiled_crypt_fired_turn"
+
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.ZONE_CHANGE:
+                return False
+            current = state.objects.get(o.id)
+            if current is None or not is_door_unlocked(current, "Defiled Crypt"):
+                return False
+            # Card leaving graveyard.
+            if event.payload.get('from_zone_type') != ZoneType.GRAVEYARD:
+                return False
+            moving = state.objects.get(event.payload.get('object_id'))
+            if moving is None or moving.owner != o.controller:
+                return False
+            # Once per turn.
+            turn_no = getattr(state, "turn_number", None)
+            if turn_no is None:
+                turn_no = getattr(getattr(state, "turn_state", None), "turn_number", 0)
+            if getattr(current.state, FIRED_KEY, None) == turn_no:
+                return False
+            return True
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            current = state.objects.get(o.id)
+            if current is not None:
+                turn_no = getattr(state, "turn_number", None)
+                if turn_no is None:
+                    turn_no = getattr(getattr(state, "turn_state", None), "turn_number", 0)
+                setattr(current.state, FIRED_KEY, turn_no)
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.CREATE_TOKEN,
+                    payload={
+                        'controller': o.controller, 'name': 'Horror',
+                        'power': 2, 'toughness': 2,
+                        'colors': {Color.BLACK},
+                        'types': {CardType.ENCHANTMENT, CardType.CREATURE},
+                        'subtypes': {'Horror'},
+                    },
+                    source=o.id, controller=o.controller,
+                )],
+            )
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Defiled Crypt",
+        door1_unlock_effect=door1_effect,
+        door2_name="Cadaver Lab",
+        door2_cost="{B}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=defiled_crypt_extra,
+    )(obj, state)
 
 
 def derelict_attic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — draw 2 lose 2 / +1/+0 deathtouch on attack-alone."""
-    # engine gap: Room unlock; attack-alone trigger
-    return []
+    """Room — Derelict Attic: draw 2 lose 2. Widow's Walk: attacks-alone -> +1/+0 + deathtouch EOT."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Draw two cards and lose 2 life.
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'count': 2},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': o.controller, 'amount': -2},
+                  source=o.id, controller=o.controller),
+        ]
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 2 is a recurring trigger ("Widow's Walk"); the unlock itself does nothing.
+        return []
+
+    def widows_walk_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # Whenever a creature you control attacks alone, it gets +1/+0 and gains
+        # deathtouch until end of turn (only while Widow's Walk is unlocked).
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.COMBAT_DECLARED:
+                return False
+            current = state.objects.get(o.id)
+            if current is None or not is_door_unlocked(current, "Widow's Walk"):
+                return False
+            if event.payload.get('attacking_player') != o.controller:
+                return False
+            attackers = list(event.payload.get('attackers') or [])
+            return len(attackers) == 1
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            attackers = list(event.payload.get('attackers') or [])
+            tid = attackers[0] if attackers else None
+            if tid is None:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[
+                    Event(type=EventType.PT_MODIFICATION,
+                          payload={'object_id': tid, 'power_mod': 1, 'toughness_mod': 0,
+                                   'duration': 'end_of_turn'},
+                          source=o.id, controller=o.controller),
+                    Event(type=EventType.GRANT_KEYWORD,
+                          payload={'object_id': tid, 'keyword': 'deathtouch',
+                                   'duration': 'end_of_turn'},
+                          source=o.id, controller=o.controller),
+                ],
+            )
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Derelict Attic",
+        door1_unlock_effect=door1_effect,
+        door2_name="Widow's Walk",
+        door2_cost="{3}{B}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=widows_walk_extra,
+    )(obj, state)
 
 
 def fear_of_the_dark_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1363,9 +1862,77 @@ def fear_of_the_dark_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def funeral_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — drain 1 on creature death / Awakening Hall reanimation on unlock."""
-    # engine gap: Room unlock
-    return []
+    """Room — Funeral Room: drain 1 on creature-you-control death. Awakening Hall: mass reanimate."""
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 1 is a recurring trigger ("Funeral Room"); the unlock itself does nothing.
+        return []
+
+    def door2_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Awakening Hall: return all creature cards from your graveyard to the battlefield.
+        grave = st.zones.get(f"graveyard_{o.controller}")
+        if not grave:
+            return []
+        events: list[Event] = []
+        for cid in list(grave.objects):
+            gobj = st.objects.get(cid)
+            if gobj is None or CardType.CREATURE not in gobj.characteristics.types:
+                continue
+            events.append(Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={'player': o.controller, 'object_id': cid},
+                source=o.id, controller=o.controller,
+            ))
+        return events
+
+    def funeral_room_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # Whenever a creature you control dies, each opponent loses 1 life and
+        # you gain 1 life (only while Funeral Room is unlocked).
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.OBJECT_DESTROYED:
+                return False
+            current = state.objects.get(o.id)
+            if current is None or not is_door_unlocked(current, "Funeral Room"):
+                return False
+            target = state.objects.get(event.payload.get('object_id'))
+            if target is None:
+                return False
+            return (CardType.CREATURE in target.characteristics.types and
+                    target.controller == o.controller)
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            events: list[Event] = []
+            for pid in state.players.keys():
+                if pid != o.controller:
+                    events.append(Event(
+                        type=EventType.LIFE_CHANGE,
+                        payload={'player': pid, 'amount': -1},
+                        source=o.id, controller=o.controller,
+                    ))
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': o.controller, 'amount': 1},
+                source=o.id, controller=o.controller,
+            ))
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Funeral Room",
+        door1_unlock_effect=door1_effect,
+        door2_name="Awakening Hall",
+        door2_cost="{6}{B}{B}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=funeral_room_extra,
+    )(obj, state)
 
 
 def grievous_wound_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1482,9 +2049,91 @@ def sporogenic_infection_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def unholy_annex_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — end-step draw + conditional drain; on Ritual unlock create 6/6 Demon flying."""
-    # engine gap: Room unlock, has-Demon conditional
-    return []
+    """Room — Unholy Annex: end-step draw + drain (Demon-conditional). Ritual Chamber: 6/6 Demon flying."""
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 1 is a recurring end-step trigger ("Unholy Annex"); the unlock itself
+        # does nothing.
+        return []
+
+    def door2_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Ritual Chamber: create a 6/6 black Demon creature token with flying.
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller, 'name': 'Demon',
+                'power': 6, 'toughness': 6,
+                'colors': {Color.BLACK},
+                'types': {CardType.CREATURE},
+                'subtypes': {'Demon'},
+                'keywords': ['flying'],
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    def unholy_annex_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # At the beginning of your end step, draw a card. If you control a Demon,
+        # each opponent loses 2 life and you gain 2 life. Otherwise, lose 2 life.
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.PHASE_START:
+                return False
+            if event.payload.get('phase') != 'end_step':
+                return False
+            if state.active_player != o.controller:
+                return False
+            current = state.objects.get(o.id)
+            return current is not None and is_door_unlocked(current, "Unholy Annex")
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            events: list[Event] = [Event(
+                type=EventType.DRAW,
+                payload={'player': o.controller, 'count': 1},
+                source=o.id, controller=o.controller,
+            )]
+            controls_demon = any(
+                gobj.zone == ZoneType.BATTLEFIELD
+                and gobj.controller == o.controller
+                and 'Demon' in gobj.characteristics.subtypes
+                for gobj in state.objects.values()
+            )
+            if controls_demon:
+                for pid in state.players.keys():
+                    if pid != o.controller:
+                        events.append(Event(
+                            type=EventType.LIFE_CHANGE,
+                            payload={'player': pid, 'amount': -2},
+                            source=o.id, controller=o.controller,
+                        ))
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': o.controller, 'amount': 2},
+                    source=o.id, controller=o.controller,
+                ))
+            else:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': o.controller, 'amount': -2},
+                    source=o.id, controller=o.controller,
+                ))
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Unholy Annex",
+        door1_unlock_effect=door1_effect,
+        door2_name="Ritual Chamber",
+        door2_cost="{3}{B}{B}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=unholy_annex_extra,
+    )(obj, state)
 
 
 def valgavoth_terror_eater_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1576,9 +2225,89 @@ def fear_of_being_hunted_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def glassworks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — 4 damage on unlock / 1 damage to each opp at end step."""
-    # engine gap: Room unlock
-    return []
+    """Room — Glassworks: 4 damage to opp creature. Shattered Yard: 1 damage each opp at end step."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Glassworks: deal 4 damage to target creature an opponent controls.
+        legal = [
+            cid for cid, gobj in st.objects.items()
+            if (gobj.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in gobj.characteristics.types and
+                gobj.controller != o.controller)
+        ]
+        if not legal:
+            return []
+
+        def _on_choose(choice, selected, st_inner: GameState) -> list[Event]:
+            tid = None
+            if selected:
+                s = selected[0]
+                tid = s.get("id") if isinstance(s, dict) else str(s)
+            if tid is None:
+                return []
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'source': o.id, 'target': tid, 'amount': 4, 'is_combat': False},
+                source=o.id, controller=o.controller,
+            )]
+
+        from src.engine.types import PendingChoice
+        st.pending_choice = PendingChoice(
+            choice_type="target_with_callback",
+            player=o.controller,
+            prompt="Choose a creature an opponent controls to deal 4 damage to",
+            options=legal,
+            source_id=o.id,
+            min_choices=1,
+            max_choices=1,
+            callback_data={"handler": _on_choose},
+        )
+        return []
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 2 is a recurring end-step trigger ("Shattered Yard"); the unlock
+        # itself does nothing.
+        return []
+
+    def shattered_yard_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # At the beginning of each end step, Shattered Yard deals 1 damage to
+        # each opponent.
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.PHASE_START:
+                return False
+            if event.payload.get('phase') != 'end_step':
+                return False
+            current = state.objects.get(o.id)
+            return current is not None and is_door_unlocked(current, "Shattered Yard")
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            events: list[Event] = []
+            for pid in state.players.keys():
+                if pid != o.controller:
+                    events.append(Event(
+                        type=EventType.DAMAGE,
+                        payload={'source': o.id, 'target': pid, 'amount': 1, 'is_combat': False},
+                        source=o.id, controller=o.controller,
+                    ))
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Glassworks",
+        door1_unlock_effect=door1_effect,
+        door2_name="Shattered Yard",
+        door2_cost="{4}{R}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=shattered_yard_extra,
+    )(obj, state)
 
 
 def hand_that_feeds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1652,9 +2381,55 @@ def overlord_of_the_boilerbilges_setup(obj: GameObject, state: GameState) -> lis
 
 
 def painters_studio_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — exile top 2 / +1/+0 to attackers."""
-    # engine gap: Room unlock
-    return []
+    """Room — Painter's Studio: exile top 2 (cross-turn play SKIPPED). Defaced Gallery: attackers +1/+0."""
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # SKIP: "exile top 2 cards, may play them until end of next turn" requires
+        # cross-turn impulse-play tracking that's an engine gap.
+        return []
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 2 is a recurring trigger ("Defaced Gallery"); the unlock itself does nothing.
+        return []
+
+    def defaced_gallery_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # Whenever you attack, attacking creatures you control get +1/+0 until
+        # end of turn.
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.COMBAT_DECLARED:
+                return False
+            current = state.objects.get(o.id)
+            if current is None or not is_door_unlocked(current, "Defaced Gallery"):
+                return False
+            return event.payload.get('attacking_player') == o.controller
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            attackers = list(event.payload.get('attackers') or [])
+            events = [Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': aid, 'power_mod': 1, 'toughness_mod': 0,
+                         'duration': 'end_of_turn'},
+                source=o.id, controller=o.controller,
+            ) for aid in attackers]
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Painter's Studio",
+        door1_unlock_effect=door1_effect,
+        door2_name="Defaced Gallery",
+        door2_cost="{1}{R}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=defaced_gallery_extra,
+    )(obj, state)
 
 
 def piggy_bank_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1723,9 +2498,76 @@ def the_rollercrusher_ride_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def ticket_booth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — manifest dread / double strike on attack."""
-    # engine gap: Room unlock
-    return []
+    """Room — Ticket Booth: manifest dread (SKIPPED). Tunnel of Hate: target attacker double strike EOT."""
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # SKIP: manifest dread on door 1 — engine gap (manifest dread isn't fully wired).
+        return []
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 2 is a recurring trigger ("Tunnel of Hate"); the unlock itself does nothing.
+        return []
+
+    def tunnel_of_hate_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # Whenever you attack, target attacking creature gains double strike until
+        # end of turn.
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.COMBAT_DECLARED:
+                return False
+            current = state.objects.get(o.id)
+            if current is None or not is_door_unlocked(current, "Tunnel of Hate"):
+                return False
+            return event.payload.get('attacking_player') == o.controller
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            attackers = list(event.payload.get('attackers') or [])
+            if not attackers:
+                return InterceptorResult(action=InterceptorAction.PASS)
+
+            def _on_choose(choice, selected, st_inner: GameState) -> list[Event]:
+                tid = None
+                if selected:
+                    s = selected[0]
+                    tid = s.get("id") if isinstance(s, dict) else str(s)
+                if tid is None:
+                    return []
+                return [Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': tid, 'keyword': 'double strike',
+                             'duration': 'end_of_turn'},
+                    source=o.id, controller=o.controller,
+                )]
+
+            from src.engine.types import PendingChoice
+            state.pending_choice = PendingChoice(
+                choice_type="target_with_callback",
+                player=o.controller,
+                prompt="Choose an attacking creature to gain double strike",
+                options=attackers,
+                source_id=o.id,
+                min_choices=1,
+                max_choices=1,
+                callback_data={"handler": _on_choose},
+            )
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Ticket Booth",
+        door1_unlock_effect=door1_effect,
+        door2_name="Tunnel of Hate",
+        door2_cost="{4}{R}{R}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=tunnel_of_hate_extra,
+    )(obj, state)
 
 
 def altanak_the_thricecalled_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1792,9 +2634,43 @@ def frantic_strength_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def greenhouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — lands have any-color tap / mill 4 + return up to 2."""
-    # engine gap: Room unlock; granting tap-for-any to lands
-    return []
+    """Room — Greenhouse: lands tap for any color (SKIP color choice). Rickety Gazebo: mill 4 + return up to 2 perms."""
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 1 is a continuous static ("Lands you control have ..."); the
+        # unlock itself does nothing. The static is wired in extra_setup.
+        return []
+
+    def door2_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Mill 4 cards, then return up to two permanent cards from among them
+        # to your hand. Mill events tag those cards in the graveyard; the
+        # follow-up RETURN_TO_HAND_FROM_GRAVEYARD asks the chooser to pick
+        # up to 2 permanents (best-effort: we just enable a generic permanent
+        # graveyard-return; the engine's "from among the milled cards"
+        # narrowing is an engine gap).
+        return [
+            Event(type=EventType.MILL,
+                  payload={'player': o.controller, 'count': 4},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+                  payload={'player': o.controller, 'card_type': 'permanent',
+                           'amount': 2, 'optional': True},
+                  source=o.id, controller=o.controller),
+        ]
+
+    def greenhouse_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # SKIP the actual mana-of-any-color granting (engine gap: granting
+        # activated mana abilities to all lands you control with player color
+        # choice). Track only that the static would be active.
+        return []
+
+    return make_room_setup(
+        door1_name="Greenhouse",
+        door1_unlock_effect=door1_effect,
+        door2_name="Rickety Gazebo",
+        door2_cost="{3}{G}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=greenhouse_extra,
+    )(obj, state)
 
 
 def hauntwoods_shrieker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1837,9 +2713,29 @@ def leyline_of_mutation_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def moldering_gym_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — search basic land / manifest dread + 3 +1/+1."""
-    # engine gap: Room unlock
-    return []
+    """Room — Moldering Gym: search basic land tapped. Weight Room: manifest dread + 3 counters (manifest SKIPPED)."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Search your library for a basic land card, put it onto the battlefield
+        # tapped, then shuffle.
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={'player': o.controller, 'filter': 'basic_land',
+                     'destination': 'battlefield', 'tapped': True,
+                     'shuffle_after': True, 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # SKIP: manifest dread + counter the manifested creature — engine gap.
+        return []
+
+    return make_room_setup(
+        door1_name="Moldering Gym",
+        door1_unlock_effect=door1_effect,
+        door2_name="Weight Room",
+        door2_cost="{5}{G}",
+        door2_unlock_effect=door2_effect,
+    )(obj, state)
 
 
 def overgrown_zealot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1897,9 +2793,66 @@ def tyvar_the_pummeler_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def walkin_closet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — play lands from GY / cast spells from GY this turn."""
-    # engine gap: Room unlock; cast-from-GY permission
-    return []
+    """Room — Walk-In Closet: lands from GY (continuous). Forgotten Cellar: cast from GY + exile-instead."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Walk-In Closet's static is "You may play lands from your graveyard."
+        # On unlock we issue a permanent grant for the controller. The handler
+        # treats unset duration as the default ("this_turn"); we want forever.
+        return [Event(
+            type=EventType.GRANT_PLAY_LANDS_FROM_GRAVEYARD,
+            payload={'player': o.controller, 'duration': 'forever'},
+            source=o.id, controller=o.controller,
+        )]
+
+    def door2_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Forgotten Cellar: this turn, you may cast spells from your graveyard;
+        # this turn, "to graveyard" is replaced with "to exile".
+        return [
+            Event(type=EventType.GRANT_CAST_FROM_GRAVEYARD,
+                  payload={'player': o.controller, 'duration': 'this_turn'},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.GRANT_EXILE_INSTEAD_OF_GRAVEYARD,
+                  payload={'player': o.controller, 'duration': 'this_turn'},
+                  source=o.id, controller=o.controller),
+        ]
+
+    def walkin_closet_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # Re-grant the lands-from-graveyard permission whenever a turn rolls
+        # over, so it remains active while Walk-In Closet is unlocked.
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.TURN_START:
+                return False
+            current = state.objects.get(o.id)
+            return current is not None and is_door_unlocked(current, "Walk-In Closet")
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.GRANT_PLAY_LANDS_FROM_GRAVEYARD,
+                    payload={'player': o.controller, 'duration': 'this_turn'},
+                    source=o.id, controller=o.controller,
+                )],
+            )
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Walk-In Closet",
+        door1_unlock_effect=door1_effect,
+        door2_name="Forgotten Cellar",
+        door2_cost="{3}{G}{G}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=walkin_closet_extra,
+    )(obj, state)
 
 
 def wary_watchdog_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2063,9 +3016,55 @@ def oblivious_bookworm_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def restricted_office_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — destroy power 3+ / hexproof to other permanents."""
-    # engine gap: Room unlock; team hexproof
-    return []
+    """Room — Restricted Office: destroy creatures power>=3. Lecture Hall: other permanents you control hexproof."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Destroy all creatures with power 3 or greater.
+        events: list[Event] = []
+        for cid, gobj in list(st.objects.items()):
+            if gobj.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in gobj.characteristics.types:
+                continue
+            try:
+                p = get_power(gobj, st)
+            except Exception:
+                p = gobj.characteristics.power or 0
+            if p is None:
+                continue
+            if p >= 3:
+                events.append(Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': cid},
+                    source=o.id, controller=o.controller,
+                ))
+        return events
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 2 is a continuous static ("Lecture Hall"); unlock itself does nothing.
+        return []
+
+    def lecture_hall_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # Other permanents you control have hexproof, while Lecture Hall is unlocked.
+        def affects_filter(target: GameObject, state: GameState) -> bool:
+            current = state.objects.get(o.id)
+            if current is None or not is_door_unlocked(current, "Lecture Hall"):
+                return False
+            if target.id == o.id:
+                return False
+            if target.zone != ZoneType.BATTLEFIELD:
+                return False
+            return target.controller == o.controller
+
+        return [make_keyword_grant(o, ['hexproof'], affects_filter)]
+
+    return make_room_setup(
+        door1_name="Restricted Office",
+        door1_unlock_effect=door1_effect,
+        door2_name="Lecture Hall",
+        door2_cost="{5}{U}{U}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=lecture_hall_extra,
+    )(obj, state)
 
 
 def rip_spawn_hunter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2075,15 +3074,137 @@ def rip_spawn_hunter_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def roaring_furnace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — damage = hand size to creature / no max hand size + end-step draw."""
-    # engine gap: Room unlock
-    return []
+    """Room — Roaring Furnace: hand-size damage to opp creature. Steaming Sauna: no max hand (SKIPPED) + end-step draw."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Damage = number of cards in your hand to target creature an opponent controls.
+        hand = st.zones.get(f"hand_{o.controller}")
+        amount = len(hand.objects) if hand else 0
+        legal = [
+            cid for cid, gobj in st.objects.items()
+            if (gobj.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in gobj.characteristics.types and
+                gobj.controller != o.controller)
+        ]
+        if not legal or amount <= 0:
+            return []
+
+        def _on_choose(choice, selected, st_inner: GameState) -> list[Event]:
+            tid = None
+            if selected:
+                s = selected[0]
+                tid = s.get("id") if isinstance(s, dict) else str(s)
+            if tid is None:
+                return []
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'source': o.id, 'target': tid, 'amount': amount, 'is_combat': False},
+                source=o.id, controller=o.controller,
+            )]
+
+        from src.engine.types import PendingChoice
+        st.pending_choice = PendingChoice(
+            choice_type="target_with_callback",
+            player=o.controller,
+            prompt=f"Choose a creature an opponent controls to deal {amount} damage to",
+            options=legal,
+            source_id=o.id,
+            min_choices=1,
+            max_choices=1,
+            callback_data={"handler": _on_choose},
+        )
+        return []
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 2 is a static + recurring trigger ("Steaming Sauna"); unlock itself does nothing.
+        return []
+
+    def steaming_sauna_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # SKIP "no max hand size" — engine gap (max-hand-size adjustments aren't
+        # currently first-class). Wire the end-step draw.
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.PHASE_START:
+                return False
+            if event.payload.get('phase') != 'end_step':
+                return False
+            if state.active_player != o.controller:
+                return False
+            current = state.objects.get(o.id)
+            return current is not None and is_door_unlocked(current, "Steaming Sauna")
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.DRAW,
+                    payload={'player': o.controller, 'count': 1},
+                    source=o.id, controller=o.controller,
+                )],
+            )
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+        )]
+
+    return make_room_setup(
+        door1_name="Roaring Furnace",
+        door1_unlock_effect=door1_effect,
+        door2_name="Steaming Sauna",
+        door2_cost="{3}{U}{U}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=steaming_sauna_extra,
+    )(obj, state)
 
 
 def smoky_lounge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — restricted RR at first main / Spirit token = unlocked doors."""
-    # engine gap: Room unlock; restricted mana
-    return []
+    """Room — Smoky Lounge: restricted-use {R}{R} (SKIPPED). Misty Salon: X/X Spirit (X = unlocked door names you control)."""
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # SKIP: restricted-use mana (mana that may only be spent to cast Room
+        # spells and unlock doors) is an engine gap.
+        return []
+
+    def door2_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Create an X/X blue Spirit creature token with flying, where X is the
+        # number of unlocked doors among Rooms you control (count distinct door
+        # names across all Rooms the controller controls).
+        x = 0
+        for gobj in st.objects.values():
+            if gobj.zone != ZoneType.BATTLEFIELD:
+                continue
+            if gobj.controller != o.controller:
+                continue
+            if 'Room' not in gobj.characteristics.subtypes:
+                continue
+            doors = getattr(gobj.state, 'unlocked_doors', None)
+            if isinstance(doors, list):
+                x += len(doors)
+        if x <= 0:
+            x = 1  # 0/0 tokens die immediately, but keep a safety floor.
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller, 'name': 'Spirit',
+                'power': x, 'toughness': x,
+                'colors': {Color.BLUE},
+                'types': {CardType.CREATURE},
+                'subtypes': {'Spirit'},
+                'keywords': ['flying'],
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    return make_room_setup(
+        door1_name="Smoky Lounge",
+        door1_unlock_effect=door1_effect,
+        door2_name="Misty Salon",
+        door2_cost="{3}{U}",
+        door2_unlock_effect=door2_effect,
+    )(obj, state)
 
 
 def winter_misanthropic_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
