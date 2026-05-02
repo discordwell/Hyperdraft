@@ -39,6 +39,7 @@ from src.cards.interceptor_helpers import (
     make_activated_ability,
     make_equipment_setup, make_aura_setup,
     suspect_creature,
+    collect_evidence,
 )
 
 
@@ -4943,6 +4944,133 @@ def extract_a_confession_resolve(targets: list, state: GameState) -> list[Event]
     return []
 
 
+def deadly_coverup_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Deadly Cover-Up: Destroy all creatures.
+    (Collect-evidence rider — exile-then-search-three-zones — is engine-gap.)
+    """
+    spell_id, _caster_id = _get_spell_and_caster(state, "Deadly Cover-Up")
+
+    events: list[Event] = []
+    for oid, obj in state.objects.items():
+        if (obj.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in obj.characteristics.types):
+            events.append(Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': oid},
+                source=spell_id,
+            ))
+    return events
+
+
+def analyze_the_pollen_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Analyze the Pollen: Search your library for a basic land card; reveal,
+    put into hand, then shuffle.
+    (Collect-evidence rider that swaps the search filter to creature-or-land
+    is engine-gap; we always run the basic-land mode.)
+    """
+    spell_id, caster_id = _get_spell_and_caster(state, "Analyze the Pollen")
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': caster_id,
+            'card_type': CardType.LAND,
+            'basic_only': True,
+            'destination': 'hand',
+        },
+        source=spell_id,
+    )]
+
+
+def bite_down_on_crime_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Bite Down on Crime: Target creature you control gets +2/+0 until end of
+    turn. It deals damage equal to its power to target creature you don't
+    control. (Cost-reduction-if-evidence rider is handled at cast time, which
+    is an engine gap; we always run the base mode.)
+    """
+    spell_id, caster_id = _get_spell_and_caster(state, "Bite Down on Crime")
+
+    own_creatures = [
+        oid for oid, obj in state.objects.items()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and obj.controller == caster_id
+        and CardType.CREATURE in obj.characteristics.types
+    ]
+    if not own_creatures:
+        return []
+
+    def _opp_handler(choice, selected, gs):
+        if not selected:
+            return []
+        opp_target = selected[0]
+        attacker_id = choice.callback_data.get('attacker_id')
+        attacker = gs.objects.get(attacker_id)
+        if not attacker:
+            return []
+        damage = get_power(attacker, gs)
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={
+                'target': opp_target,
+                'amount': damage,
+                'source': attacker_id,
+                'is_combat': False,
+            },
+            source=attacker_id,
+        )]
+
+    def _own_handler(choice, selected, gs):
+        if not selected:
+            return []
+        attacker_id = selected[0]
+        # First emit the +2/+0 pump.
+        events: list[Event] = [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': attacker_id,
+                'power_mod': 2,
+                'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=choice.source_id,
+        )]
+
+        # Then prompt for the opponent-creature target for the damage.
+        opp_targets = []
+        for oid, obj in gs.objects.items():
+            if obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            if obj.controller == caster_id:
+                continue
+            if CardType.CREATURE in obj.characteristics.types:
+                opp_targets.append(oid)
+        if opp_targets:
+            ch2 = create_target_choice(
+                state=gs,
+                player_id=caster_id,
+                source_id=spell_id,
+                legal_targets=opp_targets,
+                prompt="Bite Down on Crime: Choose creature to be dealt damage",
+            )
+            ch2.choice_type = "target_with_callback"
+            ch2.callback_data['handler'] = _opp_handler
+            ch2.callback_data['attacker_id'] = attacker_id
+        return events
+
+    ch = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=own_creatures,
+        prompt="Bite Down on Crime: Choose your creature (gets +2/+0 then deals damage)",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _own_handler
+    return []
+
+
 def macabre_reconstruction_resolve(targets: list, state: GameState) -> list[Event]:
     """
     Macabre Reconstruction: Return up to two target creature cards from your
@@ -7035,8 +7163,40 @@ def vannifar_evolved_enigma_setup(obj: GameObject, state: GameState) -> list[Int
 # --- ARTIFACTS / VEHICLES / EQUIPMENT (colorless) ---
 
 def cryptex_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated tap+collect-evidence-3 for any color + unlock counter; sac for surveil 3 + draw 3 if 5+ unlock."""
-    # engine gap: activated abilities with collect-evidence cost + counter conditional sacrifice
+    """Activated tap+collect-evidence-3 for any color + unlock counter; sac for surveil 3 + draw 3 if 5+ unlock.
+
+    Wires the second ability only: ``Sacrifice this artifact: Surveil 3, then
+    draw three cards. Activate only if 5+ unlock counters.`` The first ability
+    (color-choice mana via collect-evidence cost) remains an engine gap.
+    """
+    def sac_surveil_draw(o: GameObject, st: GameState, targets) -> list[Event]:
+        # Gate: needs 5+ unlock counters on this artifact.
+        unlock_count = 0
+        if o.state.counters:
+            unlock_count = int(o.state.counters.get('unlock', 0))
+        if unlock_count < 5:
+            return []
+        return [
+            Event(
+                type=EventType.SURVEIL,
+                payload={'player': o.controller, 'amount': 3},
+                source=o.id,
+                controller=o.controller,
+            ),
+            Event(
+                type=EventType.DRAW,
+                payload={'player': o.controller, 'amount': 3},
+                source=o.id,
+                controller=o.controller,
+            ),
+        ]
+
+    make_activated_ability(
+        obj,
+        cost="Sacrifice this artifact",
+        effect_fn=sac_surveil_draw,
+        description="Sacrifice: Surveil 3, then draw three cards (needs 5+ unlock counters)",
+    )
     return []
 
 
@@ -8001,6 +8161,7 @@ DEADLY_COVERUP = make_sorcery(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     text="As an additional cost to cast this spell, you may collect evidence 6.\nDestroy all creatures. If evidence was collected, exile a card from an opponent's graveyard. Then search its owner's graveyard, hand, and library for any number of cards with that name and exile them. That player shuffles, then draws a card for each card exiled from their hand this way.",
+    resolve=deadly_coverup_resolve,
 )
 
 EXTRACT_A_CONFESSION = make_sorcery(
@@ -8654,6 +8815,7 @@ ANALYZE_THE_POLLEN = make_sorcery(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="As an additional cost to cast this spell, you may collect evidence 8. (Exile cards with total mana value 8 or greater from your graveyard.)\nSearch your library for a basic land card. If evidence was collected, instead search your library for a creature or land card. Reveal that card, put it into your hand, then shuffle.",
+    resolve=analyze_the_pollen_resolve,
 )
 
 ARCHDRUIDS_CHARM = make_instant(
@@ -8686,6 +8848,7 @@ BITE_DOWN_ON_CRIME = make_sorcery(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="As an additional cost to cast this spell, you may collect evidence 6. This spell costs {2} less to cast if evidence was collected. (To collect evidence 6, exile cards with total mana value 6 or greater from your graveyard.)\nTarget creature you control gets +2/+0 until end of turn. It deals damage equal to its power to target creature you don't control.",
+    resolve=bite_down_on_crime_resolve,
 )
 
 CASE_OF_THE_LOCKED_HOTHOUSE = make_enchantment(

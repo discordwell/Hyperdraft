@@ -36,6 +36,7 @@ from src.cards.interceptor_helpers import (
     make_life_gain_ability,
     make_equipment_setup,
     make_aura_setup,
+    was_bargained,
 )
 
 
@@ -5668,6 +5669,218 @@ def song_of_totentanz_resolve(targets: list, state: GameState) -> list[Event]:
 
 
 # =============================================================================
+# PHASE 5B BARGAIN-SPELL RESOLVES
+# =============================================================================
+# Resolve callbacks for the Wilds of Eldraine bargain spells. Each function
+# branches on `was_bargained(state, "<Card Name>")` to apply the bargain bonus
+# path on top of the base path. The cast subsystem doesn't yet auto-prompt for
+# bargain (UI work), so until that lands the helper returns False and these
+# spells take their base path.
+
+
+def farsight_ritual_resolve(targets: list, state: GameState) -> list[Event]:
+    """Look at the top four cards of your library (eight if bargained); put two
+    into your hand and the rest on the bottom in random order.
+
+    Engine gap: there is no targeted "look at top N, choose 2 for hand" event.
+    Approximate as draw 2 (base) / draw 2 + scry 6 (bargained) — same number of
+    cards reach hand; bargained path gets to filter the next six draws.
+    """
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Farsight Ritual")
+    bargained = was_bargained(state, "Farsight Ritual")
+    events: list[Event] = [Event(
+        type=EventType.DRAW,
+        payload={'player': caster_id, 'amount': 2},
+        source=spell_id,
+        controller=caster_id,
+    )]
+    if bargained:
+        # Approximate the larger "look at 8" by adding a scry 6 — selection
+        # space is broader without dipping into the actual library data model.
+        events.append(Event(
+            type=EventType.SCRY,
+            payload={'player': caster_id, 'amount': 6},
+            source=spell_id,
+            controller=caster_id,
+        ))
+    return events
+
+
+def back_for_seconds_resolve(targets: list, state: GameState) -> list[Event]:
+    """Return up to two creature cards from your graveyard to your hand. If
+    bargained, you may put one of those cards (mana value <= 4) onto the
+    battlefield instead.
+    """
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Back for Seconds")
+    bargained = was_bargained(state, "Back for Seconds")
+
+    gy_key = f"graveyard_{caster_id}"
+    gy_zone = state.zones.get(gy_key)
+    if not gy_zone:
+        return []
+
+    valid_targets: list[str] = []
+    for card_id in gy_zone.objects:
+        card = state.objects.get(card_id)
+        if card and CardType.CREATURE in card.characteristics.types:
+            valid_targets.append(card_id)
+    if not valid_targets:
+        return []
+
+    def get_mana_value(o: GameObject) -> int:
+        mc = o.characteristics.mana_cost or ""
+        return sum(1 for c in mc if c in 'WUBRG') + sum(int(c) for c in mc if c.isdigit())
+
+    def handle_target_choice(choice, selected: list, game_state: GameState) -> list[Event]:
+        if not selected:
+            return []
+        events: list[Event] = []
+        battlefield_used = False
+        for idx, target_id in enumerate(selected):
+            target = game_state.objects.get(target_id)
+            if not target or target.zone != ZoneType.GRAVEYARD:
+                continue
+            # Bargained bonus: first eligible card (MV <= 4) goes to battlefield.
+            to_zone = ZoneType.HAND
+            to_zone_key = f"hand_{caster_id}"
+            if (choice.callback_data.get('bargained') and not battlefield_used and
+                    get_mana_value(target) <= 4):
+                to_zone = ZoneType.BATTLEFIELD
+                to_zone_key = 'battlefield'
+                battlefield_used = True
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': target_id,
+                    'from_zone_type': ZoneType.GRAVEYARD,
+                    'to_zone_type': to_zone,
+                    'to_zone': to_zone_key,
+                },
+                source=spell_id,
+                controller=caster_id,
+            ))
+        return events
+
+    create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Choose up to two creature cards from your graveyard to return",
+        min_targets=0,
+        max_targets=2,
+        callback_data={'handler': handle_target_choice, 'bargained': bargained},
+    )
+    return []
+
+
+def beseech_the_mirror_resolve(targets: list, state: GameState) -> list[Event]:
+    """Search your library for a card, exile it face down, then shuffle. If
+    bargained, you may cast the exiled card without paying its mana cost if its
+    MV <= 4. Otherwise put the exiled card into your hand.
+
+    Engine gap: cast-from-exile-without-paying isn't expressible, so the
+    bargained free-cast bonus is skipped — both paths route the searched card
+    to hand. Search destination 'hand' captures the base outcome.
+    """
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Beseech the Mirror")
+    # bargained bonus path (free cast) is an engine gap; both paths to hand.
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': caster_id,
+            'card_type': 'any',
+            'destination': 'hand',
+        },
+        source=spell_id,
+        controller=caster_id,
+    )]
+
+
+def rowans_grim_search_resolve(targets: list, state: GameState) -> list[Event]:
+    """You draw two cards and you lose 2 life. If bargained, also look at the
+    top four cards of your library, put up to two back on top in any order and
+    the rest into your graveyard.
+
+    Engine gap: surveil 4 is the closest available approximation for the
+    bargained "top 4 -> top 2 stay, rest to graveyard" effect.
+    """
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Rowan's Grim Search")
+    bargained = was_bargained(state, "Rowan's Grim Search")
+    events: list[Event] = [
+        Event(
+            type=EventType.DRAW,
+            payload={'player': caster_id, 'amount': 2},
+            source=spell_id,
+            controller=caster_id,
+        ),
+        Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': caster_id, 'amount': -2},
+            source=spell_id,
+            controller=caster_id,
+        ),
+    ]
+    if bargained:
+        # Approximate "look at top 4, keep up to 2 on top, rest to graveyard"
+        # via SURVEIL 4 — the engine doesn't yet model the partial-keep variant.
+        events.append(Event(
+            type=EventType.SURVEIL,
+            payload={'player': caster_id, 'amount': 4},
+            source=spell_id,
+            controller=caster_id,
+        ))
+    return events
+
+
+def brave_the_wilds_resolve(targets: list, state: GameState) -> list[Event]:
+    """Search your library for a basic land card, reveal it, put it into your
+    hand, then shuffle. If bargained, target land you control becomes a 3/3
+    Elemental creature with haste that's still a land.
+
+    Engine gap: land-becomes-creature transformation is not yet expressible.
+    Only the base search-for-basic-land path is wired.
+    """
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Brave the Wilds")
+    # bargained land-becomes-3/3-Elemental bonus is an engine gap; base only.
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': caster_id,
+            'card_type': CardType.LAND,
+            'basic_only': True,
+            'destination': 'hand',
+        },
+        source=spell_id,
+        controller=caster_id,
+    )]
+
+
+def thunderous_debut_resolve(targets: list, state: GameState) -> list[Event]:
+    """Look at the top twenty cards of your library, reveal up to two creature
+    cards from among them. If bargained, put them onto the battlefield;
+    otherwise put them into your hand. Then shuffle.
+
+    Simplification: SEARCH_LIBRARY for a creature card; the "up to two" cap is
+    not directly expressible by the search event so this approximates as one
+    creature search with the appropriate destination.
+    """
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Thunderous Debut")
+    bargained = was_bargained(state, "Thunderous Debut")
+    destination = 'battlefield' if bargained else 'hand'
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': caster_id,
+            'card_type': CardType.CREATURE,
+            'destination': destination,
+        },
+        source=spell_id,
+        controller=caster_id,
+    )]
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -6106,6 +6319,7 @@ FARSIGHT_RITUAL = make_instant(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nLook at the top four cards of your library. If this spell was bargained, look at the top eight cards of your library instead. Put two of them into your hand and the rest on the bottom of your library in a random order.",
+    resolve=farsight_ritual_resolve,
 )
 
 FREEZE_IN_PLACE = make_sorcery(
@@ -6385,6 +6599,7 @@ BACK_FOR_SECONDS = make_sorcery(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nReturn up to two target creature cards from your graveyard to your hand. If this spell was bargained, you may put one of those cards with mana value 4 or less onto the battlefield instead of putting it into your hand.",
+    resolve=back_for_seconds_resolve,
 )
 
 BARROW_NAUGHTY = make_creature(
@@ -6402,6 +6617,7 @@ BESEECH_THE_MIRROR = make_sorcery(
     mana_cost="{1}{B}{B}{B}",
     colors={Color.BLACK},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nSearch your library for a card, exile it face down, then shuffle. If this spell was bargained, you may cast the exiled card without paying its mana cost if that spell's mana value is 4 or less. Put the exiled card into your hand if it wasn't cast this way.",
+    resolve=beseech_the_mirror_resolve,
 )
 
 CANDY_GRAPPLE = make_instant(
@@ -6590,6 +6806,7 @@ ROWANS_GRIM_SEARCH = make_instant(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nIf this spell was bargained, look at the top four cards of your library, then put up to two of them back on top of your library in any order and the rest into your graveyard.\nYou draw two cards and you lose 2 life.",
+    resolve=rowans_grim_search_resolve,
 )
 
 SCREAM_PUFF = make_creature(
@@ -7145,6 +7362,7 @@ BRAVE_THE_WILDS = make_sorcery(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nIf this spell was bargained, target land you control becomes a 3/3 Elemental creature with haste that's still a land.\nSearch your library for a basic land card, reveal it, put it into your hand, then shuffle.",
+    resolve=brave_the_wilds_resolve,
 )
 
 COMMUNE_WITH_NATURE = make_sorcery(
@@ -7363,6 +7581,7 @@ THUNDEROUS_DEBUT = make_sorcery(
     mana_cost="{6}{G}{G}",
     colors={Color.GREEN},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nLook at the top twenty cards of your library. You may reveal up to two creature cards from among them. If this spell was bargained, put the revealed cards onto the battlefield. Otherwise, put the revealed cards into your hand. Then shuffle.",
+    resolve=thunderous_debut_resolve,
 )
 
 TITANIC_GROWTH = make_instant(

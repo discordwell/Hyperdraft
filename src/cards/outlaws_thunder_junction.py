@@ -4302,6 +4302,512 @@ def rush_of_dread_resolve(targets: list, state: GameState) -> list[Event]:
 
 
 # =============================================================================
+# PHASE 5C: SPREE SPELLS (modal additional-cost spells)
+# =============================================================================
+# NOTE: Spree mode-cost enforcement is an engine gap. The cast subsystem does
+# not yet auto-prompt for Spree mode selection, nor does it require paying each
+# mode's additional mana cost. These resolve callbacks surface a modal choice
+# at resolution time so the player can pick which mode effects to apply, but
+# the player effectively casts the spell for the base cost and gets to pick
+# any combination of modes for free.
+
+# --- JAILBREAK_SCHEME ---------------------------------------------------------
+# + {3} — Put a +1/+1 counter on target creature. It can't be blocked this turn.
+# + {2} — Target artifact or creature's owner puts it on top or bottom of library.
+
+def _jailbreak_scheme_counter_unblock_execute(choice, selected, state: GameState) -> list[Event]:
+    """Mode 1: +1/+1 counter on target creature; can't be blocked this turn."""
+    if not selected:
+        return []
+    target_id = selected[0]
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    if CardType.CREATURE not in target.characteristics.types:
+        return []
+    return [
+        Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': target_id, 'counter_type': '+1/+1', 'amount': 1},
+            source=choice.source_id,
+        ),
+        Event(
+            type=EventType.GRANT_UNBLOCKABLE,
+            payload={'object_id': target_id, 'duration': 'end_of_turn'},
+            source=choice.source_id,
+        ),
+    ]
+
+
+def _jailbreak_scheme_bounce_execute(choice, selected, state: GameState) -> list[Event]:
+    """Mode 2: bounce target artifact/creature to top of its owner's library.
+
+    NOTE: The printed effect lets the owner choose top or bottom; we default to
+    top since "owner's choice" is an engine gap.
+    """
+    if not selected:
+        return []
+    target_id = selected[0]
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    types = target.characteristics.types
+    if CardType.ARTIFACT not in types and CardType.CREATURE not in types:
+        return []
+    owner = target.owner or target.controller
+    return [Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': target_id,
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'library_{owner}',
+            'to_zone_type': ZoneType.LIBRARY,
+            'position': 'top',
+        },
+        source=choice.source_id,
+    )]
+
+
+def _jailbreak_scheme_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
+    """Dispatch Jailbreak Scheme modes after mode selection.
+
+    NOTE: Engine limitation — only one chained target prompt fires per resolve
+    call. If both modes are picked, mode 0's target prompt is shown and mode 1
+    is skipped this dispatch.
+    """
+    spell_id = choice.source_id
+    spell = state.objects.get(spell_id)
+    controller_id = spell.controller if spell else state.active_player
+
+    if 0 in selected_modes:
+        valid_targets = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+        ]
+        if valid_targets:
+            tc = create_target_choice(
+                state=state,
+                player_id=controller_id,
+                source_id=spell_id,
+                legal_targets=valid_targets,
+                prompt="Jailbreak Scheme: +1/+1 counter, can't be blocked this turn",
+                min_targets=1,
+                max_targets=1,
+            )
+            tc.choice_type = "target_with_callback"
+            tc.callback_data['handler'] = _jailbreak_scheme_counter_unblock_execute
+            return []
+
+    if 1 in selected_modes:
+        valid_targets = []
+        for o in state.objects.values():
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            t = o.characteristics.types
+            if CardType.ARTIFACT in t or CardType.CREATURE in t:
+                valid_targets.append(o.id)
+        if valid_targets:
+            tc = create_target_choice(
+                state=state,
+                player_id=controller_id,
+                source_id=spell_id,
+                legal_targets=valid_targets,
+                prompt="Jailbreak Scheme: target artifact/creature to top of owner's library",
+                min_targets=1,
+                max_targets=1,
+            )
+            tc.choice_type = "target_with_callback"
+            tc.callback_data['handler'] = _jailbreak_scheme_bounce_execute
+
+    return []
+
+
+def jailbreak_scheme_resolve(targets: list, state: GameState) -> list[Event]:
+    """Spree modal: counter+unblockable, and/or bounce-to-library."""
+    caster_id, spell_id = _spell_caster_and_id(state, "Jailbreak Scheme")
+    spell_id = spell_id or "jailbreak_scheme_spell"
+    if caster_id is None:
+        return []
+    modes = [
+        {"index": 0, "text": "+1/+1 counter on target creature; can't be blocked this turn."},
+        {"index": 1, "text": "Target artifact/creature to top of owner's library."},
+    ]
+    choice = create_modal_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        modes=modes,
+        min_modes=1,
+        max_modes=2,
+        prompt="Jailbreak Scheme - Choose one or more:",
+    )
+    choice.choice_type = "modal_with_callback"
+    choice.callback_data['handler'] = _jailbreak_scheme_mode_execute
+    return []
+
+
+# --- SHIFTING_GRIFT -----------------------------------------------------------
+# All three modes are control-exchange — engine gap. Wired as no-op resolve.
+
+def shifting_grift_resolve(targets: list, state: GameState) -> list[Event]:
+    """Spree modal: exchange control of two creatures/artifacts/enchantments.
+
+    NOTE: All three modes are control-exchange effects, which the engine does
+    not yet support. Wired as a no-op until control-exchange is implemented.
+    """
+    return []
+
+
+# --- INSATIABLE_AVARICE -------------------------------------------------------
+# + {2} — Search your library for a card; shuffle, put that card on top.
+# + {B}{B} — Target player draws three cards and loses 3 life.
+
+def _insatiable_avarice_draw_loss_execute(choice, selected, state: GameState) -> list[Event]:
+    """Mode 2: target player draws 3 and loses 3 life."""
+    if not selected:
+        return []
+    pid = selected[0]
+    if pid not in state.players:
+        return []
+    return [
+        Event(
+            type=EventType.DRAW,
+            payload={'player': pid, 'amount': 3},
+            source=choice.source_id,
+        ),
+        Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': pid, 'amount': -3},
+            source=choice.source_id,
+        ),
+    ]
+
+
+def _insatiable_avarice_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
+    """Dispatch Insatiable Avarice modes."""
+    spell_id = choice.source_id
+    spell = state.objects.get(spell_id)
+    controller_id = spell.controller if spell else state.active_player
+    events: list[Event] = []
+
+    # Mode 0: Search library, put on top (any card).
+    if 0 in selected_modes:
+        events.append(Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': controller_id,
+                'destination': 'library_top',
+            },
+            source=spell_id,
+        ))
+
+    # Mode 1: Target player draws 3 and loses 3 life.
+    if 1 in selected_modes:
+        valid_targets = list(state.players.keys())
+        if valid_targets:
+            tc = create_target_choice(
+                state=state,
+                player_id=controller_id,
+                source_id=spell_id,
+                legal_targets=valid_targets,
+                prompt="Insatiable Avarice: target player draws 3, loses 3 life",
+                min_targets=1,
+                max_targets=1,
+            )
+            tc.choice_type = "target_with_callback"
+            tc.callback_data['handler'] = _insatiable_avarice_draw_loss_execute
+
+    return events
+
+
+def insatiable_avarice_resolve(targets: list, state: GameState) -> list[Event]:
+    """Spree modal: tutor-to-top, and/or target player draws 3 + loses 3."""
+    caster_id, spell_id = _spell_caster_and_id(state, "Insatiable Avarice")
+    spell_id = spell_id or "insatiable_avarice_spell"
+    if caster_id is None:
+        return []
+    modes = [
+        {"index": 0, "text": "Search your library for a card; shuffle, put it on top."},
+        {"index": 1, "text": "Target player draws three cards and loses 3 life."},
+    ]
+    choice = create_modal_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        modes=modes,
+        min_modes=1,
+        max_modes=2,
+        prompt="Insatiable Avarice - Choose one or more:",
+    )
+    choice.choice_type = "modal_with_callback"
+    choice.callback_data['handler'] = _insatiable_avarice_mode_execute
+    return []
+
+
+# --- GREAT_TRAIN_HEIST --------------------------------------------------------
+# + {2}{R} — Untap all creatures you control. (Extra combat phase: engine gap.)
+# + {2} — Creatures you control get +1/+0 and gain first strike EOT.
+# + {R} — Treasure-on-combat-damage trigger (delayed trigger: engine gap).
+
+def _great_train_heist_treasure_execute(choice, selected, state: GameState) -> list[Event]:
+    """Mode 2: register the chosen opponent (no-op — delayed trigger is an engine gap)."""
+    # NOTE: Engine gap — "whenever creatures you control deal combat damage to
+    # that player this turn, create a tapped Treasure" requires a delayed
+    # trigger we cannot install yet. Target is captured but no events emitted.
+    return []
+
+
+def _great_train_heist_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
+    """Dispatch Great Train Heist modes."""
+    spell_id = choice.source_id
+    spell = state.objects.get(spell_id)
+    controller_id = spell.controller if spell else state.active_player
+    events: list[Event] = []
+
+    your_creatures = [
+        o for o in state.objects.values()
+        if o.zone == ZoneType.BATTLEFIELD
+        and o.controller == controller_id
+        and CardType.CREATURE in o.characteristics.types
+    ]
+
+    # Mode 0: Untap all your creatures. (Skip extra combat phase — engine gap.)
+    if 0 in selected_modes:
+        for c in your_creatures:
+            events.append(Event(
+                type=EventType.UNTAP,
+                payload={'object_id': c.id},
+                source=spell_id,
+            ))
+
+    # Mode 1: Creatures you control get +1/+0 and gain first strike EOT.
+    if 1 in selected_modes:
+        for c in your_creatures:
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': c.id, 'power_mod': 1, 'toughness_mod': 0,
+                         'duration': 'end_of_turn'},
+                source=spell_id,
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': c.id, 'keyword': 'first strike',
+                         'duration': 'end_of_turn'},
+                source=spell_id,
+            ))
+
+    # Mode 2: choose target opponent (delayed trigger — engine gap).
+    if 2 in selected_modes:
+        opps = [pid for pid in state.players if pid != controller_id]
+        if opps:
+            tc = create_target_choice(
+                state=state,
+                player_id=controller_id,
+                source_id=spell_id,
+                legal_targets=opps,
+                prompt="Great Train Heist: target opponent (Treasure on combat damage — engine gap)",
+                min_targets=1,
+                max_targets=1,
+            )
+            tc.choice_type = "target_with_callback"
+            tc.callback_data['handler'] = _great_train_heist_treasure_execute
+
+    return events
+
+
+def great_train_heist_resolve(targets: list, state: GameState) -> list[Event]:
+    """Spree modal: untap creatures, +1/+0 first strike, target opponent for treasure trigger."""
+    caster_id, spell_id = _spell_caster_and_id(state, "Great Train Heist")
+    spell_id = spell_id or "great_train_heist_spell"
+    if caster_id is None:
+        return []
+    modes = [
+        {"index": 0, "text": "Untap all creatures you control."},
+        {"index": 1, "text": "Creatures you control get +1/+0 and gain first strike EOT."},
+        {"index": 2, "text": "Choose target opponent (Treasure on combat damage; engine gap)."},
+    ]
+    choice = create_modal_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        modes=modes,
+        min_modes=1,
+        max_modes=3,
+        prompt="Great Train Heist - Choose one or more:",
+    )
+    choice.choice_type = "modal_with_callback"
+    choice.callback_data['handler'] = _great_train_heist_mode_execute
+    return []
+
+
+# --- RETURN_THE_FAVOR ---------------------------------------------------------
+# Both modes are copy/retarget mechanics — engine gap. No-op resolve.
+
+def return_the_favor_resolve(targets: list, state: GameState) -> list[Event]:
+    """Spree modal: copy spell/ability with new targets, or change target.
+
+    NOTE: Both modes (copy-spell-with-new-targets and change-target) are engine
+    gaps. Wired as a no-op until the engine supports these mechanics.
+    """
+    return []
+
+
+# --- DANCE_OF_THE_TUMBLEWEEDS -------------------------------------------------
+# + {1} — Search library for basic land or Desert; put onto battlefield.
+# + {3} — Create X/X green Elemental, X = lands you control.
+
+def _dance_tumbleweeds_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
+    """Dispatch Dance of the Tumbleweeds modes."""
+    spell_id = choice.source_id
+    spell = state.objects.get(spell_id)
+    controller_id = spell.controller if spell else state.active_player
+    events: list[Event] = []
+
+    # Mode 0: Search for basic land, put onto battlefield tapped.
+    # NOTE: Desert subtype filter omitted — only basic_only is wired.
+    if 0 in selected_modes:
+        events.append(Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': controller_id,
+                'card_type': CardType.LAND,
+                'basic_only': True,
+                'destination': 'battlefield_tapped',
+            },
+            source=spell_id,
+        ))
+
+    # Mode 1: Create X/X green Elemental, X = lands you control.
+    if 1 in selected_modes:
+        x = sum(
+            1 for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and o.controller == controller_id
+            and CardType.LAND in o.characteristics.types
+        )
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Elemental Token',
+                'controller': controller_id,
+                'power': x,
+                'toughness': x,
+                'types': [CardType.CREATURE],
+                'subtypes': ['Elemental'],
+                'colors': [Color.GREEN],
+                'is_token': True,
+            },
+            source=spell_id,
+            controller=controller_id,
+        ))
+
+    return events
+
+
+def dance_of_the_tumbleweeds_resolve(targets: list, state: GameState) -> list[Event]:
+    """Spree modal: tutor basic land, and/or X/X Elemental token."""
+    caster_id, spell_id = _spell_caster_and_id(state, "Dance of the Tumbleweeds")
+    spell_id = spell_id or "dance_of_the_tumbleweeds_spell"
+    if caster_id is None:
+        return []
+    modes = [
+        {"index": 0, "text": "Search for basic land (Desert subtype skipped); put onto battlefield tapped."},
+        {"index": 1, "text": "Create X/X green Elemental token, X = lands you control."},
+    ]
+    choice = create_modal_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        modes=modes,
+        min_modes=1,
+        max_modes=2,
+        prompt="Dance of the Tumbleweeds - Choose one or more:",
+    )
+    choice.choice_type = "modal_with_callback"
+    choice.callback_data['handler'] = _dance_tumbleweeds_mode_execute
+    return []
+
+
+# --- SMUGGLERS_SURPRISE -------------------------------------------------------
+# + {2} — Mill 4. (May put up to 2 creature/land back to hand: skipped — engine gap.)
+# + {4}{G} — May put up to 2 creature cards from hand onto battlefield (engine gap).
+# + {1} — Creatures you control with power >= 4 gain hexproof + indestructible EOT.
+
+def _smugglers_surprise_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
+    """Dispatch Smuggler's Surprise modes."""
+    spell_id = choice.source_id
+    spell = state.objects.get(spell_id)
+    controller_id = spell.controller if spell else state.active_player
+    events: list[Event] = []
+
+    # Mode 0: Mill 4. Skip the "may put up to two back to hand" rider — engine gap.
+    if 0 in selected_modes:
+        events.append(Event(
+            type=EventType.MILL,
+            payload={'player': controller_id, 'amount': 4},
+            source=spell_id,
+        ))
+
+    # Mode 1: Cheat creatures from hand to battlefield.
+    # NOTE: Engine gap — interactive choose-up-to-two-creatures-from-hand and
+    # ZONE_CHANGE hand->battlefield for non-cast play. Skipped.
+    if 1 in selected_modes:
+        pass
+
+    # Mode 2: Creatures you control with power >= 4 gain hexproof + indestructible EOT.
+    if 2 in selected_modes:
+        for o in state.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller == controller_id
+                    and CardType.CREATURE in o.characteristics.types):
+                try:
+                    p = get_power(o, state)
+                except Exception:
+                    p = 0
+                if p is not None and p >= 4:
+                    events.append(Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={'object_id': o.id, 'keyword': 'hexproof',
+                                 'duration': 'end_of_turn'},
+                        source=spell_id,
+                    ))
+                    events.append(Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={'object_id': o.id, 'keyword': 'indestructible',
+                                 'duration': 'end_of_turn'},
+                        source=spell_id,
+                    ))
+
+    return events
+
+
+def smugglers_surprise_resolve(targets: list, state: GameState) -> list[Event]:
+    """Spree modal: mill 4, cheat creatures from hand (skipped), big-creature buff."""
+    caster_id, spell_id = _spell_caster_and_id(state, "Smuggler's Surprise")
+    spell_id = spell_id or "smugglers_surprise_spell"
+    if caster_id is None:
+        return []
+    modes = [
+        {"index": 0, "text": "Mill four cards. (Recovery rider skipped; engine gap.)"},
+        {"index": 1, "text": "Up to two creatures from hand to battlefield (engine gap; skipped)."},
+        {"index": 2, "text": "Creatures with power 4+ gain hexproof + indestructible EOT."},
+    ]
+    choice = create_modal_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        modes=modes,
+        min_modes=1,
+        max_modes=3,
+        prompt="Smuggler's Surprise - Choose one or more:",
+    )
+    choice.choice_type = "modal_with_callback"
+    choice.callback_data['handler'] = _smugglers_surprise_mode_execute
+    return []
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -5703,6 +6209,7 @@ JAILBREAK_SCHEME = make_sorcery(
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Spree (Choose one or more additional costs.)\n+ {3} — Put a +1/+1 counter on target creature. It can't be blocked this turn.\n+ {2} — Target artifact or creature's owner puts it on their choice of the top or bottom of their library.",
+    resolve=jailbreak_scheme_resolve,
 )
 
 THE_KEY_TO_THE_VAULT = make_artifact(
@@ -6105,6 +6612,7 @@ SHIFTING_GRIFT = make_sorcery(
     mana_cost="{U}{U}",
     colors={Color.BLUE},
     text="Spree (Choose one or more additional costs.)\n+ {2} — Exchange control of two target creatures.\n+ {1} — Exchange control of two target artifacts.\n+ {1} — Exchange control of two target enchantments.",
+    resolve=shifting_grift_resolve,
 )
 
 SLICKSHOT_LOCKPICKER = make_creature(
@@ -6953,6 +7461,7 @@ INSATIABLE_AVARICE = make_sorcery(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="Spree (Choose one or more additional costs.)\n+ {2} — Search your library for a card, then shuffle and put that card on top.\n+ {B}{B} — Target player draws three cards and loses 3 life.",
+    resolve=insatiable_avarice_resolve,
 )
 
 KAERVEK_THE_PUNISHER = make_creature(
@@ -7886,6 +8395,7 @@ GREAT_TRAIN_HEIST = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Spree (Choose one or more additional costs.)\n+ {2}{R} — Untap all creatures you control. If it's your combat phase, there is an additional combat phase after this phase.\n+ {2} — Creatures you control get +1/+0 and gain first strike until end of turn.\n+ {R} — Choose target opponent. Whenever a creature you control deals combat damage to that player this turn, create a tapped Treasure token.",
+    resolve=great_train_heist_resolve,
 )
 
 # =============================================================================
@@ -8263,6 +8773,7 @@ RETURN_THE_FAVOR = make_instant(
     mana_cost="{R}{R}",
     colors={Color.RED},
     text="Spree (Choose one or more additional costs.)\n+ {1} — Copy target instant spell, sorcery spell, activated ability, or triggered ability. You may choose new targets for the copy.\n+ {1} — Change the target of target spell or ability with a single target.",
+    resolve=return_the_favor_resolve,
 )
 
 RODEO_PYROMANCERS = make_creature(
@@ -8787,6 +9298,7 @@ DANCE_OF_THE_TUMBLEWEEDS = make_sorcery(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Spree (Choose one or more additional costs.)\n+ {1} — Search your library for a basic land card or a Desert card, put it onto the battlefield, then shuffle.\n+ {3} — Create an X/X green Elemental creature token, where X is the number of lands you control.",
+    resolve=dance_of_the_tumbleweeds_resolve,
 )
 
 DROVER_GRIZZLY = make_creature(
@@ -9070,6 +9582,7 @@ SMUGGLERS_SURPRISE = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Spree (Choose one or more additional costs.)\n+ {2} — Mill four cards. You may put up to two creature and/or land cards from among the milled cards into your hand.\n+ {4}{G} — You may put up to two creature cards from your hand onto the battlefield.\n+ {1} — Creatures you control with power 4 or greater gain hexproof and indestructible until end of turn.",
+    resolve=smugglers_surprise_resolve,
 )
 
 # =============================================================================
