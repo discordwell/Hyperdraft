@@ -57,13 +57,18 @@ class ControlStrategy(AIStrategy):
         from src.engine import ActionType, CardType
 
         score = 0.0
+        role = self._clock_role(state, player_id)
+        is_beatdown = role == 'beatdown'
 
         if action.type == ActionType.PASS:
-            # Control often wants to pass and hold up mana
-            # But only if we have instant-speed options
-            if self._has_instant_in_hand(state, player_id):
-                return 0.5
-            return 0.1
+            # Holding mana is only worth it if we can actually act on opp's
+            # turn. Otherwise an idle Control turn is just lost tempo —
+            # board pressure is good for any deck.
+            if self._has_instant_in_hand(state, player_id) and not is_beatdown:
+                # Only meaningful when opp has resources to deploy.
+                if self._count_opponent_creatures(state, player_id) > 0:
+                    return 0.15
+            return 0.0
 
         if action.type == ActionType.PLAY_LAND:
             return 0.9  # Lands are important for control
@@ -73,13 +78,20 @@ class ControlStrategy(AIStrategy):
             if not card:
                 return 0.0
 
-            # Removal is top priority for control
+            # Removal scored by worst on-board threat. Targeting a 1/1
+            # is wasted; targeting a 5/5 deathtoucher is mandatory.
             if self._is_removal(card):
-                # Higher priority if there are threats on board
-                if self._count_opponent_creatures(state, player_id) > 0:
-                    score = 1.8
+                worst = self._max_opponent_threat_value(state, player_id)
+                if worst >= 8:
+                    score = 2.0
+                elif worst >= 5:
+                    score = 1.6
+                elif worst >= 3:
+                    score = 1.1
+                elif worst > 0:
+                    score = 0.6
                 else:
-                    score = 0.5  # Save removal for later
+                    score = 0.3  # No targets right now; hold
 
             # Card draw is very valuable
             elif self._is_card_draw(card):
@@ -90,24 +102,26 @@ class ControlStrategy(AIStrategy):
                 # Only valuable if something to counter
                 score = 0.3  # Hold for later
 
-            # Creatures - lower priority
+            # Creatures: even Control wants board presence. A creature in
+            # play forces opp to respect it (pressure on their resources)
+            # AND can block. Don't gate creature plays on removal-in-hand.
             elif CardType.CREATURE in card.characteristics.types:
                 power = card.characteristics.power or 0
                 toughness = card.characteristics.toughness or 0
-
-                # Only play creatures when board is safe
                 opp_creatures = self._count_opponent_creatures(state, player_id)
                 my_removal = self._count_removal_in_hand(state, player_id)
 
+                # Floor creatures at a real, beats-PASS score. A vanilla
+                # 2/2 should not lose to passing turns away.
+                score = 0.8 + (power + toughness) * 0.07
+
                 if opp_creatures == 0:
-                    # Safe to play threats
-                    score = 1.0 + (power + toughness) * 0.1
+                    score += 0.3  # Safe to play threats
                 elif my_removal > 0:
-                    # We have answers, can play threats
-                    score = 0.7
-                else:
-                    # Risky to tap out
-                    score = 0.3
+                    score += 0.1  # We have answers
+                # Risk discount when tapping out into hostile board.
+                elif opp_creatures > 0 and (power + toughness) < 4:
+                    score -= 0.15
 
                 # Defensive creatures are more valuable for control
                 if toughness > power:
@@ -116,6 +130,11 @@ class ControlStrategy(AIStrategy):
                     score += 0.1  # Good blocker
                 if self._has_ability(card, 'vigilance', state):
                     score += 0.2  # Can attack and block
+
+                # Beatdown role: even Control should commit creatures when
+                # the clock favours us.
+                if is_beatdown:
+                    score += 0.4
 
             # Board wipes - very valuable
             elif self._is_board_wipe(card):

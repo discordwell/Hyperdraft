@@ -200,3 +200,80 @@ class AIStrategy(ABC):
             if pid != player_id:
                 return pid
         return None
+
+    def _clock_role(self, state: 'GameState', player_id: str) -> str:
+        """
+        Decide whether the AI is currently the beatdown or the control.
+
+        Computes a coarse clock estimate for each side:
+            clock = ceil(opp_life / max(my_total_attack_power, 1))
+        and returns 'beatdown' if our clock is shorter than opponent's,
+        'control' if longer, 'even' otherwise.
+
+        Mike Flores's "Who's the Beatdown?" — the role is dictated by who
+        finishes first, not by deck archetype label.
+        """
+        from src.engine import is_creature, get_power
+        opp_id = self._get_opponent_id(player_id, state)
+        if not opp_id:
+            return 'even'
+        me = state.players.get(player_id)
+        opp = state.players.get(opp_id)
+        if not me or not opp:
+            return 'even'
+
+        my_power = 0
+        opp_power = 0
+        battlefield = state.zones.get('battlefield')
+        if battlefield:
+            for obj_id in battlefield.objects:
+                obj = state.objects.get(obj_id)
+                if not obj or not is_creature(obj, state):
+                    continue
+                p = max(0, get_power(obj, state))
+                if obj.controller == player_id:
+                    my_power += p
+                elif obj.controller == opp_id:
+                    opp_power += p
+
+        # Avoid divide-by-zero. Treat zero power as "infinite clock" (huge int).
+        my_clock = (opp.life + my_power - 1) // my_power if my_power > 0 else 99
+        opp_clock = (me.life + opp_power - 1) // opp_power if opp_power > 0 else 99
+        if my_clock < opp_clock:
+            return 'beatdown'
+        if my_clock > opp_clock:
+            return 'control'
+        return 'even'
+
+    def _max_opponent_threat_value(self, state: 'GameState', player_id: str) -> int:
+        """
+        Return power+toughness+ability_premium of the opponent's most
+        dangerous untapped creature on the battlefield. Used by removal
+        evaluation: 'how bad is the worst threat I might want to answer?'
+        """
+        from src.engine import is_creature, get_power, get_toughness, has_ability
+        opp_id = self._get_opponent_id(player_id, state)
+        if not opp_id:
+            return 0
+        battlefield = state.zones.get('battlefield')
+        if not battlefield:
+            return 0
+        best = 0
+        for obj_id in battlefield.objects:
+            obj = state.objects.get(obj_id)
+            if not obj or obj.controller != opp_id:
+                continue
+            if not is_creature(obj, state):
+                continue
+            v = max(0, get_power(obj, state)) + max(0, get_toughness(obj, state))
+            if has_ability(obj, 'deathtouch', state):
+                v += 3
+            if has_ability(obj, 'flying', state) or has_ability(obj, 'unblockable', state):
+                v += 2
+            if has_ability(obj, 'lifelink', state):
+                v += 2
+            if has_ability(obj, 'trample', state):
+                v += 1
+            if v > best:
+                best = v
+        return best
