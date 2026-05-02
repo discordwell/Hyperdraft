@@ -24,7 +24,10 @@ from src.engine import (
     new_id, get_power, get_toughness
 )
 from typing import Optional, Callable
-from src.cards.interceptor_helpers import make_etb_trigger, create_target_choice, create_modal_choice
+from src.cards.interceptor_helpers import (
+    make_etb_trigger, create_target_choice, create_modal_choice,
+    make_cycling_setup,
+)
 import re
 
 
@@ -2590,6 +2593,8 @@ BASRI_TOMORROWS_CHAMPION = make_creature(
     text="{W}, {T}, Exert Basri: Create a 1/1 white Cat creature token with lifelink. (An exerted creature won't untap during your next untap step.)\nCycling {2}{W} ({2}{W}, Discard this card: Draw a card.)\nWhen you cycle this card, Cats you control gain hexproof and indestructible until end of turn.",
     rarity="rare",
 )
+# Engine gap: "When you cycle this card" rider trigger (Cats gain hexproof + indestructible) not yet supported.
+BASRI_TOMORROWS_CHAMPION.setup_in_hand = make_cycling_setup("{2}{W}")
 
 BRIGHTFIELD_GLIDER = make_creature(
     name="Brightfield Glider",
@@ -2675,6 +2680,7 @@ DETENTION_CHARIOT = make_artifact(
     rarity="uncommon",
     subtypes={"Vehicle"},
 )
+DETENTION_CHARIOT.setup_in_hand = make_cycling_setup("{W}")
 
 GALLANT_STRIKE = make_instant(
     name="Gallant Strike",
@@ -2684,6 +2690,7 @@ GALLANT_STRIKE = make_instant(
     rarity="uncommon",
     resolve=gallant_strike_resolve,
 )
+GALLANT_STRIKE.setup_in_hand = make_cycling_setup("{2}")
 
 GLORYHEATH_LYNX = make_creature(
     name="Gloryheath Lynx",
@@ -2743,6 +2750,7 @@ LIGHTSHIELD_PARRY = make_instant(
     rarity="common",
     resolve=lightshield_parry_resolve,
 )
+LIGHTSHIELD_PARRY.setup_in_hand = make_cycling_setup("{2}")
 
 LIGHTWHEEL_ENHANCEMENTS = make_enchantment(
     name="Lightwheel Enhancements",
@@ -2832,6 +2840,7 @@ SPECTACULAR_PILEUP = make_sorcery(
     text="All creatures and Vehicles lose indestructible until end of turn, then destroy all creatures and Vehicles.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="rare",
 )
+SPECTACULAR_PILEUP.setup_in_hand = make_cycling_setup("{2}")
 
 SPOTCYCLE_SCOUTER = make_artifact(
     name="Spotcycle Scouter",
@@ -2889,6 +2898,8 @@ VALORS_FLAGSHIP = make_artifact(
     subtypes={"Vehicle"},
     supertypes={"Legendary"},
 )
+# Engine gap: "When you cycle this card" rider trigger (create X Pilot tokens) not yet supported.
+VALORS_FLAGSHIP.setup_in_hand = make_cycling_setup("{X}{2}{W}")
 
 VOYAGER_GLIDECAR = make_artifact(
     name="Voyager Glidecar",
@@ -2993,6 +3004,8 @@ HOWLERS_HEAVY = make_creature(
     text="Cycling {1}{U} ({1}{U}, Discard this card: Draw a card.)\nWhen you cycle this card, target creature or Vehicle an opponent controls gets -3/-0 until end of turn.",
     rarity="common",
 )
+# Engine gap: "When you cycle this card" rider trigger (-3/-0 until EOT) not yet supported.
+HOWLERS_HEAVY.setup_in_hand = make_cycling_setup("{1}{U}")
 
 HULLDRIFTER = make_artifact(
     name="Hulldrifter",
@@ -3119,6 +3132,7 @@ SCROUNGING_SKYRAY = make_creature(
     text="Flying\nWhenever you discard one or more cards, put that many +1/+1 counters on this creature.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="uncommon",
 )
+SCROUNGING_SKYRAY.setup_in_hand = make_cycling_setup("{2}")
 
 SKYSTREAK_ENGINEER = make_creature(
     name="Skystreak Engineer",
@@ -3176,6 +3190,7 @@ STALL_OUT = make_sorcery(
     rarity="common",
     resolve=stall_out_resolve,
 )
+STALL_OUT.setup_in_hand = make_cycling_setup("{2}")
 
 STOCK_UP = make_sorcery(
     name="Stock Up",
@@ -3200,6 +3215,7 @@ TRADE_THE_HELM = make_sorcery(
     text="Exchange control of target artifact or creature you control and target artifact or creature an opponent controls.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="uncommon",
 )
+TRADE_THE_HELM.setup_in_hand = make_cycling_setup("{2}")
 
 TRANSIT_MAGE = make_creature(
     name="Transit Mage",
@@ -3219,6 +3235,7 @@ TRIP_UP = make_instant(
     rarity="common",
     resolve=trip_up_resolve,
 )
+TRIP_UP.setup_in_hand = make_cycling_setup("{2}")
 
 UNSTOPPABLE_PLAN = make_enchantment(
     name="Unstoppable Plan",
@@ -3248,6 +3265,7 @@ WAXEN_SHAPETHIEF = make_creature(
     text="Flash\nYou may have this creature enter as a copy of an artifact or creature you control.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="rare",
 )
+WAXEN_SHAPETHIEF.setup_in_hand = make_cycling_setup("{2}")
 
 ANCIENT_VENDETTA = make_sorcery(
     name="Ancient Vendetta",
@@ -3293,6 +3311,7 @@ CHITIN_GRAVESTALKER = make_creature(
     text="This spell costs {1} less to cast for each artifact and/or creature card in your graveyard.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="common",
 )
+CHITIN_GRAVESTALKER.setup_in_hand = make_cycling_setup("{2}")
 
 CRYPTCALLER_CHARIOT = make_artifact(
     name="Cryptcaller Chariot",
@@ -3409,6 +3428,7 @@ INTIMIDATION_TACTICS = make_sorcery(
     text="Target opponent reveals their hand. You choose an artifact or creature card from it. Exile that card.\nCycling {3} ({3}, Discard this card: Draw a card.)",
     rarity="uncommon",
 )
+INTIMIDATION_TACTICS.setup_in_hand = make_cycling_setup("{3}")
 
 KALAKSCION_HUNGER_TYRANT = make_creature(
     name="Kalakscion, Hunger Tyrant",
@@ -3438,6 +3458,7 @@ LOCUST_SPRAY = make_instant(
     rarity="uncommon",
     resolve=locust_spray_resolve,
 )
+LOCUST_SPRAY.setup_in_hand = make_cycling_setup("{B}")
 
 MAXIMUM_OVERDRIVE = make_instant(
     name="Maximum Overdrive",
@@ -3519,6 +3540,7 @@ SHEFET_ARCHFIEND = make_creature(
     text="Flying\nWhen this creature enters, all other creatures get -2/-2 until end of turn.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="uncommon",
 )
+SHEFET_ARCHFIEND.setup_in_hand = make_cycling_setup("{2}")
 
 THE_SPEED_DEMON = make_creature(
     name="The Speed Demon",
@@ -3643,6 +3665,7 @@ CLAMOROUS_IRONCLAD = make_artifact(
     rarity="common",
     subtypes={"Vehicle"},
 )
+CLAMOROUS_IRONCLAD.setup_in_hand = make_cycling_setup("{R}")
 
 COUNT_ON_LUCK = make_enchantment(
     name="Count on Luck",
@@ -3730,6 +3753,7 @@ FUEL_THE_FLAMES = make_instant(
     rarity="uncommon",
     resolve=fuel_the_flames_resolve,
 )
+FUEL_THE_FLAMES.setup_in_hand = make_cycling_setup("{2}")
 
 FULL_THROTTLE = make_sorcery(
     name="Full Throttle",
@@ -3834,6 +3858,8 @@ MAGMAKIN_ARTILLERIST = make_creature(
     text="Whenever you discard one or more cards, this creature deals that much damage to each opponent.\nCycling {1}{R} ({1}{R}, Discard this card: Draw a card.)\nWhen you cycle this card, it deals 1 damage to each opponent.",
     rarity="common",
 )
+# Engine gap: "When you cycle this card" rider trigger (1 damage to each opponent) not yet supported.
+MAGMAKIN_ARTILLERIST.setup_in_hand = make_cycling_setup("{1}{R}")
 
 MARAUDING_MAKO = make_creature(
     name="Marauding Mako",
@@ -3844,6 +3870,7 @@ MARAUDING_MAKO = make_creature(
     text="Whenever you discard one or more cards, put that many +1/+1 counters on this creature.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="uncommon",
 )
+MARAUDING_MAKO.setup_in_hand = make_cycling_setup("{2}")
 
 OUTPACE_OBLIVION = make_enchantment(
     name="Outpace Oblivion",
@@ -3917,6 +3944,7 @@ SKYCRASH = make_instant(
     rarity="uncommon",
     resolve=skycrash_resolve,
 )
+SKYCRASH.setup_in_hand = make_cycling_setup("{R}")
 
 SPIRE_MECHCYCLE = make_artifact(
     name="Spire Mechcycle",
@@ -3966,6 +3994,8 @@ AGONASAUR_REX = make_creature(
     text="Trample\nCycling {2}{G} ({2}{G}, Discard this card: Draw a card.)\nWhen you cycle this card, put two +1/+1 counters on up to one target creature or Vehicle. It gains trample and indestructible until end of turn.",
     rarity="rare",
 )
+# Engine gap: "When you cycle this card" rider trigger (two +1/+1 counters and trample) not yet supported.
+AGONASAUR_REX.setup_in_hand = make_cycling_setup("{2}{G}")
 
 ALACRIAN_JAGUAR = make_creature(
     name="Alacrian Jaguar",
@@ -4145,6 +4175,7 @@ MIGRATING_KETRADON = make_creature(
     text="Reach\nWhen this creature enters, you gain 4 life.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="common",
 )
+MIGRATING_KETRADON.setup_in_hand = make_cycling_setup("{2}")
 
 MOLT_TENDER = make_creature(
     name="Molt Tender",
@@ -4296,6 +4327,8 @@ WEBSTRIKE_ELITE = make_creature(
     text="Reach\nCycling {X}{G}{G} ({X}{G}{G}, Discard this card: Draw a card.)\nWhen you cycle this card, destroy up to one target artifact or enchantment with mana value X.",
     rarity="rare",
 )
+# Engine gap: "When you cycle this card" rider trigger (destroy artifact/enchantment with MV X) not yet supported.
+WEBSTRIKE_ELITE.setup_in_hand = make_cycling_setup("{X}{G}{G}")
 
 AATCHIK_EMERALD_RADIAN = make_creature(
     name="Aatchik, Emerald Radian",
@@ -4673,6 +4706,7 @@ THUNDERING_BROODWAGON = make_artifact(
     rarity="uncommon",
     subtypes={"Vehicle"},
 )
+THUNDERING_BROODWAGON.setup_in_hand = make_cycling_setup("{2}")
 
 VETERAN_BEASTRIDER = make_creature(
     name="Veteran Beastrider",
@@ -4831,6 +4865,7 @@ SKYBOX_FERRY = make_artifact(
     rarity="common",
     subtypes={"Vehicle"},
 )
+SKYBOX_FERRY.setup_in_hand = make_cycling_setup("{2}")
 
 STARTING_COLUMN = make_artifact(
     name="Starting Column",
@@ -4868,6 +4903,7 @@ WRECK_REMOVER = make_artifact_creature(
     text="Whenever this creature enters or attacks, exile up to one target card from a graveyard. You gain 1 life.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="common",
 )
+WRECK_REMOVER.setup_in_hand = make_cycling_setup("{2}")
 
 AMONKHET_RACEWAY = make_land(
     name="Amonkhet Raceway",
@@ -4934,6 +4970,7 @@ NIGHT_MARKET = make_land(
     text="This land enters tapped. As it enters, choose a color.\n{T}: Add one mana of the chosen color.\nCycling {3} ({3}, Discard this card: Draw a card.)",
     rarity="common",
 )
+NIGHT_MARKET.setup_in_hand = make_cycling_setup("{3}")
 
 REEF_ROADS = make_land(
     name="Reef Roads",

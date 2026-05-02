@@ -37,7 +37,46 @@ from src.cards.interceptor_helpers import (
     becomes_creature,
     # Cost reduction
     make_cost_reduction,
+    # Cycling
+    make_cycling_setup,
 )
+
+
+def _make_typecycling_setup(mana_cost: str, land_subtype):
+    """Local helper: typecycling activated ability registered via setup_in_hand.
+
+    Cost: ``{mana}, Discard this card``. Effect emits a SEARCH_LIBRARY event
+    for a basic land (with optional subtype). The SEARCH_LIBRARY handler is
+    an engine gap, but the discard cost + activation registration still wire.
+    """
+    cost_text = f"{mana_cost}, Discard this card"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        payload = {
+            'player': o.controller,
+            'card_type': 'basic_land',
+            'destination': 'hand',
+        }
+        if land_subtype:
+            payload['subtype'] = land_subtype
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload=payload,
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        make_activated_ability(
+            obj,
+            cost=cost_text,
+            effect_fn=_effect,
+            description=f"Typecycling {mana_cost}",
+            sorcery_speed=False,
+        )
+        return []
+
+    return _setup
 
 
 # =============================================================================
@@ -4296,6 +4335,7 @@ STRATOSOARER = make_creature(
     text="Flying\nWhen this creature enters, target creature gains flying until end of turn.\nBasic landcycling {1}{U} ({1}{U}, Discard this card: Search your library for a basic land card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=stratosoarer_setup,
 )
+STRATOSOARER.setup_in_hand = _make_typecycling_setup("{1}{U}", None)
 
 SUMMIT_SENTINEL = make_creature(
     name="Summit Sentinel",
@@ -5023,6 +5063,7 @@ KULRATH_ZEALOT = make_creature(
     text="When this creature enters, exile the top card of your library. Until the end of your next turn, you may play that card.\nBasic landcycling {1}{R} ({1}{R}, Discard this card: Search your library for a basic land card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=kulrath_zealot_setup
 )
+KULRATH_ZEALOT.setup_in_hand = _make_typecycling_setup("{1}{R}", None)
 
 LASTING_TARFIRE = make_enchantment(
     name="Lasting Tarfire",
