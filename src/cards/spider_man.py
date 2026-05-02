@@ -41,6 +41,8 @@ from src.cards.interceptor_helpers import (
     make_equipment_setup, make_aura_setup,
     # Dynamic P/T helpers.
     make_attached_dynamic_pt_boost,
+    # Cost reduction.
+    make_cost_reduction,
 )
 from src.engine.spm_mechanics import (
     is_web_slinging_cast, web_slinging_returned_mv, is_mayhem_cast,
@@ -3840,11 +3842,35 @@ VENOMIZED_CAT = make_creature(
     setup_interceptors=venomized_cat_setup,
 )
 
+def venoms_hunger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self-cost: {2} less if you control a Villain.
+
+    Skipped clauses:
+      * Resolution effect ('destroy target creature; you gain 2 life') is
+        left to cast-effect dispatch elsewhere.
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and "Villain" in o.characteristics.subtypes):
+                return 2
+        return 0
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
+
+
 VENOMS_HUNGER = make_sorcery(
     name="Venom's Hunger",
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     text="This spell costs {2} less to cast if you control a Villain.\nDestroy target creature. You gain 2 life.",
+    setup_interceptors=venoms_hunger_setup,
 )
 
 VILLAINOUS_WRATH = make_sorcery(
@@ -4286,11 +4312,45 @@ SUPPORTIVE_PARENTS = make_creature(
     setup_interceptors=supportive_parents_setup,
 )
 
+def terrific_teamup_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self-cost: {2} less if you control a permanent with mana value 4 or greater.
+
+    Skipped clauses:
+      * Resolution effect (pump and damage redirection on creatures you
+        control) is left to cast-effect dispatch elsewhere.
+    """
+    def _mana_value(o: GameObject) -> int:
+        mc = o.characteristics.mana_cost
+        if mc is None:
+            return 0
+        # mana_cost on Characteristics is a printed-string ("{2}{R}{R}").
+        try:
+            from src.engine.mana import ManaCost
+            return int(ManaCost.parse(mc).mana_value)
+        except Exception:
+            return 0
+
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if o and o.controller == controller and _mana_value(o) >= 4:
+                return 2
+        return 0
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
+
+
 TERRIFIC_TEAMUP = make_instant(
     name="Terrific Team-Up",
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="This spell costs {2} less to cast if you control a permanent with mana value 4 or greater.\nOne or two target creatures you control each get +1/+0 until end of turn. They each deal damage equal to their power to target creature an opponent controls.",
+    setup_interceptors=terrific_teamup_setup,
 )
 
 WALL_CRAWL = make_enchantment(

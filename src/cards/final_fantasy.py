@@ -50,6 +50,8 @@ from src.cards.interceptor_helpers import (
     make_aura_setup,
     # Sweep 4: becomes-creature
     becomes_creature,
+    # Cost reduction
+    make_cost_reduction,
 )
 
 from src.engine.spell_resolve import (
@@ -4166,9 +4168,37 @@ def cactuar_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def diamond_weapon_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Diamond Weapon: prevent combat damage to self + cost reduction (stub)."""
-    # engine gap: combat damage prevention to specific creature + cost reduction by graveyard count not modular
-    return []
+    """Self-cost: {1} less per permanent card in your graveyard.
+    Reach granted via printed keyword text.
+
+    Skipped clauses:
+      * 'Immune — Prevent all combat damage that would be dealt to Diamond
+        Weapon.' (Engine gap: per-creature combat-damage prevention.)
+    """
+    PERMANENT_TYPES = {
+        CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT,
+        CardType.LAND, CardType.PLANESWALKER,
+    }
+    battle = getattr(CardType, 'BATTLE', None)
+    if battle is not None:
+        PERMANENT_TYPES.add(battle)
+
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        gy = st.zones.get(f'graveyard_{controller}')
+        if not gy:
+            return 0
+        n = 0
+        for oid in gy.objects:
+            o = st.objects.get(oid)
+            if not o:
+                continue
+            if o.characteristics.types & PERMANENT_TYPES:
+                n += 1
+        return n
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 def the_earth_crystal_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5670,12 +5700,32 @@ THIEFS_KNIFE = make_artifact(
     setup_interceptors=thiefs_knife_ff_setup,
 )
 
+def travel_the_overworld_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self-cost: affinity for Towns — {1} less per Town you control."""
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        n = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and "Town" in o.characteristics.subtypes):
+                n += 1
+        return n
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
+
+
 TRAVEL_THE_OVERWORLD = make_sorcery(
     name="Travel the Overworld",
     mana_cost="{5}{U}{U}",
     colors={Color.BLUE},
     text="Affinity for Towns (This spell costs {1} less to cast for each Town you control.)\nDraw four cards.",
     resolve=resolve_draw(4),
+    setup_interceptors=travel_the_overworld_setup,
 )
 
 ULTROS_OBNOXIOUS_OCTOPUS = make_creature(
