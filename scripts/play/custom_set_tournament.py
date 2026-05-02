@@ -250,8 +250,8 @@ def _collect_card_stats(
     game: Game,
     p1_id: str,
     p2_id: str,
-    p1_domain: str,
-    p2_domain: str,
+    p1_label: str,
+    p2_label: str,
     deck1: list,
     deck2: list,
     winner_id: Optional[str],
@@ -298,10 +298,10 @@ def _collect_card_stats(
         if not cd:
             return None
         owner = obj.owner
-        domain = p1_domain if owner == p1_id else p2_domain if owner == p2_id else None
-        if domain is None:
+        label = p1_label if owner == p1_id else p2_label if owner == p2_id else None
+        if label is None:
             return None
-        return _card_ref(domain, cd), domain
+        return _card_ref(label, cd), label
 
     def _zone_type(value: Any) -> Optional[ZoneType]:
         if isinstance(value, ZoneType):
@@ -356,9 +356,9 @@ def _collect_card_stats(
 
     # Seed deck copies
     for cd in deck1:
-        stats[_card_ref(p1_domain, cd)]["deck_copies"] += 1
+        stats[_card_ref(p1_label, cd)]["deck_copies"] += 1
     for cd in deck2:
-        stats[_card_ref(p2_domain, cd)]["deck_copies"] += 1
+        stats[_card_ref(p2_label, cd)]["deck_copies"] += 1
 
     # Walk event log
     for ev in _walk_event_log(state):
@@ -419,10 +419,10 @@ def _collect_card_stats(
         if not obj or not getattr(obj, "card_def", None) or getattr(obj, "is_token", False):
             continue
         owner = obj.owner
-        domain = p1_domain if owner == p1_id else p2_domain if owner == p2_id else None
-        if domain is None:
+        label = p1_label if owner == p1_id else p2_label if owner == p2_id else None
+        if label is None:
             continue
-        ref = _card_ref(domain, obj.card_def)
+        ref = _card_ref(label, obj.card_def)
         if obj.zone == ZoneType.BATTLEFIELD:
             stats[ref]["in_play_at_end"] += 1
             if winner_id and owner == winner_id:
@@ -447,12 +447,22 @@ async def play_one_game(
     deck2: list,
     ai1: AIEngine,
     ai2: AIEngine,
-    p1_domain: str,
-    p2_domain: str,
+    p1_label: str,
+    p2_label: str,
     max_turns: int = 25,
     per_turn_timeout_s: float = 1.5,
 ) -> GameResult:
-    """Run one MTG AI-vs-AI game and return per-card stats + outcome."""
+    """
+    Run one MTG AI-vs-AI game and return per-card stats + outcome.
+
+    `p1_label` / `p2_label` are opaque strings stamped into the result and
+    used as the prefix in `_card_ref`. They were originally the custom-set
+    domain code (e.g. "LRW", "TMH"); they are now any deck label, so a
+    deck-object tournament can use names like "h_aggro", "std_red", etc.
+    The GameResult dataclass keeps the historical field names
+    (p1_domain / p2_domain / winner_domain) so the JSON output shape stays
+    backwards-compatible with `aggregate()` and `diff_tournaments.py`.
+    """
     start = time.perf_counter()
 
     try:
@@ -521,21 +531,21 @@ async def play_one_game(
             turn_count += 1
 
         winner_id = game.get_winner() if game.is_game_over() else None
-        winner_domain = (
-            p1_domain if winner_id == p1.id
-            else p2_domain if winner_id == p2.id
+        winner_label = (
+            p1_label if winner_id == p1.id
+            else p2_label if winner_id == p2.id
             else None
         )
 
         card_stats = _collect_card_stats(
-            game, p1.id, p2.id, p1_domain, p2_domain, deck1, deck2, winner_id
+            game, p1.id, p2.id, p1_label, p2_label, deck1, deck2, winner_id
         )
 
         duration = time.perf_counter() - start
         return GameResult(
-            p1_domain=p1_domain,
-            p2_domain=p2_domain,
-            winner_domain=winner_domain,
+            p1_domain=p1_label,
+            p2_domain=p2_label,
+            winner_domain=winner_label,
             turns=turn_count,
             p1_life=game.state.players[p1.id].life,
             p2_life=game.state.players[p2.id].life,
@@ -547,8 +557,8 @@ async def play_one_game(
         )
     except Exception as exc:
         return GameResult(
-            p1_domain=p1_domain,
-            p2_domain=p2_domain,
+            p1_domain=p1_label,
+            p2_domain=p2_label,
             winner_domain=None,
             turns=0,
             p1_life=20,
@@ -820,6 +830,205 @@ def run_tournament_sequential(
 async def run_tournament(*args, **kwargs):
     """Compat wrapper — delegates to sequential."""
     return run_tournament_sequential(*args, **kwargs)
+
+
+# ----------------------------------------------------------------------
+# Deck-object entry points (W4)
+# ----------------------------------------------------------------------
+#
+# The existing custom_set_tournament harness builds decks in-place from a
+# domain key (build_set_deck). The hybrid-deckbuilder workflow needs to feed
+# pre-built `Deck` objects (heuristic skeletons, hand-tuned netdecks,
+# polished LLM output, ...) into the same runner without forking the
+# pipeline. The shims below take labelled `Deck` objects, load them through
+# the standard `load_deck(ALL_CARDS, deck)` pathway, and delegate to
+# `play_one_game`. The JSON output shape is unchanged so `aggregate()`,
+# `render_tier_report()`, and `diff_tournaments.py` keep working.
+
+
+def _deck_to_card_list(deck) -> list:
+    """Resolve a Deck object to a flat list of CardDefinitions via load_deck."""
+    from src.cards import ALL_CARDS
+    from src.decks.deck import load_deck
+    return load_deck(ALL_CARDS, deck)
+
+
+def _deck_info(label: str, deck, cards: list) -> dict:
+    """Build the same shape `build_set_deck` returns so deck_info entries are uniform."""
+    primary = (deck.colors[0] if getattr(deck, "colors", None) else "?")
+    spell_count = sum(1 for c in cards if CardType.LAND not in card_types(c))
+    land_count = sum(1 for c in cards if CardType.LAND in card_types(c))
+    return {
+        "domain": label,
+        "deck_name": getattr(deck, "name", label),
+        "archetype": getattr(deck, "archetype", "?"),
+        "colors": list(getattr(deck, "colors", []) or []),
+        "primary_color": primary,
+        "size": len(cards),
+        "spell_count": spell_count,
+        "land_count": land_count,
+        "unique_spells": len({c.name for c in cards if CardType.LAND not in card_types(c)}),
+        "basic_land": None,
+    }
+
+
+async def play_one_deck_game(
+    deck1,
+    deck2,
+    ai1: AIEngine,
+    ai2: AIEngine,
+    label1: str,
+    label2: str,
+    max_turns: int = 25,
+    per_turn_timeout_s: float = 1.5,
+) -> GameResult:
+    """
+    Deck-object shim around `play_one_game`.
+
+    Loads each `Deck` to `list[CardDefinition]` via `load_deck(ALL_CARDS, deck)`
+    (src/decks/deck.py:112) and delegates to the renamed runner. Same kwargs
+    semantics as `play_one_game`.
+    """
+    cards1 = _deck_to_card_list(deck1)
+    cards2 = _deck_to_card_list(deck2)
+    return await play_one_game(
+        cards1, cards2, ai1, ai2, label1, label2,
+        max_turns=max_turns,
+        per_turn_timeout_s=per_turn_timeout_s,
+    )
+
+
+def run_deck_tournament(
+    deck_pool: dict,
+    games_per_pair: int = 5,
+    max_turns: int = 14,
+    difficulty: str = "hard",
+    hard_timeout_s: float = 8.0,
+    ai_pair: Optional[tuple] = None,
+    verbose: bool = True,
+) -> dict[str, Any]:
+    """
+    Round-robin tournament over arbitrary `Deck` objects.
+
+    Parallels `run_tournament_sequential` (single process, SIGALRM-bounded
+    per game). The dict input maps an opaque label -> Deck. The JSON output
+    shape matches `run_tournament_sequential` exactly so downstream consumers
+    (`aggregate`, `render_tier_report`, `diff_tournaments.py`) work
+    unchanged. `domains` in the output is the list of pool labels.
+
+    `ai_pair` overrides the per-label strategy lookup. When None, all decks
+    use the midrange strategy. When provided as `(strategy_name1, strategy_name2)`
+    every game uses ai1 for p1 and ai2 for p2; when provided as a single
+    `strategy_name`, both seats use that strategy.
+    """
+    import signal
+
+    labels = list(deck_pool.keys())
+
+    decks_resolved: dict[str, list] = {}
+    deck_info: dict[str, dict] = {}
+    for label, deck in deck_pool.items():
+        cards = _deck_to_card_list(deck)
+        decks_resolved[label] = cards
+        deck_info[label] = _deck_info(label, deck, cards)
+
+    if verbose:
+        print(f"\n=== Decks: {len(labels)} entries ===", flush=True)
+        for label, info in deck_info.items():
+            print(
+                f"  {label:20s}  arch={info['archetype']:9s}  "
+                f"colors={'/'.join(info['colors']) or '-':10s}  "
+                f"spells={info['spell_count']:3d}  lands={info['land_count']:3d}  "
+                f"size={info['size']:3d}",
+                flush=True,
+            )
+
+    # Resolve AI strategies. ai_pair can be None | str | (str, str)
+    if ai_pair is None:
+        ai_p1_name = ai_p2_name = "midrange"
+    elif isinstance(ai_pair, str):
+        ai_p1_name = ai_p2_name = ai_pair
+    else:
+        ai_p1_name, ai_p2_name = ai_pair
+
+    pairings: list[tuple[str, str]] = []
+    for i, a in enumerate(labels):
+        for b in labels[i + 1:]:
+            pairings.append((a, b))
+
+    tasks: list[tuple[str, str]] = []
+    for a, b in pairings:
+        for g in range(games_per_pair):
+            p1, p2 = (a, b) if g % 2 == 0 else (b, a)
+            tasks.append((p1, p2))
+
+    total = len(tasks)
+    started = time.perf_counter()
+    results: list[dict] = []
+
+    class _HardTimeout(Exception):
+        pass
+
+    def _alarm(signum, frame):
+        raise _HardTimeout()
+
+    signal.signal(signal.SIGALRM, _alarm)
+
+    for i, (p1, p2) in enumerate(tasks):
+        signal.setitimer(signal.ITIMER_REAL, hard_timeout_s)
+        ai1 = make_ai(ai_p1_name, difficulty)
+        ai2 = make_ai(ai_p2_name, difficulty)
+        try:
+            result = asyncio.run(
+                play_one_game(
+                    decks_resolved[p1], decks_resolved[p2],
+                    ai1, ai2, p1, p2,
+                    max_turns=max_turns,
+                )
+            )
+            results.append(result.__dict__)
+        except _HardTimeout:
+            results.append({
+                "p1_domain": p1, "p2_domain": p2,
+                "winner_domain": None, "turns": 0,
+                "p1_life": 20, "p2_life": 20,
+                "p1_lost": False, "p2_lost": False,
+                "duration_s": hard_timeout_s,
+                "error": "hard_timeout", "card_stats": {},
+            })
+        except Exception as e:
+            import traceback as _tb
+            tb = _tb.format_exc()[:1500]
+            results.append({
+                "p1_domain": p1, "p2_domain": p2,
+                "winner_domain": None, "turns": 0,
+                "p1_life": 20, "p2_life": 20,
+                "p1_lost": False, "p2_lost": False,
+                "duration_s": 0,
+                "error": f"{type(e).__name__}: {str(e)[:100]}\n{tb}",
+                "card_stats": {},
+            })
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+
+        if verbose and ((i + 1) % 20 == 0 or i + 1 == total):
+            elapsed = time.perf_counter() - started
+            rate = (i + 1) / elapsed if elapsed > 0 else 0
+            eta = (total - i - 1) / rate if rate > 0 else 0
+            err_count = sum(1 for r in results if r.get("error"))
+            tos = sum(1 for r in results if r.get("error") == "hard_timeout")
+            print(f"  [{i+1}/{total}] {rate:.1f} g/s, "
+                  f"err={err_count} (tmo={tos}), ETA {eta:.0f}s", flush=True)
+
+    return {
+        "domains": labels,
+        "games_per_pair": games_per_pair,
+        "max_turns": max_turns,
+        "difficulty": difficulty,
+        "deck_info": deck_info,
+        "elapsed_s": time.perf_counter() - started,
+        "results": results,
+    }
 
 
 # ----------------------------------------------------------------------
