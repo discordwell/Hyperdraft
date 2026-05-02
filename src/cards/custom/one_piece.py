@@ -93,6 +93,20 @@ def make_devil_fruit_restriction(source_obj: GameObject) -> Interceptor:
     )
 
 
+def _self_kw(keywords):
+    """Self-keyword granter: this creature grants itself the listed keywords.
+
+    Yields a setup_interceptors callable that registers a make_keyword_grant
+    targeting only the source object. Used by simple-keyword commons so the
+    deck builder picks them up as wired (gets the -0.5 quality bonus).
+    """
+    def setup(obj, state):
+        def affects(target, st, src=obj):
+            return target.id == src.id
+        return [make_keyword_grant(obj, keywords, affects)]
+    return setup
+
+
 def make_observation_haki(source_obj: GameObject, scry_amount: int = 1) -> Interceptor:
     """
     Observation Haki - Scry N at the beginning of your upkeep.
@@ -439,11 +453,11 @@ HELMEPPO = make_creature(
 
 MARINE_BATTLESHIP = make_artifact_creature(
     name="Marine Battleship",
-    power=3,
-    toughness=4,
-    mana_cost="{2}{W}",
+    power=2,
+    toughness=3,
+    mana_cost="{1}{W}",
     subtypes={"Vehicle"},
-    text="Crew 3. Marines you control have ward {1}."
+    text="Vigilance. Crew 3. Marines you control have ward {1}."
 )
 
 JUSTICE_GATE = make_artifact(
@@ -1136,9 +1150,9 @@ def luffy_straw_hat_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 LUFFY_STRAW_HAT = make_creature(
     name="Monkey D. Luffy, Straw Hat Captain",
-    power=4,
-    toughness=4,
-    mana_cost="{2}{R}{R}",
+    power=3,
+    toughness=3,
+    mana_cost="{1}{R}{R}",
     colors={Color.RED},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
@@ -1183,9 +1197,9 @@ def sabo_revolutionary_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 SABO_REVOLUTIONARY = make_creature(
     name="Sabo, Revolutionary Chief",
-    power=4,
-    toughness=3,
-    mana_cost="{2}{R}{R}",
+    power=3,
+    toughness=2,
+    mana_cost="{1}{R}{R}",
     colors={Color.RED},
     subtypes={"Human", "Pirate", "Noble"},
     supertypes={"Legendary"},
@@ -2715,6 +2729,43 @@ SKYPIEA_WARRIOR = make_creature(
     subtypes={"Human", "Warrior"}, text="Reach"
 )
 
+# WAVE 19 CURVE-LOWERING PASS - mono-red 1-2 cmc creatures with simple keyword text
+# wired via setup_interceptors so the deck-builder picks them up (-0.5 quality bonus).
+BOUNTY_HUNTER_PIRATE = make_creature(
+    name="Bounty Hunter Pirate",
+    power=2, toughness=1, mana_cost="{R}", colors={Color.RED},
+    subtypes={"Human", "Pirate"}, text="Haste",
+    setup_interceptors=_self_kw(['haste'])
+)
+
+STEALTH_PIRATE = make_creature(
+    name="Stealth Pirate",
+    power=1, toughness=2, mana_cost="{R}", colors={Color.RED},
+    subtypes={"Human", "Pirate"}, text="Deathtouch",
+    setup_interceptors=_self_kw(['deathtouch'])
+)
+
+CUTLASS_SAILOR = make_creature(
+    name="Cutlass Sailor",
+    power=3, toughness=1, mana_cost="{1}{R}", colors={Color.RED},
+    subtypes={"Human", "Sailor"}, text="First strike",
+    setup_interceptors=_self_kw(['first strike'])
+)
+
+HELM_PIRATE = make_creature(
+    name="Helm Pirate",
+    power=2, toughness=3, mana_cost="{1}{R}", colors={Color.RED},
+    subtypes={"Human", "Pirate", "Warrior"}, text="Vigilance",
+    setup_interceptors=_self_kw(['vigilance'])
+)
+
+MARINE_STRIKE_FORCE = make_creature(
+    name="Marine Strike Force",
+    power=3, toughness=2, mana_cost="{1}{R}", colors={Color.RED},
+    subtypes={"Human", "Marine", "Soldier"}, text="Haste",
+    setup_interceptors=_self_kw(['haste'])
+)
+
 GRAND_LINE_NAVIGATOR = make_creature(
     name="Grand Line Navigator",
     power=1,
@@ -3585,6 +3636,13 @@ ONE_PIECE_CARDS = {
     "Pirate Cannon Shot": PIRATE_CANNON_SHOT,
     "Cannonball Volley": CANNONBALL_VOLLEY,
     "Whitebeard's Quake": WHITEBEARDS_QUAKE,
+
+    # WAVE 19 CURVE-LOWERING PASS (mono-red 1-2 cmc with self-keywords)
+    "Bounty Hunter Pirate": BOUNTY_HUNTER_PIRATE,
+    "Stealth Pirate": STEALTH_PIRATE,
+    "Cutlass Sailor": CUTLASS_SAILOR,
+    "Helm Pirate": HELM_PIRATE,
+    "Marine Strike Force": MARINE_STRIKE_FORCE,
 }
 
 print(f"Loaded {len(ONE_PIECE_CARDS)} One Piece: Grand Line cards")
@@ -3877,4 +3935,9 @@ CARDS = [
     PIRATE_CANNON_SHOT,
     CANNONBALL_VOLLEY,
     WHITEBEARDS_QUAKE,
+    BOUNTY_HUNTER_PIRATE,
+    STEALTH_PIRATE,
+    CUTLASS_SAILOR,
+    HELM_PIRATE,
+    MARINE_STRIKE_FORCE,
 ]
