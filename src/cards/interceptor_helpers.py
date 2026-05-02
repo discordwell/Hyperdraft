@@ -5263,6 +5263,95 @@ __all_sweep10__ = [
 
 
 # =============================================================================
+# Sweep 12: generic granted triggered ability
+# =============================================================================
+#
+# Generalises grant_death_trigger to any trigger filter — for cards like
+# Embereth Veteran's Young Hero Role token ("Enchanted creature has
+# 'Whenever this creature attacks, if its toughness is 3 or less, put a
+# +1/+1 counter on it.'") or Requiem Monolith's "Whenever this creature
+# is dealt damage, draw cards" rider.
+# =============================================================================
+
+
+def grant_triggered_ability(
+    target: GameObject,
+    source: GameObject,
+    state: GameState,
+    *,
+    event_filter: Callable[[Event, GameState, str], bool],
+    effect_fn: Callable[[GameObject, Event, GameState], list[Event]],
+    duration: str = "end_of_turn",
+    one_shot: bool = False,
+) -> Interceptor:
+    """Install a REACT interceptor that grants ``target`` a triggered ability.
+
+    ``event_filter(event, state, target_id)`` returns True when the event
+    should activate the granted trigger. The helper threads ``target_id``
+    in as the third arg so filters can scope to the granted target without
+    closing over it.
+
+    ``effect_fn(target_obj, event, state)`` returns the events to enqueue
+    when the trigger fires.
+
+    If ``one_shot`` is True, the interceptor self-removes after the first
+    fire (useful for "until X dies, return it" style riders).
+    """
+    target_id = target.id
+    source_id = source.id
+    controller = source.controller
+    int_id = new_id()
+    fired = {"done": False}
+
+    def _filter(event: Event, st: GameState) -> bool:
+        if one_shot and fired["done"]:
+            return False
+        try:
+            return bool(event_filter(event, st, target_id))
+        except Exception:
+            return False
+
+    def _handler(event: Event, st: GameState) -> InterceptorResult:
+        target_obj = st.objects.get(target_id)
+        if target_obj is None:
+            if one_shot:
+                fired["done"] = True
+                st.interceptors.pop(int_id, None)
+            return InterceptorResult(action=InterceptorAction.PASS)
+        try:
+            new_events = effect_fn(target_obj, event, st) or []
+        except Exception:
+            new_events = []
+        if one_shot:
+            fired["done"] = True
+            st.interceptors.pop(int_id, None)
+        if not new_events:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events,
+        )
+
+    interceptor = Interceptor(
+        id=int_id,
+        source=source_id,
+        controller=controller,
+        priority=InterceptorPriority.REACT,
+        filter=_filter,
+        handler=_handler,
+        duration=duration,
+    )
+    interceptor.timestamp = state.next_timestamp()
+    state.interceptors[int_id] = interceptor
+    return interceptor
+
+
+__all_sweep12__ = [
+    "grant_triggered_ability",
+]
+
+
+# =============================================================================
 # Sweep helpers: count_* primitives for dynamic P/T scaling
 # =============================================================================
 #
