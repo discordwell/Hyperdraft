@@ -39,6 +39,8 @@ from src.cards.interceptor_helpers import (
     make_cost_reduction,
     # Cycling
     make_cycling_setup,
+    # Modal resolve
+    make_modal_resolve,
 )
 
 
@@ -3830,11 +3832,74 @@ GOLDMEADOW_NOMAD = make_creature(
 )
 GOLDMEADOW_NOMAD.setup_in_graveyard = goldmeadow_nomad_gy_setup
 
+def _keep_out_mode_damage(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """4 damage to target tapped creature."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and getattr(o.state, 'tapped', False))
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': selected[0], 'amount': 4, 'source': spell_id},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Keep Out: choose tapped creature for 4 damage",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _keep_out_mode_destroy_enchant(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target enchantment."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.ENCHANTMENT in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Keep Out: destroy target enchantment",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 KEEP_OUT = make_instant(
     name="Keep Out",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Choose one —\n• Keep Out deals 4 damage to target tapped creature.\n• Destroy target enchantment.",
+    resolve=make_modal_resolve(
+        "Keep Out",
+        modes=[
+            ("Keep Out deals 4 damage to target tapped creature", _keep_out_mode_damage),
+            ("Destroy target enchantment", _keep_out_mode_destroy_enchant),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 KINBINDING = make_enchantment(
@@ -4442,11 +4507,72 @@ WILD_UNRAVELING = make_instant(
     text="As an additional cost to cast this spell, blight 2 or pay {1}. (To blight 2, put two -1/-1 counters on a creature you control.)\nCounter target spell.",
 )
 
+def _aunties_sentence_mode_discard(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target opponent reveals hand; you choose nonland permanent; that player discards.
+    Engine gap: full reveal-and-pick flow not modeled here. Emit a generic DISCARD
+    of 1 nonland permanent card from a chosen opponent.
+    """
+    opp_ids = [pid for pid in state.players.keys() if pid != caster_id]
+    if not opp_ids:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': selected[0], 'amount': 1, 'nonland_permanent': True, 'chosen_by': caster_id},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=opp_ids,
+        prompt="Auntie's Sentence: choose target opponent",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _aunties_sentence_mode_minus(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target creature gets -2/-2 until end of turn."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': selected[0], 'power_mod': -2, 'toughness_mod': -2, 'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Auntie's Sentence: choose creature for -2/-2",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 AUNTIES_SENTENCE = make_sorcery(
     name="Auntie's Sentence",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Choose one —\n• Target opponent reveals their hand. You choose a nonland permanent card from it. That player discards that card.\n• Target creature gets -2/-2 until end of turn.",
+    resolve=make_modal_resolve(
+        "Auntie's Sentence",
+        modes=[
+            ("Target opponent reveals hand and discards a chosen nonland permanent", _aunties_sentence_mode_discard),
+            ("Target creature gets -2/-2 until end of turn", _aunties_sentence_mode_minus),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 BARBED_BLOODLETTER = make_artifact(
@@ -4793,11 +4919,80 @@ TWILIGHT_DIVINER = make_creature(
     setup_interceptors=twilight_diviner_setup
 )
 
+def _unbury_mode_one(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Return target creature card from your graveyard to hand."""
+    gy = state.zones.get(f"graveyard_{caster_id}")
+    legal = []
+    if gy:
+        for cid in gy.objects:
+            obj = state.objects.get(cid)
+            if obj and CardType.CREATURE in obj.characteristics.types:
+                legal.append(cid)
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={'card_id': selected[0], 'destination': 'hand'},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Unbury: choose creature card to return",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _unbury_mode_two(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Return two creature cards sharing a type. Engine gap: shared-type validation
+    not enforced — pick any two creature cards.
+    """
+    gy = state.zones.get(f"graveyard_{caster_id}")
+    legal = []
+    if gy:
+        for cid in gy.objects:
+            obj = state.objects.get(cid)
+            if obj and CardType.CREATURE in obj.characteristics.types:
+                legal.append(cid)
+    if len(legal) < 2:
+        return []
+    def _on_target(ch, selected, st):
+        return [
+            Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={'card_id': cid, 'destination': 'hand'},
+                source=spell_id, controller=caster_id,
+            ) for cid in (selected or [])
+        ]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Unbury: choose two creature cards (engine gap: shared-type not enforced)",
+        min_targets=2, max_targets=2,
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 UNBURY = make_instant(
     name="Unbury",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Choose one —\n• Return target creature card from your graveyard to your hand.\n• Return two target creature cards that share a creature type from your graveyard to your hand.",
+    resolve=make_modal_resolve(
+        "Unbury",
+        modes=[
+            ("Return target creature card from your graveyard to your hand", _unbury_mode_one),
+            ("Return two target creature cards (shared-type partial)", _unbury_mode_two),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 ASHLING_REKINDLED = make_creature(
@@ -4952,11 +5147,97 @@ FLAMEKIN_GILDWEAVER = make_creature(
     setup_interceptors=flamekin_gildweaver_setup
 )
 
+def _giantfall_mode_zap(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target creature you control deals damage equal to its power to target creature an opponent controls."""
+    own = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+    enemy = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller != caster_id)
+    ]
+    if not own or not enemy:
+        return []
+    def _on_enemy(ch2, sel_enemy, st):
+        if not sel_enemy:
+            return []
+        own_id = ch2.callback_data.get('_own_id')
+        if not own_id:
+            return []
+        own_obj = st.objects.get(own_id)
+        own_power = getattr(own_obj.state, 'power', 0) if own_obj else 0
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': sel_enemy[0], 'amount': own_power, 'source': own_id},
+            source=spell_id, controller=caster_id,
+        )]
+    def _on_own(ch1, sel_own, st):
+        if not sel_own:
+            return []
+        ch2 = create_target_choice(
+            state=st, player_id=caster_id, source_id=spell_id,
+            legal_targets=enemy,
+            prompt="Giantfall: choose enemy creature",
+            callback_data={'_own_id': sel_own[0]},
+        )
+        ch2.choice_type = "target_with_callback"
+        ch2.callback_data['handler'] = _on_enemy
+        return []
+    tc1 = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=own,
+        prompt="Giantfall: choose your creature",
+    )
+    tc1.choice_type = "target_with_callback"
+    tc1.callback_data['handler'] = _on_own
+    return []
+
+
+def _giantfall_mode_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target artifact."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.ARTIFACT in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Giantfall: destroy target artifact",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 GIANTFALL = make_instant(
     name="Giantfall",
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Choose one —\n• Target creature you control deals damage equal to its power to target creature an opponent controls.\n• Destroy target artifact.",
+    resolve=make_modal_resolve(
+        "Giantfall",
+        modes=[
+            ("Your creature deals damage equal to its power to enemy creature", _giantfall_mode_zap),
+            ("Destroy target artifact", _giantfall_mode_destroy),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 def goatnap_resolve(targets: list, state: GameState) -> list[Event]:
@@ -5529,11 +5810,93 @@ TRYSTAN_CALLOUS_CULTIVATOR = make_creature(
     text="",
 )
 
+def _unforgiving_aim_mode_destroy_flier(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target creature with flying."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and 'flying' in (o.characteristics.keywords or set()))
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Unforgiving Aim: destroy creature with flying",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _unforgiving_aim_mode_destroy_enchant(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target enchantment."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.ENCHANTMENT in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Unforgiving Aim: destroy target enchantment",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _unforgiving_aim_mode_token(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Create a 2/2 black and green Elf creature token."""
+    return [Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'name': 'Elf Token',
+            'controller': caster_id, 'owner': caster_id,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'power': 2, 'toughness': 2,
+            'types': {CardType.CREATURE},
+            'subtypes': {'Elf'},
+            'colors': {Color.BLACK, Color.GREEN},
+            'is_token': True,
+        },
+        source=spell_id, controller=caster_id,
+    )]
+
+
 UNFORGIVING_AIM = make_instant(
     name="Unforgiving Aim",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Choose one —\n• Destroy target creature with flying.\n• Destroy target enchantment.\n• Create a 2/2 black and green Elf creature token.",
+    resolve=make_modal_resolve(
+        "Unforgiving Aim",
+        modes=[
+            ("Destroy target creature with flying", _unforgiving_aim_mode_destroy_flier),
+            ("Destroy target enchantment", _unforgiving_aim_mode_destroy_enchant),
+            ("Create a 2/2 black and green Elf creature token", _unforgiving_aim_mode_token),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 VINEBRED_BRAWLER = make_creature(

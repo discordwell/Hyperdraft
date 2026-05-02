@@ -58,6 +58,8 @@ from src.cards.interceptor_helpers import (
     make_cost_reduction,
     # Cycling
     make_cycling_setup,
+    # Modal resolve
+    make_modal_resolve,
 )
 
 
@@ -5151,11 +5153,103 @@ AURONS_INSPIRATION = make_instant(
     text="Attacking creatures get +2/+0 until end of turn.\nFlashback {2}{W}{W} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
 )
 
+def _battle_menu_mode_attack(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Create a 2/2 white Knight creature token."""
+    return [Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'name': 'Knight Token',
+            'controller': caster_id, 'owner': caster_id,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'power': 2, 'toughness': 2,
+            'types': {CardType.CREATURE},
+            'subtypes': {'Knight'},
+            'colors': {Color.WHITE},
+            'is_token': True,
+        },
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _battle_menu_mode_ability(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target creature gets +0/+4 until end of turn."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': selected[0], 'power_mod': 0, 'toughness_mod': 4, 'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Battle Menu (Ability): choose creature for +0/+4",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _battle_menu_mode_magic(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target creature with power 4 or greater."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and getattr(o.state, 'power', 0) >= 4)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Battle Menu (Magic): destroy creature with power 4+",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _battle_menu_mode_item(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """You gain 4 life."""
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': caster_id, 'amount': 4},
+        source=spell_id, controller=caster_id,
+    )]
+
+
 BATTLE_MENU = make_instant(
     name="Battle Menu",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Choose one —\n• Attack — Create a 2/2 white Knight creature token.\n• Ability — Target creature gets +0/+4 until end of turn.\n• Magic — Destroy target creature with power 4 or greater.\n• Item — You gain 4 life.",
+    resolve=make_modal_resolve(
+        "Battle Menu",
+        modes=[
+            ("Attack — Create a 2/2 white Knight creature token", _battle_menu_mode_attack),
+            ("Ability — Target creature gets +0/+4 until end of turn", _battle_menu_mode_ability),
+            ("Magic — Destroy target creature with power 4 or greater", _battle_menu_mode_magic),
+            ("Item — You gain 4 life", _battle_menu_mode_item),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 CLOUD_MIDGAR_MERCENARY = make_creature(
@@ -6110,11 +6204,58 @@ PHANTOM_TRAIN = make_artifact(
     setup_interceptors=phantom_train_ff_setup,
 )
 
+def _poison_the_waters_mode_minus(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """All creatures get -1/-1 until end of turn."""
+    return [
+        Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': oid, 'power_mod': -1, 'toughness_mod': -1, 'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        )
+        for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types)
+    ]
+
+
+def _poison_the_waters_mode_discard(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target player reveals hand; you choose artifact/creature; that player discards.
+    Engine gap: full reveal-and-pick flow not modeled. Emit DISCARD with hint payload.
+    """
+    legal = list(state.players.keys())
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': selected[0], 'amount': 1, 'card_filter': 'artifact_or_creature', 'chosen_by': caster_id},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Poison the Waters: choose target player",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 POISON_THE_WATERS = make_sorcery(
     name="Poison the Waters",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Choose one —\n• All creatures get -1/-1 until end of turn.\n• Target player reveals their hand. You choose an artifact or creature card from it. That player discards that card.",
+    resolve=make_modal_resolve(
+        "Poison the Waters",
+        modes=[
+            ("All creatures get -1/-1 until end of turn", _poison_the_waters_mode_minus),
+            ("Target player reveals hand and discards a chosen artifact or creature", _poison_the_waters_mode_discard),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 QUTRUB_FORAYER = make_creature(
@@ -6439,11 +6580,56 @@ NIBELHEIM_AFLAME = make_sorcery(
     resolve=_nibelheim_aflame_resolve,
 )
 
+def _opera_love_song_mode_impulse(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Exile top 2; may play until next end step."""
+    return [Event(
+        type=EventType.IMPULSE_DRAW,
+        payload={'player': caster_id, 'amount': 2, 'duration': 'end_of_next_turn'},
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _opera_love_song_mode_pump(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """One or two target creatures each get +2/+0 until end of turn."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': oid, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+                source=spell_id, controller=caster_id,
+            ) for oid in (selected or [])
+        ]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Opera Love Song: choose 1 or 2 creatures for +2/+0",
+        min_targets=1, max_targets=min(2, len(legal)),
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 OPERA_LOVE_SONG = make_instant(
     name="Opera Love Song",
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Choose one —\n• Exile the top two cards of your library. You may play those cards until your next end step.\n• One or two target creatures each get +2/+0 until end of turn.",
+    resolve=make_modal_resolve(
+        "Opera Love Song",
+        modes=[
+            ("Exile top two and may play until next end step", _opera_love_song_mode_impulse),
+            ("One or two creatures get +2/+0 until end of turn", _opera_love_song_mode_pump),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 PROMPTO_ARGENTUM = make_creature(
@@ -6597,11 +6783,76 @@ SUMMON_GF_IFRIT = make_creature(
     setup_interceptors=summon_gf_ifrit_ff_setup,
 )
 
+def _suplex_mode_burn(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """3 damage to target creature; if it would die, exile instead.
+    Engine gap: 'exile instead of die' replacement is not modeled here.
+    Emit DAMAGE only.
+    """
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': selected[0], 'amount': 3, 'source': spell_id, 'exile_if_dies': True},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Suplex: deal 3 damage to target creature",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _suplex_mode_exile(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Exile target artifact."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.ARTIFACT in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Suplex: exile target artifact",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 SUPLEX = make_sorcery(
     name="Suplex",
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Choose one —\n• Suplex deals 3 damage to target creature. If that creature would die this turn, exile it instead.\n• Exile target artifact.",
+    resolve=make_modal_resolve(
+        "Suplex",
+        modes=[
+            ("Suplex deals 3 damage to target creature", _suplex_mode_burn),
+            ("Exile target artifact", _suplex_mode_exile),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 THUNDER_MAGIC = make_instant(
@@ -6896,11 +7147,66 @@ RIDE_THE_SHOOPUF = make_enchantment(
     setup_interceptors=ride_the_shoopuf_ff_setup,
 )
 
+def _rydias_return_mode_pump(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Creatures you control get +3/+3 until end of turn."""
+    return [
+        Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': oid, 'power_mod': 3, 'toughness_mod': 3, 'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        )
+        for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+
+
+def _rydias_return_mode_return(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Return up to two permanent cards from your graveyard to your hand."""
+    PERM_TYPES = {CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT,
+                  CardType.LAND, CardType.PLANESWALKER}
+    gy = state.zones.get(f"graveyard_{caster_id}")
+    legal = []
+    if gy:
+        for cid in gy.objects:
+            obj = state.objects.get(cid)
+            if obj and (obj.characteristics.types & PERM_TYPES):
+                legal.append(cid)
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        return [
+            Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={'card_id': cid, 'destination': 'hand'},
+                source=spell_id, controller=caster_id,
+            ) for cid in (selected or [])
+        ]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Rydia's Return: choose up to 2 permanent cards from your graveyard",
+        min_targets=0, max_targets=min(2, len(legal)),
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 RYDIAS_RETURN = make_sorcery(
     name="Rydia's Return",
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     text="Choose one —\n• Creatures you control get +3/+3 until end of turn.\n• Return up to two target permanent cards from your graveyard to your hand.",
+    resolve=make_modal_resolve(
+        "Rydia's Return",
+        modes=[
+            ("Creatures you control get +3/+3 until end of turn", _rydias_return_mode_pump),
+            ("Return up to 2 permanent cards from your graveyard", _rydias_return_mode_return),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 SAZH_KATZROY = make_creature(

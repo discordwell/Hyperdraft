@@ -47,6 +47,8 @@ from src.cards.interceptor_helpers import (
     create_target_choice,
     # Cost reduction.
     make_cost_reduction,
+    # Modal resolve.
+    make_modal_resolve,
 )
 from src.engine.spm_mechanics import (
     is_web_slinging_cast, web_slinging_returned_mv, is_mayhem_cast,
@@ -3469,11 +3471,82 @@ SPECTACULAR_SPIDERMAN = make_creature(
     setup_interceptors=spectacular_spiderman_setup,
 )
 
+def _spectacular_tactics_mode_buff(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """+1/+1 counter on creature you control; gains hexproof EOT."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': selected[0], 'counter_type': '+1/+1', 'amount': 1},
+                source=spell_id, controller=caster_id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': selected[0], 'keyword': 'hexproof', 'duration': 'end_of_turn'},
+                source=spell_id, controller=caster_id,
+            ),
+        ]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Spectacular Tactics: choose your creature",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _spectacular_tactics_mode_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target creature with power 4 or greater."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and getattr(o.state, 'power', 0) >= 4)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Spectacular Tactics: destroy creature with power 4+",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 SPECTACULAR_TACTICS = make_instant(
     name="Spectacular Tactics",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Choose one —\n• Put a +1/+1 counter on target creature you control. It gains hexproof until end of turn.\n• Destroy target creature with power 4 or greater.",
+    resolve=make_modal_resolve(
+        "Spectacular Tactics",
+        modes=[
+            ("+1/+1 counter and hexproof on your creature", _spectacular_tactics_mode_buff),
+            ("Destroy target creature with power 4 or greater", _spectacular_tactics_mode_destroy),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 SPIDERMAN_WEBSLINGER = make_creature(
@@ -3726,18 +3799,152 @@ ROBOTICS_MASTERY = make_enchantment(
     setup_interceptors=robotics_mastery_setup,
 )
 
+def _school_daze_mode_homework(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Draw three cards."""
+    return [Event(
+        type=EventType.DRAW,
+        payload={'player': caster_id, 'amount': 3},
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _school_daze_mode_counter(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Counter target spell. Draw a card."""
+    stack = state.zones.get('stack')
+    legal = []
+    if stack:
+        for cid in stack.objects:
+            if cid != spell_id:
+                legal.append(cid)
+    if not legal:
+        # No spell to counter — still draw the card
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': caster_id, 'amount': 1},
+            source=spell_id, controller=caster_id,
+        )]
+    def _on_target(ch, selected, st):
+        events = []
+        if selected:
+            events.append(Event(
+                type=EventType.COUNTER_SPELL,
+                payload={'target': selected[0]},
+                source=spell_id, controller=caster_id,
+            ))
+        events.append(Event(
+            type=EventType.DRAW,
+            payload={'player': caster_id, 'amount': 1},
+            source=spell_id, controller=caster_id,
+        ))
+        return events
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="School Daze: choose target spell to counter",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 SCHOOL_DAZE = make_instant(
     name="School Daze",
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     text="Choose one —\n• Do Homework — Draw three cards.\n• Fight Crime — Counter target spell. Draw a card.",
+    resolve=make_modal_resolve(
+        "School Daze",
+        modes=[
+            ("Do Homework — Draw three cards", _school_daze_mode_homework),
+            ("Fight Crime — Counter target spell, draw a card", _school_daze_mode_counter),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
+
+def _secret_identity_mode_conceal(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target creature you control becomes a 1/1 Citizen with hexproof EOT."""
+    from src.cards.interceptor_helpers import becomes_creature
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        target = st.objects.get(selected[0])
+        if not target:
+            return []
+        becomes_creature(
+            target, st,
+            power=1, toughness=1,
+            subtypes={'Citizen'},
+            keywords=['hexproof'],
+            duration='end_of_turn',
+        )
+        return []
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Secret Identity (Conceal): choose your creature",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _secret_identity_mode_reveal(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target creature you control becomes a 3/4 Hero with flying+vigilance EOT."""
+    from src.cards.interceptor_helpers import becomes_creature
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        target = st.objects.get(selected[0])
+        if not target:
+            return []
+        becomes_creature(
+            target, st,
+            power=3, toughness=4,
+            subtypes={'Hero'},
+            keywords=['flying', 'vigilance'],
+            duration='end_of_turn',
+        )
+        return []
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Secret Identity (Reveal): choose your creature",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
 
 SECRET_IDENTITY = make_instant(
     name="Secret Identity",
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Choose one —\n• Conceal — Until end of turn, target creature you control becomes a Citizen with base power and toughness 1/1 and gains hexproof.\n• Reveal — Until end of turn, target creature you control becomes a Hero with base power and toughness 3/4 and gains flying and vigilance.",
+    resolve=make_modal_resolve(
+        "Secret Identity",
+        modes=[
+            ("Conceal — becomes 1/1 Citizen with hexproof", _secret_identity_mode_conceal),
+            ("Reveal — becomes 3/4 Hero with flying and vigilance", _secret_identity_mode_reveal),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 SPIDERBYTE_WEB_WARDEN = make_creature(
@@ -4094,11 +4301,65 @@ GWEN_STACY = make_creature(
     text="",
 )
 
+def _heroes_hangout_mode_date_night(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Exile top 2; pick one to play until end of next turn. Engine gap: full
+    impulse-with-pick flow not modeled — emit IMPULSE_DRAW(2) and let the
+    handler pick one.
+    """
+    return [Event(
+        type=EventType.IMPULSE_DRAW,
+        payload={'player': caster_id, 'amount': 2, 'pick': 1, 'duration': 'end_of_next_turn'},
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _heroes_hangout_mode_patrol_night(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """One or two target creatures each get +1/+0 and first strike EOT."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        events = []
+        for oid in (selected or []):
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': oid, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+                source=spell_id, controller=caster_id,
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': oid, 'keyword': 'first strike', 'duration': 'end_of_turn'},
+                source=spell_id, controller=caster_id,
+            ))
+        return events
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Heroes' Hangout (Patrol Night): choose 1 or 2 creatures",
+        min_targets=1, max_targets=min(2, len(legal)),
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 HEROES_HANGOUT = make_sorcery(
     name="Heroes' Hangout",
     mana_cost="{R}",
     colors={Color.RED},
     text="Choose one —\n• Date Night — Exile the top two cards of your library. Choose one of them. Until the end of your next turn, you may play that card.\n• Patrol Night — One or two target creatures each get +1/+0 and gain first strike until end of turn.",
+    resolve=make_modal_resolve(
+        "Heroes' Hangout",
+        modes=[
+            ("Date Night — exile top 2, may play one", _heroes_hangout_mode_date_night),
+            ("Patrol Night — 1 or 2 creatures get +1/+0 first strike", _heroes_hangout_mode_patrol_night),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 HOBGOBLIN_MANTLED_MARAUDER = make_creature(
@@ -4419,11 +4680,65 @@ SANDMAN_SHIFTING_SCOUNDREL = make_creature(
     setup_interceptors=sandman_shifting_scoundrel_setup,
 )
 
+def _scout_the_city_mode_look(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mill 3 + gain 3 life. Engine gap: 'put a permanent card into hand from
+    among them' is not implemented — the milled cards stay in graveyard.
+    """
+    return [
+        Event(
+            type=EventType.MILL,
+            payload={'player': caster_id, 'amount': 3},
+            source=spell_id, controller=caster_id,
+        ),
+        Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': caster_id, 'amount': 3},
+            source=spell_id, controller=caster_id,
+        ),
+    ]
+
+
+def _scout_the_city_mode_bring_down(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target creature with flying."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and 'flying' in (o.characteristics.keywords or set()))
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Scout the City: destroy creature with flying",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 SCOUT_THE_CITY = make_sorcery(
     name="Scout the City",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Choose one —\n• Look Around — Mill three cards. You may put a permanent card from among them into your hand. You gain 3 life. (To mill three cards, put the top three cards of your library into your graveyard.)\n• Bring Down — Destroy target creature with flying.",
+    resolve=make_modal_resolve(
+        "Scout the City",
+        modes=[
+            ("Look Around — Mill three cards, gain 3 life", _scout_the_city_mode_look),
+            ("Bring Down — Destroy target creature with flying", _scout_the_city_mode_bring_down),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 SPIDERHAM_PETER_PORKER = make_creature(
