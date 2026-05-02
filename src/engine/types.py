@@ -79,6 +79,7 @@ class EventType(Enum):
     QUERY_TOUGHNESS = auto()
     QUERY_TYPES = auto()
     QUERY_SUBTYPES = auto()
+    QUERY_SUPERTYPES = auto()
     QUERY_COLORS = auto()
     QUERY_ABILITIES = auto()
     QUERY_COST = auto()

@@ -56,6 +56,8 @@ from src.cards.interceptor_helpers import (
     make_cycling_setup,
     # Modal resolve.
     make_modal_resolve,
+    # Vehicle animation (Round 9).
+    make_animate_via_exhaust,
 )
 
 
@@ -2338,7 +2340,10 @@ def honest_work_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def invasion_submersible_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB return up to one other nonland permanent to hand.
-    (engine gap: exhaust waterbend {3}: become 3/3 with counters.)"""
+    Plus Exhaust — Waterbend {3}: become a 3/3 artifact creature with three
+    +1/+1 counters until end of turn. The Waterbend tap-discount portion is
+    not yet wired (engine doesn't expose Waterbend as an activation prefix
+    yet); animation cost is registered as a plain {3} for now."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         legal = [
             o.id for o in state.objects.values()
@@ -2359,6 +2364,11 @@ def invasion_submersible_setup(obj: GameObject, state: GameState) -> list[Interc
             callback_data={'effect': 'bounce', 'source_id': obj.id},
         )
         return []
+
+    make_animate_via_exhaust(
+        obj, cost="{3}", power=3, toughness=3, plus_one_counters=3,
+        description="Waterbend {3}: This Vehicle becomes a 3/3 artifact creature with three +1/+1 counters until end of turn.",
+    )
     return [make_etb_trigger(obj, etb_effect)]
 
 

@@ -61,8 +61,8 @@ from .types import (
 from .pipeline import EventPipeline
 
 from .queries import (
-    get_power, get_toughness, get_types, get_subtypes, get_colors,
-    has_ability, is_creature
+    get_power, get_toughness, get_types, get_subtypes, get_supertypes,
+    get_colors, has_ability, is_creature
 )
 
 from .game import (
@@ -136,8 +136,8 @@ __all__ = [
     'EventPipeline',
 
     # Queries
-    'get_power', 'get_toughness', 'get_types', 'get_subtypes', 'get_colors',
-    'has_ability', 'is_creature',
+    'get_power', 'get_toughness', 'get_types', 'get_subtypes', 'get_supertypes',
+    'get_colors', 'has_ability', 'is_creature',
 
     # Game
     'Game', 'make_creature', 'make_instant', 'make_enchantment',

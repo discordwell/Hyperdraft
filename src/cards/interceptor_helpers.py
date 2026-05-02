@@ -6330,12 +6330,22 @@ def becomes_creature(
         state.interceptors[ic.id] = ic
         ic.timestamp = state.next_timestamp()
 
-    # If subtypes were specified, also patch obj.characteristics.subtypes
-    # (no QUERY_SUBTYPES exists yet in this engine) — non-destructive: add
-    # but track for revert.
+    # If subtypes were specified, dual-write onto the target so direct
+    # readers stay consistent — and stash the original for cleanup so the
+    # subtypes don't leak past the end of the duration.
     if subtypes_to_add:
         prior_subtypes = set(target.characteristics.subtypes)
         target.characteristics.subtypes |= subtypes_to_add
+
+        if duration == "end_of_turn":
+            cleanups = getattr(state, '_becomes_creature_cleanups', None)
+            if cleanups is None:
+                cleanups = {}
+                state._becomes_creature_cleanups = cleanups
+            cleanups[tag_id] = {
+                'target_id': target_id,
+                'original_subtypes': prior_subtypes,
+            }
 
     return []
 
@@ -6343,6 +6353,78 @@ def becomes_creature(
 __all_sweep4__ = [
     "becomes_creature",
 ]
+
+
+# =============================================================================
+# Vehicle animation: Exhaust ability that turns the source into a creature
+# =============================================================================
+#
+# Aetherdrift "vehicle" pattern: an artifact with a printed Exhaust ability
+# of the form
+#
+#     Exhaust — {N}: This Vehicle becomes an artifact creature with
+#                    base P/T <p>/<t> until end of turn.
+#
+# The helper wraps make_exhaust_ability so the effect_fn calls
+# ``becomes_creature`` on the source. EOT cleanup is handled by the existing
+# subtype-restoration hook plus the QUERY-interceptor sweep.
+# =============================================================================
+
+
+def make_animate_via_exhaust(
+    obj: GameObject,
+    *,
+    cost: str,
+    power: int,
+    toughness: int,
+    subtypes_to_add: Optional[set[str]] = None,
+    keywords: Optional[list[str]] = None,
+    plus_one_counters: int = 0,
+    description: Optional[str] = None,
+):
+    """Register an Exhaust ability that animates the source into a creature.
+
+    ``cost`` is the activation cost text (e.g. ``"{4}"``). On activation the
+    source becomes a creature with the given base ``power``/``toughness``,
+    optional creature ``subtypes_to_add`` (e.g. {"Vehicle", "Construct"}),
+    and optional ``keywords`` (e.g. ["haste"]) until end of turn. If
+    ``plus_one_counters`` > 0, that many +1/+1 counters are placed on the
+    source as a rider (Aetherdrift's printed Vehicle-animate template adds
+    one +1/+1 counter; Marshals' Pathcruiser adds two; Invasion Submersible
+    adds three).
+    """
+    subtypes_set = set(subtypes_to_add or set())
+    keyword_list = list(keywords or [])
+    counters = int(plus_one_counters)
+    desc = description or (
+        f"{cost}: This Vehicle becomes an artifact creature with "
+        f"base P/T {power}/{toughness} until end of turn."
+    )
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        becomes_creature(
+            o, st,
+            power=power,
+            toughness=toughness,
+            subtypes=subtypes_set,
+            keywords=keyword_list,
+            duration="end_of_turn",
+        )
+        if counters > 0:
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={
+                    'object_id': o.id,
+                    'counter_type': '+1/+1',
+                    'amount': counters,
+                },
+                source=o.id, controller=o.controller,
+            )]
+        return []
+
+    return make_exhaust_ability(
+        obj, cost=cost, effect_fn=_effect, description=desc,
+    )
 
 
 # =============================================================================
@@ -6420,7 +6502,7 @@ def becomes_copy_of(
     # is imported by card files which are loaded by engine startup).
     from src.engine.queries import (
         get_power, get_toughness, get_types, get_subtypes,
-        get_colors, _make_query_event, _is_abilities_query,
+        get_supertypes, get_colors, _make_query_event, _is_abilities_query,
     )
 
     target_id = target.id
@@ -6433,8 +6515,9 @@ def becomes_copy_of(
     snapshot = _copy.deepcopy(source.characteristics)
     snapshot_card_def = source.card_def
 
-    # Snapshot of target's printed subtypes for cleanup.
+    # Snapshot of target's printed subtypes/supertypes for cleanup.
     original_target_subtypes = set(target.characteristics.subtypes)
+    original_target_supertypes = set(target.characteristics.supertypes)
 
     # Pre-compute except_* canonical forms.
     except_keywords_lower = (
@@ -6578,6 +6661,29 @@ def becomes_copy_of(
         return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
 
     # ------------------------------------------------------------------
+    # SUPERTYPES (Legendary, Snow, World, Basic)
+    # ------------------------------------------------------------------
+    def supertypes_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_SUPERTYPES
+                and event.payload.get('object_id') == target_id)
+
+    def supertypes_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        if not _push_cycle_guard(st):
+            value = set(snapshot.supertypes)
+        else:
+            try:
+                live = _live_source(st)
+                if live is not None:
+                    value = set(get_supertypes(live, st))
+                else:
+                    value = set(snapshot.supertypes)
+            finally:
+                _pop_cycle_guard(st)
+        new_event.payload['value'] = value
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
     # COLORS
     # ------------------------------------------------------------------
     def colors_filter(event: Event, st: GameState) -> bool:
@@ -6674,6 +6780,7 @@ def becomes_copy_of(
         (tough_filter, tough_handler),
         (types_filter, types_handler),
         (subtypes_filter, subtypes_handler),
+        (supertypes_filter, supertypes_handler),
         (colors_filter, colors_handler),
         (abilities_filter, abilities_handler),
     ]
@@ -6705,6 +6812,7 @@ def becomes_copy_of(
     if add_subtypes_set:
         new_subtypes = new_subtypes | add_subtypes_set
     target.characteristics.subtypes = set(new_subtypes)
+    target.characteristics.supertypes = set(snapshot.supertypes)
 
     # Register a cleanup hook on the state that the EOT sweep will run to
     # restore the dual-write fields. The existing _do_cleanup_step removes
@@ -6719,6 +6827,7 @@ def becomes_copy_of(
         cleanups[tag_id] = {
             'target_id': target_id,
             'original_subtypes': original_target_subtypes,
+            'original_supertypes': original_target_supertypes,
             'interceptor_ids': interceptor_ids,
         }
 

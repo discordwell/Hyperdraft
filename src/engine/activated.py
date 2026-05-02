@@ -310,10 +310,32 @@ def register_activated_ability(
         obj.state.activated_abilities = []
     # Guard against double-registration: setup_interceptors runs both during
     # Game.create_object (HAND-side initialization) and during the ZONE_CHANGE
-    # to BATTLEFIELD. If we already have an ability with the same cost text
-    # registered for this object, return it instead of re-appending.
+    # to BATTLEFIELD. The reliable identity for a single ability is
+    # (cost_text, effect_fn.__code__) compared by **identity**: two runs of
+    # the same setup produce different function objects but share the same
+    # compiled ``code`` object (def statements compile once at module load).
+    # Two genuinely distinct abilities — even with identical cost text and
+    # auto-generated descriptions — were defined by separate ``def``
+    # statements, so their code objects are not ``is``-equal.
+    #
+    # NB: comparing ``co_code`` bytes is *not* sufficient — two distinct
+    # closures can have identical instruction sequences when only their
+    # constants/names differ (those live in ``co_consts`` / ``co_names``,
+    # not in the bytecode body).
+    new_code = getattr(effect_fn, '__code__', None)
+    expected_desc = description or f"{cost}: ..."
     for existing in obj.state.activated_abilities:
-        if existing.cost_text == cost and existing.description == (description or f"{cost}: ..."):
+        if existing.cost_text != cost:
+            continue
+        existing_code = getattr(existing.effect_fn, '__code__', None)
+        if new_code is not None and existing_code is not None:
+            if new_code is existing_code:
+                return existing
+            # Distinct code objects -> genuinely different abilities. Continue
+            # scanning the list rather than collapsing.
+            continue
+        # Fallback for non-Python callables (rare): legacy description match.
+        if existing.description == expected_desc:
             return existing
     ability.ability_index = len(obj.state.activated_abilities)
     obj.state.activated_abilities.append(ability)

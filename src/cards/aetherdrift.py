@@ -28,6 +28,7 @@ from src.cards.interceptor_helpers import (
     make_etb_trigger, create_target_choice, create_modal_choice,
     make_cycling_setup, make_exhaust_ability,
     make_activate_exhaust_trigger, make_activated_cost_reduction,
+    make_animate_via_exhaust, make_attack_trigger,
 )
 import re
 
@@ -452,11 +453,9 @@ def rangers_refueler_setup(obj: GameObject, state: GameState) -> list[Intercepto
     """Rangers' Refueler.
 
     Trigger: "Whenever you activate an exhaust ability, draw a card."
-    Plus Exhaust — {4}: This Vehicle becomes an artifact creature... (deferred,
-    see TODO).
+    Plus Exhaust — {4}: This Vehicle becomes an artifact creature with base
+    3/3 P/T until end of turn, then put a +1/+1 counter on it.
     """
-    # TODO: vehicle animation half deferred — engine doesn't yet model
-    # "this Vehicle becomes an artifact creature" via an exhaust activation.
 
     def _draw(event: Event, st: GameState) -> list[Event]:
         return [Event(
@@ -466,6 +465,9 @@ def rangers_refueler_setup(obj: GameObject, state: GameState) -> list[Intercepto
             controller=obj.controller,
         )]
 
+    make_animate_via_exhaust(
+        obj, cost="{4}", power=3, toughness=3, plus_one_counters=1,
+    )
     return [make_activate_exhaust_trigger(obj, _draw, controller_only=True)]
 
 
@@ -855,6 +857,65 @@ def sita_varma_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         description="{X}{G}{G}{U}: Sita Varma's base power and toughness become X/X until end of turn.",
     )
     return []
+
+
+# Round-9 vehicle animation (W2.3): Rocketeer Boostbuggy + Marshals' Pathcruiser
+# wire their attack/ETB triggers plus the animate-exhaust ability.
+
+def rocketeer_boostbuggy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Rocketeer Boostbuggy.
+
+    "Whenever this Vehicle attacks, create a Treasure token."
+    Plus Exhaust — {3}: Becomes a 3/2 artifact creature; +1/+1 counter rider.
+    """
+    def _attack_make_treasure(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Treasure',
+                'token_data': {
+                    'name': 'Treasure',
+                    'types': {CardType.ARTIFACT},
+                    'subtypes': {'Treasure'},
+                    'colors': set(),
+                    'mana_cost': '',
+                    'text': '{T}, Sacrifice this token: Add one mana of any color.',
+                    'is_token': True,
+                },
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+
+    make_animate_via_exhaust(
+        obj, cost="{3}", power=3, toughness=2, plus_one_counters=1,
+    )
+    return [make_attack_trigger(obj, _attack_make_treasure)]
+
+
+def marshals_pathcruiser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Marshals' Pathcruiser.
+
+    ETB: search library for a basic land card, reveal it, put it into hand.
+    Exhaust — {W}{U}{B}{R}{G}: Becomes a 4/4 artifact creature; two +1/+1 counters.
+    """
+    def _etb_search(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'filter': 'basic_land',
+                'destination': 'hand',
+                'amount': 1,
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+
+    make_animate_via_exhaust(
+        obj, cost="{W}{U}{B}{R}{G}",
+        power=4, toughness=4, plus_one_counters=2,
+    )
+    return [make_etb_trigger(obj, _etb_search)]
 
 
 # =============================================================================
@@ -5372,6 +5433,7 @@ ROCKETEER_BOOSTBUGGY = make_artifact(
     text="Whenever this Vehicle attacks, create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")\nExhaust — {3}: This Vehicle becomes an artifact creature. Put a +1/+1 counter on it. (Activate each exhaust ability only once.)\nCrew 1",
     rarity="uncommon",
     subtypes={"Vehicle"},
+    setup_interceptors=rocketeer_boostbuggy_setup,
 )
 
 SABSUNEN_LUXA_EMBODIED = make_creature(
@@ -5531,6 +5593,7 @@ MARSHALS_PATHCRUISER = make_artifact(
     text="When this Vehicle enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle.\nExhaust — {W}{U}{B}{R}{G}: This Vehicle becomes an artifact creature. Put two +1/+1 counters on it. (Activate each exhaust ability only once.)\nCrew 5",
     rarity="uncommon",
     subtypes={"Vehicle"},
+    setup_interceptors=marshals_pathcruiser_setup,
 )
 
 MONUMENT_TO_ENDURANCE = make_artifact(
