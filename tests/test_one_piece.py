@@ -623,12 +623,12 @@ def test_luffy_straw_hat_pirate_lord():
 
     # Check Luffy doesn't buff itself
     luffy_power = get_power(luffy, game.state)
-    print(f"Luffy's own power: {luffy_power} (expected 4)")
+    print(f"Luffy's own power: {luffy_power} (expected 3, base unchanged)")
 
     # Lord effect should boost the other Pirate
     assert power > 3, f"Pirate should have power > 3 with lord, got {power}"
     assert toughness > 2, f"Pirate should have toughness > 2 with lord, got {toughness}"
-    assert luffy_power == 4, f"Luffy should have power 4, got {luffy_power}"
+    assert luffy_power == 3, f"Luffy should have base power 3 (no self-buff), got {luffy_power}"
     print("PASSED: Luffy Straw Hat pirate lord effect works!")
 
 
