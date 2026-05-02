@@ -169,7 +169,7 @@ CENTAUR_HEALER = make_pokemon(
     attacks=[
         {"name": "Healing Canter",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 20,
+         "damage": 40,
          "text": "Heal 30 damage from your Active Pokemon.",
          "effect_fn": _healing_canter_effect},
     ],
@@ -213,7 +213,7 @@ CONCLAVE_CAVALIER = make_pokemon(
     attacks=[
         {"name": "Populate Charge",
          "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 30,
+         "damage": 50,
          "text": "If you have any Benched Pokemon, this attack does 20 more damage.",
          "effect_fn": _populate_charge_effect},
     ],

@@ -75,3 +75,6 @@ credentials.json
 
 # Card art cache (Scryfall originals)
 assets/card_art/.cache/
+
+# Composed cards (regenerable from scripts/beyond/wet_test/render_all.py)
+assets/card_art/beyond/ravnica/composed/

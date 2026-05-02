@@ -225,7 +225,7 @@ LAVINIA_OF_THE_TENTH = make_pokemon(
     attacks=[
         {"name": "Cite the Code",
          "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 30,
+         "damage": 50,
          "text": ("Look at the top card of your opponent's deck. "
                   "If it is a Trainer, discard it."),
          "effect_fn": _trainer_mill_effect},
