@@ -5039,6 +5039,68 @@ __all_sweep4__ = [
 
 
 # =============================================================================
+# Sweep 7: Threaten — "Gain control of target + untap + haste EOT"
+# =============================================================================
+#
+# The CONTROL_CHANGE event handler already restores the original controller
+# at end of turn. This helper bundles the three events that make up the
+# canonical Threaten / Act of Treason effect.
+# =============================================================================
+
+
+def threaten_creature(
+    target_id: str,
+    new_controller: str,
+    source_id: str,
+    *,
+    duration: str = "end_of_turn",
+) -> list[Event]:
+    """Standard "gain control + untap + haste" Threaten effect.
+
+    Returns three events to enqueue:
+      1. CONTROL_CHANGE — switches controller for the duration
+      2. UNTAP — readies the creature
+      3. GRANT_KEYWORD haste — lets it attack this turn
+
+    The CONTROL_CHANGE handler stashes the original controller and the turn
+    manager restores it at end of turn (see src/engine/turn.py).
+    """
+    return [
+        Event(
+            type=EventType.CONTROL_CHANGE,
+            payload={
+                'object_id': target_id,
+                'new_controller': new_controller,
+                'duration': duration,
+            },
+            source=source_id,
+            controller=new_controller,
+        ),
+        Event(
+            type=EventType.UNTAP,
+            payload={'object_id': target_id},
+            source=source_id,
+            controller=new_controller,
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': target_id,
+                'keyword': 'haste',
+                'duration': duration,
+            },
+            source=source_id,
+            controller=new_controller,
+        ),
+    ]
+
+
+__all_sweep7__ = [
+    "threaten_creature",
+]
+
+
+# =============================================================================
 # Sweep helpers: count_* primitives for dynamic P/T scaling
 # =============================================================================
 #

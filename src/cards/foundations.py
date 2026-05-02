@@ -11166,11 +11166,62 @@ HIDETSUGUS_SECOND_RITE = make_instant(
     text="If target player has exactly 10 life, Hidetsugu's Second Rite deals 10 damage to that player.",
 )
 
+def involuntary_employment_resolve(targets: list, state: GameState) -> list[Event]:
+    """Threaten + create Treasure token."""
+    from src.cards.interceptor_helpers import threaten_creature
+    spell = _resolving_spell_obj(state)
+    caster_id = _spell_caster_id(state) or ""
+    spell_id = spell.id if spell is not None else "involuntary_employment"
+
+    legal: list[str] = []
+    for obj_id, obj in state.objects.items():
+        if (obj.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in obj.characteristics.types
+                and obj.controller != caster_id):
+            legal.append(obj_id)
+
+    treasure_event = Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'name': 'Treasure',
+            'controller': caster_id,
+            'owner': caster_id,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'types': {CardType.ARTIFACT},
+            'subtypes': {'Treasure'},
+            'colors': set(),
+            'is_token': True,
+        },
+        source=spell_id,
+        controller=caster_id,
+    )
+
+    if not legal:
+        return [treasure_event]
+
+    def _handler(choice, selected, gs):
+        events = []
+        if selected:
+            events.extend(threaten_creature(selected[0], caster_id, source_id=spell_id))
+        events.append(treasure_event)
+        return events
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Involuntary Employment: choose target creature",
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _handler
+    return []
+
+
 INVOLUNTARY_EMPLOYMENT = make_sorcery(
     name="Involuntary Employment",
     mana_cost="{3}{R}",
     colors={Color.RED},
     text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn. Create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+    resolve=involuntary_employment_resolve,
 )
 
 KRENKO_MOB_BOSS = make_creature(
