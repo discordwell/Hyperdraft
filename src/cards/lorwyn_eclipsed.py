@@ -2618,8 +2618,46 @@ def deceit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def doran_besieged_by_time_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Toughness > power: cost reduction; attack/block bonus (engine gap)."""
-    return []  # engine gap: dynamic spell-cost reduction + attack/block delta boost
+    """Whenever a creature you control attacks, it gets +X/+X EOT, where
+    X = max(0, toughness - power). Cost-reduction static and the
+    block-trigger half are engine gaps and remain unwired."""
+    def attack_filter(event: Event, state: GameState, source_obj: GameObject) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return False
+        return (attacker.controller == source_obj.controller and
+                CardType.CREATURE in attacker.characteristics.types)
+
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        attacker_id = event.payload.get('attacker_id')
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return []
+        try:
+            p = get_power(attacker, state)
+            t = get_toughness(attacker, state)
+        except Exception:
+            p = attacker.characteristics.power or 0
+            t = attacker.characteristics.toughness or 0
+        x = max(0, (t or 0) - (p or 0))
+        if x <= 0:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': attacker_id,
+                'power_mod': x,
+                'toughness_mod': x,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [make_attack_trigger(obj, attack_effect, filter_fn=attack_filter)]
 
 
 def emptiness_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5173,6 +5211,7 @@ SPRY_AND_MIGHTY = make_sorcery(
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     text="Choose two creatures you control. You draw X cards and the chosen creatures get +X/+X and gain trample until end of turn, where X is the difference between the chosen creatures' powers.",
+    # SKIPPED: requires picking two targets and computing the power-difference X. Multi-target choice machinery for this shape is an engine gap.
 )
 
 SURLY_FARRIER = make_creature(

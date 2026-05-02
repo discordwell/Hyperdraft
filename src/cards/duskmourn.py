@@ -41,6 +41,9 @@ from src.cards.interceptor_helpers import (
     open_library_search, basic_land_filter,
     make_equipment_setup, make_aura_setup,
     make_room_setup, is_door_unlocked, make_attacks_alone_trigger,
+    # Dynamic P/T helpers
+    make_attached_dynamic_pt_boost,
+    count_permanents_of_type,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -2787,8 +2790,46 @@ def twitching_doll_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def tyvar_the_pummeler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Tap-creature for indestructible; activated team +X/+X."""
-    # engine gap: activated abilities
+    """Tap-creature for indestructible; activated {3}{G}{G}: team +X/+X EOT,
+    X = greatest power among creatures you control. Skip the tap-cost line
+    (engine gap: tap-another-creature as cost)."""
+    def _team_pump(o: GameObject, st: GameState, targets) -> list[Event]:
+        max_power = 0
+        creature_ids = []
+        for oid, oo in st.objects.items():
+            if (oo.controller == o.controller and
+                    oo.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in oo.characteristics.types):
+                creature_ids.append(oid)
+                try:
+                    p = get_power(oo, st)
+                except Exception:
+                    p = oo.characteristics.power or 0
+                if p > max_power:
+                    max_power = p
+        if max_power <= 0 or not creature_ids:
+            return []
+        events: list[Event] = []
+        for cid in creature_ids:
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': cid,
+                    'power_mod': max_power,
+                    'toughness_mod': max_power,
+                    'duration': 'end_of_turn',
+                },
+                source=o.id,
+                controller=o.controller,
+            ))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{3}{G}{G}",
+        effect_fn=_team_pump,
+        description="{3}{G}{G}: Creatures you control get +X/+X until end of turn, where X is the greatest power among creatures you control.",
+    )
     return []
 
 
@@ -3717,13 +3758,22 @@ ENDURING_INNOCENCE = make_enchantment_creature(
     setup_interceptors=enduring_innocence_setup
 )
 
+def _ethereal_armor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Aura: enchanted creature gets +1/+1 per enchantment you control and first strike."""
+    base = make_aura_setup(keywords=["first strike"])(obj, state)
+    def mod_fn(source, target, st):
+        n = count_permanents_of_type(source.controller, CardType.ENCHANTMENT, st)
+        return (n, n)
+    return base + make_attached_dynamic_pt_boost(obj, mod_fn)
+
+
 ETHEREAL_ARMOR = make_enchantment(
     name="Ethereal Armor",
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Enchant creature\nEnchanted creature gets +1/+1 for each enchantment you control and has first strike.",
     subtypes={"Aura"},
-    setup_interceptors=make_aura_setup(keywords=["first strike"]),
+    setup_interceptors=_ethereal_armor_setup,
 )
 
 def _exorcise_execute(choice, selected, state: GameState) -> list[Event]:

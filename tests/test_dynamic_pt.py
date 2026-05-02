@@ -190,8 +190,92 @@ def test_count_cards_in_hand_dynamic():
     print("PASS: count_cards_in_hand dynamic")
 
 
+def test_flourishing_bloomkin_self_boost_by_forests():
+    """MKM Flourishing Bloom-Kin: 0/0 base, +1/+1 per Forest."""
+    from src.engine import make_land
+    from src.cards.murders_karlov_manor import FLOURISHING_BLOOMKIN
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+
+    forest_def = make_land(name="Forest", text="", subtypes={"Forest"})
+    bk = _spawn(game, p1, FLOURISHING_BLOOMKIN)
+    # No forests: 0/0
+    assert get_power(bk, game.state) == 0
+    assert get_toughness(bk, game.state) == 0
+    # 4 Forests => 4/4
+    for _ in range(4):
+        _spawn(game, p1, forest_def)
+    assert get_power(bk, game.state) == 4, f"got {get_power(bk, game.state)}"
+    assert get_toughness(bk, game.state) == 4
+    print("PASS: Flourishing Bloom-Kin scales with Forests")
+
+
+def test_blanchwood_armor_aura_attaches():
+    """FDN Blanchwood Armor: aura attaches and grants +1/+1 per Forest."""
+    from src.engine import make_creature, make_land
+    from src.cards.foundations import BLANCHWOOD_ARMOR
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+
+    forest_def = make_land(name="Forest", text="", subtypes={"Forest"})
+    bear_def = make_creature(name="Bear", power=2, toughness=2, mana_cost="{1}{G}",
+                             colors={Color.GREEN}, subtypes={"Bear"}, text="")
+    bear = _spawn(game, p1, bear_def)
+    # 3 forests pre-attach.
+    for _ in range(3):
+        _spawn(game, p1, forest_def)
+
+    aura = _spawn(game, p1, BLANCHWOOD_ARMOR)
+    game.emit(Event(
+        type=EventType.ATTACH,
+        payload={'object_id': aura.id, 'target_id': bear.id},
+        source=aura.id, controller=p1.id,
+    ))
+    # 2 base + 3 forests = 5/5
+    assert get_power(bear, game.state) == 5, f"got {get_power(bear, game.state)}"
+    assert get_toughness(bear, game.state) == 5
+    print("PASS: Blanchwood Armor aura attaches and scales")
+
+
+def test_ethereal_armor_per_enchantment():
+    """DSK Ethereal Armor: aura grants +1/+1 per enchantment + first strike."""
+    from src.engine import make_creature, make_enchantment
+    from src.cards.duskmourn import ETHEREAL_ARMOR
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+
+    bear_def = make_creature(name="Bear", power=2, toughness=2, mana_cost="{1}{G}",
+                             colors={Color.GREEN}, subtypes={"Bear"}, text="")
+    other_ench = make_enchantment(name="Other", mana_cost="{1}", colors=set(), text="")
+    bear = _spawn(game, p1, bear_def)
+
+    # spawn 2 other enchantments + the aura itself = 3 enchantments total.
+    _spawn(game, p1, other_ench)
+    _spawn(game, p1, other_ench)
+
+    aura = _spawn(game, p1, ETHEREAL_ARMOR)
+    game.emit(Event(
+        type=EventType.ATTACH,
+        payload={'object_id': aura.id, 'target_id': bear.id},
+        source=aura.id, controller=p1.id,
+    ))
+    # 3 enchantments => 2+3 = 5/5
+    assert get_power(bear, game.state) == 5, f"got {get_power(bear, game.state)}"
+    assert get_toughness(bear, game.state) == 5
+    print("PASS: Ethereal Armor scales with enchantments")
+
+
 if __name__ == "__main__":
     test_dynamic_self_boost_by_forest_count()
     test_attached_dynamic_pt_boost_for_aura()
     test_count_cards_in_hand_dynamic()
+    test_flourishing_bloomkin_self_boost_by_forests()
+    test_blanchwood_armor_aura_attaches()
+    test_ethereal_armor_per_enchantment()
     print("\nAll dynamic-PT tests passed!")

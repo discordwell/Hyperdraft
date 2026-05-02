@@ -40,6 +40,9 @@ from src.cards.interceptor_helpers import (
     make_equipment_setup, make_aura_setup,
     suspect_creature,
     collect_evidence,
+    make_dynamic_pt_boost,
+    count_permanents_with_subtype,
+    count_permanents_of_type,
 )
 
 
@@ -4771,6 +4774,62 @@ def fanatical_strength_resolve(targets: list, state: GameState) -> list[Event]:
     return []
 
 
+def _handle_get_a_leg_up_target(choice, selected: list, state: GameState) -> list[Event]:
+    """Handle Get a Leg Up - +X/+X (X=creatures you control) and reach EOT."""
+    if not selected:
+        return []
+    target_id = selected[0]
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    caster_id = choice.player
+    n = count_permanents_of_type(caster_id, CardType.CREATURE, state)
+    return [
+        Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': target_id,
+                'power_mod': n,
+                'toughness_mod': n,
+                'duration': 'end_of_turn',
+            },
+            source=choice.source_id,
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': target_id,
+                'keyword': 'reach',
+                'duration': 'end_of_turn',
+            },
+            source=choice.source_id,
+        ),
+    ]
+
+
+def get_a_leg_up_resolve(targets: list, state: GameState) -> list[Event]:
+    """Get a Leg Up: target creature gets +1/+1 for each creature you control
+    and gains reach EOT."""
+    spell_id, caster_id = _get_spell_and_caster(state, "Get a Leg Up")
+    legal_targets = []
+    for obj_id, obj in state.objects.items():
+        if (obj.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in obj.characteristics.types):
+            legal_targets.append(obj_id)
+    if not legal_targets:
+        return []
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal_targets,
+        prompt="Get a Leg Up: Choose a creature to get +X/+X and reach"
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _handle_get_a_leg_up_target
+    return []
+
+
 def _handle_reasonable_doubt_target(choice, selected: list, state: GameState) -> list[Event]:
     """Handle Reasonable Doubt - counter spell unless pay 2, suspect creature."""
     events = []
@@ -6513,8 +6572,11 @@ def culvert_ambusher_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 def flourishing_bloomkin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """+1/+1 per Forest you control. Disguise turn-face-up: search 2 Forests."""
-    # engine gap: dynamic P/T (count Forests) + library search; turn-face-up trigger
-    return []
+    # Wired: dynamic P/T per Forest. Disguise + face-up search remain engine gaps.
+    def mod_fn(source, target, st):
+        n = count_permanents_with_subtype(source.controller, "Forest", st)
+        return (n, n)
+    return make_dynamic_pt_boost(obj, mod_fn, lambda t, s: t.id == obj.id)
 
 
 def greenbelt_radical_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -8910,6 +8972,7 @@ GET_A_LEG_UP = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Until end of turn, target creature gets +1/+1 for each creature you control and gains reach.",
+    resolve=get_a_leg_up_resolve,
 )
 
 GLINT_WEAVER = make_creature(
