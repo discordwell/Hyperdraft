@@ -3147,8 +3147,27 @@ def cloud_midgar_mercenary_ff_setup(obj: GameObject, state: GameState) -> list[I
 
 
 def coeurl_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Coeurl: {1}{W},{T}: Tap target nonenchantment creature - activated ability stub."""
-    # engine gap: activated abilities aren't registered through setup_interceptors
+    """{1}{W}, {T}: Tap target nonenchantment creature."""
+    from src.cards.interceptor_helpers import make_activated_ability as _mak
+    def tap_target(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target = st.objects.get(target_id) if target_id else None
+        if not target:
+            return []
+        # Honor the "nonenchantment" rider.
+        if CardType.ENCHANTMENT in (target.characteristics.types or set()):
+            return []
+        return [Event(
+            type=EventType.TAP,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+    _mak(obj, cost="{1}{W}, {T}", effect_fn=tap_target,
+         description="Tap target nonenchantment creature",
+         targets_required=1, target_kind="creature")
     return []
 
 
@@ -3931,9 +3950,20 @@ def summon_primal_odin_ff_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def tonberry_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Tonberry: enters tapped+stunned, conditional first strike/deathtouch."""
-    # engine gap: enters with stun counter + conditional 'during your turn' keywords not modular
-    return []
+    """This creature enters tapped with a stun counter on it.
+
+    The "during your turn, has first strike and deathtouch" rider is
+    engine-gap (own-turn keyword grant via static); skipped.
+    """
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.TAP, payload={'object_id': obj.id},
+                  source=obj.id, controller=obj.controller),
+            Event(type=EventType.COUNTER_ADDED,
+                  payload={'object_id': obj.id, 'counter_type': 'stun', 'amount': 1},
+                  source=obj.id, controller=obj.controller),
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
 
 
 def blazing_bomb_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

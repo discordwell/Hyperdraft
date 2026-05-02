@@ -2104,7 +2104,10 @@ def madame_web_clairvoyant_setup(obj: GameObject, state: GameState) -> list[Inte
 # --- Oscorp Research Team ---
 # Activated ability {6}{U}: draw 2.
 def oscorp_research_team_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: activated ability cost evaluation is handled elsewhere
+    """{6}{U}: Draw two cards."""
+    from src.cards.interceptor_helpers import make_draw_ability
+    make_draw_ability(obj, cost="{6}{U}", count=2, description="Draw two cards")
+    return []
 
 
 # --- Robotics Mastery ---
@@ -2161,13 +2164,32 @@ def the_death_of_gwen_stacy_setup(obj: GameObject, state: GameState) -> list[Int
 # --- Inner Demons Gangsters ---
 # Activated discard-pump + menace. No persistent triggers.
 def inner_demons_gangsters_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: activated ability with discard cost handled at activation site
+    """Discard a card: This creature gets +1/+0 and gains menace until end of turn. Sorcery."""
+    from src.cards.interceptor_helpers import make_pump_self_ability as _pump
+    _pump(obj, cost="Discard a card", power_mod=1, toughness_mod=0,
+          grant_keyword='menace',
+          description="+1/+0 and gains menace until end of turn")
+    return []
 
 
 # --- Merciless Enforcers ---
 # Activated 1-damage-each-opponent ping; lifelink keyword.
 def merciless_enforcers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: activated ability cost/effect handled at activation site
+    """{3}{B}: This creature deals 1 damage to each opponent."""
+    from src.cards.interceptor_helpers import make_activated_ability as _mak
+    def deal_one(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for pid in st.players.keys():
+            if pid != o.controller:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': pid, 'amount': 1, 'source': o.id},
+                    source=o.id, controller=o.controller,
+                ))
+        return events
+    _mak(obj, cost="{3}{B}", effect_fn=deal_one,
+         description="Deal 1 damage to each opponent")
+    return []
 
 
 # --- Parker Luck ---
@@ -2280,7 +2302,11 @@ def electro_assaulting_battery_setup(obj: GameObject, state: GameState) -> list[
 # --- Masked Meower ---
 # Haste + activated discard-sac to draw.
 def masked_meower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: activated ability with discard-and-sac cost
+    """Discard a card, Sacrifice this creature: Draw a card."""
+    from src.cards.interceptor_helpers import make_draw_ability
+    make_draw_ability(obj, cost="Discard a card, Sacrifice this creature",
+                      count=1, description="Draw a card")
+    return []
 
 
 # --- Maximum Carnage ---
@@ -2445,7 +2471,11 @@ def guy_in_the_chair_setup(obj: GameObject, state: GameState) -> list[Intercepto
 # --- Kraven's Cats ---
 # Activated pump.
 def kravens_cats_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: activated pump ability
+    """{2}{G}: This creature gets +2/+2 until end of turn. Once each turn."""
+    from src.cards.interceptor_helpers import make_pump_self_ability as _pump
+    _pump(obj, cost="{2}{G}", power_mod=2, toughness_mod=2,
+          description="+2/+2 until end of turn", once_per_turn=True)
+    return []
 
 
 # --- Kraven's Last Hunt ---
