@@ -3543,54 +3543,75 @@ ALLEY_WALL_CRAWLER = make_creature(
 # =============================================================================
 # MONO-BLACK DEPTH PASS — fixes the harness's deck-builder starvation
 # (only 11 mono-black creatures pre-pass, no 1-cmc, only 1 at 2-cmc).
+#
+# Each card wires its keyword(s) via make_keyword_grant with a self-only
+# filter. This both gives them the deck-builder's setup_interceptors
+# bonus (-0.5 quality) so they actually get drafted, AND makes the
+# keywords function in-game.
 # =============================================================================
+
+def _self_keywords(keywords):
+    """Return a setup_interceptors fn that grants keywords to the source itself."""
+    def setup(obj, state):
+        def affects(target, st, src=obj):
+            return target.id == src.id
+        return [make_keyword_grant(obj, keywords, affects)]
+    return setup
 
 PETTY_MUGGER = make_creature(
     name="Petty Mugger",
     power=2, toughness=1, mana_cost="{B}", colors={Color.BLACK},
-    subtypes={"Human", "Rogue"}, text="Menace"
+    subtypes={"Human", "Rogue"}, text="Menace",
+    setup_interceptors=_self_keywords(['menace']),
 )
 
 SYMBIOTE_LARVA = make_creature(
     name="Symbiote Larva",
     power=1, toughness=2, mana_cost="{B}", colors={Color.BLACK},
-    subtypes={"Symbiote"}, text="Deathtouch"
+    subtypes={"Symbiote"}, text="Deathtouch",
+    setup_interceptors=_self_keywords(['deathtouch']),
 )
 
 KLYNTAR_SCOUT = make_creature(
     name="Klyntar Scout",
     power=2, toughness=2, mana_cost="{B}", colors={Color.BLACK},
-    subtypes={"Symbiote"}, text=""
+    subtypes={"Symbiote"}, text="Menace",
+    setup_interceptors=_self_keywords(['menace']),
 )
 
 HAND_NINJA = make_creature(
     name="Hand Ninja",
     power=2, toughness=2, mana_cost="{1}{B}", colors={Color.BLACK},
-    subtypes={"Human", "Ninja"}, text="Menace"
+    subtypes={"Human", "Ninja"}, text="Menace",
+    setup_interceptors=_self_keywords(['menace']),
 )
 
 VULTURE_INITIATE = make_creature(
     name="Vulture Initiate",
     power=2, toughness=2, mana_cost="{1}{B}", colors={Color.BLACK},
-    subtypes={"Human", "Mercenary"}, text="Flying"
+    subtypes={"Human", "Mercenary"}, text="Flying",
+    setup_interceptors=_self_keywords(['flying']),
 )
 
 OSCORP_ENFORCER = make_creature(
     name="Oscorp Enforcer",
     power=3, toughness=2, mana_cost="{1}{B}", colors={Color.BLACK},
-    subtypes={"Human", "Soldier"}, text="Haste"
+    subtypes={"Human", "Soldier"}, text="Haste",
+    setup_interceptors=_self_keywords(['haste']),
 )
 
 SHOCKER_GOON = make_creature(
     name="Shocker Goon",
     power=2, toughness=3, mana_cost="{1}{B}", colors={Color.BLACK},
-    subtypes={"Human", "Villain"}, text=""
+    subtypes={"Human", "Villain"}, text="Haste",
+    setup_interceptors=_self_keywords(['haste']),
 )
 
 SYMBIOTE_BROOD = make_creature(
     name="Symbiote Brood",
     power=4, toughness=2, mana_cost="{2}{B}", colors={Color.BLACK},
-    subtypes={"Symbiote"}, text="Trample, menace"
+    subtypes={"Symbiote"}, text="Trample, menace",
+    setup_interceptors=_self_keywords(['trample', 'menace']),
 )
 
 
