@@ -3327,7 +3327,7 @@ def adagia_windswept_bastion_setup(obj: GameObject, state: GameState) -> list[In
 
 def breeding_pool_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Shockland: pay 2 life or enters tapped."""
-    # engine gap: enters-tapped-unless-pay choice
+    # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
     return []
 
 
@@ -3348,7 +3348,7 @@ def evendo_waking_haven_setup(obj: GameObject, state: GameState) -> list[Interce
 
 def godless_shrine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Shockland: pay 2 life or enters tapped."""
-    # engine gap: enters-tapped-unless-pay choice
+    # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
     return []
 
 
@@ -3361,7 +3361,7 @@ def kavaron_memorial_world_setup(obj: GameObject, state: GameState) -> list[Inte
 
 def sacred_foundry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Shockland: pay 2 life or enters tapped."""
-    # engine gap: enters-tapped-unless-pay choice
+    # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
     return []
 
 
@@ -3398,7 +3398,7 @@ def secluded_starforge_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 def stomping_ground_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Shockland: pay 2 life or enters tapped."""
-    # engine gap: enters-tapped-unless-pay choice
+    # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
     return []
 
 
@@ -3418,7 +3418,7 @@ def uthros_titanic_godcore_setup(obj: GameObject, state: GameState) -> list[Inte
 
 def watery_grave_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Shockland: pay 2 life or enters tapped."""
-    # engine gap: enters-tapped-unless-pay choice
+    # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
     return []
 
 

@@ -38,6 +38,7 @@ from src.cards.interceptor_helpers import (
     make_pump_self_ability,
     make_draw_ability,
     make_loot_ability,
+    make_lifeland_setup,
     make_life_gain_ability,
     make_damage_ability,
     make_destroy_ability,
@@ -4826,24 +4827,10 @@ sword_of_vengeance_setup = make_equipment_setup(
 )
 
 
-def blossoming_sands_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: gain 1 life."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE,
-                      payload={'player': obj.controller, 'amount': 1},
-                      source=obj.id)]
-    # engine gap: dual-color mana ability
-    return [make_etb_trigger(obj, etb_effect)]
-
-
-def swiftwater_cliffs_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: gain 1 life."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.LIFE_CHANGE,
-                      payload={'player': obj.controller, 'amount': 1},
-                      source=obj.id)]
-    # engine gap: dual-color mana ability
-    return [make_etb_trigger(obj, etb_effect)]
+# BLB lifeland cycle (ETB tapped + dual-mana auto-detected from text;
+# this helper just wires the ETB-life-gain trigger).
+blossoming_sands_setup = make_lifeland_setup(amount=1)
+swiftwater_cliffs_setup = make_lifeland_setup(amount=1)
 
 
 # =============================================================================

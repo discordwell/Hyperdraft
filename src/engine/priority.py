@@ -2916,17 +2916,47 @@ class PrioritySystem:
         else:
             return events
 
-        # Move land to battlefield
-        events.append(Event(
-            type=EventType.ZONE_CHANGE,
-            payload={
-                'object_id': action.card_id,
-                'from_zone': from_zone,
-                'from_zone_type': from_zone_type,
-                'to_zone': 'battlefield',
-                'to_zone_type': ZoneType.BATTLEFIELD
-            }
+        # Determine if the land enters tapped based on its rules text.
+        # Three cases:
+        #   1. Shockland: "...you may pay 2 life. If you don't, it enters
+        #      tapped." → auto-decision: pay 2 life if life > 4.
+        #   2. Unconditional: "This land enters tapped." → tapped.
+        #   3. Conditional ("unless you control..."): not handled here; defer
+        #      to setup_interceptors.
+        tapped = False
+        text = (card.card_def.text if card.card_def else "") or ""
+        is_shockland = bool(re.search(
+            r"pay 2 life\b.*?\bif you don.?t\b.*?\benters tapped\b",
+            text, re.IGNORECASE | re.DOTALL,
         ))
+        if is_shockland:
+            player = self.state.players.get(action.player_id)
+            life = getattr(player, 'life', 20) if player else 20
+            if life > 4:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': action.player_id, 'amount': -2},
+                    source=action.card_id,
+                ))
+            else:
+                tapped = True
+        elif re.search(
+            r"^\s*(?:this\s+land|it)\s+enters\s+(?:the\s+battlefield\s+)?tapped\.?\s*$",
+            text, re.IGNORECASE | re.MULTILINE,
+        ):
+            tapped = True
+
+        # Move land to battlefield
+        payload = {
+            'object_id': action.card_id,
+            'from_zone': from_zone,
+            'from_zone_type': from_zone_type,
+            'to_zone': 'battlefield',
+            'to_zone_type': ZoneType.BATTLEFIELD,
+        }
+        if tapped:
+            payload['tapped'] = True
+        events.append(Event(type=EventType.ZONE_CHANGE, payload=payload))
 
         # Record land play
         if self.turn_manager:

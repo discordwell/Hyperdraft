@@ -332,3 +332,77 @@ def _handle_scry(event: Event, state: GameState):
 
     # Put cards on bottom
     library.objects.extend(cards_to_bottom)
+
+
+def _handle_discover(event: Event, state: GameState):
+    """
+    Handle DISCOVER event.
+
+    Discover N (CR 702.166): Exile cards from the top of your library until
+    you exile a nonland card with mana value N or less. You may cast that
+    card without paying its mana cost or put it into your hand. Then put
+    all other cards exiled this way on the bottom of your library in a
+    random order.
+
+    Basic implementation: skips the "cast without paying" option and just
+    moves the discover hit into hand. Future work: emit a PendingChoice
+    so the player can pick cast-vs-hand.
+
+    Payload:
+        player: player_id
+        value/amount/count: N (mana-value cap)
+    """
+    from ...mana import _card_mana_value
+    from ...types import CardType
+    import random
+
+    player_id = event.payload.get('player') or event.controller or state.active_player
+    if not player_id or player_id not in state.players:
+        return
+    n = (
+        event.payload.get('value')
+        or event.payload.get('amount')
+        or event.payload.get('count', 0)
+    )
+    try:
+        n = int(n)
+    except Exception:
+        n = 0
+    if n <= 0:
+        return
+
+    library_key = f"library_{player_id}"
+    hand_key = f"hand_{player_id}"
+    library = state.zones.get(library_key)
+    hand = state.zones.get(hand_key)
+    if library is None or hand is None:
+        return
+
+    others: list[str] = []
+    discover_hit: str = None
+    while library.objects:
+        top_id = library.objects.pop(0)
+        top = state.objects.get(top_id)
+        if top is None:
+            continue
+        types = top.characteristics.types or set()
+        if CardType.LAND in types:
+            others.append(top_id)
+            continue
+        mv = _card_mana_value(top)
+        if mv <= n:
+            discover_hit = top_id
+            break
+        others.append(top_id)
+
+    if discover_hit is not None:
+        _remove_object_from_all_zones(discover_hit, state)
+        hand.objects.append(discover_hit)
+        state.objects[discover_hit].zone = ZoneType.HAND
+        state.objects[discover_hit].entered_zone_at = state.timestamp
+
+    # Bottom the others in random order
+    random.shuffle(others)
+    for cid in others:
+        if cid in state.objects:
+            library.objects.append(cid)

@@ -5462,6 +5462,53 @@ def make_loot_ability(
     )
 
 
+def make_surveil_ability(
+    obj: GameObject,
+    cost: str,
+    surveil_n: int = 1,
+    *,
+    description: str = "",
+    sorcery_speed: bool = False,
+    once_per_turn: bool = False,
+):
+    """Register ``{cost}: Surveil N`` activated ability.
+
+    Used by Spider-Man hideout lands and similar. Emits a SURVEIL event
+    that opens a player choice for which of the top N to graveyard.
+    """
+    desc = description or f"Surveil {surveil_n}"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': o.controller, 'amount': surveil_n},
+            source=o.id, controller=o.controller,
+        )]
+
+    return make_activated_ability(
+        obj, cost=cost, effect_fn=_effect,
+        description=desc, sorcery_speed=sorcery_speed, once_per_turn=once_per_turn,
+    )
+
+
+def make_lifeland_setup(amount: int = 1):
+    """Return a setup_interceptors function for ETB-life-gain lands.
+
+    Pattern: "This land enters tapped. When this land enters, you gain N life."
+    The ETB-tapped flag is auto-detected from card text by ``_handle_play_land``;
+    this helper only wires the life-gain trigger.
+    """
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def _gain_life(event: Event, state: GameState) -> list[Event]:
+            return [Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': amount},
+                source=obj.id,
+            )]
+        return [make_etb_trigger(obj, _gain_life)]
+    return _setup
+
+
 def make_life_gain_ability(
     obj: GameObject,
     cost: str,
