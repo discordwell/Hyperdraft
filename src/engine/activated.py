@@ -19,6 +19,7 @@ Restrictions supported:
 - ``Activate only during your turn``
 - ``Activate only any time you could cast a sorcery`` (alias for sorcery-speed)
 - ``Activate only once each turn``
+- ``Activate only once`` ("Exhaust" — once per game per permanent)
 
 Effect signature: ``(obj: GameObject, state: GameState, targets: list[Target]) -> list[Event]``.
 """
@@ -63,6 +64,7 @@ class ActivatedAbility:
     sorcery_speed: bool = False
     own_turn_only: bool = False
     once_per_turn: bool = False
+    once_per_game: bool = False  # Exhaust — single activation per permanent, ever.
 
     # Targeting hints.
     targets_required: int = 0
@@ -71,6 +73,8 @@ class ActivatedAbility:
     # State (mutable across activations).
     activations_this_turn: int = 0
     last_activation_turn: int = -1
+    total_activations: int = 0
+    once_per_game_used: bool = False  # Set on the first activation of an Exhaust ability.
 
     # Identity.
     ability_index: int = 0
@@ -188,6 +192,25 @@ def detect_restrictions(card_text: Optional[str]) -> tuple[bool, bool, bool]:
     return sorcery_speed, own_turn, once_per_turn
 
 
+def detect_exhaust(card_text: Optional[str]) -> bool:
+    """Return True if the card text contains an Exhaust ability marker.
+
+    Exhaust abilities use the reminder text "Activate each exhaust ability
+    only once." (sometimes "Activate this ability only once.") and are written
+    with the prefix ``Exhaust — <cost>: <effect>``.
+    """
+    if not card_text:
+        return False
+    t = card_text.lower()
+    if "exhaust" in t and "—" in t:
+        return True
+    if "activate each exhaust ability only once" in t:
+        return True
+    if "activate this ability only once" in t and "exhaust" in t:
+        return True
+    return False
+
+
 # ----------------------------------------------------------------------
 # Registration
 # ----------------------------------------------------------------------
@@ -202,6 +225,7 @@ def register_activated_ability(
     sorcery_speed: bool = False,
     own_turn_only: bool = False,
     once_per_turn: bool = False,
+    once_per_game: bool = False,
     targets_required: int = 0,
     target_kind: str = "any",
 ) -> ActivatedAbility:
@@ -235,6 +259,7 @@ def register_activated_ability(
         sorcery_speed=sorcery_speed,
         own_turn_only=own_turn_only,
         once_per_turn=once_per_turn,
+        once_per_game=once_per_game,
         targets_required=targets_required,
         target_kind=target_kind,
     )
@@ -299,6 +324,10 @@ def can_pay_activation(
             return False
     # Once-per-turn
     if ability.once_per_turn and ability.last_activation_turn == state.turn_number:
+        return False
+    # Once-per-game (Exhaust): if it has ever been activated, it's spent forever
+    # on this permanent. New permanents (different obj.id) get a fresh copy.
+    if ability.once_per_game and ability.once_per_game_used:
         return False
     # Sorcery-speed: own turn, main phase, empty stack
     if ability.sorcery_speed:
@@ -419,6 +448,9 @@ def record_activation(ability: ActivatedAbility, state: GameState) -> None:
         ability.activations_this_turn = 0
     ability.last_activation_turn = state.turn_number
     ability.activations_this_turn += 1
+    ability.total_activations += 1
+    if ability.once_per_game:
+        ability.once_per_game_used = True
 
 
 __all__ = [
@@ -426,6 +458,7 @@ __all__ = [
     "EffectFn",
     "parse_activation_cost",
     "detect_restrictions",
+    "detect_exhaust",
     "register_activated_ability",
     "can_pay_activation",
     "pay_activation_cost",
