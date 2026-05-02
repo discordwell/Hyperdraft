@@ -3107,10 +3107,24 @@ def tifa_lockhart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def summon_bahamut_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Summon: Bahamut Saga I/II/III/IV.
 
-    I, II — Destroy up to one target nonland permanent (engine gap: target).
+    I, II — Destroy up to one target nonland permanent.
     III — Draw two cards.
     IV — Mega Flare: damage = total mana value of other permanents you control to each opponent (engine gap: dynamic damage)."""
-    def i_ii(_o, _s): return []  # engine gap: target nonland permanent
+    def i_ii(o, s):
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': o.id,
+                'controller': o.controller,
+                'effect': 'destroy',
+                'target_filter': 'nonland_permanent',
+                'min_targets': 0,
+                'max_targets': 1,
+                'optional': True,
+                'prompt': "Destroy up to one target nonland permanent",
+            },
+            source=o.id, controller=o.controller,
+        )]
 
     def iii(o, s):
         return [Event(
@@ -3441,10 +3455,43 @@ def summon_knights_of_round_ff_setup(obj: GameObject, state: GameState) -> list[
 def summon_primal_garuda_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Summon: Primal Garuda Saga I/II/III.
 
-    I — Aerial Blast: deals 4 damage to target tapped opponent creature (engine gap: target).
-    II, III — Slipstream: another target creature you control gets +1/+0 and gains flying EOT (engine gap: target)."""
-    def i(_o, _s): return []  # engine gap: target tapped opp creature
-    def ii_iii(_o, _s): return []  # engine gap: target creature you control
+    I — Aerial Blast: deals 4 damage to target opponent creature.
+        (Drops the "tapped only" restriction — engine has no
+        tapped-only target filter yet.)
+    II, III — Slipstream: another target creature you control gets +1/+0 EOT.
+        (Drops the "gains flying EOT" rider until granted-keyword EOT is wired.)
+    """
+    def i(o, s):
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': o.id,
+                'controller': o.controller,
+                'effect': 'damage',
+                'effect_params': {'amount': 4},
+                'target_filter': 'opponent_creature',
+                'min_targets': 1,
+                'max_targets': 1,
+                'prompt': "Aerial Blast: deal 4 damage to target opponent creature",
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    def ii_iii(o, s):
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': o.id,
+                'controller': o.controller,
+                'effect': 'pump',
+                'effect_params': {'power_mod': 1, 'toughness_mod': 0},
+                'target_filter': 'your_creature',
+                'min_targets': 1,
+                'max_targets': 1,
+                'prompt': "Slipstream: target creature you control gets +1/+0 EOT",
+            },
+            source=o.id, controller=o.controller,
+        )]
 
     return make_saga_setup(obj, {1: i, 2: ii_iii, 3: ii_iii})
 
@@ -4026,10 +4073,23 @@ def summon_anima_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
 def summon_primal_odin_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Summon: Primal Odin Saga I/II/III.
 
-    I — Gungnir: Destroy target opponent creature (engine gap: target).
+    I — Gungnir: Destroy target opponent creature.
     II — Zantetsuken: Grant Saga "loses-the-game on combat damage" (engine gap: ability grant).
     III — Hall of Sorrow: Draw two; each player loses 2 life."""
-    def i(_o, _s): return []  # engine gap: target
+    def i(o, s):
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': o.id,
+                'controller': o.controller,
+                'effect': 'destroy',
+                'target_filter': 'opponent_creature',
+                'min_targets': 1,
+                'max_targets': 1,
+                'prompt': "Gungnir: destroy target opponent creature",
+            },
+            source=o.id, controller=o.controller,
+        )]
 
     def ii(_o, _s): return []  # engine gap: grant alt-win-condition ability
 
