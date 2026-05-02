@@ -1,6 +1,6 @@
 """
 Handlers that don't cleanly fit other families:
-freeze, silence, transform, player-loses.
+freeze, silence, transform, player-loses, copy-stack-item.
 """
 
 from ...types import Event, GameState, CardType
@@ -11,6 +11,32 @@ def _handle_player_loses(event: Event, state: GameState):
     player_id = event.payload.get('player')
     if player_id in state.players:
         state.players[player_id].has_lost = True
+
+
+def _handle_copy_stack_item(event: Event, state: GameState):
+    """Handle COPY_STACK_ITEM event.
+
+    Payload:
+        stack_item_id: id of the StackItem to copy
+        new_targets:   optional list[list[Target]] — if provided, the copy
+                       resolves against these targets instead of the original's
+
+    Looks up the stack manager via ``state._game`` (set in Game._connect_subsystems)
+    and pushes a copy onto the stack. The copy resolves like any other item.
+    Returns no follow-up events.
+    """
+    game = getattr(state, '_game', None)
+    stack = getattr(game, 'stack', None) if game else None
+    if stack is None:
+        return None
+
+    stack_item_id = event.payload.get('stack_item_id')
+    if not stack_item_id:
+        return None
+
+    new_targets = event.payload.get('new_targets')
+    stack.push_copy(stack_item_id, new_targets=new_targets)
+    return None
 
 
 def _handle_freeze_target(event: Event, state: GameState):

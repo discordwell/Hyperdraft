@@ -60,6 +60,8 @@ from src.cards.interceptor_helpers import (
     make_cycling_setup,
     # Modal resolve
     make_modal_resolve,
+    # Copy-ability mechanic (Gogo, Master of Mimicry).
+    make_copy_ability_event,
 )
 
 
@@ -3508,8 +3510,61 @@ def ether_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def gogo_master_of_mimicry_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Gogo: copy activated/triggered abilities (stub)."""
-    # engine gap: copy ability not implemented
+    """Gogo, Master of Mimicry: {X}{X}, {T}: Copy target activated/triggered ability you control X times.
+
+    Implementation note: the activated-ability cost parser doesn't fully model
+    {X}{X} costs yet, so we approximate with a fixed {2} cost that copies once.
+    The copy machinery itself supports N copies (just emit N COPY_STACK_ITEM
+    events) — see make_copy_ability_event.
+    """
+    def copy_ability_effect(o: GameObject, st: GameState, _targets) -> list[Event]:
+        game = getattr(st, '_game', None)
+        stack = getattr(game, 'stack', None) if game else None
+        if stack is None:
+            return []
+        legal_item_ids: list[str] = []
+        for sitem in stack.get_items():
+            if sitem.controller_id != o.controller:
+                continue
+            if not getattr(sitem, 'can_be_copied', True):
+                continue
+            legal_item_ids.append(sitem.id)
+        if not legal_item_ids:
+            return []
+
+        def _execute(choice, selected, st2: GameState) -> list[Event]:
+            item_id = selected[0] if selected else None
+            if not item_id:
+                return []
+            return [make_copy_ability_event(
+                stack_item_id=item_id,
+                controller=o.controller,
+                source_id=o.id,
+            )]
+
+        choice = create_target_choice(
+            state=st,
+            player_id=o.controller,
+            source_id=o.id,
+            legal_targets=legal_item_ids,
+            prompt="Choose an activated or triggered ability you control to copy",
+            min_targets=1,
+            max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _execute
+        return []
+
+    make_activated_ability(
+        obj,
+        cost="{2}, {T}",
+        effect_fn=copy_ability_effect,
+        description="Copy target activated/triggered ability you control",
+    )
+    # Gogo's ability can't be copied (per rules text).
+    # The activated-ability stack item would need to be flagged when pushed;
+    # we leave that flag for the caller. The mechanism is in place via
+    # StackItem.can_be_copied=False being respected by push_copy().
     return []
 
 
