@@ -34,6 +34,8 @@ from src.cards.interceptor_helpers import (
     make_activated_ability,
     make_loot_ability,
     make_life_gain_ability,
+    make_equipment_setup,
+    make_aura_setup,
 )
 
 
@@ -4990,10 +4992,10 @@ def the_witchs_vanity_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 # --- Red ---
 
-def bespoke_battlegarb_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment: +2/+0 to equipped; celebration combat-begin auto-attach."""
-    # engine gap: Equipment auto-attach + celebration condition + +2/+0 to equipped.
-    return []
+bespoke_battlegarb_setup = make_equipment_setup(
+    power_mod=2, toughness_mod=0, equip_cost="{2}",
+)
+# engine gap: Celebration combat-begin auto-attach trigger not wired.
 
 
 def embereth_veteran_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5082,10 +5084,8 @@ def virtue_of_courage_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 # --- Green ---
 
-def bestial_bloodline_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura: enchanted creature gets +2/+2; activated graveyard return."""
-    # engine gap: aura attached-creature P/T boost + graveyard activated ability.
-    return []
+bestial_bloodline_setup = make_aura_setup(power_mod=2, toughness_mod=2)
+# engine gap: graveyard-activated {4}{G} self-return ability not wired.
 
 
 def howling_galefang_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

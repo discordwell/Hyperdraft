@@ -44,6 +44,9 @@ from src.cards.interceptor_helpers import (
     make_counter_ability,
     make_token_creation_ability,
     make_sac_destroy_ability,
+    # Phase 3: equipment / aura statics
+    make_equipment_setup,
+    make_aura_setup,
 )
 from src.engine.blb_mechanics import (
     make_valiant_trigger,
@@ -4482,9 +4485,11 @@ def heirloom_epic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return []
 
 
-def short_bow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Equipment attachment-bound +1/+1 / vigilance / reach + Equip {1}
-    return []
+short_bow_setup = make_equipment_setup(
+    power_mod=1, toughness_mod=1,
+    keywords=["vigilance", "reach"],
+    equip_cost="{1}",
+)
 
 
 def starforged_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4716,9 +4721,11 @@ def colossification_setup(obj: GameObject, state: GameState) -> list[Interceptor
     return [make_etb_trigger(obj, etb_effect)]
 
 
-def sword_of_vengeance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: equipment static (+2/+0, first strike, vigilance, trample, haste); equip cost
-    return []
+sword_of_vengeance_setup = make_equipment_setup(
+    power_mod=2, toughness_mod=0,
+    keywords=["first strike", "vigilance", "trample", "haste"],
+    equip_cost="{3}",
+)
 
 
 def blossoming_sands_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

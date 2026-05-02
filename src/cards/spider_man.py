@@ -37,6 +37,8 @@ from src.cards.interceptor_helpers import (
     make_web_slinging_setup, make_mayhem_setup, combine_setups,
     # Phase 4: activated abilities.
     make_activated_ability, make_pump_self_ability, make_counter_ability,
+    # Phase 3: Equipment / Aura attach statics.
+    make_equipment_setup, make_aura_setup,
 )
 from src.engine.spm_mechanics import (
     is_web_slinging_cast, web_slinging_returned_mv, is_mayhem_cast,
@@ -3614,7 +3616,9 @@ ALIEN_SYMBIOSIS = make_enchantment(
     colors={Color.BLACK},
     text="Enchant creature\nEnchanted creature gets +1/+1, has menace, and is a Symbiote in addition to its other types.\nYou may cast this card from your graveyard by discarding a card in addition to paying its other costs.",
     subtypes={"Aura"},
-    setup_interceptors=alien_symbiosis_setup,
+    # Phase 3: aura statics for +1/+1 and menace. Type-add to Symbiote and
+    # graveyard-cast alt-cost remain engine gaps.
+    setup_interceptors=make_aura_setup(power_mod=1, toughness_mod=1, keywords=["menace"]),
 )
 
 BEHOLD_THE_SINISTER_SIX = make_sorcery(
@@ -4310,7 +4314,9 @@ BIORGANIC_CARAPACE = make_artifact(
     mana_cost="{2}{W}{U}",
     text="When this Equipment enters, attach it to target creature you control.\nEquipped creature gets +2/+2 and has \"Whenever this creature deals combat damage to a player, draw a card for each modified creature you control.\" (Equipment, Auras you control, and counters are modifications.)\nEquip {2}",
     subtypes={"Equipment"},
-    setup_interceptors=biorganic_carapace_setup,
+    # Phase 3: equipment statics + equip ability. Granted combat-damage
+    # trigger and ETB-attach trigger remain engine gaps.
+    setup_interceptors=make_equipment_setup(power_mod=2, toughness_mod=2, equip_cost="{2}"),
 )
 
 CARNAGE_CRIMSON_CHAOS = make_creature(

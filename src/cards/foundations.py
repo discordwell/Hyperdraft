@@ -50,6 +50,8 @@ from src.cards.interceptor_helpers import (
     creature_filter_lib,
     creature_with_mv_at_least,
     instant_or_sorcery_with_mv,
+    make_equipment_setup,
+    make_aura_setup,
 )
 
 from src.engine.spell_resolve import (
@@ -10224,7 +10226,11 @@ LEYLINE_AXE = make_artifact(
     mana_cost="{4}",
     text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nEquipped creature gets +1/+1 and has double strike and trample.\nEquip {3} ({3}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
-    setup_interceptors=leyline_axe_setup,
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=1,
+        keywords=["double strike", "trample"],
+        equip_cost="{3}",
+    ),
 )
 
 QUICKDRAW_KATANA = make_artifact(
@@ -10232,7 +10238,15 @@ QUICKDRAW_KATANA = make_artifact(
     mana_cost="{2}",
     text="During your turn, equipped creature gets +2/+0 and has first strike. (It deals combat damage before creatures without first strike.)\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
-    setup_interceptors=quickdraw_katana_setup,
+    # NOTE: card text gates the boost on "during your turn" — engine has no
+    # active-player-conditional QUERY interceptor yet, so we wire the
+    # unconditional +2/+0 + first strike. Imperfect translation; revisit
+    # when the engine supports turn-conditional statics.
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=0,
+        keywords=["first strike"],
+        equip_cost="{2}",
+    ),
 )
 
 RAVENOUS_AMULET = make_artifact(
@@ -11466,7 +11480,12 @@ GOLDVEIN_PICK = make_artifact(
     mana_cost="{2}",
     text="Equipped creature gets +1/+1.\nWhenever equipped creature deals combat damage to a player, create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
-    setup_interceptors=goldvein_pick_setup,
+    # NOTE: combat-damage-to-player Treasure trigger is a separate engine
+    # gap — only the static +1/+1 + equip cost are wired here.
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=1,
+        equip_cost="{1}",
+    ),
 )
 
 HERALDIC_BANNER = make_artifact(
@@ -11511,7 +11530,10 @@ SWIFTFOOT_BOOTS = make_artifact(
     mana_cost="{2}",
     text="Equipped creature has hexproof and haste. (It can't be the target of spells or abilities your opponents control. It can attack and {T} no matter when it came under your control.)\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
-    setup_interceptors=swiftfoot_boots_setup,
+    setup_interceptors=make_equipment_setup(
+        keywords=["hexproof", "haste"],
+        equip_cost="{1}",
+    ),
 )
 
 BLOODFELL_CAVES = make_land(
@@ -12004,7 +12026,10 @@ UNTAMED_HUNGER = make_enchantment(
     colors={Color.BLACK},
     text="Enchant creature\nEnchanted creature gets +2/+1 and has menace. (It can't be blocked except by two or more creatures.)",
     subtypes={"Aura"},
-    setup_interceptors=untamed_hunger_setup,
+    setup_interceptors=make_aura_setup(
+        power_mod=2, toughness_mod=1,
+        keywords=["menace"],
+    ),
 )
 
 VAMPIRE_INTERLOPER = make_creature(
@@ -12330,7 +12355,12 @@ ANGELIC_DESTINY = make_enchantment(
     colors={Color.WHITE},
     text="Enchant creature\nEnchanted creature gets +4/+4, has flying and first strike, and is an Angel in addition to its other types.\nWhen enchanted creature dies, return this card to its owner's hand.",
     subtypes={"Aura"},
-    setup_interceptors=angelic_destiny_setup,
+    # NOTE: type-add (Angel) and "return to hand on enchanted dies" are
+    # engine gaps — only the static +4/+4 + flying/first strike are wired.
+    setup_interceptors=make_aura_setup(
+        power_mod=4, toughness_mod=4,
+        keywords=["flying", "first strike"],
+    ),
 )
 
 ARCHWAY_ANGEL = make_creature(
@@ -13404,7 +13434,10 @@ BASILISK_COLLAR = make_artifact(
     mana_cost="{1}",
     text="Equipped creature has deathtouch and lifelink. (Any amount of damage it deals to a creature is enough to destroy it. Damage dealt by this creature also causes you to gain that much life.)\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
-    setup_interceptors=basilisk_collar_setup,
+    setup_interceptors=make_equipment_setup(
+        keywords=["deathtouch", "lifelink"],
+        equip_cost="{2}",
+    ),
 )
 
 CULTIVATORS_CARAVAN = make_artifact(
@@ -13445,7 +13478,10 @@ FIRESHRIEKER = make_artifact(
     mana_cost="{3}",
     text="Equipped creature has double strike. (It deals both first-strike and regular combat damage.)\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
-    setup_interceptors=fireshrieker_setup,
+    setup_interceptors=make_equipment_setup(
+        keywords=["double strike"],
+        equip_cost="{2}",
+    ),
 )
 
 GATE_COLOSSUS = make_artifact_creature(
@@ -13810,7 +13846,10 @@ UNFLINCHING_COURAGE = make_enchantment(
     colors={Color.GREEN, Color.WHITE},
     text="Enchant creature\nEnchanted creature gets +2/+2 and has trample and lifelink. (Damage dealt by the creature also causes its controller to gain that much life.)",
     subtypes={"Aura"},
-    setup_interceptors=unflinching_courage_setup,
+    setup_interceptors=make_aura_setup(
+        power_mod=2, toughness_mod=2,
+        keywords=["trample", "lifelink"],
+    ),
 )
 
 ADAPTIVE_AUTOMATON = make_artifact_creature(

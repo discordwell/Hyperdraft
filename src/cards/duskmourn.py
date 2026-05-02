@@ -39,6 +39,7 @@ from src.cards.interceptor_helpers import (
     make_replacement_interceptor,
     make_activated_ability, make_counter_ability, make_damage_ability,
     open_library_search, basic_land_filter,
+    make_equipment_setup, make_aura_setup,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -2601,7 +2602,7 @@ ETHEREAL_ARMOR = make_enchantment(
     colors={Color.WHITE},
     text="Enchant creature\nEnchanted creature gets +1/+1 for each enchantment you control and has first strike.",
     subtypes={"Aura"},
-    setup_interceptors=ethereal_armor_setup,
+    setup_interceptors=make_aura_setup(keywords=["first strike"]),
 )
 
 def _exorcise_execute(choice, selected, state: GameState) -> list[Event]:
@@ -7355,7 +7356,7 @@ SAW = make_artifact(
     mana_cost="{2}",
     text="Equipped creature gets +2/+0.\nWhenever equipped creature attacks, you may sacrifice a permanent other than that creature or this Equipment. If you do, draw a card.\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
-    setup_interceptors=saw_setup,
+    setup_interceptors=make_equipment_setup(power_mod=2, toughness_mod=0, equip_cost="{2}"),
 )
 
 ABANDONED_CAMPGROUND = make_land(

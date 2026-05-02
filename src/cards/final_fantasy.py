@@ -45,6 +45,9 @@ from src.cards.interceptor_helpers import (
     make_draw_ability,
     make_loot_ability,
     make_destroy_ability,
+    # Phase 3: Equipment / Aura attach statics.
+    make_equipment_setup,
+    make_aura_setup,
 )
 
 from src.engine.spell_resolve import (
@@ -7308,7 +7311,9 @@ BUSTER_SWORD = make_artifact(
     mana_cost="{3}",
     text="Equipped creature gets +3/+2.\nWhenever equipped creature deals combat damage to a player, draw a card, then you may cast a spell from your hand with mana value less than or equal to that damage without paying its mana cost.\nEquip {2}",
     subtypes={"Equipment"},
-    setup_interceptors=buster_sword_ff_setup,
+    # Phase 3: equipment statics + equip ability. Granted combat-damage
+    # trigger remains an engine gap.
+    setup_interceptors=make_equipment_setup(power_mod=3, toughness_mod=2, equip_cost="{2}"),
 )
 
 ELIXIR = make_artifact(
@@ -7332,7 +7337,9 @@ GENJI_GLOVE = make_artifact(
     mana_cost="{5}",
     text="Equipped creature has double strike.\nWhenever equipped creature attacks, if it's the first combat phase of the turn, untap it. After this phase, there is an additional combat phase.\nEquip {3}",
     subtypes={"Equipment"},
-    setup_interceptors=genji_glove_ff_setup,
+    # Phase 3: equipment double-strike grant + equip ability. Extra-combat
+    # trigger remains an engine gap.
+    setup_interceptors=make_equipment_setup(keywords=["double strike"], equip_cost="{3}"),
 )
 
 INSTANT_RAMEN = make_artifact(

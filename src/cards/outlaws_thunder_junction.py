@@ -38,6 +38,8 @@ from src.cards.interceptor_helpers import (
     # Phase 4: activated abilities
     make_activated_ability, make_destroy_ability, make_damage_ability,
     make_sac_destroy_ability,
+    # Phase 3: equipment / aura statics
+    make_equipment_setup, make_aura_setup,
 )
 
 
@@ -3567,10 +3569,10 @@ def gold_pan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, etb_effect)]
 
 
-def lavaspur_boots_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment static: +1/+0, haste, ward {1}."""
-    # engine gap: equipped-creature granted abilities not engine-tracked here
-    return []
+lavaspur_boots_setup = make_equipment_setup(
+    power_mod=1, toughness_mod=0, keywords=["haste"], equip_cost="{1}",
+)
+# engine gap: ward {1} grant on equipped creature not wired.
 
 
 def luxurious_locomotive_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
