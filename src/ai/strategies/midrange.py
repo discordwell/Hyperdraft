@@ -55,13 +55,17 @@ class MidrangeStrategy(AIStrategy):
         board_score = evaluator.evaluate(player_id)
         ahead = board_score > 0.2
         behind = board_score < -0.2
+        role = self._clock_role(state, player_id)
+        is_beatdown = role == 'beatdown'
 
         score = 0.0
 
         if action.type == ActionType.PASS:
-            # Pass only if we have instant-speed plays
-            if self._has_instant_in_hand(state, player_id):
-                return 0.3 if behind else 0.1
+            # Passing only beats playing if we have a real reason: an instant
+            # we want to hold up AND opponent can plausibly act. In our own
+            # main phase with the stack empty, just play things.
+            if self._has_instant_in_hand(state, player_id) and behind and not is_beatdown:
+                return 0.15
             return 0.0
 
         if action.type == ActionType.PLAY_LAND:
@@ -103,6 +107,13 @@ class MidrangeStrategy(AIStrategy):
                     if self._has_ability(card, 'trample', state):
                         score += 0.3
 
+                # Beatdown role: clock favours us, so creatures matter more
+                # than answers. Push aggressive plays harder.
+                if is_beatdown:
+                    score += 0.4
+                    if power >= 2:
+                        score += 0.2
+
                 # Value abilities
                 if self._has_ability(card, 'flying', state):
                     score += 0.3
@@ -111,17 +122,28 @@ class MidrangeStrategy(AIStrategy):
                 if self._has_ability(card, 'deathtouch', state):
                     score += 0.35
 
-            # Removal
+            # Removal — score by the most dangerous threat on board, not
+            # a generic creature count. A removal spell against a 1/1 token
+            # is very different from one against a 5/5 with deathtouch.
             elif self._is_removal(card):
-                opp_creatures = self._count_opponent_threats(state, player_id)
-
-                if behind and opp_creatures > 0:
-                    # Really need removal when behind
-                    score = 1.6
-                elif opp_creatures > 0:
-                    score = 1.2
+                worst_threat = self._max_opponent_threat_value(state, player_id)
+                if worst_threat >= 8:
+                    score = 1.8  # Mandatory answer
+                elif worst_threat >= 5:
+                    score = 1.4
+                elif worst_threat >= 3:
+                    score = 1.0
+                elif worst_threat > 0:
+                    score = 0.5  # There's something but it's small
                 else:
-                    score = 0.4  # Save for later
+                    score = 0.2  # No targets — hold removal
+                # Behind makes removal more urgent at every threat level.
+                if behind and worst_threat > 0:
+                    score += 0.3
+                # Beatdown role wants tempo, not removal — discount unless
+                # the threat is genuinely scary.
+                if is_beatdown and worst_threat < 5:
+                    score -= 0.3
 
             # Card draw
             elif self._is_card_draw(card):
