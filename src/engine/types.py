@@ -180,6 +180,8 @@ class EventType(Enum):
     PUT_TIME_COUNTER = auto()              # Put time counters on permanent
     DECLARE_ATTACKERS = auto()             # Declare attackers step
     AUTO_EQUIP = auto()                    # Auto-equip to creature
+    ATTACH = auto()                        # MTG: attach Equipment/Aura to a permanent
+    UNATTACH = auto()                      # MTG: detach an Equipment/Aura
     FIGHT = auto()                         # Two creatures deal damage to each other
     CANT_BLOCK = auto()                    # Creature can't block (restriction)
     TURN_FACE_UP = auto()                  # Turn a face-down creature face up
