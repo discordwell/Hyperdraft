@@ -21,6 +21,7 @@ from src.engine import (
     get_power, get_toughness, get_types, get_subtypes, get_colors,
     has_ability,
 )
+from src.engine.queries import get_supertypes
 from src.cards.interceptor_helpers import becomes_copy_of
 
 
@@ -394,6 +395,121 @@ def test_fleeting_reflection_resolve_opens_choice():
 
 
 # =============================================================================
+# Round 9 follow-ups
+# =============================================================================
+
+def test_supertypes_copy_and_cleanup():
+    """Copy a Legendary creature -> target gains Legendary; EOT restores."""
+    print("\n=== Test: supertypes copy + cleanup ===")
+    import asyncio
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+
+    src_def = _make_creature_def(
+        "Legendary Wurm", 6, 6,
+        colors={Color.GREEN}, subtypes={"Wurm"},
+    )
+    src_def.characteristics.supertypes = {"Legendary"}
+
+    target_def = _make_creature_def(
+        "Vanilla Bear", 2, 2,
+        colors={Color.GREEN}, subtypes={"Bear"},
+    )
+    # target is a basic, mundane bear with no supertypes.
+
+    source = _put_on_battlefield(game, p1, src_def)
+    target = _put_on_battlefield(game, p1, target_def)
+
+    assert "Legendary" not in target.characteristics.supertypes
+
+    becomes_copy_of(target, source, game.state)
+
+    supers = get_supertypes(target, game.state)
+    assert "Legendary" in supers, f"copy should grant Legendary, got {supers}"
+    # Dual-write check.
+    assert "Legendary" in target.characteristics.supertypes
+
+    tm = game.turn_manager
+    tm.turn_state.active_player_id = p1.id
+    asyncio.run(tm._do_cleanup_step())
+
+    supers_after = get_supertypes(target, game.state)
+    assert "Legendary" not in supers_after, (
+        f"cleanup should drop Legendary, got {supers_after}"
+    )
+    assert "Legendary" not in target.characteristics.supertypes
+    print("PASS: supertypes copy + cleanup")
+
+
+def test_source_leaves_then_eot_cleanup_still_works():
+    """Source leaves the battlefield mid-turn -> EOT cleanup still reverts target.
+
+    Edge case: the cleanup hook indexes by target_id, so the source going
+    away shouldn't disturb it. This protects against AttributeError or
+    leftover dual-write fields if the source object is garbage-collected
+    or its zone changes.
+    """
+    print("\n=== Test: source leaves zone -> EOT cleanup still reverts ===")
+    import asyncio
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+
+    src_def = _make_creature_def(
+        "Mock Dragon", 5, 5,
+        colors={Color.RED}, subtypes={"Dragon"},
+        abilities=[{'keyword': 'flying'}],
+    )
+    src_def.characteristics.supertypes = {"Legendary"}
+
+    target_def = _make_creature_def(
+        "Plain Goblin", 1, 1,
+        colors={Color.RED}, subtypes={"Goblin"},
+    )
+    source = _put_on_battlefield(game, p1, src_def)
+    target = _put_on_battlefield(game, p1, target_def)
+
+    becomes_copy_of(target, source, game.state)
+    # Mid-turn: while still copying, snapshot fields are dual-written.
+    assert "Dragon" in target.characteristics.subtypes
+    assert "Legendary" in target.characteristics.supertypes
+
+    # Now the source leaves the battlefield mid-turn.
+    bf = game.state.zones['battlefield']
+    if source.id in bf.objects:
+        bf.objects.remove(source.id)
+    source.zone = ZoneType.GRAVEYARD
+    gy = game.state.zones.get(f'graveyard_{p1.id}')
+    if gy is not None:
+        gy.objects.append(source.id)
+
+    # While copy is active and source is in the GY, target still reads as
+    # the snapshot.
+    assert get_power(target, game.state) == 5
+    assert "Dragon" in get_subtypes(target, game.state)
+    assert "Legendary" in get_supertypes(target, game.state)
+
+    # Now EOT cleanup runs. Even though source is gone, target should
+    # cleanly revert.
+    tm = game.turn_manager
+    tm.turn_state.active_player_id = p1.id
+    asyncio.run(tm._do_cleanup_step())
+
+    assert get_power(target, game.state) == 1
+    assert "Goblin" in get_subtypes(target, game.state)
+    assert "Dragon" not in get_subtypes(target, game.state)
+    assert "Legendary" not in get_supertypes(target, game.state)
+    assert "Dragon" not in target.characteristics.subtypes
+    assert "Legendary" not in target.characteristics.supertypes
+    print("PASS: EOT cleanup reverts target even after source left zone")
+
+
+# =============================================================================
 # Driver
 # =============================================================================
 
@@ -412,6 +528,8 @@ def run_all_tests():
     test_oko_setup_combat_trigger_registers()
     test_likeness_looter_setup_doesnt_crash()
     test_fleeting_reflection_resolve_opens_choice()
+    test_supertypes_copy_and_cleanup()
+    test_source_leaves_then_eot_cleanup_still_works()
 
     print("\n" + "=" * 60)
     print("ALL becomes_copy_of TESTS PASSED")

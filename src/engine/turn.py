@@ -476,7 +476,25 @@ class TurnManager:
                     original = payload.get('original_subtypes')
                     if isinstance(original, set):
                         target_obj.characteristics.subtypes = set(original)
+                    original_super = payload.get('original_supertypes')
+                    if isinstance(original_super, set):
+                        target_obj.characteristics.supertypes = set(original_super)
                 becomes_copy_cleanups.pop(tag_id, None)
+
+        # Symmetrical sweep for becomes_creature subtype dual-writes: vehicles
+        # and other "becomes a creature with subtype X" effects need their
+        # added subtypes peeled off when the duration expires, otherwise the
+        # subtypes leak indefinitely.
+        becomes_creature_cleanups = getattr(self.state, '_becomes_creature_cleanups', None)
+        if becomes_creature_cleanups:
+            for tag_id, payload in list(becomes_creature_cleanups.items()):
+                target_id = payload.get('target_id')
+                target_obj = self.state.objects.get(target_id) if target_id else None
+                if target_obj is not None:
+                    original = payload.get('original_subtypes')
+                    if isinstance(original, set):
+                        target_obj.characteristics.subtypes = set(original)
+                becomes_creature_cleanups.pop(tag_id, None)
 
         # Empty mana pools
         # (Would be handled by mana system)

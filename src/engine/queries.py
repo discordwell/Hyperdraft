@@ -140,6 +140,33 @@ def get_subtypes(obj: GameObject, state: GameState) -> set[str]:
     return subtypes
 
 
+def get_supertypes(obj: GameObject, state: GameState) -> set[str]:
+    """Get computed supertypes (Legendary, Snow, World, Basic) of an object.
+
+    Mirrors ``get_subtypes`` — most card scripts read
+    ``obj.characteristics.supertypes`` directly, so copy helpers also
+    dual-write the underlying field on install.
+    """
+    supertypes = set(obj.characteristics.supertypes)
+
+    interceptors = sorted(
+        [i for i in state.interceptors.values()
+         if i.priority == InterceptorPriority.QUERY
+         and _is_supertypes_query(i, obj, state)],
+        key=lambda i: i.timestamp
+    )
+
+    for interceptor in interceptors:
+        result = interceptor.handler(
+            _make_query_event('supertypes', obj, supertypes),
+            state
+        )
+        if result.transformed_event:
+            supertypes = result.transformed_event.payload.get('value', supertypes)
+
+    return supertypes
+
+
 def get_colors(obj: GameObject, state: GameState) -> set[Color]:
     """Get computed colors of an object."""
     colors = set(obj.characteristics.colors)
@@ -223,6 +250,7 @@ def _make_query_event(query_type: str, obj: GameObject, current_value) -> 'Event
         'toughness': EventType.QUERY_TOUGHNESS,
         'types': EventType.QUERY_TYPES,
         'subtypes': EventType.QUERY_SUBTYPES,
+        'supertypes': EventType.QUERY_SUPERTYPES,
         'colors': EventType.QUERY_COLORS,
         'abilities': EventType.QUERY_ABILITIES,
     }
@@ -270,6 +298,16 @@ def _is_subtypes_query(interceptor: Interceptor, obj: GameObject, state: GameSta
     """Check if interceptor is a subtypes query for this object."""
     from .types import Event, EventType
     test_event = Event(type=EventType.QUERY_SUBTYPES, payload={'object_id': obj.id})
+    try:
+        return interceptor.filter(test_event, state)
+    except:
+        return False
+
+
+def _is_supertypes_query(interceptor: Interceptor, obj: GameObject, state: GameState) -> bool:
+    """Check if interceptor is a supertypes query for this object."""
+    from .types import Event, EventType
+    test_event = Event(type=EventType.QUERY_SUPERTYPES, payload={'object_id': obj.id})
     try:
         return interceptor.filter(test_event, state)
     except:

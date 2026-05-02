@@ -70,6 +70,32 @@ def _give_player_mana(player, mana_system, *, generic=0, red=0, green=0):
         mana_system.produce_mana(player.id, ManaType.GREEN, 1)
 
 
+def _make_x_cost_exhaust_dummy(name, cost):
+    """Helper: a creature with an X-cost Exhaust ability that returns X events."""
+    def setup(obj, state):
+        def _effect(o, st, targets, *, x_value=0):
+            return [
+                Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=o.id, controller=o.controller,
+                )
+                for _ in range(int(x_value or 0))
+            ]
+        make_exhaust_ability(
+            obj, cost=cost, effect_fn=_effect,
+            description=f"{cost}: X counters (test).",
+        )
+        return []
+
+    return make_creature(
+        name=name, power=2, toughness=2, mana_cost="{1}",
+        colors=set(), subtypes={"Construct"},
+        text=f"Exhaust — {cost}: Put X +1/+1 counters on this creature.",
+        setup_interceptors=setup,
+    )
+
+
 def _make_exhaust_dummy(name, cost):
     """Helper: a creature with an Exhaust ability of cost ``cost`` that adds a counter."""
 
@@ -344,6 +370,112 @@ def test_wired_boom_scholar_card_reduces_other_exhaust():
     print("PASS: wired Boom Scholar reduces other-exhaust costs and not its own")
 
 
+def test_boom_scholar_x_cost_composition_query_only():
+    """Cost reduction × X composition (cost-query layer).
+
+    For an X-cost ability {X}{X}, T:
+      - Printed generic is 0; x_count is 2.
+      - Boom Scholar reduces by {2} -> printed generic clamped at 0.
+      - x_count is preserved; X-derived mana is paid in addition.
+
+    For an X-cost ability {2}{X}{X}, T:
+      - Printed generic is 2; x_count is 2.
+      - Boom Scholar reduces printed generic to 0; x_count preserved.
+    """
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    _setup_game_for_player(p1.id, game)
+
+    _spawn_on_battlefield(game, p1, _make_boom_scholar_proxy())
+
+    # {X}{X}, T -> generic stays 0 (clamp); x_count remains 2.
+    ab1 = _spawn_on_battlefield(
+        game, p1, _make_x_cost_exhaust_dummy("XX Exhauster", "{X}{X}"),
+    ).state.activated_abilities[0]
+    eff1 = get_effective_activation_cost(ab1, _spawn_on_battlefield(
+        game, p1, _make_x_cost_exhaust_dummy("XX Exhauster B", "{X}{X}"),
+    ), p1.id, game.state)
+    # x_count must survive a cost-reduction pass; reduction only touches
+    # printed generic (which is 0 here).
+    assert eff1.x_count == 2, f"x_count must be preserved, got {eff1.x_count}"
+    assert eff1.generic == 0
+
+    # {2}{X}{X}, T -> printed generic 2 -> 0; x_count remains 2.
+    src2 = _spawn_on_battlefield(
+        game, p1, _make_x_cost_exhaust_dummy("2XX Exhauster", "{2}{X}{X}"),
+    )
+    ab2 = src2.state.activated_abilities[0]
+    eff2 = get_effective_activation_cost(ab2, src2, p1.id, game.state)
+    assert eff2.x_count == 2, "x_count must survive reduction"
+    assert eff2.generic == 0, (
+        f"printed generic 2 should be reduced by 2 to 0, got {eff2.generic}"
+    )
+    print("PASS: cost reduction × X-cost composition (query layer)")
+
+
+def test_boom_scholar_x_cost_end_to_end_pay():
+    """End-to-end: activating {X}{X}, T with X=2 under Boom Scholar pays
+    only the X-derived 4 generic (printed generic was reduced to 0)."""
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        game.add_player("Bob")
+        _setup_game_for_player(p1.id, game)
+
+        _spawn_on_battlefield(game, p1, _make_boom_scholar_proxy())
+
+        target = _spawn_on_battlefield(
+            game, p1, _make_x_cost_exhaust_dummy("Big XX", "{X}{X}"),
+        )
+        target.state.summoning_sickness = False
+        # 4 generic — exactly what x_count=2 * x_value=2 demands; there is
+        # no printed generic to reduce, so Boom Scholar effectively does
+        # nothing to the cost. We verify x_count is not collapsed.
+        _give_player_mana(p1, game.mana_system, generic=4)
+
+        action = PlayerAction(
+            type=ActionType.ACTIVATE_ABILITY,
+            player_id=p1.id, source_id=target.id,
+            ability_id="activated:0", x_value=2,
+        )
+        events = await game.priority_system._handle_activate_ability(action)
+        assert any(e.type == EventType.ACTIVATE for e in events), (
+            "X-cost activation under Boom Scholar should succeed"
+        )
+        # Verify the ACTIVATE event records x_value=2.
+        activate = next(e for e in events if e.type == EventType.ACTIVATE)
+        assert activate.payload.get('x_value') == 2
+
+        pool = game.mana_system.get_pool(p1.id)
+        assert pool.total() == 0, (
+            f"4 generic should be fully consumed, got {pool.total()}"
+        )
+
+        # And the ability with printed {2}{X}{X} reduces to {0}{X}{X}, so
+        # X=2 also costs exactly 4.
+        target2 = _spawn_on_battlefield(
+            game, p1, _make_x_cost_exhaust_dummy("Big 2XX", "{2}{X}{X}"),
+        )
+        target2.state.summoning_sickness = False
+        _give_player_mana(p1, game.mana_system, generic=4)
+
+        action2 = PlayerAction(
+            type=ActionType.ACTIVATE_ABILITY,
+            player_id=p1.id, source_id=target2.id,
+            ability_id="activated:0", x_value=2,
+        )
+        events2 = await game.priority_system._handle_activate_ability(action2)
+        assert any(e.type == EventType.ACTIVATE for e in events2), (
+            "{2}{X}{X} reduced to {0}{X}{X} should be payable with 4 mana at X=2"
+        )
+        pool2 = game.mana_system.get_pool(p1.id)
+        assert pool2.total() == 0
+        print("PASS: cost reduction × X-cost composition (priority pay-path)")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
 if __name__ == "__main__":
     test_query_returns_printed_cost_when_no_reductions()
     test_boom_scholar_proxy_reduces_other_exhaust_abilities()
@@ -353,4 +485,6 @@ if __name__ == "__main__":
     test_reduction_inactive_when_source_off_battlefield()
     test_reduction_makes_unaffordable_ability_payable_via_priority()
     test_wired_boom_scholar_card_reduces_other_exhaust()
+    test_boom_scholar_x_cost_composition_query_only()
+    test_boom_scholar_x_cost_end_to_end_pay()
     print("\nAll activated cost-query tests passed.")

@@ -374,6 +374,93 @@ def test_insufficient_mana_blocks_activation():
     print("PASS: insufficient mana blocks activation")
 
 
+def test_dedup_distinguishes_two_same_cost_different_effect_abilities():
+    """Two distinct effect_fns sharing a cost text register as two abilities.
+
+    Round 9: register_activated_ability previously deduped on
+    (cost_text, description). With auto-generated default descriptions ('{G}: ...'),
+    two genuinely distinct abilities with the same cost would collapse into one.
+    The new guard uses effect_fn bytecode to distinguish them.
+    """
+    from src.cards.interceptor_helpers import make_exhaust_ability
+
+    def setup(obj, state):
+        # Two different effect functions, both with cost {G}, both default desc.
+        def _gain_life(o, st, t):
+            return [Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': o.controller, 'amount': 1},
+                source=o.id, controller=o.controller,
+            )]
+
+        def _draw_card(o, st, t):
+            return [Event(
+                type=EventType.DRAW,
+                payload={'player_id': o.controller, 'count': 1},
+                source=o.id, controller=o.controller,
+            )]
+
+        make_exhaust_ability(obj, cost="{G}", effect_fn=_gain_life)
+        make_exhaust_ability(obj, cost="{G}", effect_fn=_draw_card)
+        return []
+
+    card = make_creature(
+        name="Twin Exhauster", power=1, toughness=1, mana_cost="{G}",
+        colors={Color.GREEN}, subtypes={"Hydra"},
+        text="Exhaust — {G}: Gain 1 life.\nExhaust — {G}: Draw a card.",
+        setup_interceptors=setup,
+    )
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    _setup_game_for_player(p1.id, game)
+    obj = _spawn_on_battlefield(game, p1, card)
+
+    abilities = obj.state.activated_abilities
+    assert len(abilities) == 2, (
+        f"two distinct {{G}} exhaust abilities should both register, "
+        f"got {len(abilities)}"
+    )
+    # Setup runs at HAND-creation AND at battlefield ZONE_CHANGE; this proves
+    # the dedup correctly collapses the duplicate runs without flattening
+    # the genuine two-ability list to one.
+    print("PASS: dedup distinguishes same-cost different-effect abilities")
+
+
+def test_dedup_collapses_setup_re_runs_for_same_ability():
+    """One ability registered in setup() stays at count=1 even when setup runs twice."""
+    from src.cards.interceptor_helpers import make_exhaust_ability
+
+    def setup(obj, state):
+        def _effect(o, st, t):
+            return []
+        make_exhaust_ability(obj, cost="{G}", effect_fn=_effect)
+        return []
+
+    card = make_creature(
+        name="Single Exhauster", power=1, toughness=1, mana_cost="{G}",
+        colors={Color.GREEN}, subtypes={"Hydra"},
+        text="Exhaust — {G}: Do nothing.",
+        setup_interceptors=setup,
+    )
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    _setup_game_for_player(p1.id, game)
+    obj = _spawn_on_battlefield(game, p1, card)
+
+    abilities = obj.state.activated_abilities
+    # setup_interceptors fires at HAND creation AND at ZONE_CHANGE -> battlefield;
+    # without the guard we'd see 2 abilities here.
+    assert len(abilities) == 1, (
+        f"single ability across HAND→BATTLEFIELD setup runs should dedup to 1, "
+        f"got {len(abilities)}"
+    )
+    print("PASS: dedup collapses setup re-runs of the same ability")
+
+
 if __name__ == "__main__":
     test_cost_parser_handles_common_patterns()
     test_registered_ability_surfaces_in_legal_actions()
@@ -384,4 +471,6 @@ if __name__ == "__main__":
     test_pump_self_ability_modifies_pt_and_grants_keyword()
     test_summoning_sickness_blocks_tap_ability()
     test_insufficient_mana_blocks_activation()
+    test_dedup_distinguishes_two_same_cost_different_effect_abilities()
+    test_dedup_collapses_setup_re_runs_for_same_ability()
     print("\nAll Phase 4 tests passed!")
