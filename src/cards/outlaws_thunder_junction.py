@@ -2747,7 +2747,39 @@ def cactarantula_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def colossal_rattlewurm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Conditional flash; trample; activated graveyard-exile tutor."""
-    # engine gap: conditional flash and graveyard-cost activated tutor not engine-tracked
+    # engine gap: conditional flash on battlefield. Trample wired via abilities list.
+    return []
+
+
+def colossal_rattlewurm_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}{G}, Exile this card from your graveyard: Search your library for a
+    Desert card, put it onto the battlefield tapped, then shuffle."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        return [
+            Event(
+                type=EventType.EXILE,
+                payload={'object_id': o.id},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.SEARCH_LIBRARY,
+                payload={
+                    'player': o.controller,
+                    'card_type': CardType.LAND,
+                    'subtype': 'Desert',
+                    'destination': 'battlefield_tapped',
+                },
+                source=o.id, controller=o.controller,
+            ),
+        ]
+    make_activated_ability(
+        obj,
+        cost="{1}{G}",
+        effect_fn=_effect,
+        description="Exile from graveyard: Search library for a Desert, battlefield tapped",
+    )
     return []
 
 
@@ -9341,6 +9373,7 @@ COLOSSAL_RATTLEWURM = make_creature(
     text="Colossal Rattlewurm has flash as long as you control a Desert.\nTrample\n{1}{G}, Exile this card from your graveyard: Search your library for a Desert card, put it onto the battlefield tapped, then shuffle.",
     setup_interceptors=colossal_rattlewurm_setup,
 )
+COLOSSAL_RATTLEWURM.setup_in_graveyard = colossal_rattlewurm_gy_setup
 
 DANCE_OF_THE_TUMBLEWEEDS = make_sorcery(
     name="Dance of the Tumbleweeds",

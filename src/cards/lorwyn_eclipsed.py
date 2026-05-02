@@ -2783,6 +2783,80 @@ def stoic_groveguide_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return []  # engine gap: graveyard-activated token creation
 
 
+def stoic_groveguide_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}{B/G}, Exile this card from your graveyard: Create a 2/2 black and green Elf token."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        return [
+            Event(
+                type=EventType.EXILE,
+                payload={'object_id': o.id},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Elf Token',
+                    'controller': o.controller,
+                    'owner': o.controller,
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Elf'},
+                    'colors': {Color.BLACK, Color.GREEN},
+                    'power': 2, 'toughness': 2,
+                    'is_token': True,
+                },
+                source=o.id, controller=o.controller,
+            ),
+        ]
+    make_activated_ability(
+        obj,
+        cost="{1}{B/G}",
+        effect_fn=_effect,
+        description="Exile from graveyard: Create a 2/2 BG Elf token",
+        sorcery_speed=True,
+    )
+    return []
+
+
+def goldmeadow_nomad_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{W}, Exile this card from your graveyard: Create a 1/1 green and white Kithkin token."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        return [
+            Event(
+                type=EventType.EXILE,
+                payload={'object_id': o.id},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Kithkin Token',
+                    'controller': o.controller,
+                    'owner': o.controller,
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Kithkin'},
+                    'colors': {Color.GREEN, Color.WHITE},
+                    'power': 1, 'toughness': 1,
+                    'is_token': True,
+                },
+                source=o.id, controller=o.controller,
+            ),
+        ]
+    make_activated_ability(
+        obj,
+        cost="{W}",
+        effect_fn=_effect,
+        description="Exile from graveyard: Create a 1/1 GW Kithkin token",
+        sorcery_speed=True,
+    )
+    return []
+
+
 def tam_mindful_firstyear_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Static hexproof from each color; activated all-colors (engine gap)."""
     return []  # engine gap: hexproof-from-each-color + activated color change
@@ -3621,6 +3695,7 @@ GOLDMEADOW_NOMAD = make_creature(
     subtypes={"Kithkin", "Scout"},
     text="{W}, Exile this card from your graveyard: Create a 1/1 green and white Kithkin creature token. Activate only as a sorcery.",
 )
+GOLDMEADOW_NOMAD.setup_in_graveyard = goldmeadow_nomad_gy_setup
 
 KEEP_OUT = make_instant(
     name="Keep Out",
@@ -5736,6 +5811,7 @@ STOIC_GROVEGUIDE = make_creature(
     text="{1}{B/G}, Exile this card from your graveyard: Create a 2/2 black and green Elf creature token. Activate only as a sorcery.",
     setup_interceptors=stoic_groveguide_setup
 )
+STOIC_GROVEGUIDE.setup_in_graveyard = stoic_groveguide_gy_setup
 
 SYGGS_COMMAND = make_sorcery(
     name="Sygg's Command",

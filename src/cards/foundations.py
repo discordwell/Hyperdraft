@@ -58,6 +58,8 @@ from src.cards.interceptor_helpers import (
     count_permanents_with_subtype,
     # Sweep 4: becomes-creature
     becomes_creature,
+    # Sweep 10: granted death triggers
+    grant_death_trigger,
 )
 
 from src.engine.spell_resolve import (
@@ -3941,6 +3943,170 @@ def heros_downfall_resolve(targets: list, state: GameState) -> list[Event]:
     choice.choice_type = "target_with_callback"
     choice.callback_data['handler'] = _heros_downfall_execute
 
+    return []
+
+
+# =============================================================================
+# UNDYING MALICE - target creature gains "When this dies, return tapped with +1/+1"
+# =============================================================================
+
+def undying_malice_resolve(targets: list, state: GameState) -> list[Event]:
+    """Until end of turn, target creature gains a death trigger that returns
+    it to the battlefield tapped with a +1/+1 counter."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Undying Malice":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "undying_malice_spell"
+
+    valid_targets = [
+        o.id for o in state.objects.values()
+        if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types
+    ]
+    if not valid_targets:
+        return []
+
+    def _handler(choice, selected, gs: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target = gs.objects.get(selected[0])
+        if not target:
+            return []
+        spell_obj = gs.objects.get(spell_id) or target
+
+        def _death_effect(target_obj: GameObject, gs2: GameState) -> list[Event]:
+            owner = target_obj.owner
+            return [
+                Event(
+                    type=EventType.RETURN_FROM_GRAVEYARD,
+                    payload={'object_id': target_obj.id, 'player': owner, 'tapped': True},
+                    source=spell_id, controller=owner,
+                ),
+                Event(
+                    type=EventType.TAP,
+                    payload={'object_id': target_obj.id},
+                    source=spell_id, controller=owner,
+                ),
+                Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': target_obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=spell_id, controller=owner,
+                ),
+            ]
+        grant_death_trigger(target, spell_obj, gs, _death_effect, duration='end_of_turn')
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Undying Malice: choose a creature",
+        min_targets=1,
+        max_targets=1,
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _handler
+    return []
+
+
+# =============================================================================
+# FAKE YOUR OWN DEATH - target creature gets +2/+0 and a return-with-treasure death trigger
+# =============================================================================
+
+def fake_your_own_death_resolve(targets: list, state: GameState) -> list[Event]:
+    """Until end of turn, target creature gets +2/+0 and gains a death trigger
+    that returns it tapped under owner's control and creates a Treasure token."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Fake Your Own Death":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "fake_your_own_death_spell"
+
+    valid_targets = [
+        o.id for o in state.objects.values()
+        if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types
+    ]
+    if not valid_targets:
+        return []
+
+    def _handler(choice, selected, gs: GameState) -> list[Event]:
+        if not selected:
+            return []
+        target = gs.objects.get(selected[0])
+        if not target:
+            return []
+        spell_obj = gs.objects.get(spell_id) or target
+
+        def _death_effect(target_obj: GameObject, gs2: GameState) -> list[Event]:
+            owner = target_obj.owner
+            return [
+                Event(
+                    type=EventType.RETURN_FROM_GRAVEYARD,
+                    payload={'object_id': target_obj.id, 'player': owner, 'tapped': True},
+                    source=spell_id, controller=owner,
+                ),
+                Event(
+                    type=EventType.TAP,
+                    payload={'object_id': target_obj.id},
+                    source=spell_id, controller=owner,
+                ),
+                Event(
+                    type=EventType.OBJECT_CREATED,
+                    payload={
+                        'name': 'Treasure',
+                        'controller': owner,
+                        'owner': owner,
+                        'to_zone_type': ZoneType.BATTLEFIELD,
+                        'types': {CardType.ARTIFACT},
+                        'subtypes': {'Treasure'},
+                        'colors': set(),
+                        'is_token': True,
+                    },
+                    source=spell_id, controller=owner,
+                ),
+            ]
+        grant_death_trigger(target, spell_obj, gs, _death_effect, duration='end_of_turn')
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': target.id,
+                'power_mod': 2,
+                'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=spell_id, controller=caster_id,
+        )]
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=valid_targets,
+        prompt="Fake Your Own Death: choose a creature",
+        min_targets=1,
+        max_targets=1,
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _handler
     return []
 
 
@@ -8400,6 +8566,44 @@ def suspicious_shambler_setup(obj: GameObject, state: GameState) -> list[Interce
     return []
 
 
+def suspicious_shambler_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{4}{B}{B}, Exile this card from your graveyard: Create two 2/2 black Zombie tokens."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        events: list[Event] = [Event(
+            type=EventType.EXILE,
+            payload={'object_id': o.id},
+            source=o.id, controller=o.controller,
+        )]
+        for _ in range(2):
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Zombie Token',
+                    'controller': o.controller,
+                    'owner': o.controller,
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Zombie'},
+                    'colors': {Color.BLACK},
+                    'power': 2,
+                    'toughness': 2,
+                    'is_token': True,
+                },
+                source=o.id, controller=o.controller,
+            ))
+        return events
+    make_activated_ability(
+        obj,
+        cost="{4}{B}{B}",
+        effect_fn=_effect,
+        description="Exile from graveyard: Create two 2/2 black Zombie tokens",
+        sorcery_speed=True,
+    )
+    return []
+
+
 # --- UNTAMED HUNGER ---
 # Enchant creature / Enchanted creature gets +2/+1 and has menace.
 def untamed_hunger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -10812,6 +11016,7 @@ FAKE_YOUR_OWN_DEATH = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Until end of turn, target creature gets +2/+0 and gains \"When this creature dies, return it to the battlefield tapped under its owner's control and you create a Treasure token.\" (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+    resolve=fake_your_own_death_resolve,
 )
 
 HEROS_DOWNFALL = make_instant(
@@ -12243,13 +12448,14 @@ SUSPICIOUS_SHAMBLER = make_creature(
     text="{4}{B}{B}, Exile this card from your graveyard: Create two 2/2 black Zombie creature tokens. Activate only as a sorcery.",
     setup_interceptors=suspicious_shambler_setup,
 )
+SUSPICIOUS_SHAMBLER.setup_in_graveyard = suspicious_shambler_gy_setup
 
 UNDYING_MALICE = make_instant(
     name="Undying Malice",
     mana_cost="{B}",
     colors={Color.BLACK},
     text="Until end of turn, target creature gains \"When this creature dies, return it to the battlefield tapped under its owner's control with a +1/+1 counter on it.\"",
-    # engine gap: temporary granted-ability with custom-trigger replacement effect.
+    resolve=undying_malice_resolve,
 )
 
 UNTAMED_HUNGER = make_enchantment(

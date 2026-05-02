@@ -6223,7 +6223,46 @@ def lead_pipe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def leering_onlooker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Flying. Activated graveyard ability creates two 1/1 black Bats."""
-    # engine gap: activated graveyard abilities
+    # Battlefield-side has only the flying keyword (handled via abilities list).
+    return []
+
+
+def leering_onlooker_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{B}{B}, Exile this card from your graveyard: Create two tapped 1/1 black Bat tokens with flying."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        events: list[Event] = [Event(
+            type=EventType.EXILE,
+            payload={'object_id': o.id},
+            source=o.id, controller=o.controller,
+        )]
+        for _ in range(2):
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Bat Token',
+                    'controller': o.controller,
+                    'owner': o.controller,
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Bat'},
+                    'colors': {Color.BLACK},
+                    'power': 1,
+                    'toughness': 1,
+                    'abilities': ['flying'],
+                    'tapped': True,
+                    'is_token': True,
+                },
+                source=o.id, controller=o.controller,
+            ))
+        return events
+    make_activated_ability(
+        obj,
+        cost="{2}{B}{B}",
+        effect_fn=_effect,
+        description="Exile from graveyard: Create two tapped 1/1 Bats with flying",
+    )
     return []
 
 
@@ -7264,7 +7303,53 @@ def cryptex_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def gravestone_strider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Activated mana ability (once/turn). Activated graveyard exile-target."""
-    # engine gap: activated abilities w/ once-per-turn restriction + graveyard activation
+    # engine gap: activated mana ability with once-per-turn restriction.
+    return []
+
+
+def gravestone_strider_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}, Exile this card from your graveyard: Exile target card from a graveyard."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        # Identify graveyard-card targets (any graveyard).
+        legal = [
+            oid for oid, ob in st.objects.items()
+            if ob.zone == ZoneType.GRAVEYARD and oid != o.id
+        ]
+        events: list[Event] = [Event(
+            type=EventType.EXILE,
+            payload={'object_id': o.id},
+            source=o.id, controller=o.controller,
+        )]
+        if not legal:
+            return events
+
+        def _handler(choice, selected, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.EXILE,
+                payload={'object_id': selected[0]},
+                source=o.id, controller=o.controller,
+            )]
+        choice = create_target_choice(
+            state=st,
+            player_id=o.controller,
+            source_id=o.id,
+            legal_targets=legal,
+            prompt="Gravestone Strider: exile target card from a graveyard",
+            min_targets=1, max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _handler
+        return events
+    make_activated_ability(
+        obj,
+        cost="{2}",
+        effect_fn=_effect,
+        description="Exile from graveyard: Exile target card from a graveyard",
+    )
     return []
 
 
@@ -8346,6 +8431,7 @@ LEERING_ONLOOKER = make_creature(
     text="Flying\n{2}{B}{B}, Exile this card from your graveyard: Create two tapped 1/1 black Bat creature tokens with flying.",
     setup_interceptors=leering_onlooker_setup
 )
+LEERING_ONLOOKER.setup_in_graveyard = leering_onlooker_gy_setup
 
 LONG_GOODBYE = make_instant(
     name="Long Goodbye",
@@ -9939,6 +10025,7 @@ GRAVESTONE_STRIDER = make_artifact_creature(
     text="{1}: Add one mana of any color. Activate only once each turn.\n{2}, Exile this card from your graveyard: Exile target card from a graveyard.",
     setup_interceptors=gravestone_strider_setup
 )
+GRAVESTONE_STRIDER.setup_in_graveyard = gravestone_strider_gy_setup
 
 LUMBERING_LAUNDRY = make_artifact_creature(
     name="Lumbering Laundry",
