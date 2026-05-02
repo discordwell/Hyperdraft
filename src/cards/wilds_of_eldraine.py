@@ -5264,12 +5264,6 @@ def redtooth_vanguard_setup(obj: GameObject, state: GameState) -> list[Intercept
     return []
 
 
-def rootrider_faun_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: Add {G}; {1},{T}: Add any color."""
-    # engine gap: mana-producing activated abilities not modeled here.
-    return []
-
-
 def toadstool_admirer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Ward {2}; activated {3}{G}: +1/+1 counter."""
     # engine gap: activated counter ability.
@@ -5374,12 +5368,6 @@ def likeness_looter_setup(obj: GameObject, state: GameState) -> list[Interceptor
     return []
 
 
-def rowan_scion_of_war_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Menace; tap to reduce cost of black/red spells by life lost this turn."""
-    # engine gap: dynamic cost reduction tied to life-lost-this-turn.
-    return []
-
-
 def troyan_gutsy_explorer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{T}: Add {G}{U} (only for MV5+ or X spells); {U},{T}: draw-discard.
 
@@ -5388,12 +5376,6 @@ def troyan_gutsy_explorer_setup(obj: GameObject, state: GameState) -> list[Inter
     from the card text). We only need to wire the secondary loot ability.
     """
     make_loot_ability(obj, "{U}, {T}")
-    return []
-
-
-def will_scion_of_peace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Vigilance; tap reduces white/blue cost by life gained this turn."""
-    # engine gap: dynamic cost reduction tied to life-gained-this-turn.
     return []
 
 
@@ -5425,12 +5407,6 @@ def agathas_soul_cauldron_setup(obj: GameObject, state: GameState) -> list[Inter
         description="Exile target card from a graveyard",
         targets_required=1, target_kind="card_in_graveyard",
     )
-    return []
-
-
-def collectors_vault_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{2},{T}: draw-discard + Treasure."""
-    # engine gap: activated draw-discard + token activated.
     return []
 
 
@@ -5538,12 +5514,6 @@ def hyldas_crown_of_winter_setup(obj: GameObject, state: GameState) -> list[Inte
         obj, "{3}, Sacrifice Hylda's Crown of Winter", sac_draw,
         description="Draw a card for each tapped creature your opponents control",
     )
-    return []
-
-
-def scarecrow_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Reach; {1}: Add any color (once per turn)."""
-    # engine gap: mana-producing activated ability.
     return []
 
 

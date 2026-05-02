@@ -2449,12 +2449,6 @@ def starfield_vocalist_setup(obj: GameObject, state: GameState) -> list[Intercep
     return []
 
 
-def steelswarm_operator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Tap-for-restricted-mana abilities."""
-    # engine gap: restricted mana production (only for artifacts)
-    return []
-
-
 def synthesizer_labship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Station 9+: becomes a creature with flying + vigilance.
 
@@ -2726,12 +2720,6 @@ def kavaron_turbodrone_setup(obj: GameObject, state: GameState) -> list[Intercep
     return []
 
 
-def memorial_vault_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}, sac artifact: exile top X cards, may play this turn."""
-    # engine gap: activated ability with sacrifice cost + impulse draw
-    return []
-
-
 def pain_for_all_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Aura: ETB enchanted deals power-damage to any other target. Whenever damaged, deals to each opponent."""
     interceptors = []
@@ -2782,18 +2770,6 @@ def roving_actuator_setup(obj: GameObject, state: GameState) -> list[Interceptor
         # engine gap: void mechanic + GY targeting + copy-and-cast-free
         return []
     return [make_etb_trigger(obj, etb_effect)]
-
-
-def rust_harvester_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Menace; {2}{T}, exile artifact from GY: +1/+1 counter, deal power damage to any target."""
-    # engine gap: activated ability with exile cost from GY
-    return []
-
-
-def slagdrill_scrapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{2}{T}, sac artifact/land: draw."""
-    # engine gap: activated ability with sacrifice cost
-    return []
 
 
 def terrapact_intimidator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2954,12 +2930,6 @@ def fungal_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
     return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
                                 amount=amount_fn, self_only=True)]
-
-
-def gene_pollinator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}, tap a permanent: any color mana."""
-    # engine gap: activated mana ability with tap of another permanent as cost
-    return []
 
 
 def icetill_explorer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3251,12 +3221,6 @@ def sami_wildcat_captain_setup(obj: GameObject, state: GameState) -> list[Interc
         return n
 
     return [make_cost_reduction(obj, applies_to=applies, amount=amount_fn)]
-
-
-def allfates_scroll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: any color mana; {7}{T} sac: draw X cards (differently named lands)."""
-    # engine gap: tap-for-any-color + sac-and-draw with dynamic X
-    return []
 
 
 def bygone_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

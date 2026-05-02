@@ -1763,15 +1763,6 @@ def evershrikes_gift_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return interceptors
 
 
-def goldmeadow_nomad_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated ability from graveyard creates a Kithkin token.
-
-    engine gap: graveyard-activated abilities are not driven by interceptors;
-    no battlefield triggers to wire.
-    """
-    return []  # engine gap: activated ability from graveyard
-
-
 def kinbinding_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Static +X/+X based on creatures entered this turn; combat-begin token.
 
@@ -2236,11 +2227,6 @@ def flamechain_mauler_setup(obj: GameObject, state: GameState) -> list[Intercept
     return []
 
 
-def flamebraider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Tap-add-2-mana, Elemental-only (engine gap: restricted mana)."""
-    return []  # engine gap: tap-for-mana with spending restriction
-
-
 def goliath_daydreamer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Cast + attack triggers around dream-counter exile (engine gap)."""
     return []  # engine gap: dream-counter exile zone & free-cast linkage
@@ -2477,16 +2463,6 @@ def giltleafs_embrace_setup(obj: GameObject, state: GameState) -> list[Intercept
     interceptors = make_static_pt_boost(obj, 2, 0, is_enchanted_target)
     interceptors.append(make_etb_trigger(obj, etb_effect))
     return interceptors
-
-
-def great_forest_druid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: add one mana of any color (engine gap: mana abilities)."""
-    return []  # engine gap: any-color mana ability
-
-
-def lys_alana_dignitary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Behold cost + activated GG mana (engine gap)."""
-    return []  # engine gap: behold + conditional mana ability
 
 
 def moonvigil_adherents_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2814,11 +2790,6 @@ def feisty_spikeling_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return [make_keyword_grant(obj, ['first_strike'], is_self)]
 
 
-def figure_of_fable_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated transformation chain (engine gap)."""
-    return []  # engine gap: activated abilities that change subtype/P-T
-
-
 def gangly_stompling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Trample + changeling — both already on card text (no extra interceptors)."""
     return []
@@ -3064,11 +3035,6 @@ def pucas_eye_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, etb_effect)]
 
 
-def springleaf_drum_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Tap-a-creature mana ability (engine gap)."""
-    return []  # engine gap: activated mana with creature-tap cost
-
-
 def stalactite_dagger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Equipment ETB token creation; +1/+1 to equipped."""
     def is_equipped_target(target: GameObject, state: GameState) -> bool:
@@ -3092,11 +3058,6 @@ def stalactite_dagger_setup(obj: GameObject, state: GameState) -> list[Intercept
 def blood_crypt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Shockland: pay 2 life or enter tapped (engine gap)."""
     return []  # engine gap: as-enters shockland choice
-
-
-def eclipsed_realms_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """As-enters type choice + restricted mana (engine gap)."""
-    return []  # engine gap: chosen-type land mana restriction
 
 
 def evolving_wilds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

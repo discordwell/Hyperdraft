@@ -6821,12 +6821,6 @@ def campus_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         # to move the chosen card to library_top after shuffling.
         from src.engine.library_search import _shuffle_library, _move_card_from_library
 
-        def shuffle_then_top(choice, selected, state):
-            # The default handler already moved the selected cards to "hand"
-            # because we set destination="hand" below — undo that, shuffle,
-            # then put on top. To avoid that mess, we instead use destination
-            # "library_top" with shuffle_after=False, and shuffle in the rider.
-            return []
 
         # Cleaner: tutor with destination="library_top", shuffle_after=False,
         # then shuffle the rest of the library via the rider so the chosen
@@ -7880,9 +7874,6 @@ def high_fae_trickster_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 # --- RUNE-SEALED WALL ---
 # Defender / {T}: Surveil 1.
-def runesealed_wall_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap-activated surveil ability
-    return []
 
 
 # --- STRIX LOOKOUT ---
@@ -7999,23 +7990,14 @@ def fishing_pole_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 # --- LEYLINE AXE ---
 # Opening hand free play / Equipped creature gets +1/+1 has double strike & trample / Equip {3}.
-def leyline_axe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: equipment static buff + opening hand replacement
-    return []
 
 
 # --- QUICK-DRAW KATANA ---
 # During your turn, equipped creature gets +2/+0 and has first strike. / Equip {2}.
-def quickdraw_katana_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: equipment conditional boost + first strike grant
-    return []
 
 
 # --- RAVENOUS AMULET ---
 # {1},{T}, Sac creature: Draw card + soul counter / {4},{T}, Sac amulet: Each opponent loses life.
-def ravenous_amulet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: sacrifice-based activated abilities
-    return []
 
 
 # --- SOULSTONE SANCTUARY ---
@@ -8062,9 +8044,6 @@ def cathar_commando_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 # --- GIADA, FONT OF HOPE ---
 # Flying, vigilance / Other Angels enter with extra +1/+1 counters / {T}: Add {W} for Angel spells.
-def giada_font_of_hope_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: ETB-with-extra-counters replacement + restricted mana
-    return []
 
 
 # --- IMPRISONED IN THE MOON ---
@@ -8184,23 +8163,14 @@ def etali_primal_storm_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 # --- FANATICAL FIREBRAND ---
 # Haste / {T}, Sacrifice this creature: It deals 1 damage to any target.
-def fanatical_firebrand_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap-and-sacrifice activated burn
-    return []
 
 
 # --- KRENKO, MOB BOSS ---
 # {T}: Create X 1/1 red Goblin tokens, where X is the number of Goblins you control.
-def krenko_mob_boss_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap activated dynamic token creation
-    return []
 
 
 # --- SHIVAN DRAGON ---
 # Flying / {R}: This creature gets +1/+0 until end of turn.
-def shivan_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated self-pump
-    return []
 
 
 # --- BLANCHWOOD ARMOR ---
@@ -8273,9 +8243,6 @@ def gnarlid_colony_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 # --- LLANOWAR ELVES ---
 # {T}: Add {G}.
-def llanowar_elves_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap for mana ability is intrinsic
-    return []
 
 
 # --- MILD-MANNERED LIBRARIAN ---
@@ -8374,16 +8341,10 @@ def thousandyear_storm_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 # --- BURNISHED HART ---
 # {3}, Sacrifice this creature: Search your library for up to two basic land cards, put them onto the battlefield tapped.
-def burnished_hart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: sacrifice activated land search
-    return []
 
 
 # --- GOLDVEIN PICK ---
 # Equipped creature gets +1/+1 / Whenever equipped creature deals combat damage to a player, create a Treasure / Equip {1}.
-def goldvein_pick_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: equipment +1/+1 + damage trigger
-    return []
 
 
 # --- HERALDIC BANNER ---
@@ -8402,9 +8363,6 @@ def juggernaut_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 # --- SWIFTFOOT BOOTS ---
 # Equipped creature has hexproof and haste / Equip {1}.
-def swiftfoot_boots_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: equipment static keyword grant
-    return []
 
 
 # --- EVOLVING WILDS ---
@@ -8462,9 +8420,6 @@ def rogues_passage_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 # --- SECLUDED COURTYARD ---
 # As enters, choose a creature type / {T}: Add {C} / {T}: Add any color for chosen-type creature spells.
-def secluded_courtyard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: choose-type ETB + restricted color mana
-    return []
 
 
 # --- ANCESTOR DRAGON ---
@@ -8716,9 +8671,6 @@ def suspicious_shambler_gy_setup(obj: GameObject, state: GameState) -> list[Inte
 
 # --- UNTAMED HUNGER ---
 # Already wired via make_aura_setup directly on the card definition (see UNTAMED_HUNGER below).
-def untamed_hunger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: aura +2/+1 + keyword grant
-    return []
 
 
 # --- VAMPIRE INTERLOPER ---
@@ -8756,9 +8708,6 @@ def vampire_neonate_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 # --- CARNELIAN ORB OF DRAGONKIND ---
 # {T}: Add {R}. If spent on Dragon, gains haste.
-def carnelian_orb_of_dragonkind_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap for restricted mana with conditional haste grant
-    return []
 
 
 # --- DRAGONLORD'S SERVANT ---
@@ -8832,9 +8781,6 @@ def kargan_dragonrider_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 # --- DRUID OF THE COWL ---
 # {T}: Add {G}.
-def druid_of_the_cowl_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap for mana is intrinsic
-    return []
 
 
 # --- THRASHING BRONTODON ---
@@ -8888,16 +8834,10 @@ def goblin_firebomb_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 # --- UNCHARTED HAVEN ---
 # Enters tapped / Choose color / {T}: Add chosen color.
-def uncharted_haven_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: choose-color ETB + restricted mana
-    return []
 
 
 # --- ANGELIC DESTINY ---
 # Enchant creature / +4/+4, flying, first strike, Angel / Returns to hand on dies.
-def angelic_destiny_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: aura with multiple effects + dies trigger
-    return []
 
 
 # --- BALLYRUSH BANNERET ---
@@ -8980,9 +8920,6 @@ def knight_of_grace_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 # --- ARCANIS THE OMNIPOTENT ---
 # {T}: Draw three cards. / {2}{U}{U}: Return to hand.
-def arcanis_the_omnipotent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap activated draw 3
-    return []
 
 
 # --- DICTATE OF KRUPHIX ---
@@ -9324,16 +9261,10 @@ def prime_speaker_zegana_setup(obj: GameObject, state: GameState) -> list[Interc
 
 # --- BASILISK COLLAR ---
 # Equipped creature has deathtouch and lifelink / Equip {2}.
-def basilisk_collar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: equipment keyword grant
-    return []
 
 
 # --- CULTIVATOR'S CARAVAN ---
 # {T}: Add one mana of any color / Crew 3.
-def cultivators_caravan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: vehicle crew + tap for any-color mana
-    return []
 
 
 # --- DARKSTEEL COLOSSUS ---
@@ -9348,16 +9279,10 @@ def darksteel_colossus_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 # --- FELDON'S CANE ---
 # {T}, Exile this artifact: Shuffle your graveyard into your library.
-def feldons_cane_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap-and-exile activated
-    return []
 
 
 # --- FIRESHRIEKER ---
 # Equipped creature has double strike / Equip {2}.
-def fireshrieker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: equipment keyword grant
-    return []
 
 
 # --- MAZEMIND TOME ---
@@ -9383,16 +9308,10 @@ def sorcerous_spyglass_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 # --- STEEL HELLKITE ---
 # Flying / {2}: +1/+0 / {X}: Destroy nonland permanents with mana value X whose controller took combat damage from this.
-def steel_hellkite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: combat damage tracking + activated mass destroy
-    return []
 
 
 # --- THREE TREE MASCOT ---
 # Changeling / {1}: Add one mana of any color. Activate only once each turn.
-def three_tree_mascot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated mana ability with use-limit
-    return []
 
 
 # --- AZORIUS GUILDGATE ---
@@ -9451,9 +9370,6 @@ def crawling_barrens_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 # --- CRYPTIC CAVES ---
 # {T}: Add {C}. / {1},{T}, Sac: Draw a card if 5+ lands.
-def cryptic_caves_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: conditional sacrifice for draw
-    return []
 
 
 # --- DEMOLITION FIELD ---
@@ -9553,30 +9469,18 @@ def gratuitous_violence_setup(obj: GameObject, state: GameState) -> list[Interce
 
 # --- UNFLINCHING COURAGE ---
 # Enchant creature / +2/+2, trample, lifelink.
-def unflinching_courage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: aura pump + multiple keyword grants
-    return []
 
 
 # --- EXPEDITION MAP ---
 # {2}, {T}, Sacrifice this artifact: Search your library for a land card.
-def expedition_map_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: sacrifice activated tutor
-    return []
 
 
 # --- GILDED LOTUS ---
 # {T}: Add three mana of any one color.
-def gilded_lotus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap for any-color mana (activated)
-    return []
 
 
 # --- HEDRON ARCHIVE ---
 # {T}: Add {C}{C}. / {2},{T}, Sac: Draw two cards.
-def hedron_archive_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap for mana + sacrifice for draw
-    return []
 
 
 # --- MAZE'S END ---

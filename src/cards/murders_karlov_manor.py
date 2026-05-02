@@ -6170,12 +6170,6 @@ def cryptic_coat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, etb_effect)]
 
 
-def curious_inquiry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura grants +1/+1 and 'investigate on combat damage to player' to enchanted."""
-    # engine gap: aura-granted damage trigger
-    return []
-
-
 def dramatic_accusation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Aura: tap on ETB; doesn't untap; activated shuffle into library."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
@@ -7401,12 +7395,6 @@ def sanguine_savior_setup(obj: GameObject, state: GameState) -> list[Interceptor
     )]
 
 
-def tin_street_gossip_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Vigilance. {T}: add {R}{G} restricted to face-down spells / turn face up."""
-    # engine gap: restricted mana from tap ability
-    return []
-
-
 def trostani_three_whispers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Three activated abilities granting deathtouch / vigilance / double strike."""
     def _grant_keyword_effect(keyword: str):
@@ -7559,18 +7547,6 @@ def lumbering_laundry_setup(obj: GameObject, state: GameState) -> list[Intercept
     # engine gap: activated information ability.
     # Ward wired as face-up static for testing.
     return [make_ward(obj, mana_cost="{2}")]
-
-
-def magnifying_glass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: {C}; {4},{T}: investigate."""
-    # engine gap: activated mana ability + costed investigate
-    return []
-
-
-def thinking_cap_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment +1/+2; equip Detective {1}; equip {3}."""
-    # engine gap: discounted equip costs by subtype
-    return []
 
 
 # --- LANDS ---
@@ -7752,7 +7728,6 @@ def underground_mortuary_setup(obj: GameObject, state: GameState) -> list[Interc
             source=obj.id
         )]
     return [make_etb_trigger(obj, etb_effect)]
-
 
 
 CASE_OF_THE_SHATTERED_PACT = make_enchantment(
@@ -9584,7 +9559,6 @@ def pick_your_poison_resolve(targets: list, state: GameState) -> list[Event]:
     choice.callback_data['handler'] = _pick_your_poison_execute_mode
 
     return []
-
 
 
 PICK_YOUR_POISON = make_sorcery(

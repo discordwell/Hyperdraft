@@ -2781,11 +2781,6 @@ def moonstone_harbinger_setup(obj: GameObject, state: GameState) -> list[Interce
     ]
 
 
-def osteomancer_adept_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated cast-from-graveyard with forage cost and finality counter rider
-    return []
-
-
 def persistent_marshstalker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Power equals 1 for each other Rat you control (continuous)."""
     def power_filter(event: Event, state: GameState) -> bool:
@@ -3933,16 +3928,6 @@ def tender_wildguide_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return []
 
 
-def thornvault_forager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated mana abilities (incl. forage cost) and tutor ability
-    return []
-
-
-def three_tree_rootweaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated any-color mana ability
-    return []
-
-
 def three_tree_scribe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When a creature you control leaves bf without dying, put +1/+1 counter on target creature."""
     def leave_filter(event: Event, state: GameState, source: GameObject) -> bool:
@@ -4658,11 +4643,6 @@ def tangle_tumbler_setup(obj: GameObject, state: GameState) -> list[Interceptor]
     return []
 
 
-def three_tree_mascot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Changeling and activated any-color mana ability
-    return []
-
-
 # -----------------------------------------------------------------------------
 # LANDS
 # -----------------------------------------------------------------------------
@@ -4751,40 +4731,15 @@ def hidden_grotto_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, etb_effect)]
 
 
-def lilypad_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: restricted-mana abilities and conditional surveil activation
-    return []
-
-
-def lupinflower_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: restricted mana, sacrifice tutor for tribal creatures
-    return []
-
-
 def mudflat_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     # engine gap: restricted mana ability ({B} for creature spells); activated
     # {1}{B}{T}-Sac for tribal-gy-to-hand (Bat/Lizard/Rat/Squirrel)
     return []
 
 
-def oakhollow_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: restricted mana, conditional +1/+1 counter activation
-    return []
-
-
 def rockface_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     # engine gap: restricted mana ability; activated {R}{T} sorcery-speed tribal
     # pump (Lizard/Mouse/Otter/Raccoon: +1/+0 + haste UEOT)
-    return []
-
-
-def three_tree_city_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: chosen-creature-type tracking; X-mana production
-    return []
-
-
-def uncharted_haven_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: chosen-color tracking; conditional mana ability
     return []
 
 

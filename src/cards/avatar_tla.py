@@ -2760,19 +2760,6 @@ def hogmonkey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     )]
 
 
-def joo_dee_one_of_many_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{B}, {T}: Surveil 1, create copy, sac (engine gap activated)."""
-    # engine gap: activated ability with cost+sac+token-copy
-    return []
-
-
-def june_bounty_hunter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Unblockable as long as drew 2+ cards (engine gap conditional unblockable).
-    Activated sac for Clue (engine gap)."""
-    # engine gap: conditional unblockable + activated sac ability
-    return []
-
-
 def koh_the_face_stealer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB exile up to one other creature. When another nontoken creature dies, may exile it.
     (engine gap: pay 1 life to copy abilities of an exiled card)."""
@@ -3437,12 +3424,6 @@ def sabertooth_mooselion_setup(obj: GameObject, state: GameState) -> list[Interc
     return []
 
 
-def sparring_dummy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Defender. {T}: Mill a card, may put land into hand, +2 life if Lesson milled (engine gap activated)."""
-    # engine gap: activated ability
-    return []
-
-
 def toph_the_blind_bandit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB earthbend 2 (engine gap). Power = +1/+1 counters on lands you control (engine gap dynamic)."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
@@ -3609,13 +3590,6 @@ def hama_the_bloodbender_setup(obj: GameObject, state: GameState) -> list[Interc
     return [make_etb_trigger(obj, etb_effect)]
 
 
-def hermitic_herbalist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: Add one mana of any color.  (basic mana — handled by engine text parser)
-    {T}: Add two mana in any combination of colors. Spend only on Lessons (engine gap)."""
-    # engine gap: spell-restricted mana
-    return []
-
-
 def iroh_grand_lotus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Firebending 2 (mana on attack).
     During your turn, instants/sorceries in GY have flashback (engine gap),
@@ -3732,13 +3706,6 @@ def barrels_of_blasting_jelly_setup(obj: GameObject, state: GameState) -> list[I
     return []
 
 
-def benders_waterskin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Untap during each other player's untap step (engine gap).
-    {T}: Add one mana of any color (engine gap activated)."""
-    # engine gap: replacement on opponent untap step + activated mana
-    return []
-
-
 def fire_nation_warship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Reach. Death -> create Clue token. Crew 2."""
     def death_effect(event: Event, state: GameState) -> list[Event]:
@@ -3822,37 +3789,13 @@ def trusty_boomerang_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return []
 
 
-def white_lotus_tile_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Enters tapped (engine gap). {T}: Add X mana of one color where X is greatest creature-type tribe (engine gap)."""
-    # engine gap: enters-tapped + dynamic mana production
-    return []
-
-
 # --- LANDS ---
-
-def abandoned_air_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless you control basic (engine gap).
-    {T}: Add {W}, {3}{W}, {T}: +1/+1 counter on each creature (engine gap activated)."""
-    # engine gap: conditional ETB-tapped + activated counter ability
-    return []
-
-
-def agna_qela_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Same shape as above; activated draw-discard ability (engine gap)."""
-    # engine gap: activated abilities
-    return []
 
 
 def airship_engine_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     # engine gap: ETB tapped on land
-    return []
-
-
-def ba_sing_se_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless basic. Earthbend activated (engine gap)."""
-    # engine gap: activated abilities + earthbend
     return []
 
 
@@ -3922,12 +3865,6 @@ def omashu_city_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return []
 
 
-def realm_of_koh_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped unless basic. Activated Spirit token (engine gap)."""
-    # engine gap: activated token creation
-    return []
-
-
 def rumble_arena_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB scry 1. Activated mana (engine gap)."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
@@ -3970,12 +3907,6 @@ def serpents_pass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def sunblessed_peak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
-    return []
-
-
-def white_lotus_hideout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Conditional mana to cast Lesson/Shrine (engine gap)."""
-    # engine gap: spell-restricted mana
     return []
 
 
