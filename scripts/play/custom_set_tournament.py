@@ -468,6 +468,17 @@ def make_ai(strategy_name: str = "midrange", difficulty: str = "hard") -> AIEngi
     return AIEngine(strategy=MidrangeStrategy(), difficulty=difficulty)
 
 
+# Per-domain strategy override (left empty by default). The strategy
+# classes only differ at the margins; the universal play priorities
+# (mana efficiency + wincon deployment) live in AIEngine._score_action
+# so every deck gets them.
+DOMAIN_STRATEGY: dict[str, str] = {}
+
+
+def strategy_for_domain(domain: str) -> str:
+    return DOMAIN_STRATEGY.get(domain, "midrange")
+
+
 class _HardTimeoutError(Exception):
     pass
 
@@ -490,8 +501,8 @@ def _worker_run_game(args) -> dict:
     try:
         deck1, _ = build_set_deck(p1_dom, CUSTOM_SETS[p1_dom])
         deck2, _ = build_set_deck(p2_dom, CUSTOM_SETS[p2_dom])
-        ai1 = make_ai("midrange", difficulty)
-        ai2 = make_ai("midrange", difficulty)
+        ai1 = make_ai(strategy_for_domain(p1_dom), difficulty)
+        ai2 = make_ai(strategy_for_domain(p2_dom), difficulty)
         result = asyncio.run(
             play_one_game(deck1, deck2, ai1, ai2, p1_dom, p2_dom, max_turns=max_turns)
         )
@@ -649,8 +660,8 @@ def run_tournament_sequential(
 
     for i, (p1, p2) in enumerate(tasks):
         signal.setitimer(signal.ITIMER_REAL, hard_timeout_s)
-        ai1 = make_ai("midrange", difficulty)
-        ai2 = make_ai("midrange", difficulty)
+        ai1 = make_ai(strategy_for_domain(p1), difficulty)
+        ai2 = make_ai(strategy_for_domain(p2), difficulty)
         try:
             result = asyncio.run(
                 play_one_game(decks[p1], decks[p2], ai1, ai2, p1, p2, max_turns=max_turns)
