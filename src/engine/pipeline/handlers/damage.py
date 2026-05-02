@@ -41,6 +41,11 @@ def _handle_damage(event: Event, state: GameState):
 
         # Regular creature damage
         obj.state.damage += amount
+        # Remember the most recent damage source so SBA-driven destruction
+        # can credit it on OBJECT_DESTROYED.
+        damager = getattr(event, 'source', None) or event.payload.get('source')
+        if damager:
+            obj.state.last_damage_source = damager
 
         # Mode-specific: HS synchronously destroys on lethal spell damage.
         follow_ups = adapter.post_creature_damage_destroy_check(obj, event, state)
