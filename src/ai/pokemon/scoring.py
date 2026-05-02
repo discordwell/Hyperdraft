@@ -131,8 +131,24 @@ def _score_attacker(adapter, pokemon: 'GameObject', state: GameState,
     if available_attacks:
         best_damage = max(a.get('damage', 0) for a in available_attacks)
         score += best_damage / 5.0
+        if settings.get('use_attack_pressure'):
+            opp_id = adapter._opponent_id(state, player_id)
+            opp_active_id = adapter._get_active(state, opp_id or '') if opp_id else None
+            best_effective = best_damage
+            if opp_active_id:
+                opp = state.objects.get(opp_active_id)
+                if opp:
+                    best_effective = max(
+                        _estimate_damage(pokemon, opp, a.get('damage', 0), state)
+                        for a in available_attacks
+                    )
+                    if best_effective >= adapter._remaining_hp(opp):
+                        score += 25.0
+            score += best_effective / 4.0
     else:
         score -= 20.0  # Can't attack = bad active
+        if settings.get('use_attack_pressure'):
+            score -= 35.0
 
     # Status conditions
     if 'paralyzed' in pokemon.state.status_conditions:
@@ -320,6 +336,30 @@ def _score_attack(adapter, attacker: 'GameObject', attack: dict,
             elif opp_remaining is not None and final_damage >= opp_remaining:
                 text_discard_penalty *= 0.35
             score -= text_discard_penalty
+
+    if settings.get('use_attack_pressure') and damage > 0:
+        if opp is None:
+            opp_id = adapter._opponent_id(state, player_id)
+            opp_active_id = adapter._get_active(state, opp_id or '') if opp_id else None
+            opp = state.objects.get(opp_active_id) if opp_active_id else None
+        if opp:
+            if opp_remaining is None:
+                opp_remaining = adapter._remaining_hp(opp)
+            final_damage = _estimate_damage(attacker, opp, damage, state)
+            if final_damage < opp_remaining:
+                score += final_damage / 10.0
+                if opp_remaining - final_damage <= 80:
+                    score += 10.0
+            else:
+                score += 12.0
+
+        library = state.zones.get(f"library_{player_id}")
+        library_count = len(library.objects) if library else 0
+        if 'draw' in attack_text:
+            if library_count <= 6:
+                score -= 60.0
+            elif library_count <= 12:
+                score -= 30.0
 
     # Bench damage attacks
     if 'bench' in attack_text and 'damage' in attack_text:
@@ -569,6 +609,30 @@ def _score_energy_attachment(adapter, energy: 'GameObject', pokemon: 'GameObject
     if active_id and pokemon.id != active_id and total_current >= 3:
         score -= 5.0
 
+    if settings.get('use_attack_pressure'):
+        for attack in (pokemon.card_def.attacks or []):
+            damage = attack.get('damage', 0)
+            if damage <= 0:
+                continue
+            cost = attack.get('cost', [])
+            total_needed = sum(req.get('count', 0) for req in cost)
+            gap_after_attach = max(0, total_needed - total_current - 1)
+            meaningful = damage >= 50
+            if not meaningful and settings.get('use_ko_math'):
+                opp_id = adapter._opponent_id(state, player_id)
+                opp_active_id = adapter._get_active(state, opp_id or '') if opp_id else None
+                opp = state.objects.get(opp_active_id) if opp_active_id else None
+                meaningful = bool(opp and damage >= adapter._remaining_hp(opp))
+            if not meaningful:
+                continue
+            if gap_after_attach == 0:
+                if active_id and pokemon.id == active_id:
+                    score += 35.0 + damage / 4.0
+                else:
+                    score += 18.0 + damage / 8.0
+            elif gap_after_attach == 1:
+                score += 8.0 + damage / 15.0
+
     return score
 
 
@@ -615,6 +679,31 @@ def _score_investment_target(adapter, pokemon: 'GameObject', attack: dict,
     if pokemon.id == ctx.my_active:
         score += 15.0
 
+    if adapter._get_settings(getattr(pokemon, 'controller', None)).get('use_attack_pressure'):
+        final_damage = damage
+        meaningful_pressure = damage >= 50
+        if ctx.opp_active:
+            opp = state.objects.get(ctx.opp_active)
+            if opp and pokemon.card_def:
+                final_damage = adapter._estimate_damage(pokemon, opp, damage, state)
+                remaining = adapter._remaining_hp(opp)
+                if final_damage >= remaining:
+                    score += 40.0
+                    meaningful_pressure = True
+                elif remaining - final_damage <= 80:
+                    score += 14.0
+        if meaningful_pressure:
+            if pokemon.id == ctx.my_active:
+                if gap == 1:
+                    score += 55.0 + final_damage / 5.0
+                elif gap == 2:
+                    score += 24.0 + final_damage / 10.0
+            else:
+                if gap == 1:
+                    score += 28.0 + final_damage / 8.0
+                elif gap == 2 and ctx.my_active:
+                    score += 12.0
+
     # EX risk: big attacks but prize penalty when behind
     if pokemon.card_def and pokemon.card_def.is_ex:
         score += 10.0
@@ -654,15 +743,71 @@ def _score_trainer(adapter, card: 'GameObject', state: GameState,
         scorer = TRAINER_SCORERS.get(name)
         if scorer:
             score = scorer(adapter._current_context, state, player_id)
+            if settings.get('use_attack_pressure'):
+                score = _adjust_trainer_for_attack_pressure(
+                    adapter, card, state, player_id, score)
             if settings.get('use_resource_conservation'):
                 score = _adjust_trainer_for_deck_risk(
                     adapter, card, state, player_id, score)
             return score
 
     score = _score_trainer_text_fallback(adapter, card, state, player_id)
+    if settings.get('use_attack_pressure'):
+        score = _adjust_trainer_for_attack_pressure(
+            adapter, card, state, player_id, score)
     if settings.get('use_resource_conservation'):
         score = _adjust_trainer_for_deck_risk(
             adapter, card, state, player_id, score)
+    return score
+
+
+def _adjust_trainer_for_attack_pressure(adapter, card: 'GameObject',
+                                        state: GameState, player_id: str,
+                                        score: float) -> float:
+    """Codex-only boost for cards that turn a passive board into attacks."""
+    if not card.card_def or not adapter._current_context:
+        return score
+
+    ctx = adapter._current_context
+    name = card.card_def.name
+    text = (card.card_def.text or '').lower()
+    active_ready = bool(
+        ctx.my_active and ctx.energy_needs.get(ctx.my_active, {}).get('attacks_ready')
+    )
+    active_gap = (
+        ctx.energy_needs.get(ctx.my_active, {}).get('closest_gap', 0)
+        if ctx.my_active else 0
+    )
+    library = state.zones.get(f"library_{player_id}")
+    library_count = len(library.objects) if library else 0
+
+    if not active_ready:
+        if name in {"Nest Ball", "Ultra Ball"}:
+            score += 12.0
+        if name == "Rare Candy" and ctx.my_hand_evolutions:
+            score += 18.0
+        if name == "Professor's Research" and library_count >= 16:
+            score += 10.0
+        if 'search your deck' in text:
+            score += 6.0
+
+    if active_gap <= 1 and active_gap > 0:
+        if 'energy' in text and ('attach' in text or 'hand' in text):
+            score += 14.0
+
+    if ctx.opp_active and ctx.my_active:
+        opp = state.objects.get(ctx.opp_active)
+        active = state.objects.get(ctx.my_active)
+        if opp and active and active.card_def:
+            remaining = adapter._remaining_hp(opp)
+            best_ready_damage = ctx.energy_needs.get(
+                ctx.my_active, {}).get('best_ready_damage', 0)
+            if 0 < best_ready_damage < remaining <= best_ready_damage + 40:
+                if name == "Boss's Orders":
+                    score -= 10.0
+                elif name in {"Switch", "Potion"}:
+                    score -= 4.0
+
     return score
 
 
@@ -701,17 +846,21 @@ def _adjust_trainer_for_deck_risk(adapter, card: 'GameObject',
     if draw_amount:
         remaining_after = library_count - draw_amount
         if remaining_after <= 0:
-            score -= 120.0
+            score -= 160.0
         elif remaining_after <= 3:
-            score -= 45.0
+            score -= 110.0
         elif remaining_after <= 6:
-            score -= 22.0
+            score -= 80.0
+        elif remaining_after <= 10:
+            score -= 35.0
 
     if name in {"Nest Ball", "Ultra Ball"} or 'search your deck' in text:
         if library_count <= 4:
-            score -= 30.0
+            score -= 70.0
         elif library_count <= 8:
-            score -= 12.0
+            score -= 50.0
+        elif library_count <= 12:
+            score -= 25.0
 
     if name == "Super Rod" and library_count <= 10:
         score += 30.0

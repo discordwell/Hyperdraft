@@ -23,22 +23,8 @@ from src.engine.types import PokemonType, Event, EventType, ZoneType, CardType
 # =============================================================================
 
 def _draw_cards(state, player_id: str, count: int) -> list[Event]:
-    library = state.zones.get(f"library_{player_id}")
-    hand = state.zones.get(f"hand_{player_id}")
-    if not library or not hand:
-        return []
-    events = []
-    for _ in range(min(count, len(library.objects))):
-        drawn_id = library.objects.pop(0)
-        hand.objects.append(drawn_id)
-        obj = state.objects.get(drawn_id)
-        if obj:
-            obj.zone = ZoneType.HAND
-        events.append(Event(
-            type=EventType.DRAW,
-            payload={'player': player_id, 'count': 1},
-        ))
-    return events
+    return [Event(type=EventType.DRAW,
+                  payload={'player': player_id, 'count': count})]
 
 
 def _discard_attached_energy(state, pokemon_id: str, count: int) -> list[Event]:
@@ -337,10 +323,7 @@ def _boros_cluestone_effect(event, state):
                 obj.zone = ZoneType.HAND
             moved.append(cid)
     random.shuffle(library.objects)
-    return [Event(
-        type=EventType.DRAW,
-        payload={'player': player_id, 'count': len(moved)},
-    )]
+    return []
 
 
 BOROS_CLUESTONE = make_trainer_item(
@@ -371,10 +354,7 @@ def _redeemed_recursion_effect(attacker, state):
     grave.objects.pop()
     hand.objects.append(top_id)
     top_obj.zone = ZoneType.HAND
-    return [Event(
-        type=EventType.DRAW,
-        payload={'player': attacker.controller, 'count': 1},
-    )]
+    return []
 
 
 FEATHLET = make_pokemon(
