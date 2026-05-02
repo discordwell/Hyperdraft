@@ -4908,6 +4908,137 @@ __all_phase5__ = [
 
 
 # =============================================================================
+# Sweep 4: becomes_creature
+# =============================================================================
+#
+# Implements "[permanent] becomes an X/Y creature with [keywords] [until end
+# of turn]". Common patterns:
+#   * "Target land you control becomes a 3/3 Elemental creature with haste
+#     until end of turn. It's still a land."
+#   * "{4}: This artifact becomes a 4/4 artifact creature until end of turn."
+#
+# Implementation: install QUERY interceptors that override the target's
+# power, toughness, types (add CREATURE), subtypes, and ability set. The
+# interceptors carry duration='end_of_turn' so the standard cleanup runs at
+# end-step.
+# =============================================================================
+
+
+def becomes_creature(
+    target: GameObject,
+    state: GameState,
+    *,
+    power: int,
+    toughness: int,
+    subtypes: Optional[set[str]] = None,
+    keywords: Optional[list[str]] = None,
+    duration: str = "end_of_turn",
+    keep_land: bool = True,
+) -> list[Event]:
+    """Install QUERY interceptors that turn ``target`` into a creature.
+
+    Returns ``[]`` (no events to enqueue) — the helper mutates state
+    directly. The interceptors are tagged with ``_becomes_creature_tag``
+    so they can be identified for removal if the caller wants to revert
+    the effect early.
+
+    ``keep_land=True`` preserves the LAND type if the target is a land.
+    Same for artifact / enchantment.
+    """
+    subtypes_to_add = set(subtypes or set())
+    keywords_to_grant = list(keywords or [])
+    target_id = target.id
+    tag_id = new_id()
+
+    # --- POWER ---
+    def power_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_POWER
+                and event.payload.get('object_id') == target_id)
+
+    def power_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = power
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # --- TOUGHNESS ---
+    def tough_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_TOUGHNESS
+                and event.payload.get('object_id') == target_id)
+
+    def tough_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = toughness
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # --- TYPES (add CREATURE; preserve original by default if keep_land) ---
+    def types_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_TYPES
+                and event.payload.get('object_id') == target_id)
+
+    def types_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        existing = new_event.payload.get('value') or set(target.characteristics.types)
+        new_types = set(existing)
+        new_types.add(CardType.CREATURE)
+        new_event.payload['value'] = new_types
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # --- ABILITIES (add granted keywords) ---
+    def abilities_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_ABILITIES
+                and event.payload.get('object_id') == target_id)
+
+    def abilities_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        granted = list(new_event.payload.get('granted', []) or [])
+        for kw in keywords_to_grant:
+            if kw not in granted:
+                granted.append(kw)
+        new_event.payload['granted'] = granted
+        # Some callers read 'value' as a set/list of names too:
+        existing_value = new_event.payload.get('value')
+        if isinstance(existing_value, (set, list)):
+            value_set = set(existing_value) | set(keywords_to_grant)
+            new_event.payload['value'] = value_set
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    pairs = [
+        (power_filter, power_handler),
+        (tough_filter, tough_handler),
+        (types_filter, types_handler),
+        (abilities_filter, abilities_handler),
+    ]
+
+    for filt, hand in pairs:
+        ic = Interceptor(
+            id=new_id(),
+            source=target_id,
+            controller=target.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=filt,
+            handler=hand,
+            duration=duration,
+        )
+        setattr(ic, '_becomes_creature_tag', tag_id)
+        state.interceptors[ic.id] = ic
+        ic.timestamp = state.next_timestamp()
+
+    # If subtypes were specified, also patch obj.characteristics.subtypes
+    # (no QUERY_SUBTYPES exists yet in this engine) — non-destructive: add
+    # but track for revert.
+    if subtypes_to_add:
+        prior_subtypes = set(target.characteristics.subtypes)
+        target.characteristics.subtypes |= subtypes_to_add
+
+    return []
+
+
+__all_sweep4__ = [
+    "becomes_creature",
+]
+
+
+# =============================================================================
 # Sweep helpers: count_* primitives for dynamic P/T scaling
 # =============================================================================
 #
