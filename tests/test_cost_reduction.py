@@ -13,9 +13,15 @@ Covers:
 """
 
 import asyncio
+import os
 import sys
 
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+# Resolve project root from this test file. Avoids picking up a stale clone
+# in /Users/discordwell/Projects/Hyperdraft/ that previous test versions
+# hard-coded.
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 from src.engine import (
     Game, Event, EventType, ZoneType, Color, CardType,
@@ -622,6 +628,151 @@ def test_arcane_epiphany_self_reduces_with_wizard():
 
 
 # ---------------------------------------------------------------------------
+# Wired set-card tests — verifies cost reductions on real Scryfall cards.
+# ---------------------------------------------------------------------------
+
+def test_wired_set_cards_reduce_costs():
+    """End-to-end checks for cost-reduction setups wired across MTG sets."""
+    from src.engine.types import Characteristics, CardDefinition
+
+    def fresh():
+        g = Game()
+        p1 = g.add_player("A")
+        p2 = g.add_player("B")
+        return g, p1, p2
+
+    def gen(name, mana_cost="{1}", subtypes=None, types=None,
+            power=1, toughness=1, colors=None):
+        return CardDefinition(
+            name=name, mana_cost=mana_cost,
+            characteristics=Characteristics(
+                types=set(types) if types else {CardType.CREATURE},
+                subtypes=set(subtypes or []),
+                power=power, toughness=toughness,
+                colors=set(colors or []),
+                mana_cost=mana_cost,
+            ),
+        )
+
+    # GHALTA, PRIMAL HUNGER (FDN, self-cost = total power)
+    from src.cards.foundations import GHALTA_PRIMAL_HUNGER
+    g, p1, _ = fresh()
+    spell = _put_in_hand(g, p1, GHALTA_PRIMAL_HUNGER)
+    base = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    _put_on_battlefield(g, p1, gen("Big", power=5, toughness=5))
+    after = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    assert after == base - 5, f"Ghalta: expected {base - 5}, got {after}"
+
+    # BALLYRUSH BANNERET (FDN, static Kithkin/Soldier)
+    from src.cards.foundations import BALLYRUSH_BANNERET
+    g, p1, _ = fresh()
+    _put_on_battlefield(g, p1, BALLYRUSH_BANNERET)
+    kithkin = _put_in_hand(g, p1, gen("K", "{3}{W}", subtypes={"Kithkin"}))
+    assert get_effective_mana_cost(kithkin, p1.id, g.state).generic == 2
+
+    # GEYSER DRAKE (OTJ, on-opponent's-turn static)
+    from src.cards.outlaws_thunder_junction import GEYSER_DRAKE
+    g, p1, p2 = fresh()
+    _put_on_battlefield(g, p1, GEYSER_DRAKE)
+    spell = _put_in_hand(g, p1, gen("S", "{2}{U}", types={CardType.SORCERY}))
+    g.state.active_player = p1.id
+    assert get_effective_mana_cost(spell, p1.id, g.state).mana_value == 3
+    g.state.active_player = p2.id
+    assert get_effective_mana_cost(spell, p1.id, g.state).mana_value == 2
+
+    # TOLARIAN TERROR (FDN, self-cost = instants/sorceries in graveyard)
+    from src.cards.foundations import TOLARIAN_TERROR
+    g, p1, _ = fresh()
+    spell = _put_in_hand(g, p1, TOLARIAN_TERROR)
+    base = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    for i in range(3):
+        g.create_object(
+            name=f"S{i}", owner_id=p1.id, zone=ZoneType.GRAVEYARD,
+            characteristics=Characteristics(types={CardType.SORCERY}),
+        )
+    after = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    assert after == base - 3, f"Tolarian Terror: expected {base - 3}, got {after}"
+
+    # DRAG TO THE ROOTS (DSK, delirium 4-types)
+    from src.cards.duskmourn import DRAG_TO_THE_ROOTS
+    g, p1, _ = fresh()
+    spell = _put_in_hand(g, p1, DRAG_TO_THE_ROOTS)
+    base = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    for tt in [CardType.CREATURE, CardType.LAND, CardType.INSTANT, CardType.SORCERY]:
+        g.create_object(
+            name=f"X-{tt}", owner_id=p1.id, zone=ZoneType.GRAVEYARD,
+            characteristics=Characteristics(types={tt}),
+        )
+    after = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    assert after == base - 2, f"Drag delirium: expected {base - 2}, got {after}"
+
+    # VENOM'S HUNGER (SPM, self-cost gated on Villain)
+    from src.cards.spider_man import VENOMS_HUNGER
+    g, p1, _ = fresh()
+    spell = _put_in_hand(g, p1, VENOMS_HUNGER)
+    base = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    _put_on_battlefield(g, p1, gen("V", subtypes={"Villain"}))
+    after = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    assert after == base - 2, f"Venom's Hunger: expected {base - 2}, got {after}"
+
+    # SERPENT OF THE PASS (TLA, self-cost = noncreature/nonland gy)
+    from src.cards.avatar_tla import SERPENT_OF_THE_PASS
+    g, p1, _ = fresh()
+    spell = _put_in_hand(g, p1, SERPENT_OF_THE_PASS)
+    base = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    g.create_object(
+        name="I1", owner_id=p1.id, zone=ZoneType.GRAVEYARD,
+        characteristics=Characteristics(types={CardType.INSTANT}),
+    )
+    g.create_object(
+        name="I2", owner_id=p1.id, zone=ZoneType.GRAVEYARD,
+        characteristics=Characteristics(types={CardType.INSTANT}),
+    )
+    g.create_object(
+        name="L", owner_id=p1.id, zone=ZoneType.GRAVEYARD,
+        characteristics=Characteristics(types={CardType.LAND}),  # excluded
+    )
+    after = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    assert after == base - 2
+
+    # DIAMOND WEAPON (FIN, self-cost = permanent cards in graveyard)
+    from src.cards.final_fantasy import DIAMOND_WEAPON
+    g, p1, _ = fresh()
+    spell = _put_in_hand(g, p1, DIAMOND_WEAPON)
+    base = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    for t in [CardType.CREATURE, CardType.ARTIFACT, CardType.LAND, CardType.INSTANT]:
+        g.create_object(
+            name=str(t), owner_id=p1.id, zone=ZoneType.GRAVEYARD,
+            characteristics=Characteristics(types={t}),
+        )
+    after = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    # Three permanent types (creature/artifact/land), instant excluded.
+    assert after == base - 3
+
+    # GIGASTORM TITAN (EOE, self-cost iff cast another spell this turn)
+    from src.cards.edge_of_eternities import GIGASTORM_TITAN
+    g, p1, _ = fresh()
+    spell = _put_in_hand(g, p1, GIGASTORM_TITAN)
+    base = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    g.state.turn_data = getattr(g.state, 'turn_data', {}) or {}
+    g.state.turn_data[f'spells_cast_{p1.id}'] = 1
+    after = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    assert after == base - 3
+
+    # RIME CHILL (ECL, self-cost vivid = colors among permanents)
+    from src.cards.lorwyn_eclipsed import RIME_CHILL
+    g, p1, _ = fresh()
+    spell = _put_in_hand(g, p1, RIME_CHILL)
+    base = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    _put_on_battlefield(g, p1, gen("R", colors={Color.RED}))
+    _put_on_battlefield(g, p1, gen("B", colors={Color.BLUE}))
+    after = get_effective_mana_cost(spell, p1.id, g.state).mana_value
+    assert after == base - 2
+
+    print("PASS: wired_set_cards_reduce_costs")
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -642,6 +793,7 @@ def main():
     test_dragonlords_servant_reduces_dragon_spells()
     test_mocking_sprite_reduces_instants_and_sorceries()
     test_arcane_epiphany_self_reduces_with_wizard()
+    test_wired_set_cards_reduce_costs()
     print("\nAll cost reduction tests passed.")
 
 

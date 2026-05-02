@@ -7939,8 +7939,26 @@ def spectral_sailor_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- TOLARIAN TERROR ---
 # Costs {1} less for each instant/sorcery in graveyard / Ward {2}.
 def tolarian_terror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: dynamic cost reduction + ward
-    return []
+    """Self-cost: {1} less per instant/sorcery card in your graveyard.
+    Ward {2} granted via printed keyword text (engine handles it).
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        gy = st.zones.get(f'graveyard_{controller}')
+        if not gy:
+            return 0
+        n = 0
+        for oid in gy.objects:
+            o = st.objects.get(oid)
+            if not o:
+                continue
+            ts = o.characteristics.types
+            if CardType.INSTANT in ts or CardType.SORCERY in ts:
+                n += 1
+        return n
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 # --- WITNESS PROTECTION ---
@@ -8029,8 +8047,24 @@ def doubling_season_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- GHALTA, PRIMAL HUNGER ---
 # Costs {X} less to cast where X is total power of creatures you control. / Trample.
 def ghalta_primal_hunger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: dynamic cost reduction
-    return []
+    """Self-cost: {X} less, where X is total power of creatures you control.
+    Trample granted via printed keyword text.
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        total = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and CardType.CREATURE in o.characteristics.types):
+                total += max(0, o.characteristics.power or 0)
+        return total
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 # --- GNARLID COLONY ---
@@ -8550,8 +8584,14 @@ def angelic_destiny_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- BALLYRUSH BANNERET ---
 # Kithkin spells and Soldier spells you cast cost {1} less.
 def ballyrush_banneret_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: cost reduction by multiple subtypes
-    return []
+    """Static: Kithkin/Soldier spells you cast cost {1} less."""
+    def applies(card: GameObject, pid: str, st: GameState) -> bool:
+        if pid != obj.controller:
+            return False
+        subs = card.characteristics.subtypes
+        return "Kithkin" in subs or "Soldier" in subs
+
+    return [make_cost_reduction(obj, applies_to=applies, amount=1)]
 
 
 # --- CRUSADER OF ODRIC ---
@@ -9214,11 +9254,36 @@ CELESTIAL_ARMOR = make_artifact(
     setup_interceptors=celestial_armor_setup,
 )
 
+def claws_out_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self-cost: affinity for Cats — {1} less per Cat you control.
+
+    Skipped clauses:
+      * Resolution effect ('+2/+2 to creatures you control until end of
+        turn') is left to cast-effect dispatch elsewhere.
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        n = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and "Cat" in o.characteristics.subtypes):
+                n += 1
+        return n
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
+
+
 CLAWS_OUT = make_instant(
     name="Claws Out",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     text="Affinity for Cats (This spell costs {1} less to cast for each Cat you control.)\nCreatures you control get +2/+2 until end of turn.",
+    setup_interceptors=claws_out_setup,
 )
 
 CRYSTAL_BARRICADE = make_artifact_creature(
@@ -13180,12 +13245,38 @@ BALL_LIGHTNING = make_creature(
     setup_interceptors=ball_lightning_setup,
 )
 
+def bolt_bend_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self-cost: {3} less if you control a creature with power 4 or greater.
+
+    Skipped clauses:
+      * Resolution effect ('change the target of target spell or ability
+        with a single target') is unimplemented; engine gap for target
+        redirection on stack items.
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and CardType.CREATURE in o.characteristics.types
+                    and (o.characteristics.power or 0) >= 4):
+                return 3
+        return 0
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
+
+
 BOLT_BEND = make_instant(
     name="Bolt Bend",
     mana_cost="{3}{R}",
     colors={Color.RED},
     text="This spell costs {3} less to cast if you control a creature with power 4 or greater.\nChange the target of target spell or ability with a single target.",
-    # engine gap: target redirection on stack items.
+    # engine gap: target redirection on stack items (resolve effect).
+    setup_interceptors=bolt_bend_setup,
 )
 
 CRASH_THROUGH = make_sorcery(

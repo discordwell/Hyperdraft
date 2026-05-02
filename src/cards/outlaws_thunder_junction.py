@@ -47,6 +47,8 @@ from src.cards.interceptor_helpers import (
     count_permanents_of_type,
     # Sweep 4: becomes-creature
     becomes_creature,
+    # Cost reduction
+    make_cost_reduction,
 )
 from src.engine.turn_state import spells_cast_this_turn
 
@@ -2172,9 +2174,17 @@ def fblthp_lost_on_the_range_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def geyser_drake_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cost-down for spells you cast on opponents' turns."""
-    # engine gap: turn-conditional cost reduction not engine-tracked
-    return []
+    """Static: during turns other than yours, spells you cast cost {1} less.
+    Flying granted via printed keyword text.
+    """
+    def applies(card: GameObject, pid: str, st: GameState) -> bool:
+        if pid != obj.controller:
+            return False
+        # Only during opponents' turns
+        active = getattr(st, 'active_player', None)
+        return active is not None and active != obj.controller
+
+    return [make_cost_reduction(obj, applies_to=applies, amount=1)]
 
 
 def the_key_to_the_vault_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2580,9 +2590,26 @@ def gila_courser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def hellspur_brute_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Affinity for outlaws; trample (kw)."""
-    # engine gap: affinity cost reduction not engine-tracked
-    return []
+    """Self-cost: affinity for outlaws — {1} less per Assassin/Mercenary/Pirate/Rogue/Warlock you control.
+    Trample granted via printed keyword text.
+    """
+    OUTLAW_TYPES = {"Assassin", "Mercenary", "Pirate", "Rogue", "Warlock"}
+
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        n = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and o.characteristics.subtypes & OUTLAW_TYPES):
+                n += 1
+        return n
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 def longhorn_sharpshooter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2740,9 +2767,27 @@ def bristly_bill_spine_sower_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def cactarantula_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cost-down for Desert; reach; opponent-target draw."""
-    # engine gap: target-of-spell trigger not engine-tracked here
-    return []
+    """Self-cost: {1} less if you control a Desert. Reach granted via printed keyword.
+
+    Skipped clauses:
+      * 'Whenever this creature becomes the target of a spell or ability an
+        opponent controls, you may draw a card.' (Engine gap: targeted-by-
+        opponent trigger.)
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and "Desert" in o.characteristics.subtypes):
+                return 1
+        return 0
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 def colossal_rattlewurm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

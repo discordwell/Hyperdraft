@@ -47,6 +47,8 @@ from src.cards.interceptor_helpers import (
     # Phase 3: equipment / aura statics
     make_equipment_setup,
     make_aura_setup,
+    # Cost reduction
+    make_cost_reduction,
 )
 from src.engine.blb_mechanics import (
     make_valiant_trigger,
@@ -1383,8 +1385,16 @@ def wick_the_whorled_mind_setup(obj: GameObject, state: GameState) -> list[Inter
 # (Static ability - simplified, not fully implementable without cost system)
 # -----------------------------------------------------------------------------
 def stormcatch_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Prowess and cost reduction are complex - just return empty for now
-    return []
+    """Static: instant and sorcery spells you cast cost {1} less to cast.
+    Haste and prowess granted via printed keyword text.
+    """
+    def applies(card: GameObject, pid: str, st: GameState) -> bool:
+        if pid != obj.controller:
+            return False
+        types = card.characteristics.types
+        return CardType.INSTANT in types or CardType.SORCERY in types
+
+    return [make_cost_reduction(obj, applies_to=applies, amount=1)]
 
 
 # -----------------------------------------------------------------------------
@@ -2551,8 +2561,29 @@ def bonecache_overseer_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def huskburster_swarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: cost reduction based on exiled+graveyard creature cards
-    return []
+    """Self-cost: {1} less per creature card you own in exile + your graveyard.
+    Menace and deathtouch granted via printed keyword text.
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        n = 0
+        gy = st.zones.get(f'graveyard_{controller}')
+        if gy:
+            for oid in gy.objects:
+                o = st.objects.get(oid)
+                if o and CardType.CREATURE in o.characteristics.types:
+                    n += 1
+        ex = st.zones.get('exile')
+        if ex:
+            for oid in ex.objects:
+                o = st.objects.get(oid)
+                if (o and o.owner == controller
+                        and CardType.CREATURE in o.characteristics.types):
+                    n += 1
+        return n
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 def iridescent_vinelasher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -8330,11 +8361,38 @@ PEERLESS_RECYCLING = make_instant(
     text="Gift a card (You may promise an opponent a gift as you cast this spell. If you do, they draw a card before its other effects.)\nReturn target permanent card from your graveyard to your hand. If the gift was promised, instead return two target permanent cards from your graveyard to your hand.",
 )
 
+def polliwallop_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self-cost: affinity for Frogs — {1} less per Frog you control.
+
+    Skipped clauses:
+      * Resolution effect ('target creature you control deals damage equal
+        to twice its power to target creature you don't control') is not
+        wired here; engine handles unimplemented spells via cast-effect
+        dispatch.
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        n = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and "Frog" in o.characteristics.subtypes):
+                n += 1
+        return n
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
+
+
 POLLIWALLOP = make_instant(
     name="Polliwallop",
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="Affinity for Frogs (This spell costs {1} less to cast for each Frog you control.)\nTarget creature you control deals damage equal to twice its power to target creature you don't control.",
+    setup_interceptors=polliwallop_setup,
 )
 
 RUSTSHIELD_RAMPAGER = make_creature(
