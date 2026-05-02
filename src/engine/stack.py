@@ -19,6 +19,49 @@ from .targeting import Target, TargetRequirement, TargetingSystem
 from .mana import ManaCost
 
 
+def build_target_chosen_events(
+    spell_id: Optional[str],
+    controller_id: str,
+    targets: Optional[list[list[Any]]],
+) -> list[Event]:
+    """Build one ``TARGET_CHOSEN`` event per (spell/ability, target) pair.
+
+    ``targets`` is the engine's standard ``list[list[Target]]`` shape (one
+    list per target requirement, each containing ``Target`` instances). For
+    legacy callers we also accept ``list[str]`` and ``list[list[str]]``.
+
+    Returns an empty list when there are no targets — i.e. the spell has no
+    targeting requirements (or fizzled before targets were committed).
+    """
+    if not spell_id or not targets:
+        return []
+
+    events: list[Event] = []
+    for group in targets:
+        if not group:
+            continue
+        for entry in group:
+            target_id = getattr(entry, "id", None)
+            if target_id is None and isinstance(entry, dict):
+                target_id = entry.get("id") or entry.get("target_id")
+            if target_id is None:
+                target_id = entry  # assume a string ID
+            target_id = str(target_id)
+            if not target_id:
+                continue
+            events.append(Event(
+                type=EventType.TARGET_CHOSEN,
+                payload={
+                    'spell_id': spell_id,
+                    'target_id': target_id,
+                    'controller': controller_id,
+                },
+                source=spell_id,
+                controller=controller_id,
+            ))
+    return events
+
+
 class StackItemType(Enum):
     """Types of items that can be on the stack."""
     SPELL = auto()           # A spell being cast
