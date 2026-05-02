@@ -704,34 +704,25 @@ BEYOND_RAVNICA_GOLGARI = {
 
 
 def make_golgari_deck() -> list:
-    """60-card Golgari deck — uses sv_starter basic energies as filler."""
-    from src.cards.pokemon.sv_starter import (
-        DARKNESS_ENERGY, GRASS_ENERGY,
-        NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH, IONO, BOSS_ORDERS, JUDGE,
-    )
+    """60-card Golgari deck."""
+    from src.cards.pokemon.sv_starter import DARKNESS_ENERGY, GRASS_ENERGY
+    from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
-    # Pokemon (16) — 4-3-2 Jarad line + 3-2 Izoni line + 2 Mazirek
+    # Pokemon (16)
     deck.extend([JARLET] * 4)
     deck.extend([JARADITE] * 3)
     deck.extend([JARAD_GOLGARI_LICH_LORD_EX] * 2)
     deck.extend([IZOLET] * 3)
     deck.extend([IZONI_THOUSAND_EYED] * 2)
     deck.extend([MAZIREK_KRAUL_DEATH_PRIEST] * 2)
-    # Trainers (22) — 9 Golgari + 13 sv_starter
+    # Guild trainers (9)
     deck.extend([KOROZDA_THE_TANGLE] * 2)
     deck.extend([VRASKA_GOLGARI_QUEEN] * 2)
     deck.extend([GOLGARI_CLUESTONE] * 3)
     deck.extend([GOLGARI_BLEND_ENERGY] * 2)
-    deck.extend([NEST_BALL] * 3)
-    deck.extend([ULTRA_BALL] * 2)
-    deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 1)
-    deck.extend([POTION] * 1)
-    deck.extend([SUPER_ROD] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 2)
-    deck.extend([IONO] * 1)
-    # Energy (22) — Golgari runs both Grass and Darkness
-    deck.extend([GRASS_ENERGY] * 14)
-    deck.extend([DARKNESS_ENERGY] * 8)
+    # Standard sv_starter trainer suite (22)
+    deck.extend(standard_trainer_suite())
+    # Energy (13)
+    deck.extend([GRASS_ENERGY] * 8)
+    deck.extend([DARKNESS_ENERGY] * 5)
     return deck

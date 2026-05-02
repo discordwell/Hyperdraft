@@ -755,35 +755,25 @@ BEYOND_RAVNICA_GRUUL = {
 
 
 def make_gruul_deck() -> list:
-    """60-card Gruul deck — uses sv_starter basic energies as filler."""
-    from src.cards.pokemon.sv_starter import (
-        FIRE_ENERGY, GRASS_ENERGY,
-        NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH, IONO, BOSS_ORDERS, JUDGE,
-    )
+    """60-card Gruul deck."""
+    from src.cards.pokemon.sv_starter import FIRE_ENERGY, GRASS_ENERGY
+    from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
-    # Pokemon (16) — Borborygmos line + Ruric Thar line + filler
+    # Pokemon (16)
     deck.extend([BORBLET] * 4)
     deck.extend([BORBORGREW] * 3)
     deck.extend([BORBORYGMOS_EX] * 2)
     deck.extend([RURICLET] * 3)
     deck.extend([RURIC_THAR_THE_UNBOWED] * 2)
     deck.extend([BURNING_TREE_EMISSARY] * 2)
-    # Trainers (22)
+    # Guild trainers (9)
     deck.extend([SKARRG_THE_RAGE_PITS] * 2)
     deck.extend([DOMRI_RADE] * 2)
     deck.extend([GRUUL_CLUESTONE] * 3)
     deck.extend([GRUUL_BLEND_ENERGY] * 2)
-    deck.extend([NEST_BALL] * 3)
-    deck.extend([ULTRA_BALL] * 1)
-    deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 1)
-    deck.extend([POTION] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 2)
-    deck.extend([IONO] * 1)
-    deck.extend([BOSS_ORDERS] * 1)
-    deck.extend([JUDGE] * 1)
-    # Energy (22) — Gruul runs both Fire and Grass
-    deck.extend([FIRE_ENERGY] * 14)
-    deck.extend([GRASS_ENERGY] * 8)
+    # Standard sv_starter trainer suite (22)
+    deck.extend(standard_trainer_suite())
+    # Energy (13)
+    deck.extend([FIRE_ENERGY] * 8)
+    deck.extend([GRASS_ENERGY] * 5)
     return deck

@@ -320,23 +320,23 @@ def _hand_of_cruelty_effect(attacker, state):
     target = state.objects.get(target_id)
     if not target or target.state.damage_counters <= 0:
         return []
-    target.state.damage_counters += 3  # +30 damage
+    target.state.damage_counters += 2  # +20 damage
     return [Event(
         type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
-        payload={'pokemon_id': target_id, 'counters': 3, 'source': 'Hand of Cruelty'},
+        payload={'pokemon_id': target_id, 'counters': 2, 'source': 'Hand of Cruelty'},
     )]
 
 
 HAND_OF_CRUELTY = make_pokemon(
     name="Hand of Cruelty",
-    hp=90,
+    hp=80,
     pokemon_type=PokemonType.DARKNESS.value,
     evolution_stage="Basic",
     attacks=[
         {"name": "Executioner's Strike",
          "cost": [{"type": "D", "count": 1}, {"type": "C", "count": 1}],
          "damage": 50,
-         "text": "If your opponent's Active Pokemon has any damage counters, this attack does 30 more damage.",
+         "text": "If your opponent's Active Pokemon has any damage counters, this attack does 20 more damage.",
          "effect_fn": _hand_of_cruelty_effect},
     ],
     weakness_type=PokemonType.GRASS.value,
@@ -556,12 +556,9 @@ BEYOND_RAVNICA_DIMIR = {
 
 
 def make_dimir_deck() -> list:
-    """60-card Dimir deck — uses sv_starter basic energies as filler."""
-    from src.cards.pokemon.sv_starter import (
-        PSYCHIC_ENERGY, DARKNESS_ENERGY,
-        NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH,
-    )
+    """60-card Dimir deck."""
+    from src.cards.pokemon.sv_starter import PSYCHIC_ENERGY, DARKNESS_ENERGY
+    from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
     # Pokemon (16)
     deck.extend([LAZLET] * 4)
@@ -570,19 +567,14 @@ def make_dimir_deck() -> list:
     deck.extend([MIRKLET] * 3)
     deck.extend([MIRKO_VOSK_MIND_DRINKER] * 2)
     deck.extend([DIMIR_CUTPURSE] * 2)
-    # Trainers (22)
+    # Guild trainers (9)
     deck.extend([DUSKMANTLE_HOUSE_OF_SHADOW] * 2)
     deck.extend([ETRATA_THE_SILENCER] * 2)
     deck.extend([DIMIR_CLUESTONE] * 3)
     deck.extend([DIMIR_BLEND_ENERGY] * 2)
-    deck.extend([NEST_BALL] * 4)
-    deck.extend([ULTRA_BALL] * 2)
-    deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 2)
-    deck.extend([POTION] * 1)
-    deck.extend([SUPER_ROD] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 1)
-    # Energy (22) — Dimir runs both Psychic and Darkness
-    deck.extend([PSYCHIC_ENERGY] * 14)
-    deck.extend([DARKNESS_ENERGY] * 8)
+    # Standard sv_starter trainer suite (22)
+    deck.extend(standard_trainer_suite())
+    # Energy (13)
+    deck.extend([PSYCHIC_ENERGY] * 8)
+    deck.extend([DARKNESS_ENERGY] * 5)
     return deck
