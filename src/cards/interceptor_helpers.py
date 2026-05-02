@@ -4568,6 +4568,167 @@ def make_exhaust_ability(
     )
 
 
+# =============================================================================
+# EXHAUST-ECOSYSTEM HELPERS
+# =============================================================================
+#
+# Two helpers for cards that *react* to or *transform* exhaust ability costs,
+# rather than registering an exhaust ability directly.
+#
+#   - ``make_activate_exhaust_trigger``: react to any exhaust-ability
+#     ACTIVATE event (Rangers' Refueler / Afterburner Expert pattern).
+#   - ``make_activated_cost_reduction``: register a TRANSFORM-priority
+#     interceptor on QUERY_ACTIVATION_COST that reduces the generic mana
+#     portion of a matching ability's cost (Boom Scholar pattern).
+# -----------------------------------------------------------------------------
+
+
+def make_activate_exhaust_trigger(
+    obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+    *,
+    controller_only: bool = True,
+    while_in_zone: Optional[Any] = None,
+) -> Interceptor:
+    """React when an exhaust ability is activated by ``obj``'s controller.
+
+    Args:
+        obj: the card with the trigger (Rangers' Refueler, Afterburner Expert).
+        effect_fn: ``(event, state) -> list[Event]``. The triggered effect.
+        controller_only: when True (default), only fires for activations by
+            ``obj.controller``. Set False to react to any player's exhaust
+            activation.
+        while_in_zone: when not None, restrict the trigger to fire only while
+            ``obj`` is in this zone (e.g. ``ZoneType.GRAVEYARD`` for
+            Afterburner Expert's "...from your graveyard..." reaction).
+
+    The trigger uses the new ``is_exhaust`` payload key emitted by
+    ``priority._handle_activate_ability`` on every ``EventType.ACTIVATE``.
+    """
+    obj_id = obj.id
+    obj_controller = obj.controller
+
+    def _filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ACTIVATE:
+            return False
+        if not event.payload.get('is_exhaust', False):
+            return False
+        if controller_only and event.payload.get('controller') != obj_controller:
+            return False
+        if while_in_zone is not None:
+            current = state.objects.get(obj_id)
+            if current is None or current.zone != while_in_zone:
+                return False
+        return True
+
+    def _handler(event: Event, state: GameState) -> InterceptorResult:
+        try:
+            new_events = effect_fn(event, state) or []
+        except Exception:
+            new_events = []
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=list(new_events),
+        )
+
+    # Pick a sensible duration so the interceptor is gated correctly when the
+    # source moves zones. Battlefield triggers use the standard
+    # ``while_on_battlefield`` duration so they're swept by
+    # ``_cleanup_departed_interceptors`` when the card leaves play. Graveyard
+    # triggers (Afterburner Expert) need a non-battlefield duration so they're
+    # NOT swept when the card enters the graveyard; the filter itself gates by
+    # zone via ``while_in_zone``.
+    if while_in_zone is None or while_in_zone is ZoneType.BATTLEFIELD:
+        duration = 'while_on_battlefield'
+    else:
+        duration = 'forever'
+
+    return Interceptor(
+        id=new_id(),
+        source=obj_id,
+        controller=obj_controller,
+        priority=InterceptorPriority.REACT,
+        filter=_filter,
+        handler=_handler,
+        duration=duration,
+    )
+
+
+def make_activated_cost_reduction(
+    obj: GameObject,
+    *,
+    amount,
+    applies_filter: Callable[[Any, Any, GameState], bool],
+) -> Interceptor:
+    """Reduce activated-ability mana costs (generic only) when ``applies_filter`` matches.
+
+    Used for Boom Scholar and similar "[matched abilities] cost {N} less to
+    activate" effects. Coloured pips are never reduced.
+
+    Args:
+        obj: the source permanent (e.g. Boom Scholar).
+        amount: int reduction (or callable ``(ability, source, state) -> int``).
+        applies_filter: ``(ability, source, state) -> bool`` predicate.
+            Return True iff the reduction applies to the queried activation.
+
+    Implementation is a TRANSFORM-priority interceptor on
+    ``EventType.QUERY_ACTIVATION_COST`` consumed by
+    ``cost_query.get_effective_activation_cost``.
+    """
+    from src.engine.cost_query import REDUCTION_KEY
+
+    source_id = obj.id
+
+    def _filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_ACTIVATION_COST:
+            return False
+        # Only fire while the source is on the battlefield (unless it's been
+        # removed mid-evaluation; safer to gate explicitly).
+        src = state.objects.get(source_id)
+        if not src or src.zone != ZoneType.BATTLEFIELD:
+            return False
+        try:
+            return bool(applies_filter(
+                event.payload.get('ability'),
+                event.payload.get('source'),
+                state,
+            ))
+        except Exception:
+            return False
+
+    def _handler(event: Event, state: GameState) -> InterceptorResult:
+        try:
+            if callable(amount):
+                amt = int(amount(
+                    event.payload.get('ability'),
+                    event.payload.get('source'),
+                    state,
+                ) or 0)
+            else:
+                amt = int(amount or 0)
+        except (TypeError, ValueError):
+            amt = 0
+        if amt <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        new_event = event.copy()
+        running = int(new_event.payload.get(REDUCTION_KEY, 0))
+        new_event.payload[REDUCTION_KEY] = running + amt
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=obj.controller,
+        priority=InterceptorPriority.TRANSFORM,
+        filter=_filter,
+        handler=_handler,
+        duration='while_on_battlefield',
+    )
+
+
 def make_pump_self_ability(
     obj: GameObject,
     cost: str,
@@ -4952,6 +5113,8 @@ def make_sac_destroy_ability(
 __all_phase4__ = [
     "make_activated_ability",
     "make_exhaust_ability",
+    "make_activate_exhaust_trigger",
+    "make_activated_cost_reduction",
     "make_pump_self_ability",
     "make_draw_ability",
     "make_loot_ability",
