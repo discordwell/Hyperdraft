@@ -367,6 +367,20 @@ def _handle_zone_change(event: Event, state: GameState):
                 state.interceptors[interceptor.id] = interceptor
                 obj.interceptor_ids.append(interceptor.id)
 
+    # Phase: graveyard-zone setup. Cards with abilities activatable while in
+    # the graveyard (e.g. Goldmeadow Nomad's "{W}, Exile this from graveyard:
+    # ..." ability) declare them via card_def.setup_in_graveyard. The hook
+    # runs on entry to the graveyard zone; abilities should be registered on
+    # obj.state.activated_abilities and discovered by priority.
+    if to_zone_type == ZoneType.GRAVEYARD and obj.card_def:
+        gy_setup = getattr(obj.card_def, 'setup_in_graveyard', None)
+        if callable(gy_setup):
+            new_interceptors = gy_setup(obj, state) or []
+            for interceptor in new_interceptors:
+                interceptor.timestamp = state.next_timestamp()
+                state.interceptors[interceptor.id] = interceptor
+                obj.interceptor_ids.append(interceptor.id)
+
 
 def _handle_tap(event: Event, state: GameState):
     """Handle TAP event."""
