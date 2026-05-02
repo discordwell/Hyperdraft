@@ -51,6 +51,8 @@ from src.cards.interceptor_helpers import (
     make_cost_reduction,
     # Dynamic P/T
     make_dynamic_pt_boost,
+    # Modal resolve
+    make_modal_resolve,
 )
 from src.engine.blb_mechanics import (
     make_valiant_trigger,
@@ -7400,11 +7402,63 @@ SKYSKIPPER_DUO = make_creature(
     setup_interceptors=skyskipper_duo_setup
 )
 
+def _spellgyre_mode_counter(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Counter target spell."""
+    stack = state.zones.get('stack')
+    legal = []
+    if stack:
+        for cid in stack.objects:
+            if cid != spell_id:
+                legal.append(cid)
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.COUNTER_SPELL,
+            payload={'target': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Spellgyre: choose target spell to counter",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _spellgyre_mode_surveil_draw(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Surveil 2, then draw two cards."""
+    return [
+        Event(
+            type=EventType.SURVEIL,
+            payload={'player': caster_id, 'amount': 2},
+            source=spell_id, controller=caster_id,
+        ),
+        Event(
+            type=EventType.DRAW,
+            payload={'player': caster_id, 'amount': 2},
+            source=spell_id, controller=caster_id,
+        ),
+    ]
+
+
 SPELLGYRE = make_instant(
     name="Spellgyre",
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     text="Choose one —\n• Counter target spell.\n• Surveil 2, then draw two cards. (To surveil 2, look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)",
+    resolve=make_modal_resolve(
+        "Spellgyre",
+        modes=[
+            ("Counter target spell", _spellgyre_mode_counter),
+            ("Surveil 2, then draw two cards", _spellgyre_mode_surveil_draw),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 SPLASH_LASHER = make_creature(

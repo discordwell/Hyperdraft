@@ -44,6 +44,10 @@ from src.cards.interceptor_helpers import (
     make_equipment_setup, make_aura_setup,
     # Cost reduction
     make_cost_reduction,
+    # Modal resolve
+    make_modal_resolve,
+    # Target picker
+    create_target_choice,
 )
 from src.engine.turn_state import spells_cast_this_turn
 
@@ -4145,11 +4149,75 @@ RAYBLADE_TROOPER = make_creature(
     setup_interceptors=make_warp_setup("{1}{W}", inner_setup=rayblade_trooper_setup),
 )
 
+def _reroute_systems_mode_indestructible(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target artifact or creature gains indestructible until end of turn."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and (CardType.ARTIFACT in o.characteristics.types
+                 or CardType.CREATURE in o.characteristics.types))
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': selected[0], 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Reroute Systems: choose target artifact or creature",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _reroute_systems_mode_damage(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Reroute Systems deals 2 damage to target tapped creature."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and getattr(o.state, 'tapped', False))
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': selected[0], 'amount': 2, 'source': spell_id},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Reroute Systems: choose tapped creature to deal 2 damage",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 REROUTE_SYSTEMS = make_instant(
     name="Reroute Systems",
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Choose one —\n• Target artifact or creature gains indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)\n• Reroute Systems deals 2 damage to target tapped creature.",
+    resolve=make_modal_resolve(
+        "Reroute Systems",
+        modes=[
+            ("Target artifact or creature gains indestructible", _reroute_systems_mode_indestructible),
+            ("Reroute Systems deals 2 damage to target tapped creature", _reroute_systems_mode_damage),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 RESCUE_SKIFF = make_artifact(
@@ -4671,11 +4739,116 @@ ALPHARAEL_STONECHOSEN = make_creature(
     setup_interceptors=alpharael_stonechosen_setup,
 )
 
+def _archenemy_charm_mode_exile(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Exile target creature or planeswalker."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and (CardType.CREATURE in o.characteristics.types
+                 or CardType.PLANESWALKER in o.characteristics.types))
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Archenemy's Charm: exile creature or planeswalker",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _archenemy_charm_mode_return(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Return one or two creature/planeswalker cards from your graveyard to hand."""
+    gy_key = f"graveyard_{caster_id}"
+    gy = state.zones.get(gy_key)
+    legal = []
+    if gy:
+        for cid in gy.objects:
+            obj = state.objects.get(cid)
+            if obj and (CardType.CREATURE in obj.characteristics.types
+                        or CardType.PLANESWALKER in obj.characteristics.types):
+                legal.append(cid)
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        events = []
+        for cid in (selected or []):
+            events.append(Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={'card_id': cid, 'destination': 'hand'},
+                source=spell_id, controller=caster_id,
+            ))
+        return events
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Archenemy's Charm: choose 1 or 2 cards to return from graveyard",
+        min_targets=1, max_targets=min(2, len(legal)),
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _archenemy_charm_mode_counters(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Two +1/+1 counters on creature you control. It gains lifelink EOT."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': selected[0], 'counter_type': '+1/+1', 'amount': 2},
+                source=spell_id, controller=caster_id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': selected[0], 'keyword': 'lifelink', 'duration': 'end_of_turn'},
+                source=spell_id, controller=caster_id,
+            ),
+        ]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Archenemy's Charm: choose your creature for +1/+1 counters and lifelink",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 ARCHENEMYS_CHARM = make_instant(
     name="Archenemy's Charm",
     mana_cost="{B}{B}{B}",
     colors={Color.BLACK},
     text="Choose one —\n• Exile target creature or planeswalker.\n• Return one or two target creature and/or planeswalker cards from your graveyard to your hand.\n• Put two +1/+1 counters on target creature you control. It gains lifelink until end of turn.",
+    resolve=make_modal_resolve(
+        "Archenemy's Charm",
+        modes=[
+            ("Exile target creature or planeswalker", _archenemy_charm_mode_exile),
+            ("Return one or two cards from your graveyard to your hand", _archenemy_charm_mode_return),
+            ("Two +1/+1 counters and lifelink on target creature", _archenemy_charm_mode_counters),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 BEAMSAW_PROSPECTOR = make_creature(
@@ -5062,11 +5235,75 @@ DEVASTATING_ONSLAUGHT = make_sorcery(
     text="Create X tokens that are copies of target artifact or creature you control. Those tokens gain haste until end of turn. Sacrifice them at the beginning of the next end step.",
 )
 
+def _drill_too_deep_mode_charge(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Put five charge counters on target Spacecraft or Planet you control."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and o.controller == caster_id
+            and ('Spacecraft' in o.characteristics.subtypes
+                 or 'Planet' in o.characteristics.subtypes))
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': selected[0], 'counter_type': 'charge', 'amount': 5},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Drill Too Deep: choose Spacecraft or Planet for 5 charge counters",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _drill_too_deep_mode_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target artifact."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.ARTIFACT in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Drill Too Deep: destroy target artifact",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 DRILL_TOO_DEEP = make_instant(
     name="Drill Too Deep",
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Choose one —\n• Put five charge counters on target Spacecraft or Planet you control.\n• Destroy target artifact.",
+    resolve=make_modal_resolve(
+        "Drill Too Deep",
+        modes=[
+            ("Put five charge counters on target Spacecraft or Planet you control", _drill_too_deep_mode_charge),
+            ("Destroy target artifact", _drill_too_deep_mode_destroy),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 FRONTLINE_WARRAGER = make_creature(
@@ -5282,11 +5519,47 @@ ROVING_ACTUATOR = make_artifact_creature(
     setup_interceptors=roving_actuator_setup,
 )
 
+def _ruinous_rampage_mode_burn(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """3 damage to each opponent."""
+    return [
+        Event(
+            type=EventType.DAMAGE,
+            payload={'target': pid, 'amount': 3, 'source': spell_id},
+            source=spell_id, controller=caster_id,
+        )
+        for pid in state.players.keys() if pid != caster_id
+    ]
+
+
+def _ruinous_rampage_mode_exile(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Exile all artifacts with mana value 3 or less."""
+    events: list[Event] = []
+    for oid, o in state.objects.items():
+        if (o.zone == ZoneType.BATTLEFIELD
+                and CardType.ARTIFACT in o.characteristics.types):
+            mv = getattr(o.characteristics, 'mana_value', 0) or 0
+            if mv <= 3:
+                events.append(Event(
+                    type=EventType.EXILE,
+                    payload={'object_id': oid},
+                    source=spell_id, controller=caster_id,
+                ))
+    return events
+
+
 RUINOUS_RAMPAGE = make_sorcery(
     name="Ruinous Rampage",
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
     text="Choose one —\n• Ruinous Rampage deals 3 damage to each opponent.\n• Exile all artifacts with mana value 3 or less.",
+    resolve=make_modal_resolve(
+        "Ruinous Rampage",
+        modes=[
+            ("Ruinous Rampage deals 3 damage to each opponent", _ruinous_rampage_mode_burn),
+            ("Exile all artifacts with mana value 3 or less", _ruinous_rampage_mode_exile),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 RUST_HARVESTER = make_artifact_creature(

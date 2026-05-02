@@ -44,6 +44,7 @@ from src.cards.interceptor_helpers import (
     creatures_with_subtype,
     create_modal_choice,
     create_target_choice,
+    make_modal_resolve,
     open_library_search,
     any_card_filter,
     artifact_filter_lib,
@@ -10277,11 +10278,57 @@ SANGUINE_SYPHONER = make_creature(
     setup_interceptors=sanguine_syphoner_setup
 )
 
+def _seekers_folly_mode_discard(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target opponent discards two cards (chained target choice)."""
+    opp_ids = [pid for pid in state.players.keys() if pid != caster_id]
+    if not opp_ids:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': selected[0], 'amount': 2},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=opp_ids,
+        prompt="Seeker's Folly: choose target opponent",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _seekers_folly_mode_minus(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Creatures your opponents control get -1/-1 until end of turn."""
+    events: list[Event] = []
+    for oid, o in state.objects.items():
+        if (o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types
+                and o.controller != caster_id):
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': oid, 'power_mod': -1, 'toughness_mod': -1, 'duration': 'end_of_turn'},
+                source=spell_id, controller=caster_id,
+            ))
+    return events
+
+
 SEEKERS_FOLLY = make_sorcery(
     name="Seeker's Folly",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Choose one —\n• Target opponent discards two cards.\n• Creatures your opponents control get -1/-1 until end of turn.",
+    resolve=make_modal_resolve(
+        "Seeker's Folly",
+        modes=[
+            ("Target opponent discards two cards", _seekers_folly_mode_discard),
+            ("Creatures your opponents control get -1/-1 until end of turn", _seekers_folly_mode_minus),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 SOULSHACKLED_ZOMBIE = make_creature(
@@ -11626,11 +11673,55 @@ FRENZIED_GOBLIN = make_creature(
     setup_interceptors=frenzied_goblin_setup,
 )
 
+def _goblin_surprise_mode_pump(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Creatures you control get +2/+0 until end of turn."""
+    events: list[Event] = []
+    for oid, o in state.objects.items():
+        if (o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types
+                and o.controller == caster_id):
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': oid, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+                source=spell_id, controller=caster_id,
+            ))
+    return events
+
+
+def _goblin_surprise_mode_tokens(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Create two 1/1 red Goblin creature tokens."""
+    return [
+        Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Goblin Token',
+                'controller': caster_id, 'owner': caster_id,
+                'to_zone_type': ZoneType.BATTLEFIELD,
+                'power': 1, 'toughness': 1,
+                'types': {CardType.CREATURE},
+                'subtypes': {'Goblin'},
+                'colors': {Color.RED},
+                'is_token': True,
+            },
+            source=spell_id, controller=caster_id,
+        )
+        for _ in range(2)
+    ]
+
+
 GOBLIN_SURPRISE = make_instant(
     name="Goblin Surprise",
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Choose one —\n• Creatures you control get +2/+0 until end of turn.\n• Create two 1/1 red Goblin creature tokens.",
+    resolve=make_modal_resolve(
+        "Goblin Surprise",
+        modes=[
+            ("Creatures you control get +2/+0 until end of turn", _goblin_surprise_mode_pump),
+            ("Create two 1/1 red Goblin creature tokens", _goblin_surprise_mode_tokens),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 HEARTFIRE_IMMOLATOR = make_creature(
@@ -11734,11 +11825,44 @@ SHIVAN_DRAGON = make_creature(
     text="Flying\n{R}: This creature gets +1/+0 until end of turn.",
 )
 
+def _slagstorm_mode_creatures(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """3 damage to each creature."""
+    events: list[Event] = []
+    for oid, o in state.objects.items():
+        if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types:
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': oid, 'amount': 3, 'source': spell_id},
+                source=spell_id, controller=caster_id,
+            ))
+    return events
+
+
+def _slagstorm_mode_players(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """3 damage to each player."""
+    return [
+        Event(
+            type=EventType.DAMAGE,
+            payload={'target': pid, 'amount': 3, 'source': spell_id},
+            source=spell_id, controller=caster_id,
+        )
+        for pid in state.players.keys()
+    ]
+
+
 SLAGSTORM = make_sorcery(
     name="Slagstorm",
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
     text="Choose one —\n• Slagstorm deals 3 damage to each creature.\n• Slagstorm deals 3 damage to each player.",
+    resolve=make_modal_resolve(
+        "Slagstorm",
+        modes=[
+            ("Slagstorm deals 3 damage to each creature", _slagstorm_mode_creatures),
+            ("Slagstorm deals 3 damage to each player", _slagstorm_mode_players),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 SPITFIRE_LAGAC = make_creature(
@@ -11800,11 +11924,85 @@ BROKEN_WINGS = make_instant(
     text="Destroy target artifact, enchantment, or creature with flying.",
 )
 
+def _bushwhack_mode_search(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Search your library for a basic land card."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': caster_id,
+            'card_filter': 'basic_land',
+            'destination': 'hand',
+            'reveal': True,
+        },
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _bushwhack_mode_fight(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target creature you control fights target creature you don't control."""
+    own_creatures = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+    enemy_creatures = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller != caster_id)
+    ]
+    if not own_creatures or not enemy_creatures:
+        return []
+
+    def _on_enemy(ch2, sel_enemy, st):
+        if not sel_enemy:
+            return []
+        fighter_id = ch2.callback_data.get('_fighter_id')
+        if not fighter_id:
+            return []
+        return [Event(
+            type=EventType.FIGHT,
+            payload={'creature1': fighter_id, 'creature2': sel_enemy[0]},
+            source=spell_id, controller=caster_id,
+        )]
+
+    def _on_own(ch1, sel_own, st):
+        if not sel_own:
+            return []
+        ch2 = create_target_choice(
+            state=st, player_id=caster_id, source_id=spell_id,
+            legal_targets=enemy_creatures,
+            prompt="Bushwhack: choose enemy creature to fight",
+            callback_data={'_fighter_id': sel_own[0]},
+        )
+        ch2.choice_type = "target_with_callback"
+        ch2.callback_data['handler'] = _on_enemy
+        return []
+
+    tc1 = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=own_creatures,
+        prompt="Bushwhack: choose your creature to fight",
+    )
+    tc1.choice_type = "target_with_callback"
+    tc1.callback_data['handler'] = _on_own
+    return []
+
+
 BUSHWHACK = make_sorcery(
     name="Bushwhack",
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Choose one —\n• Search your library for a basic land card, reveal it, put it into your hand, then shuffle.\n• Target creature you control fights target creature you don't control. (Each deals damage equal to its power to the other.)",
+    resolve=make_modal_resolve(
+        "Bushwhack",
+        modes=[
+            ("Search your library for a basic land card", _bushwhack_mode_search),
+            ("Target creature you control fights target creature you don't control", _bushwhack_mode_fight),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 DOUBLING_SEASON = make_enchantment(
@@ -14546,11 +14744,86 @@ PELAKKA_WURM = make_creature(
     setup_interceptors=pelakka_wurm_setup
 )
 
+def _boros_charm_mode_burn(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """4 damage to target player or planeswalker (player only — planeswalker engine gap)."""
+    legal = list(state.players.keys())
+    for oid, o in state.objects.items():
+        if (o.zone == ZoneType.BATTLEFIELD
+                and CardType.PLANESWALKER in o.characteristics.types):
+            legal.append(oid)
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': selected[0], 'amount': 4, 'source': spell_id},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Boros Charm: deal 4 damage to which target?",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _boros_charm_mode_indestructible(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Permanents you control gain indestructible until end of turn."""
+    events: list[Event] = []
+    for oid, o in state.objects.items():
+        if o.zone == ZoneType.BATTLEFIELD and o.controller == caster_id:
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': oid, 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+                source=spell_id, controller=caster_id,
+            ))
+    return events
+
+
+def _boros_charm_mode_double_strike(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target creature gains double strike until end of turn."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': selected[0], 'keyword': 'double strike', 'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Boros Charm: choose creature for double strike",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 BOROS_CHARM = make_instant(
     name="Boros Charm",
     mana_cost="{R}{W}",
     colors={Color.RED, Color.WHITE},
     text="Choose one —\n• Boros Charm deals 4 damage to target player or planeswalker.\n• Permanents you control gain indestructible until end of turn.\n• Target creature gains double strike until end of turn.",
+    resolve=make_modal_resolve(
+        "Boros Charm",
+        modes=[
+            ("Boros Charm deals 4 damage to target player or planeswalker", _boros_charm_mode_burn),
+            ("Permanents you control gain indestructible until end of turn", _boros_charm_mode_indestructible),
+            ("Target creature gains double strike until end of turn", _boros_charm_mode_double_strike),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 UNFLINCHING_COURAGE = make_enchantment(
