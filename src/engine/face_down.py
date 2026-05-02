@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .types import (
+    CardType,
     Event,
     EventType,
     GameObject,
@@ -161,10 +162,76 @@ def _handle_turn_face_up(event: Event, state: GameState):
     event.payload["object_id"] = object_id
 
 
+def _handle_manifest_dread(event: Event, state):
+    """Resolve a MANIFEST_DREAD event.
+
+    Pragmatic implementation: look at the top two cards of ``controller``'s
+    library, manifest the first as a face-down 2/2 creature, and put the
+    second into the graveyard. (The MTG rule lets the player choose which
+    of the two; default is deterministic — the top card.)
+
+    Payload:
+        controller: str — the player whose library is consulted
+        source_id: str (optional) — the source effect for trigger attribution
+    """
+    controller = event.payload.get("controller") or event.payload.get("player")
+    source_id = event.payload.get("source_id") or event.payload.get("source") or "manifest_dread"
+    if not controller:
+        return []
+
+    library = state.zones.get(f"library_{controller}")
+    if not library or not library.objects:
+        return []
+
+    # Take the top card to manifest.
+    top1_id = library.objects[0]
+    top1 = state.objects.get(top1_id)
+    if top1 is None:
+        return []
+
+    library.objects.pop(0)
+
+    follow_ups: list = []
+
+    # Mill the second card to graveyard, if any.
+    if library.objects:
+        top2_id = library.objects[0]
+        top2 = state.objects.get(top2_id)
+        if top2 is not None:
+            library.objects.pop(0)
+            graveyard = state.zones.get(f"graveyard_{controller}")
+            if graveyard is not None:
+                graveyard.objects.append(top2_id)
+                top2.zone = ZoneType.GRAVEYARD
+
+    # Manifest the first card via the standard face-down OBJECT_CREATED path.
+    follow_ups.append(Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'controller': controller,
+            'owner': controller,
+            'name': '',
+            'zone_type': ZoneType.BATTLEFIELD,
+            'types': {CardType.CREATURE},
+            'subtypes': set(),
+            'colors': set(),
+            'power': DEFAULT_FACE_DOWN_POWER,
+            'toughness': DEFAULT_FACE_DOWN_TOUGHNESS,
+            'is_token': False,
+            'face_down': True,
+            'card_def': top1.card_def,
+        },
+        source=source_id,
+        controller=controller,
+    ))
+
+    return follow_ups
+
+
 def register_face_down_handler() -> None:
     """
-    Idempotently register the TURN_FACE_UP handler in the global EVENT_HANDLERS
-    dict.
+    Idempotently register the TURN_FACE_UP and MANIFEST_DREAD handlers in
+    the global EVENT_HANDLERS dict.
 
     Called from :mod:`src.engine.pipeline.handlers` package init via the
     auto-registration hook below; safe to call directly from tests too.
@@ -173,6 +240,7 @@ def register_face_down_handler() -> None:
     from .pipeline.handlers import EVENT_HANDLERS
 
     EVENT_HANDLERS.setdefault(EventType.TURN_FACE_UP, _handle_turn_face_up)
+    EVENT_HANDLERS.setdefault(EventType.MANIFEST_DREAD, _handle_manifest_dread)
 
 
 # =============================================================================
