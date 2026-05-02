@@ -45,6 +45,8 @@ from src.cards.interceptor_helpers import (
     make_attached_dynamic_pt_boost,
     # Targeting choice helper for graveyard-activated abilities.
     create_target_choice,
+    # Copy-ability mechanic.
+    make_copy_ability_event,
     # Cost reduction.
     make_cost_reduction,
     # Modal resolve.
@@ -3062,6 +3064,52 @@ def peter_parkers_camera_setup(obj: GameObject, state: GameState) -> list[Interc
             payload={'object_id': obj.id, 'counter_type': 'film', 'amount': 3},
             source=obj.id
         )]
+
+    def copy_ability_effect(o: GameObject, st: GameState, _targets) -> list[Event]:
+        """{2}, {T}, Remove a film counter: Copy target activated/triggered ability you control."""
+        game = getattr(st, '_game', None)
+        stack = getattr(game, 'stack', None) if game else None
+        if stack is None:
+            return []
+        legal_item_ids: list[str] = []
+        for sitem in stack.get_items():
+            if sitem.controller_id != o.controller:
+                continue
+            if not getattr(sitem, 'can_be_copied', True):
+                continue
+            legal_item_ids.append(sitem.id)
+        if not legal_item_ids:
+            return []
+
+        def _execute(choice, selected, st2: GameState) -> list[Event]:
+            item_id = selected[0] if selected else None
+            if not item_id:
+                return []
+            return [make_copy_ability_event(
+                stack_item_id=item_id,
+                controller=o.controller,
+                source_id=o.id,
+            )]
+
+        choice = create_target_choice(
+            state=st,
+            player_id=o.controller,
+            source_id=o.id,
+            legal_targets=legal_item_ids,
+            prompt="Choose an activated or triggered ability you control to copy",
+            min_targets=1,
+            max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _execute
+        return []
+
+    make_activated_ability(
+        obj,
+        cost="{2}, {T}, Remove a film counter from this",
+        effect_fn=copy_ability_effect,
+        description="Copy target activated/triggered ability you control",
+    )
     return [make_etb_trigger(obj, etb_effect)]
 
 

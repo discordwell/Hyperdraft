@@ -149,6 +149,7 @@ class EventType(Enum):
     COUNTER_SPELL_UNLESS_PAY = auto()      # Alias (counter unless pay)
     SPELL_COUNTERED = auto()               # Marker event (spell was countered)
     COPY_SPELL = auto()                    # Copy a spell on the stack
+    COPY_STACK_ITEM = auto()               # Copy any stack item (spell or activated/triggered ability)
     RETURN_TO_HAND = auto()                # Return permanent to hand
     RETURN_FROM_GRAVEYARD = auto()         # Return card from graveyard
     RETURN_TO_HAND_FROM_GRAVEYARD = auto() # Bounce from graveyard to hand

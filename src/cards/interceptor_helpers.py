@@ -6209,3 +6209,46 @@ def make_modal_resolve(
 __all_modal__ = [
     "make_modal_resolve",
 ]
+
+
+# =============================================================================
+# COPY STACK-ITEM HELPER (Virtue of Knowledge / Peter Parker's Camera / Gogo)
+# =============================================================================
+
+def make_copy_ability_event(
+    stack_item_id: str,
+    controller: str,
+    source_id: str,
+    *,
+    new_targets: Optional[list] = None,
+) -> Event:
+    """Build a ``COPY_STACK_ITEM`` event.
+
+    Resolves to a copy of the targeted stack item being pushed onto the stack
+    (the engine handler clones via ``StackManager.push_copy``). The copy keeps
+    the original's ``resolve_fn`` and ``source_id`` so it produces the same
+    effect; if ``new_targets`` is supplied, the copy resolves against those
+    instead of the original's chosen targets.
+
+    Use this from a card's resolve callback or from an effect_fn that already
+    runs after the player has chosen which stack item to copy.
+
+    Args:
+        stack_item_id: id of the StackItem to copy (must be currently on the
+            stack — copies are pushed immediately).
+        controller: player who's doing the copying (used for event.controller).
+        source_id: object id of the card causing the copy (Virtue of Knowledge,
+            Peter Parker's Camera, Gogo, etc.). Used as event.source.
+        new_targets: optional new targets in the engine's standard
+            ``list[list[Target]]`` shape. Pass ``None`` to keep the original
+            targets.
+    """
+    payload: dict = {'stack_item_id': stack_item_id}
+    if new_targets is not None:
+        payload['new_targets'] = new_targets
+    return Event(
+        type=EventType.COPY_STACK_ITEM,
+        payload=payload,
+        source=source_id,
+        controller=controller,
+    )
