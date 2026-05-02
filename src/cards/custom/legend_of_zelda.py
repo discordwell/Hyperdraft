@@ -2103,6 +2103,38 @@ ROBBIE_ANCIENT_TECH = make_creature(
 
 
 # =============================================================================
+# TRIBAL LORDS — multiplies the value of ZLD's vanilla-heavy mono-white
+# creature mass. Pre-pass ZLD has 10 mono-white Hylians, 5 Knights, all
+# vanilla. Each lord pumps ~10-15 drafted creatures by +1/+1, turning
+# stat-line damage into amplified-stat-line damage.
+# =============================================================================
+
+def _hylian_marshal_setup(obj, state):
+    return list(make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Hylian")))
+
+HYRULE_MARSHAL = make_creature(
+    name="Hyrule Marshal",
+    power=2, toughness=2, mana_cost="{2}{W}",
+    colors={Color.WHITE},
+    subtypes={"Hylian", "Soldier"},
+    text="Other Hylian creatures you control get +1/+1.",
+    setup_interceptors=_hylian_marshal_setup,
+)
+
+def _sheikah_champion_setup(obj, state):
+    return list(make_static_pt_boost(obj, 1, 0, other_creatures_with_subtype(obj, "Knight")))
+
+SHEIKAH_CHAMPION = make_creature(
+    name="Sheikah Champion",
+    power=2, toughness=3, mana_cost="{2}{W}",
+    colors={Color.WHITE},
+    subtypes={"Sheikah", "Knight"},
+    text="Other Knight creatures you control get +1/+0.",
+    setup_interceptors=_sheikah_champion_setup,
+)
+
+
+# =============================================================================
 # WAVE 4 BUFF COMMONS (White, Hylian/Sheikah-flavored)
 # =============================================================================
 
@@ -2384,6 +2416,10 @@ LEGEND_OF_ZELDA_CARDS = {
     "Hylian Soldier": HYLIAN_SOLDIER_BUFF,
     "Hyrule Squire": HYRULE_SQUIRE,
     "Sheikah Sentinel": SHEIKAH_SENTINEL,
+
+    # TRIBAL LORDS
+    "Hyrule Marshal": HYRULE_MARSHAL,
+    "Sheikah Champion": SHEIKAH_CHAMPION,
 }
 
 print(f"Loaded {len(LEGEND_OF_ZELDA_CARDS)} Legend of Zelda: Hyrule Chronicles cards")
@@ -2599,4 +2635,6 @@ CARDS = [
     HYLIAN_SOLDIER_BUFF,
     HYRULE_SQUIRE,
     SHEIKAH_SENTINEL,
+    HYRULE_MARSHAL,
+    SHEIKAH_CHAMPION,
 ]
