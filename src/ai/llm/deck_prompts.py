@@ -112,3 +112,52 @@ SUGGEST_SCHEMA = {
     "suggestions": "list[dict]",
     "priority_changes": "list[str]"
 }
+
+
+# =============================================================================
+# Hybrid Deck Polish (W3): refine a heuristic skeleton
+# =============================================================================
+
+DECK_POLISH_SYSTEM = """You are an MTG deck tuner. You receive a complete, valid 60-card skeleton and may make AT MOST 6 mainboard swaps (1-for-1, same CMC ±1) plus choose a 15-card sideboard. You must NOT change the mana base, archetype, color identity, or total card count. Respond ONLY with JSON: {name, description, swaps:[{out, in, qty, reason}], sideboard:[{card, qty}]}."""
+
+
+DECK_POLISH_PROMPT = """Polish this complete heuristic deck skeleton.
+
+Skeleton name: {deck_name}
+Archetype: {archetype}
+Color identity: {colors}
+Sets: {set_codes}
+User hint: "{user_hint}"
+
+Current mainboard (60 cards, valid mana base — do not modify lands):
+{mainboard_list}
+
+Available card pool (already filtered to color identity):
+{card_pool_summary}
+
+Constraints:
+- Make at most 6 swaps. Each swap is 1-for-1, same CMC ±1.
+- Never swap a land or change the land count.
+- Stay within the listed colors.
+- Provide a flavor name and brief description.
+- Pick a 15-card sideboard from the pool. Each card max qty 4.
+
+Return JSON exactly:
+{{
+  "name": "Flavorful Deck Name",
+  "description": "Brief strategy description (1-2 sentences)",
+  "swaps": [
+    {{"out": "Card to remove", "in": "Card to add", "qty": 1, "reason": "Why"}}
+  ],
+  "sideboard": [
+    {{"card": "Sideboard Card", "qty": 2}}
+  ]
+}}"""
+
+
+POLISH_SCHEMA = {
+    "name": "str",
+    "description": "str",
+    "swaps": "list[dict]",
+    "sideboard": "list[dict]",
+}

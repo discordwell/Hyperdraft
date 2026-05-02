@@ -952,3 +952,88 @@ async def llm_status() -> dict:
         "provider": llm_deckbuilder.provider.model_name if llm_deckbuilder.is_available else None,
         "message": "LLM deck building ready" if llm_deckbuilder.is_available else "Ollama not available. Run: ollama serve && ollama pull qwen2.5:7b"
     }
+
+
+# =============================================================================
+# Hybrid Deck Building (W3): heuristic skeleton + optional LLM polish
+# =============================================================================
+
+class HybridBuildRequest(BaseModel):
+    """Request for the hybrid (heuristic + optional LLM polish) builder."""
+    name: str = "Hybrid Build"
+    archetype: str = Field(..., pattern="^(Aggro|Control|Midrange|Tempo|Ramp)$")
+    colors: list[str] = Field(..., min_length=1, max_length=5)
+    set_codes: list[str] = Field(..., min_length=1)
+    user_hint: str = ""
+    polish: bool = True
+
+
+class HybridBuildResponse(BaseModel):
+    """Response from the hybrid builder."""
+    success: bool
+    deck: Optional[dict] = None
+    swaps: list[dict] = Field(default_factory=list)
+    skeleton: Optional[dict] = None
+    error: Optional[str] = None
+
+
+@router.post("/hybrid/build", response_model=HybridBuildResponse)
+async def hybrid_build_deck(request: HybridBuildRequest) -> HybridBuildResponse:
+    """
+    Build a deck using the heuristic engine, then (optionally) run an LLM polish
+    pass for flavor name + 15-card sideboard + up to 6 mainboard swaps.
+
+    If `polish` is False or the LLM is unavailable, the raw heuristic skeleton
+    is returned. The original `/llm/build` route is unaffected.
+    """
+    # LAZY IMPORT to keep this worktree decoupled from W2's builder.py.
+    from src.decks.heuristics.builder import build_heuristic_deck
+    from ..services.llm_deckbuilder import llm_deckbuilder
+
+    try:
+        skeleton = build_heuristic_deck(
+            name=request.name,
+            archetype=request.archetype,
+            colors=request.colors,
+            set_codes=request.set_codes,
+        )
+    except Exception as exc:
+        return HybridBuildResponse(
+            success=False,
+            error=f"Heuristic builder failed: {exc}",
+        )
+
+    skeleton_dict = skeleton.to_dict()
+
+    # Skip the polish stage when the caller opted out or the LLM is offline.
+    if not request.polish or not llm_deckbuilder.is_available:
+        return HybridBuildResponse(
+            success=True,
+            deck=skeleton_dict,
+            skeleton=skeleton_dict,
+            swaps=[],
+        )
+
+    result = await llm_deckbuilder.polish_deck(
+        skeleton,
+        set_codes=request.set_codes,
+        user_hint=request.user_hint,
+    )
+
+    if not result.get("success"):
+        # Polish failed for any reason — fall back to the skeleton, surface the
+        # error for the UI but still hand back a usable deck.
+        return HybridBuildResponse(
+            success=True,
+            deck=skeleton_dict,
+            skeleton=skeleton_dict,
+            swaps=[],
+            error=result.get("error"),
+        )
+
+    return HybridBuildResponse(
+        success=True,
+        deck=result.get("deck") or skeleton_dict,
+        skeleton=skeleton_dict,
+        swaps=result.get("swaps", []),
+    )
