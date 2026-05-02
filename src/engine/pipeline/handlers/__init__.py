@@ -66,6 +66,7 @@ from .misc import (
 )
 from ...saga import SAGA_EVENT_HANDLERS
 from ...face_down import _handle_turn_face_up
+from ...attach import ATTACH_EVENT_HANDLERS
 
 
 EVENT_HANDLERS = {
@@ -129,6 +130,9 @@ EVENT_HANDLERS = {
 
 # Merge in saga handlers (defined in src/engine/saga.py).
 EVENT_HANDLERS.update(SAGA_EVENT_HANDLERS)
+
+# Phase 3 attach mechanic — ATTACH/UNATTACH handlers from src/engine/attach.py.
+EVENT_HANDLERS.update(ATTACH_EVENT_HANDLERS)
 
 
 __all__ = ["EVENT_HANDLERS"]

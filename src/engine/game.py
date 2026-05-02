@@ -767,6 +767,12 @@ class Game:
         from .lander import register_lander_tracker
         register_lander_tracker(self)
 
+        # Phase 3 attach mechanic — leaves-battlefield cleanup interceptor.
+        # ATTACH/UNATTACH pipeline handlers are merged into EVENT_HANDLERS.
+        # See src/engine/attach.py.
+        from .attach import register_attach_cleanup
+        register_attach_cleanup(self.state)
+
     # =========================================================================
     # Game Flow Methods
     # =========================================================================

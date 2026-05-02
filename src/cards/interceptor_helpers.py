@@ -4516,3 +4516,260 @@ __all_phase4__ = [
     "make_token_creation_ability",
     "make_sac_destroy_ability",
 ]
+
+
+# =============================================================================
+# Phase 3: Equipment / Aura attach helpers
+# =============================================================================
+#
+# An Equipment with text like "Equipped creature gets +1/+1 and has
+# vigilance.  Equip {2}" registers:
+#   1. A QUERY_POWER + QUERY_TOUGHNESS interceptor that applies the boost
+#      to whatever creature is currently attached to it.
+#   2. A QUERY_ABILITIES interceptor that grants the listed keywords to
+#      that creature.
+#   3. An activated ability ``{equip_cost}: Attach to target creature you
+#      control. Activate only as a sorcery.``
+#
+# An Aura's setup function emits an ATTACH event when the aura ETBs and
+# registers the same QUERY interceptors. (The pipeline's ZONE_CHANGE ->
+# BATTLEFIELD path runs setup_interceptors after the aura enters; the
+# attach itself happens here.)
+# =============================================================================
+
+
+def _make_attached_pt_interceptors(
+    source_obj: GameObject,
+    power_mod: int,
+    toughness_mod: int,
+) -> list[Interceptor]:
+    """Build QUERY_POWER + QUERY_TOUGHNESS interceptors that fire on the
+    creature currently attached to ``source_obj``.
+
+    Filter is dynamic: it reads ``source.state.attached_to`` at query time.
+    """
+    interceptors: list[Interceptor] = []
+    source_id = source_obj.id
+
+    if power_mod != 0:
+        def power_filter(event: Event, state: GameState) -> bool:
+            if event.type != EventType.QUERY_POWER:
+                return False
+            source = state.objects.get(source_id)
+            if not source or source.zone != ZoneType.BATTLEFIELD:
+                return False
+            attached = source.state.attached_to
+            if not attached:
+                return False
+            return event.payload.get('object_id') == attached
+
+        def power_handler(event: Event, state: GameState) -> InterceptorResult:
+            new_event = event.copy()
+            new_event.payload['value'] = new_event.payload.get('value', 0) + power_mod
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=source_id,
+            controller=source_obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=power_filter,
+            handler=power_handler,
+            duration='while_on_battlefield',
+        ))
+
+    if toughness_mod != 0:
+        def toughness_filter(event: Event, state: GameState) -> bool:
+            if event.type != EventType.QUERY_TOUGHNESS:
+                return False
+            source = state.objects.get(source_id)
+            if not source or source.zone != ZoneType.BATTLEFIELD:
+                return False
+            attached = source.state.attached_to
+            if not attached:
+                return False
+            return event.payload.get('object_id') == attached
+
+        def toughness_handler(event: Event, state: GameState) -> InterceptorResult:
+            new_event = event.copy()
+            new_event.payload['value'] = new_event.payload.get('value', 0) + toughness_mod
+            return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=source_id,
+            controller=source_obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=toughness_filter,
+            handler=toughness_handler,
+            duration='while_on_battlefield',
+        ))
+
+    return interceptors
+
+
+def _make_attached_keyword_interceptor(
+    source_obj: GameObject,
+    keywords: list[str],
+) -> Optional[Interceptor]:
+    """Build a QUERY_ABILITIES interceptor that grants ``keywords`` to the
+    creature currently attached to ``source_obj``."""
+    if not keywords:
+        return None
+    source_id = source_obj.id
+
+    def ability_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        source = state.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        attached = source.state.attached_to
+        if not attached:
+            return False
+        return event.payload.get('object_id') == attached
+
+    def ability_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        granted = list(new_event.payload.get('granted', []))
+        for kw in keywords:
+            if kw not in granted:
+                granted.append(kw)
+        new_event.payload['granted'] = granted
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    return Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=ability_filter,
+        handler=ability_handler,
+        duration='while_on_battlefield',
+    )
+
+
+def make_equipment_setup(
+    *,
+    power_mod: int = 0,
+    toughness_mod: int = 0,
+    keywords: Optional[list[str]] = None,
+    equip_cost: Optional[str] = None,
+):
+    """Return a setup_interceptors callable for an Equipment card.
+
+    Example::
+
+        WRENCH = make_equipment(
+            name="Wrench",
+            mana_cost="{1}",
+            text='Equipped creature gets +1/+1 and has vigilance. Equip {2}',
+            setup_interceptors=make_equipment_setup(
+                power_mod=1, toughness_mod=1,
+                keywords=["vigilance"],
+                equip_cost="{2}",
+            ),
+        )
+    """
+    keywords_list = list(keywords) if keywords else []
+
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        interceptors = _make_attached_pt_interceptors(obj, power_mod, toughness_mod)
+        ki = _make_attached_keyword_interceptor(obj, keywords_list)
+        if ki is not None:
+            interceptors.append(ki)
+        if equip_cost:
+            _make_equip_activated_ability(obj, equip_cost)
+        return interceptors
+
+    return _setup
+
+
+def make_aura_setup(
+    *,
+    power_mod: int = 0,
+    toughness_mod: int = 0,
+    keywords: Optional[list[str]] = None,
+    target_id_attr: str = "_aura_target_id",
+):
+    """Return a setup_interceptors callable for an Aura card.
+
+    The Aura must already have its target stored on ``obj.state`` via
+    ``setattr(obj.state, target_id_attr, target_id)`` before setup runs
+    — this is typically set by the cast/resolve flow. The setup function
+    emits an ATTACH event to that target and registers the QUERY
+    interceptors that grant the aura's static effects to it.
+    """
+    keywords_list = list(keywords) if keywords else []
+
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        target_id = getattr(obj.state, target_id_attr, None) or obj.state.attached_to
+        if target_id and obj.state.attached_to != target_id:
+            # Best-effort: synchronise the attached_to back-pointer; the
+            # ATTACH event handler will do this cleanly when fired through
+            # the pipeline, but cards that bypass the stack rely on this.
+            obj.state.attached_to = target_id
+            target = state.objects.get(target_id)
+            if target and obj.id not in target.state.attachments:
+                target.state.attachments.append(obj.id)
+        interceptors = _make_attached_pt_interceptors(obj, power_mod, toughness_mod)
+        ki = _make_attached_keyword_interceptor(obj, keywords_list)
+        if ki is not None:
+            interceptors.append(ki)
+        return interceptors
+
+    return _setup
+
+
+def _make_equip_activated_ability(obj: GameObject, equip_cost: str) -> None:
+    """Register the standard ``{equip_cost}: Attach to target creature you
+    control. Activate only as a sorcery.`` activated ability on ``obj``.
+    """
+    def _equip_effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        # Targets may be Target dataclasses (with .id), strings, or objects.
+        target_id = getattr(t, "id", None) or getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.ATTACH,
+            payload={"object_id": o.id, "target_id": target_id},
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost=equip_cost,
+        effect_fn=_equip_effect,
+        description=f"Equip {equip_cost}",
+        sorcery_speed=True,
+        targets_required=1,
+        target_kind="creature_you_control",
+    )
+
+
+def attach_aura_to_target(
+    obj: GameObject,
+    state: GameState,
+    target_id: str,
+) -> list[Event]:
+    """Helper for an Aura's resolve-step: emit an ATTACH event and stash
+    the chosen target so make_aura_setup can read it.
+
+    Returns the list of events to be enqueued by the resolve callback.
+    """
+    setattr(obj.state, "_aura_target_id", target_id)
+    return [Event(
+        type=EventType.ATTACH,
+        payload={"object_id": obj.id, "target_id": target_id},
+        source=obj.id,
+        controller=obj.controller,
+    )]
+
+
+__all_phase3__ = [
+    "make_equipment_setup",
+    "make_aura_setup",
+    "attach_aura_to_target",
+]
