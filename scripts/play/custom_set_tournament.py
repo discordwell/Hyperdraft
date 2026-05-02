@@ -112,15 +112,22 @@ def build_set_deck(domain: str, cards_dict) -> tuple[list, dict]:
     """
     primary = primary_color(cards_dict)
 
-    # Candidate spells (non-land cards that include primary color or are colorless)
+    # Candidate spells: must be castable with primary-color mana only.
+    # We parse the mana cost — relying on the card's `colors` attribute is
+    # not enough because off-color artifacts (e.g. {1}{W} colorless artifact
+    # creature) and 2-color cards still pass a "primary in colors" filter
+    # but cannot actually be cast in a mono-primary deck.
     spells: list = []
     for name, cd in cards_dict.items():
         if CardType.LAND in card_types(cd):
             continue
-        cs = card_colors(cd)
-        if cs and primary not in cs:
-            continue
-        if len(cs) > 2:
+        cost_str = cd.characteristics.mana_cost or ""
+        try:
+            cost_colors = ManaCost.parse(cost_str).colors
+        except Exception:
+            cost_colors = set()
+        # Drop anything whose mana cost requires a non-primary colored pip.
+        if cost_colors - {primary}:
             continue
         spells.append(cd)
 
@@ -253,20 +260,33 @@ def _collect_card_stats(
     Walk event log + final state to compute per-card stats.
 
     Tracks: appeared (in deck), drawn, cast, dmg_dealt, kills, deaths,
-    triggers_fired, in_play_at_end, on_winning_side.
+    triggers_fired, end zones, and whether final battlefield copies were on
+    the winning side.
     """
     state = game.state
     stats: dict[str, dict[str, float]] = defaultdict(lambda: {
         "deck_copies": 0,
         "drawn": 0,
+        "drawn_inferred": 0,
         "cast": 0,
+        "cast_from_hand": 0,
+        "played_as_land": 0,
         "dmg_dealt": 0.0,
         "kills": 0,
         "deaths": 0,
         "triggers_fired": 0,
         "in_play_at_end": 0,
+        "left_in_hand_at_end": 0,
+        "in_library_at_end": 0,
+        "in_graveyard_at_end": 0,
+        "in_exile_at_end": 0,
         "on_winning_side": 0,
     })
+    drawn_object_ids: set[str] = set()
+    cast_object_ids: set[str] = set()
+    cast_from_hand_ids: set[str] = set()
+    death_object_ids: set[str] = set()
+    saw_draw_diagnostics = False
 
     def _name_for(obj_id: Optional[str]) -> Optional[tuple[str, str]]:
         if not obj_id:
@@ -283,6 +303,57 @@ def _collect_card_stats(
             return None
         return _card_ref(domain, cd), domain
 
+    def _zone_type(value: Any) -> Optional[ZoneType]:
+        if isinstance(value, ZoneType):
+            return value
+        if isinstance(value, str):
+            zone = state.zones.get(value)
+            if zone:
+                return zone.type
+            try:
+                return ZoneType[value.upper()]
+            except Exception:
+                return None
+        return None
+
+    def _record_draw(obj_id: Optional[str], inferred: bool = False) -> None:
+        ref = _name_for(obj_id)
+        if not ref:
+            return
+        if obj_id and obj_id in drawn_object_ids:
+            return
+        if obj_id:
+            drawn_object_ids.add(obj_id)
+        stats[ref[0]]["drawn"] += 1
+        if inferred:
+            stats[ref[0]]["drawn_inferred"] += 1
+
+    def _record_cast(obj_id: Optional[str], from_hand: bool = False, as_land: bool = False) -> None:
+        ref = _name_for(obj_id)
+        if not ref:
+            return
+        if as_land:
+            stats[ref[0]]["played_as_land"] += 1
+            return
+        if not obj_id or obj_id not in cast_object_ids:
+            stats[ref[0]]["cast"] += 1
+            if obj_id:
+                cast_object_ids.add(obj_id)
+        if from_hand and (not obj_id or obj_id not in cast_from_hand_ids):
+            stats[ref[0]]["cast_from_hand"] += 1
+            if obj_id:
+                cast_from_hand_ids.add(obj_id)
+
+    def _record_death(obj_id: Optional[str]) -> None:
+        ref = _name_for(obj_id)
+        if not ref:
+            return
+        if obj_id and obj_id in death_object_ids:
+            return
+        if obj_id:
+            death_object_ids.add(obj_id)
+        stats[ref[0]]["deaths"] += 1
+
     # Seed deck copies
     for cd in deck1:
         stats[_card_ref(p1_domain, cd)]["deck_copies"] += 1
@@ -295,18 +366,26 @@ def _collect_card_stats(
         payload = ev.payload if hasattr(ev, "payload") else {}
         source_id = getattr(ev, "source", None) or payload.get("source")
 
-        if et == EventType.ZONE_CHANGE:
+        if et == EventType.DRAW:
+            if "drawn_card_ids" in payload:
+                saw_draw_diagnostics = True
+            for obj_id in payload.get("drawn_card_ids", []) or []:
+                _record_draw(obj_id)
+        elif et == EventType.ZONE_CHANGE:
             obj_id = payload.get("object_id") or payload.get("card_id")
-            from_zone = payload.get("from_zone")
-            to_zone = payload.get("to_zone")
+            from_zone = _zone_type(payload.get("from_zone_type")) or _zone_type(payload.get("from_zone"))
+            to_zone = _zone_type(payload.get("to_zone_type")) or _zone_type(payload.get("to_zone"))
             ref = _name_for(obj_id)
             if ref and to_zone == ZoneType.HAND and from_zone == ZoneType.LIBRARY:
-                stats[ref[0]]["drawn"] += 1
+                _record_draw(obj_id)
             if ref and to_zone == ZoneType.BATTLEFIELD and from_zone in (ZoneType.HAND, ZoneType.STACK):
-                # Lands shouldn't count as casts; still record as cast for play frequency
-                stats[ref[0]]["cast"] += 1
+                obj = state.objects.get(obj_id)
+                is_land = bool(obj and CardType.LAND in (obj.characteristics.types or set()))
+                _record_cast(obj_id, from_hand=from_zone == ZoneType.HAND, as_land=is_land)
+            if ref and to_zone == ZoneType.STACK and from_zone == ZoneType.HAND:
+                _record_cast(obj_id, from_hand=True)
             if ref and from_zone == ZoneType.BATTLEFIELD and to_zone == ZoneType.GRAVEYARD:
-                stats[ref[0]]["deaths"] += 1
+                _record_death(obj_id)
         elif et == EventType.DAMAGE:
             amount = payload.get("amount", 0) or 0
             ref = _name_for(source_id)
@@ -315,8 +394,7 @@ def _collect_card_stats(
         elif et == EventType.OBJECT_DESTROYED:
             target_id = payload.get("object_id") or payload.get("target")
             ref_t = _name_for(target_id)
-            if ref_t:
-                stats[ref_t[0]]["deaths"] += 1
+            _record_death(target_id)
             ref_s = _name_for(source_id)
             if ref_s and ref_s[0] != (ref_t[0] if ref_t else None):
                 stats[ref_s[0]]["kills"] += 1
@@ -327,25 +405,39 @@ def _collect_card_stats(
                 stats[ref[0]]["triggers_fired"] += 1
         elif et in (EventType.SPELL_CAST, EventType.CAST):
             obj_id = payload.get("object_id") or payload.get("card_id") or source_id
-            ref = _name_for(obj_id)
-            if ref:
-                stats[ref[0]]["cast"] += 1
+            from_hand = not bool(
+                payload.get("from_graveyard")
+                or payload.get("flashback")
+                or payload.get("harmonize")
+                or payload.get("warp")
+            )
+            _record_cast(obj_id, from_hand=from_hand)
 
-    # Final battlefield state
-    bf = state.zones.get("battlefield")
-    if bf:
-        for obj_id in bf.objects:
-            obj = state.objects.get(obj_id)
-            if not obj or not getattr(obj, "card_def", None):
-                continue
-            owner = obj.owner
-            domain = p1_domain if owner == p1_id else p2_domain if owner == p2_id else None
-            if domain is None:
-                continue
-            ref = _card_ref(domain, obj.card_def)
+    # Final zones. If older draw handlers did not put object ids on DRAW
+    # payloads, infer "drawn" from deck cards that ended outside the library.
+    for obj_id, obj in state.objects.items():
+        if not obj or not getattr(obj, "card_def", None) or getattr(obj, "is_token", False):
+            continue
+        owner = obj.owner
+        domain = p1_domain if owner == p1_id else p2_domain if owner == p2_id else None
+        if domain is None:
+            continue
+        ref = _card_ref(domain, obj.card_def)
+        if obj.zone == ZoneType.BATTLEFIELD:
             stats[ref]["in_play_at_end"] += 1
             if winner_id and owner == winner_id:
                 stats[ref]["on_winning_side"] += 1
+        elif obj.zone == ZoneType.HAND:
+            stats[ref]["left_in_hand_at_end"] += 1
+        elif obj.zone == ZoneType.LIBRARY:
+            stats[ref]["in_library_at_end"] += 1
+        elif obj.zone == ZoneType.GRAVEYARD:
+            stats[ref]["in_graveyard_at_end"] += 1
+        elif obj.zone == ZoneType.EXILE:
+            stats[ref]["in_exile_at_end"] += 1
+
+        if not saw_draw_diagnostics and obj.zone != ZoneType.LIBRARY:
+            _record_draw(obj_id, inferred=True)
 
     return dict(stats)
 
