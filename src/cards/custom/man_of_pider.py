@@ -3560,58 +3560,58 @@ def _self_keywords(keywords):
 
 PETTY_MUGGER = make_creature(
     name="Petty Mugger",
-    power=2, toughness=1, mana_cost="{B}", colors={Color.BLACK},
-    subtypes={"Human", "Rogue"}, text="Menace",
-    setup_interceptors=_self_keywords(['menace']),
+    power=2, toughness=1, mana_cost="{U}", colors={Color.BLUE},
+    subtypes={"Human", "Rogue"}, text="Flying",
+    setup_interceptors=_self_keywords(['flying']),
 )
 
 SYMBIOTE_LARVA = make_creature(
     name="Symbiote Larva",
-    power=1, toughness=2, mana_cost="{B}", colors={Color.BLACK},
-    subtypes={"Symbiote"}, text="Deathtouch",
-    setup_interceptors=_self_keywords(['deathtouch']),
+    power=1, toughness=2, mana_cost="{U}", colors={Color.BLUE},
+    subtypes={"Symbiote"}, text="Flying",
+    setup_interceptors=_self_keywords(['flying']),
 )
 
 KLYNTAR_SCOUT = make_creature(
     name="Klyntar Scout",
-    power=2, toughness=2, mana_cost="{B}", colors={Color.BLACK},
-    subtypes={"Symbiote"}, text="Menace",
-    setup_interceptors=_self_keywords(['menace']),
+    power=2, toughness=2, mana_cost="{U}", colors={Color.BLUE},
+    subtypes={"Symbiote"}, text="Hexproof",
+    setup_interceptors=_self_keywords(['hexproof']),
 )
 
 HAND_NINJA = make_creature(
     name="Hand Ninja",
-    power=2, toughness=2, mana_cost="{1}{B}", colors={Color.BLACK},
-    subtypes={"Human", "Ninja"}, text="Menace",
-    setup_interceptors=_self_keywords(['menace']),
+    power=2, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Ninja"}, text="Flying",
+    setup_interceptors=_self_keywords(['flying']),
 )
 
 VULTURE_INITIATE = make_creature(
     name="Vulture Initiate",
-    power=2, toughness=2, mana_cost="{1}{B}", colors={Color.BLACK},
+    power=2, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
     subtypes={"Human", "Mercenary"}, text="Flying",
     setup_interceptors=_self_keywords(['flying']),
 )
 
 OSCORP_ENFORCER = make_creature(
     name="Oscorp Enforcer",
-    power=3, toughness=2, mana_cost="{1}{B}", colors={Color.BLACK},
-    subtypes={"Human", "Soldier"}, text="Haste",
-    setup_interceptors=_self_keywords(['haste']),
+    power=3, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Soldier"}, text="Flash",
+    setup_interceptors=_self_keywords(['flash']),
 )
 
 SHOCKER_GOON = make_creature(
     name="Shocker Goon",
-    power=2, toughness=3, mana_cost="{1}{B}", colors={Color.BLACK},
-    subtypes={"Human", "Villain"}, text="Haste",
-    setup_interceptors=_self_keywords(['haste']),
+    power=2, toughness=3, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Villain"}, text="Flash",
+    setup_interceptors=_self_keywords(['flash']),
 )
 
 SYMBIOTE_BROOD = make_creature(
     name="Symbiote Brood",
-    power=4, toughness=2, mana_cost="{2}{B}", colors={Color.BLACK},
-    subtypes={"Symbiote"}, text="Trample, menace",
-    setup_interceptors=_self_keywords(['trample', 'menace']),
+    power=4, toughness=2, mana_cost="{2}{U}", colors={Color.BLUE},
+    subtypes={"Symbiote"}, text="Flying",
+    setup_interceptors=_self_keywords(['flying']),
 )
 
 
