@@ -41,6 +41,8 @@ from src.cards.interceptor_helpers import (
     make_cycling_setup,
     # Modal resolve
     make_modal_resolve,
+    # Copy-token
+    make_copy_token_event,
 )
 
 
@@ -5327,12 +5329,61 @@ IMPOLITE_ENTRANCE = make_sorcery(
     text="Target creature gains trample and haste until end of turn.\nDraw a card.",
 )
 
+def kindle_the_inner_flame_resolve(targets: list, state: GameState) -> list[Event]:
+    """Create a token copy of target creature you control. The "haste / sacrifice
+    at end step" rider is partially wired (haste via except_keywords); the
+    delayed end-step sacrifice trigger is engine-gap and is left noop."""
+    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Kindle the Inner Flame")
+    legal = [
+        oid for oid, obj in state.objects.items()
+        if (obj.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in obj.characteristics.types
+            and obj.controller == caster_id)
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0] if not isinstance(selected[0], dict) else selected[0].get('id')
+        if not tid:
+            return []
+        # Preserve the original's keyword abilities and add haste.
+        target = gs.objects.get(tid)
+        existing_keywords = []
+        if target is not None:
+            for ab in target.characteristics.abilities or []:
+                kw = ab.get('keyword') if isinstance(ab, dict) else None
+                if kw:
+                    existing_keywords.append(kw)
+        keywords = list(existing_keywords)
+        if 'haste' not in [k.lower() for k in keywords]:
+            keywords.append('haste')
+        return make_copy_token_event(
+            target_id=tid,
+            controller=caster_id,
+            source_id=spell_id,
+            except_keywords=keywords,
+        )
+
+    ch = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Kindle the Inner Flame: choose a creature to copy",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
 KINDLE_THE_INNER_FLAME = make_sorcery(
     name="Kindle the Inner Flame",
     mana_cost="{3}{R}",
     colors={Color.RED},
     text="Create a token that's a copy of target creature you control, except it has haste and \"At the beginning of the end step, sacrifice this token.\"\nFlashback—{1}{R}, Behold three Elementals. (You may cast this card from your graveyard for its flashback cost. Then exile it. To behold an Elemental, choose an Elemental you control or reveal an Elemental card from your hand.)",
     subtypes={"Elemental"},
+    resolve=kindle_the_inner_flame_resolve,
 )
 
 KULRATH_ZEALOT = make_creature(
@@ -5940,12 +5991,104 @@ ABIGALE_ELOQUENT_FIRSTYEAR = make_creature(
     setup_interceptors=abigale_eloquent_firstyear_setup
 )
 
+def _ashlings_command_copy_elemental(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Ashling's Command mode 1: create a token copy of target Elemental you control."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and "Elemental" in o.characteristics.subtypes
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0] if not isinstance(selected[0], dict) else selected[0].get('id')
+        if not tid:
+            return []
+        return make_copy_token_event(
+            target_id=tid, controller=caster_id, source_id=spell_id,
+        )
+
+    ch = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Ashling's Command: choose target Elemental to copy",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def _ashlings_command_draw_two(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mode 2: target player draws two cards (default to caster)."""
+    return [Event(
+        type=EventType.DRAW,
+        payload={'player': caster_id, 'count': 2},
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _ashlings_command_treasure_tokens(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mode 4: target player creates two Treasure tokens (default to caster)."""
+    return [
+        Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Treasure',
+                'controller': caster_id,
+                'owner': caster_id,
+                'is_token': True,
+                'to_zone_type': ZoneType.BATTLEFIELD,
+                'types': {CardType.ARTIFACT},
+                'subtypes': {"Treasure"},
+                'colors': set(),
+            },
+            source=spell_id, controller=caster_id,
+        ),
+        Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Treasure',
+                'controller': caster_id,
+                'owner': caster_id,
+                'is_token': True,
+                'to_zone_type': ZoneType.BATTLEFIELD,
+                'types': {CardType.ARTIFACT},
+                'subtypes': {"Treasure"},
+                'colors': set(),
+            },
+            source=spell_id, controller=caster_id,
+        ),
+    ]
+
+
+def _ashlings_command_noop(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mode 3 (damage to each creature target player controls) needs player
+    targeting + per-permanent dispatch — leaving noop pending engine work."""
+    return []
+
+
 ASHLINGS_COMMAND = make_instant(
     name="Ashling's Command",
     mana_cost="{3}{U}{R}",
     colors={Color.RED, Color.BLUE},
     text="Choose two —\n• Create a token that's a copy of target Elemental you control.\n• Target player draws two cards.\n• Ashling's Command deals 2 damage to each creature target player controls.\n• Target player creates two Treasure tokens.",
     subtypes={"Elemental"},
+    resolve=make_modal_resolve(
+        "Ashling's Command",
+        modes=[
+            ("Create a token that's a copy of target Elemental you control",
+             _ashlings_command_copy_elemental),
+            ("Target player draws two cards", _ashlings_command_draw_two),
+            ("2 damage to each creature target player controls", _ashlings_command_noop),
+            ("Target player creates two Treasure tokens", _ashlings_command_treasure_tokens),
+        ],
+        min_modes=2, max_modes=2,
+    ),
 )
 
 BOGGART_CURSECRAFTER = make_creature(
@@ -5969,12 +6112,117 @@ BRE_OF_CLAN_STOUTARM = make_creature(
     setup_interceptors=bre_of_clan_stoutarm_setup
 )
 
+def _brigids_command_copy_kithkin(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Brigid's Command mode 1: create a token that's a copy of target Kithkin you control."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and "Kithkin" in o.characteristics.subtypes
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0] if not isinstance(selected[0], dict) else selected[0].get('id')
+        if not tid:
+            return []
+        return make_copy_token_event(
+            target_id=tid, controller=caster_id, source_id=spell_id,
+        )
+
+    ch = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Brigid's Command: choose target Kithkin to copy",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def _brigids_command_make_kithkin_token(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mode 2: target player creates a 1/1 green and white Kithkin creature token.
+    Player target choice is engine-gap (we default to caster)."""
+    return [Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'name': 'Kithkin',
+            'controller': caster_id,
+            'owner': caster_id,
+            'is_token': True,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'types': {CardType.CREATURE},
+            'subtypes': {"Kithkin"},
+            'colors': {Color.GREEN, Color.WHITE},
+            'power': 1, 'toughness': 1,
+        },
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _brigids_command_pump(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mode 3: target creature you control gets +3/+3 until end of turn."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0] if not isinstance(selected[0], dict) else selected[0].get('id')
+        if not tid:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': tid, 'power_mod': 3, 'toughness_mod': 3,
+                'duration': 'end_of_turn',
+            },
+            source=spell_id, controller=caster_id,
+        )]
+
+    ch = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Brigid's Command: choose target creature for +3/+3",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def _brigids_command_noop(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mode 4 (fight) — fight requires multi-target choice spanning controllers; engine gap."""
+    return []
+
+
 BRIGIDS_COMMAND = make_sorcery(
     name="Brigid's Command",
     mana_cost="{1}{G}{W}",
     colors={Color.GREEN, Color.WHITE},
     text="Choose two —\n• Create a token that's a copy of target Kithkin you control.\n• Target player creates a 1/1 green and white Kithkin creature token.\n• Target creature you control gets +3/+3 until end of turn.\n• Target creature you control fights target creature an opponent controls.",
     subtypes={"Kithkin"},
+    resolve=make_modal_resolve(
+        "Brigid's Command",
+        modes=[
+            ("Create a token that's a copy of target Kithkin you control",
+             _brigids_command_copy_kithkin),
+            ("Target player creates a 1/1 Kithkin creature token",
+             _brigids_command_make_kithkin_token),
+            ("Target creature you control gets +3/+3", _brigids_command_pump),
+            ("Target creature you control fights an opp's creature", _brigids_command_noop),
+        ],
+        min_modes=2, max_modes=2,
+    ),
 )
 
 CATHARSIS = make_creature(
@@ -6164,12 +6412,96 @@ GLISTER_BAIRN = make_creature(
     setup_interceptors=glister_bairn_setup
 )
 
+def _grubs_command_copy_goblin(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Grub's Command mode 1: create a token copy of target Goblin you control."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and "Goblin" in o.characteristics.subtypes
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0] if not isinstance(selected[0], dict) else selected[0].get('id')
+        if not tid:
+            return []
+        return make_copy_token_event(
+            target_id=tid, controller=caster_id, source_id=spell_id,
+        )
+
+    ch = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Grub's Command: choose target Goblin to copy",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def _grubs_command_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mode 3: destroy target artifact or creature."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and (CardType.CREATURE in o.characteristics.types
+                 or CardType.ARTIFACT in o.characteristics.types))
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0] if not isinstance(selected[0], dict) else selected[0].get('id')
+        if not tid:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': tid},
+            source=spell_id, controller=caster_id,
+        )]
+
+    ch = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Grub's Command: destroy target artifact or creature",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def _grubs_command_noop(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Modes 2 (pump opp's creatures) / 4 (mill 5 + filter Goblins to hand)
+    require player-of-opponent targeting + multi-stage filtering — engine gap."""
+    return []
+
+
 GRUBS_COMMAND = make_sorcery(
     name="Grub's Command",
     mana_cost="{3}{B}{R}",
     colors={Color.BLACK, Color.RED},
     text="Choose two —\n• Create a token that's a copy of target Goblin you control.\n• Creatures target player controls get +1/+1 and gain haste until end of turn.\n• Destroy target artifact or creature.\n• Target player mills five cards, then puts each Goblin card milled this way into their hand.",
     subtypes={"Goblin"},
+    resolve=make_modal_resolve(
+        "Grub's Command",
+        modes=[
+            ("Create a token that's a copy of target Goblin you control",
+             _grubs_command_copy_goblin),
+            ("Creatures target player controls get +1/+1 and haste",
+             _grubs_command_noop),
+            ("Destroy target artifact or creature", _grubs_command_destroy),
+            ("Target player mills five (filter Goblins to hand)",
+             _grubs_command_noop),
+        ],
+        min_modes=2, max_modes=2,
+    ),
 )
 
 HIGH_PERFECT_MORCANT = make_creature(
@@ -6326,12 +6658,104 @@ STOIC_GROVEGUIDE = make_creature(
 )
 STOIC_GROVEGUIDE.setup_in_graveyard = stoic_groveguide_gy_setup
 
+def _syggs_command_copy_merfolk(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Sygg's Command mode 1: create a token copy of target Merfolk you control."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and "Merfolk" in o.characteristics.subtypes
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0] if not isinstance(selected[0], dict) else selected[0].get('id')
+        if not tid:
+            return []
+        return make_copy_token_event(
+            target_id=tid, controller=caster_id, source_id=spell_id,
+        )
+
+    ch = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Sygg's Command: choose target Merfolk to copy",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def _syggs_command_draw(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mode 3: target player draws a card (default to caster)."""
+    return [Event(
+        type=EventType.DRAW,
+        payload={'player': caster_id, 'count': 1},
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _syggs_command_tap_stun(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mode 4: tap target creature and put a stun counter on it."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0] if not isinstance(selected[0], dict) else selected[0].get('id')
+        if not tid:
+            return []
+        return [
+            Event(type=EventType.TAP_TARGET,
+                  payload={'object_id': tid},
+                  source=spell_id, controller=caster_id),
+            Event(type=EventType.COUNTER_ADDED,
+                  payload={'object_id': tid, 'counter_type': 'stun', 'amount': 1},
+                  source=spell_id, controller=caster_id),
+        ]
+
+    ch = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Sygg's Command: tap and stun target creature",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def _syggs_command_noop(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mode 2 (pump opp's creatures with lifelink) needs player-of-opp targeting."""
+    return []
+
+
 SYGGS_COMMAND = make_sorcery(
     name="Sygg's Command",
     mana_cost="{1}{W}{U}",
     colors={Color.BLUE, Color.WHITE},
     text="Choose two —\n• Create a token that's a copy of target Merfolk you control.\n• Creatures target player controls gain lifelink until end of turn.\n• Target player draws a card.\n• Tap target creature. Put a stun counter on it.",
     subtypes={"Merfolk"},
+    resolve=make_modal_resolve(
+        "Sygg's Command",
+        modes=[
+            ("Create a token that's a copy of target Merfolk you control",
+             _syggs_command_copy_merfolk),
+            ("Creatures target player controls gain lifelink", _syggs_command_noop),
+            ("Target player draws a card", _syggs_command_draw),
+            ("Tap target creature and add a stun counter", _syggs_command_tap_stun),
+        ],
+        min_modes=2, max_modes=2,
+    ),
 )
 
 TAM_MINDFUL_FIRSTYEAR = make_creature(
@@ -6355,12 +6779,94 @@ THOUGHTWEFT_LIEUTENANT = make_creature(
     setup_interceptors=thoughtweft_lieutenant_setup
 )
 
+def _trystans_command_copy_elf(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Trystan's Command mode 1: create a token that's a copy of target Elf you control."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and "Elf" in o.characteristics.subtypes
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0] if not isinstance(selected[0], dict) else selected[0].get('id')
+        if not tid:
+            return []
+        return make_copy_token_event(
+            target_id=tid, controller=caster_id, source_id=spell_id,
+        )
+
+    ch = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Trystan's Command: choose target Elf to copy",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def _trystans_command_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Mode 3: destroy target creature or enchantment."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and (CardType.CREATURE in o.characteristics.types
+                 or CardType.ENCHANTMENT in o.characteristics.types))
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        tid = selected[0] if not isinstance(selected[0], dict) else selected[0].get('id')
+        if not tid:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': tid},
+            source=spell_id, controller=caster_id,
+        )]
+
+    ch = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Trystan's Command: destroy target creature or enchantment",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
+def _trystans_command_noop(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Modes 2 and 4 (graveyard recursion / pump+untap target opp's creatures)
+    require player-of-graveyard targeting + multi-target choice that isn't yet
+    expressible as a clean cast-time prompt; left noop pending engine work."""
+    return []
+
+
 TRYSTANS_COMMAND = make_sorcery(
     name="Trystan's Command",
     mana_cost="{4}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     text="Choose two —\n• Create a token that's a copy of target Elf you control.\n• Return one or two target permanent cards from your graveyard to your hand.\n• Destroy target creature or enchantment.\n• Creatures target player controls get +3/+3 until end of turn. Untap them.",
     subtypes={"Elf"},
+    resolve=make_modal_resolve(
+        "Trystan's Command",
+        modes=[
+            ("Create a token that's a copy of target Elf you control", _trystans_command_copy_elf),
+            ("Return one or two target permanent cards from graveyard", _trystans_command_noop),
+            ("Destroy target creature or enchantment", _trystans_command_destroy),
+            ("Creatures target player controls get +3/+3 and untap", _trystans_command_noop),
+        ],
+        min_modes=2, max_modes=2,
+    ),
 )
 
 TWINFLAME_TRAVELERS = make_creature(
