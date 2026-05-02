@@ -1072,6 +1072,12 @@ class AIEngine:
         # Get base score from strategy
         base_score = self.strategy.evaluate_action(action, state, evaluator, player_id)
 
+        # Universal play fundamentals (apply to every strategy):
+        # mana efficiency + wincon deployment. These are the "general best
+        # play" priorities — strategy-specific scoring tweaks the margins,
+        # but the AI should not waste mana or sit on its biggest threat.
+        base_score += self._play_fundamentals_bonus(action, state, player_id)
+
         # Build reactive context
         reactive_eval = ReactiveEvaluator(state)
         stack_items = []
@@ -1169,6 +1175,76 @@ class AIEngine:
                     base_score += 1.0 + (efficiency * 0.3)
 
         return base_score
+
+    def _play_fundamentals_bonus(self, action, state, player_id) -> float:
+        """
+        Universal MTG play priorities applied to every strategy:
+
+        1. Mana efficiency — spending your full curve is the strongest single
+           heuristic. Casting a 1-drop with 5 mana up wastes a turn.
+        2. Wincon deployment — your highest-mana cast in hand is usually
+           your haymaker. Boost it so the AI commits when it can.
+
+        Stopping the opponent's wincon (removal targeting biggest threat)
+        is handled inside each strategy's evaluate_action via the threat
+        value helper, so it isn't duplicated here.
+        """
+        from src.engine import ActionType, CardType, ManaCost
+        if action.type != ActionType.CAST_SPELL or not action.card_id:
+            return 0.0
+        card = state.objects.get(action.card_id)
+        if not card or not card.characteristics.mana_cost:
+            return 0.0
+
+        try:
+            mv = ManaCost.parse(card.characteristics.mana_cost).mana_value
+        except Exception:
+            return 0.0
+        if mv <= 0:
+            return 0.0
+
+        # Count untapped lands as a proxy for available mana.
+        avail = 0
+        bf = state.zones.get('battlefield')
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == player_id
+                    and CardType.LAND in (o.characteristics.types or set())
+                    and not o.state.tapped):
+                    avail += 1
+        if avail <= 0:
+            return 0.0
+
+        bonus = 0.0
+        util = mv / avail
+        if util >= 0.9:
+            bonus += 0.5  # Spending full curve — top priority.
+        elif util >= 0.5:
+            bonus += 0.15
+        elif util <= 0.3 and avail >= 3:
+            bonus -= 0.4  # Wasting most of our mana
+
+        # Wincon deployment: identify the highest-mana playable card in hand.
+        # Casting it (when affordable) gets a bonus.
+        hand = state.zones.get(f"hand_{player_id}")
+        if hand:
+            max_mv_hand = 0
+            for cid in hand.objects:
+                c = state.objects.get(cid)
+                if not c or not c.characteristics.mana_cost:
+                    continue
+                try:
+                    cmv = ManaCost.parse(c.characteristics.mana_cost).mana_value
+                except Exception:
+                    continue
+                if cmv > max_mv_hand:
+                    max_mv_hand = cmv
+            # If this is the haymaker AND we can pay for it, bonus.
+            if mv == max_mv_hand and mv <= avail:
+                bonus += 0.3
+
+        return bonus
 
     def _is_counterspell(self, card) -> bool:
         """Check if card is a counterspell."""
