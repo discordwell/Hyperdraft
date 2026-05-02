@@ -6014,3 +6014,133 @@ def was_bargained(state: GameState, card_name: str) -> bool:
         if obj and obj.name == card_name:
             return bool(getattr(obj.state, 'was_bargained', False))
     return False
+
+
+# =============================================================================
+# Modal multi-choice helper
+# =============================================================================
+#
+# Many spells use the "Choose one — / Choose two — / Choose one or more —"
+# pattern with several bullet-pointed effects. The engine's
+# ``create_modal_choice`` PendingChoice already handles the player UI; this
+# helper bundles the resolve= boilerplate so card scripts don't need to
+# write 30+ lines per spell.
+#
+# Usage::
+#
+#     from src.cards.interceptor_helpers import make_modal_resolve
+#
+#     def mode0_effect(state, caster_id, spell_id):
+#         return [Event(type=EventType.LIFE_CHANGE,
+#                       payload={'player': caster_id, 'amount': 3},
+#                       source=spell_id, controller=caster_id)]
+#
+#     def mode1_effect(state, caster_id, spell_id):
+#         return [Event(type=EventType.DRAW,
+#                       payload={'player': caster_id, 'count': 1},
+#                       source=spell_id, controller=caster_id)]
+#
+#     SOMETHING = make_sorcery(
+#         ...,
+#         text="Choose one or more —\n• Gain 3 life.\n• Draw a card.",
+#         resolve=make_modal_resolve(
+#             "Something",
+#             modes=[
+#                 ("Gain 3 life", mode0_effect),
+#                 ("Draw a card", mode1_effect),
+#             ],
+#             min_modes=1, max_modes=2,
+#         ),
+#     )
+#
+# Each mode's ``effect_fn(state, caster_id, spell_id)`` returns the events
+# to enqueue when that mode is chosen. Modes that need a target should
+# create a follow-up ``create_target_choice`` themselves and return [] —
+# the standard chained-choice pattern.
+# =============================================================================
+
+
+def make_modal_resolve(
+    card_name: str,
+    modes: list[tuple[str, Callable[[GameState, str, str], list[Event]]]],
+    *,
+    min_modes: int = 1,
+    max_modes: int = 1,
+    prompt: Optional[str] = None,
+):
+    """Build a ``resolve=`` callback for a modal spell.
+
+    ``modes`` is a list of ``(text, effect_fn)`` tuples. ``effect_fn`` is
+    invoked with ``(state, caster_id, spell_id)`` and returns the events
+    that mode produces.
+    """
+    if min_modes < 0 or max_modes < min_modes or max_modes > len(modes):
+        raise ValueError(
+            f"make_modal_resolve: bad min/max ({min_modes}/{max_modes}) for "
+            f"{len(modes)} modes"
+        )
+
+    def _resolve(targets: list, state: GameState) -> list[Event]:
+        # Locate the resolving spell on the stack.
+        stack_zone = state.zones.get('stack')
+        spell_id = None
+        caster_id = None
+        if stack_zone:
+            for cid in stack_zone.objects:
+                obj = state.objects.get(cid)
+                if obj and obj.name == card_name:
+                    spell_id = obj.id
+                    caster_id = obj.controller
+                    break
+        if caster_id is None:
+            caster_id = getattr(state, 'active_player', None) or getattr(state, 'priority_player', None)
+        if spell_id is None:
+            spell_id = f"{card_name.lower().replace(' ', '_')}_spell"
+        if caster_id is None:
+            return []
+
+        mode_options = [
+            {"index": i, "text": text}
+            for i, (text, _) in enumerate(modes)
+        ]
+        choice_prompt = prompt or f"{card_name} — choose " + (
+            "one" if min_modes == max_modes == 1 else
+            f"{min_modes}-{max_modes}"
+        ) + ":"
+
+        choice = create_modal_choice(
+            state=state,
+            player_id=caster_id,
+            source_id=spell_id,
+            modes=mode_options,
+            min_modes=min_modes,
+            max_modes=max_modes,
+            prompt=choice_prompt,
+        )
+
+        def _handler(ch, selected_modes, st: GameState) -> list[Event]:
+            events: list[Event] = []
+            for mi in (selected_modes or []):
+                try:
+                    idx = int(mi)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= idx < len(modes):
+                    _, effect_fn = modes[idx]
+                    try:
+                        new_evs = effect_fn(st, caster_id, spell_id) or []
+                    except Exception:
+                        new_evs = []
+                    events.extend(new_evs)
+            return events
+
+        choice.choice_type = "modal_with_callback"
+        choice.callback_data['handler'] = _handler
+        return []
+
+    return _resolve
+
+
+__all_modal__ = [
+    "make_modal_resolve",
+]
