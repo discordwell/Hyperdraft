@@ -1,0 +1,162 @@
+{
+  "attack_margin": 226,
+  "baseline_difficulty": "medium",
+  "baseline_wins": 42,
+  "by_deck": {
+    "azorius": {
+      "attack_margin": 46,
+      "baseline_wins": 4,
+      "codex_wins": 12,
+      "damage_counter_margin": 218,
+      "draws_or_timeouts": 0,
+      "games": 16,
+      "knockout_margin": -2,
+      "prize_margin": 2
+    },
+    "boros": {
+      "attack_margin": 14,
+      "baseline_wins": 6,
+      "codex_wins": 10,
+      "damage_counter_margin": -35,
+      "draws_or_timeouts": 0,
+      "games": 16,
+      "knockout_margin": -8,
+      "prize_margin": -9
+    },
+    "dimir": {
+      "attack_margin": 35,
+      "baseline_wins": 2,
+      "codex_wins": 14,
+      "damage_counter_margin": 190,
+      "draws_or_timeouts": 0,
+      "games": 16,
+      "knockout_margin": 15,
+      "prize_margin": 19
+    },
+    "golgari": {
+      "attack_margin": 13,
+      "baseline_wins": 4,
+      "codex_wins": 12,
+      "damage_counter_margin": -71,
+      "draws_or_timeouts": 0,
+      "games": 16,
+      "knockout_margin": -1,
+      "prize_margin": 4
+    },
+    "gruul": {
+      "attack_margin": -1,
+      "baseline_wins": 4,
+      "codex_wins": 12,
+      "damage_counter_margin": -212,
+      "draws_or_timeouts": 0,
+      "games": 16,
+      "knockout_margin": -7,
+      "prize_margin": -5
+    },
+    "izzet": {
+      "attack_margin": 17,
+      "baseline_wins": 6,
+      "codex_wins": 10,
+      "damage_counter_margin": 116,
+      "draws_or_timeouts": 0,
+      "games": 16,
+      "knockout_margin": 9,
+      "prize_margin": 11
+    },
+    "orzhov": {
+      "attack_margin": 24,
+      "baseline_wins": 3,
+      "codex_wins": 13,
+      "damage_counter_margin": 125,
+      "draws_or_timeouts": 0,
+      "games": 16,
+      "knockout_margin": 10,
+      "prize_margin": 11
+    },
+    "rakdos": {
+      "attack_margin": 19,
+      "baseline_wins": 4,
+      "codex_wins": 12,
+      "damage_counter_margin": 150,
+      "draws_or_timeouts": 0,
+      "games": 16,
+      "knockout_margin": 9,
+      "prize_margin": 13
+    },
+    "selesnya": {
+      "attack_margin": 27,
+      "baseline_wins": 4,
+      "codex_wins": 12,
+      "damage_counter_margin": -112,
+      "draws_or_timeouts": 0,
+      "games": 16,
+      "knockout_margin": -3,
+      "prize_margin": -2
+    },
+    "simic": {
+      "attack_margin": 32,
+      "baseline_wins": 5,
+      "codex_wins": 11,
+      "damage_counter_margin": 235,
+      "draws_or_timeouts": 0,
+      "games": 16,
+      "knockout_margin": 8,
+      "prize_margin": 12
+    }
+  },
+  "codex_difficulty": "ultra",
+  "codex_on_draw": {
+    "games": 80,
+    "prize_margin": 15,
+    "wins": 55
+  },
+  "codex_on_play": {
+    "games": 80,
+    "prize_margin": 41,
+    "wins": 63
+  },
+  "codex_wins": 118,
+  "damage_counter_margin": 604,
+  "draws_or_timeouts": 0,
+  "elapsed_seconds": 1.996,
+  "errors": 0,
+  "games": 160,
+  "knockout_margin": 30,
+  "metrics": {
+    "baseline": {
+      "attacks": 601,
+      "basics_played": 626,
+      "damage_counters_dealt": 4384,
+      "damage_counters_taken": 4988,
+      "energy_attached": 917,
+      "evolutions": 473,
+      "items_played": 1338,
+      "knockouts": 283,
+      "pokemon_lost": 313,
+      "prizes_taken": 288,
+      "retreats": 271,
+      "supporters_played": 758
+    },
+    "codex": {
+      "attacks": 827,
+      "basics_played": 678,
+      "damage_counters_dealt": 4988,
+      "damage_counters_taken": 4384,
+      "energy_attached": 851,
+      "evolutions": 440,
+      "items_played": 1441,
+      "knockouts": 313,
+      "pokemon_lost": 283,
+      "prizes_taken": 344,
+      "retreats": 89,
+      "supporters_played": 576
+    }
+  },
+  "mirror": {
+    "average_total_prizes_taken": 5.375,
+    "average_turns": 23.0,
+    "games": 80,
+    "timeouts": 0
+  },
+  "prize_margin": 56
+}

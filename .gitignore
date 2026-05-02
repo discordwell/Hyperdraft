@@ -36,7 +36,16 @@ oldpad.md
 
 # Codex agent scratch dirs
 codex-strategy/
-codex-pokemon-strategy/
+codex-pokemon-strategy/*
+!codex-pokemon-strategy/
+!codex-pokemon-strategy/.gitignore
+!codex-pokemon-strategy/README.md
+!codex-pokemon-strategy/strategy_notes.md
+!codex-pokemon-strategy/compare_pokemon_strategies.py
+!codex-pokemon-strategy/pokemon_strategy_results.json
+!codex-pokemon-strategy/pokemon_strategy_summary.json
+codex-pokemon-strategy/scratch/
+codex-pokemon-strategy/__pycache__/
 
 # One-shot triage / worksheet outputs
 orphan_triage.json
@@ -99,3 +108,6 @@ assets/card_art/.cache/
 
 # Composed cards (regenerable from scripts/beyond/wet_test/render_all.py)
 assets/card_art/beyond/ravnica/composed/
+
+# YGOProDeck reference library (Konami-owned; regeneratable via scripts/beyond_kamigawa/fetch_ygo_refs.py)
+assets/card_art/beyond/kamigawa/refs/
