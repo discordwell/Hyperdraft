@@ -439,9 +439,9 @@ HELMEPPO = make_creature(
 
 MARINE_BATTLESHIP = make_artifact_creature(
     name="Marine Battleship",
-    power=4,
-    toughness=6,
-    mana_cost="{4}{W}",
+    power=3,
+    toughness=4,
+    mana_cost="{2}{W}",
     subtypes={"Vehicle"},
     text="Crew 3. Marines you control have ward {1}."
 )
@@ -1157,9 +1157,9 @@ def ace_fire_fist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 ACE_FIRE_FIST = make_creature(
     name="Portgas D. Ace, Fire Fist",
-    power=5,
-    toughness=4,
-    mana_cost="{3}{R}{R}",
+    power=4,
+    toughness=3,
+    mana_cost="{1}{R}{R}",
     colors={Color.RED},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
@@ -1212,9 +1212,9 @@ def kid_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 KID_CAPTAIN = make_creature(
     name="Eustass Kid, Magnetic Menace",
-    power=4,
-    toughness=4,
-    mana_cost="{3}{R}",
+    power=2,
+    toughness=3,
+    mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
@@ -2125,9 +2125,9 @@ MINK_WARRIOR = make_creature(
 
 REVOLUTIONARY_COMMANDER = make_creature(
     name="Revolutionary Commander",
-    power=3,
-    toughness=4,
-    mana_cost="{1}{B}{R}",
+    power=2,
+    toughness=2,
+    mana_cost="{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Rebel"},
     text="Menace. Whenever Revolutionary Commander deals combat damage to a player, that player discards a card."
@@ -2407,9 +2407,9 @@ BOA_HANCOCK = make_creature(
 BUGGY_CLOWN = make_creature(
     name="Buggy, the Clown",
     power=2,
-    toughness=3,
-    mana_cost="{1}{R}{B}",
-    colors={Color.RED, Color.BLACK},
+    toughness=2,
+    mana_cost="{1}{R}",
+    colors={Color.RED},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
     text="When Buggy dies, return him to the battlefield tapped under his owner's control at the beginning of the next end step. Buggy can't block creatures with power 4 or greater."
@@ -2570,9 +2570,9 @@ CAVENDISH_HAKUBA = make_creature(
 REBECCA_GLADIATOR = make_creature(
     name="Rebecca, Gladiator",
     power=2,
-    toughness=3,
-    mana_cost="{1}{W}{R}",
-    colors={Color.WHITE, Color.RED},
+    toughness=2,
+    mana_cost="{R}",
+    colors={Color.RED},
     subtypes={"Human", "Warrior"},
     text="First strike. When Rebecca blocks, she gets +2/+0 until end of turn."
 )
@@ -2608,6 +2608,48 @@ EAST_BLUE_PIRATE = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Pirate"},
     text="Haste"
+)
+
+DRUM_ISLAND_SENTRY = make_creature(
+    name="Drum Island Sentry",
+    power=2, toughness=1, mana_cost="{R}", colors={Color.RED},
+    subtypes={"Human", "Pirate"}, text="Haste"
+)
+
+SEA_PATROL_PIRATE = make_creature(
+    name="Sea Patrol Pirate",
+    power=2, toughness=2, mana_cost="{1}{R}", colors={Color.RED},
+    subtypes={"Human", "Pirate"}, text="Menace"
+)
+
+WANO_DECKHAND = make_creature(
+    name="Wano Deckhand",
+    power=2, toughness=3, mana_cost="{1}{R}", colors={Color.RED},
+    subtypes={"Human", "Sailor"}, text="Vigilance"
+)
+
+FISH_MAN_BRAWLER = make_creature(
+    name="Fish-Man Brawler",
+    power=1, toughness=1, mana_cost="{R}", colors={Color.RED},
+    subtypes={"Fish-Man", "Pirate"}, text="Menace, lifelink"
+)
+
+DRUM_ISLAND_SAILOR = make_creature(
+    name="Drum Island Sailor",
+    power=3, toughness=1, mana_cost="{1}{R}", colors={Color.RED},
+    subtypes={"Human", "Sailor"}, text="First strike"
+)
+
+MARINE_PATROL = make_creature(
+    name="Marine Patrol",
+    power=2, toughness=3, mana_cost="{1}{R}", colors={Color.RED},
+    subtypes={"Human", "Soldier"}, text="Vigilance"
+)
+
+SKYPIEA_WARRIOR = make_creature(
+    name="Skypiea Warrior",
+    power=1, toughness=4, mana_cost="{1}{R}", colors={Color.RED},
+    subtypes={"Human", "Warrior"}, text="Reach"
 )
 
 GRAND_LINE_NAVIGATOR = make_creature(
@@ -3465,6 +3507,15 @@ ONE_PIECE_CARDS = {
     "Swamp": SWAMP_OPG,
     "Mountain": MOUNTAIN_OPG,
     "Forest": FOREST_OPG,
+
+    # WAVE 4/5 BUFF COMMONS
+    "Drum Island Sentry": DRUM_ISLAND_SENTRY,
+    "Sea Patrol Pirate": SEA_PATROL_PIRATE,
+    "Wano Deckhand": WANO_DECKHAND,
+    "Fish-Man Brawler": FISH_MAN_BRAWLER,
+    "Drum Island Sailor": DRUM_ISLAND_SAILOR,
+    "Marine Patrol": MARINE_PATROL,
+    "Skypiea Warrior": SKYPIEA_WARRIOR,
 }
 
 print(f"Loaded {len(ONE_PIECE_CARDS)} One Piece: Grand Line cards")
@@ -3746,5 +3797,12 @@ CARDS = [
     AXE_DIAL,
     FLAME_DIAL,
     BREATH_DIAL,
-    SEASTONE_NAIL
+    SEASTONE_NAIL,
+    DRUM_ISLAND_SENTRY,
+    SEA_PATROL_PIRATE,
+    WANO_DECKHAND,
+    FISH_MAN_BRAWLER,
+    DRUM_ISLAND_SAILOR,
+    MARINE_PATROL,
+    SKYPIEA_WARRIOR,
 ]
