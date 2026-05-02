@@ -7832,9 +7832,9 @@ def hinterland_sanctifier_setup(obj: GameObject, state: GameState) -> list[Inter
 # --- SIRE OF SEVEN DEATHS ---
 # First strike, vigilance, menace, trample, reach, lifelink, ward—Pay 7 life.
 def sire_of_seven_deaths_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # All keywords are static; ward is engine-gapped.
-    # engine gap: ward keyword
-    return []
+    # All combat keywords are static. Wire ward—Pay 7 life via the helper
+    # (life-pay variant approximated with mana_cost; v1 ward always counters).
+    return [make_ward(obj, life_cost=7)]
 
 
 # --- CRYSTAL BARRICADE ---
@@ -7867,9 +7867,7 @@ def squad_rallier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 # --- TWINBLADE BLESSING ---
 # Enchant creature; enchanted creature has double strike.
-def twinblade_blessing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: aura double strike grant
-    return []
+twinblade_blessing_setup = make_aura_setup(keywords=["double strike"])
 
 
 # --- HIGH FAE TRICKSTER ---
@@ -8099,7 +8097,8 @@ def omniscience_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- SPECTRAL SAILOR ---
 # Flash, Flying / {3}{U}: Draw a card.
 def spectral_sailor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated draw
+    from src.cards.interceptor_helpers import make_draw_ability
+    make_draw_ability(obj, cost="{3}{U}", count=1, description="Draw a card")
     return []
 
 
@@ -8154,7 +8153,22 @@ def reassembling_skeleton_setup(obj: GameObject, state: GameState) -> list[Inter
 # --- AXGARD CAVALRY ---
 # {T}: Target creature gains haste until end of turn.
 def axgard_cavalry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap activated keyword grant
+    """{T}: Target creature gains haste until end of turn."""
+    def grant_haste(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': target_id, 'keyword': 'haste', 'duration': 'end_of_turn'},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=grant_haste,
+        description="Target creature gains haste until end of turn",
+        targets_required=1, target_kind="creature",
+    )
     return []
 
 
@@ -8488,7 +8502,35 @@ def ancestor_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- INGENIOUS LEONIN ---
 # {3}{W}: Put a +1/+1 counter on another target attacking creature you control. If Cat, first strike.
 def ingenious_leonin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated targeted counter + conditional keyword
+    """{3}{W}: Put a +1/+1 counter on another target attacking creature you
+    control. If that creature is a Cat, it gains first strike until end of turn.
+    """
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        if target_id == o.id:
+            return []
+        target = st.objects.get(target_id) if target_id else None
+        events: list[Event] = [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': target_id, 'counter_type': '+1/+1', 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+        if target and 'Cat' in (target.characteristics.subtypes or set()):
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': target_id, 'keyword': 'first strike',
+                         'duration': 'end_of_turn'},
+                source=o.id, controller=o.controller,
+            ))
+        return events
+    make_activated_ability(
+        obj, cost="{3}{W}", effect_fn=_effect,
+        description="+1/+1 counter on attacking creature you control (Cat: first strike)",
+        targets_required=1, target_kind="creature_you_control",
+    )
     return []
 
 
@@ -8535,8 +8577,37 @@ def jazal_goldmane_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 # --- PACIFISM ---
 # Enchant creature / Enchanted creature can't attack or block.
 def pacifism_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: aura cant-attack/cant-block
-    return []
+    """Enchanted creature can't attack or block."""
+    source_id = obj.id
+
+    def cant_attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        source = state.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        attached = source.state.attached_to
+        return attached is not None and event.payload.get('attacker_id') == attached
+
+    def cant_attack_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    cant_attack = Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=cant_attack_filter, handler=cant_attack_handler,
+        duration='while_on_battlefield',
+    )
+
+    def attached_blocker_filter(target: GameObject, state: GameState) -> bool:
+        source = state.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        return source.state.attached_to is not None and target.id == source.state.attached_to
+
+    from src.cards.interceptor_helpers import make_cant_block
+    cant_block = make_cant_block(obj, attached_blocker_filter)
+    return [cant_attack, cant_block]
 
 
 # --- EATEN BY PIRANHAS ---
@@ -8556,7 +8627,9 @@ def kitesail_corsair_setup(obj: GameObject, state: GameState) -> list[Intercepto
 # --- MYSTIC ARCHAEOLOGIST ---
 # {3}{U}{U}: Draw two cards.
 def mystic_archaeologist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated draw
+    from src.cards.interceptor_helpers import make_draw_ability
+    make_draw_ability(obj, cost="{3}{U}{U}", count=2,
+                      description="Draw two cards")
     return []
 
 
@@ -8641,7 +8714,7 @@ def suspicious_shambler_gy_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 # --- UNTAMED HUNGER ---
-# Enchant creature / Enchanted creature gets +2/+1 and has menace.
+# Already wired via make_aura_setup directly on the card definition (see UNTAMED_HUNGER below).
 def untamed_hunger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     # engine gap: aura +2/+1 + keyword grant
     return []
@@ -8650,14 +8723,33 @@ def untamed_hunger_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 # --- VAMPIRE INTERLOPER ---
 # Flying / This creature can't block.
 def vampire_interloper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: cant-block static
-    return []
+    """This creature can't block."""
+    from src.cards.interceptor_helpers import make_cant_block
+    return [make_cant_block(obj)]
 
 
 # --- VAMPIRE NEONATE ---
 # {2}, {T}: Each opponent loses 1 life and you gain 1 life.
 def vampire_neonate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated drain
+    """{2}, {T}: Each opponent loses 1 life and you gain 1 life."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': o.controller, 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+        for pid in st.players.keys():
+            if pid != o.controller:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': pid, 'amount': -1},
+                    source=o.id, controller=o.controller,
+                ))
+        return events
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=_effect,
+        description="Each opponent loses 1 life and you gain 1 life",
+    )
     return []
 
 
@@ -8758,7 +8850,27 @@ def thrashing_brontodon_setup(obj: GameObject, state: GameState) -> list[Interce
 # --- WILDHEART INVOKER ---
 # {8}: Target creature gets +5/+5 and gains trample.
 def wildheart_invoker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated pump + keyword grant
+    """{8}: Target creature gets +5/+5 and gains trample until end of turn."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [
+            Event(type=EventType.PT_MODIFICATION,
+                  payload={'object_id': target_id, 'power_mod': 5, 'toughness_mod': 5,
+                           'duration': 'end_of_turn'},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': target_id, 'keyword': 'trample',
+                           'duration': 'end_of_turn'},
+                  source=o.id, controller=o.controller),
+        ]
+    make_activated_ability(
+        obj, cost="{8}", effect_fn=_effect,
+        description="Target creature gets +5/+5 and gains trample until end of turn",
+        targets_required=1, target_kind="creature",
+    )
     return []
 
 
@@ -8803,14 +8915,32 @@ def ballyrush_banneret_setup(obj: GameObject, state: GameState) -> list[Intercep
 # --- CRUSADER OF ODRIC ---
 # Power and toughness equal to number of creatures you control.
 def crusader_of_odric_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: dynamic P/T from creature count
-    return []
+    from src.cards.interceptor_helpers import make_dynamic_pt_boost as _dyn_pt
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def pt_mod(source: GameObject, target: GameObject, st: GameState) -> tuple[int, int]:
+        n = sum(
+            1 for o in st.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+        )
+        return (n, n)
+
+    return _dyn_pt(obj, pt_mod, affects_self)
 
 
 # --- FELIDAR CUB ---
 # Sacrifice this creature: Destroy target enchantment.
 def felidar_cub_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: sacrifice activated destroy
+    from src.cards.interceptor_helpers import make_sac_destroy_ability
+    make_sac_destroy_ability(
+        obj, cost="Sacrifice this creature",
+        target_kind="enchantment",
+        description="Destroy target enchantment",
+    )
     return []
 
 
@@ -8988,7 +9118,20 @@ def myojin_of_nights_reach_setup(obj: GameObject, state: GameState) -> list[Inte
 # --- VAMPIRIC RITES ---
 # {1}{B}, Sacrifice a creature: You gain 1 life and draw a card.
 def vampiric_rites_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: sacrifice activated drain+draw
+    """{1}{B}, Sacrifice a creature: You gain 1 life and draw a card."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': o.controller, 'amount': 1},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'count': 1},
+                  source=o.id, controller=o.controller),
+        ]
+    make_activated_ability(
+        obj, cost="{1}{B}, Sacrifice a creature", effect_fn=_effect,
+        description="Gain 1 life and draw a card",
+    )
     return []
 
 
@@ -9002,8 +9145,30 @@ def wishclaw_talisman_setup(obj: GameObject, state: GameState) -> list[Intercept
 # --- GHITU LAVARUNNER ---
 # As long as 2+ instant/sorcery in graveyard, gets +1/+0 and has haste.
 def ghitu_lavarunner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: conditional self-pump + haste from graveyard count
-    return []
+    from src.cards.interceptor_helpers import (
+        make_dynamic_pt_boost as _dyn_pt,
+    )
+
+    def threshold(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        n = 0
+        for o in st.objects.values():
+            if (o.zone == ZoneType.GRAVEYARD
+                    and o.owner == obj.controller
+                    and (CardType.INSTANT in o.characteristics.types
+                         or CardType.SORCERY in o.characteristics.types)):
+                n += 1
+                if n >= 2:
+                    return True
+        return False
+
+    def pt_mod(source: GameObject, target: GameObject, st: GameState) -> tuple[int, int]:
+        return (1, 0)
+
+    interceptors = list(_dyn_pt(obj, pt_mod, threshold))
+    interceptors.append(make_keyword_grant(obj, ['haste'], threshold))
+    return interceptors
 
 
 # --- GIANT CINDERMAW ---
@@ -9099,8 +9264,22 @@ def dryad_militant_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 # --- ENIGMA DRAKE ---
 # Flying / Power equal to number of instant and sorcery cards in your graveyard.
 def enigma_drake_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: dynamic power based on graveyard count
-    return []
+    from src.cards.interceptor_helpers import make_dynamic_pt_boost as _dyn_pt
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def pt_mod(source: GameObject, target: GameObject, st: GameState) -> tuple[int, int]:
+        n = 0
+        for o in st.objects.values():
+            if (o.zone == ZoneType.GRAVEYARD
+                    and o.owner == obj.controller
+                    and (CardType.INSTANT in o.characteristics.types
+                         or CardType.SORCERY in o.characteristics.types)):
+                n += 1
+        return (n, 0)
+
+    return _dyn_pt(obj, pt_mod, affects_self)
 
 
 # --- IMMERSTURM PREDATOR ---

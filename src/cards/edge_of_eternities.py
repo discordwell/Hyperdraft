@@ -2286,8 +2286,28 @@ def squires_lightblade_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def starport_security_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{3}{W},{T}: tap another target creature; -2 cost if you control creature with +1/+1 counter."""
-    # engine gap: tap-activated targeted ability + dynamic activated cost reduction (counter-aware)
+    """{3}{W},{T}: tap another target creature.
+
+    The "-2 cost if you control creature with +1/+1 counter" rider is engine
+    gap (dynamic activated cost reduction).
+    """
+    def tap_target(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        if target_id == o.id:
+            return []
+        return [Event(
+            type=EventType.TAP,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{3}{W}, {T}", effect_fn=tap_target,
+        description="Tap another target creature",
+        targets_required=1, target_kind="creature",
+    )
     return []
 
 
@@ -2610,8 +2630,17 @@ def timeline_culler_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def umbral_collar_zealot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sacrifice another creature/artifact: surveil 1."""
-    # engine gap: activated ability with sacrifice cost
+    """Sacrifice another creature or artifact: Surveil 1."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': o.controller, 'count': 1},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="Sacrifice another creature or artifact", effect_fn=_effect,
+        description="Surveil 1",
+    )
     return []
 
 
@@ -2797,8 +2826,28 @@ def territorial_bruntar_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def zookeeper_mechan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: Add {R}; {6}{R}: target creature you control +4/+0 EOT (sorcery)."""
-    # engine gap: activated mana ability ({T}: {R}) + activated targeted pump (sorcery-speed).
+    """{T}: Add {R}; {6}{R}: target creature you control +4/+0 EOT (sorcery).
+
+    The mana ability is recognized by the priority mana-dispatch path.
+    Wire the +4/+0 targeted pump as an activated ability.
+    """
+    def pump(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': target_id, 'power_mod': 4, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{6}{R}", effect_fn=pump,
+        description="Target creature you control gets +4/+0 until end of turn",
+        sorcery_speed=True,
+        targets_required=1, target_kind="creature_you_control",
+    )
     return []
 
 

@@ -49,6 +49,8 @@ from src.cards.interceptor_helpers import (
     becomes_creature,
     # Cost reduction
     make_cost_reduction,
+    # Dynamic P/T
+    make_dynamic_pt_boost,
 )
 from src.engine.turn_state import spells_cast_this_turn
 
@@ -1902,9 +1904,18 @@ def caustic_bronco_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def duelist_of_the_mind_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Power is equal to the number of cards drawn this turn."""
-    # Dynamic power tracking not fully implemented
-    return []
+    """Power is equal to the number of cards drawn this turn (base 0)."""
+    # Crime-trigger draw rider is engine-gap (crime tracking not fully wired).
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def power_mod(source: GameObject, target: GameObject, st: GameState) -> tuple[int, int]:
+        # Cards drawn-this-turn (controller). The standard tracker key is set by some draw paths;
+        # fall back to 0 if missing.
+        n = st.turn_data.get(f"{obj.controller}_cards_drawn_this_turn", 0)
+        return (n, 0)
+
+    return make_dynamic_pt_boost(obj, power_mod, affects_self)
 
 
 # =============================================================================
@@ -2231,9 +2242,13 @@ def slickshot_vaultbuster_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def stoic_sphinx_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Hexproof while you haven't cast a spell this turn."""
-    # engine gap: conditional hexproof from spell-cast tracking not implemented
-    return []
+    """Hexproof as long as you haven't cast a spell this turn."""
+    def affects_self_when_no_spells(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return spells_cast_this_turn(st, obj.controller) == 0
+
+    return [make_keyword_grant(obj, ['hexproof'], affects_self_when_no_spells)]
 
 
 def stop_cold_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2269,15 +2284,24 @@ def blood_hustler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def boneyard_desecrator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated sacrifice ability: +1/+1 counter / Treasure if outlaw."""
-    # engine gap: activated-with-sacrifice abilities not engine-tracked here
+    """{1}{B}, Sacrifice another creature: Put a +1/+1 counter on this creature.
+
+    The "if an outlaw was sacrificed, also create a Treasure" rider isn't
+    enforced because the cost framework doesn't tell us what was sacrificed.
+    """
+    from src.cards.interceptor_helpers import make_counter_ability
+    make_counter_ability(
+        obj, cost="{1}{B}, Sacrifice another creature",
+        counter_type="+1/+1", amount=1, target_self=True,
+        description="Put a +1/+1 counter on this creature",
+    )
     return []
 
 
 def forsaken_miner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Can't block; crime -> may pay {B} to return from GY to BF."""
-    # engine gap: crime tracking + GY-to-BF optional return not engine-tracked
-    return []
+    """This creature can't block. (Crime trigger from graveyard is engine-gap.)"""
+    from src.cards.interceptor_helpers import make_cant_block
+    return [make_cant_block(obj)]
 
 
 def kaervek_the_punisher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2672,8 +2696,29 @@ def quilled_charger_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def reckless_lackey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """First strike, haste (keywords); activated sacrifice ability."""
-    # engine gap: activated sacrifice ability not engine-tracked
+    """{2}{R}, Sacrifice this creature: Draw a card and create a Treasure token."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'count': 1},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.OBJECT_CREATED,
+                  payload={
+                      'name': 'Treasure',
+                      'controller': o.controller,
+                      'owner': o.controller,
+                      'to_zone_type': ZoneType.BATTLEFIELD,
+                      'types': {CardType.ARTIFACT},
+                      'subtypes': {'Treasure'},
+                      'colors': set(),
+                      'is_token': True,
+                  },
+                  source=o.id, controller=o.controller),
+        ]
+    make_activated_ability(
+        obj, cost="{2}{R}, Sacrifice this creature", effect_fn=_effect,
+        description="Draw a card and create a Treasure token",
+    )
     return []
 
 
@@ -2692,9 +2737,16 @@ def resilient_roadrunner_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def stingerback_terror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """-1/-1 for each card in your hand; plot."""
-    # engine gap: dynamic P/T from hand size not engine-tracked
-    return []
+    """-1/-1 for each card in your hand. (Plot is engine-gap.)"""
+    from src.cards.interceptor_helpers import count_cards_in_hand
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def pt_mod(source: GameObject, target: GameObject, st: GameState) -> tuple[int, int]:
+        n = count_cards_in_hand(obj.controller, st)
+        return (-n, -n)
+
+    return make_dynamic_pt_boost(obj, pt_mod, affects_self)
 
 
 # -----------------------------------------------------------------------------

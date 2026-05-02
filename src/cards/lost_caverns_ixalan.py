@@ -1823,9 +1823,64 @@ def zoyowa_lavatongue_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def vito_fanatic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you sacrifice another permanent, you gain 2 life (first time)."""
-    # Sacrifice trigger - placeholder
-    return []
+    """Whenever you sacrifice another permanent, you gain 2 life if first time
+    this turn; opponent loses 2 if second; create 2/2 Vampire if third.
+    """
+    def sac_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.SACRIFICE:
+            return False
+        if event.payload.get('player') != obj.controller:
+            return False
+        # Don't count Vito sacrificing itself.
+        sacrificed_id = event.payload.get('object_id')
+        return sacrificed_id != obj.id
+
+    def sac_effect(event: Event, st: GameState) -> list[Event]:
+        key = f"{obj.id}_vito_fired"
+        n = st.turn_data.get(key, 0)
+        st.turn_data[key] = n + 1
+        if n == 0:
+            return [Event(type=EventType.LIFE_CHANGE,
+                          payload={'player': obj.controller, 'amount': 2},
+                          source=obj.id, controller=obj.controller)]
+        if n == 1:
+            events: list[Event] = []
+            for pid in st.players.keys():
+                if pid != obj.controller:
+                    events.append(Event(
+                        type=EventType.LIFE_CHANGE,
+                        payload={'player': pid, 'amount': -2},
+                        source=obj.id, controller=obj.controller,
+                    ))
+            return events
+        if n == 2:
+            return [Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Vampire',
+                    'controller': obj.controller, 'owner': obj.controller,
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Vampire'},
+                    'colors': {Color.BLACK},
+                    'power': 2, 'toughness': 2,
+                    'abilities': ['flying'],
+                    'is_token': True,
+                },
+                source=obj.id, controller=obj.controller,
+            )]
+        return []
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=sac_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=sac_effect(e, s),
+        ),
+        duration='while_on_battlefield',
+    )]
 
 
 # --- ADDITIONAL COLORLESS CARDS ---

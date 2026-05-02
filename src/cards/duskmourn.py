@@ -43,6 +43,7 @@ from src.cards.interceptor_helpers import (
     make_room_setup, is_door_unlocked, make_attacks_alone_trigger,
     # Dynamic P/T helpers
     make_attached_dynamic_pt_boost,
+    make_dynamic_pt_boost,
     count_permanents_of_type,
     # Sweep 4: becomes-creature
     becomes_creature,
@@ -811,9 +812,19 @@ def sawblade_skinripper_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def shrewd_storyteller_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival - At the beginning of your second main phase, if this creature is tapped, put a +1/+1 counter on target creature."""
-    # engine gap: Survival keyword (second-main tap check) not implemented.
-    return []
+    """Survival — At the beginning of your second main phase, if this creature
+    is tapped, put a +1/+1 counter on target creature. Approximated via
+    end-step trigger; targets self (engine gap: target-choice in Survival).
+    """
+    def end_effect(event: Event, state: GameState) -> list[Event]:
+        if not obj.state.tapped:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_end_step_trigger(obj, end_effect, controller_only=True)]
 
 
 def shroudstomper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -885,9 +896,22 @@ def _make_simple_etb_react(obj: GameObject, effect_fn) -> list[Interceptor]:
 
 
 def acrobatic_cheerleader_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — at second main, if tapped, put flying counter on this. Once-only."""
-    # engine gap: Survival keyword (second-main-phase tap check) not implemented
-    return []
+    """Survival — at second main, if tapped, put a flying counter on this.
+    This ability triggers only once. Approximated via end-step + a one-shot
+    flag on obj.state.
+    """
+    def end_effect(event: Event, state: GameState) -> list[Event]:
+        if getattr(obj.state, "_acrobatic_fired", False):
+            return []
+        if not obj.state.tapped:
+            return []
+        obj.state._acrobatic_fired = True
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'flying', 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_end_step_trigger(obj, end_effect, controller_only=True)]
 
 
 def dazzling_theater_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -927,9 +951,42 @@ def fear_of_surveillance_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def glimmer_seeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — draw a card if Glimmer present, else create Glimmer token."""
-    # engine gap: Survival not modeled
-    return []
+    """Survival — At the beginning of your second main phase, if tapped:
+    draw a card if you control a Glimmer creature; otherwise create a 1/1
+    white Glimmer enchantment creature token. Approximated via end-step.
+    """
+    def end_effect(event: Event, state: GameState) -> list[Event]:
+        if not obj.state.tapped:
+            return []
+        # Check if controller controls a Glimmer creature.
+        controls_glimmer = any(
+            o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and 'Glimmer' in (o.characteristics.subtypes or set())
+            for o in state.objects.values()
+        )
+        if controls_glimmer:
+            return [Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'count': 1},
+                source=obj.id, controller=obj.controller,
+            )]
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Glimmer',
+                'controller': obj.controller, 'owner': obj.controller,
+                'to_zone_type': ZoneType.BATTLEFIELD,
+                'types': {CardType.CREATURE, CardType.ENCHANTMENT},
+                'subtypes': {'Glimmer'},
+                'colors': {Color.WHITE},
+                'power': 1, 'toughness': 1,
+                'is_token': True,
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_end_step_trigger(obj, end_effect, controller_only=True)]
 
 
 def grand_entryway_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1069,8 +1126,22 @@ def patched_plaything_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def possessed_goat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{3}, Discard a card: +3 +1/+1 counters and become Demon. Once."""
-    # engine gap: activated abilities not modeled here
+    """{3}, Discard a card: Three +1/+1 counters and become Demon. Activate only once.
+
+    The "becomes Demon in addition to its other types" portion is a static type
+    addition (engine gap for activated abilities). Wire the +1/+1 counter half.
+    """
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(type=EventType.COUNTER_ADDED,
+                  payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 3},
+                  source=o.id, controller=o.controller),
+        ]
+    make_activated_ability(
+        obj, cost="{3}, Discard a card", effect_fn=_effect,
+        description="Put three +1/+1 counters on this creature",
+        once_per_turn=True,
+    )
     return []
 
 
@@ -1657,8 +1728,14 @@ def appendage_amalgam_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def cackling_slasher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Deathtouch; enters with +1/+1 counter if a creature died this turn."""
-    # engine gap: 'creature died this turn' check at ETB-counter time
-    return []
+    from src.cards.interceptor_helpers import make_morbid_etb_trigger
+    def add_counter(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_morbid_etb_trigger(obj, add_counter)]
 
 
 def cracked_skull_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2160,8 +2237,31 @@ def valgavoth_terror_eater_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def valgavoths_faithful_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{3B}, sac this: reanimate creature from GY. Sorcery only."""
-    # engine gap: activated sacrifice ability
+    """{3}{B}, Sacrifice this creature: Return target creature card from your
+    graveyard to the battlefield. Activate only as a sorcery."""
+    def reanimate(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target = st.objects.get(target_id) if target_id else None
+        if not target or target.zone != ZoneType.GRAVEYARD:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target_id,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'to_zone_type': ZoneType.BATTLEFIELD,
+            },
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{3}{B}, Sacrifice this creature", effect_fn=reanimate,
+        description="Return target creature card from your graveyard to the battlefield",
+        sorcery_speed=True,
+        targets_required=1, target_kind="creature_card_in_graveyard",
+    )
     return []
 
 
@@ -2486,14 +2586,31 @@ def ragged_playmate_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def rampaging_soulrager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Static +3/+0 if 2+ unlocked doors."""
-    # engine gap: static P/T conditional on Room state
-    return []
+    """Static +3/+0 if 2+ unlocked doors among Rooms you control."""
+    def affects_self_when_doors(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        # Count total unlocked doors across all Rooms the controller owns.
+        unlocked = 0
+        for o in st.objects.values():
+            if (o.controller == obj.controller
+                    and o.zone == ZoneType.BATTLEFIELD
+                    and 'Room' in (o.characteristics.subtypes or set())):
+                doors = getattr(o.state, "unlocked_doors", None) or []
+                unlocked += len(doors)
+        return unlocked >= 2
+
+    def pt_mod(source: GameObject, target: GameObject, st: GameState) -> tuple[int, int]:
+        return (3, 0)
+
+    return make_dynamic_pt_boost(obj, pt_mod, affects_self_when_doors)
 
 
 def ripchain_razorkin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Reach; sac-land-for-card activated."""
-    # engine gap: activated abilities
+    """{2}{R}, Sacrifice a land: Draw a card."""
+    from src.cards.interceptor_helpers import make_draw_ability
+    make_draw_ability(obj, cost="{2}{R}, Sacrifice a land", count=1,
+                      description="Draw a card")
     return []
 
 
@@ -2622,9 +2739,18 @@ def bashful_beastie_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def cautious_survivor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — gain 2 life if tapped at second main."""
-    # engine gap: Survival
-    return []
+    """Survival — At the beginning of your second main phase, if this creature
+    is tapped, you gain 2 life. Approximated via end-step trigger.
+    """
+    def end_effect(event: Event, state: GameState) -> list[Event]:
+        if not obj.state.tapped:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_end_step_trigger(obj, end_effect, controller_only=True)]
 
 
 def defiant_survivor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2651,10 +2777,9 @@ def fear_of_exposure_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return []
 
 
-def frantic_strength_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flash Aura — +2/+2 trample."""
-    # engine gap: Aura with static +2/+2 + trample on enchanted
-    return []
+frantic_strength_setup = make_aura_setup(
+    power_mod=2, toughness_mod=2, keywords=["trample"]
+)
 
 
 def greenhouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
