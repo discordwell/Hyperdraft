@@ -1949,8 +1949,27 @@ def earth_kingdom_jailer_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def earth_kingdom_protectors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sacrifice this creature: another Ally gains indestructible EOT (activated, engine gap)."""
-    # engine gap: activated abilities require activation system
+    """Sacrifice this creature: Another target Ally you control gains indestructible until end of turn."""
+    from src.cards.interceptor_helpers import make_activated_ability as _mak
+    def grant_indestr(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        if target_id == o.id:
+            return []
+        target = st.objects.get(target_id) if target_id else None
+        if not target or 'Ally' not in (target.characteristics.subtypes or set()):
+            return []
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': target_id, 'keyword': 'indestructible',
+                     'duration': 'end_of_turn'},
+            source=o.id, controller=o.controller,
+        )]
+    _mak(obj, cost="Sacrifice this creature", effect_fn=grant_indestr,
+         description="Another target Ally gains indestructible until end of turn",
+         targets_required=1, target_kind="ally_you_control")
     return []
 
 
@@ -2359,9 +2378,40 @@ def north_pole_patrol_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def otterpenguin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you draw your second card each turn, +1/+2 EOT and unblockable (engine gap)."""
-    # engine gap: "second card each turn" tracker + temporary PT + temporary unblockable
-    return []
+    """Whenever you draw your second card each turn, +1/+2 EOT and unblockable.
+
+    Engine gap: temporary unblockable as a per-turn flag is approximated via
+    GRANT_UNBLOCKABLE event; +1/+2 fires via PT_MODIFICATION.
+    """
+    def draw_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DRAW:
+            return False
+        if event.payload.get('player') != obj.controller:
+            return False
+        drawn = st.turn_data.get(f"{obj.controller}_cards_drawn_this_turn", 0)
+        return drawn >= 2 and not st.turn_data.get(f"{obj.id}_otter_fired", False)
+
+    def pump_and_unblockable(event: Event, st: GameState) -> list[Event]:
+        st.turn_data[f"{obj.id}_otter_fired"] = True
+        return [
+            Event(type=EventType.PT_MODIFICATION,
+                  payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 2,
+                           'duration': 'end_of_turn'},
+                  source=obj.id, controller=obj.controller),
+            Event(type=EventType.GRANT_UNBLOCKABLE,
+                  payload={'object_id': obj.id, 'duration': 'end_of_turn'},
+                  source=obj.id, controller=obj.controller),
+        ]
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=draw_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=pump_and_unblockable(e, s),
+        ),
+        duration='while_on_battlefield',
+    )]
 
 
 def serpent_of_the_pass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2826,9 +2876,9 @@ def phoenix_fleet_airship_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def swampsnare_trap_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura -5/-3 to enchanted creature (engine gap aura attachment)."""
-    # engine gap: aura attachment system
-    return []
+    """Aura: Enchanted creature gets -5/-3."""
+    from src.cards.interceptor_helpers import make_aura_setup as _aura
+    return _aura(power_mod=-5, toughness_mod=-3)(obj, state)
 
 
 def tundra_tank_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

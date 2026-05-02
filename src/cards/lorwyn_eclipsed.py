@@ -1820,8 +1820,28 @@ def thoughtweft_imbuer_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def timid_shieldbearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated ability: pump all creatures (engine gap)."""
-    return []  # engine gap: activated mass +1/+1 EOT requires duration tracking
+    """{4}{W}: Creatures you control get +1/+1 until end of turn."""
+    from src.cards.interceptor_helpers import make_activated_ability as _mak
+    def anthem(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for cand in st.objects.values():
+            if (cand.controller == o.controller
+                    and cand.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in cand.characteristics.types):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': cand.id,
+                        'power_mod': 1,
+                        'toughness_mod': 1,
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id, controller=o.controller,
+                ))
+        return events
+    _mak(obj, cost="{4}{W}", effect_fn=anthem,
+         description="Creatures you control get +1/+1 until end of turn")
+    return []
 
 
 def wanderbrine_trapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2165,8 +2185,12 @@ def collective_inferno_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def flamechain_mauler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated +1/+0 and menace EOT (engine gap)."""
-    return []  # engine gap: activated +1/+0 menace EOT
+    """{1}{R}: This creature gets +1/+0 and gains menace until end of turn."""
+    from src.cards.interceptor_helpers import make_pump_self_ability as _pump
+    _pump(obj, cost="{1}{R}", power_mod=1, toughness_mod=0,
+          grant_keyword='menace',
+          description="+1/+0 and gains menace until end of turn")
+    return []
 
 
 def flamebraider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2180,8 +2204,15 @@ def goliath_daydreamer_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def gristle_glutton_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated ability with discard/draw cycle (engine gap)."""
-    return []  # engine gap: tap+blight cost + conditional discard/draw
+    """{T}, Blight 1: Discard a card. If you do, draw a card.
+
+    The blight-1 cost (-1/-1 counter on a creature you control) isn't enforced
+    by the cost framework yet. The basic loot is wired.
+    """
+    from src.cards.interceptor_helpers import make_loot_ability
+    make_loot_ability(obj, cost="{T}, Blight 1",
+                      description="Discard a card; if you do, draw a card")
+    return []
 
 
 def hexing_squelcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2322,8 +2353,24 @@ def squawkroaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def stingslinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated 2 damage to each opponent (engine gap)."""
-    return []  # engine gap: activated tap+blight ability
+    """{1}{R}, {T}, Blight 1: This creature deals 2 damage to each opponent.
+
+    Blight 1 cost isn't enforced (engine gap), but the damage portion fires.
+    """
+    from src.cards.interceptor_helpers import make_activated_ability as _mak
+    def deal_two(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for pid in st.players.keys():
+            if pid != o.controller:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': pid, 'amount': 2, 'source': o.id},
+                    source=o.id, controller=o.controller,
+                ))
+        return events
+    _mak(obj, cost="{1}{R}, {T}, Blight 1", effect_fn=deal_two,
+         description="Deals 2 damage to each opponent")
+    return []
 
 
 def warren_torchmaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2619,8 +2666,32 @@ def wildvine_pummeler_setup(obj: GameObject, state: GameState) -> list[Intercept
 # --- MULTICOLOR ---
 
 def bre_of_clan_stoutarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated flying+lifelink + life-gain end step (engine gap)."""
-    return []  # engine gap: tap-cost activated + life-gain conditional cascade
+    """{1}{W}, {T}: Another target creature you control gains flying and
+    lifelink until end of turn. (End-step exile-cards-from-top life-gain
+    cascade is engine gap.)
+    """
+    from src.cards.interceptor_helpers import make_activated_ability as _mak
+    def grant_keys(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        if target_id == o.id:
+            return []
+        return [
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': target_id, 'keyword': 'flying',
+                           'duration': 'end_of_turn'},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': target_id, 'keyword': 'lifelink',
+                           'duration': 'end_of_turn'},
+                  source=o.id, controller=o.controller),
+        ]
+    _mak(obj, cost="{1}{W}, {T}", effect_fn=grant_keys,
+         description="Another target creature you control gains flying and lifelink until end of turn",
+         targets_required=1, target_kind="creature_you_control")
+    return []
 
 
 def catharsis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

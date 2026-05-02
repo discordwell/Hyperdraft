@@ -49,6 +49,8 @@ from src.cards.interceptor_helpers import (
     make_aura_setup,
     # Cost reduction
     make_cost_reduction,
+    # Dynamic P/T
+    make_dynamic_pt_boost,
 )
 from src.engine.blb_mechanics import (
     make_valiant_trigger,
@@ -2092,7 +2094,28 @@ def star_charter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def warren_elder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated +1/+1 anthem ability
+    """{3}{W}: Creatures you control get +1/+1 until end of turn."""
+    def anthem(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for cand in st.objects.values():
+            if (cand.controller == o.controller
+                    and cand.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in cand.characteristics.types):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': cand.id,
+                        'power_mod': 1,
+                        'toughness_mod': 1,
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id, controller=o.controller,
+                ))
+        return events
+    make_activated_ability(
+        obj, cost="{3}{W}", effect_fn=anthem,
+        description="Creatures you control get +1/+1 until end of turn",
+    )
     return []
 
 
@@ -2388,8 +2411,25 @@ def mockingbird_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def nightwhorl_hermit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: Threshold-conditional power boost + unblockable
-    return []
+    """Threshold (7+ in gy): +1/+0 and can't be blocked.
+
+    The unblockable rider is engine-gap (filter-based unblockable for self).
+    Wire the +1/+0 portion plus a 'menace' approximation for unblockable since
+    we don't have a per-target filter for unblockable yet.
+    """
+    def threshold_active(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        for zone in st.zones.values():
+            if zone.type == ZoneType.GRAVEYARD and zone.owner == obj.controller:
+                if len(zone.objects) >= 7:
+                    return True
+        return False
+
+    def pt_mod(source: GameObject, target: GameObject, st: GameState) -> tuple[int, int]:
+        return (1, 0)
+
+    return make_dynamic_pt_boost(obj, pt_mod, threshold_active)
 
 
 def shoreline_looter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2434,7 +2474,25 @@ def sugar_coat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def thought_shucker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated {1}{U} ability gated by Threshold (7+ gy) and once-only
+    """Threshold — {1}{U}: +1/+1 counter and draw a card. Activate only if 7+ in gy and only once.
+
+    Threshold gate and once-only constraints aren't enforced (engine gap), but
+    the basic activated ability is wired so the +1/+1 counter and draw fire.
+    """
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(type=EventType.COUNTER_ADDED,
+                  payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'count': 1},
+                  source=o.id, controller=o.controller),
+        ]
+    make_activated_ability(
+        obj, cost="{1}{U}", effect_fn=_effect,
+        description="+1/+1 counter on this and draw a card",
+        once_per_turn=True,
+    )
     return []
 
 
@@ -2752,7 +2810,8 @@ def persistent_marshstalker_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 def ravine_raider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated +1/+1 pump ability
+    """{1}{B}: This creature gets +1/+1 until end of turn."""
+    make_pump_self_ability(obj, cost="{1}{B}", power_mod=1, toughness_mod=1)
     return []
 
 

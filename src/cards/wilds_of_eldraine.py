@@ -4242,8 +4242,51 @@ def archon_of_the_wild_rose_setup(obj: GameObject, state: GameState) -> list[Int
 
 def cooped_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Aura: enchanted creature can't attack or block; activated exile."""
-    # engine gap: aura attack/block restrictions on enchanted creature; activated exile cost.
-    return []
+    source_id = obj.id
+
+    def cant_attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        source = state.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        attached = source.state.attached_to
+        return attached is not None and event.payload.get('attacker_id') == attached
+
+    def cant_attack_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    cant_attack = Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=cant_attack_filter, handler=cant_attack_handler,
+        duration='while_on_battlefield',
+    )
+
+    def attached_blocker_filter(target: GameObject, state: GameState) -> bool:
+        source = state.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        return source.state.attached_to is not None and target.id == source.state.attached_to
+
+    from src.cards.interceptor_helpers import make_cant_block
+    cant_block = make_cant_block(obj, attached_blocker_filter)
+
+    # {2}{W}: Exile enchanted creature.
+    def exile_enchanted(o: GameObject, st: GameState, targets) -> list[Event]:
+        target_id = o.state.attached_to
+        if not target_id:
+            return []
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{2}{W}", effect_fn=exile_enchanted,
+        description="Exile enchanted creature",
+    )
+    return [cant_attack, cant_block]
 
 
 def dutiful_griffin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4254,7 +4297,21 @@ def dutiful_griffin_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def frostbridge_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{2}{W}, {T}: Tap target creature."""
-    # engine gap: activated abilities with target selection.
+    def tap_target(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.TAP,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{2}{W}, {T}", effect_fn=tap_target,
+        description="Tap target creature",
+        targets_required=1, target_kind="creature",
+    )
     return []
 
 
@@ -4748,8 +4805,14 @@ def ingenious_prodigy_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def living_lectern_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated: {1}, sac: draw + Sorcerer Role token attached."""
-    # engine gap: activated abilities not registered as static interceptors.
+    """{1}, Sacrifice this creature: Draw a card. (Sorcerer Role token attach is engine gap.)
+    Activate only as a sorcery.
+    """
+    from src.cards.interceptor_helpers import make_draw_ability
+    make_draw_ability(
+        obj, cost="{1}, Sacrifice this creature", count=1,
+        description="Draw a card", sorcery_speed=True,
+    )
     return []
 
 

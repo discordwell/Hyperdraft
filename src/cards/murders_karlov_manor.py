@@ -1238,8 +1238,41 @@ def lazav_wearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def meddling_youths_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever you attack with 3+ creatures: investigate"""
-    # Would need attack tracking
-    return []
+    def attack_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        if event.payload.get('attacking_player') != obj.controller:
+            return False
+        attackers = list(event.payload.get('attackers') or [])
+        if len(attackers) < 3:
+            return False
+        return True
+
+    def investigate_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Clue',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Clue'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=investigate_effect(e, s),
+        ),
+        duration='while_on_battlefield',
+    )]
 
 
 def private_eye_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1880,8 +1913,40 @@ def delney_streetwise_lookout_setup(obj: GameObject, state: GameState) -> list[I
 
 def jaded_analyst_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever you draw your second card each turn: loses defender, gains vigilance"""
-    # Would need draw counting
-    return []
+    def draw_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DRAW:
+            return False
+        if event.payload.get('player') != obj.controller:
+            return False
+        # Use the standard turn_data tracker. If 2+ cards drawn this turn, this is at-or-after the second.
+        # Fire only on the exact draw that crosses the threshold to "2".
+        # Some draw paths increment after the event, so check >= 2.
+        drawn = st.turn_data.get(f"{obj.controller}_cards_drawn_this_turn", 0)
+        return drawn >= 2 and not st.turn_data.get(f"{obj.id}_jaded_fired", False)
+
+    def loses_defender_gains_vigilance(event: Event, st: GameState) -> list[Event]:
+        st.turn_data[f"{obj.id}_jaded_fired"] = True
+        return [
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': obj.id, 'keyword': 'vigilance', 'duration': 'end_of_turn'},
+                source=obj.id, controller=obj.controller,
+            ),
+            # Engine gap: lose-keyword (defender) -- approximate by granting vigilance only.
+        ]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=draw_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=loses_defender_gains_vigilance(e, s),
+        ),
+        duration='while_on_battlefield',
+    )]
 
 
 def furtive_courier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2398,8 +2463,44 @@ def undercover_crocodelf_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def evidence_examiner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """At beginning of combat: may collect evidence 4. Whenever you collect evidence: investigate."""
-    # Would need collect evidence tracking
-    return []
+    # The "may collect evidence 4" auto-triggered combat ability is a gap (it requires
+    # a player choice prompt), but the "Whenever you collect evidence: investigate" rider
+    # can be approximated by listening for EXILE events from the controller's graveyard.
+    def evidence_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.EXILE:
+            return False
+        target_id = event.payload.get('object_id')
+        target = st.objects.get(target_id) if target_id else None
+        if not target:
+            return False
+        # Only react to exile FROM the controller's graveyard.
+        return target.zone == ZoneType.GRAVEYARD and target.owner == obj.controller
+
+    def investigate(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Clue',
+                'controller': obj.controller,
+                'types': [CardType.ARTIFACT],
+                'subtypes': ['Clue'],
+                'colors': []
+            },
+            source=obj.id
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=evidence_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=investigate(e, s),
+        ),
+        duration='while_on_battlefield',
+    )]
 
 
 def niv_mizzet_guildpact_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5742,8 +5843,25 @@ def makeshift_binding_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def sanctuary_wall_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated tap creature + stun counters."""
-    # engine gap: activated abilities (cost+effect)
+    """{2}{W}, {T}: Tap target creature. Optional stun counter rider stun-self omitted."""
+    def tap_target(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [
+            Event(type=EventType.TAP, payload={'object_id': target_id},
+                  source=o.id, controller=o.controller),
+            # Approximate the stun rider unconditionally; rule requires "you may", and self-stun.
+            Event(type=EventType.COUNTER_ADDED,
+                  payload={'object_id': target_id, 'counter_type': 'stun', 'amount': 1},
+                  source=o.id, controller=o.controller),
+        ]
+    make_activated_ability(
+        obj, cost="{2}{W}, {T}", effect_fn=tap_target,
+        description="Tap target creature; put a stun counter on it",
+        targets_required=1, target_kind="creature",
+    )
     return []
 
 
@@ -6187,8 +6305,13 @@ def profts_eidetic_memory_setup(obj: GameObject, state: GameState) -> list[Inter
 # --- BLACK ---
 
 def agency_coroner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated: sac creature to draw 1 (or 2 if suspected)."""
-    # engine gap: activated ability with sacrifice cost + suspected check
+    """{2}{B}, Sacrifice another creature: Draw a card."""
+    # The "draw two if suspected" rider isn't enforced because the cost
+    # framework doesn't tell us what was sacrificed. Wire the base draw.
+    make_draw_ability(
+        obj, cost="{2}{B}, Sacrifice another creature", count=1,
+        description="Draw a card",
+    )
     return []
 
 
