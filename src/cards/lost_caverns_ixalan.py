@@ -30,7 +30,7 @@ from src.cards.interceptor_helpers import (
     make_damage_trigger, make_spell_cast_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype, create_target_choice,
-    make_activated_ability, becomes_creature,
+    make_activated_ability, becomes_creature, make_ward,
 )
 
 
@@ -1830,9 +1830,9 @@ def vito_fanatic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- ADDITIONAL COLORLESS CARDS ---
 
 def roaming_throne_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Triggered abilities of creatures of the chosen type trigger an additional time."""
-    # Complex ability doubling - placeholder
-    return []
+    """Ward {2}; chosen type ability doubling (engine gap)."""
+    # engine gap: as-enters type choice + triggered ability doubling.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def chimil_inner_sun_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

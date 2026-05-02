@@ -53,6 +53,7 @@ from src.cards.interceptor_helpers import (
     instant_or_sorcery_with_mv,
     make_equipment_setup,
     make_aura_setup,
+    make_ward,
     make_activated_ability,
     make_attached_dynamic_pt_boost,
     count_permanents_with_subtype,
@@ -7939,8 +7940,8 @@ def spectral_sailor_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- TOLARIAN TERROR ---
 # Costs {1} less for each instant/sorcery in graveyard / Ward {2}.
 def tolarian_terror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: dynamic cost reduction + ward
-    return []
+    # engine gap: dynamic cost reduction (instant/sorcery in graveyard).
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 # --- WITNESS PROTECTION ---

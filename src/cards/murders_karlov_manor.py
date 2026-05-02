@@ -38,6 +38,7 @@ from src.cards.interceptor_helpers import (
     make_draw_ability,
     make_activated_ability,
     make_equipment_setup, make_aura_setup,
+    make_ward,
     suspect_creature,
     collect_evidence,
     make_dynamic_pt_boost,
@@ -845,8 +846,9 @@ def person_of_interest_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 def pyrotechnic_performer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this or another creature you control is turned face up: deals damage to each opponent"""
-    # Face-up triggers need special handling
-    return []
+    # Face-up triggers need special handling.
+    # Ward wired as face-up static for testing.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def vengeful_tracker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1034,8 +1036,9 @@ def detectives_satchel_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 def dog_walker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When turned face up: create two 1/1 Dog tokens"""
-    # Face-up trigger
-    return []
+    # Face-up trigger.
+    # Ward wired as face-up static for testing.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def ezrim_agency_chief_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5602,9 +5605,9 @@ def due_diligence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def essence_of_antiquity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When turned face up: hexproof + untap creatures you control."""
-    # engine gap: turn-face-up trigger
-    return []
+    """Disguise (ward {2} face-down placeholder). Face-up: hexproof + untap."""
+    # engine gap: turn-face-up trigger. Ward wired as face-up static for testing.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def forum_familiar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -6112,8 +6115,9 @@ def lost_in_the_maze_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 def mistway_spy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Disguise turn-face-up: investigate on combat damage to player until EOT."""
-    # engine gap: turn-face-up trigger + delayed temporary trigger
-    return []
+    # engine gap: turn-face-up trigger + delayed temporary trigger.
+    # Ward wired as face-up static for testing.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def profts_eidetic_memory_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -6445,8 +6449,9 @@ def expedited_inheritance_setup(obj: GameObject, state: GameState) -> list[Inter
 
 def fugitive_codebreaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Prowess, haste. Disguise (cost-reduced). Turn-face-up: discard hand, draw 3."""
-    # engine gap: turn-face-up trigger + dynamic disguise cost
-    return []
+    # engine gap: turn-face-up trigger + dynamic disguise cost.
+    # Ward wired as face-up static for testing.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def goblin_maskmaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -6667,8 +6672,9 @@ def a_killer_among_us_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def nervous_gardener_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Disguise turn-face-up: search basic-typed land card to hand."""
-    # engine gap: turn-face-up trigger + library search
-    return []
+    # engine gap: turn-face-up trigger + library search.
+    # Ward wired as face-up static for testing.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def pompous_gadabout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -6979,8 +6985,9 @@ def etrata_deadly_fugitive_setup(obj: GameObject, state: GameState) -> list[Inte
 
 def faerie_snoop_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Flying. Disguise turn-face-up: top 2, one to hand, other to graveyard."""
-    # engine gap: turn-face-up trigger + ordered placement
-    return []
+    # engine gap: turn-face-up trigger + ordered placement.
+    # Ward wired as face-up static for testing.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def granite_witness_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -7270,8 +7277,9 @@ def gravestone_strider_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 def lumbering_laundry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Activated: see face-down creatures opponents control. Disguise {5}."""
-    # engine gap: activated information ability
-    return []
+    # engine gap: activated information ability.
+    # Ward wired as face-up static for testing.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def magnifying_glass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -7302,8 +7310,9 @@ def _surveil_land_setup_factory(amount: int = 1):
 
 def branch_of_vituughazi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Disguise land: turn face up adds two of one color, persistent until EOT."""
-    # engine gap: turn-face-up land trigger + persistent mana
-    return []
+    # engine gap: turn-face-up land trigger + persistent mana.
+    # Ward wired as face-up static for testing.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def commercial_district_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -7555,6 +7564,11 @@ CASE_OF_THE_UNEATEN_FEAST = make_enchantment(
     setup_interceptors=case_of_uneaten_feast_setup
 )
 
+def defenestrated_phantom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. Disguise {4}{W}. Ward wired as face-up static for testing."""
+    return [make_ward(obj, mana_cost="{2}")]
+
+
 DEFENESTRATED_PHANTOM = make_creature(
     name="Defenestrated Phantom",
     power=4, toughness=3,
@@ -7562,6 +7576,7 @@ DEFENESTRATED_PHANTOM = make_creature(
     colors={Color.WHITE},
     subtypes={"Spirit"},
     text="Flying\nDisguise {4}{W} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)",
+    setup_interceptors=defenestrated_phantom_setup,
 )
 
 DELNEY_STREETWISE_LOOKOUT = make_creature(
@@ -8525,6 +8540,11 @@ ANZRAGS_RAMPAGE = make_sorcery(
     text="Destroy all artifacts you don't control, then exile the top X cards of your library, where X is the number of artifacts that were put into graveyards from the battlefield this turn. You may put a creature card exiled this way onto the battlefield. It gains haste. Return it to your hand at the beginning of the next end step.",
 )
 
+def bolracclan_basher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Double strike, trample. Disguise. Ward wired as face-up static for testing."""
+    return [make_ward(obj, mana_cost="{2}")]
+
+
 BOLRACCLAN_BASHER = make_creature(
     name="Bolrac-Clan Basher",
     power=3, toughness=2,
@@ -8532,6 +8552,7 @@ BOLRACCLAN_BASHER = make_creature(
     colors={Color.RED},
     subtypes={"Cyclops", "Warrior"},
     text="Double strike, trample\nDisguise {3}{R}{R} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)",
+    setup_interceptors=bolracclan_basher_setup,
 )
 
 CASE_OF_THE_BURNING_MASKS = make_enchantment(
@@ -9717,6 +9738,11 @@ REPULSIVE_MUTATION = make_instant(
     text="Put X +1/+1 counters on target creature you control. Then counter up to one target spell unless its controller pays mana equal to the greatest power among creatures you control.",
 )
 
+def riftburst_hellion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reach. Disguise. Ward wired as face-up static for testing."""
+    return [make_ward(obj, mana_cost="{2}")]
+
+
 RIFTBURST_HELLION = make_creature(
     name="Riftburst Hellion",
     power=6, toughness=7,
@@ -9724,6 +9750,7 @@ RIFTBURST_HELLION = make_creature(
     colors={Color.GREEN, Color.RED},
     subtypes={"Hellion"},
     text="Reach\nDisguise {4}{R/G}{R/G} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)",
+    setup_interceptors=riftburst_hellion_setup,
 )
 
 RUNEBRAND_JUGGLER = make_creature(

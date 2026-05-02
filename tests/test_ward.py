@@ -500,6 +500,80 @@ def test_lavaspur_boots_grants_ward_to_equipped():
     print("  LAVASPUR_BOOTS grants ward {1} to equipped")
 
 
+def _assert_card_wires_ward(card_def, label):
+    """Helper: place ``card_def`` on the battlefield, verify opponent's
+    targeted spell is countered by ward."""
+    import copy
+    game, p1, p2 = create_test_game()
+    obj = game.create_object(
+        name=card_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.HAND,
+        characteristics=copy.deepcopy(card_def.characteristics),
+        card_def=card_def,
+    )
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': obj.id,
+            'from_zone': f'hand_{p1.id}',
+            'to_zone': 'battlefield',
+            'to_zone_type': ZoneType.BATTLEFIELD,
+        },
+    ))
+    item, spell_obj = push_targeted_spell(game, p2, obj.id, name="Opp Removal")
+    assert game.stack.size() == 0, (
+        f"{label} should ward-counter opponent's spell; stack still has "
+        f"{game.stack.size()} items"
+    )
+
+
+def test_noop_ward_cards_wired():
+    """All previously-noop ward cards now wire ward via setup_interceptors.
+    Covers Toadstool Admirer, Roaming Throne, Tolarian Terror, Spider-Rex,
+    Fblthp, Spinewoods Armadillo, and the MKM disguise placeholder set.
+    """
+    print("\n=== Test: previously noop ward cards now wire ward ===")
+    from src.cards.wilds_of_eldraine import TOADSTOOL_ADMIRER
+    from src.cards.lost_caverns_ixalan import ROAMING_THRONE
+    from src.cards.murders_karlov_manor import (
+        DEFENESTRATED_PHANTOM, ESSENCE_OF_ANTIQUITY, MISTWAY_SPY,
+        BOLRACCLAN_BASHER, FUGITIVE_CODEBREAKER, PYROTECHNIC_PERFORMER,
+        NERVOUS_GARDENER, DOG_WALKER, FAERIE_SNOOP, RIFTBURST_HELLION,
+        LUMBERING_LAUNDRY, BRANCH_OF_VITUGHAZI,
+    )
+    from src.cards.outlaws_thunder_junction import (
+        FBLTHP_LOST_ON_THE_RANGE, SPINEWOODS_ARMADILLO,
+    )
+    from src.cards.foundations import TOLARIAN_TERROR
+    from src.cards.spider_man import SPIDERREX_DARING_DINO
+
+    # Each entry: (card_def, label). All use ward {2} except SPINEWOODS ({3}).
+    candidates = [
+        (TOADSTOOL_ADMIRER, "Toadstool Admirer"),
+        (ROAMING_THRONE, "Roaming Throne"),
+        (DEFENESTRATED_PHANTOM, "Defenestrated Phantom"),
+        (ESSENCE_OF_ANTIQUITY, "Essence of Antiquity"),
+        (MISTWAY_SPY, "Mistway Spy"),
+        (BOLRACCLAN_BASHER, "Bolrac-Clan Basher"),
+        (FUGITIVE_CODEBREAKER, "Fugitive Codebreaker"),
+        (PYROTECHNIC_PERFORMER, "Pyrotechnic Performer"),
+        (NERVOUS_GARDENER, "Nervous Gardener"),
+        (DOG_WALKER, "Dog Walker"),
+        (FAERIE_SNOOP, "Faerie Snoop"),
+        (RIFTBURST_HELLION, "Riftburst Hellion"),
+        (LUMBERING_LAUNDRY, "Lumbering Laundry"),
+        (BRANCH_OF_VITUGHAZI, "Branch of Vitu-Ghazi"),
+        (FBLTHP_LOST_ON_THE_RANGE, "Fblthp, Lost on the Range"),
+        (SPINEWOODS_ARMADILLO, "Spinewoods Armadillo"),
+        (TOLARIAN_TERROR, "Tolarian Terror"),
+        (SPIDERREX_DARING_DINO, "Spider-Rex, Daring Dino"),
+    ]
+    for card_def, label in candidates:
+        _assert_card_wires_ward(card_def, label)
+    print(f"  {len(candidates)} previously-noop ward cards now ward-protected")
+
+
 # =============================================================================
 # Test runner
 # =============================================================================
@@ -519,6 +593,7 @@ if __name__ == "__main__":
         test_aura_grants_ward_to_enchanted,
         test_armored_armadillo_grants_ward,
         test_lavaspur_boots_grants_ward_to_equipped,
+        test_noop_ward_cards_wired,
     ]
     failed = 0
     for t in tests:

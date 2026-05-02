@@ -2167,8 +2167,8 @@ def emergent_haunting_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def fblthp_lost_on_the_range_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Ward {2}; play-from-top-of-library + plot top card."""
-    # engine gap: top-of-library plot/play permissions not engine-tracked
-    return []
+    # engine gap: top-of-library plot/play permissions not engine-tracked.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def geyser_drake_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2973,9 +2973,9 @@ def reach_for_the_sky_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def spinewoods_armadillo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Reach (kw); ward; activated discard-tutor + life gain."""
-    # engine gap: ward and complex discard-cost activated tutor not engine-tracked
-    return []
+    """Reach (kw); Ward {3}; activated discard-tutor + life gain."""
+    # engine gap: complex discard-cost activated tutor not engine-tracked.
+    return [make_ward(obj, mana_cost="{3}")]
 
 
 def stubborn_burrowfiend_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

@@ -39,6 +39,8 @@ from src.cards.interceptor_helpers import (
     make_activated_ability, make_pump_self_ability, make_counter_ability,
     # Phase 3: Equipment / Aura attach statics.
     make_equipment_setup, make_aura_setup,
+    # Ward.
+    make_ward,
     # Dynamic P/T helpers.
     make_attached_dynamic_pt_boost,
 )
@@ -4248,6 +4250,11 @@ SPIDERMAN_BROOKLYN_VISIONARY = make_creature(
     setup_interceptors=spiderman_brooklyn_visionary_setup,
 )
 
+def spiderrex_daring_dino_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reach, trample (kw); Ward {2}."""
+    return [make_ward(obj, mana_cost="{2}")]
+
+
 SPIDERREX_DARING_DINO = make_creature(
     name="Spider-Rex, Daring Dino",
     power=6, toughness=6,
@@ -4256,6 +4263,7 @@ SPIDERREX_DARING_DINO = make_creature(
     subtypes={"Dinosaur", "Hero", "Spider"},
     supertypes={"Legendary"},
     text="Reach, trample\nWard {2} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.)",
+    setup_interceptors=spiderrex_daring_dino_setup,
 )
 
 SPIDERSMAN_HEROIC_HORDE = make_creature(
