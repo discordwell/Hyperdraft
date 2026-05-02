@@ -581,8 +581,9 @@ check("Ultra: energy commitment enabled", settings_ultra['use_energy_commitment'
 check("Ultra: lethal check enabled", settings_ultra['use_lethal_check'] is True)
 check("Ultra: anti-lethal enabled", settings_ultra['use_anti_lethal'] is True)
 check("Ultra: action reordering enabled", settings_ultra['use_action_reordering'] is True)
+check("Ultra: attack pressure enabled", settings_ultra['use_attack_pressure'] is True)
 
-# 5c: Hard uses KO math, medium does not
+# 5c: Medium remains a mid-level profile; Hard and Ultra enable stronger KO math
 ai_hard = PokemonAIAdapter(difficulty='hard')
 ai_medium = PokemonAIAdapter(difficulty='medium')
 check("Hard: KO math enabled", ai_hard._get_settings()['use_ko_math'] is True)

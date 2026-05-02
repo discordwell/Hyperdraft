@@ -157,7 +157,7 @@ async def create_match(
     session = await session_manager.create_session(
         mode=request.mode,
         player_name=request.player_name,
-        ai_difficulty=request.ai_difficulty,
+        ai_difficulty=request.ai_difficulty.value,
         game_mode=request.game_mode,
     )
 
@@ -170,7 +170,11 @@ async def create_match(
 
     # Add AI player for human vs bot mode
     if request.mode == "human_vs_bot":
-        ai_name = "Codex Ultra" if request.ai_difficulty.value == "ultra" else "AI Opponent"
+        ai_difficulty = request.ai_difficulty.value
+        if ai_difficulty == "ultra":
+            ai_name = "Codex Ultra"
+        else:
+            ai_name = "AI Opponent"
         ai_id = session.add_player(ai_name, is_ai=True)
     elif request.mode == "bot_vs_bot":
         ai_id = session.add_player("AI 1", is_ai=True)
