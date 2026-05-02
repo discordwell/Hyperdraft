@@ -635,7 +635,10 @@ class PrioritySystem:
             if not ctx.mana_system:
                 return True
             total = add_mana_costs(ctx.base_mana_cost, extra_mana)
-            return ctx.mana_system.can_cast(ctx.player_id, total, ctx.x_value)
+            casting_obj = ctx.state.objects.get(ctx.casting_card_id) if ctx.casting_card_id else None
+            return ctx.mana_system.can_cast(
+                ctx.player_id, total, ctx.x_value, for_card=casting_obj
+            )
 
         step = plan[0]
         rest = plan[1:]
@@ -1082,7 +1085,7 @@ class PrioritySystem:
         # Check mana cost
         cost = cost_override or ManaCost.parse(mana_cost_str or "")
         if self.mana_system and not cost.is_free():
-            if not self.mana_system.can_cast(player_id, cost):
+            if not self.mana_system.can_cast(player_id, cost, for_card=card):
                 return False
 
         return True
@@ -1592,7 +1595,12 @@ class PrioritySystem:
 
             total_cost = add_mana_costs(effective_paid_cost, extra_mana)
             if self.mana_system and not total_cost.is_free():
-                self.mana_system.pay_cost(action.player_id, total_cost, action.x_value)
+                # Pass the card being cast so restricted mana ("Spend this
+                # mana only to cast ...") is honoured.
+                self.mana_system.pay_cost(
+                    action.player_id, total_cost, action.x_value,
+                    for_card=card,
+                )
 
             # BLB Expend tracking: record total mana spent on this cast and
             # fire EXPEND_4/EXPEND_8 threshold events if crossed.
@@ -2534,6 +2542,28 @@ class PrioritySystem:
                         lines = self._get_activated_ability_lines(source)
                         ability_line = lines[line_idx] if 0 <= line_idx < len(lines) else ""
 
+                        # Detect "Spend this mana only to ..." spell-cast
+                        # restrictions on this specific ability line. We
+                        # also fall back to the full card text if the line
+                        # doesn't contain the clause directly (some printings
+                        # put the restriction in a separate sentence).
+                        from .mana import parse_spend_restriction
+                        restriction_info = parse_spend_restriction(ability_line)
+                        if restriction_info is None:
+                            full_text = (source.card_def.text if getattr(source, "card_def", None) else "") or ""
+                            # Only apply card-text-level restriction if the
+                            # card has exactly one mana ability — otherwise
+                            # we can't tell which ability it pertains to.
+                            mana_lines = [
+                                ln for ln in lines
+                                if re.search(r'\{T\}\s*:\s*Add\b', ln, re.IGNORECASE)
+                                or re.search(r':\s*Add\b', ln, re.IGNORECASE)
+                            ]
+                            if len(mana_lines) == 1:
+                                restriction_info = parse_spend_restriction(full_text)
+                        restriction_fn = restriction_info[0] if restriction_info else None
+                        restriction_text = restriction_info[1] if restriction_info else ""
+
                         if '{T}' in ability_line and not source.state.tapped:
                             events.append(Event(
                                 type=EventType.TAP,
@@ -2555,14 +2585,22 @@ class PrioritySystem:
                         for symbol in mana_symbols:
                             mana_type = symbol_to_type.get(symbol)
                             if mana_type and self.mana_system:
-                                self.mana_system.produce_mana(action.player_id, mana_type, 1)
+                                self.mana_system.produce_mana(
+                                    action.player_id, mana_type, 1,
+                                    source_id=source.id,
+                                    restriction=restriction_fn,
+                                    restriction_text=restriction_text,
+                                )
+                                payload = {
+                                    'player': action.player_id,
+                                    'color': mana_type.value,
+                                    'amount': 1,
+                                }
+                                if restriction_text:
+                                    payload['restriction'] = restriction_text
                                 events.append(Event(
                                     type=EventType.MANA_PRODUCED,
-                                    payload={
-                                        'player': action.player_id,
-                                        'color': mana_type.value,
-                                        'amount': 1
-                                    },
+                                    payload=payload,
                                     source=source.id,
                                     controller=action.player_id
                                 ))
@@ -2593,15 +2631,21 @@ class PrioritySystem:
                                     amount = int(amount_word)
                                 self.mana_system.produce_mana(
                                     action.player_id, ManaType.COLORLESS, amount,
+                                    source_id=source.id,
+                                    restriction=restriction_fn,
+                                    restriction_text=restriction_text,
                                 )
+                                payload = {
+                                    'player': action.player_id,
+                                    'color': ManaType.COLORLESS.value,
+                                    'amount': amount,
+                                    'note': 'any-color fallback (colorless)',
+                                }
+                                if restriction_text:
+                                    payload['restriction'] = restriction_text
                                 events.append(Event(
                                     type=EventType.MANA_PRODUCED,
-                                    payload={
-                                        'player': action.player_id,
-                                        'color': ManaType.COLORLESS.value,
-                                        'amount': amount,
-                                        'note': 'any-color fallback (colorless)',
-                                    },
+                                    payload=payload,
                                     source=source.id,
                                     controller=action.player_id,
                                 ))
