@@ -315,6 +315,322 @@ def camera_launcher_setup(obj: GameObject, state: GameState) -> list[Interceptor
     return []
 
 
+def riverchurn_monument_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust — {2}{U}{U}, {T}: Each opponent mills cards equal to their graveyard size.
+
+    Card text says "Any number of target players each mill cards equal to the
+    number of cards in their graveyard." We approximate with each-opponent
+    targeting since target-multiselect-of-players isn't a clean fit for the
+    activated-ability surface; this preserves the most useful combat case
+    (mill all opponents). The {1}, {T} non-Exhaust ability remains unwired.
+    """
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for opp_id, opp in st.players.items():
+            if opp_id == o.controller:
+                continue
+            gy_zone = st.zones.get(f'graveyard_{opp_id}')
+            mill_count = len(gy_zone.objects) if gy_zone else 0
+            if mill_count > 0:
+                events.append(Event(
+                    type=EventType.MILL,
+                    payload={'player': opp_id, 'amount': mill_count},
+                    source=o.id, controller=o.controller,
+                ))
+        return events
+
+    make_exhaust_ability(
+        obj, cost="{2}{U}{U}, {T}", effect_fn=_effect,
+        description="{2}{U}{U}, {T}: Each opponent mills cards equal to the number of cards in their graveyard.",
+    )
+    return []
+
+
+def greasewrench_goblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust — {2}{R}: Discard up to two cards, then draw that many cards.
+    Put a +1/+1 counter on this creature.
+
+    Implementation: open a discard PendingChoice with min=0, max=2 over the
+    controller's hand. The handler emits one DISCARD event per selected card
+    plus a DRAW for that count, plus a +1/+1 counter on the source.
+    """
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        from src.engine.types import PendingChoice
+        hand = st.zones.get(f'hand_{o.controller}')
+        hand_ids = list(hand.objects) if hand else []
+        max_discard = min(2, len(hand_ids))
+
+        # If the player has no cards, just emit the +1/+1 counter rider.
+        if max_discard == 0:
+            return [*_emit_self_counters(o, 1)]
+
+        def _on_discard(choice, selected, gs: GameState) -> list[Event]:
+            count = len(selected or [])
+            evs: list[Event] = []
+            for cid in (selected or []):
+                evs.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': o.controller, 'object_id': cid},
+                    source=o.id, controller=o.controller,
+                ))
+            if count > 0:
+                evs.append(Event(
+                    type=EventType.DRAW,
+                    payload={'player': o.controller, 'count': count},
+                    source=o.id, controller=o.controller,
+                ))
+            # +1/+1 counter rider always fires.
+            evs.extend(_emit_self_counters(o, 1))
+            return evs
+
+        st.pending_choice = PendingChoice(
+            choice_type="discard",
+            player=o.controller,
+            prompt="Discard up to two cards (Greasewrench Goblin):",
+            options=hand_ids,
+            source_id=o.id,
+            min_choices=0,
+            max_choices=max_discard,
+            callback_data={'handler': _on_discard},
+        )
+        return []
+
+    make_exhaust_ability(
+        obj, cost="{2}{R}", effect_fn=_effect,
+        description="{2}{R}: Discard up to two cards, then draw that many cards. Put a +1/+1 counter on this creature.",
+    )
+    return []
+
+
+def skyserpent_seeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust — {4}: Reveal cards from the top of your library until you reveal two
+    land cards. Put those land cards onto the battlefield tapped and the rest on the
+    bottom of your library in a random order. Put a +1/+1 counter on this creature.
+
+    Engine constraint: ``REVEAL_UNTIL_LAND`` has no handler (engine gap), so we
+    approximate with a SEARCH_LIBRARY for two land cards directly to battlefield
+    tapped. The +1/+1 counter rider is emitted alongside.
+    """
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(
+                type=EventType.SEARCH_LIBRARY,
+                payload={
+                    'player': o.controller,
+                    'card_type': 'land',
+                    'amount': 2,
+                    'min_count': 0,
+                    'destination': 'battlefield',
+                    'tapped': True,
+                    'shuffle_after': True,
+                },
+                source=o.id, controller=o.controller,
+            ),
+            *_emit_self_counters(o, 1),
+        ]
+
+    make_exhaust_ability(
+        obj, cost="{4}", effect_fn=_effect,
+        description="{4}: Find up to two land cards from your library; put them onto the battlefield tapped. Put a +1/+1 counter on this creature.",
+    )
+    return []
+
+
+def redshift_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust — {10}{R}{G}: Put any number of permanent cards from your hand onto
+    the battlefield.
+
+    Implementation: open a target_with_callback PendingChoice over the
+    controller's hand, filtered to permanent card types
+    (CREATURE / ARTIFACT / ENCHANTMENT / PLANESWALKER / LAND). On submit,
+    emit one ZONE_CHANGE per selected card moving from hand → battlefield.
+    """
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        from src.engine.types import PendingChoice
+        permanent_types = {
+            CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT,
+            CardType.PLANESWALKER, CardType.LAND,
+        }
+        hand = st.zones.get(f'hand_{o.controller}')
+        hand_ids = list(hand.objects) if hand else []
+        eligible: list[str] = []
+        for cid in hand_ids:
+            ho = st.objects.get(cid)
+            if ho is None:
+                continue
+            if any(t in permanent_types for t in ho.characteristics.types):
+                eligible.append(cid)
+        if not eligible:
+            return []
+
+        def _on_choose(choice, selected, gs: GameState) -> list[Event]:
+            evs: list[Event] = []
+            for cid in (selected or []):
+                evs.append(Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': cid,
+                        'from_zone_type': ZoneType.HAND,
+                        'from_zone': f'hand_{o.controller}',
+                        'to_zone_type': ZoneType.BATTLEFIELD,
+                        'to_zone': 'battlefield',
+                    },
+                    source=o.id, controller=o.controller,
+                ))
+            return evs
+
+        st.pending_choice = PendingChoice(
+            choice_type="target_with_callback",
+            player=o.controller,
+            prompt="Choose any number of permanent cards from your hand to put onto the battlefield (Redshift):",
+            options=eligible,
+            source_id=o.id,
+            min_choices=0,
+            max_choices=len(eligible),
+            callback_data={'handler': _on_choose},
+        )
+        return []
+
+    make_exhaust_ability(
+        obj, cost="{10}{R}{G}", effect_fn=_effect,
+        description="{10}{R}{G}: Put any number of permanent cards from your hand onto the battlefield.",
+    )
+    return []
+
+
+def loot_pathfinder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Three separate Exhaust abilities. Proves multi-Exhaust-per-card.
+    Engine gap: per-cost {T} cost on each — make_activated_ability already
+    handles tap costs in the cost string.
+
+    - Exhaust — {G}, {T}: Add three mana of any one color.
+    - Exhaust — {U}, {T}: Draw three cards.
+    - Exhaust — {R}, {T}: Loot deals 3 damage to any target.
+    """
+    from src.cards.interceptor_helpers import create_modal_choice
+
+    # Exhaust 1: {G}, {T} — Add three mana of any one color.
+    def _g_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        modes = [
+            {"index": 0, "text": "Add {W}{W}{W}"},
+            {"index": 1, "text": "Add {U}{U}{U}"},
+            {"index": 2, "text": "Add {B}{B}{B}"},
+            {"index": 3, "text": "Add {R}{R}{R}"},
+            {"index": 4, "text": "Add {G}{G}{G}"},
+        ]
+        color_map = {
+            0: Color.WHITE, 1: Color.BLUE, 2: Color.BLACK,
+            3: Color.RED, 4: Color.GREEN,
+        }
+
+        def _on_pick(choice, selected, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            try:
+                idx = int(selected[0])
+            except (TypeError, ValueError):
+                return []
+            color = color_map.get(idx)
+            if color is None:
+                return []
+            return [Event(
+                type=EventType.MANA_PRODUCED,
+                payload={'player': o.controller, 'color': color, 'amount': 3},
+                source=o.id, controller=o.controller,
+            )]
+
+        choice = create_modal_choice(
+            state=st,
+            player_id=o.controller,
+            source_id=o.id,
+            modes=modes,
+            min_modes=1, max_modes=1,
+            prompt="Loot, the Pathfinder — choose a color for three mana:",
+        )
+        choice.choice_type = "modal_with_callback"
+        choice.callback_data['handler'] = _on_pick
+        return []
+
+    # Exhaust 2: {U}, {T} — Draw three cards.
+    def _u_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': o.controller, 'count': 3},
+            source=o.id, controller=o.controller,
+        )]
+
+    # Exhaust 3: {R}, {T} — Loot deals 3 damage to any target.
+    def _r_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or getattr(t, "player_id", None) or getattr(t, "id", None) or t
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': target_id, 'amount': 3, 'source': o.id},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_exhaust_ability(
+        obj, cost="{G}, {T}", effect_fn=_g_effect,
+        description="{G}, {T}: Add three mana of any one color.",
+    )
+    make_exhaust_ability(
+        obj, cost="{U}, {T}", effect_fn=_u_effect,
+        description="{U}, {T}: Draw three cards.",
+    )
+    make_exhaust_ability(
+        obj, cost="{R}, {T}", effect_fn=_r_effect,
+        description="{R}, {T}: Loot deals 3 damage to any target.",
+        targets_required=1, target_kind="any",
+    )
+    return []
+
+
+def draconautics_engineer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Two Exhaust abilities.
+
+    - Exhaust — {R}: Other creatures you control gain haste until end of turn.
+      Put a +1/+1 counter on this creature.
+    - Exhaust — {3}{R}: Create a 4/4 red Dinosaur Dragon creature token with flying.
+    """
+    def _r_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for other in st.objects.values():
+            if (other.id != o.id
+                    and other.controller == o.controller
+                    and other.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in other.characteristics.types):
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={
+                        'object_id': other.id,
+                        'keyword': 'haste',
+                        'duration': 'end_of_turn',
+                    },
+                    source=o.id, controller=o.controller,
+                ))
+        events.extend(_emit_self_counters(o, 1))
+        return events
+
+    def _3r_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [_emit_create_token(
+            o, name="Dinosaur Dragon", power=4, toughness=4,
+            subtypes={"Dinosaur", "Dragon"}, colors={Color.RED},
+            keywords=["flying"],
+        )]
+
+    make_exhaust_ability(
+        obj, cost="{R}", effect_fn=_r_effect,
+        description="{R}: Other creatures you control gain haste until end of turn. Put a +1/+1 counter on this creature.",
+    )
+    make_exhaust_ability(
+        obj, cost="{3}{R}", effect_fn=_3r_effect,
+        description="{3}{R}: Create a 4/4 red Dinosaur Dragon creature token with flying.",
+    )
+    return []
+
+
 # =============================================================================
 # SPELL RESOLVE FUNCTIONS
 # =============================================================================
@@ -3262,6 +3578,7 @@ RIVERCHURN_MONUMENT = make_artifact(
     mana_cost="{1}{U}",
     text="{1}, {T}: Any number of target players each mill two cards. (Each of them puts the top two cards of their library into their graveyard.)\nExhaust — {2}{U}{U}, {T}: Any number of target players each mill cards equal to the number of cards in their graveyard. (Activate each exhaust ability only once.)",
     rarity="rare",
+    setup_interceptors=riverchurn_monument_setup,
 )
 
 ROADSIDE_BLOWOUT = make_sorcery(
@@ -3864,6 +4181,7 @@ DRACONAUTICS_ENGINEER = make_creature(
     subtypes={"Artificer", "Goblin"},
     text="Exhaust — {R}: Other creatures you control gain haste until end of turn. Put a +1/+1 counter on this creature. (Activate each exhaust ability only once.)\nExhaust — {3}{R}: Create a 4/4 red Dinosaur Dragon creature token with flying.",
     rarity="rare",
+    setup_interceptors=draconautics_engineer_setup,
 )
 
 DRACOSAUR_AUXILIARY = make_creature(
@@ -3970,6 +4288,7 @@ GREASEWRENCH_GOBLIN = make_creature(
     subtypes={"Artificer", "Goblin"},
     text="Exhaust — {2}{R}: Discard up to two cards, then draw that many cards. Put a +1/+1 counter on this creature. (Activate each exhaust ability only once.)",
     rarity="uncommon",
+    setup_interceptors=greasewrench_goblin_setup,
 )
 
 HAZORET_GODSEEKER = make_creature(
@@ -4740,6 +5059,7 @@ LOOT_THE_PATHFINDER = make_creature(
     supertypes={"Legendary"},
     text="Double strike, vigilance, haste\nExhaust — {G}, {T}: Add three mana of any one color. (Activate each exhaust ability only once.)\nExhaust — {U}, {T}: Draw three cards.\nExhaust — {R}, {T}: Loot deals 3 damage to any target.",
     rarity="mythic",
+    setup_interceptors=loot_pathfinder_setup,
 )
 
 MENDICANT_CORE_GUIDELIGHT = make_artifact_creature(
@@ -4801,6 +5121,7 @@ REDSHIFT_ROCKETEER_CHIEF = make_creature(
     supertypes={"Legendary"},
     text="Vigilance\n{T}: Add X mana of any one color, where X is Redshift's power. Spend this mana only to activate abilities.\nExhaust — {10}{R}{G}: Put any number of permanent cards from your hand onto the battlefield. (Activate each exhaust ability only once.)",
     rarity="rare",
+    setup_interceptors=redshift_setup,
 )
 
 RIPTIDE_GEARHULK = make_artifact_creature(
@@ -4862,6 +5183,7 @@ SKYSERPENT_SEEKER = make_creature(
     subtypes={"Snake"},
     text="Flying, deathtouch\nExhaust — {4}: Reveal cards from the top of your library until you reveal two land cards. Put those land cards onto the battlefield tapped and the rest on the bottom of your library in a random order. Put a +1/+1 counter on this creature. (Activate each exhaust ability only once.)",
     rarity="uncommon",
+    setup_interceptors=skyserpent_seeker_setup,
 )
 
 THUNDERING_BROODWAGON = make_artifact(
