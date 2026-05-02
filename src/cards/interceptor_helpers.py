@@ -633,7 +633,7 @@ def make_cost_reduction(
             transformed_event=new_event,
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -642,6 +642,13 @@ def make_cost_reduction(
         handler=cost_handler,
         duration=duration,
     )
+    if self_only:
+        # Tag for the pipeline's _cleanup_departed_interceptors to sweep on
+        # any ZONE_CHANGE of the source card. Without this, self_only
+        # reductions with duration='forever' would accumulate forever once
+        # the spell resolves and moves to graveyard / exile.
+        setattr(interceptor, "_cleanup_on_zone_change", True)
+    return interceptor
 
 
 # =============================================================================

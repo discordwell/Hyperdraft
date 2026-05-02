@@ -578,6 +578,67 @@ def test_noop_ward_cards_wired():
 # Test runner
 # =============================================================================
 
+def test_make_ward_fires_on_activated_ability_target():
+    """Ward fires on activated-ability targeting too (not just spells)."""
+    print("\n=== Test: Ward fires on activated-ability target ===")
+    import asyncio
+    from src.engine.priority import ActionType, PlayerAction
+    from src.engine.turn import Phase
+    from src.cards.interceptor_helpers import make_activated_ability
+
+    game, p1, p2 = create_test_game()
+
+    # P1 controls a Ward {1} creature.
+    def warded_setup(obj, state):
+        return [make_ward(obj, mana_cost="{1}")]
+    warded = make_creature_obj(game, p1, "Warded Beast", 3, 3, setup_fn=warded_setup)
+
+    # P2 controls a creature with a {T}: damage-target activated ability.
+    def attacker_setup(obj, state):
+        def effect(o, st, targets):
+            if not targets:
+                return []
+            t = targets[0]
+            tid = getattr(t, "id", None) or t
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': tid, 'amount': 1, 'source': o.id},
+                source=o.id, controller=o.controller,
+            )]
+        make_activated_ability(
+            obj, "{T}", effect,
+            description="Deal 1 damage to any target",
+            targets_required=1, target_kind="any",
+        )
+        return []
+    attacker = make_creature_obj(game, p2, "Sniper", 1, 1, setup_fn=attacker_setup)
+    attacker.state.summoning_sickness = False
+    game.turn_manager.turn_state.active_player_id = p2.id
+    game.turn_manager.turn_state.phase = Phase.PRECOMBAT_MAIN
+
+    # P2 activates the ability targeting the warded creature.
+    action = PlayerAction(
+        type=ActionType.ACTIVATE_ABILITY,
+        player_id=p2.id, source_id=attacker.id,
+        ability_id="activated:0",
+        targets=[[Target(id=warded.id)]],
+    )
+    events = asyncio.get_event_loop().run_until_complete(
+        game.priority_system._handle_activate_ability(action),
+    )
+
+    target_chosen = [e for e in events if e.type == EventType.TARGET_CHOSEN]
+    assert target_chosen, "expected TARGET_CHOSEN events from activated ability"
+    # The TARGET_CHOSEN event should fire ward → counter the ability.
+    for e in events:
+        game.emit(e)
+    # Stack should now be empty (ability countered).
+    assert game.stack.size() == 0, (
+        f"expected ward to counter activated ability, stack size = {game.stack.size()}"
+    )
+    print("  ward fired on activated-ability target")
+
+
 if __name__ == "__main__":
     tests = [
         test_build_target_chosen_events_one_target,
@@ -594,6 +655,7 @@ if __name__ == "__main__":
         test_armored_armadillo_grants_ward,
         test_lavaspur_boots_grants_ward_to_equipped,
         test_noop_ward_cards_wired,
+        test_make_ward_fires_on_activated_ability_target,
     ]
     failed = 0
     for t in tests:

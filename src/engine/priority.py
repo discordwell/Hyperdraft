@@ -2334,6 +2334,12 @@ class PrioritySystem:
                         'controller': action.player_id,
                     },
                 ))
+                # Ward / TARGET_CHOSEN parity: emit one event per chosen target
+                # so ward (and similar) fires on activated-ability targeting.
+                if pushed_stack_item and action.targets:
+                    events.extend(build_target_chosen_events(
+                        action.source_id, action.player_id, action.targets,
+                    ))
                 return events
 
             # Graveyard activated abilities (Unearth/Embalm/Eternalize).
@@ -2743,6 +2749,14 @@ class PrioritySystem:
                 'controller': action.player_id
             }
         ))
+
+        # Ward / TARGET_CHOSEN parity with the cast-spell path: emit one
+        # TARGET_CHOSEN event per chosen target so ward and similar
+        # interceptors fire for activated-ability targeting too.
+        if pushed_stack_item and action.targets:
+            events.extend(build_target_chosen_events(
+                action.source_id, action.player_id, action.targets,
+            ))
 
         return events
 
