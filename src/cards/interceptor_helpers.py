@@ -5883,12 +5883,13 @@ __all_cycling__ = [
 #     recognises "Exile this card" and the activated framework emits an
 #     EXILE event for self.
 #   - The effect_fn returns the events of the Adventure spell's effect.
-#
-# Limitation: cast-from-exile (the path where the original card is later
-# cast as the creature/permanent half) is not implemented. The Adventure
-# spell's effect resolves and the card is exiled permanently. Tracked as
-# an engine gap; the current behaviour at least unblocks the Adventure
-# side for the 5 WOE Virtue cycle cards and similar designs.
+#   - The activated ability is flagged ``is_adventure=True`` so paying the
+#     ``exile_self`` cost also sets ``obj.state.adventure_exile = True``.
+#     The cast subsystem (priority.get_legal_actions / _handle_cast_spell_sync)
+#     surfaces a CAST_SPELL action for cards in exile carrying that flag, and
+#     casting it pays the printed mana cost and resolves the main half. The
+#     flag is cleared as the card moves from exile to the stack so it can't
+#     be cast a second time from exile.
 # =============================================================================
 
 
@@ -5923,6 +5924,7 @@ def make_adventure_setup(
             sorcery_speed=False,
             targets_required=targets_required,
             target_kind=target_kind,
+            is_adventure=True,
         )
         return []
 
