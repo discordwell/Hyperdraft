@@ -162,6 +162,36 @@ export const deckbuilderAPI = {
       body: JSON.stringify({ prompt, colors, format }),
     }),
 
+  // Hybrid (heuristic + LLM polish) Deck Building
+  // Posts to W3's /deckbuilder/hybrid/build route. Returns the polished
+  // deck plus a list of swap-audit entries the UI can display so the
+  // user can see what the LLM changed about the heuristic skeleton.
+  hybridBuildDeck: (
+    archetype: string,
+    colors: string[],
+    setCodes: string[],
+    polish = true,
+    userHint = '',
+    name = 'Hybrid Build',
+  ): Promise<{
+    success: boolean;
+    deck?: DeckData;
+    skeleton?: DeckData;
+    swaps?: Array<{ out: string; in: string; reason?: string; qty?: number }>;
+    error?: string;
+  }> =>
+    fetchAPI('/deckbuilder/hybrid/build', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        archetype,
+        colors,
+        set_codes: setCodes,
+        user_hint: userHint,
+        polish,
+      }),
+    }),
+
   llmSuggestCards: (deckId: string, prompt: string): Promise<{
     success: boolean;
     suggestions?: {
