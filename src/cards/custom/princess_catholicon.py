@@ -265,8 +265,8 @@ def yuna_summoner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 YUNA_SUMMONER = make_creature(
     name="Yuna, High Summoner",
-    power=2, toughness=3,
-    mana_cost="{1}{W}{U}",
+    power=2, toughness=2,
+    mana_cost="{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Summoner"},
     supertypes={"Legendary"},
@@ -725,8 +725,8 @@ MOOGLE_SCHOLAR = make_creature(
 
 SAGE = make_creature(
     name="Sage",
-    power=2, toughness=4,
-    mana_cost="{3}{U}",
+    power=3, toughness=3,
+    mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Mage", "White Mage"},
     text="When Sage enters, draw a card. You gain 2 life."
@@ -1322,8 +1322,8 @@ def locke_cole_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 LOCKE_COLE = make_creature(
     name="Locke Cole, Treasure Hunter",
-    power=3, toughness=2,
-    mana_cost="{1}{R}{U}",
+    power=2, toughness=2,
+    mana_cost="{R}{U}",
     colors={Color.RED, Color.BLUE},
     subtypes={"Human", "Rogue", "Thief"},
     supertypes={"Legendary"},
@@ -2632,8 +2632,8 @@ SETZER = make_creature(
 
 STRAGO = make_creature(
     name="Strago Magus, Blue Mage Elder",
-    power=2, toughness=4,
-    mana_cost="{2}{U}{U}",
+    power=3, toughness=4,
+    mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Mage"},
     supertypes={"Legendary"},
@@ -2980,8 +2980,8 @@ CERBERUS = make_creature(
 
 SIREN = make_creature(
     name="Siren",
-    power=3, toughness=4,
-    mana_cost="{2}{U}{U}",
+    power=4, toughness=5,
+    mana_cost="{U}{U}",
     colors={Color.BLUE},
     subtypes={"Esper", "Merfolk"},
     supertypes={"Legendary"},
@@ -3296,6 +3296,59 @@ OPERA_HOUSE = make_land(
 
 
 # =============================================================================
+# WAVE 4/5 BUFF COMMONS (Blue, FF-flavored)
+# =============================================================================
+
+CADET_MAGE = make_creature(
+    name="Cadet Mage",
+    power=2, toughness=1, mana_cost="{U}", colors={Color.BLUE},
+    subtypes={"Human", "Wizard"}, text=""
+)
+
+JUNIOR_SUMMONER = make_creature(
+    name="Junior Summoner",
+    power=2, toughness=3, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Summoner"}, text="Flying"
+)
+
+APPRENTICE_SCHOLAR = make_creature(
+    name="Apprentice Scholar",
+    power=1, toughness=3, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Wizard"}, text="When Apprentice Scholar enters, scry 1."
+)
+
+CADET_KNIGHT = make_creature(
+    name="Cadet Knight",
+    power=3, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Knight"}, text="Flying"
+)
+
+TRANCE_MAGE = make_creature(
+    name="Trance Mage",
+    power=2, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Wizard"}, text="Hexproof"
+)
+
+RECRUIT_SOLDIER = make_creature(
+    name="Recruit Soldier",
+    power=3, toughness=3, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Soldier"}, text=""
+)
+
+PIXIE_MAGE = make_creature(
+    name="Pixie Mage",
+    power=2, toughness=1, mana_cost="{U}", colors={Color.BLUE},
+    subtypes={"Faerie", "Wizard"}, text="Flying"
+)
+
+ROYAL_KNIGHT = make_creature(
+    name="Royal Knight",
+    power=4, toughness=3, mana_cost="{2}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Knight"}, text=""
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -3600,6 +3653,16 @@ FINAL_FANTASY_CUSTOM_CARDS = {
     "Chocobo Farm": CHOCOBO_FARM,
     "Jidoor": JIDOOR,
     "Opera House": OPERA_HOUSE,
+
+    # WAVE 4/5 BUFF COMMONS
+    "Cadet Mage": CADET_MAGE,
+    "Junior Summoner": JUNIOR_SUMMONER,
+    "Apprentice Scholar": APPRENTICE_SCHOLAR,
+    "Cadet Knight": CADET_KNIGHT,
+    "Trance Mage": TRANCE_MAGE,
+    "Recruit Soldier": RECRUIT_SOLDIER,
+    "Pixie Mage": PIXIE_MAGE,
+    "Royal Knight": ROYAL_KNIGHT,
 }
 
 
@@ -3874,5 +3937,13 @@ CARDS = [
     SEVENTH_HEAVEN,
     CHOCOBO_FARM,
     JIDOOR,
-    OPERA_HOUSE
+    OPERA_HOUSE,
+    CADET_MAGE,
+    JUNIOR_SUMMONER,
+    APPRENTICE_SCHOLAR,
+    CADET_KNIGHT,
+    TRANCE_MAGE,
+    RECRUIT_SOLDIER,
+    PIXIE_MAGE,
+    ROYAL_KNIGHT,
 ]
