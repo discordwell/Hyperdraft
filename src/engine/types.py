@@ -570,6 +570,13 @@ class ObjectState:
     # enchantment / token). Resolve callbacks check this for the bonus effect.
     was_bargained: bool = False
 
+    # WOE Adventure mechanic — set when a card is exiled as part of paying an
+    # Adventure activation cost ("Exile this card"). The owner may then cast
+    # the original card from exile as its main (creature/enchantment) half.
+    # Cleared when the card moves to the stack as the main spell so it can't
+    # be cast a second time from exile.
+    adventure_exile: bool = False
+
     # Hearthstone-specific (optional, unused in MTG)
     divine_shield: bool = False       # Prevents first damage
     frozen: bool = False              # Can't attack next turn
