@@ -4,8 +4,16 @@ Test Avatar: The Last Airbender (Penultimate Avatar) Custom Card Set
 Tests the mechanics of cards from src/cards/custom/penultimate_avatar.py
 """
 
+import os
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+
+# Insert the actual repository root (parent of tests/) at the front of sys.path
+# so this test runs correctly from any worktree, not just the canonical project
+# folder. Keeping the old hardcoded path as a fallback preserves prior behavior.
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_THIS_DIR)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color,
@@ -1205,6 +1213,415 @@ def run_all_tests():
     return failed == 0
 
 
+# =============================================================================
+# REAL TLA SET (Scryfall): EXHAUST CARDS
+# =============================================================================
+#
+# These tests cover the wired Exhaust abilities on the real Avatar: TLA cards
+# from src/cards/avatar_tla.py (Scryfall-sourced):
+#   - Mai, Jaded Edge       — Exhaust {3}: double strike counter
+#   - Hog-Monkey             — Exhaust {5}: two +1/+1 counters
+#   - Rough Rhino Cavalry    — Exhaust {8}: two +1/+1 counters + trample EOT
+#   - Rebellious Captives    — Exhaust {6}: two +1/+1 counters + earthbend 2
+#   - Bitter Work            — Exhaust {4}: earthbend 4 (own-turn-only)
+
+import asyncio
+
+from src.engine.priority import ActionType, PlayerAction
+from src.engine.turn import Phase
+from src.cards.avatar_tla import (
+    MAI_JADED_EDGE as RTLA_MAI_JADED_EDGE,
+    HOGMONKEY as RTLA_HOGMONKEY,
+    ROUGH_RHINO_CAVALRY as RTLA_ROUGH_RHINO_CAVALRY,
+    REBELLIOUS_CAPTIVES as RTLA_REBELLIOUS_CAPTIVES,
+    BITTER_WORK as RTLA_BITTER_WORK,
+)
+
+
+def _real_tla_setup_priority(game, player_id):
+    """Set the active player + main phase so priority surfaces sorcery activations."""
+    game.turn_manager.turn_state.active_player_id = player_id
+    game.turn_manager.turn_state.phase = Phase.PRECOMBAT_MAIN
+
+
+def _real_tla_spawn_on_battlefield(game, player, card_def):
+    """Create a permanent in HAND, then emit a ZONE_CHANGE to BATTLEFIELD so
+    the standard pipeline path runs setup_interceptors / make_exhaust_ability."""
+    obj = game.create_object(
+        name=card_def.name,
+        owner_id=player.id,
+        zone=ZoneType.HAND,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': obj.id,
+            'from_zone': f'hand_{player.id}',
+            'to_zone': 'battlefield',
+            'from_zone_type': ZoneType.HAND,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+        },
+    ))
+    return obj
+
+
+def _real_tla_give_generic_mana(player, mana_system, n):
+    from src.engine.mana import ManaType
+    for _ in range(n):
+        mana_system.produce_mana(player.id, ManaType.COLORLESS, 1)
+
+
+def _real_tla_spawn_basic_land(game, player, name="Forest", subtype="Forest"):
+    """Spawn a basic land directly on the battlefield (no card_def, no setup)."""
+    return game.create_object(
+        name=name,
+        owner_id=player.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.LAND},
+            subtypes={subtype},
+        ),
+        card_def=None,
+    )
+
+
+def _real_tla_resolve_top_of_stack(game):
+    """Resolve the topmost stack item by calling its resolve_fn directly.
+    Returns the produced events. Used to verify Exhaust effect output."""
+    if not game.stack.items:
+        return []
+    item = game.stack.items[-1]
+    if not item.resolve_fn:
+        return []
+    return item.resolve_fn(item.chosen_targets, game.state)
+
+
+def test_mai_jaded_edge_exhaust_double_strike():
+    """Mai: Exhaust {3} adds a double strike counter and locks once-per-game."""
+    print("\n=== Test: Mai, Jaded Edge Exhaust Double Strike ===")
+
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        _real_tla_setup_priority(game, p1.id)
+
+        obj = _real_tla_spawn_on_battlefield(game, p1, RTLA_MAI_JADED_EDGE)
+        obj.state.summoning_sickness = False
+        _real_tla_give_generic_mana(p1, game.mana_system, 3)
+
+        # Exhaust ability registered.
+        abilities = obj.state.activated_abilities or []
+        exhaust_abs = [a for a in abilities if a.once_per_game]
+        assert len(exhaust_abs) == 1, \
+            f"Mai should have 1 Exhaust ability registered, got {len(exhaust_abs)}"
+
+        # Surfaces in legal actions.
+        actions = game.priority_system.get_legal_actions(p1.id)
+        matches = [a for a in actions if a.source_id == obj.id and a.ability_id == "activated:0"]
+        assert matches, "Mai's Exhaust ability should surface in legal actions"
+
+        # Activate it.
+        action = PlayerAction(
+            type=ActionType.ACTIVATE_ABILITY,
+            player_id=p1.id, source_id=obj.id,
+            ability_id="activated:0",
+        )
+        events = await game.priority_system._handle_activate_ability(action)
+        assert any(e.type == EventType.ACTIVATE for e in events), \
+            "first Mai activation should succeed"
+
+        resolved = _real_tla_resolve_top_of_stack(game)
+        ctr_events = [e for e in resolved if e.type == EventType.COUNTER_ADDED]
+        assert len(ctr_events) == 1, \
+            f"expected one COUNTER_ADDED, got {[e.type for e in resolved]}"
+        assert ctr_events[0].payload['counter_type'] == 'double strike', \
+            f"expected 'double strike' counter, got {ctr_events[0].payload['counter_type']}"
+        assert ctr_events[0].payload['amount'] == 1
+        assert ctr_events[0].payload['object_id'] == obj.id
+
+        ab = obj.state.activated_abilities[0]
+        assert ab.once_per_game_used is True
+
+        # Locked permanently — even after refilling mana.
+        _real_tla_give_generic_mana(p1, game.mana_system, 3)
+        post = game.priority_system.get_legal_actions(p1.id)
+        post_match = [a for a in post if a.source_id == obj.id and a.ability_id == "activated:0"]
+        assert not post_match, "Mai's Exhaust must be locked after activation"
+        print("PASSED: Mai, Jaded Edge Exhaust double strike counter works!")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_hog_monkey_exhaust_plus1_counters():
+    """Hog-Monkey: Exhaust {5} puts two +1/+1 counters and locks."""
+    print("\n=== Test: Hog-Monkey Exhaust +1/+1 Counters ===")
+
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        _real_tla_setup_priority(game, p1.id)
+
+        obj = _real_tla_spawn_on_battlefield(game, p1, RTLA_HOGMONKEY)
+        obj.state.summoning_sickness = False
+        _real_tla_give_generic_mana(p1, game.mana_system, 5)
+
+        abilities = obj.state.activated_abilities or []
+        exhaust_abs = [a for a in abilities if a.once_per_game]
+        assert len(exhaust_abs) == 1, \
+            f"Hog-Monkey should have 1 Exhaust ability, got {len(exhaust_abs)}"
+
+        action = PlayerAction(
+            type=ActionType.ACTIVATE_ABILITY,
+            player_id=p1.id, source_id=obj.id,
+            ability_id="activated:0",
+        )
+        events = await game.priority_system._handle_activate_ability(action)
+        assert any(e.type == EventType.ACTIVATE for e in events), \
+            "Hog-Monkey activation should succeed"
+
+        resolved = _real_tla_resolve_top_of_stack(game)
+        ctr_events = [e for e in resolved if e.type == EventType.COUNTER_ADDED]
+        assert len(ctr_events) == 1
+        assert ctr_events[0].payload['counter_type'] == '+1/+1'
+        assert ctr_events[0].payload['amount'] == 2
+        assert ctr_events[0].payload['object_id'] == obj.id
+
+        ab = obj.state.activated_abilities[0]
+        assert ab.once_per_game_used is True
+
+        post = game.priority_system.get_legal_actions(p1.id)
+        post_match = [a for a in post if a.source_id == obj.id and a.ability_id == "activated:0"]
+        assert not post_match, "Hog-Monkey's Exhaust must be locked after activation"
+        print("PASSED: Hog-Monkey Exhaust two +1/+1 counters works!")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_rough_rhino_cavalry_exhaust_counters_and_trample():
+    """Rough Rhino Cavalry: Exhaust {8} gives 2 +1/+1 counters and trample EOT."""
+    print("\n=== Test: Rough Rhino Cavalry Exhaust Counters + Trample ===")
+
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        _real_tla_setup_priority(game, p1.id)
+
+        obj = _real_tla_spawn_on_battlefield(game, p1, RTLA_ROUGH_RHINO_CAVALRY)
+        obj.state.summoning_sickness = False
+        _real_tla_give_generic_mana(p1, game.mana_system, 8)
+
+        abilities = obj.state.activated_abilities or []
+        exhaust_abs = [a for a in abilities if a.once_per_game]
+        assert len(exhaust_abs) == 1, \
+            f"Rough Rhino should have 1 Exhaust ability, got {len(exhaust_abs)}"
+
+        action = PlayerAction(
+            type=ActionType.ACTIVATE_ABILITY,
+            player_id=p1.id, source_id=obj.id,
+            ability_id="activated:0",
+        )
+        events = await game.priority_system._handle_activate_ability(action)
+        assert any(e.type == EventType.ACTIVATE for e in events), \
+            "Rough Rhino activation should succeed"
+
+        resolved = _real_tla_resolve_top_of_stack(game)
+        ctr_events = [e for e in resolved if e.type == EventType.COUNTER_ADDED]
+        kw_events = [e for e in resolved if e.type == EventType.GRANT_KEYWORD]
+        assert len(ctr_events) == 1, \
+            f"expected one COUNTER_ADDED, got {[e.type for e in resolved]}"
+        assert ctr_events[0].payload['counter_type'] == '+1/+1'
+        assert ctr_events[0].payload['amount'] == 2
+        assert len(kw_events) == 1, \
+            f"expected one GRANT_KEYWORD, got {[e.type for e in resolved]}"
+        assert kw_events[0].payload['keyword'] == 'trample'
+        assert kw_events[0].payload['duration'] == 'end_of_turn'
+        assert kw_events[0].payload['object_id'] == obj.id
+
+        ab = obj.state.activated_abilities[0]
+        assert ab.once_per_game_used is True
+        print("PASSED: Rough Rhino Cavalry Exhaust counters + trample EOT works!")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_rebellious_captives_exhaust_earthbend():
+    """Rebellious Captives: Exhaust {6} puts 2 +1/+1 on self AND earthbend 2."""
+    print("\n=== Test: Rebellious Captives Exhaust + Earthbend 2 ===")
+
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        _real_tla_setup_priority(game, p1.id)
+
+        # Earthbend needs a land.
+        land = _real_tla_spawn_basic_land(game, p1, name="Forest", subtype="Forest")
+
+        obj = _real_tla_spawn_on_battlefield(game, p1, RTLA_REBELLIOUS_CAPTIVES)
+        obj.state.summoning_sickness = False
+        _real_tla_give_generic_mana(p1, game.mana_system, 6)
+
+        abilities = obj.state.activated_abilities or []
+        exhaust_abs = [a for a in abilities if a.once_per_game]
+        assert len(exhaust_abs) == 1
+
+        action = PlayerAction(
+            type=ActionType.ACTIVATE_ABILITY,
+            player_id=p1.id, source_id=obj.id,
+            ability_id="activated:0",
+        )
+        events = await game.priority_system._handle_activate_ability(action)
+        assert any(e.type == EventType.ACTIVATE for e in events), \
+            "Rebellious Captives activation should succeed"
+
+        resolved = _real_tla_resolve_top_of_stack(game)
+        ctr_events = [e for e in resolved if e.type == EventType.COUNTER_ADDED]
+        bend_events = [e for e in resolved if e.type == EventType.BENDING_EARTHBEND]
+
+        # One COUNTER_ADDED is on self (Captives), the other is the land
+        # produced by earthbend_events.
+        assert len(ctr_events) == 2, \
+            f"expected two COUNTER_ADDED (self + land), got {[e.type for e in resolved]}"
+        self_ctr = [c for c in ctr_events if c.payload['object_id'] == obj.id]
+        land_ctr = [c for c in ctr_events if c.payload['object_id'] == land.id]
+        assert self_ctr, "expected a +1/+1 counter on Rebellious Captives"
+        assert land_ctr, "expected a +1/+1 counter on the land via earthbend"
+        assert self_ctr[0].payload['amount'] == 2
+        assert land_ctr[0].payload['amount'] == 2
+
+        # Earthbend marker emitted.
+        assert len(bend_events) == 1, \
+            f"expected one BENDING_EARTHBEND marker, got {[e.type for e in resolved]}"
+        assert bend_events[0].payload['amount'] == 2
+        assert bend_events[0].payload['land_id'] == land.id
+
+        ab = obj.state.activated_abilities[0]
+        assert ab.once_per_game_used is True
+
+        post = game.priority_system.get_legal_actions(p1.id)
+        post_match = [a for a in post if a.source_id == obj.id and a.ability_id == "activated:0"]
+        assert not post_match, "Rebellious Captives' Exhaust must be locked after activation"
+        print("PASSED: Rebellious Captives Exhaust + earthbend 2 works!")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_bitter_work_exhaust_earthbend_own_turn_only():
+    """Bitter Work: Exhaust {4} earthbend 4. own_turn_only is True."""
+    print("\n=== Test: Bitter Work Exhaust Earthbend 4 (own turn only) ===")
+
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        _real_tla_setup_priority(game, p1.id)
+
+        land = _real_tla_spawn_basic_land(game, p1, name="Forest", subtype="Forest")
+
+        obj = _real_tla_spawn_on_battlefield(game, p1, RTLA_BITTER_WORK)
+        # Bitter Work is an enchantment, no summoning sickness concern,
+        # but reset for safety.
+        obj.state.summoning_sickness = False
+        _real_tla_give_generic_mana(p1, game.mana_system, 4)
+
+        abilities = obj.state.activated_abilities or []
+        exhaust_abs = [a for a in abilities if a.once_per_game]
+        assert len(exhaust_abs) == 1, \
+            f"Bitter Work should have 1 Exhaust ability, got {len(exhaust_abs)}"
+        assert exhaust_abs[0].own_turn_only is True, \
+            "Bitter Work's Exhaust should be own_turn_only"
+
+        action = PlayerAction(
+            type=ActionType.ACTIVATE_ABILITY,
+            player_id=p1.id, source_id=obj.id,
+            ability_id="activated:0",
+        )
+        events = await game.priority_system._handle_activate_ability(action)
+        assert any(e.type == EventType.ACTIVATE for e in events), \
+            "Bitter Work activation should succeed on own turn"
+
+        resolved = _real_tla_resolve_top_of_stack(game)
+        ctr_events = [e for e in resolved if e.type == EventType.COUNTER_ADDED]
+        bend_events = [e for e in resolved if e.type == EventType.BENDING_EARTHBEND]
+        assert len(ctr_events) == 1, \
+            f"expected one COUNTER_ADDED on land, got {[e.type for e in resolved]}"
+        assert ctr_events[0].payload['object_id'] == land.id
+        assert ctr_events[0].payload['amount'] == 4
+        assert ctr_events[0].payload['counter_type'] == '+1/+1'
+        assert len(bend_events) == 1
+        assert bend_events[0].payload['amount'] == 4
+
+        ab = obj.state.activated_abilities[0]
+        assert ab.once_per_game_used is True
+        print("PASSED: Bitter Work Exhaust earthbend 4 (own_turn_only) works!")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_bitter_work_exhaust_blocked_on_opponent_turn():
+    """Bitter Work's Exhaust is own_turn_only and must NOT surface on the opponent's turn."""
+    print("\n=== Test: Bitter Work Exhaust Blocked on Opponent Turn ===")
+
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+
+        # Make it Bob's turn so Alice's Bitter Work cannot activate.
+        _real_tla_setup_priority(game, p2.id)
+
+        land = _real_tla_spawn_basic_land(game, p1, name="Forest", subtype="Forest")
+        obj = _real_tla_spawn_on_battlefield(game, p1, RTLA_BITTER_WORK)
+        obj.state.summoning_sickness = False
+        _real_tla_give_generic_mana(p1, game.mana_system, 4)
+
+        actions = game.priority_system.get_legal_actions(p1.id)
+        matches = [a for a in actions if a.source_id == obj.id and a.ability_id == "activated:0"]
+        assert not matches, \
+            f"Bitter Work's Exhaust must not surface on opponent's turn, got {[a.description for a in matches]}"
+        print("PASSED: Bitter Work Exhaust correctly hidden on opponent turn!")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def _run_real_tla_exhaust_tests():
+    """Run only the real-TLA Exhaust tests (added in W5)."""
+    tests = [
+        ("Real TLA Exhaust: Mai, Jaded Edge", test_mai_jaded_edge_exhaust_double_strike),
+        ("Real TLA Exhaust: Hog-Monkey", test_hog_monkey_exhaust_plus1_counters),
+        ("Real TLA Exhaust: Rough Rhino Cavalry",
+         test_rough_rhino_cavalry_exhaust_counters_and_trample),
+        ("Real TLA Exhaust: Rebellious Captives",
+         test_rebellious_captives_exhaust_earthbend),
+        ("Real TLA Exhaust: Bitter Work (own turn)",
+         test_bitter_work_exhaust_earthbend_own_turn_only),
+        ("Real TLA Exhaust: Bitter Work blocked off-turn",
+         test_bitter_work_exhaust_blocked_on_opponent_turn),
+    ]
+    passed = 0
+    failed = 0
+    failures = []
+    for name, fn in tests:
+        try:
+            fn()
+            passed += 1
+        except Exception as e:
+            failed += 1
+            failures.append((name, str(e)))
+            print(f"FAILED: {name}: {e}")
+    print(f"\nReal TLA Exhaust: {passed} passed, {failed} failed")
+    if failures:
+        for n, err in failures:
+            print(f"  - {n}: {err}")
+    return failed == 0
+
+
 if __name__ == "__main__":
-    success = run_all_tests()
-    exit(0 if success else 1)
+    success_custom = run_all_tests()
+    success_real = _run_real_tla_exhaust_tests()
+    exit(0 if (success_custom and success_real) else 1)
