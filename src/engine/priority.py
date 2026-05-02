@@ -27,6 +27,7 @@ from .types import (
 from .stack import StackManager, StackItem, StackItemType
 from .mana import ManaSystem, ManaCost, ManaType
 from .pipeline import EventPipeline
+from .cost_query import get_effective_mana_cost
 from .casting_costs import (
     CastCostContext,
     CostPlan, CostStep,
@@ -148,6 +149,10 @@ class PrioritySystem:
         self.turn_manager: Optional['TurnManager'] = None
         self.mana_system: Optional[ManaSystem] = None
         self.pipeline: Optional[EventPipeline] = None
+        # Set by Game class. Used to auto-resolve pending_choice for AI players
+        # (humans get the choice via session.py; AI has no UI, so we resolve
+        # in-engine with a deterministic first-option fallback).
+        self.game: Optional[Any] = None
 
         # Priority state
         self.priority_player: Optional[str] = None
@@ -229,6 +234,18 @@ class PrioritySystem:
             # Check if game is over
             if self._is_game_over():
                 return
+
+            # Auto-resolve pending_choice for AI players. Without this, the AI
+            # has no path to answer choices (no UI), legal_actions still lists
+            # CAST_SPELL options, and the cast handler bails because
+            # pending_choice is set — silently looping until the iter cap.
+            if (self.state.pending_choice is not None
+                and self.is_ai_player(self.state.pending_choice.player)
+                and self.game is not None):
+                pc = self.state.pending_choice
+                fallback = self._auto_choice_fallback(pc)
+                self.game.submit_choice(pc.id, pc.player, fallback)
+                continue
 
             # Get legal actions for current player
             legal_actions = self.get_legal_actions(self.priority_player)
@@ -341,6 +358,26 @@ class PrioritySystem:
                 # No handler - auto-pass
                 return PlayerAction(type=ActionType.PASS, player_id=player_id)
 
+    def _auto_choice_fallback(self, pc) -> list:
+        """
+        Build a deterministic fallback selection for an AI player's pending_choice.
+        Picks the first `min_choices` options. Mirrors session.py's human-timeout
+        fallback so AI matches behave like a human who fails to respond.
+        """
+        fallback: list = []
+        n = max(1, pc.min_choices or 1)
+        for opt in (pc.options or [])[:n]:
+            if isinstance(opt, dict):
+                if opt.get("id") is not None:
+                    fallback.append(opt["id"])
+                elif opt.get("index") is not None:
+                    fallback.append(opt["index"])
+                else:
+                    fallback.append(opt)
+            else:
+                fallback.append(opt)
+        return fallback
+
     async def _notify_action_processed(self, action: PlayerAction) -> None:
         """
         Invoke the `on_action_processed` hook.
@@ -384,7 +421,10 @@ class PrioritySystem:
                     continue
 
                 mana_cost_str = card.characteristics.mana_cost
-                cost = ManaCost.parse(mana_cost_str or "")
+                printed = ManaCost.parse(mana_cost_str or "")
+                # Apply registered cost-reduction interceptors to the printed
+                # cost before considering delve.
+                cost = get_effective_mana_cost(card, player_id, self.state, base_cost=printed)
                 delve_discount = self._delve_discount(card, player_id, cost)
                 cost_for_cast = self._reduce_generic_cost(cost, delve_discount)
                 std_plan = self._get_standard_additional_cost_plan(card)
@@ -454,7 +494,12 @@ class PrioritySystem:
                 options = self._get_graveyard_cast_options(card, player_id)
                 for idx, option in enumerate(options):
                     mana_cost_str = card.characteristics.mana_cost
-                    cost_for_ui = option.alt_mana_cost or ManaCost.parse(mana_cost_str or "")
+                    base_for_option = option.alt_mana_cost or ManaCost.parse(mana_cost_str or "")
+                    # Apply registered cost-reduction interceptors to whichever
+                    # base cost we're using (printed or alt like flashback).
+                    cost_for_ui = get_effective_mana_cost(
+                        card, player_id, self.state, base_cost=base_for_option,
+                    )
                     delve_discount = self._delve_discount(card, player_id, cost_for_ui)
                     cost_for_cast = self._reduce_generic_cost(cost_for_ui, delve_discount)
                     full_plan = self._concat_cost_plans(std_plan, option.additional_cost_plan)
@@ -1079,8 +1124,16 @@ class PrioritySystem:
             if self.turn_manager and self.turn_manager.active_player != player_id:
                 return False
 
-        # Check mana cost
-        cost = cost_override or ManaCost.parse(mana_cost_str or "")
+        # Check mana cost. If the caller didn't supply an override, apply any
+        # registered cost-reduction interceptors to the printed cost. (When an
+        # override IS supplied, callers are expected to have already routed it
+        # through get_effective_mana_cost - the legal-action and cast-handler
+        # entry points both do.)
+        if cost_override is not None:
+            cost = cost_override
+        else:
+            base = ManaCost.parse(mana_cost_str or "")
+            cost = get_effective_mana_cost(card, player_id, self.state, base_cost=base)
         if self.mana_system and not cost.is_free():
             if not self.mana_system.can_cast(player_id, cost):
                 return False
