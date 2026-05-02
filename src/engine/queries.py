@@ -111,6 +111,35 @@ def get_types(obj: GameObject, state: GameState) -> set[CardType]:
     return types
 
 
+def get_subtypes(obj: GameObject, state: GameState) -> set[str]:
+    """Get computed subtypes of an object, applying continuous effects.
+
+    Used by becomes_copy_of (and any future helper that needs to override
+    an object's subtypes via a QUERY interceptor). Most card scripts still
+    read ``obj.characteristics.subtypes`` directly — copy helpers therefore
+    dual-write the underlying field on install so direct readers stay
+    consistent.
+    """
+    subtypes = set(obj.characteristics.subtypes)
+
+    interceptors = sorted(
+        [i for i in state.interceptors.values()
+         if i.priority == InterceptorPriority.QUERY
+         and _is_subtypes_query(i, obj, state)],
+        key=lambda i: i.timestamp
+    )
+
+    for interceptor in interceptors:
+        result = interceptor.handler(
+            _make_query_event('subtypes', obj, subtypes),
+            state
+        )
+        if result.transformed_event:
+            subtypes = result.transformed_event.payload.get('value', subtypes)
+
+    return subtypes
+
+
 def get_colors(obj: GameObject, state: GameState) -> set[Color]:
     """Get computed colors of an object."""
     colors = set(obj.characteristics.colors)
@@ -193,6 +222,7 @@ def _make_query_event(query_type: str, obj: GameObject, current_value) -> 'Event
         'power': EventType.QUERY_POWER,
         'toughness': EventType.QUERY_TOUGHNESS,
         'types': EventType.QUERY_TYPES,
+        'subtypes': EventType.QUERY_SUBTYPES,
         'colors': EventType.QUERY_COLORS,
         'abilities': EventType.QUERY_ABILITIES,
     }
@@ -230,6 +260,16 @@ def _is_types_query(interceptor: Interceptor, obj: GameObject, state: GameState)
     """Check if interceptor is a types query for this object."""
     from .types import Event, EventType
     test_event = Event(type=EventType.QUERY_TYPES, payload={'object_id': obj.id})
+    try:
+        return interceptor.filter(test_event, state)
+    except:
+        return False
+
+
+def _is_subtypes_query(interceptor: Interceptor, obj: GameObject, state: GameState) -> bool:
+    """Check if interceptor is a subtypes query for this object."""
+    from .types import Event, EventType
+    test_event = Event(type=EventType.QUERY_SUBTYPES, payload={'object_id': obj.id})
     try:
         return interceptor.filter(test_event, state)
     except:
