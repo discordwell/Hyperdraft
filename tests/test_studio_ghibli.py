@@ -299,9 +299,13 @@ def test_muska_artifact_creature_lord():
     print("PASSED: Muska artifact creature lord effect works!")
 
 
-def test_totoro_spirit_lord():
-    """Test Totoro, King of the Forest gives other Spirits +1/+1."""
-    print("\n=== Test: Totoro Spirit Lord ===")
+def test_totoro_natures_wrath():
+    """Test Totoro gets +1/+1 per Forest you control (max +3/+3).
+
+    Note: previously also a Spirit lord, removed in commit 5fe2f24
+    (GHB nerf to bring 96% winrate down).
+    """
+    print("\n=== Test: Totoro Nature's Wrath ===")
 
     game = Game()
     p1 = game.add_player("Alice")
@@ -309,19 +313,17 @@ def test_totoro_spirit_lord():
     # Create Totoro
     totoro = create_creature_no_etb(game, p1.id, "Totoro, King of the Forest")
 
-    # Check Totoro's base power without forests
+    # Check Totoro's base power without forests (no scaling yet)
     totoro_power = get_power(totoro, game.state)
-    print(f"Totoro's power (no forests): {totoro_power} (should be 4)")
+    print(f"Totoro's power (no forests): {totoro_power} (base 4)")
+    assert totoro_power == 4, f"Expected base power 4 with no forests, got {totoro_power}"
 
-    # Create a Spirit
+    # Create a Spirit — should NOT get a buff (Spirit lord removed)
     spirit = create_basic_creature(game, p1.id, "Test Spirit", 2, 2, subtypes={"Spirit"})
     spirit_power = get_power(spirit, game.state)
-    spirit_toughness = get_toughness(spirit, game.state)
-    print(f"Spirit with Totoro: {spirit_power}/{spirit_toughness} (should be 3/3)")
-
-    assert spirit_power == 3, f"Expected Spirit power 3, got {spirit_power}"
-    assert spirit_toughness == 3, f"Expected Spirit toughness 3, got {spirit_toughness}"
-    print("PASSED: Totoro Spirit lord effect works!")
+    print(f"Spirit with Totoro: {spirit_power} (should be 2 — no spirit-lord buff)")
+    assert spirit_power == 2, f"Spirit lord effect was removed; expected 2, got {spirit_power}"
+    print("PASSED: Totoro Nature's Wrath baseline behavior!")
 
 
 def test_kodama_elder_kodama_lord():
@@ -1681,7 +1683,7 @@ def run_all_tests():
         ("Lady Eboshi Human Lord", test_lady_eboshi_human_lord),
         ("Moro Wolf God Lord", test_moro_wolf_god_lord),
         ("Muska Artifact Creature Lord", test_muska_artifact_creature_lord),
-        ("Totoro Spirit Lord", test_totoro_spirit_lord),
+        ("Totoro Nature's Wrath", test_totoro_natures_wrath),
         ("Kodama Elder Kodama Lord", test_kodama_elder_kodama_lord),
 
         # Nature's Wrath Tests
