@@ -652,34 +652,25 @@ BEYOND_RAVNICA_RAKDOS = {
 
 
 def make_rakdos_deck() -> list:
-    """60-card Rakdos deck — uses sv_starter basic energies as filler."""
-    from src.cards.pokemon.sv_starter import (
-        DARKNESS_ENERGY, FIRE_ENERGY,
-        NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH, IONO, BOSS_ORDERS, JUDGE,
-    )
+    """60-card Rakdos deck."""
+    from src.cards.pokemon.sv_starter import DARKNESS_ENERGY, FIRE_ENERGY
+    from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
-    # Pokemon (16): Rakdos parun line + Bloodlet line + 2 extra Cacklers
+    # Pokemon (16)
     deck.extend([RAKDOMLING] * 4)
     deck.extend([RAKDOMORE] * 3)
     deck.extend([RAKDOS_LORD_OF_RIOTS_EX] * 2)
     deck.extend([BLOODLET] * 3)
     deck.extend([BLOODLETTER_OF_ACLAZOTZ] * 2)
     deck.extend([RAKDOS_CACKLER] * 2)
-    # Trainers (22): 9 guild-specific + 13 sv_starter staples
+    # Guild trainers (9)
     deck.extend([RIX_MAADI_DUNGEON_PALACE] * 2)
     deck.extend([TIBALT_RAKISH_INSTIGATOR] * 2)
     deck.extend([RAKDOS_CLUESTONE] * 3)
     deck.extend([RAKDOS_BLEND_ENERGY] * 2)
-    deck.extend([NEST_BALL] * 4)
-    deck.extend([ULTRA_BALL] * 2)
-    deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 1)
-    deck.extend([POTION] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 1)
-    deck.extend([IONO] * 1)
-    deck.extend([BOSS_ORDERS] * 1)
-    # Energy (22) — Rakdos runs both Darkness and Fire
-    deck.extend([DARKNESS_ENERGY] * 14)
-    deck.extend([FIRE_ENERGY] * 8)
+    # Standard sv_starter trainer suite (22)
+    deck.extend(standard_trainer_suite())
+    # Energy (13)
+    deck.extend([DARKNESS_ENERGY] * 8)
+    deck.extend([FIRE_ENERGY] * 5)
     return deck

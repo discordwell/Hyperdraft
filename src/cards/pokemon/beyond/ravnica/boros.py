@@ -626,12 +626,9 @@ BEYOND_RAVNICA_BOROS = {
 
 
 def make_boros_deck() -> list:
-    """60-card Boros deck — uses sv_starter basic energies as filler."""
-    from src.cards.pokemon.sv_starter import (
-        FIRE_ENERGY, FIGHTING_ENERGY,
-        NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH,
-    )
+    """60-card Boros deck."""
+    from src.cards.pokemon.sv_starter import FIRE_ENERGY, FIGHTING_ENERGY
+    from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
     # Pokemon (16)
     deck.extend([AURELET] * 4)
@@ -640,19 +637,14 @@ def make_boros_deck() -> list:
     deck.extend([FEATHLET] * 3)
     deck.extend([FEATHER_THE_REDEEMED] * 2)
     deck.extend([BOROS_RECKONER] * 2)
-    # Trainers (22) — 9 guild + 13 sv_starter
+    # Guild trainers (9)
     deck.extend([SUNHOME_FORTRESS_OF_THE_LEGION] * 2)
     deck.extend([GIDEON_BLACKBLADE] * 2)
     deck.extend([BOROS_CLUESTONE] * 3)
     deck.extend([BOROS_BLEND_ENERGY] * 2)
-    deck.extend([NEST_BALL] * 4)
-    deck.extend([ULTRA_BALL] * 2)
-    deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 2)
-    deck.extend([POTION] * 1)
-    deck.extend([SUPER_ROD] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 1)
-    # Energy (22) — Boros runs both Fire and Fighting
-    deck.extend([FIRE_ENERGY] * 14)
-    deck.extend([FIGHTING_ENERGY] * 8)
+    # Standard sv_starter trainer suite (22)
+    deck.extend(standard_trainer_suite())
+    # Energy (13) — Boros runs both Fire and Fighting
+    deck.extend([FIRE_ENERGY] * 8)
+    deck.extend([FIGHTING_ENERGY] * 5)
     return deck

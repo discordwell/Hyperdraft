@@ -146,11 +146,11 @@ VANNIFAR_EVOLVED_ENIGMA_EX = make_pokemon(
     attacks=[
         {"name": "Hybrid Lash",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 70,
+         "damage": 80,
          "text": ""},
         {"name": "Evolutionary Leap",
          "cost": [{"type": "G", "count": 2}, {"type": "W", "count": 2}],
-         "damage": 190,
+         "damage": 200,
          "text": "Search your deck for a Stage 1 or Stage 2 Pokemon and put it on top of your deck. Then shuffle.",
          "effect_fn": _evolutionary_leap_effect},
     ],
@@ -178,7 +178,7 @@ MASTER_BIOMANCER = make_pokemon(
     attacks=[
         {"name": "Biomancer's Gift",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 30,
+         "damage": 50,
          "text": "Draw a card.",
          "effect_fn": _biomancers_gift_effect},
     ],
@@ -529,7 +529,7 @@ EDRIC_SPYMASTER_OF_TREST = make_pokemon(
     attacks=[
         {"name": "Whispered Intel",
          "cost": [{"type": "W", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 30,
+         "damage": 50,
          "text": "Draw 2 cards.",
          "effect_fn": _edric_spymaster_effect},
     ],
@@ -623,12 +623,9 @@ BEYOND_RAVNICA_SIMIC = {
 
 
 def make_simic_deck() -> list:
-    """60-card Simic deck — uses sv_starter basic energies as filler."""
-    from src.cards.pokemon.sv_starter import (
-        GRASS_ENERGY, WATER_ENERGY,
-        NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH, IONO, BOSS_ORDERS, JUDGE,
-    )
+    """60-card Simic deck."""
+    from src.cards.pokemon.sv_starter import GRASS_ENERGY, WATER_ENERGY
+    from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
     # Pokemon (16)
     deck.extend([VANNET] * 4)
@@ -637,21 +634,14 @@ def make_simic_deck() -> list:
     deck.extend([MOMLET] * 3)
     deck.extend([MOMIR_VIG_SIMIC_VISIONARY] * 2)
     deck.extend([MASTER_BIOMANCER] * 2)
-    # Trainers (22)
+    # Guild trainers (9)
     deck.extend([NOVIJEN_HEART_OF_PROGRESS] * 2)
     deck.extend([PRIME_SPEAKER_ZEGANA] * 2)
     deck.extend([SIMIC_CLUESTONE] * 3)
     deck.extend([SIMIC_BLEND_ENERGY] * 2)
-    deck.extend([NEST_BALL] * 3)
-    deck.extend([ULTRA_BALL] * 2)
-    deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 1)
-    deck.extend([POTION] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 1)
-    deck.extend([IONO] * 1)
-    deck.extend([BOSS_ORDERS] * 1)
-    deck.extend([JUDGE] * 1)
-    # Energy (22) — Simic runs both Grass and Water
-    deck.extend([GRASS_ENERGY] * 14)
-    deck.extend([WATER_ENERGY] * 8)
+    # Standard sv_starter trainer suite (22)
+    deck.extend(standard_trainer_suite())
+    # Energy (13)
+    deck.extend([GRASS_ENERGY] * 8)
+    deck.extend([WATER_ENERGY] * 5)
     return deck

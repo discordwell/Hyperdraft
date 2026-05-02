@@ -597,12 +597,9 @@ BEYOND_RAVNICA_IZZET = {
 
 
 def make_izzet_deck() -> list:
-    """60-card Izzet deck — uses sv_starter basic energies as filler."""
-    from src.cards.pokemon.sv_starter import (
-        FIRE_ENERGY, WATER_ENERGY,
-        NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH,
-    )
+    """60-card Izzet deck."""
+    from src.cards.pokemon.sv_starter import FIRE_ENERGY, WATER_ENERGY
+    from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
     # Pokemon (16)
     deck.extend([NIVLET] * 4)
@@ -611,19 +608,14 @@ def make_izzet_deck() -> list:
     deck.extend([MEKLET] * 3)
     deck.extend([MELEK_IZZET_PARAGON] * 2)
     deck.extend([GOBLIN_ELECTROMANCER] * 2)
-    # Trainers (22)
+    # Guild trainers (9)
     deck.extend([NIV_MIZZETS_TOWER] * 2)
     deck.extend([RAL_STORM_CONDUIT] * 2)
     deck.extend([IZZET_SIGNET] * 3)
     deck.extend([IZZET_BLEND_ENERGY] * 2)
-    deck.extend([NEST_BALL] * 4)
-    deck.extend([ULTRA_BALL] * 2)
-    deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 2)
-    deck.extend([POTION] * 1)
-    deck.extend([SUPER_ROD] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 1)
-    # Energy (22) — Izzet runs both Fire and Water
-    deck.extend([FIRE_ENERGY] * 14)
-    deck.extend([WATER_ENERGY] * 8)
+    # Standard sv_starter trainer suite (22)
+    deck.extend(standard_trainer_suite())
+    # Energy (13)
+    deck.extend([FIRE_ENERGY] * 8)
+    deck.extend([WATER_ENERGY] * 5)
     return deck

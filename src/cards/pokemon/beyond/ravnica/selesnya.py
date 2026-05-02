@@ -124,11 +124,11 @@ TROSTANI_SELESNYAS_VOICE_EX = make_pokemon(
     attacks=[
         {"name": "Chorus Strike",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 70,
+         "damage": 80,
          "text": ""},
         {"name": "Voice of Growth",
          "cost": [{"type": "G", "count": 2}, {"type": "F", "count": 2}],
-         "damage": 180,
+         "damage": 200,
          "text": "Heal 30 damage from this Pokemon.",
          "effect_fn": _voice_of_growth_effect},
     ],
@@ -429,7 +429,7 @@ EMMARA_SOUL_OF_THE_ACCORD = make_pokemon(
     attacks=[
         {"name": "Token Bloom",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 70,
+         "damage": 80,
          "text": ("Search your deck for a Grass Energy and attach it to "
                   "1 of your Benched Pokemon. Then, shuffle your deck."),
          "effect_fn": _soul_of_the_accord_effect},
@@ -574,7 +574,7 @@ SELESNYA_EVANGEL = make_pokemon(
     attacks=[
         {"name": "Call to the Conclave",
          "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 40,
+         "damage": 50,
          "text": ("Search your deck for a Basic Pokemon and put it onto "
                   "your Bench. Then, shuffle your deck."),
          "effect_fn": _selesnya_evangel_effect},
@@ -669,12 +669,9 @@ BEYOND_RAVNICA_SELESNYA = {
 
 
 def make_selesnya_deck() -> list:
-    """60-card Selesnya deck — uses sv_starter basic energies as filler."""
-    from src.cards.pokemon.sv_starter import (
-        GRASS_ENERGY, FIGHTING_ENERGY,
-        NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH, IONO, BOSS_ORDERS, JUDGE,
-    )
+    """60-card Selesnya deck."""
+    from src.cards.pokemon.sv_starter import GRASS_ENERGY, FIGHTING_ENERGY
+    from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
     # Pokemon (16)
     deck.extend([TROSTLING] * 4)
@@ -683,19 +680,14 @@ def make_selesnya_deck() -> list:
     deck.extend([EMMLET] * 3)
     deck.extend([EMMARA_SOUL_OF_THE_ACCORD] * 2)
     deck.extend([CENTAUR_HEALER] * 2)
-    # Trainers (22) — 9 guild + 13 sv_starter
+    # Guild trainers (9)
     deck.extend([VITU_GHAZI_THE_CITY_TREE] * 2)
     deck.extend([CAPTAIN_SISAY] * 2)
     deck.extend([SELESNYA_CLUESTONE] * 3)
     deck.extend([SELESNYA_BLEND_ENERGY] * 2)
-    deck.extend([NEST_BALL] * 4)
-    deck.extend([ULTRA_BALL] * 2)
-    deck.extend([RARE_CANDY] * 2)
-    deck.extend([PROFESSOR_RESEARCH] * 2)
-    deck.extend([IONO] * 1)
-    deck.extend([BOSS_ORDERS] * 1)
-    deck.extend([JUDGE] * 1)
-    # Energy (22) — Selesnya runs both Grass and Fighting (white substitute)
-    deck.extend([GRASS_ENERGY] * 14)
-    deck.extend([FIGHTING_ENERGY] * 8)
+    # Standard sv_starter trainer suite (22)
+    deck.extend(standard_trainer_suite())
+    # Energy (13)
+    deck.extend([GRASS_ENERGY] * 8)
+    deck.extend([FIGHTING_ENERGY] * 5)
     return deck

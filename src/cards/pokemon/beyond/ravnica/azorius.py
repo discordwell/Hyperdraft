@@ -628,34 +628,25 @@ BEYOND_RAVNICA_AZORIUS = {
 
 
 def make_azorius_deck() -> list:
-    """60-card Azorius deck — uses sv_starter basic energies as filler.
-    Fighting Energy stands in for white since Fairy energy doesn't exist."""
-    from src.cards.pokemon.sv_starter import (
-        WATER_ENERGY, FIGHTING_ENERGY,
-        NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH,
-    )
+    """60-card Azorius deck. Fighting Energy stands in for white."""
+    from src.cards.pokemon.sv_starter import WATER_ENERGY, FIGHTING_ENERGY
+    from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
-    # Pokemon (16) — Isperia 4-3-2 + Tomik 3-2 + 2 utility
+    # Pokemon (16)
     deck.extend([ISPERILET] * 4)
     deck.extend([ISPERATRA] * 3)
     deck.extend([ISPERIA_SUPREME_JUDGE_EX] * 2)
     deck.extend([TOMLET] * 3)
     deck.extend([TOMIK_DISTINGUISHED_ADVOKIST] * 2)
     deck.extend([LAVINIA_OF_THE_TENTH] * 2)
-    # Trainers (22) — 9 guild + 13 sv_starter
+    # Guild trainers (9)
     deck.extend([PRAHV_SPIRES_OF_ORDER] * 2)
     deck.extend([TEFERI_HERO_OF_DOMINARIA] * 2)
     deck.extend([AZORIUS_CLUESTONE] * 3)
     deck.extend([AZORIUS_BLEND_ENERGY] * 2)
-    deck.extend([NEST_BALL] * 4)
-    deck.extend([ULTRA_BALL] * 2)
-    deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 2)
-    deck.extend([POTION] * 1)
-    deck.extend([SUPER_ROD] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 1)
-    # Energy (22) — Azorius runs Water + Fighting (white substitute)
-    deck.extend([WATER_ENERGY] * 14)
-    deck.extend([FIGHTING_ENERGY] * 8)
+    # Standard sv_starter trainer suite (22)
+    deck.extend(standard_trainer_suite())
+    # Energy (13)
+    deck.extend([WATER_ENERGY] * 8)
+    deck.extend([FIGHTING_ENERGY] * 5)
     return deck

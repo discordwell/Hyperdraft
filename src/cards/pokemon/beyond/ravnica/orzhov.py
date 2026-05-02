@@ -629,12 +629,9 @@ BEYOND_RAVNICA_ORZHOV = {
 
 
 def make_orzhov_deck() -> list:
-    """60-card Orzhov deck — uses sv_starter basic energies as filler."""
-    from src.cards.pokemon.sv_starter import (
-        FIGHTING_ENERGY, DARKNESS_ENERGY,
-        NEST_BALL, ULTRA_BALL, RARE_CANDY, SWITCH, POTION, SUPER_ROD,
-        PROFESSOR_RESEARCH, IONO, BOSS_ORDERS, JUDGE,
-    )
+    """60-card Orzhov deck."""
+    from src.cards.pokemon.sv_starter import FIGHTING_ENERGY, DARKNESS_ENERGY
+    from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
     # Pokemon (16)
     deck.extend([TEYSLET] * 4)
@@ -643,19 +640,14 @@ def make_orzhov_deck() -> list:
     deck.extend([OBZLET] * 3)
     deck.extend([OBZEDAT_GHOST_COUNCIL] * 2)
     deck.extend([KARLOV_OF_THE_GHOST_COUNCIL] * 2)
-    # Trainers (22)
+    # Guild trainers (9)
     deck.extend([ORZHOVA_THE_CHURCH_OF_DEALS] * 2)
     deck.extend([KAYA_GHOST_ASSASSIN] * 2)
     deck.extend([ORZHOV_CLUESTONE] * 3)
     deck.extend([ORZHOV_BLEND_ENERGY] * 2)
-    deck.extend([NEST_BALL] * 4)
-    deck.extend([ULTRA_BALL] * 2)
-    deck.extend([RARE_CANDY] * 2)
-    deck.extend([SWITCH] * 1)
-    deck.extend([POTION] * 1)
-    deck.extend([PROFESSOR_RESEARCH] * 2)
-    deck.extend([BOSS_ORDERS] * 1)
-    # Energy (22) — Orzhov runs Fighting (white substitute) and Darkness
-    deck.extend([FIGHTING_ENERGY] * 14)
-    deck.extend([DARKNESS_ENERGY] * 8)
+    # Standard sv_starter trainer suite (22)
+    deck.extend(standard_trainer_suite())
+    # Energy (13)
+    deck.extend([FIGHTING_ENERGY] * 8)
+    deck.extend([DARKNESS_ENERGY] * 5)
     return deck
