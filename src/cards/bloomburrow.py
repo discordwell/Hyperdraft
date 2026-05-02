@@ -2540,6 +2540,57 @@ def bonebind_orator_setup(obj: GameObject, state: GameState) -> list[Interceptor
     return []
 
 
+def bonebind_orator_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{3}{B}, Exile this card from your graveyard: Return another target
+    creature card from your graveyard to your hand."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        gy_zone = st.zones.get(f'graveyard_{o.controller}')
+        legal: list[str] = []
+        if gy_zone:
+            for cid in gy_zone.objects:
+                if cid == o.id:
+                    continue
+                co = st.objects.get(cid)
+                if co and CardType.CREATURE in co.characteristics.types:
+                    legal.append(cid)
+        events: list[Event] = [Event(
+            type=EventType.EXILE,
+            payload={'object_id': o.id},
+            source=o.id, controller=o.controller,
+        )]
+        if not legal:
+            return events
+
+        def _handler(choice, selected, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            return [Event(
+                type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+                payload={'object_id': selected[0], 'player': o.controller},
+                source=o.id, controller=o.controller,
+            )]
+        choice = create_target_choice(
+            state=st,
+            player_id=o.controller,
+            source_id=o.id,
+            legal_targets=legal,
+            prompt="Bonebind Orator: return target creature card from your graveyard",
+            min_targets=1, max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _handler
+        return events
+    make_activated_ability(
+        obj,
+        cost="{3}{B}",
+        effect_fn=_effect,
+        description="Exile from graveyard: Return another creature card from graveyard to hand",
+    )
+    return []
+
+
 def bonecache_overseer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{T}, Pay 1 life: Draw a card.
 
@@ -7376,6 +7427,7 @@ BONEBIND_ORATOR = make_creature(
     text="{3}{B}, Exile this card from your graveyard: Return another target creature card from your graveyard to your hand.",
     setup_interceptors=bonebind_orator_setup,
 )
+BONEBIND_ORATOR.setup_in_graveyard = bonebind_orator_gy_setup
 
 BONECACHE_OVERSEER = make_creature(
     name="Bonecache Overseer",
