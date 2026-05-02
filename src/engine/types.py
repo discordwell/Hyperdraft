@@ -550,6 +550,11 @@ class ObjectState:
     # Phase 5: MKM Suspect mechanic — creature is suspected (menace + can't block).
     suspected: bool = False
 
+    # Phase 5: WOE Bargain mechanic — set on the spell card object before resolve
+    # if the player paid the optional bargain cost (sacrificed an artifact /
+    # enchantment / token). Resolve callbacks check this for the bonus effect.
+    was_bargained: bool = False
+
     # Hearthstone-specific (optional, unused in MTG)
     divine_shield: bool = False       # Prevents first damage
     frozen: bool = False              # Can't attack next turn
