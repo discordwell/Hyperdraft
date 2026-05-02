@@ -37,6 +37,61 @@ for _registry in ARCHETYPE_REGISTRIES.values():
 BEYOND_KAMIGAWA_CARDS.update(BEYOND_KAMIGAWA_STAPLES)
 
 
+# =============================================================================
+# Image-URL auto-wiring
+# =============================================================================
+# Patches each card's ``image_url`` to point at its rendered PNG under
+# ``assets/card_art/beyond/kamigawa/<slug>.png`` (served by the FastAPI
+# server at ``/api/card-art/beyond/kamigawa/<slug>.png``). Only sets the
+# field when the PNG actually exists, so cards without art yet keep
+# ``image_url=None`` and the frontend falls through to its other lookups.
+#
+# Slug rule MUST match scripts/beyond_kamigawa/generate_card_art.py:to_filename.
+
+import pathlib as _pathlib
+
+_BK_ART_DIR = (_pathlib.Path(__file__).resolve().parents[5]
+               / "assets" / "card_art" / "beyond" / "kamigawa")
+_BK_ART_URL_BASE = "/api/card-art/beyond/kamigawa"
+
+
+def _bk_slug(name: str) -> str:
+    return (
+        name.lower()
+        .replace("'", "")
+        .replace(",", "")
+        .replace(":", "")
+        .replace("(", "")
+        .replace(")", "")
+        .replace(" ", "_")
+        .replace("-", "_")
+        .replace("__", "_")
+        .strip("_")
+    )
+
+
+def _wire_image_urls() -> int:
+    """Set ``image_url`` on each BK card whose PNG exists on disk.
+
+    Idempotent — already-set ``image_url`` values are preserved. Returns
+    the number of cards wired (useful for tests / verification scripts).
+    """
+    if not _BK_ART_DIR.exists():
+        return 0
+    wired = 0
+    for name, card_def in BEYOND_KAMIGAWA_CARDS.items():
+        if getattr(card_def, "image_url", None):
+            continue
+        slug = _bk_slug(name)
+        if (_BK_ART_DIR / f"{slug}.png").exists():
+            card_def.image_url = f"{_BK_ART_URL_BASE}/{slug}.png"
+            wired += 1
+    return wired
+
+
+_WIRED_IMAGE_URLS = _wire_image_urls()
+
+
 __all__ = [
     "BEYOND_KAMIGAWA_CARDS",
     "ARCHETYPE_REGISTRIES",
