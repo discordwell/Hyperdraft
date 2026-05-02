@@ -53,6 +53,8 @@ from src.cards.interceptor_helpers import (
     make_cost_reduction,
     # Cycling.
     make_cycling_setup,
+    # Modal resolve.
+    make_modal_resolve,
 )
 
 
@@ -4523,12 +4525,78 @@ AIRBENDER_ASCENSION = make_enchantment(
     setup_interceptors=airbender_ascension_setup,
 )
 
+def _airbenders_reversal_mode_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target attacking creature."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and getattr(o.state, 'attacking', False))
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Airbender's Reversal: destroy attacking creature",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _airbenders_reversal_mode_airbend(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Airbend target creature you control (exile + alt-cast for {2}).
+    Engine gap: Airbend's alt-cost is partial; emit EXILE marker for now.
+    """
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': selected[0], 'airbend': True},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Airbender's Reversal: airbend your creature",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 AIRBENDERS_REVERSAL = make_instant(
     name="Airbender's Reversal",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Choose one —\n• Destroy target attacking creature.\n• Airbend target creature you control. (Exile it. While it's exiled, its owner may cast it for {2} rather than its mana cost.)",
     subtypes={"Lesson"},
+    resolve=make_modal_resolve(
+        "Airbender's Reversal",
+        modes=[
+            ("Destroy target attacking creature", _airbenders_reversal_mode_destroy),
+            ("Airbend target creature you control", _airbenders_reversal_mode_airbend),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 AIRBENDING_LESSON = make_instant(
@@ -4777,11 +4845,53 @@ RAZOR_RINGS = make_instant(
     text="Razor Rings deals 4 damage to target attacking or blocking creature. You gain life equal to the excess damage dealt this way.",
 )
 
+def _sandbenders_storm_mode_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target creature with power 4 or greater."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and getattr(o.state, 'power', 0) >= 4)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Sandbenders' Storm: destroy creature with power 4+",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+# engine gap: Earthbend mechanic (land becomes 0/0 with +1/+1 counters,
+# haste, return-on-death) is not fully expressed; mode 1 is left as noop.
+def _sandbenders_storm_mode_earthbend(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    return []
+
+
 SANDBENDERS_STORM = make_instant(
     name="Sandbenders' Storm",
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     text="Choose one—\n• Destroy target creature with power 4 or greater.\n• Earthbend 3. (Target land you control becomes a 0/0 creature with haste that's still a land. Put three +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)",
+    resolve=make_modal_resolve(
+        "Sandbenders' Storm",
+        modes=[
+            ("Destroy target creature with power 4 or greater", _sandbenders_storm_mode_destroy),
+            ("Earthbend 3 (engine gap)", _sandbenders_storm_mode_earthbend),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 SOUTH_POLE_VOYAGER = make_creature(
@@ -5335,12 +5445,50 @@ CORRUPT_COURT_OFFICIAL = make_creature(
     setup_interceptors=corrupt_court_official_setup,
 )
 
+def _dai_li_mode_discard(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target opponent reveals hand; you pick nonland permanent; they discard.
+    Engine gap: full reveal-and-pick flow not modeled.
+    """
+    opp_ids = [pid for pid in state.players.keys() if pid != caster_id]
+    if not opp_ids:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': selected[0], 'amount': 1, 'nonland_permanent': True, 'chosen_by': caster_id},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=opp_ids,
+        prompt="Dai Li Indoctrination: choose target opponent",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+# engine gap: Earthbend mechanic noop here.
+def _dai_li_mode_earthbend(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    return []
+
+
 DAI_LI_INDOCTRINATION = make_sorcery(
     name="Dai Li Indoctrination",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Choose one —\n• Target opponent reveals their hand. You choose a nonland permanent card from it. That player discards that card.\n• Earthbend 2. (Target land you control becomes a 0/0 creature with haste that's still a land. Put two +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)",
     subtypes={"Lesson"},
+    resolve=make_modal_resolve(
+        "Dai Li Indoctrination",
+        modes=[
+            ("Target opponent reveals hand and discards a chosen nonland permanent", _dai_li_mode_discard),
+            ("Earthbend 2 (engine gap)", _dai_li_mode_earthbend),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 DAY_OF_BLACK_SUN = make_sorcery(
@@ -5768,11 +5916,83 @@ BOARQPINE = make_creature(
     setup_interceptors=boarqpine_setup,
 )
 
+def _bumi_bash_mode_burn(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Damage equal to number of lands you control to target creature."""
+    land_count = sum(
+        1 for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and o.controller == caster_id
+            and CardType.LAND in o.characteristics.types)
+    )
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': selected[0], 'amount': land_count, 'source': spell_id},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt=f"Bumi Bash: deal {land_count} damage to target creature",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _bumi_bash_mode_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target land creature or nonbasic land."""
+    legal = []
+    for oid, o in state.objects.items():
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        is_land = CardType.LAND in o.characteristics.types
+        is_creature = CardType.CREATURE in o.characteristics.types
+        is_basic = 'Basic' in (o.characteristics.supertypes or set())
+        if (is_land and is_creature) or (is_land and not is_basic):
+            legal.append(oid)
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Bumi Bash: destroy land creature or nonbasic land",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 BUMI_BASH = make_sorcery(
     name="Bumi Bash",
     mana_cost="{3}{R}",
     colors={Color.RED},
     text="Choose one —\n• Bumi Bash deals damage equal to the number of lands you control to target creature.\n• Destroy target land creature or nonbasic land.",
+    resolve=make_modal_resolve(
+        "Bumi Bash",
+        modes=[
+            ("Damage equal to lands you control to target creature", _bumi_bash_mode_burn),
+            ("Destroy target land creature or nonbasic land", _bumi_bash_mode_destroy),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 THE_CAVE_OF_TWO_LOVERS = make_enchantment(
@@ -5911,12 +6131,62 @@ HOW_TO_START_A_RIOT = make_instant(
     subtypes={"Lesson"},
 )
 
+def _irohs_demo_mode_sweep(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """1 damage to each creature your opponents control."""
+    return [
+        Event(
+            type=EventType.DAMAGE,
+            payload={'target': oid, 'amount': 1, 'source': spell_id},
+            source=spell_id, controller=caster_id,
+        )
+        for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller != caster_id)
+    ]
+
+
+def _irohs_demo_mode_burn(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """4 damage to target creature."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': selected[0], 'amount': 4, 'source': spell_id},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Iroh's Demonstration: deal 4 damage to target creature",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 IROHS_DEMONSTRATION = make_sorcery(
     name="Iroh's Demonstration",
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Choose one —\n• Iroh's Demonstration deals 1 damage to each creature your opponents control.\n• Iroh's Demonstration deals 4 damage to target creature.",
     subtypes={"Lesson"},
+    resolve=make_modal_resolve(
+        "Iroh's Demonstration",
+        modes=[
+            ("Deal 1 damage to each creature your opponents control", _irohs_demo_mode_sweep),
+            ("Deal 4 damage to target creature", _irohs_demo_mode_burn),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 JEONG_JEONG_THE_DESERTER = make_creature(
@@ -6341,12 +6611,83 @@ THE_LEGEND_OF_KYOSHI = make_creature(
     text="",
 )
 
+def _origin_metalbending_mode_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target artifact or enchantment."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and (CardType.ARTIFACT in o.characteristics.types
+                 or CardType.ENCHANTMENT in o.characteristics.types))
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Origin of Metalbending: destroy artifact or enchantment",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _origin_metalbending_mode_buff(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """+1/+1 counter and indestructible EOT on target creature you control."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': selected[0], 'counter_type': '+1/+1', 'amount': 1},
+                source=spell_id, controller=caster_id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': selected[0], 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+                source=spell_id, controller=caster_id,
+            ),
+        ]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Origin of Metalbending: choose your creature",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 ORIGIN_OF_METALBENDING = make_instant(
     name="Origin of Metalbending",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Choose one —\n• Destroy target artifact or enchantment.\n• Put a +1/+1 counter on target creature you control. It gains indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)",
     subtypes={"Lesson"},
+    resolve=make_modal_resolve(
+        "Origin of Metalbending",
+        modes=[
+            ("Destroy target artifact or enchantment", _origin_metalbending_mode_destroy),
+            ("+1/+1 counter and indestructible on your creature", _origin_metalbending_mode_buff),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 OSTRICHHORSE = make_creature(

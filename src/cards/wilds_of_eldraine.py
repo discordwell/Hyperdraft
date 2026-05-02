@@ -30,6 +30,7 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype, create_target_choice,
     create_modal_choice,
+    make_modal_resolve,
     make_saga_setup,
     make_activated_ability,
     make_loot_ability,
@@ -6881,11 +6882,50 @@ NOT_DEAD_AFTER_ALL = make_instant(
     resolve=not_dead_after_all_resolve,
 )
 
+def _rankles_prank_mode_discard(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Each player discards two cards."""
+    return [
+        Event(
+            type=EventType.DISCARD,
+            payload={'player': pid, 'amount': 2},
+            source=spell_id, controller=caster_id,
+        )
+        for pid in state.players.keys()
+    ]
+
+
+def _rankles_prank_mode_life(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Each player loses 4 life."""
+    return [
+        Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': pid, 'amount': -4},
+            source=spell_id, controller=caster_id,
+        )
+        for pid in state.players.keys()
+    ]
+
+
+# engine gap: "each player sacrifices two creatures of their choice" needs
+# per-player sacrifice prompts; mode 2 left as a noop for now.
+def _rankles_prank_mode_sac(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    return []
+
+
 RANKLES_PRANK = make_sorcery(
     name="Rankle's Prank",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     text="Choose one or more —\n• Each player discards two cards.\n• Each player loses 4 life.\n• Each player sacrifices two creatures of their choice.",
+    resolve=make_modal_resolve(
+        "Rankle's Prank",
+        modes=[
+            ("Each player discards two cards", _rankles_prank_mode_discard),
+            ("Each player loses 4 life", _rankles_prank_mode_life),
+            ("Each player sacrifices two creatures of their choice", _rankles_prank_mode_sac),
+        ],
+        min_modes=1, max_modes=3,
+    ),
 )
 
 RAT_OUT = make_instant(
@@ -7673,11 +7713,69 @@ REDTOOTH_VANGUARD = make_creature(
     setup_interceptors=redtooth_vanguard_setup,
 )
 
+def _return_wilds_mode_search(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Search library for basic land, put it onto the battlefield tapped."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': caster_id,
+            'card_filter': 'basic_land',
+            'destination': 'battlefield',
+            'tapped': True,
+        },
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _return_wilds_mode_human(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Create a 1/1 white Human creature token."""
+    return [Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'name': 'Human Token',
+            'controller': caster_id, 'owner': caster_id,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'power': 1, 'toughness': 1,
+            'types': {CardType.CREATURE},
+            'subtypes': {'Human'},
+            'colors': {Color.WHITE},
+            'is_token': True,
+        },
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _return_wilds_mode_food(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Create a Food token."""
+    return [Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'name': 'Food',
+            'controller': caster_id, 'owner': caster_id,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'types': {CardType.ARTIFACT},
+            'subtypes': {'Food'},
+            'colors': set(),
+            'is_token': True,
+        },
+        source=spell_id, controller=caster_id,
+    )]
+
+
 RETURN_FROM_THE_WILDS = make_sorcery(
     name="Return from the Wilds",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Choose two —\n• Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\n• Create a 1/1 white Human creature token.\n• Create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")",
+    resolve=make_modal_resolve(
+        "Return from the Wilds",
+        modes=[
+            ("Search your library for a basic land", _return_wilds_mode_search),
+            ("Create a 1/1 white Human creature token", _return_wilds_mode_human),
+            ("Create a Food token", _return_wilds_mode_food),
+        ],
+        min_modes=2, max_modes=2,
+    ),
 )
 
 ROOTRIDER_FAUN = make_creature(
