@@ -1223,6 +1223,7 @@ class PrioritySystem:
 
         # Phase 4: registered activated abilities.
         from .activated import can_pay_activation
+        from .cost_query import get_effective_activation_cost
         is_active = (
             self.turn_manager is not None
             and self.turn_manager.turn_state.active_player_id == player_id
@@ -1235,12 +1236,24 @@ class PrioritySystem:
             )
         stack_empty = (self.stack is None) or (len(self.stack.items) == 0)
         for idx, ability in enumerate(getattr(obj.state, "activated_abilities", []) or []):
+            # Apply activated-cost reductions for the legality check. We use
+            # x_value=0 here (we don't know the chosen X yet at the legal-
+            # actions surface; the player will pick X when they activate).
+            effective_cost = None
+            if ability.mana_cost is not None:
+                try:
+                    effective_cost = get_effective_activation_cost(
+                        ability, obj, player_id, self.state,
+                    )
+                except Exception:
+                    effective_cost = ability.mana_cost
             if not can_pay_activation(
                 ability, obj, self.state, player_id,
                 mana_system=self.mana_system,
                 is_active_player=is_active,
                 is_main_phase=is_main,
                 stack_empty=stack_empty,
+                effective_mana_cost=effective_cost,
             ):
                 continue
             actions.append(LegalAction(
@@ -1249,7 +1262,7 @@ class PrioritySystem:
                 ability_id=f"activated:{idx}",
                 description=f"Activate {obj.name}: {ability.description}",
                 requires_mana=bool(ability.mana_cost and not ability.mana_cost.is_free()),
-                mana_cost=ability.mana_cost,
+                mana_cost=effective_cost or ability.mana_cost,
             ))
 
         ability_lines = self._get_activated_ability_lines(obj)
@@ -2344,6 +2357,7 @@ class PrioritySystem:
                     pay_activation_cost,
                     record_activation,
                 )
+                from .cost_query import get_effective_activation_cost
                 try:
                     idx = int(action.ability_id.split(":", 1)[1])
                 except ValueError:
@@ -2363,22 +2377,53 @@ class PrioritySystem:
                         _Phase.PRECOMBAT_MAIN, _Phase.POSTCOMBAT_MAIN
                     )
                 _stack_empty = (self.stack is None) or (len(self.stack.items) == 0)
+                # Resolve activated-ability cost reductions (Boom Scholar etc.).
+                _x = int(getattr(action, 'x_value', 0) or 0)
+                _effective_cost = None
+                if ability.mana_cost is not None:
+                    try:
+                        _effective_cost = get_effective_activation_cost(
+                            ability, source, action.player_id, self.state,
+                        )
+                    except Exception:
+                        _effective_cost = ability.mana_cost
                 if not can_pay_activation(
                     ability, source, self.state, action.player_id,
                     mana_system=self.mana_system,
                     is_active_player=_is_active,
                     is_main_phase=_is_main,
                     stack_empty=_stack_empty,
+                    x_value=_x,
+                    effective_mana_cost=_effective_cost,
                 ):
                     return []
                 # Pay costs (mana paid via mana_system; tap/sac/etc emit events).
                 events.extend(pay_activation_cost(
-                    ability, source, self.state, action.player_id, mana_system=self.mana_system
+                    ability, source, self.state, action.player_id,
+                    mana_system=self.mana_system,
+                    x_value=_x,
+                    effective_mana_cost=_effective_cost,
                 ))
                 # Capture references for the resolve closure.
                 _src_id = source.id
                 _ctrl = action.player_id
                 _effect_fn = ability.effect_fn
+
+                # Backward-compatible effect-fn dispatch: existing effect
+                # functions take (obj, state, targets); X-cost-aware ones may
+                # also accept ``x_value=`` (kw-only). Inspect the signature
+                # once and route accordingly.
+                try:
+                    _sig = inspect.signature(_effect_fn)
+                    _accepts_x = (
+                        'x_value' in _sig.parameters
+                        or any(
+                            p.kind == inspect.Parameter.VAR_KEYWORD
+                            for p in _sig.parameters.values()
+                        )
+                    )
+                except (TypeError, ValueError):
+                    _accepts_x = False
 
                 def _resolve_activated(targets, st: GameState) -> list[Event]:
                     obj = st.objects.get(_src_id)
@@ -2391,6 +2436,8 @@ class PrioritySystem:
                         else:
                             flat.append(group)
                     try:
+                        if _accepts_x:
+                            return list(_effect_fn(obj, st, flat, x_value=_x) or [])
                         return list(_effect_fn(obj, st, flat) or [])
                     except Exception:
                         return []
@@ -2412,6 +2459,8 @@ class PrioritySystem:
                         'source_id': action.source_id,
                         'ability_id': action.ability_id,
                         'controller': action.player_id,
+                        'is_exhaust': bool(getattr(ability, 'is_exhaust', False)),
+                        'x_value': _x,
                     },
                 ))
                 # Ward / TARGET_CHOSEN parity: emit one event per chosen target
