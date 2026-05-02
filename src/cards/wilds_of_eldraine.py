@@ -4897,17 +4897,20 @@ def virtue_of_knowledge_setup(obj: GameObject, state: GameState) -> list[Interce
 
 def _virtue_of_knowledge_adventure(obj: GameObject, state: GameState, targets: list) -> list[Event]:
     """Vantress Visions: Copy target activated or triggered ability you control.
+    You may choose new targets for the copy.
 
     Surfaces a target choice over current stack items the player controls; the
-    chosen item gets copied via the COPY_STACK_ITEM event. New targets for the
-    copy are not collected here — the copy keeps the original's targets. (A
-    future enhancement could chain a second target_with_callback to gather new
-    targets per requirement.)
+    chosen item gets copied via the COPY_STACK_ITEM event. After the player
+    picks a stack item to copy, we walk the original's ``target_requirements``
+    and chain a ``target_with_callback`` PendingChoice per requirement so the
+    player can choose new targets. The accumulated list (engine standard
+    ``list[list[Target]]`` shape) is plumbed through to ``make_copy_ability_event``.
     """
     from src.cards.interceptor_helpers import (
         create_target_choice,
         make_copy_ability_event,
     )
+    from src.engine.targeting import Target
 
     # Find the StackManager via state._game (set by Game._connect_subsystems).
     game = getattr(state, '_game', None)
@@ -4930,15 +4933,125 @@ def _virtue_of_knowledge_adventure(obj: GameObject, state: GameState, targets: l
     if not legal_item_ids:
         return []
 
+    def _retarget_step(item_id: str, original, src_obj: GameObject,
+                       st: GameState, idx: int,
+                       accumulated: list) -> list[Event]:
+        """Recursively prompt for new targets, one requirement at a time.
+
+        Once all requirements have been processed, emit the copy event with
+        the accumulated targets.
+        """
+        # Re-resolve the stack manager from the (possibly updated) state.
+        gs_game = getattr(st, '_game', None)
+        gs_stack = getattr(gs_game, 'stack', None) if gs_game else None
+
+        # Base case: all requirements processed -> emit the copy.
+        if idx >= len(original.target_requirements):
+            return [make_copy_ability_event(
+                stack_item_id=item_id,
+                controller=src_obj.controller,
+                source_id=src_obj.id,
+                new_targets=accumulated,
+            )]
+
+        requirement = original.target_requirements[idx]
+
+        # Compute legal targets for this requirement using the engine's
+        # TargetingSystem. Source object lookup mirrors stack.resolve_top.
+        source_obj_for_targeting = st.objects.get(original.source_id) or src_obj
+        legal_targets: list[str] = []
+        if gs_stack is not None:
+            try:
+                legal_targets = gs_stack.targeting_system.get_legal_targets(
+                    requirement,
+                    source_obj_for_targeting,
+                    original.controller_id,
+                )
+            except Exception:
+                legal_targets = []
+
+        # If there are no legal targets for this requirement, record an empty
+        # group and recurse. (May choose new targets, but spell can fizzle on
+        # resolve if 0 legal targets is illegal — handled by stack.resolve_top.)
+        if not legal_targets:
+            accumulated.append([])
+            return _retarget_step(
+                item_id, original, src_obj, st,
+                idx=idx + 1, accumulated=accumulated,
+            )
+
+        # Determine min/max for this requirement.
+        try:
+            min_t = requirement.min_targets()
+        except Exception:
+            min_t = 1
+        try:
+            max_t = requirement.max_targets()
+        except Exception:
+            max_t = 1
+        # `any_number` returns float('inf'); cap at len(legal).
+        if max_t == float('inf'):
+            max_t = len(legal_targets)
+        # Don't exceed available legal targets.
+        if max_t > len(legal_targets):
+            max_t = len(legal_targets)
+        if min_t > max_t:
+            min_t = max_t
+
+        label = getattr(requirement, 'label', '') or 'requirement'
+
+        next_choice = create_target_choice(
+            state=st,
+            player_id=src_obj.controller,
+            source_id=src_obj.id,
+            legal_targets=legal_targets,
+            prompt=f"Choose new target(s) for: {label}",
+            min_targets=int(min_t),
+            max_targets=int(max_t),
+        )
+        next_choice.choice_type = "target_with_callback"
+
+        def _next(_ch, sel, gs: GameState) -> list[Event]:
+            # Convert ID list to Target objects (player vs object detected
+            # by membership in gs.players).
+            targets_for_req = [
+                Target(id=tid, is_player=(tid in gs.players))
+                for tid in (sel or [])
+            ]
+            accumulated.append(targets_for_req)
+            return _retarget_step(
+                item_id, original, src_obj, gs,
+                idx=idx + 1, accumulated=accumulated,
+            )
+
+        next_choice.callback_data['handler'] = _next
+        return []
+
     def _execute(choice, selected, st: GameState) -> list[Event]:
         item_id = selected[0] if selected else None
         if not item_id:
             return []
-        return [make_copy_ability_event(
-            stack_item_id=item_id,
-            controller=obj.controller,
-            source_id=obj.id,
-        )]
+
+        # Re-resolve the stack to get the original item.
+        gs_game = getattr(st, '_game', None)
+        gs_stack = getattr(gs_game, 'stack', None) if gs_game else None
+        original = gs_stack.get_item(item_id) if gs_stack else None
+        if original is None:
+            return []
+
+        # No target requirements -> straight copy without prompting.
+        if not original.target_requirements:
+            return [make_copy_ability_event(
+                stack_item_id=item_id,
+                controller=obj.controller,
+                source_id=obj.id,
+            )]
+
+        # Walk requirements, prompting for fresh targets for each.
+        return _retarget_step(
+            item_id, original, obj, st,
+            idx=0, accumulated=[],
+        )
 
     choice = create_target_choice(
         state=state,
