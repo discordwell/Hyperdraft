@@ -222,9 +222,9 @@ def spider_man_friendly_neighbor_setup(obj: GameObject, state: GameState) -> lis
 
 SPIDER_MAN_FRIENDLY_NEIGHBOR = make_creature(
     name="Spider-Man, Friendly Neighbor",
-    power=3,
-    toughness=3,
-    mana_cost="{1}{W}{U}",
+    power=2,
+    toughness=2,
+    mana_cost="{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Spider", "Hero"},
     supertypes={"Legendary"},
@@ -262,9 +262,9 @@ def spider_gwen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 SPIDER_GWEN = make_creature(
     name="Spider-Gwen",
-    power=3,
+    power=2,
     toughness=2,
-    mana_cost="{1}{W}{U}",
+    mana_cost="{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Spider", "Hero"},
     supertypes={"Legendary"},
@@ -3518,6 +3518,29 @@ BEN_REILLY = make_creature(
 
 
 # =============================================================================
+# WAVE 4 BUFF COMMONS (Hero/Vigilante)
+# =============================================================================
+
+NEIGHBORHOOD_VIGILANTE = make_creature(
+    name="Neighborhood Vigilante",
+    power=2, toughness=1, mana_cost="{R}", colors={Color.RED},
+    subtypes={"Human", "Hero"}, text="Haste"
+)
+
+ROOFTOP_SIDEKICK = make_creature(
+    name="Rooftop Sidekick",
+    power=2, toughness=3, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Sidekick"}, text="Reach"
+)
+
+ALLEY_WALL_CRAWLER = make_creature(
+    name="Alley Wall-Crawler",
+    power=3, toughness=2, mana_cost="{1}{R}", colors={Color.RED},
+    subtypes={"Human", "Vigilante"}, text="Menace"
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -3741,6 +3764,11 @@ SPIDER_MAN_CUSTOM_CARDS = {
     "Subway Escape": SUBWAY_ESCAPE,
     "Power and Responsibility": POWER_AND_RESPONSIBILITY,
     "Ben Reilly": BEN_REILLY,
+
+    # WAVE 4 BUFF COMMONS
+    "Neighborhood Vigilante": NEIGHBORHOOD_VIGILANTE,
+    "Rooftop Sidekick": ROOFTOP_SIDEKICK,
+    "Alley Wall-Crawler": ALLEY_WALL_CRAWLER,
 }
 
 print(f"Loaded {len(SPIDER_MAN_CUSTOM_CARDS)} Marvel's Spider-Man cards")
@@ -3948,5 +3976,8 @@ CARDS = [
     NYC_FIREFIGHTER,
     SUBWAY_ESCAPE,
     POWER_AND_RESPONSIBILITY,
-    BEN_REILLY
+    BEN_REILLY,
+    NEIGHBORHOOD_VIGILANTE,
+    ROOFTOP_SIDEKICK,
+    ALLEY_WALL_CRAWLER,
 ]
