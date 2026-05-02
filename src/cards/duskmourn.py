@@ -53,6 +53,8 @@ from src.cards.interceptor_helpers import (
     make_cycling_setup,
     # Copy-token
     make_copy_token_event,
+    # Survival (DSK keyword: at second main, if tapped)
+    make_survival_trigger,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -854,18 +856,17 @@ def sawblade_skinripper_setup(obj: GameObject, state: GameState) -> list[Interce
 
 def shrewd_storyteller_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Survival — At the beginning of your second main phase, if this creature
-    is tapped, put a +1/+1 counter on target creature. Approximated via
-    end-step trigger; targets self (engine gap: target-choice in Survival).
+    is tapped, put a +1/+1 counter on target creature. Targets self as a
+    best-effort approximation (engine gap: target-choice inside Survival
+    triggers).
     """
-    def end_effect(event: Event, state: GameState) -> list[Event]:
-        if not obj.state.tapped:
-            return []
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.COUNTER_ADDED,
             payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
             source=obj.id, controller=obj.controller,
         )]
-    return [make_end_step_trigger(obj, end_effect, controller_only=True)]
+    return [make_survival_trigger(obj, survival_effect)]
 
 
 def shroudstomper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -937,22 +938,21 @@ def _make_simple_etb_react(obj: GameObject, effect_fn) -> list[Interceptor]:
 
 
 def acrobatic_cheerleader_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — at second main, if tapped, put a flying counter on this.
-    This ability triggers only once. Approximated via end-step + a one-shot
-    flag on obj.state.
+    """Survival — At the beginning of your second main phase, if this creature
+    is tapped, put a flying counter on it. This ability triggers only once.
+
+    The "only once" rider is enforced via a one-shot flag stored on obj.state.
     """
-    def end_effect(event: Event, state: GameState) -> list[Event]:
-        if getattr(obj.state, "_acrobatic_fired", False):
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
+        if getattr(obj.state, "_survival_fired_acrobatic", False):
             return []
-        if not obj.state.tapped:
-            return []
-        obj.state._acrobatic_fired = True
+        obj.state._survival_fired_acrobatic = True
         return [Event(
             type=EventType.COUNTER_ADDED,
             payload={'object_id': obj.id, 'counter_type': 'flying', 'amount': 1},
             source=obj.id, controller=obj.controller,
         )]
-    return [make_end_step_trigger(obj, end_effect, controller_only=True)]
+    return [make_survival_trigger(obj, survival_effect)]
 
 
 def dazzling_theater_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -992,13 +992,12 @@ def fear_of_surveillance_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def glimmer_seeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — At the beginning of your second main phase, if tapped:
-    draw a card if you control a Glimmer creature; otherwise create a 1/1
-    white Glimmer enchantment creature token. Approximated via end-step.
+    """Survival — At the beginning of your second main phase, if this creature
+    is tapped, draw a card if you control a Glimmer creature. If you don't
+    control a Glimmer creature, create a 1/1 white Glimmer enchantment
+    creature token.
     """
-    def end_effect(event: Event, state: GameState) -> list[Event]:
-        if not obj.state.tapped:
-            return []
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
         # Check if controller controls a Glimmer creature.
         controls_glimmer = any(
             o.controller == obj.controller
@@ -1027,7 +1026,7 @@ def glimmer_seeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             },
             source=obj.id, controller=obj.controller,
         )]
-    return [make_end_step_trigger(obj, end_effect, controller_only=True)]
+    return [make_survival_trigger(obj, survival_effect)]
 
 
 def grand_entryway_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1193,9 +1192,22 @@ def reluctant_role_model_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def savior_of_the_small_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — return a creature with MV<=3 from GY to hand."""
-    # engine gap: Survival
-    return []
+    """Survival — At the beginning of your second main phase, if this creature
+    is tapped, return target creature card with mana value 3 or less from
+    your graveyard to your hand.
+    """
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+            payload={
+                'player': obj.controller,
+                'card_type': 'creature',
+                'max_mv': 3,
+                'amount': 1,
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_survival_trigger(obj, survival_effect)]
 
 
 def shardmages_rescue_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2817,35 +2829,29 @@ def bashful_beastie_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def cautious_survivor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Survival — At the beginning of your second main phase, if this creature
-    is tapped, you gain 2 life. Approximated via end-step trigger.
+    is tapped, you gain 2 life.
     """
-    def end_effect(event: Event, state: GameState) -> list[Event]:
-        if not obj.state.tapped:
-            return []
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.LIFE_CHANGE,
             payload={'player': obj.controller, 'amount': 2},
             source=obj.id, controller=obj.controller,
         )]
-    return [make_end_step_trigger(obj, end_effect, controller_only=True)]
+    return [make_survival_trigger(obj, survival_effect)]
 
 
 def defiant_survivor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — At the beginning of your second main phase, if this creature is
-    tapped, manifest dread. Approximated via end-step trigger (engine has no
-    'second main' phase event); same once-per-turn cadence on controller's turn.
+    """Survival — At the beginning of your second main phase, if this creature
+    is tapped, manifest dread.
     """
-    def end_effect(event: Event, state: GameState) -> list[Event]:
-        # Only fire if this creature is tapped on its controller's end step.
-        if not obj.state.tapped:
-            return []
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.MANIFEST_DREAD,
             payload={'controller': obj.controller, 'source_id': obj.id},
             source=obj.id,
         )]
 
-    return [make_end_step_trigger(obj, end_effect)]
+    return [make_survival_trigger(obj, survival_effect)]
 
 
 def fear_of_exposure_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2915,9 +2921,18 @@ def hedge_shredder_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def house_cartographer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — reveal-until-land if tapped."""
-    # engine gap: Survival
-    return []
+    """Survival — At the beginning of your second main phase, if this creature
+    is tapped, reveal cards from the top of your library until you reveal a
+    land card. Put that card into your hand and the rest on the bottom of
+    your library in a random order.
+    """
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.REVEAL_UNTIL_LAND,
+            payload={'player': obj.controller},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_survival_trigger(obj, survival_effect)]
 
 
 def insidious_fungus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

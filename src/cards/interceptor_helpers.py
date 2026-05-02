@@ -966,6 +966,76 @@ def make_end_step_trigger(
 
 
 # =============================================================================
+# SURVIVAL TRIGGER (DSK)
+# =============================================================================
+
+def make_survival_trigger(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+) -> Interceptor:
+    """
+    Create a Survival trigger interceptor.
+
+    Survival is a Duskmourn (DSK) keyword: "At the beginning of your second
+    main phase, if this creature is tapped, X." This helper registers a
+    PHASE_START interceptor that fires only when:
+      1. The event is PHASE_START with phase == 'postcombat_main'
+         (the engine emits this for the second main phase).
+      2. The active player is the source's controller (it's their second main).
+      3. The source is on the battlefield and tapped at trigger time.
+
+    Args:
+        source_obj: The creature with Survival.
+        effect_fn: Function(event, state) -> list[Event] to execute when the
+            trigger fires (the X in "if this creature is tapped, X").
+
+    Returns:
+        An Interceptor at REACT priority, scoped to ``while_on_battlefield``.
+    """
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        # Accept the canonical "postcombat_main" plus a couple of legacy
+        # spellings that other card files have used historically, so that
+        # any future engine renaming doesn't silently turn Survival cards
+        # into no-ops.
+        if event.payload.get('phase') not in (
+            'postcombat_main', 'main2', 'second_main',
+        ):
+            return False
+        # Must be the controller's own second main phase.
+        if state.active_player != source_obj.controller:
+            return False
+        # Re-resolve the source from state (handler may capture a stale
+        # snapshot if the card moved zones, e.g. a token Survivor exiled).
+        current = state.objects.get(source_obj.id)
+        if current is None:
+            return False
+        if current.zone != ZoneType.BATTLEFIELD:
+            return False
+        if not current.state.tapped:
+            return False
+        return True
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_events = effect_fn(event, state)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events,
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield',
+    )
+
+
+# =============================================================================
 # LIFE CHANGE TRIGGER
 # =============================================================================
 
