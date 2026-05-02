@@ -1,5 +1,63 @@
 # MTG Real-Set Orphan Wiring — Engine Gaps
 
+> **Update 2026-05-02**: Phases 3/4/5 + 12 engine-gap sweeps shipped. The
+> sections below predate that work — most "blocking" mechanics listed
+> further down are now resolved. See **Status snapshot 2026-05-02** for
+> the current state.
+
+## Status snapshot — 2026-05-02
+
+### Frameworks shipped this session
+
+| Framework | Engine module | Helper |
+|---|---|---|
+| Activated abilities | `src/engine/activated.py` | `make_activated_ability` + 9 specialised wrappers |
+| Equipment / Aura attach | `src/engine/attach.py` | `make_equipment_setup` / `make_aura_setup` |
+| Suspect | helper-only | `suspect_creature` |
+| Bargain marker | helper-only | `was_bargained` |
+| Collect Evidence | helper-only | `collect_evidence` |
+| Spree | uses existing modal choice | `create_modal_choice` |
+| Rooms / Doors | `src/engine/rooms.py` | `make_room_setup` + `is_door_unlocked` |
+| Dynamic P/T scaling | helper-only | `make_dynamic_pt_boost` + 4 `count_*` primitives |
+| `becomes_creature` | `queries.py` null-safe | `becomes_creature(target, state, ...)` |
+| Manifest dread | `src/engine/face_down.py` handler | emit `EventType.MANIFEST_DREAD` |
+| Threaten / control change | helper-only (handler pre-existed) | `threaten_creature` |
+| Any-color mana fallback | `src/engine/priority.py` mana branch | (transparent) |
+| Graveyard-activated | `setup_in_graveyard` field on `CardDefinition` | (uses existing `make_activated_ability`) |
+| Granted death trigger | helper-only | `grant_death_trigger` |
+| Subtype-add on attach | extended attach helpers | `subtypes_to_add` kwarg |
+| Generic granted trigger | helper-only | `grant_triggered_ability` |
+| **Cost reduction** | `src/engine/cost_query.py` + priority hooks | `make_cost_reduction(self_only/static)` |
+| **Ward** | new `EventType.TARGET_CHOSEN` event | `make_ward(mana_cost/life_cost/custom_cost)` + `ward_cost` kwarg |
+| **Restricted mana** | `ManaUnit.restriction` + `ManaPool.can_pay(for_card=...)` | `produce_mana_restricted` + auto text parser |
+
+### Remaining engine gaps (deferred)
+
+Patterns we do **not** yet support, in rough order of impact:
+
+1. **Modal multi-choice spells** — "Choose one or more — A B C". Some Spree cards approximate this via `create_modal_choice`, but cost-per-mode enforcement is missing.
+2. **Adventure mechanic** — split-cost spell+creature cards (`// Adventure —` separator). 5 prominent WOE cards.
+3. **Copy-creature** — "becomes a copy of target creature". Token-copy + permanent-copy both gappy.
+4. **Replacement effects beyond ward** — only a handful of bespoke replacement interceptors via `make_replacement_interceptor`. No general framework for "if X would happen, Y instead".
+5. **Activated-ability cost reductions** — `make_cost_reduction` only reduces spell-cast costs.
+6. **Set-specific keywords** — cycling, conspire, exhaust, bending (waterbend/earthbend), survival.
+7. **Type-overwrite auras** — auras that set base P/T (e.g. "Enchanted creature has base power and toughness 1/1"). Current `becomes_creature` adds the CREATURE type but only stat-overrides via QUERY interceptors when initially called; persistent type-overwrite auras aren't a clean pattern yet.
+8. **Granted activated abilities** — "Equipped creature has '{cost}: ...'". Equipment grants the activated ability to the equipped creature.
+9. **Cast-from-zone permissions** — "You may cast this from your graveyard / exile / library top".
+10. **Tiered cost** — FIN's "Tiered (Choose one additional cost.)" with per-tier effects.
+11. **Crime / sacrificed-this-turn / spells-cast-this-turn delayed cost reductions** — turn_state primitives are tracked but cost-reduction has no per-turn binding.
+
+### Card-wiring snapshot
+
+After this session's mass wiring (~210 cards across 12 MTG sets):
+- Most sets have ≥40% of their printed mechanics wired.
+- Foundations and Murders at Karlov Manor have the most wirings.
+- Avatar TLA earthbend cards remain noop (separate bending engine).
+
+---
+
+## Pre-session legacy gaps (most resolved by frameworks above)
+
 Aggregated from Phase 3 opus agent reports. Phase 2 (mechanical auto-wiring of trivial orphans) added ~140 wirings on top of these Phase 3 numbers — see git history of `src/cards/*.py` for the full diff.
 
 ## Per-set Phase 3 dispositions
