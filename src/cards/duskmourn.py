@@ -46,6 +46,8 @@ from src.cards.interceptor_helpers import (
     count_permanents_of_type,
     # Sweep 4: becomes-creature
     becomes_creature,
+    # Cost reduction
+    make_cost_reduction,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -3010,9 +3012,18 @@ def growing_dread_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def inquisitive_glimmer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cost reduction: enchantment spells -1, unlock costs -1."""
-    # engine gap: cost reduction for unlock specifically
-    return []
+    """Static: enchantment spells you cast cost {1} less to cast.
+
+    Skipped clauses:
+      * 'Unlock costs you pay cost {1} less.' (Engine gap: room/unlock-cost
+        is a separate cost path not currently surfaced through QUERY_COST.)
+    """
+    def applies(card: GameObject, pid: str, st: GameState) -> bool:
+        if pid != obj.controller:
+            return False
+        return CardType.ENCHANTMENT in card.characteristics.types
+
+    return [make_cost_reduction(obj, applies_to=applies, amount=1)]
 
 
 def intruding_soulrager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -8242,11 +8253,54 @@ DISTURBING_MIRTH = make_enchantment(
     setup_interceptors=disturbing_mirth_setup,
 )
 
+def drag_to_the_roots_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self-cost: delirium — {2} less if four or more card types are among
+    cards in your graveyard.
+
+    Skipped clauses:
+      * Resolution effect ('destroy target nonland permanent') uses cast-
+        effect dispatch elsewhere, not wired here.
+    """
+    DELIRIUM_TYPES = {
+        CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT,
+        CardType.LAND, CardType.PLANESWALKER, CardType.INSTANT,
+        CardType.SORCERY,
+    }
+    # Tribal exists in some sets; include if defined.
+    tribal = getattr(CardType, 'TRIBAL', None)
+    if tribal is not None:
+        DELIRIUM_TYPES.add(tribal)
+    battle = getattr(CardType, 'BATTLE', None)
+    if battle is not None:
+        DELIRIUM_TYPES.add(battle)
+
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        gy = st.zones.get(f'graveyard_{controller}')
+        if not gy:
+            return 0
+        seen = set()
+        for oid in gy.objects:
+            o = st.objects.get(oid)
+            if not o:
+                continue
+            for t in o.characteristics.types:
+                if t in DELIRIUM_TYPES:
+                    seen.add(t)
+                    if len(seen) >= 4:
+                        return 2
+        return 2 if len(seen) >= 4 else 0
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
+
+
 DRAG_TO_THE_ROOTS = make_instant(
     name="Drag to the Roots",
     mana_cost="{2}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     text="Delirium — This spell costs {2} less to cast as long as there are four or more card types among cards in your graveyard.\nDestroy target nonland permanent.",
+    setup_interceptors=drag_to_the_roots_setup,
 )
 
 FEAR_OF_INFINITY = make_enchantment_creature(
