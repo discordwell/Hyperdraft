@@ -204,6 +204,113 @@ def create_library_search_choice(
     return choice
 
 
+def _handle_search_library_event(event: Event, state: GameState):
+    """Pipeline handler for ``EventType.SEARCH_LIBRARY``.
+
+    Translates the various payload shapes card scripts emit into a
+    ``create_library_search_choice`` call. Without this handler the event
+    was a silent no-op despite cards expecting a real search to happen.
+
+    Recognised payload keys:
+        - player / controller : the searching player
+        - source / source_id  : optional source-id (defaults to event.source)
+        - destination         : "hand" | "battlefield" | "battlefield_tapped" |
+                                "graveyard" | "library_top" | "library_bottom"
+                                | "exile" (default "hand")
+        - tapped              : if True with "battlefield" → "battlefield_tapped"
+        - amount / count / max_count : max cards to find (default 1)
+        - min_count           : minimum required (default 0 → "may search")
+        - reveal              : show the chosen cards
+        - shuffle_after       : default True
+        - filter              : string filter shorthand:
+                                "basic_land", "creature", "creature_or_land",
+                                "land", "instant", "sorcery", "enchantment",
+                                "artifact"
+        - card_type           : CardType enum value or one of the strings above
+        - subtype             : optional subtype string ("Plains", "Forest",
+                                "Dragon", ...) — combined with card_type
+        - basic_only          : if True, restrict to basic lands
+    """
+    from src.engine.types import CardType
+
+    player_id = event.payload.get("player") or event.payload.get("controller")
+    if not player_id:
+        return
+
+    # Destination
+    destination = event.payload.get("destination", "hand")
+    if destination == "battlefield" and event.payload.get("tapped"):
+        destination = "battlefield_tapped"
+
+    # Counts
+    max_count = (
+        event.payload.get("max_count")
+        or event.payload.get("count")
+        or event.payload.get("amount")
+        or 1
+    )
+    min_count = event.payload.get("min_count", 0)
+
+    # Filter resolution
+    filter_str = event.payload.get("filter")
+    card_type = event.payload.get("card_type")
+    subtype = event.payload.get("subtype")
+    basic_only = bool(event.payload.get("basic_only", False))
+
+    if isinstance(card_type, str) and not filter_str:
+        filter_str = card_type
+        card_type = None
+    if filter_str == "basic_land":
+        basic_only = True
+        if not card_type:
+            card_type = CardType.LAND
+
+    str_to_type = {
+        "land": CardType.LAND,
+        "creature": CardType.CREATURE,
+        "instant": CardType.INSTANT,
+        "sorcery": CardType.SORCERY,
+        "enchantment": CardType.ENCHANTMENT,
+        "artifact": CardType.ARTIFACT,
+        "planeswalker": CardType.PLANESWALKER,
+    }
+    if isinstance(card_type, str):
+        card_type = str_to_type.get(card_type)
+
+    def _ff(obj, _st):
+        if not obj or obj.card_def is None:
+            return False
+        chars = obj.characteristics
+        if filter_str == "creature_or_land":
+            if not (CardType.CREATURE in chars.types or CardType.LAND in chars.types):
+                return False
+        elif card_type is not None:
+            if card_type not in chars.types:
+                return False
+        if basic_only:
+            if not getattr(chars, "supertypes", None) or "Basic" not in chars.supertypes:
+                # Some sets store basics with subtype-only ("Plains", "Island"...) and
+                # no Basic supertype — accept those when LAND is the desired type.
+                if CardType.LAND not in chars.types or not chars.subtypes:
+                    return False
+        if subtype and subtype not in chars.subtypes:
+            return False
+        return True
+
+    create_library_search_choice(
+        state=state,
+        player_id=player_id,
+        source_id=event.payload.get("source_id") or event.source or "search",
+        filter_fn=_ff,
+        min_count=int(min_count),
+        max_count=int(max_count),
+        destination=destination,
+        reveal=bool(event.payload.get("reveal", False)),
+        shuffle_after=bool(event.payload.get("shuffle_after", True)),
+        optional=int(min_count) == 0,
+    )
+
+
 def library_search_with_callback(
     state: GameState,
     player_id: str,
