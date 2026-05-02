@@ -95,6 +95,7 @@ class Game:
         self.priority_system.turn_manager = self.turn_manager
         self.priority_system.mana_system = self.mana_system
         self.priority_system.pipeline = self.pipeline
+        self.priority_system.game = self
 
         # Turn manager needs priority, combat, pipeline, and mana
         self.turn_manager.priority_system = self.priority_system
