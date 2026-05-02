@@ -5101,6 +5101,84 @@ __all_sweep7__ = [
 
 
 # =============================================================================
+# Sweep 10: granted death triggers
+# =============================================================================
+#
+# Pattern: "Until end of turn, target creature gains 'When this creature
+# dies, X.'" — a temporary triggered ability granted to another permanent.
+# We install a one-shot REACT interceptor on the state that fires on the
+# target's OBJECT_DESTROYED and emits the granted effect's events.
+# =============================================================================
+
+
+def grant_death_trigger(
+    target: GameObject,
+    source: GameObject,
+    state: GameState,
+    effect_fn: Callable[[GameObject, GameState], list[Event]],
+    *,
+    duration: str = "end_of_turn",
+) -> Interceptor:
+    """Install a one-shot REACT interceptor that grants ``target`` a
+    "when this creature dies" trigger lasting ``duration``.
+
+    ``effect_fn(target_obj, state)`` returns the events to enqueue when the
+    target dies. The interceptor self-removes after firing.
+
+    Returns the installed Interceptor so callers can also remove it
+    early if the temporary effect ends some other way.
+    """
+    target_id = target.id
+    source_id = source.id
+    controller = source.controller
+    int_id = new_id()
+    fired = {"done": False}
+
+    def _filter(event: Event, st: GameState) -> bool:
+        if fired["done"]:
+            return False
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        return event.payload.get("object_id") == target_id
+
+    def _handler(event: Event, st: GameState) -> InterceptorResult:
+        fired["done"] = True
+        target_obj = st.objects.get(target_id)
+        if target_obj is None:
+            st.interceptors.pop(int_id, None)
+            return InterceptorResult(action=InterceptorAction.PASS)
+        try:
+            new_events = effect_fn(target_obj, st) or []
+        except Exception:
+            new_events = []
+        st.interceptors.pop(int_id, None)
+        if not new_events:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events,
+        )
+
+    interceptor = Interceptor(
+        id=int_id,
+        source=source_id,
+        controller=controller,
+        priority=InterceptorPriority.REACT,
+        filter=_filter,
+        handler=_handler,
+        duration=duration,
+    )
+    interceptor.timestamp = state.next_timestamp()
+    state.interceptors[int_id] = interceptor
+    return interceptor
+
+
+__all_sweep10__ = [
+    "grant_death_trigger",
+]
+
+
+# =============================================================================
 # Sweep helpers: count_* primitives for dynamic P/T scaling
 # =============================================================================
 #
