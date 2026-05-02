@@ -3541,6 +3541,60 @@ ALLEY_WALL_CRAWLER = make_creature(
 
 
 # =============================================================================
+# MONO-BLACK DEPTH PASS — fixes the harness's deck-builder starvation
+# (only 11 mono-black creatures pre-pass, no 1-cmc, only 1 at 2-cmc).
+# =============================================================================
+
+PETTY_MUGGER = make_creature(
+    name="Petty Mugger",
+    power=2, toughness=1, mana_cost="{B}", colors={Color.BLACK},
+    subtypes={"Human", "Rogue"}, text="Menace"
+)
+
+SYMBIOTE_LARVA = make_creature(
+    name="Symbiote Larva",
+    power=1, toughness=2, mana_cost="{B}", colors={Color.BLACK},
+    subtypes={"Symbiote"}, text="Deathtouch"
+)
+
+KLYNTAR_SCOUT = make_creature(
+    name="Klyntar Scout",
+    power=2, toughness=2, mana_cost="{B}", colors={Color.BLACK},
+    subtypes={"Symbiote"}, text=""
+)
+
+HAND_NINJA = make_creature(
+    name="Hand Ninja",
+    power=2, toughness=2, mana_cost="{1}{B}", colors={Color.BLACK},
+    subtypes={"Human", "Ninja"}, text="Menace"
+)
+
+VULTURE_INITIATE = make_creature(
+    name="Vulture Initiate",
+    power=2, toughness=2, mana_cost="{1}{B}", colors={Color.BLACK},
+    subtypes={"Human", "Mercenary"}, text="Flying"
+)
+
+OSCORP_ENFORCER = make_creature(
+    name="Oscorp Enforcer",
+    power=3, toughness=2, mana_cost="{1}{B}", colors={Color.BLACK},
+    subtypes={"Human", "Soldier"}, text="Haste"
+)
+
+SHOCKER_GOON = make_creature(
+    name="Shocker Goon",
+    power=2, toughness=3, mana_cost="{1}{B}", colors={Color.BLACK},
+    subtypes={"Human", "Villain"}, text=""
+)
+
+SYMBIOTE_BROOD = make_creature(
+    name="Symbiote Brood",
+    power=4, toughness=2, mana_cost="{2}{B}", colors={Color.BLACK},
+    subtypes={"Symbiote"}, text="Trample, menace"
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -3769,6 +3823,16 @@ SPIDER_MAN_CUSTOM_CARDS = {
     "Neighborhood Vigilante": NEIGHBORHOOD_VIGILANTE,
     "Rooftop Sidekick": ROOFTOP_SIDEKICK,
     "Alley Wall-Crawler": ALLEY_WALL_CRAWLER,
+
+    # MONO-BLACK DEPTH PASS
+    "Petty Mugger": PETTY_MUGGER,
+    "Symbiote Larva": SYMBIOTE_LARVA,
+    "Klyntar Scout": KLYNTAR_SCOUT,
+    "Hand Ninja": HAND_NINJA,
+    "Vulture Initiate": VULTURE_INITIATE,
+    "Oscorp Enforcer": OSCORP_ENFORCER,
+    "Shocker Goon": SHOCKER_GOON,
+    "Symbiote Brood": SYMBIOTE_BROOD,
 }
 
 print(f"Loaded {len(SPIDER_MAN_CUSTOM_CARDS)} Marvel's Spider-Man cards")
@@ -3980,4 +4044,12 @@ CARDS = [
     NEIGHBORHOOD_VIGILANTE,
     ROOFTOP_SIDEKICK,
     ALLEY_WALL_CRAWLER,
+    PETTY_MUGGER,
+    SYMBIOTE_LARVA,
+    KLYNTAR_SCOUT,
+    HAND_NINJA,
+    VULTURE_INITIATE,
+    OSCORP_ENFORCER,
+    SHOCKER_GOON,
+    SYMBIOTE_BROOD,
 ]
