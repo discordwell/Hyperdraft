@@ -2889,7 +2889,8 @@ class PrioritySystem:
                     if toughness <= 0:
                         event = Event(
                             type=EventType.OBJECT_DESTROYED,
-                            payload={'object_id': obj_id, 'reason': 'zero_toughness'}
+                            payload={'object_id': obj_id, 'reason': 'zero_toughness'},
+                            source=obj.state.last_damage_source,
                         )
                         self._emit_event(event)
                         found_sba = True
@@ -2899,7 +2900,8 @@ class PrioritySystem:
                     if obj.state.damage >= toughness:
                         event = Event(
                             type=EventType.OBJECT_DESTROYED,
-                            payload={'object_id': obj_id, 'reason': 'lethal_damage'}
+                            payload={'object_id': obj_id, 'reason': 'lethal_damage'},
+                            source=obj.state.last_damage_source,
                         )
                         self._emit_event(event)
                         found_sba = True
