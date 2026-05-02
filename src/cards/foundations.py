@@ -52,6 +52,9 @@ from src.cards.interceptor_helpers import (
     instant_or_sorcery_with_mv,
     make_equipment_setup,
     make_aura_setup,
+    make_activated_ability,
+    make_attached_dynamic_pt_boost,
+    count_permanents_with_subtype,
 )
 
 from src.engine.spell_resolve import (
@@ -238,6 +241,63 @@ def bite_down_resolve(targets, state: GameState) -> list[Event]:
             'is_player': enemy_creature.is_player,
         },
     )]
+
+
+# --- PRIMAL MIGHT ---
+def _primal_might_pump_then_fight(choice, selected, state: GameState) -> list[Event]:
+    """Selected: target creature you control. Apply +X/+X EOT.
+    The "fight up to one" clause is an engine gap (modal/optional second
+    target); skip it for now."""
+    if not selected:
+        return []
+    target_id = selected[0]
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    x = int(choice.callback_data.get('x_value', 0) or 0)
+    if x <= 0:
+        return []
+    return [Event(
+        type=EventType.PT_MODIFICATION,
+        payload={
+            'object_id': target_id,
+            'power_mod': x,
+            'toughness_mod': x,
+            'duration': 'end_of_turn',
+        },
+        source=choice.source_id,
+    )]
+
+
+def primal_might_resolve(targets, state: GameState) -> list[Event]:
+    """Primal Might: target creature you control gets +X/+X EOT, then fights
+    up to one creature you don't control. Fight-clause is an engine gap;
+    we wire just the +X/+X pump."""
+    spell = _resolving_spell_obj(state)
+    caster_id = spell.controller if spell else state.active_player
+    spell_id = spell.id if spell else "primal_might_spell"
+    x_value = _spell_x_value(state)
+    legal_targets = []
+    for oid, oo in state.objects.items():
+        if (oo.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in oo.characteristics.types and
+                oo.controller == caster_id):
+            legal_targets.append(oid)
+    if not legal_targets:
+        return []
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal_targets,
+        prompt=f"Choose a creature to get +{x_value}/+{x_value}",
+        min_targets=1,
+        max_targets=1,
+        callback_data={'x_value': x_value},
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _primal_might_pump_then_fight
+    return []
 
 
 # --- RAISE THE PAST ---
@@ -7918,8 +7978,12 @@ def shivan_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- BLANCHWOOD ARMOR ---
 # Enchant creature / Enchanted creature gets +1/+1 for each Forest you control.
 def blanchwood_armor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: aura with dynamic boost based on permanent count
-    return []
+    """Aura: enchanted creature gets +1/+1 per Forest you control."""
+    base = make_aura_setup()(obj, state)
+    def mod_fn(source, target, st):
+        n = count_permanents_with_subtype(source.controller, "Forest", st)
+        return (n, n)
+    return base + make_attached_dynamic_pt_boost(obj, mod_fn)
 
 
 # --- DOUBLING SEASON ---
@@ -8202,7 +8266,40 @@ def ingenious_leonin_setup(obj: GameObject, state: GameState) -> list[Intercepto
 # --- JAZAL GOLDMANE ---
 # First strike / {3}{W}{W}: Attacking creatures get +X/+X where X is number of attackers.
 def jazal_goldmane_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated dynamic anthem
+    """Activated {3}{W}{W}: Attacking creatures you control get +X/+X EOT,
+    X = number of attacking creatures. First strike is a keyword on the card."""
+    def _attackers_pump(o: GameObject, st: GameState, targets) -> list[Event]:
+        attacker_ids = []
+        for oid, oo in st.objects.items():
+            if (oo.controller == o.controller and
+                    oo.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in oo.characteristics.types and
+                    getattr(oo.state, 'attacking', False)):
+                attacker_ids.append(oid)
+        x = len(attacker_ids)
+        if x <= 0:
+            return []
+        events: list[Event] = []
+        for cid in attacker_ids:
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': cid,
+                    'power_mod': x,
+                    'toughness_mod': x,
+                    'duration': 'end_of_turn',
+                },
+                source=o.id,
+                controller=o.controller,
+            ))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{3}{W}{W}",
+        effect_fn=_attackers_pump,
+        description="{3}{W}{W}: Attacking creatures you control get +X/+X until end of turn, where X is the number of attacking creatures.",
+    )
     return []
 
 
@@ -13181,7 +13278,8 @@ PRIMAL_MIGHT = make_sorcery(
     mana_cost="{X}{G}",
     colors={Color.GREEN},
     text="Target creature you control gets +X/+X until end of turn. Then it fights up to one target creature you don't control. (Each deals damage equal to its power to the other.)",
-    # engine gap: X-value pump combined with optional fight.
+    # Wired: +X/+X pump using the spell's X value. Fight clause remains an engine gap (modal/optional second target).
+    resolve=primal_might_resolve,
 )
 
 PRIMEVAL_BOUNTY = make_enchantment(

@@ -39,6 +39,8 @@ from src.cards.interceptor_helpers import (
     make_activated_ability, make_pump_self_ability, make_counter_ability,
     # Phase 3: Equipment / Aura attach statics.
     make_equipment_setup, make_aura_setup,
+    # Dynamic P/T helpers.
+    make_attached_dynamic_pt_boost,
 )
 from src.engine.spm_mechanics import (
     is_web_slinging_cast, web_slinging_returned_mv, is_mayhem_cast,
@@ -1842,7 +1844,13 @@ def wild_pack_squad_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- With Great Power... ---
 # Aura: +2/+2 per attached aura/equipment; redirect damage from you to enchanted creature.
 def with_great_power_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return []  # engine gap: aura attaching + dynamic +2/+2 per attachments + damage redirect
+    """Aura: enchanted creature gets +2/+2 per Aura/Equipment attached to it.
+    Damage-redirection clause is an engine gap and remains unwired."""
+    base = make_aura_setup()(obj, state)
+    def mod_fn(source, target, st):
+        n = len(getattr(target.state, 'attachments', []) or [])
+        return (2 * n, 2 * n)
+    return base + make_attached_dynamic_pt_boost(obj, mod_fn)
 
 
 # --- Beetle, Legacy Criminal ---

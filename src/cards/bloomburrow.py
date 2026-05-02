@@ -4773,14 +4773,14 @@ def _pawpatch_formation_execute(choice, selected, state: GameState) -> list[Even
 
     return [
         Event(
-            type=EventType.PUMP,
+            type=EventType.PT_MODIFICATION,
             payload={
                 'object_id': target_id,
-                'power': creature_count,
-                'toughness': creature_count,
-                'duration': 'end_of_turn'
+                'power_mod': creature_count,
+                'toughness_mod': creature_count,
+                'duration': 'end_of_turn',
             },
-            source=choice.source_id
+            source=choice.source_id,
         )
     ]
 

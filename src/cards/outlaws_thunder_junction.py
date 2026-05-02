@@ -40,6 +40,9 @@ from src.cards.interceptor_helpers import (
     make_sac_destroy_ability,
     # Phase 3: equipment / aura statics
     make_equipment_setup, make_aura_setup,
+    # Dynamic P/T helpers
+    count_permanents_with_subtype,
+    count_permanents_of_type,
 )
 
 
@@ -1916,8 +1919,35 @@ def archangel_of_tithes_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def armored_armadillo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ward {1}; activated +X/+0 from toughness."""
-    # engine gap: ward and dynamic toughness-based pump not engine-tracked
+    """Ward {1}; activated {3}{W}: +X/+0 EOT, X = its toughness.
+    Ward remains an engine gap; the activated ability is wired here.
+    """
+    def _pump_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        # Compute X = source's toughness right now
+        try:
+            x = get_toughness(o, st)
+        except Exception:
+            x = o.characteristics.toughness or 0
+        if x <= 0:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': x,
+                'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{3}{W}",
+        effect_fn=_pump_effect,
+        description="{3}{W}: This creature gets +X/+0 until end of turn, where X is its toughness.",
+    )
     return []
 
 
@@ -9387,15 +9417,14 @@ def _gold_rush_execute(choice, selected, state: GameState) -> list[Event]:
 
             pump = treasure_count * 2
             events.append(Event(
-                type=EventType.TEMPORARY_EFFECT,
+                type=EventType.PT_MODIFICATION,
                 payload={
-                    'effect': 'pump',
-                    'target_id': target_id,
+                    'object_id': target_id,
                     'power_mod': pump,
                     'toughness_mod': pump,
-                    'duration': 'end_of_turn'
+                    'duration': 'end_of_turn',
                 },
-                source=choice.source_id
+                source=choice.source_id,
             ))
 
     return events

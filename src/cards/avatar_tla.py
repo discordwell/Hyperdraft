@@ -45,6 +45,10 @@ from src.cards.interceptor_helpers import (
     make_counter_ability,
     make_token_creation_ability,
     make_sac_destroy_ability,
+    make_aura_setup,
+    # Dynamic P/T helpers.
+    make_attached_dynamic_pt_boost,
+    count_cards_in_graveyard,
 )
 
 from src.engine.bending import (
@@ -3124,10 +3128,14 @@ def zuko_exiled_prince_setup(obj: GameObject, state: GameState) -> list[Intercep
 # --- GREEN ---
 
 def avatar_destiny_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura: enchanted creature gets +1/+1 per creature card in graveyard, is also Avatar.
-    On death: mill X, return this and 1 milled creature."""
-    # engine gap: aura attachment + dynamic +X/+X + reanimator
-    return []
+    """Aura: enchanted creature gets +1/+1 per creature card in your graveyard.
+    Avatar type-add and the death-trigger mill/reanimator clauses remain
+    engine gaps and are unwired."""
+    base = make_aura_setup()(obj, state)
+    def mod_fn(source, target, st):
+        n = count_cards_in_graveyard(source.controller, st, type_filter=CardType.CREATURE)
+        return (n, n)
+    return base + make_attached_dynamic_pt_boost(obj, mod_fn)
 
 
 def the_boulder_ready_to_rumble_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
