@@ -4724,11 +4724,68 @@ def _make_attached_keyword_interceptor(
     )
 
 
+def _make_attached_subtypes_listener(
+    source_obj: GameObject,
+    subtypes_to_add: set[str],
+) -> Optional[Interceptor]:
+    """Build an ATTACH/UNATTACH REACT interceptor that mutates the attached
+    creature's subtypes set whenever the source attaches or detaches.
+
+    Direct mutation is used (instead of a QUERY_SUBTYPES interceptor)
+    because the engine doesn't yet have a get_subtypes() query — most
+    callers read characteristics.subtypes directly. We keep the original
+    set on ``obj.state._subtypes_grant_target`` so we can revert cleanly.
+    """
+    if not subtypes_to_add:
+        return None
+    source_id = source_obj.id
+    subs_set = set(subtypes_to_add)
+
+    def _filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.ATTACH, EventType.UNATTACH):
+            return False
+        return event.payload.get("object_id") == source_id
+
+    def _handler(event: Event, state: GameState) -> InterceptorResult:
+        source = state.objects.get(source_id)
+        if source is None:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        if event.type == EventType.ATTACH:
+            target_id = event.payload.get("target_id") or event.payload.get("target")
+            target = state.objects.get(target_id) if target_id else None
+            if target is None:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            target.characteristics.subtypes = set(target.characteristics.subtypes) | subs_set
+            setattr(source.state, "_subtypes_grant_target", target_id)
+        else:  # UNATTACH
+            target_id = getattr(source.state, "_subtypes_grant_target", None)
+            if target_id:
+                target = state.objects.get(target_id)
+                if target is not None:
+                    target.characteristics.subtypes = set(target.characteristics.subtypes) - subs_set
+            try:
+                delattr(source.state, "_subtypes_grant_target")
+            except AttributeError:
+                pass
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    return Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=_filter,
+        handler=_handler,
+        duration='while_on_battlefield',
+    )
+
+
 def make_equipment_setup(
     *,
     power_mod: int = 0,
     toughness_mod: int = 0,
     keywords: Optional[list[str]] = None,
+    subtypes_to_add: Optional[set[str]] = None,
     equip_cost: Optional[str] = None,
 ):
     """Return a setup_interceptors callable for an Equipment card.
@@ -4745,14 +4802,24 @@ def make_equipment_setup(
                 equip_cost="{2}",
             ),
         )
+
+    ``subtypes_to_add`` (set of strings) covers Equipment that grants the
+    attached creature additional creature subtypes — e.g. "Equipped
+    creature is a Shaman in addition to its other types." Subtypes are
+    applied on ATTACH and reverted on UNATTACH via direct mutation of
+    ``target.characteristics.subtypes`` (no QUERY_SUBTYPES yet).
     """
     keywords_list = list(keywords) if keywords else []
+    subs = set(subtypes_to_add) if subtypes_to_add else set()
 
     def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         interceptors = _make_attached_pt_interceptors(obj, power_mod, toughness_mod)
         ki = _make_attached_keyword_interceptor(obj, keywords_list)
         if ki is not None:
             interceptors.append(ki)
+        sti = _make_attached_subtypes_listener(obj, subs)
+        if sti is not None:
+            interceptors.append(sti)
         if equip_cost:
             _make_equip_activated_ability(obj, equip_cost)
         return interceptors
@@ -4765,6 +4832,7 @@ def make_aura_setup(
     power_mod: int = 0,
     toughness_mod: int = 0,
     keywords: Optional[list[str]] = None,
+    subtypes_to_add: Optional[set[str]] = None,
     target_id_attr: str = "_aura_target_id",
 ):
     """Return a setup_interceptors callable for an Aura card.
@@ -4774,8 +4842,13 @@ def make_aura_setup(
     — this is typically set by the cast/resolve flow. The setup function
     emits an ATTACH event to that target and registers the QUERY
     interceptors that grant the aura's static effects to it.
+
+    ``subtypes_to_add`` covers Auras like "Enchanted creature is an
+    Angel/Symbiote/Avatar in addition to its other types" — applied via
+    direct mutation on ATTACH and reverted on UNATTACH.
     """
     keywords_list = list(keywords) if keywords else []
+    subs = set(subtypes_to_add) if subtypes_to_add else set()
 
     def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         target_id = getattr(obj.state, target_id_attr, None) or obj.state.attached_to
@@ -4787,10 +4860,21 @@ def make_aura_setup(
             target = state.objects.get(target_id)
             if target and obj.id not in target.state.attachments:
                 target.state.attachments.append(obj.id)
+            # If we already have a target (cast/resolve fast-path), apply
+            # subtypes immediately too. Otherwise the ATTACH listener picks
+            # them up.
+            if subs:
+                target_obj = state.objects.get(target_id)
+                if target_obj is not None:
+                    target_obj.characteristics.subtypes = set(target_obj.characteristics.subtypes) | subs
+                    setattr(obj.state, "_subtypes_grant_target", target_id)
         interceptors = _make_attached_pt_interceptors(obj, power_mod, toughness_mod)
         ki = _make_attached_keyword_interceptor(obj, keywords_list)
         if ki is not None:
             interceptors.append(ki)
+        sti = _make_attached_subtypes_listener(obj, subs)
+        if sti is not None:
+            interceptors.append(sti)
         return interceptors
 
     return _setup
