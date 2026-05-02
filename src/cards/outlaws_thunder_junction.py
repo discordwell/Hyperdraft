@@ -47,6 +47,8 @@ from src.cards.interceptor_helpers import (
     count_permanents_of_type,
     # Sweep 4: becomes-creature
     becomes_creature,
+    # Sweep 4b: becomes-copy-of (continuous-effect copy)
+    becomes_copy_of,
     # Cost reduction
     make_cost_reduction,
     # Dynamic P/T
@@ -3400,9 +3402,69 @@ def obeka_splitter_of_seconds_setup(obj: GameObject, state: GameState) -> list[I
 
 
 def oko_the_ringleader_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Planeswalker - combat-start copy-of-creature; loyalty abilities."""
-    # engine gap: planeswalker loyalty abilities and copy-of-creature transform not engine-tracked
-    return []
+    """At the beginning of combat on your turn, Oko becomes a copy of up to
+    one target creature you control until end of turn, except he has hexproof.
+
+    The loyalty activated abilities (+1/-1/-5) remain an engine gap.
+    """
+    def combat_start_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.PHASE_START
+                and event.payload.get('phase') == 'combat'
+                and state.active_player == obj.controller)
+
+    def combat_handler(event: Event, state: GameState):
+        # Find legal targets: creatures Oko's controller controls.
+        bf = state.zones.get('battlefield')
+        legal: list[str] = []
+        if bf is not None:
+            for cid in bf.objects:
+                cand = state.objects.get(cid)
+                if cand is None:
+                    continue
+                if cand.controller != obj.controller:
+                    continue
+                if CardType.CREATURE not in cand.characteristics.types:
+                    continue
+                legal.append(cid)
+        if not legal:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+        def handle_pick(choice, selected: list, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            chosen_id = selected[0]
+            chosen = gs.objects.get(chosen_id)
+            if chosen is None:
+                return []
+            becomes_copy_of(
+                obj, chosen, gs,
+                duration='end_of_turn',
+                except_keywords=['hexproof'],
+            )
+            return []
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal,
+            prompt="Oko: choose up to one target creature you control",
+            min_targets=0,
+            max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = handle_pick
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_start_filter,
+        handler=combat_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 def rakdos_joins_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -6326,11 +6388,168 @@ FBLTHP_LOST_ON_THE_RANGE = make_creature(
     setup_interceptors=fblthp_lost_on_the_range_setup,
 )
 
+def _fleeting_reflection_pick_source(choice, selected, state: GameState) -> list[Event]:
+    """Step 2 of Fleeting Reflection: target creature picked above becomes a copy
+    of this second target. ``choice.callback_data['target_obj_id']`` carries the
+    creature picked in step 1."""
+    target_obj_id = choice.callback_data.get('target_obj_id')
+    target_obj = state.objects.get(target_obj_id) if target_obj_id else None
+    if target_obj is None:
+        return []
+
+    # Untap step 1's target.
+    events: list[Event] = [Event(
+        type=EventType.UNTAP_TARGET,
+        payload={'object_id': target_obj.id},
+        source=choice.source_id,
+    )]
+
+    if not selected:
+        # "Up to one other target" — no second target picked, so the
+        # target keeps hexproof+untap but doesn't become a copy of anything.
+        return events
+
+    source_id = selected[0]
+    if source_id == target_obj.id:
+        # Must be "another" creature.
+        return events
+    source_obj = state.objects.get(source_id)
+    if source_obj is None:
+        return events
+
+    becomes_copy_of(
+        target_obj, source_obj, state,
+        duration='end_of_turn',
+    )
+    return events
+
+
+def _fleeting_reflection_pick_target(choice, selected, state: GameState) -> list[Event]:
+    """Step 1 of Fleeting Reflection: pick the controller's creature that gains
+    hexproof / untap / becomes-a-copy. After confirmation, open a second
+    pending_choice asking for the creature to copy."""
+    if not selected:
+        return []
+    target_obj_id = selected[0]
+    target = state.objects.get(target_obj_id)
+    if target is None:
+        return []
+
+    # Hexproof until end of turn — register a temporary keyword grant by adding
+    # a small QUERY interceptor on the target. Use the standard pattern:
+    def hex_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.QUERY_ABILITIES
+                and event.payload.get('object_id') == target.id)
+
+    def hex_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        granted = list(new_event.payload.get('granted', []) or [])
+        if 'hexproof' not in granted:
+            granted.append('hexproof')
+        new_event.payload['granted'] = granted
+        existing_value = new_event.payload.get('value')
+        if isinstance(existing_value, (set, list)):
+            new_event.payload['value'] = set(existing_value) | {'hexproof'}
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    hex_ic = Interceptor(
+        id=new_id(),
+        source=target.id,
+        controller=target.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=hex_filter,
+        handler=hex_handler,
+        duration='end_of_turn',
+    )
+    hex_ic.timestamp = state.next_timestamp()
+    state.interceptors[hex_ic.id] = hex_ic
+
+    # Now build the "up to one other target creature" choice.
+    legal_sources: list[str] = []
+    bf = state.zones.get('battlefield')
+    if bf is not None:
+        for cid in bf.objects:
+            cand = state.objects.get(cid)
+            if cand is None or cand.id == target.id:
+                continue
+            if CardType.CREATURE not in cand.characteristics.types:
+                continue
+            legal_sources.append(cid)
+
+    if not legal_sources:
+        # Up-to-one — still allowed to pick none. Apply untap directly.
+        return [Event(
+            type=EventType.UNTAP_TARGET,
+            payload={'object_id': target.id},
+            source=choice.source_id,
+        )]
+
+    sub_choice = create_target_choice(
+        state=state,
+        player_id=choice.player,
+        source_id=choice.source_id,
+        legal_targets=legal_sources,
+        prompt="Fleeting Reflection: choose up to one other creature to copy (or skip)",
+        min_targets=0,
+        max_targets=1,
+    )
+    sub_choice.choice_type = "target_with_callback"
+    sub_choice.callback_data['handler'] = _fleeting_reflection_pick_source
+    sub_choice.callback_data['target_obj_id'] = target.id
+    return []
+
+
+def fleeting_reflection_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Fleeting Reflection: pick controller's creature, then pick another
+    creature whose copy it becomes for this turn."""
+    stack_zone = state.zones.get('stack')
+    caster_id = None
+    spell_id = None
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == "Fleeting Reflection":
+                caster_id = obj.controller
+                spell_id = obj.id
+                break
+    if caster_id is None:
+        caster_id = state.active_player
+    if spell_id is None:
+        spell_id = "fleeting_reflection_spell"
+
+    legal_targets = []
+    for cid, cobj in state.objects.items():
+        if cobj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if cobj.controller != caster_id:
+            continue
+        if CardType.CREATURE not in cobj.characteristics.types:
+            continue
+        legal_targets.append(cid)
+
+    if not legal_targets:
+        return []
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal_targets,
+        prompt="Fleeting Reflection: choose target creature you control",
+        min_targets=1,
+        max_targets=1,
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _fleeting_reflection_pick_target
+    return []
+
+
 FLEETING_REFLECTION = make_instant(
     name="Fleeting Reflection",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Target creature you control gains hexproof until end of turn. Untap that creature. Until end of turn, it becomes a copy of up to one other target creature.",
+    resolve=fleeting_reflection_resolve,
 )
 
 GERALF_THE_FLESHWRIGHT = make_creature(

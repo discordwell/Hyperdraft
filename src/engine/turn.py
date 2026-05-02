@@ -464,6 +464,20 @@ class TurnManager:
                 if src is not None and iid in src.interceptor_ids:
                     src.interceptor_ids.remove(iid)
 
+        # Restore dual-write fields for becomes_copy_of effects whose EOT
+        # interceptors were just swept above. The helper stashes the
+        # target's original subtypes keyed by a copy-tag.
+        becomes_copy_cleanups = getattr(self.state, '_becomes_copy_cleanups', None)
+        if becomes_copy_cleanups:
+            for tag_id, payload in list(becomes_copy_cleanups.items()):
+                target_id = payload.get('target_id')
+                target_obj = self.state.objects.get(target_id) if target_id else None
+                if target_obj is not None:
+                    original = payload.get('original_subtypes')
+                    if isinstance(original, set):
+                        target_obj.characteristics.subtypes = set(original)
+                becomes_copy_cleanups.pop(tag_id, None)
+
         # Empty mana pools
         # (Would be handled by mana system)
 
