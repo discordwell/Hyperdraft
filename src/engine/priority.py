@@ -1506,6 +1506,13 @@ class PrioritySystem:
 
         printed_cost = ManaCost.parse(card.characteristics.mana_cost or "")
 
+        # Apply registered cost-reduction interceptors before delve. We use the
+        # already-resolved base (printed cost / flashback cost / warp cost) so
+        # alternate casting modes still get reductions applied correctly.
+        paid_cost = get_effective_mana_cost(
+            card, action.player_id, self.state, base_cost=paid_cost,
+        )
+
         # Delve: automatically apply the maximum generic-cost reduction available
         # for this cast, and pay it by exiling cards from the caster's graveyard.
         delve_exile_count = self._delve_discount(card, action.player_id, paid_cost)

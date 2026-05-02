@@ -37,6 +37,7 @@ from src.cards.interceptor_helpers import (
     make_draw_trigger,
     make_counter_added_trigger,
     make_end_step_trigger,
+    make_cost_reduction,
     other_creatures_you_control,
     other_creatures_with_subtype,
     creatures_you_control,
@@ -7910,8 +7911,15 @@ def imprisoned_in_the_moon_setup(obj: GameObject, state: GameState) -> list[Inte
 # --- MOCKING SPRITE ---
 # Flying / Instant and sorcery spells you cast cost {1} less.
 def mocking_sprite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: cost reduction static
-    return []
+    # Flying itself is handled by the engine via printed keyword text;
+    # we only register the cost reduction here.
+    def applies(card: GameObject, pid: str, st: GameState) -> bool:
+        if pid != obj.controller:
+            return False
+        types = card.characteristics.types
+        return CardType.INSTANT in types or CardType.SORCERY in types
+
+    return [make_cost_reduction(obj, applies_to=applies, amount=1)]
 
 
 # --- OMNISCIENCE ---
@@ -8423,8 +8431,13 @@ def carnelian_orb_of_dragonkind_setup(obj: GameObject, state: GameState) -> list
 # --- DRAGONLORD'S SERVANT ---
 # Dragon spells you cast cost {1} less to cast.
 def dragonlords_servant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: cost reduction by subtype
-    return []
+    def applies(card: GameObject, pid: str, st: GameState) -> bool:
+        return (
+            pid == obj.controller
+            and "Dragon" in card.characteristics.subtypes
+        )
+
+    return [make_cost_reduction(obj, applies_to=applies, amount=1)]
 
 
 # --- GOBLIN SMUGGLER ---
@@ -9413,13 +9426,33 @@ VANGUARD_SERAPH = make_creature(
     setup_interceptors=vanguard_seraph_setup,
 )
 
+def arcane_epiphany_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self-cost reduction: This spell costs {1} less if you control a Wizard."""
+    def applies(card: GameObject, pid: str, st: GameState) -> bool:
+        # `self_only=True` already pins this to the casting card itself; we
+        # only need to check the conditional clause here.
+        if pid != obj.controller:
+            return False
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return False
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == obj.controller
+                    and "Wizard" in o.characteristics.subtypes):
+                return True
+        return False
+
+    return [make_cost_reduction(obj, applies_to=applies, amount=1, self_only=True)]
+
+
 ARCANE_EPIPHANY = make_instant(
     name="Arcane Epiphany",
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     text="This spell costs {1} less to cast if you control a Wizard.\nDraw three cards.",
-    # engine gap: cost reduction is handled separately; the resolve is just draw 3.
     resolve=resolve_draw(3),
+    setup_interceptors=arcane_epiphany_setup,
 )
 
 ARCHMAGE_OF_RUNES = make_creature(
