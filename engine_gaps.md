@@ -31,6 +31,22 @@
 | **Ward** | new `EventType.TARGET_CHOSEN` event | `make_ward(mana_cost/life_cost/custom_cost)` + `ward_cost` kwarg |
 | **Restricted mana** | `ManaUnit.restriction` + `ManaPool.can_pay(for_card=...)` | `produce_mana_restricted` + auto text parser |
 
+### Code-review followups (resolved)
+
+The following gaps were called out in the post-session code review and have
+since been resolved:
+
+- **EOT interceptor sweep** — `TurnManager._do_cleanup_step` now removes
+  every `state.interceptors` entry whose duration matches an `end_of_turn`
+  alias. Granted-trigger interceptors no longer accumulate.
+- **`self_only=True` cost-reduction leak** — `make_cost_reduction` now tags
+  these interceptors with `_cleanup_on_zone_change`, and the pipeline's
+  `_cleanup_departed_interceptors` removes them when their source spell
+  changes zone (HAND → STACK → GRAVEYARD on resolution).
+- **Ward on activated-ability targets** — `_handle_activate_ability` now
+  emits `TARGET_CHOSEN` events for every chosen target on the Phase 4 path
+  and the generic-fallback path, in parity with the cast-spell path.
+
 ### Remaining engine gaps (deferred)
 
 Patterns we do **not** yet support, in rough order of impact:

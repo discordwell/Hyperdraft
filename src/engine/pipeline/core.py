@@ -125,6 +125,11 @@ class EventPipeline:
                     elif duration == 'until_leaves':
                         # Mark for removal next time (already fired)
                         to_remove.append(int_id)
+                    elif getattr(interceptor, "_cleanup_on_zone_change", False):
+                        # self_only cost reductions and similar interceptors
+                        # that should clean up whenever their source's zone
+                        # changes (e.g. spell resolves and moves to GY).
+                        to_remove.append(int_id)
 
             for int_id in to_remove:
                 if int_id in self.state.interceptors:
