@@ -50,6 +50,10 @@ from src.cards.interceptor_helpers import (
     make_aura_setup,
     # Sweep 4: becomes-creature
     becomes_creature,
+    # Sweep 7: gain-control + untap + haste
+    threaten_creature,
+    # Targeting choice helper.
+    create_target_choice,
 )
 
 from src.engine.spell_resolve import (
@@ -640,6 +644,42 @@ def _reach_the_horizon_resolve(targets, state):
         prompt='Search for up to two basic land or Town cards (different names)',
         optional=True,
     )
+    return []
+
+
+def _unexpected_request_resolve(targets, state):
+    """Gain control of target creature until end of turn. Untap, gain haste.
+    The optional 'attach an Equipment you control' rider is left as a gap."""
+    caster = _ff_caster_id(state)
+    if caster is None:
+        return []
+    src_obj = _ff_top_spell_card(state, "Unexpected Request")
+    src_id = src_obj.id if src_obj is not None else "unexpected_request_spell"
+
+    legal = [
+        oid for oid, ob in state.objects.items()
+        if (ob.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in ob.characteristics.types
+            and ob.controller != caster)
+    ]
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs: GameState) -> list[Event]:
+        if not selected:
+            return []
+        return threaten_creature(selected[0], caster, source_id=src_id)
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster,
+        source_id=src_id,
+        legal_targets=legal,
+        prompt="Unexpected Request: choose target creature to steal",
+        min_targets=1, max_targets=1,
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _handler
     return []
 
 
@@ -6461,6 +6501,7 @@ UNEXPECTED_REQUEST = make_sorcery(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn. You may attach an Equipment you control to that creature. If you do, unattach it at the beginning of the next end step.",
+    resolve=_unexpected_request_resolve,
 )
 
 VAAN_STREET_THIEF = make_creature(
@@ -6802,7 +6843,12 @@ SUMMONERS_GRIMOIRE = make_artifact(
     mana_cost="{3}{G}",
     text="Job select\nEquipped creature is a Shaman in addition to its other types and has \"Whenever this creature attacks, you may put a creature card from your hand onto the battlefield. If that card is an enchantment card, it enters tapped and attacking.\"\nAbraxas — Equip {3}",
     subtypes={"Equipment"},
-    setup_interceptors=summoners_grimoire_ff_setup,
+    # Shaman type-add + equip cost wired; the granted attack trigger that
+    # cheats a creature card from hand remains an engine gap.
+    setup_interceptors=make_equipment_setup(
+        subtypes_to_add={"Shaman"},
+        equip_cost="{3}",
+    ),
 )
 
 TIFA_LOCKHART = make_creature(
