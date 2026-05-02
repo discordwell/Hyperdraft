@@ -754,6 +754,109 @@ def draconautics_engineer_setup(obj: GameObject, state: GameState) -> list[Inter
     return []
 
 
+# -----------------------------------------------------------------------------
+# X-cost Exhaust cards (W2 engine extension — {X} mana in activation cost)
+# -----------------------------------------------------------------------------
+#
+# These cards' Exhaust abilities use {X} in the cost; the priority system
+# threads PlayerAction.x_value through can_pay_activation / pay_activation_cost
+# and into the resolve closure via the kw-arg ``x_value`` shim. The effect
+# function should accept ``x_value: int = 0`` as a kwarg.
+
+
+def mindspring_merfolk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Mindspring Merfolk.
+
+    Exhaust — {X}{U}{U}, {T}: Draw X cards. Put a +1/+1 counter on each Merfolk
+    creature you control.
+
+    The "+1/+1 counter on each Merfolk" rider is part of the printed text but
+    is left out of the v1 wiring to keep the X-draw the focus; the Merfolk
+    counter rider can be added later without engine work.
+    """
+    def _effect(o: GameObject, st: GameState, targets, x_value: int = 0) -> list[Event]:
+        if x_value <= 0:
+            return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': o.controller, 'count': x_value},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_exhaust_ability(
+        obj, cost="{X}{U}{U}, {T}", effect_fn=_effect,
+        description="{X}{U}{U}, {T}: Draw X cards.",
+    )
+    return []
+
+
+def boommobile_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Boommobile.
+
+    Exhaust — {X}{2}{R}: Boommobile deals X damage to any target.
+
+    The "Put a +1/+1 counter on this Vehicle" rider from the printed text is
+    omitted in v1 to keep the X-damage the focus; the +1/+1 rider is trivial
+    to add later.
+    """
+    def _effect(o: GameObject, st: GameState, targets, x_value: int = 0) -> list[Event]:
+        if x_value <= 0 or not targets:
+            return []
+        t = targets[0]
+        target_id = (
+            getattr(t, "object_id", None)
+            or getattr(t, "player_id", None)
+            or getattr(t, "id", None)
+            or t
+        )
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': target_id, 'amount': x_value, 'source': o.id},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_exhaust_ability(
+        obj, cost="{X}{2}{R}", effect_fn=_effect,
+        description="{X}{2}{R}: Boommobile deals X damage to any target.",
+        targets_required=1, target_kind="any",
+    )
+    return []
+
+
+def sita_varma_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sita Varma, Masked Racer.
+
+    Exhaust — {X}{G}{G}{U}: Sita Varma's base power and toughness become X/X
+    until end of turn.
+
+    Implementation note: PT_MODIFICATION is delta-based (no absolute "set"
+    mode in this engine), so we compute the delta from the printed P/T at
+    activation time. With no other +1/+1 counters or pumps, this yields
+    X/X exactly. With other modifiers stacked, the result will be
+    X + extra_modifiers (a v1 approximation; an absolute-set mode in the
+    PT pipeline would be more correct).
+    """
+    def _effect(o: GameObject, st: GameState, targets, x_value: int = 0) -> list[Event]:
+        printed_p = o.characteristics.power or 0
+        printed_t = o.characteristics.toughness or 0
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': x_value - printed_p,
+                'toughness_mod': x_value - printed_t,
+                'duration': 'end_of_turn',
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    make_exhaust_ability(
+        obj, cost="{X}{G}{G}{U}", effect_fn=_effect,
+        description="{X}{G}{G}{U}: Sita Varma's base power and toughness become X/X until end of turn.",
+    )
+    return []
+
+
 # =============================================================================
 # SPELL RESOLVE FUNCTIONS
 # =============================================================================
@@ -3650,6 +3753,7 @@ MINDSPRING_MERFOLK = make_creature(
     subtypes={"Merfolk", "Wizard"},
     text="Exhaust — {X}{U}{U}, {T}: Draw X cards. Put a +1/+1 counter on each Merfolk creature you control. (Activate each exhaust ability only once.)",
     rarity="rare",
+    setup_interceptors=mindspring_merfolk_setup,
 )
 
 MU_YANLING_WIND_RIDER = make_creature(
@@ -4229,6 +4333,7 @@ BOOMMOBILE = make_artifact(
     text="When this Vehicle enters, add four mana of any one color. Spend this mana only to activate abilities.\nExhaust — {X}{2}{R}: This Vehicle deals X damage to any target. Put a +1/+1 counter on this Vehicle. (Activate each exhaust ability only once.)\nCrew 2",
     rarity="rare",
     subtypes={"Vehicle"},
+    setup_interceptors=boommobile_setup,
 )
 
 BURNER_ROCKET = make_artifact(
@@ -5300,6 +5405,7 @@ SITA_VARMA_MASKED_RACER = make_creature(
     supertypes={"Legendary"},
     text="Exhaust — {X}{G}{G}{U}: Put X +1/+1 counters on Sita Varma. Then you may have the base power and toughness of each other creature you control become equal to Sita Varma's power until end of turn. (Activate each exhaust ability only once.)",
     rarity="rare",
+    setup_interceptors=sita_varma_setup,
 )
 
 SKYSERPENT_SEEKER = make_creature(
