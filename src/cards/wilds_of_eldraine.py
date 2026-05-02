@@ -5256,9 +5256,12 @@ def rowan_scion_of_war_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def troyan_gutsy_explorer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: Add {G}{U} (only for MV5+ or X spells); {U},{T}: draw-discard."""
-    # The restricted-mana ({T}: Add {G}{U} for MV5+/X spells) is an engine gap.
-    # Wire {U}, {T}: Draw a card, then discard a card.
+    """{T}: Add {G}{U} (only for MV5+ or X spells); {U},{T}: draw-discard.
+
+    The restricted-mana ability is automatically picked up by the priority
+    mana-dispatch path (it parses the "Spend this mana only to ..." clause
+    from the card text). We only need to wire the secondary loot ability.
+    """
     make_loot_ability(obj, "{U}, {T}")
     return []
 
