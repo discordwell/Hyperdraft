@@ -3624,9 +3624,12 @@ ALIEN_SYMBIOSIS = make_enchantment(
     colors={Color.BLACK},
     text="Enchant creature\nEnchanted creature gets +1/+1, has menace, and is a Symbiote in addition to its other types.\nYou may cast this card from your graveyard by discarding a card in addition to paying its other costs.",
     subtypes={"Aura"},
-    # Phase 3: aura statics for +1/+1 and menace. Type-add to Symbiote and
-    # graveyard-cast alt-cost remain engine gaps.
-    setup_interceptors=make_aura_setup(power_mod=1, toughness_mod=1, keywords=["menace"]),
+    # Aura statics + Symbiote subtype-add. Graveyard-cast alt-cost remains
+    # an engine gap.
+    setup_interceptors=make_aura_setup(
+        power_mod=1, toughness_mod=1, keywords=["menace"],
+        subtypes_to_add={"Symbiote"},
+    ),
 )
 
 BEHOLD_THE_SINISTER_SIX = make_sorcery(

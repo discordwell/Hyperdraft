@@ -12554,11 +12554,12 @@ ANGELIC_DESTINY = make_enchantment(
     colors={Color.WHITE},
     text="Enchant creature\nEnchanted creature gets +4/+4, has flying and first strike, and is an Angel in addition to its other types.\nWhen enchanted creature dies, return this card to its owner's hand.",
     subtypes={"Aura"},
-    # NOTE: type-add (Angel) and "return to hand on enchanted dies" are
-    # engine gaps — only the static +4/+4 + flying/first strike are wired.
+    # The "return to hand when enchanted dies" rider is still an engine
+    # gap (granted death-trigger needs threading the aura's identity).
     setup_interceptors=make_aura_setup(
         power_mod=4, toughness_mod=4,
         keywords=["flying", "first strike"],
+        subtypes_to_add={"Angel"},
     ),
 )
 

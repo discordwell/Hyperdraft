@@ -3128,10 +3128,10 @@ def zuko_exiled_prince_setup(obj: GameObject, state: GameState) -> list[Intercep
 # --- GREEN ---
 
 def avatar_destiny_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura: enchanted creature gets +1/+1 per creature card in your graveyard.
-    Avatar type-add and the death-trigger mill/reanimator clauses remain
-    engine gaps and are unwired."""
-    base = make_aura_setup()(obj, state)
+    """Aura: enchanted creature gets +1/+1 per creature card in your graveyard,
+    is an Avatar in addition to its other types. Death-trigger mill/reanimator
+    clause remains an engine gap (granted death-trigger with mill X)."""
+    base = make_aura_setup(subtypes_to_add={"Avatar"})(obj, state)
     def mod_fn(source, target, st):
         n = count_cards_in_graveyard(source.controller, st, type_filter=CardType.CREATURE)
         return (n, n)
