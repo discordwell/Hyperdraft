@@ -49,6 +49,8 @@ from src.cards.interceptor_helpers import (
     # Dynamic P/T helpers.
     make_attached_dynamic_pt_boost,
     count_cards_in_graveyard,
+    # Cost reduction.
+    make_cost_reduction,
 )
 
 from src.engine.bending import (
@@ -2363,9 +2365,30 @@ def otterpenguin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def serpent_of_the_pass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Conditional flash and conditional cost reduction (engine gap, casting-time effect)."""
-    # engine gap: dynamic flash + per-graveyard-card cost reduction
-    return []
+    """Self-cost: {1} less per noncreature, nonland card in your graveyard.
+
+    Skipped clauses:
+      * 'If there are three or more Lesson cards in your graveyard, you
+        may cast this spell as though it had flash.' (Engine gap: alt-
+        cast as-though-flash conditional permission.)
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        gy = st.zones.get(f'graveyard_{controller}')
+        if not gy:
+            return 0
+        n = 0
+        for oid in gy.objects:
+            o = st.objects.get(oid)
+            if not o:
+                continue
+            ts = o.characteristics.types
+            if (CardType.CREATURE not in ts) and (CardType.LAND not in ts):
+                n += 1
+        return n
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 def teo_spirited_glider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

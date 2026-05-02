@@ -35,7 +35,28 @@ from src.cards.interceptor_helpers import (
     make_activated_ability,
     # Sweep 4: becomes-creature
     becomes_creature,
+    # Cost reduction
+    make_cost_reduction,
 )
+
+
+# =============================================================================
+# Vivid helper: count distinct colors among permanents the player controls.
+# =============================================================================
+def _vivid_color_count(controller: str, st: GameState) -> int:
+    bf = st.zones.get('battlefield')
+    if not bf:
+        return 0
+    seen = set()
+    for oid in bf.objects:
+        o = st.objects.get(oid)
+        if not o or o.controller != controller:
+            continue
+        for col in (o.characteristics.colors or set()):
+            seen.add(col)
+            if len(seen) >= 5:
+                return 5
+    return len(seen)
 
 
 # =============================================================================
@@ -2585,12 +2606,14 @@ def surly_farrier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def wildvine_pummeler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Vivid cost reduction (engine gap: dynamic cost), reach + trample static.
-
-    engine gap: vivid spell-cost reduction not wired here; reach/trample
-    are baked into the printed text (already on the card).
+    """Self-cost: vivid — {1} less per color among permanents you control.
+    Reach + trample granted via printed keyword text.
     """
-    return []  # engine gap: dynamic cost based on colors among permanents
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        return _vivid_color_count(obj.controller, st)
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 # --- MULTICOLOR ---
@@ -4109,11 +4132,26 @@ PESTERED_WELLGUARD = make_creature(
     setup_interceptors=pestered_wellguard_setup
 )
 
+def rime_chill_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self-cost: vivid — {1} less per color among permanents you control.
+
+    Skipped clauses:
+      * Resolution effect ('tap up to two creatures, put stun counters,
+        draw a card') is left to cast-effect dispatch elsewhere.
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        return _vivid_color_count(obj.controller, st)
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
+
+
 RIME_CHILL = make_instant(
     name="Rime Chill",
     mana_cost="{6}{U}",
     colors={Color.BLUE},
     text="Vivid — This spell costs {1} less to cast for each color among permanents you control.\nTap up to two target creatures. Put a stun counter on each of them. (If a permanent with a stun counter would become untapped, remove one from it instead.)\nDraw a card.",
+    setup_interceptors=rime_chill_setup,
 )
 
 RIMEFIRE_TORQUE = make_artifact(

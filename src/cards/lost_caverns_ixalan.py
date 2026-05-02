@@ -31,6 +31,7 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype, create_target_choice,
     make_activated_ability, becomes_creature, make_ward,
+    make_activated_ability, becomes_creature, make_cost_reduction,
 )
 
 
@@ -3798,11 +3799,31 @@ def fungal_fortitude_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def gargantuan_leech_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Costs {1} less per Cave you control or in graveyard. Lifelink."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: cost reduction based on Caves (lifelink granted via card text)
-        return []
-    return [make_etb_trigger(obj, effect_fn)]
+    """Self-cost reduction: {1} less per Cave you control + each Cave card in graveyard.
+    Lifelink granted via printed keyword text.
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        count = 0
+        # Caves on the battlefield you control
+        bf = st.zones.get('battlefield')
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == controller
+                        and "Cave" in o.characteristics.subtypes):
+                    count += 1
+        # Cave cards in your graveyard
+        gy = st.zones.get(f'graveyard_{controller}')
+        if gy:
+            for oid in gy.objects:
+                o = st.objects.get(oid)
+                if o and "Cave" in o.characteristics.subtypes:
+                    count += 1
+        return count
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 def preacher_of_the_schism_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4457,7 +4478,29 @@ def seeker_of_sunlight_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def the_skullspore_nexus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cost-X less by max power. Nontoken creatures die: create big Fungus token. {2},{T}: double power EOT."""
+    """Cost-X less by max power. Nontoken creatures die: create big Fungus token. {2},{T}: double power EOT.
+
+    Skipped clauses: the {2},{T} 'double target creature's power until end of turn'
+    activated ability is not wired here (engine gap for one-shot P/T doubling).
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        max_power = 0
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and CardType.CREATURE in o.characteristics.types):
+                p = o.characteristics.power or 0
+                if p > max_power:
+                    max_power = p
+        return max_power
+
+    cost_reducer = make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                       amount=amount_fn, self_only=True)
+
     def death_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.OBJECT_DESTROYED:
             return False
@@ -4492,7 +4535,7 @@ def the_skullspore_nexus_setup(obj: GameObject, state: GameState) -> list[Interc
             )]
         )
 
-    return [Interceptor(
+    return [cost_reducer, Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,

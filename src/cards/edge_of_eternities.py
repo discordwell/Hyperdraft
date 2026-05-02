@@ -42,7 +42,10 @@ from src.cards.interceptor_helpers import (
     make_token_creation_ability, make_sac_destroy_ability,
     # Phase 3: equipment / aura statics
     make_equipment_setup, make_aura_setup,
+    # Cost reduction
+    make_cost_reduction,
 )
+from src.engine.turn_state import spells_cast_this_turn
 
 
 # =============================================================================
@@ -2353,9 +2356,13 @@ cryoshatter_setup = make_aura_setup(power_mod=-5, toughness_mod=0)
 
 
 def gigastorm_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """This spell costs {3} less to cast if you've cast another spell this turn."""
-    # engine gap: dynamic cast cost reduction (cost reduction at cast time)
-    return []
+    """Self-cost: {3} less if you've cast another spell this turn."""
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        # 'another' spell this turn: at least one spell already cast.
+        return 3 if spells_cast_this_turn(obj.controller, st) >= 1 else 0
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 def illvoi_galeblade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2876,9 +2883,24 @@ def frenzied_baloth_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def fungal_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """This spell costs {X} less to cast where X is differently named lands."""
-    # engine gap: dynamic cast cost reduction (lands-named-count)
-    return []
+    """Self-cost: {X} less, where X is the number of differently named lands you control."""
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        names = set()
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and CardType.LAND in o.characteristics.types):
+                nm = getattr(o, 'name', None)
+                if nm:
+                    names.add(nm)
+        return len(names)
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 def gene_pollinator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2938,9 +2960,26 @@ def larval_scoutlander_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def lashwhip_predator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cost {2} less if opponents control 3+ creatures."""
-    # engine gap: dynamic cast cost reduction (opponent board count)
-    return []
+    """Self-cost: {2} less if your opponents control three or more creatures.
+    Reach granted via printed keyword text.
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        n = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller != controller
+                    and CardType.CREATURE in o.characteristics.types):
+                n += 1
+                if n >= 3:
+                    return 2
+        return 0
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 def loading_zone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3139,9 +3178,26 @@ def ragost_deft_gastronaut_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def sami_wildcat_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Double strike vigilance; spells have affinity for artifacts."""
-    # engine gap: affinity-for-artifacts cost reduction
-    return []
+    """Static: spells you cast have affinity for artifacts ({1} less per artifact you control).
+    Double strike + vigilance granted via printed keyword text.
+    """
+    def applies(card: GameObject, pid: str, st: GameState) -> bool:
+        return pid == obj.controller
+
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        n = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and CardType.ARTIFACT in o.characteristics.types):
+                n += 1
+        return n
+
+    return [make_cost_reduction(obj, applies_to=applies, amount=amount_fn)]
 
 
 def allfates_scroll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4358,11 +4414,27 @@ MECHANOZOA = make_artifact_creature(
     setup_interceptors=make_warp_setup("{2}{U}", inner_setup=mechanozoa_setup),
 )
 
+def mental_modulation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self-cost: {1} less during your turn.
+
+    Skipped clauses:
+      * Resolution effect ('tap target artifact or creature; draw a card')
+        is left to cast-effect dispatch elsewhere.
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        active = getattr(st, 'active_player', None)
+        return 1 if active == obj.controller else 0
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
+
+
 MENTAL_MODULATION = make_instant(
     name="Mental Modulation",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="This spell costs {1} less to cast during your turn.\nTap target artifact or creature.\nDraw a card.",
+    setup_interceptors=mental_modulation_setup,
 )
 
 MMMENON_THE_RIGHT_HAND = make_creature(

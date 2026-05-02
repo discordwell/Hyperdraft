@@ -44,6 +44,7 @@ from src.cards.interceptor_helpers import (
     make_dynamic_pt_boost,
     count_permanents_with_subtype,
     count_permanents_of_type,
+    make_cost_reduction,
 )
 
 
@@ -2421,9 +2422,29 @@ def niv_mizzet_guildpact_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def tomik_wielder_of_law_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever opponent attacks with 2+ creatures targeting you/planeswalkers: they lose 3 life, you draw"""
-    # Would need attack tracking
-    return []
+    """Affinity for planeswalkers: this spell costs {1} less per planeswalker you control.
+
+    Skipped clauses:
+      * Whenever an opponent attacks with two or more creatures targeting you
+        and/or your planeswalkers, that opponent loses 3 life and you draw a
+        card. (Engine gap: opponent-attack tracking + multi-target attacker
+        condition.) Flying/vigilance picked up via printed keywords.
+    """
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        n = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and CardType.PLANESWALKER in o.characteristics.types):
+                n += 1
+        return n
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 def melek_reforged_researcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5893,9 +5914,20 @@ def candlestick_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def case_of_the_ransacked_lab_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cost reduction; solved: draw on instant/sorcery cast."""
-    # engine gap: spell cost reduction + state-based solve tracking
-    return []
+    """Static: instant and sorcery spells you cast cost {1} less to cast.
+
+    Skipped clauses:
+      * Solve condition (cast 4+ instants/sorceries this turn) and the solved
+        bonus (draw on instant/sorcery cast). Engine gap: case 'solved' state
+        machine + state-based solve check at end step.
+    """
+    def applies(card: GameObject, pid: str, st: GameState) -> bool:
+        if pid != obj.controller:
+            return False
+        types = card.characteristics.types
+        return CardType.INSTANT in types or CardType.SORCERY in types
+
+    return [make_cost_reduction(obj, applies_to=applies, amount=1)]
 
 
 def conspiracy_unraveler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
