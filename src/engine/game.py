@@ -2055,9 +2055,15 @@ def make_instant(
     text: str = "",
     rarity: str = None,
     abilities: list = None,
-    resolve = None
+    resolve = None,
+    setup_interceptors = None,
 ) -> 'CardDefinition':
-    """Helper to create instant card definitions."""
+    """Helper to create instant card definitions.
+
+    ``setup_interceptors`` is supported so spells can register self-acting
+    static abilities that fire while the card is in hand (e.g. cost reductions
+    of the form 'This spell costs {X} less to cast if Y').
+    """
     from .types import CardDefinition, Characteristics
 
     return CardDefinition(
@@ -2071,7 +2077,8 @@ def make_instant(
         text=text,
         rarity=rarity,
         abilities=abilities or [],
-        resolve=resolve
+        resolve=resolve,
+        setup_interceptors=setup_interceptors,
     )
 
 
@@ -2152,9 +2159,15 @@ def make_sorcery(
     text: str = "",
     rarity: str = None,
     abilities: list = None,
-    resolve = None
+    resolve = None,
+    setup_interceptors = None,
 ) -> 'CardDefinition':
-    """Helper to create sorcery card definitions."""
+    """Helper to create sorcery card definitions.
+
+    ``setup_interceptors`` is supported so spells can register self-acting
+    static abilities that fire while the card is in hand (e.g. cost reductions
+    of the form 'This spell costs {X} less to cast if Y').
+    """
     from .types import CardDefinition, Characteristics
 
     return CardDefinition(
@@ -2168,7 +2181,8 @@ def make_sorcery(
         text=text,
         rarity=rarity,
         abilities=abilities or [],
-        resolve=resolve
+        resolve=resolve,
+        setup_interceptors=setup_interceptors,
     )
 
 

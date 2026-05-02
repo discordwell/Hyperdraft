@@ -561,6 +561,124 @@ def make_keyword_grant(
 
 
 # =============================================================================
+# COST REDUCTION (static / conditional)
+# =============================================================================
+
+def make_cost_reduction(
+    source_obj: GameObject,
+    *,
+    applies_to: Callable[[GameObject, str, GameState], bool],
+    amount,
+    self_only: bool = False,
+) -> Interceptor:
+    """
+    Register a cost-reduction interceptor.
+
+    The reduction lowers the *generic* portion of the spell's mana cost only;
+    coloured, colourless ({C}), snow ({S}), hybrid, and Phyrexian symbols are
+    always preserved (so {2}{R}{R} reduced by {3} stays at {R}{R}, not {0}).
+    Multiple reductions stack additively. Generic is clamped at 0.
+
+    Args:
+        source_obj: the permanent that owns the static ability ("Spells you cast
+                    cost {1} less"), or the spell card itself when ``self_only``
+                    is set.
+        applies_to: predicate ``(card, player_id, state) -> bool`` that decides
+                    whether the reduction applies to a given casting attempt.
+                    ``card`` is the would-be-cast object (in HAND/GRAVEYARD/etc),
+                    ``player_id`` is the would-be caster.
+        amount: either an int, or a callable ``(card, state) -> int``. The
+                callable variant lets reductions read live state ("for each
+                colour among permanents you control", "for each Forest", ...).
+        self_only: convenience flag - if True, ``applies_to`` is wrapped so the
+                   reduction only fires for casts of ``source_obj`` itself.
+                   Useful for "This spell costs {X} less to cast..." text.
+
+    Event: ``EventType.QUERY_COST`` (synthetic - emitted by ``cost_query``).
+    Priority: QUERY (so reductions are read-only and don't touch the event
+              pipeline). Interceptors carry ``duration='while_on_battlefield'``
+              so the pipeline's standard gating already prevents them from
+              applying once the source leaves play - except when ``self_only``
+              is set, where we use ``duration='forever'`` because the source
+              card is in HAND (not the battlefield) at query time.
+
+    Returns:
+        A single Interceptor ready to be returned from ``setup_interceptors``.
+    """
+    source_id = source_obj.id
+
+    if self_only:
+        original_applies = applies_to
+
+        def _self_applies(card: GameObject, pid: str, state: GameState) -> bool:
+            if card is None or card.id != source_id:
+                return False
+            if original_applies is None:
+                return True
+            return bool(original_applies(card, pid, state))
+
+        applies_to = _self_applies
+        # When the source is the spell card itself, the source object is in
+        # HAND (or GY for flashback, etc.). The pipeline gating would suppress
+        # 'while_on_battlefield' interceptors there, so use 'forever'. The
+        # filter still pins the reduction to this specific card via id.
+        duration = 'forever'
+    else:
+        duration = 'while_on_battlefield'
+
+    def cost_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_COST:
+            return False
+        # When source is a battlefield permanent, ensure it's still in play.
+        # (The pipeline gates 'while_on_battlefield' interceptors generally,
+        # but cost queries are synthesised reads, so we double-check here.)
+        if not self_only:
+            src = state.objects.get(source_id)
+            if not src or src.zone != ZoneType.BATTLEFIELD:
+                return False
+        card = event.payload.get('card')
+        pid = event.payload.get('player_id')
+        if card is None or pid is None:
+            return False
+        try:
+            return bool(applies_to(card, pid, state))
+        except Exception:
+            return False
+
+    def cost_handler(event: Event, state: GameState) -> InterceptorResult:
+        # Resolve the reduction amount (int or callable).
+        try:
+            if callable(amount):
+                card = event.payload.get('card')
+                amt = int(amount(card, state) or 0)
+            else:
+                amt = int(amount or 0)
+        except (TypeError, ValueError):
+            amt = 0
+        if amt <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        new_event = event.copy()
+        from src.engine.cost_query import REDUCTION_KEY
+        running = int(new_event.payload.get(REDUCTION_KEY, 0))
+        new_event.payload[REDUCTION_KEY] = running + amt
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=cost_filter,
+        handler=cost_handler,
+        duration=duration,
+    )
+
+
+# =============================================================================
 # SPELL CAST TRIGGER
 # =============================================================================
 
