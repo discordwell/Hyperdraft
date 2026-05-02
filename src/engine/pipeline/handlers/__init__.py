@@ -63,6 +63,7 @@ from .misc import (
     _handle_freeze_target,
     _handle_silence_target,
     _handle_transform,
+    _handle_copy_stack_item,
 )
 from ...saga import SAGA_EVENT_HANDLERS
 from ...face_down import _handle_turn_face_up, _handle_manifest_dread
@@ -128,6 +129,7 @@ EVENT_HANDLERS = {
     EventType.WEAPON_EQUIP: _handle_weapon_equip,
     EventType.TURN_FACE_UP: _handle_turn_face_up,
     EventType.MANIFEST_DREAD: _handle_manifest_dread,
+    EventType.COPY_STACK_ITEM: _handle_copy_stack_item,
 }
 
 # Merge in saga handlers (defined in src/engine/saga.py).

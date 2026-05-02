@@ -4895,6 +4895,65 @@ def virtue_of_knowledge_setup(obj: GameObject, state: GameState) -> list[Interce
     return []
 
 
+def _virtue_of_knowledge_adventure(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Vantress Visions: Copy target activated or triggered ability you control.
+
+    Surfaces a target choice over current stack items the player controls; the
+    chosen item gets copied via the COPY_STACK_ITEM event. New targets for the
+    copy are not collected here — the copy keeps the original's targets. (A
+    future enhancement could chain a second target_with_callback to gather new
+    targets per requirement.)
+    """
+    from src.cards.interceptor_helpers import (
+        create_target_choice,
+        make_copy_ability_event,
+    )
+
+    # Find the StackManager via state._game (set by Game._connect_subsystems).
+    game = getattr(state, '_game', None)
+    stack = getattr(game, 'stack', None) if game else None
+    if stack is None:
+        return []
+
+    # Build the list of legal stack items the controller of this Adventure
+    # owns. We exclude this Adventure's own activated-ability stack item
+    # (which is in the process of resolving, but defensively also items
+    # whose source is this Virtue itself) and items flagged can_be_copied=False.
+    legal_item_ids: list[str] = []
+    for sitem in stack.get_items():
+        if sitem.controller_id != obj.controller:
+            continue
+        if not getattr(sitem, 'can_be_copied', True):
+            continue
+        legal_item_ids.append(sitem.id)
+
+    if not legal_item_ids:
+        return []
+
+    def _execute(choice, selected, st: GameState) -> list[Event]:
+        item_id = selected[0] if selected else None
+        if not item_id:
+            return []
+        return [make_copy_ability_event(
+            stack_item_id=item_id,
+            controller=obj.controller,
+            source_id=obj.id,
+        )]
+
+    choice = create_target_choice(
+        state=state,
+        player_id=obj.controller,
+        source_id=obj.id,
+        legal_targets=legal_item_ids,
+        prompt="Choose an activated or triggered ability you control to copy",
+        min_targets=1,
+        max_targets=1,
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _execute
+    return []
+
+
 # --- Black ---
 
 def ashiok_wicked_manipulator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -6659,6 +6718,11 @@ VIRTUE_OF_KNOWLEDGE = make_enchantment(
     colors={Color.BLUE},
     text="If a permanent entering causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.\n// Adventure — Vantress Visions {1}{U} (Instant)\nCopy target activated or triggered ability you control. You may choose new targets for the copy.",
     setup_interceptors=virtue_of_knowledge_setup,
+)
+VIRTUE_OF_KNOWLEDGE.setup_in_hand = make_adventure_setup(
+    adventure_cost="{1}{U}",
+    effect_fn=_virtue_of_knowledge_adventure,
+    description="Adventure: Copy target activated/triggered ability you control",
 )
 
 WATER_WINGS = make_instant(
