@@ -520,6 +520,17 @@ class PokemonTurnManager(TurnManager):
             self.pipeline.emit(play_event)
         events.append(play_event)
 
+        # Trainer effects are written against the Pokemon TCG timing where the
+        # played Trainer has already left hand. This prevents draw/shuffle
+        # effects from accidentally including the card currently resolving.
+        hand_key = f"hand_{player_id}"
+        if hand_key in self.state.zones:
+            hand = self.state.zones[hand_key]
+            if card_id in hand.objects:
+                hand.objects.remove(card_id)
+        obj.zone = ZoneType.STACK
+        obj.entered_zone_at = self.state.timestamp
+
         # Execute card effect
         if obj.card_def and obj.card_def.resolve:
             effect_events = obj.card_def.resolve(
@@ -530,13 +541,6 @@ class PokemonTurnManager(TurnManager):
                 if self.pipeline:
                     self.pipeline.emit(ev)
                 events.append(ev)
-
-        # Remove from hand
-        hand_key = f"hand_{player_id}"
-        if hand_key in self.state.zones:
-            hand = self.state.zones[hand_key]
-            if card_id in hand.objects:
-                hand.objects.remove(card_id)
 
         # Stadium goes to stadium zone; others go to discard
         if trainer_type == 'stadium':
@@ -552,12 +556,15 @@ class PokemonTurnManager(TurnManager):
                             self.state.zones[graveyard_key].objects.append(old_id)
                         old_obj.zone = ZoneType.GRAVEYARD
                     stadium_zone.objects.remove(old_id)
-                stadium_zone.objects.append(card_id)
+                if card_id not in stadium_zone.objects:
+                    stadium_zone.objects.append(card_id)
             obj.zone = ZoneType.STADIUM_ZONE
         else:
             graveyard_key = f"graveyard_{player_id}"
             if graveyard_key in self.state.zones:
-                self.state.zones[graveyard_key].objects.append(card_id)
+                graveyard = self.state.zones[graveyard_key]
+                if card_id not in graveyard.objects:
+                    graveyard.objects.append(card_id)
             obj.zone = ZoneType.GRAVEYARD
 
         obj.entered_zone_at = self.state.timestamp

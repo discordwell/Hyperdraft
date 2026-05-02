@@ -136,6 +136,28 @@ class PokemonAIAdapter:
             'use_energy_planning': True,
             'use_prize_tracking': True,
         },
+        'codex': {
+            'random_factor': 0.0,
+            'mistake_chance': 0.0,
+            'use_context': True,
+            'use_energy_commitment': True,
+            'use_trainer_registry': True,
+            'use_retreat_analysis': True,
+            'use_ko_math': True,
+            'use_prize_strategy': True,
+            'use_lethal_check': True,
+            'use_weakness_aware': True,
+            'use_board_eval': True,
+            'use_evolution_priority': True,
+            'use_ability_eval': True,
+            'use_anti_lethal': True,
+            'use_action_reordering': True,
+            'use_smart_retreat': True,
+            'use_energy_planning': True,
+            'use_prize_tracking': True,
+            'use_resource_conservation': True,
+            'use_setup_consistency': True,
+        },
     }
 
     def __init__(self, difficulty: str = "medium"):
@@ -485,33 +507,60 @@ class PokemonAIAdapter:
                 if _game_over():
                     break
 
-            # 3. Play Basic Pokemon to bench
+            # 3. Codex/Ultra: play setup Items before board/energy decisions.
+            # Search cards such as Nest Ball and Ultra Ball can change this turn's
+            # bench, evolution options, and energy target, so they belong before
+            # the rest of main-phase sequencing for stronger profiles.
+            if settings.get('use_action_reordering'):
+                item_events = self._do_play_items(player_id, state, turn_mgr)
+                if item_events:
+                    events.extend(item_events)
+                    action_taken = True
+                    context_dirty = True
+                    if _game_over():
+                        break
+
+            # 4. Play Basic Pokemon to bench
             basic_events = self._do_play_basics(player_id, state, turn_mgr)
             if basic_events:
                 events.extend(basic_events)
                 action_taken = True
+                if settings.get('use_action_reordering'):
+                    context_dirty = True
 
-            # 4. Evolve Pokemon
+            # 5. Evolve Pokemon
             evolve_events = self._do_evolve(player_id, state, turn_mgr)
             if evolve_events:
                 events.extend(evolve_events)
                 action_taken = True
+                if settings.get('use_action_reordering'):
+                    context_dirty = True
 
-            # 5. Attach Energy (1 per turn)
+            if (settings.get('use_action_reordering') and context_dirty
+                    and settings.get('use_context')):
+                self._current_context = self._build_turn_context(
+                    player_id, state)
+                context_dirty = False
+
+            # 6. Attach Energy (1 per turn)
             energy_events = self._do_attach_energy(player_id, state, turn_mgr)
             if energy_events:
                 events.extend(energy_events)
                 action_taken = True
 
-            # 6. Play Items
+            # 7. Medium keeps the historical order. Reordered profiles get a
+            # second pass so utility Items drawn by a Supporter/search effect can
+            # still be used later in the same turn.
             item_events = self._do_play_items(player_id, state, turn_mgr)
             if item_events:
                 events.extend(item_events)
                 action_taken = True
+                if settings.get('use_action_reordering'):
+                    context_dirty = True
                 if _game_over():
                     break
 
-            # 7. Retreat if favorable
+            # 8. Retreat if favorable
             retreat_events = self._do_retreat(player_id, state, turn_mgr)
             if retreat_events:
                 events.extend(retreat_events)
@@ -644,6 +693,8 @@ class PokemonAIAdapter:
             chosen_id = random.choice(supporters[1:])[0]
         else:
             chosen_id = supporters[0][0]
+            if settings.get('use_resource_conservation') and supporters[0][1] <= 0:
+                return []
 
         if turn_mgr and hasattr(turn_mgr, '_play_trainer'):
             return turn_mgr._play_trainer(player_id, chosen_id, 'supporter')
