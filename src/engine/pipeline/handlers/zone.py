@@ -381,6 +381,18 @@ def _handle_zone_change(event: Event, state: GameState):
                 state.interceptors[interceptor.id] = interceptor
                 obj.interceptor_ids.append(interceptor.id)
 
+    # Hand-zone setup (Cycling, Evoke, etc.). Runs when a card moves into the
+    # hand zone (drawn, returned, etc.). Cards declare hand-only abilities
+    # via card_def.setup_in_hand.
+    if to_zone_type == ZoneType.HAND and obj.card_def:
+        hand_setup = getattr(obj.card_def, 'setup_in_hand', None)
+        if callable(hand_setup):
+            new_interceptors = hand_setup(obj, state) or []
+            for interceptor in new_interceptors:
+                interceptor.timestamp = state.next_timestamp()
+                state.interceptors[interceptor.id] = interceptor
+                obj.interceptor_ids.append(interceptor.id)
+
 
 def _handle_tap(event: Event, state: GameState):
     """Handle TAP event."""

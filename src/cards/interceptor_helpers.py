@@ -5600,6 +5600,75 @@ __all_sweep12__ = [
 
 
 # =============================================================================
+# Cycling
+# =============================================================================
+#
+# "Cycling {cost}" — while in hand, pay {cost} and discard this card to draw
+# a card. Implemented as an activated ability registered via setup_in_hand:
+# the discard-self is recognised as a cost by the activated framework's
+# parser, and the effect emits DRAW.
+# =============================================================================
+
+
+def make_cycling_ability(obj: GameObject, mana_cost: str = "{1}"):
+    """Register a cycling activated ability on ``obj``.
+
+    Pass the *mana* portion of the cycling cost; the discard-self is added
+    automatically. Common forms: ``"{2}"`` for Cycling {2}, ``"{W}"`` for
+    Cycling {W}, etc.
+
+    Use this from a card's ``setup_in_hand`` callable so the ability is
+    registered while the card is in the player's hand. The priority system
+    discovers it via the activated-ability framework's hand-zone scan.
+    """
+    from src.engine.activated import register_activated_ability
+
+    cost_text = f"{mana_cost}, Discard this card"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': o.controller, 'count': 1},
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    return register_activated_ability(
+        obj,
+        cost=cost_text,
+        effect_fn=_effect,
+        description=f"Cycling {mana_cost}",
+        sorcery_speed=False,
+    )
+
+
+def make_cycling_setup(mana_cost: str = "{1}"):
+    """Return a `setup_in_hand` callable that registers Cycling {cost}.
+
+    Usage::
+
+        FOO = make_creature(
+            ...,
+            text="Flying\\nCycling {2} ({2}, Discard this card: Draw a card.)",
+            setup_in_hand=make_cycling_setup("{2}"),
+        )
+
+    The card_def factory must accept `setup_in_hand=`. If it doesn't, set
+    ``CARD.setup_in_hand = make_cycling_setup("{2}")`` after construction.
+    """
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        make_cycling_ability(obj, mana_cost)
+        return []
+    return _setup
+
+
+__all_cycling__ = [
+    "make_cycling_ability",
+    "make_cycling_setup",
+]
+
+
+# =============================================================================
 # Sweep helpers: count_* primitives for dynamic P/T scaling
 # =============================================================================
 #

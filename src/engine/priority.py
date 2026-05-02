@@ -632,6 +632,16 @@ class PrioritySystem:
                     abilities = self._get_activatable_abilities(obj, player_id)
                     actions.extend(abilities)
 
+        # Hand-zone activated abilities (Cycling, Evoke, etc.). Registered by
+        # card_def.setup_in_hand. Only the card's owner can activate them.
+        hand_zone = self.state.zones.get(f'hand_{player_id}')
+        if hand_zone:
+            for obj_id in hand_zone.objects:
+                obj = self.state.objects.get(obj_id)
+                if obj and obj.owner == player_id and getattr(obj.state, 'activated_abilities', None):
+                    abilities = self._get_activatable_abilities(obj, player_id)
+                    actions.extend(abilities)
+
         return actions
 
     def _get_standard_additional_cost_plan(self, card) -> Optional[CostPlan]:
