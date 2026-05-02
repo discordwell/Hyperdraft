@@ -3506,12 +3506,13 @@ def ether_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def gogo_master_of_mimicry_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Gogo, Master of Mimicry: {X}{X}, {T}: Copy target activated/triggered ability you control X times.
 
-    Implementation note: the activated-ability cost parser doesn't fully model
-    {X}{X} costs yet, so we approximate with a fixed {2} cost that copies once.
-    The copy machinery itself supports N copies (just emit N COPY_STACK_ITEM
-    events) — see make_copy_ability_event.
+    The X-cost activation surface routes the player's chosen X through the
+    priority system (``PlayerAction.x_value``) and into the resolve closure
+    via the kw-arg ``x_value`` (engine handles the signature shim). Each
+    point of X both costs {2} (since the cost is {X}{X}) and produces one
+    additional copy at resolution.
     """
-    def copy_ability_effect(o: GameObject, st: GameState, _targets) -> list[Event]:
+    def copy_ability_effect(o: GameObject, st: GameState, _targets, *, x_value: int = 0) -> list[Event]:
         game = getattr(st, '_game', None)
         stack = getattr(game, 'stack', None) if game else None
         if stack is None:
@@ -3522,19 +3523,29 @@ def gogo_master_of_mimicry_ff_setup(obj: GameObject, state: GameState) -> list[I
                 continue
             if not getattr(sitem, 'can_be_copied', True):
                 continue
+            # Don't allow copying Gogo's own copy ability while it's still on
+            # the stack mid-resolve (defensive — push_copy also honours
+            # can_be_copied, but skip explicitly here).
+            if getattr(sitem, 'source_id', None) == o.id:
+                continue
             legal_item_ids.append(sitem.id)
-        if not legal_item_ids:
+        # X=0 is legal (per MTG rules) but produces no copies; nothing to ask.
+        if x_value <= 0 or not legal_item_ids:
             return []
 
         def _execute(choice, selected, st2: GameState) -> list[Event]:
             item_id = selected[0] if selected else None
             if not item_id:
                 return []
-            return [make_copy_ability_event(
-                stack_item_id=item_id,
-                controller=o.controller,
-                source_id=o.id,
-            )]
+            # Emit one COPY_STACK_ITEM per point of X.
+            return [
+                make_copy_ability_event(
+                    stack_item_id=item_id,
+                    controller=o.controller,
+                    source_id=o.id,
+                )
+                for _ in range(int(x_value))
+            ]
 
         choice = create_target_choice(
             state=st,
@@ -3551,9 +3562,9 @@ def gogo_master_of_mimicry_ff_setup(obj: GameObject, state: GameState) -> list[I
 
     make_activated_ability(
         obj,
-        cost="{2}, {T}",
+        cost="{X}{X}, {T}",
         effect_fn=copy_ability_effect,
-        description="Copy target activated/triggered ability you control",
+        description="{X}{X}, {T}: Copy target activated or triggered ability you control X times.",
     )
     # Gogo's ability can't be copied (per rules text).
     # The activated-ability stack item would need to be flagged when pushed;

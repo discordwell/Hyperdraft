@@ -66,6 +66,10 @@ class ActivatedAbility:
     once_per_turn: bool = False
     once_per_game: bool = False  # Exhaust — single activation per permanent, ever.
 
+    # X-cost / Exhaust flags (Phase: W2 engine extensions).
+    has_x_cost: bool = False  # True iff mana_cost.x_count > 0 at registration time.
+    is_exhaust: bool = False  # Mirror of once_per_game for now; broadcast on ACTIVATE event.
+
     # Targeting hints.
     targets_required: int = 0
     target_kind: str = "any"
@@ -90,6 +94,13 @@ class ActivatedAbility:
 # ----------------------------------------------------------------------
 
 _MANA_SYMBOL_RE = re.compile(r"^\{(?:[WUBRGCSXY0-9/]+|[0-9]+|[WUBRG]/[WUBRG]|[WUBRG]/P|2/[WUBRG])\}$", re.IGNORECASE)
+# Matches a sequence of one or more contiguous mana symbols (e.g. "{X}{X}",
+# "{2}{R}{R}", "{W/U}{B}"). Used by the cost parser to recognise compound
+# mana costs that aren't comma-separated.
+_MANA_SEQUENCE_RE = re.compile(
+    r"^(?:\{(?:[WUBRGCSXY0-9/]+|[WUBRG]/P|2/[WUBRG])\})+$",
+    re.IGNORECASE,
+)
 _COUNTER_REMOVE_RE = re.compile(
     r"remove (?:an?|(\d+))\s+([\w\-]+)\s+counters?\s+from\s+(?:this|\w[\w\s]*)",
     re.IGNORECASE,
@@ -101,6 +112,17 @@ def _is_mana_symbol(part: str) -> bool:
     if not (s.startswith("{") and s.endswith("}")):
         return False
     return bool(_MANA_SYMBOL_RE.match(s))
+
+
+def _is_mana_sequence(part: str) -> bool:
+    """True if ``part`` is a contiguous run of mana symbols (e.g. {X}{X}, {2}{R}).
+
+    A single mana symbol also satisfies this (it's the trivial 1-symbol run).
+    """
+    s = part.strip()
+    if not (s.startswith("{") and s.endswith("}")):
+        return False
+    return bool(_MANA_SEQUENCE_RE.match(s))
 
 
 def parse_activation_cost(cost_text: str, source_name: str = "") -> tuple[
@@ -131,6 +153,12 @@ def parse_activation_cost(cost_text: str, source_name: str = "") -> tuple[
         if upper == "{Q}":  # Untap symbol — rare; treat as tap-untap.
             continue
         if _is_mana_symbol(part):
+            mana_parts.append(part)
+            continue
+        # Compound mana sequences such as "{X}{X}" or "{2}{R}". We try to
+        # split off a leading run of mana symbols and treat it as one mana
+        # chunk. The remainder (rare — usually empty) gets re-processed.
+        if _is_mana_sequence(part):
             mana_parts.append(part)
             continue
         # Self-exile (Adventure-style "Exile this card").
@@ -251,6 +279,11 @@ def register_activated_ability(
     own_turn_only = own_turn_only or text_turn or sorcery_speed
     once_per_turn = once_per_turn or text_once
 
+    has_x_cost = bool(mana_cost is not None and mana_cost.x_count > 0)
+    # is_exhaust currently mirrors once_per_game; tracked separately for forward
+    # compatibility with potential future "Exhaust without once-per-game" cards.
+    is_exhaust = bool(once_per_game)
+
     ability = ActivatedAbility(
         cost_text=cost,
         effect_fn=effect_fn,
@@ -266,6 +299,8 @@ def register_activated_ability(
         own_turn_only=own_turn_only,
         once_per_turn=once_per_turn,
         once_per_game=once_per_game,
+        has_x_cost=has_x_cost,
+        is_exhaust=is_exhaust,
         targets_required=targets_required,
         target_kind=target_kind,
         is_adventure=is_adventure,
@@ -300,12 +335,21 @@ def can_pay_activation(
     is_active_player: bool = True,
     is_main_phase: bool = True,
     stack_empty: bool = True,
+    x_value: int = 0,
+    effective_mana_cost: Optional[ManaCost] = None,
 ) -> bool:
     """Check whether all activation costs/timing constraints are satisfied.
 
     Timing booleans are passed in by the caller (priority.py) which has the
     authoritative turn_manager / stack references. ``is_active_player`` should
     be True iff ``player_id`` is the player whose turn it currently is.
+
+    ``x_value`` is the chosen value for {X} symbols in the mana cost; defaults
+    to 0 (so existing callers that only have an X=0 ability behave unchanged).
+    ``effective_mana_cost`` overrides the printed mana_cost when supplied
+    (used by callers that have already applied activated-cost reductions via
+    ``cost_query.get_effective_activation_cost``); the printed cost is used
+    otherwise.
     """
     # Tap requirement
     if ability.requires_tap and obj.state.tapped:
@@ -322,7 +366,8 @@ def can_pay_activation(
                 return False
     # Mana
     if ability.mana_cost and mana_system is not None:
-        if not mana_system.can_cast(player_id, ability.mana_cost, 0):
+        cost_to_pay = effective_mana_cost if effective_mana_cost is not None else ability.mana_cost
+        if not mana_system.can_cast(player_id, cost_to_pay, x_value):
             return False
     # Counter removal
     if ability.counter_removal:
@@ -356,18 +401,26 @@ def pay_activation_cost(
     state: GameState,
     player_id: str,
     mana_system=None,
+    *,
+    x_value: int = 0,
+    effective_mana_cost: Optional[ManaCost] = None,
 ) -> list[Event]:
     """Pay all activation costs, returning the resulting Events to enqueue.
 
     Mana is paid via ``mana_system`` directly (no event emitted; the existing
     cast path uses the same convention). Returns events for tap, sacrifice,
     counter removal, etc.
+
+    ``x_value`` is the chosen value for any {X} mana symbols in the cost.
+    ``effective_mana_cost`` lets callers substitute a cost-reduction-applied
+    cost; the printed cost is used otherwise.
     """
     events: list[Event] = []
 
     # Mana
     if ability.mana_cost and mana_system is not None and not ability.mana_cost.is_free():
-        mana_system.pay_cost(player_id, ability.mana_cost, 0)
+        cost_to_pay = effective_mana_cost if effective_mana_cost is not None else ability.mana_cost
+        mana_system.pay_cost(player_id, cost_to_pay, x_value)
 
     # Tap
     if ability.requires_tap:

@@ -188,3 +188,95 @@ def source_on_battlefield(source_id: str, state: GameState) -> bool:
     """True if the named object is currently on the battlefield."""
     obj = state.objects.get(source_id)
     return bool(obj and obj.zone == ZoneType.BATTLEFIELD)
+
+
+# ---------------------------------------------------------------------------
+# Activated-ability cost queries
+#
+# Mirrors get_effective_mana_cost above, but for activated-ability mana costs.
+# Used by the priority system before paying / can-paying an activation, so
+# cards like Boom Scholar ("Exhaust abilities of other permanents you control
+# cost {2} less to activate") can register a TRANSFORM-priority interceptor
+# on EventType.QUERY_ACTIVATION_COST and adjust the running reduction.
+# ---------------------------------------------------------------------------
+
+
+def _make_activation_query_event(
+    ability,
+    source: GameObject,
+    player_id: str,
+    base_cost: ManaCost,
+) -> Event:
+    """Build the synthetic QUERY_ACTIVATION_COST event consumed by reduction interceptors."""
+    return Event(
+        type=EventType.QUERY_ACTIVATION_COST,
+        payload={
+            'ability': ability,
+            'source': source,
+            'source_id': source.id if source else None,
+            'player_id': player_id,
+            'base_cost': base_cost,
+            'is_exhaust': bool(getattr(ability, 'is_exhaust', False)),
+            REDUCTION_KEY: 0,
+        },
+        controller=player_id,
+    )
+
+
+def get_effective_activation_cost(
+    ability,
+    source: GameObject,
+    player_id: str,
+    state: GameState,
+    base_cost: Optional[ManaCost] = None,
+) -> ManaCost:
+    """
+    Compute the effective mana cost for activating ``ability`` on ``source``,
+    after applying every registered activated-cost-reduction interceptor.
+
+    Returns ``ability.mana_cost`` (or ``ManaCost()`` if the ability has none)
+    when no reductions apply. Coloured pips are never reduced (matches the
+    spell-cost rule).
+    """
+    if base_cost is None:
+        base_cost = getattr(ability, 'mana_cost', None) or ManaCost()
+
+    event = _make_activation_query_event(ability, source, player_id, base_cost)
+
+    # We support both QUERY-priority (read-only, mirrors spell cost queries)
+    # and TRANSFORM-priority (the spec calls for TRANSFORM) reduction
+    # interceptors. Sorted by timestamp for deterministic ordering.
+    candidate_priorities = (InterceptorPriority.TRANSFORM, InterceptorPriority.QUERY)
+    interceptors = sorted(
+        [
+            i for i in state.interceptors.values()
+            if i.priority in candidate_priorities
+            and _is_activation_query(i, event, state)
+        ],
+        key=lambda i: i.timestamp,
+    )
+
+    total_reduction = 0
+    for interceptor in interceptors:
+        ev = event.copy()
+        ev.payload[REDUCTION_KEY] = total_reduction
+        try:
+            result = interceptor.handler(ev, state)
+        except Exception:
+            continue
+        if result and result.transformed_event:
+            new_total = result.transformed_event.payload.get(REDUCTION_KEY, total_reduction)
+            try:
+                total_reduction = int(new_total)
+            except (TypeError, ValueError):
+                continue
+
+    return _apply_reduction(base_cost, total_reduction)
+
+
+def _is_activation_query(interceptor: Interceptor, event: Event, state: GameState) -> bool:
+    """Run the interceptor's filter against the synthetic activation event safely."""
+    try:
+        return bool(interceptor.filter(event, state))
+    except Exception:
+        return False
