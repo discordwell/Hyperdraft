@@ -15,11 +15,14 @@ from .types import (
 
 
 def get_power(obj: GameObject, state: GameState) -> int:
-    """Get computed power of a creature, applying all continuous effects."""
-    if obj.characteristics.power is None:
-        return 0
+    """Get computed power of a creature, applying all continuous effects.
 
-    power = obj.characteristics.power
+    Note: even objects whose printed power is None (artifacts, lands,
+    enchantments that aren't creatures) still run through the QUERY_POWER
+    interceptors so effects like "[X] becomes a 4/4 creature until end of
+    turn" can override the base.
+    """
+    power = obj.characteristics.power if obj.characteristics.power is not None else 0
 
     # Get all QUERY interceptors that affect power, sorted by timestamp
     interceptors = sorted(
@@ -51,11 +54,12 @@ def get_power(obj: GameObject, state: GameState) -> int:
 
 
 def get_toughness(obj: GameObject, state: GameState) -> int:
-    """Get computed toughness of a creature, applying all continuous effects."""
-    if obj.characteristics.toughness is None:
-        return 0
+    """Get computed toughness of a creature, applying all continuous effects.
 
-    toughness = obj.characteristics.toughness
+    Note: see get_power — non-creatures still run through the interceptors
+    so becomes_creature-style effects can override the base.
+    """
+    toughness = obj.characteristics.toughness if obj.characteristics.toughness is not None else 0
 
     # Get all QUERY interceptors that affect toughness
     interceptors = sorted(
