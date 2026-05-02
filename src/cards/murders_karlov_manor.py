@@ -46,6 +46,7 @@ from src.cards.interceptor_helpers import (
     count_permanents_of_type,
     make_cost_reduction,
     make_cycling_setup,
+    make_modal_resolve,
 )
 
 
@@ -9180,11 +9181,120 @@ ANALYZE_THE_POLLEN = make_sorcery(
     resolve=analyze_the_pollen_resolve,
 )
 
+def _archdruids_charm_mode_search(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Search library for creature or land card. Land enters tapped, otherwise hand."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': caster_id,
+            'card_filter': 'creature_or_land',
+            'destination': 'split_by_type',
+        },
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _archdruids_charm_mode_counter_fight(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """+1/+1 counter on creature you control; it deals damage equal to its power
+    to creature you don't control."""
+    own = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+    enemy = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller != caster_id)
+    ]
+    if not own or not enemy:
+        return []
+    def _on_enemy(ch2, sel_enemy, st):
+        if not sel_enemy:
+            return []
+        own_id = ch2.callback_data.get('_own_id')
+        if not own_id:
+            return []
+        own_obj = st.objects.get(own_id)
+        own_power = getattr(own_obj.state, 'power', 0) if own_obj else 0
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': own_id, 'counter_type': '+1/+1', 'amount': 1},
+                source=spell_id, controller=caster_id,
+            ),
+            Event(
+                type=EventType.DAMAGE,
+                payload={'target': sel_enemy[0], 'amount': own_power + 1, 'source': own_id},
+                source=spell_id, controller=caster_id,
+            ),
+        ]
+    def _on_own(ch1, sel_own, st):
+        if not sel_own:
+            return []
+        ch2 = create_target_choice(
+            state=st, player_id=caster_id, source_id=spell_id,
+            legal_targets=enemy,
+            prompt="Archdruid's Charm: choose enemy creature to damage",
+            callback_data={'_own_id': sel_own[0]},
+        )
+        ch2.choice_type = "target_with_callback"
+        ch2.callback_data['handler'] = _on_enemy
+        return []
+    tc1 = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=own,
+        prompt="Archdruid's Charm: choose your creature to receive +1/+1 counter",
+    )
+    tc1.choice_type = "target_with_callback"
+    tc1.callback_data['handler'] = _on_own
+    return []
+
+
+def _archdruids_charm_mode_exile(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Exile target artifact or enchantment."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and (CardType.ARTIFACT in o.characteristics.types
+                 or CardType.ENCHANTMENT in o.characteristics.types))
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Archdruid's Charm: exile artifact or enchantment",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 ARCHDRUIDS_CHARM = make_instant(
     name="Archdruid's Charm",
     mana_cost="{G}{G}{G}",
     colors={Color.GREEN},
     text="Choose one —\n• Search your library for a creature or land card and reveal it. Put it onto the battlefield tapped if it's a land card. Otherwise, put it into your hand. Then shuffle.\n• Put a +1/+1 counter on target creature you control. It deals damage equal to its power to target creature you don't control.\n• Exile target artifact or enchantment.",
+    resolve=make_modal_resolve(
+        "Archdruid's Charm",
+        modes=[
+            ("Search your library for a creature or land card", _archdruids_charm_mode_search),
+            ("+1/+1 counter, then deal damage equal to power", _archdruids_charm_mode_counter_fight),
+            ("Exile target artifact or enchantment", _archdruids_charm_mode_exile),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 AUDIENCE_WITH_TROSTANI = make_sorcery(

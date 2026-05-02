@@ -33,6 +33,7 @@ from src.cards.interceptor_helpers import (
     make_activated_ability, becomes_creature, make_ward,
     make_activated_ability, becomes_creature, make_cost_reduction,
     make_cycling_setup,
+    make_modal_resolve,
 )
 
 
@@ -5181,11 +5182,49 @@ FABRICATION_FOUNDRY = make_artifact(
     setup_interceptors=fabrication_foundry_setup,
 )
 
+def _family_reunion_mode_pump(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Creatures you control get +1/+1 until end of turn."""
+    return [
+        Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': oid, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        )
+        for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+
+
+def _family_reunion_mode_hexproof(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Creatures you control gain hexproof until end of turn."""
+    return [
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': oid, 'keyword': 'hexproof', 'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        )
+        for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+
+
 FAMILY_REUNION = make_instant(
     name="Family Reunion",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Choose one —\n• Creatures you control get +1/+1 until end of turn.\n• Creatures you control gain hexproof until end of turn. (They can't be the targets of spells or abilities your opponents control.)",
+    resolve=make_modal_resolve(
+        "Family Reunion",
+        modes=[
+            ("Creatures you control get +1/+1 until end of turn", _family_reunion_mode_pump),
+            ("Creatures you control gain hexproof until end of turn", _family_reunion_mode_hexproof),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 GET_LOST = make_instant(
@@ -5517,11 +5556,68 @@ COGWORK_WRESTLER = make_artifact_creature(
     setup_interceptors=cogwork_wrestler_setup
 )
 
+def _confounding_riddle_mode_dig(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Approximate: draw 1 + surveil 3 (not strictly correct — original puts
+    chosen card to hand, rest to graveyard. We use draw + surveil as the
+    closest emit-only pattern: look at top 3 to choose what to keep/mill).
+    """
+    return [
+        Event(
+            type=EventType.DRAW,
+            payload={'player': caster_id, 'amount': 1},
+            source=spell_id, controller=caster_id,
+        ),
+        Event(
+            type=EventType.SURVEIL,
+            payload={'player': caster_id, 'amount': 3},
+            source=spell_id, controller=caster_id,
+        ),
+    ]
+
+
+def _confounding_riddle_mode_counter(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Counter target spell unless its controller pays {4}."""
+    stack = state.zones.get('stack')
+    legal = []
+    if stack:
+        for cid in stack.objects:
+            if cid != spell_id:
+                legal.append(cid)
+    if not legal:
+        return []
+
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.COUNTER_SPELL_UNLESS_PAY,
+            payload={'target': selected[0], 'cost': '{4}'},
+            source=spell_id, controller=caster_id,
+        )]
+
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Confounding Riddle: choose target spell to counter unless {4}",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 CONFOUNDING_RIDDLE = make_instant(
     name="Confounding Riddle",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Choose one —\n• Look at the top four cards of your library. Put one of them into your hand and the rest into your graveyard.\n• Counter target spell unless its controller pays {4}.",
+    resolve=make_modal_resolve(
+        "Confounding Riddle",
+        modes=[
+            ("Look at the top four cards of your library", _confounding_riddle_mode_dig),
+            ("Counter target spell unless its controller pays {4}", _confounding_riddle_mode_counter),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 COUNCIL_OF_ECHOES = make_creature(
@@ -6832,11 +6928,64 @@ GHALTA_STAMPEDE_TYRANT = make_creature(
     setup_interceptors=ghalta_stampede_tyrant_setup,
 )
 
+def _glimpse_the_core_mode_search(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Search library for basic Forest card, put it onto the battlefield tapped."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': caster_id,
+            'card_filter': 'basic_land',
+            'subtype': 'Forest',
+            'destination': 'battlefield',
+            'tapped': True,
+        },
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _glimpse_the_core_mode_return(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Return target Cave card from your graveyard to the battlefield tapped."""
+    gy_key = f"graveyard_{caster_id}"
+    gy = state.zones.get(gy_key)
+    legal = []
+    if gy:
+        for cid in gy.objects:
+            obj = state.objects.get(cid)
+            if obj and 'Cave' in obj.characteristics.subtypes:
+                legal.append(cid)
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={'card_id': selected[0], 'destination': 'battlefield', 'tapped': True},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Glimpse the Core: choose Cave card to return tapped",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 GLIMPSE_THE_CORE = make_sorcery(
     name="Glimpse the Core",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Choose one —\n• Search your library for a basic Forest card, put that card onto the battlefield tapped, then shuffle.\n• Return target Cave card from your graveyard to the battlefield tapped.",
+    resolve=make_modal_resolve(
+        "Glimpse the Core",
+        modes=[
+            ("Search your library for a basic Forest card", _glimpse_the_core_mode_search),
+            ("Return target Cave card from your graveyard to the battlefield tapped", _glimpse_the_core_mode_return),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 GLOWCAP_LANTERN = make_artifact(
@@ -7004,11 +7153,83 @@ OJER_KASLEM_DEEPEST_GROWTH = make_creature(
     text="",
 )
 
+def _over_the_edge_mode_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Destroy target artifact or enchantment."""
+    legal = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and (CardType.ARTIFACT in o.characteristics.types
+                 or CardType.ENCHANTMENT in o.characteristics.types))
+    ]
+    if not legal:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': selected[0]},
+            source=spell_id, controller=caster_id,
+        )]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Over the Edge: choose artifact or enchantment to destroy",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
+def _over_the_edge_mode_explore(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+    """Target creature you control explores twice. Engine gap: reveal/library
+    flow; emit two EXPLORE events as a best-effort marker."""
+    own_creatures = [
+        oid for oid, o in state.objects.items()
+        if (o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+            and o.controller == caster_id)
+    ]
+    if not own_creatures:
+        return []
+    def _on_target(ch, selected, st):
+        if not selected:
+            return []
+        return [
+            Event(
+                type=EventType.EXPLORE,
+                payload={'object_id': selected[0], 'controller': caster_id},
+                source=spell_id, controller=caster_id,
+            ),
+            Event(
+                type=EventType.EXPLORE,
+                payload={'object_id': selected[0], 'controller': caster_id},
+                source=spell_id, controller=caster_id,
+            ),
+        ]
+    tc = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=own_creatures,
+        prompt="Over the Edge: choose your creature to explore twice",
+    )
+    tc.choice_type = "target_with_callback"
+    tc.callback_data['handler'] = _on_target
+    return []
+
+
 OVER_THE_EDGE = make_sorcery(
     name="Over the Edge",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Choose one —\n• Destroy target artifact or enchantment.\n• Target creature you control explores, then it explores again. (Reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on that creature, then put the card back or put it into your graveyard. Then repeat this process.)",
+    resolve=make_modal_resolve(
+        "Over the Edge",
+        modes=[
+            ("Destroy target artifact or enchantment", _over_the_edge_mode_destroy),
+            ("Target creature you control explores, then again", _over_the_edge_mode_explore),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 PATHFINDING_AXEJAW = make_creature(
