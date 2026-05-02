@@ -43,6 +43,8 @@ from src.cards.interceptor_helpers import (
     make_ward,
     # Dynamic P/T helpers.
     make_attached_dynamic_pt_boost,
+    # Targeting choice helper for graveyard-activated abilities.
+    create_target_choice,
 )
 from src.engine.spm_mechanics import (
     is_web_slinging_cast, web_slinging_returned_mv, is_mayhem_cast,
@@ -1861,6 +1863,61 @@ def beetle_legacy_criminal_setup(obj: GameObject, state: GameState) -> list[Inte
     return []  # engine gap: activated-from-graveyard not auto-wired
 
 
+def beetle_legacy_criminal_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}{U}, Exile this card from your graveyard: Put a +1/+1 counter on
+    target creature. It gains flying until end of turn."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        legal = [
+            oid for oid, ob in st.objects.items()
+            if ob.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in ob.characteristics.types
+        ]
+        events: list[Event] = [Event(
+            type=EventType.EXILE,
+            payload={'object_id': o.id},
+            source=o.id, controller=o.controller,
+        )]
+        if not legal:
+            return events
+
+        def _handler(choice, selected, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            tid = selected[0]
+            return [
+                Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': tid, 'counter_type': '+1/+1', 'amount': 1},
+                    source=o.id, controller=o.controller,
+                ),
+                Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': tid, 'keyword': 'flying', 'duration': 'end_of_turn'},
+                    source=o.id, controller=o.controller,
+                ),
+            ]
+        choice = create_target_choice(
+            state=st,
+            player_id=o.controller,
+            source_id=o.id,
+            legal_targets=legal,
+            prompt="Beetle: +1/+1 counter and flying until end of turn",
+            min_targets=1, max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _handler
+        return events
+    make_activated_ability(
+        obj,
+        cost="{1}{U}",
+        effect_fn=_effect,
+        description="Exile from graveyard: +1/+1 counter and flying EOT",
+        sorcery_speed=True,
+    )
+    return []
+
+
 # --- Chameleon, Master of Disguise ---
 # "Enter as a copy" + Mayhem {2}{U} alt cost. Wire the Mayhem alt cost via the
 # helper; enter-as-copy still requires engine support and is left as a gap.
@@ -2138,6 +2195,61 @@ swarm_being_of_bees_setup = make_mayhem_setup("{B}")
 # Deathtouch + activated graveyard ability.
 def venom_evil_unleashed_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return []  # engine gap: activated-from-graveyard ability
+
+
+def venom_evil_unleashed_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{B}, Exile this card from your graveyard: Put two +1/+1 counters
+    on target creature. It gains deathtouch until end of turn."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        legal = [
+            oid for oid, ob in st.objects.items()
+            if ob.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in ob.characteristics.types
+        ]
+        events: list[Event] = [Event(
+            type=EventType.EXILE,
+            payload={'object_id': o.id},
+            source=o.id, controller=o.controller,
+        )]
+        if not legal:
+            return events
+
+        def _handler(choice, selected, gs: GameState) -> list[Event]:
+            if not selected:
+                return []
+            tid = selected[0]
+            return [
+                Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': tid, 'counter_type': '+1/+1', 'amount': 2},
+                    source=o.id, controller=o.controller,
+                ),
+                Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': tid, 'keyword': 'deathtouch', 'duration': 'end_of_turn'},
+                    source=o.id, controller=o.controller,
+                ),
+            ]
+        choice = create_target_choice(
+            state=st,
+            player_id=o.controller,
+            source_id=o.id,
+            legal_targets=legal,
+            prompt="Venom: two +1/+1 counters and deathtouch until end of turn",
+            min_targets=1, max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _handler
+        return events
+    make_activated_ability(
+        obj,
+        cost="{2}{B}",
+        effect_fn=_effect,
+        description="Exile from graveyard: Two +1/+1 counters and deathtouch EOT",
+        sorcery_speed=True,
+    )
+    return []
 
 
 # --- Electro, Assaulting Battery ---
@@ -2609,6 +2721,34 @@ def kraven_proud_predator_setup(obj: GameObject, state: GameState) -> list[Inter
 # Flying/vigilance/lifelink + activated graveyard "look at top 3, hand 1."
 def morbius_the_living_vampire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return []  # engine gap: activated-from-graveyard impulse-style top-3
+
+
+def morbius_the_living_vampire_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{U}{B}, Exile this card from your graveyard: Look at the top three
+    cards of your library. Put one of them into your hand and the rest on
+    the bottom of your library in any order."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        return [
+            Event(
+                type=EventType.EXILE,
+                payload={'object_id': o.id},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.LOOK_AT_TOP,
+                payload={'player': o.controller, 'amount': 3, 'put_in_hand': 1, 'rest_to_bottom': True},
+                source=o.id, controller=o.controller,
+            ),
+        ]
+    make_activated_ability(
+        obj,
+        cost="{U}{B}",
+        effect_fn=_effect,
+        description="Exile from graveyard: Look at top 3, put 1 in hand, rest on bottom",
+    )
+    return []
 
 
 # --- Scarlet Spider, Ben Reilly ---
@@ -3403,6 +3543,7 @@ BEETLE_LEGACY_CRIMINAL = make_creature(
     text="Flying\n{1}{U}, Exile this card from your graveyard: Put a +1/+1 counter on target creature. It gains flying until end of turn. Activate only as a sorcery.",
     setup_interceptors=beetle_legacy_criminal_setup,
 )
+BEETLE_LEGACY_CRIMINAL.setup_in_graveyard = beetle_legacy_criminal_gy_setup
 
 CHAMELEON_MASTER_OF_DISGUISE = make_creature(
     name="Chameleon, Master of Disguise",
@@ -3831,6 +3972,7 @@ VENOM_EVIL_UNLEASHED = make_creature(
     text="Deathtouch\n{2}{B}, Exile this card from your graveyard: Put two +1/+1 counters on target creature. It gains deathtouch until end of turn. Activate only as a sorcery.",
     setup_interceptors=venom_evil_unleashed_setup,
 )
+VENOM_EVIL_UNLEASHED.setup_in_graveyard = venom_evil_unleashed_gy_setup
 
 VENOMIZED_CAT = make_creature(
     name="Venomized Cat",
@@ -4477,6 +4619,7 @@ MORBIUS_THE_LIVING_VAMPIRE = make_creature(
     text="Flying, vigilance, lifelink\n{U}{B}, Exile this card from your graveyard: Look at the top three cards of your library. Put one of them into your hand and the rest on the bottom of your library in any order.",
     setup_interceptors=morbius_the_living_vampire_setup,
 )
+MORBIUS_THE_LIVING_VAMPIRE.setup_in_graveyard = morbius_the_living_vampire_gy_setup
 
 PROWLER_CLAWED_THIEF = make_creature(
     name="Prowler, Clawed Thief",
