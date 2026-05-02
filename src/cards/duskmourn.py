@@ -51,6 +51,8 @@ from src.cards.interceptor_helpers import (
     make_cost_reduction,
     # Cycling
     make_cycling_setup,
+    # Copy-token
+    make_copy_token_event,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -1609,9 +1611,45 @@ def the_mindskinner_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def mirror_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — copy a creature (SKIP) / trigger-doubling (SKIP)."""
-    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
-        # SKIP: token copy of target creature you control. Engine gap (token-copy machinery).
+    """Room — door 1 creates a copy of target creature you control with
+    "Reflection" added to its creature types. Door 2 ("Fractured Realm")
+    is still SKIP (trigger-doubling is an unrelated engine gap)."""
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        # Find legal target creatures controlled by the room's controller.
+        legal = [
+            cid for cid, gobj in st.objects.items()
+            if (gobj.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in gobj.characteristics.types and
+                gobj.controller == o.controller)
+        ]
+        if not legal:
+            return []
+
+        def _on_choose(choice, selected, st_inner: GameState) -> list[Event]:
+            tid = None
+            if selected:
+                s = selected[0]
+                tid = s.get("id") if isinstance(s, dict) else str(s)
+            if not tid or tid not in st_inner.objects:
+                return []
+            return make_copy_token_event(
+                target_id=tid,
+                controller=o.controller,
+                source_id=o.id,
+                add_subtypes={"Reflection"},
+            )
+
+        from src.engine.types import PendingChoice
+        st.pending_choice = PendingChoice(
+            choice_type="target_with_callback",
+            player=o.controller,
+            prompt="Choose a creature you control to copy (Mirror Room)",
+            options=legal,
+            source_id=o.id,
+            min_choices=1,
+            max_choices=1,
+            callback_data={"handler": _on_choose},
+        )
         return []
 
     def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:

@@ -39,10 +39,27 @@ def _handle_object_created(event: Event, state: GameState):
         - tapped: bool (optional)
         - attach_to / attached_to: object_id (optional)
 
+    Copy-token mode:
+        - copy_of: object_id (optional)
+            When set, look up the source object on the battlefield and copy
+            its printed characteristics (types, subtypes, colors, power,
+            toughness, abilities) and card_def. ``is_token`` defaults to True
+            in this mode. The token's name defaults to the source's name. The
+            following payload keys override copied fields *after* the copy:
+                - add_subtypes / except_add_subtypes: subtypes added in
+                  addition to copied subtypes (e.g. "except it's a Reflection
+                  in addition to its other creature types")
+                - except_subtypes: replace subtypes entirely
+                - except_power / except_toughness: override copied P/T
+                - except_colors: replace colors entirely
+                - except_keywords: replace keyword abilities entirely
+                - except_name: override copied name
+
     Side effects:
         - event.payload['object_id'] is set to the created object's id.
         - event.payload['to_zone_type'] is set to the final ZoneType.
     """
+    import copy as _copy
     from ...types import new_id, GameObject, Characteristics, ObjectState
 
     controller_id = event.payload.get('controller') or event.controller
@@ -64,44 +81,110 @@ def _handle_object_created(event: Event, state: GameState):
         except Exception:
             zone_type = ZoneType.BATTLEFIELD
 
-    types = event.payload.get('types')
-    if types is None:
-        types = {CardType.CREATURE}
-    if isinstance(types, list):
-        types = set(types)
+    # ------------------------------------------------------------------
+    # Copy-token branch. When copy_of points at an existing object, we
+    # deep-copy that object's printed characteristics and use its card_def.
+    # Modifications passed in the payload (except_subtypes, except_power,
+    # add_subtypes, etc.) are applied *after* the copy.
+    # ------------------------------------------------------------------
+    copy_source_id = event.payload.get('copy_of')
+    copy_source = state.objects.get(copy_source_id) if copy_source_id else None
 
-    subtypes = event.payload.get('subtypes', set())
-    if isinstance(subtypes, list):
-        subtypes = set(subtypes)
+    name: str
+    characteristics: Characteristics
+    is_token: bool
+    inherited_card_def = None
 
-    supertypes = event.payload.get('supertypes', set())
-    if isinstance(supertypes, list):
-        supertypes = set(supertypes)
+    if copy_source is not None:
+        # Deep-copy printed characteristics so the copy and original don't
+        # share mutable state (abilities list, type sets, etc.).
+        characteristics = _copy.deepcopy(copy_source.characteristics)
 
-    colors = event.payload.get('colors', set())
-    if isinstance(colors, list):
-        colors = set(colors)
+        # "Except" overrides — applied after the deep-copy.
+        except_subtypes = event.payload.get('except_subtypes')
+        if except_subtypes is not None:
+            characteristics.subtypes = set(except_subtypes)
+        add_subtypes = (
+            event.payload.get('add_subtypes')
+            or event.payload.get('except_add_subtypes')
+        )
+        if add_subtypes:
+            characteristics.subtypes = set(characteristics.subtypes) | set(add_subtypes)
+        if 'except_power' in event.payload:
+            characteristics.power = event.payload['except_power']
+        if 'except_toughness' in event.payload:
+            characteristics.toughness = event.payload['except_toughness']
+        if 'except_colors' in event.payload:
+            ec = event.payload['except_colors']
+            characteristics.colors = set(ec) if ec is not None else set()
+        if 'except_types' in event.payload:
+            et = event.payload['except_types']
+            characteristics.types = set(et) if et is not None else set()
+        if 'except_keywords' in event.payload:
+            new_keywords = event.payload['except_keywords'] or []
+            characteristics.abilities = [
+                {'keyword': str(k).lower()} for k in new_keywords
+            ]
 
-    # Abilities/keywords (best-effort). Many callers use `keywords=[...]`.
-    abilities = event.payload.get('abilities', [])
-    if isinstance(abilities, list) and abilities and not isinstance(abilities[0], dict):
-        abilities = []
+        name = (
+            event.payload.get('except_name')
+            or event.payload.get('name')
+            or copy_source.name
+        )
+        # Tokens default to True in copy mode but allow explicit override
+        # (mostly for tests; production callers always want is_token=True).
+        if 'is_token' in event.payload or 'token' in event.payload:
+            is_token = bool(event.payload.get('is_token') or event.payload.get('token'))
+        else:
+            is_token = True
+        # Inherit card_def so the copy's setup_interceptors fire on ETB and
+        # graveyard-zone setups still register properly. Only inherit if the
+        # source had a card_def (e.g. not a copy of an already-pure token).
+        inherited_card_def = (
+            event.payload.get('card_def')
+            or copy_source.card_def
+        )
+    else:
+        types = event.payload.get('types')
+        if types is None:
+            types = {CardType.CREATURE}
+        if isinstance(types, list):
+            types = set(types)
 
-    keywords = event.payload.get('keywords', [])
-    if keywords and not abilities:
-        abilities = [{'keyword': str(kw).lower()} for kw in keywords]
+        subtypes = event.payload.get('subtypes', set())
+        if isinstance(subtypes, list):
+            subtypes = set(subtypes)
 
-    characteristics = Characteristics(
-        types=types,
-        subtypes=subtypes,
-        supertypes=supertypes,
-        colors=colors,
-        power=event.payload.get('power'),
-        toughness=event.payload.get('toughness'),
-        abilities=abilities or []
-    )
+        supertypes = event.payload.get('supertypes', set())
+        if isinstance(supertypes, list):
+            supertypes = set(supertypes)
 
-    is_token = bool(event.payload.get('is_token') or event.payload.get('token'))
+        colors = event.payload.get('colors', set())
+        if isinstance(colors, list):
+            colors = set(colors)
+
+        # Abilities/keywords (best-effort). Many callers use `keywords=[...]`.
+        abilities = event.payload.get('abilities', [])
+        if isinstance(abilities, list) and abilities and not isinstance(abilities[0], dict):
+            abilities = []
+
+        keywords = event.payload.get('keywords', [])
+        if keywords and not abilities:
+            abilities = [{'keyword': str(kw).lower()} for kw in keywords]
+
+        characteristics = Characteristics(
+            types=types,
+            subtypes=subtypes,
+            supertypes=supertypes,
+            colors=colors,
+            power=event.payload.get('power'),
+            toughness=event.payload.get('toughness'),
+            abilities=abilities or []
+        )
+        name = event.payload.get('name', 'Token')
+        is_token = bool(event.payload.get('is_token') or event.payload.get('token'))
+        inherited_card_def = event.payload.get('card_def')
+
     enters_tapped = bool(event.payload.get('tapped', False))
     enters_face_down = bool(event.payload.get('face_down', False))
 
@@ -132,13 +215,13 @@ def _handle_object_created(event: Event, state: GameState):
 
     created = GameObject(
         id=obj_id,
-        name=event.payload.get('name', 'Token'),
+        name=name,
         owner=owner_id,
         controller=controller_id,
         zone=zone_type,
         characteristics=characteristics,
         state=obj_state,
-        card_def=event.payload.get('card_def'),
+        card_def=inherited_card_def,
         created_at=state.next_timestamp(),
         entered_zone_at=state.timestamp,
         _state_ref=state,
@@ -181,6 +264,28 @@ def _handle_object_created(event: Event, state: GameState):
         host = state.objects[attach_to]
         if obj_id not in host.state.attachments:
             host.state.attachments.append(obj_id)
+
+    # Run setup_interceptors on entry to BATTLEFIELD when this is a copy token
+    # (copy_source is set). The copy inherits the original's card_def, so its
+    # setup_interceptors must fire here to wire passives / ETB triggers.
+    # (Face-down manifests pass card_def too, but those defer setup until the
+    # card is turned face-up — so we gate this on copy_source being present.)
+    if (
+        copy_source is not None
+        and zone_type == ZoneType.BATTLEFIELD
+        and not enters_face_down
+        and inherited_card_def is not None
+        and getattr(inherited_card_def, 'setup_interceptors', None)
+    ):
+        try:
+            new_interceptors = inherited_card_def.setup_interceptors(created, state) or []
+            for interceptor in new_interceptors:
+                interceptor.timestamp = state.next_timestamp()
+                state.interceptors[interceptor.id] = interceptor
+                created.interceptor_ids.append(interceptor.id)
+        except Exception:
+            # Defensive: never let a card's setup_interceptors break OBJECT_CREATED.
+            pass
 
     # Surface created id/zone for downstream triggers/tests.
     event.payload['object_id'] = obj_id
