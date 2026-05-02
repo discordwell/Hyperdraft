@@ -1991,11 +1991,7 @@ SUPERNOVA = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Pirate"},
-    text="Haste. Whenever Supernova attacks, deal 1 damage to defending player.",
-    setup_interceptors=lambda o, s: [make_attack_trigger(o, lambda e, st: (
-        [Event(type=EventType.DAMAGE,
-               payload={'target': e.payload.get('defending_player'), 'amount': 1, 'source': o.id},
-               source=o.id)] if e.payload.get('defending_player') else []))]
+    text="Haste."
 )
 
 BATTLE_FRANKY = make_artifact_creature(
@@ -2035,12 +2031,7 @@ SAMURAI_OF_WANO = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Samurai"},
-    text="First strike. When Samurai of Wano enters, deal 1 damage to each opponent.",
-    setup_interceptors=lambda o, s: [make_etb_trigger(o, lambda e, st: (
-        [Event(type=EventType.DAMAGE,
-               payload={'target': pid, 'amount': 1, 'source': o.id},
-               source=o.id)
-         for pid in st.players if pid != o.controller]))]
+    text="First strike."
 )
 
 # More Green Cards
