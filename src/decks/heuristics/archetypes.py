@@ -73,11 +73,26 @@ CONTROL = ArchetypeTemplate(
         "removal": 8,
         "counterspell": 6,
         "card_draw": 8,
-        "wincon": 4,
+        "wincon": 6,
         "utility": 2,
     },
     land_count=26,
     cmc_sweet=4,
+)
+
+COMBO = ArchetypeTemplate(
+    name="Combo",
+    curve_targets={1: 8, 2: 12, 3: 8, 4: 4, 5: 2, 6: 2},
+    role_targets={
+        "card_draw": 10,
+        "wincon": 4,
+        "counterspell": 4,
+        "ramp": 2,
+        "removal": 2,
+        "utility": 2,
+    },
+    land_count=22,
+    cmc_sweet=2,
 )
 
 TEMPO = ArchetypeTemplate(
@@ -115,6 +130,7 @@ ARCHETYPE_TEMPLATES: dict[str, ArchetypeTemplate] = {
     "Control": CONTROL,
     "Tempo": TEMPO,
     "Ramp": RAMP,
+    "Combo": COMBO,
 }
 
 
@@ -139,5 +155,6 @@ __all__ = [
     "CONTROL",
     "TEMPO",
     "RAMP",
+    "COMBO",
     "get_template",
 ]
