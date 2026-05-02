@@ -12,6 +12,8 @@ Strategy Layers:
 from .engine import AIEngine
 from .evaluator import BoardEvaluator
 from .heuristics import Heuristics
+from .benchmark import AIBenchmarkRun
+from .tracing import AITraceRecorder, DecisionTraceEvent
 from .reactive import ReactiveEvaluator, ReactiveContext, StackThreatAssessment, CombatCreatureInfo
 from .strategies import AIStrategy, AggroStrategy, ControlStrategy, MidrangeStrategy, UltraStrategy
 
@@ -24,6 +26,9 @@ __all__ = [
     'AIEngine',
     'BoardEvaluator',
     'Heuristics',
+    'AIBenchmarkRun',
+    'AITraceRecorder',
+    'DecisionTraceEvent',
     # Reactive
     'ReactiveEvaluator',
     'ReactiveContext',

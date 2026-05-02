@@ -28,6 +28,8 @@ class AIStrategy(ABC):
     def __init__(self):
         """Initialize the strategy with layer storage."""
         self._layers: dict[str, 'CardLayers'] = {}
+        self._deck_analysis = None
+        self._matchup_analysis = None
 
     def set_card_layers(self, card_name: str, layers: 'CardLayers'):
         """
@@ -41,6 +43,10 @@ class AIStrategy(ABC):
             layers: All three layers for this card
         """
         self._layers[card_name] = layers
+        if getattr(layers, "deck_analysis", None):
+            self._deck_analysis = layers.deck_analysis
+        if getattr(layers, "matchup_analysis", None):
+            self._matchup_analysis = layers.matchup_analysis
 
     def get_layers(self, card_name: str) -> Optional['CardLayers']:
         """
@@ -57,6 +63,62 @@ class AIStrategy(ABC):
     def clear_layers(self):
         """Clear all stored layers."""
         self._layers.clear()
+        self._deck_analysis = None
+        self._matchup_analysis = None
+
+    def matchup_role(self) -> str:
+        """Return the layer-derived matchup role when available."""
+        role = getattr(self._matchup_analysis, "our_role", "") or ""
+        return role.strip().lower()
+
+    def deck_archetype(self) -> str:
+        """Return the layer-derived deck archetype when available."""
+        archetype = getattr(self._deck_analysis, "archetype", "") or ""
+        return archetype.strip().lower()
+
+    def layer_target_adjustment(self, card_name: str, target_name: str, target_kinds: list[str]) -> float:
+        """Small target-score adjustment from existing layer fields."""
+        layers = self.get_layers(card_name)
+        if not layers:
+            return 0.0
+
+        score = 0.0
+        strategy = layers.card_strategy
+        for idx, preferred in enumerate(strategy.target_priority or []):
+            if preferred in target_kinds:
+                score += max(0.0, 2.0 - idx * 0.5)
+                break
+
+        matchup = layers.matchup_guide
+        if matchup:
+            if target_name in (matchup.save_for or []):
+                score += 5.0
+            if target_name in (matchup.dont_use_on or []):
+                score -= 8.0
+        return score
+
+    def refine_attack_plan(
+        self,
+        state: 'GameState',
+        player_id: str,
+        evaluator: 'BoardEvaluator',
+        legal_attackers: list[str],
+        planned_attacks: list['AttackDeclaration']
+    ) -> list['AttackDeclaration']:
+        """Optional layer-aware attack adjustment. Default keeps strategy output."""
+        return planned_attacks
+
+    def refine_block_plan(
+        self,
+        state: 'GameState',
+        player_id: str,
+        evaluator: 'BoardEvaluator',
+        attackers: list['AttackDeclaration'],
+        legal_blockers: list[str],
+        planned_blocks: list['BlockDeclaration']
+    ) -> list['BlockDeclaration']:
+        """Optional layer-aware block adjustment. Default keeps strategy output."""
+        return planned_blocks
 
     @property
     @abstractmethod

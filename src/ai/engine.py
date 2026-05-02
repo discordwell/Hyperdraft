@@ -6,11 +6,14 @@ to make decisions during gameplay.
 """
 
 import random
+import time
 from typing import Literal, Optional, TYPE_CHECKING
 
 from .evaluator import BoardEvaluator
 from .heuristics import Heuristics
+from .scoring import ActionCandidateScore, ActionScoreBreakdown
 from .strategies import AIStrategy, AggroStrategy, ControlStrategy, MidrangeStrategy
+from .tracing import AITraceRecorder, DecisionTraceEvent, board_trace_summary
 
 if TYPE_CHECKING:
     from src.engine import GameState, PlayerAction, LegalAction, GameObject
@@ -69,7 +72,8 @@ class AIEngine:
         self,
         strategy: Optional[AIStrategy] = None,
         difficulty: str = 'medium',
-        llm_config: Optional['LLMConfig'] = None
+        llm_config: Optional['LLMConfig'] = None,
+        trace_recorder: Optional[AITraceRecorder] = None
     ):
         """
         Initialize the AI engine.
@@ -83,11 +87,16 @@ class AIEngine:
         self.difficulty = difficulty
         self.llm_config = llm_config
         self._layers_prepared = False
+        self.trace_recorder = trace_recorder
 
         if difficulty not in self.DIFFICULTY_SETTINGS:
             raise ValueError(f"Unknown difficulty: {difficulty}")
 
         self.settings = self.DIFFICULTY_SETTINGS[difficulty]
+
+    def set_trace_recorder(self, recorder: Optional[AITraceRecorder]) -> None:
+        """Attach or detach structured AI decision tracing."""
+        self.trace_recorder = recorder
 
     def get_action(
         self,
@@ -111,30 +120,47 @@ class AIEngine:
         if not legal_actions:
             return PlayerAction(type=ActionType.PASS, player_id=player_id)
 
-        # Create evaluator for this state
+        started = time.perf_counter()
         evaluator = BoardEvaluator(state)
+        analysis = evaluator.analyze(player_id)
 
-        # Score all actions
-        scored_actions = []
-        for action in legal_actions:
-            score = self._score_action(action, state, evaluator, player_id)
-
-            # Add randomness based on difficulty
-            score += random.uniform(0, self.settings['random_factor'])
-
-            scored_actions.append((action, score))
-
-        # Sort by score (highest first)
-        scored_actions.sort(key=lambda x: x[1], reverse=True)
+        scored_actions = self._score_actions_staged(legal_actions, state, evaluator, player_id)
 
         # Chance to make a mistake (pick second-best option)
         if len(scored_actions) >= 2 and random.random() < self.settings['mistake_chance']:
-            chosen_action = scored_actions[1][0]
+            chosen_candidate = scored_actions[1]
         else:
-            chosen_action = scored_actions[0][0]
+            chosen_candidate = scored_actions[0]
 
         # Convert LegalAction to PlayerAction
-        return self._legal_to_player_action(chosen_action, player_id, state)
+        player_action = self._legal_to_player_action(chosen_candidate.action, player_id, state)
+
+        if self.trace_recorder:
+            selected_targets = [
+                getattr(target, "id", target)
+                for target_group in getattr(player_action, "targets", []) or []
+                for target in target_group
+            ]
+            duration_ms = (time.perf_counter() - started) * 1000
+            self.trace_recorder.record(DecisionTraceEvent(
+                decision_type="action",
+                player_id=player_id,
+                turn=getattr(state, "turn_number", 0),
+                phase=self._phase_name(state),
+                duration_ms=duration_ms,
+                legal_count=len(legal_actions),
+                candidates=[
+                    candidate.to_trace(state, selected=(candidate is chosen_candidate))
+                    for candidate in scored_actions
+                ],
+                selected=chosen_candidate.to_trace(state, selected=True),
+                selected_targets=selected_targets,
+                board=board_trace_summary(state, player_id, analysis),
+                ultra=self._ultra_trace_metadata(),
+                metadata=self._action_quality_metadata(chosen_candidate, scored_actions, state, evaluator, player_id),
+            ))
+
+        return player_action
 
     def get_attack_declarations(
         self,
@@ -156,11 +182,16 @@ class AIEngine:
         if not legal_attackers:
             return []
 
+        started = time.perf_counter()
         evaluator = BoardEvaluator(state)
+        analysis = evaluator.analyze(player_id)
 
         # Get strategy's attack plan
         attacks = self.strategy.plan_attacks(
             state, player_id, evaluator, legal_attackers
+        )
+        attacks = self.strategy.refine_attack_plan(
+            state, player_id, evaluator, legal_attackers, attacks
         )
 
         # Easy difficulty might not attack with everything
@@ -170,6 +201,26 @@ class AIEngine:
                 if len(attacks) > 1:
                     keep_count = random.randint(1, len(attacks) - 1)
                     attacks = random.sample(attacks, keep_count)
+
+        if self.trace_recorder:
+            duration_ms = (time.perf_counter() - started) * 1000
+            selected = [{"attacker_id": a.attacker_id, "defending_player_id": a.defending_player_id}
+                        for a in attacks]
+            self.trace_recorder.record(DecisionTraceEvent(
+                decision_type="attack",
+                player_id=player_id,
+                turn=getattr(state, "turn_number", 0),
+                phase=self._phase_name(state),
+                duration_ms=duration_ms,
+                legal_count=len(legal_attackers),
+                candidates=[
+                    {"attacker_id": aid, "selected": any(a.attacker_id == aid for a in attacks)}
+                    for aid in legal_attackers
+                ],
+                selected={"attackers": selected},
+                board=board_trace_summary(state, player_id, analysis),
+                ultra=self._ultra_trace_metadata(),
+            ))
 
         return attacks
 
@@ -195,11 +246,16 @@ class AIEngine:
         if not attackers or not legal_blockers:
             return []
 
+        started = time.perf_counter()
         evaluator = BoardEvaluator(state)
+        analysis = evaluator.analyze(player_id)
 
         # Get strategy's block plan
         blocks = self.strategy.plan_blocks(
             state, player_id, evaluator, attackers, legal_blockers
+        )
+        blocks = self.strategy.refine_block_plan(
+            state, player_id, evaluator, attackers, legal_blockers, blocks
         )
 
         # Apply blocking skill based on difficulty
@@ -209,7 +265,31 @@ class AIEngine:
             for block in blocks:
                 if random.random() < self.settings['block_skill']:
                     final_blocks.append(block)
-            return final_blocks
+            blocks = final_blocks
+
+        if self.trace_recorder:
+            duration_ms = (time.perf_counter() - started) * 1000
+            self.trace_recorder.record(DecisionTraceEvent(
+                decision_type="block",
+                player_id=player_id,
+                turn=getattr(state, "turn_number", 0),
+                phase=self._phase_name(state),
+                duration_ms=duration_ms,
+                legal_count=len(legal_blockers),
+                candidates=[
+                    {"blocker_id": bid, "selected": any(b.blocker_id == bid for b in blocks)}
+                    for bid in legal_blockers
+                ],
+                selected={
+                    "blocks": [
+                        {"blocker_id": b.blocker_id, "attacker_id": b.blocking_attacker_id}
+                        for b in blocks
+                    ]
+                },
+                board=board_trace_summary(state, player_id, analysis),
+                ultra=self._ultra_trace_metadata(),
+                metadata={"bad_trade": self._has_obvious_bad_block(blocks, state, evaluator)},
+            ))
 
         return blocks
 
@@ -269,6 +349,8 @@ class AIEngine:
         if not legal_targets:
             return []
 
+        started = time.perf_counter()
+
         # Determine how many targets needed
         # Default to 1 if not specified
         num_targets = 1
@@ -296,8 +378,21 @@ class AIEngine:
         # Easy difficulty might choose suboptimally
         if self.difficulty == 'easy' and len(legal_targets) > 1:
             if random.random() < 0.3:
-                return [random.choice(legal_targets)]
+                chosen = [random.choice(legal_targets)]
 
+        if self.trace_recorder:
+            player_id = getattr(ability, "controller", "") or getattr(ability, "player_id", "")
+            self.trace_recorder.record(DecisionTraceEvent(
+                decision_type="target",
+                player_id=player_id,
+                turn=getattr(state, "turn_number", 0),
+                phase=self._phase_name(state),
+                duration_ms=(time.perf_counter() - started) * 1000,
+                legal_count=len(legal_targets),
+                candidates=[{"target_id": target_id, "selected": target_id in chosen} for target_id in legal_targets],
+                selected={"target_ids": chosen},
+                selected_targets=chosen,
+            ))
         return chosen
 
     def make_choice(
@@ -377,6 +472,8 @@ class AIEngine:
         if not options:
             return []
 
+        started = time.perf_counter()
+
         # First check callback_data for effect type (most reliable)
         callback_data = choice.callback_data or {}
         effect = callback_data.get('effect', '')
@@ -429,9 +526,10 @@ class AIEngine:
 
         # Score and select targets
         scored = []
+        source = state.objects.get(choice.source_id) if choice.source_id else None
         for opt in pool:
             opt_id = opt.get('id') if isinstance(opt, dict) else opt
-            score = self._score_target(opt_id, state, player_id, is_removal)
+            score = self._score_target(opt_id, state, player_id, is_removal, source_card=source)
             scored.append((opt, score))
 
         # Sort by score (highest first for removal, varies for buffs)
@@ -443,19 +541,54 @@ class AIEngine:
 
         # Easy AI might pick randomly
         if self.difficulty == 'easy' and random.random() < 0.3 and options:
-            return [random.choice(options)]
+            selected = [random.choice(options)]
 
-        return selected if len(selected) >= min_targets else list(options[:min_targets])
+        if len(selected) < min_targets:
+            selected = list(options[:min_targets])
+
+        if self.trace_recorder:
+            self.trace_recorder.record(DecisionTraceEvent(
+                decision_type="pending_target",
+                player_id=player_id,
+                turn=getattr(state, "turn_number", 0),
+                phase=self._phase_name(state),
+                duration_ms=(time.perf_counter() - started) * 1000,
+                legal_count=len(options),
+                candidates=[
+                    {
+                        "target_id": opt.get('id') if isinstance(opt, dict) else opt,
+                        "score": round(score, 4),
+                        "selected": opt in selected,
+                    }
+                    for opt, score in scored
+                ],
+                selected={"target_ids": [
+                    opt.get('id') if isinstance(opt, dict) else opt for opt in selected
+                ]},
+                selected_targets=[
+                    opt.get('id') if isinstance(opt, dict) else opt for opt in selected
+                ],
+                board=board_trace_summary(state, player_id),
+                ultra=self._ultra_trace_metadata(),
+            ))
+
+        return selected
 
     def _score_target(
         self,
         target_id: str,
         state: 'GameState',
         player_id: str,
-        is_removal: bool
+        is_removal: bool,
+        source_card=None
     ) -> float:
         """Score a target for selection priority."""
         from src.engine import CardType
+
+        evaluator = BoardEvaluator(state)
+        layers = None
+        if source_card and hasattr(self.strategy, "get_layers"):
+            layers = self.strategy.get_layers(source_card.name)
 
         obj = state.objects.get(target_id)
         if not obj:
@@ -463,10 +596,19 @@ class AIEngine:
             if target_id in state.players:
                 player = state.players[target_id]
                 # For damage, lower life = better target
-                return 100 - player.life if target_id != player_id else -100
+                score = 100 - player.life if target_id != player_id else -100
+                if layers and "player" in (layers.card_strategy.target_priority or []):
+                    score += 5
+                return score
             return 0
 
-        score = 0.0
+        score = evaluator.target_threat_value(
+            target_id,
+            player_id,
+            source_card=source_card,
+            layers=layers,
+            is_removal=is_removal,
+        )
 
         # Creatures score based on P/T and abilities
         if CardType.CREATURE in obj.characteristics.types:
@@ -498,6 +640,23 @@ class AIEngine:
                 score += 2
 
         return score
+
+    def _best_target_id(
+        self,
+        targets: list[str],
+        state: 'GameState',
+        player_id: str,
+        is_removal: bool,
+        source_card=None
+    ) -> Optional[str]:
+        if not targets:
+            return None
+        scored = [
+            (target_id, self._score_target(target_id, state, player_id, is_removal, source_card=source_card))
+            for target_id in targets
+        ]
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return scored[0][0]
 
     def _make_modal_choice(
         self,
@@ -1066,17 +1225,86 @@ class AIEngine:
         player_id: str
     ) -> float:
         """Score an action with reactive awareness."""
+        return self._score_action_candidate(action, state, evaluator, player_id).final_score
+
+    def _score_actions_staged(
+        self,
+        legal_actions: list['LegalAction'],
+        state: 'GameState',
+        evaluator: BoardEvaluator,
+        player_id: str
+    ) -> list[ActionCandidateScore]:
+        """Fast first-pass scoring followed by deeper scoring of retained candidates."""
+        candidates = [
+            self._score_action_candidate(action, state, evaluator, player_id)
+            for action in legal_actions
+        ]
+
+        retained = self._retain_for_deep_scoring(candidates)
+        for candidate in candidates:
+            if candidate in retained:
+                candidate.kept_for_deep_score = True
+                self._apply_deep_action_score(candidate, state, evaluator, player_id)
+
+            random_delta = random.uniform(0, self.settings['random_factor'])
+            candidate.breakdown.random_delta += random_delta
+
+        candidates.sort(key=lambda c: c.final_score, reverse=True)
+        return candidates
+
+    def _retain_for_deep_scoring(
+        self,
+        candidates: list[ActionCandidateScore]
+    ) -> list[ActionCandidateScore]:
+        retained: list[ActionCandidateScore] = []
+
+        def keep(candidate: ActionCandidateScore, reason: str) -> None:
+            if candidate not in retained:
+                candidate.keep_reason = reason
+                retained.append(candidate)
+
+        for candidate in candidates:
+            if candidate.bucket in {"land", "pass"}:
+                keep(candidate, f"always_keep_{candidate.bucket}")
+            if candidate.breakdown.x_spell >= 2.5:
+                keep(candidate, "lethal_or_large_x_spell")
+
+        buckets: dict[str, list[ActionCandidateScore]] = {}
+        for candidate in candidates:
+            buckets.setdefault(candidate.bucket, []).append(candidate)
+
+        for bucket_candidates in buckets.values():
+            bucket_candidates.sort(key=lambda c: c.final_score, reverse=True)
+            for candidate in bucket_candidates[:2]:
+                keep(candidate, "top_per_bucket")
+
+        for candidate in sorted(candidates, key=lambda c: c.final_score, reverse=True)[:5]:
+            keep(candidate, "top_overall")
+
+        return retained
+
+    def _score_action_candidate(
+        self,
+        action: 'LegalAction',
+        state: 'GameState',
+        evaluator: BoardEvaluator,
+        player_id: str
+    ) -> ActionCandidateScore:
+        """Score an action and retain the named terms for tracing."""
         from src.engine import ActionType, CardType
         from src.ai.reactive import ReactiveEvaluator
 
+        breakdown = ActionScoreBreakdown()
+        bucket = self._action_bucket(action, state)
+
         # Get base score from strategy
-        base_score = self.strategy.evaluate_action(action, state, evaluator, player_id)
+        breakdown.strategy = self.strategy.evaluate_action(action, state, evaluator, player_id)
 
         # Universal play fundamentals (apply to every strategy):
         # mana efficiency + wincon deployment. These are the "general best
         # play" priorities — strategy-specific scoring tweaks the margins,
         # but the AI should not waste mana or sit on its biggest threat.
-        base_score += self._play_fundamentals_bonus(action, state, player_id)
+        breakdown.fundamentals = self._play_fundamentals_bonus(action, state, player_id)
 
         # Build reactive context
         reactive_eval = ReactiveEvaluator(state)
@@ -1093,52 +1321,51 @@ class AIEngine:
                 # Check for X spells and adjust score based on potential X value
                 x_bonus = self._get_x_spell_bonus(card, context.available_mana, state, player_id)
                 if x_bonus > 0:
-                    base_score += x_bonus
+                    breakdown.x_spell += x_bonus
 
                 if CardType.INSTANT in card.characteristics.types:
                     # Classify and score the instant
                     if self._is_counterspell(card):
-                        base_score += reactive_eval.get_counterspell_bonus(
+                        breakdown.reactive += reactive_eval.get_counterspell_bonus(
                             context, self.strategy.reactivity
                         )
                     elif self._is_instant_removal(card):
-                        base_score += reactive_eval.get_removal_bonus(
+                        breakdown.reactive += reactive_eval.get_removal_bonus(
                             context, self.strategy.reactivity
                         )
                     elif self._is_combat_trick(card):
                         # Pass the card so we can evaluate if the trick changes outcomes
-                        base_score += reactive_eval.get_combat_trick_bonus(
+                        breakdown.reactive += reactive_eval.get_combat_trick_bonus(
                             context, self.strategy.reactivity, trick_card=card
                         )
                 else:
                     # Sorcery-speed: consider hold-mana penalty
-                    penalty = reactive_eval.get_hold_mana_penalty(
+                    breakdown.hold_mana_penalty += reactive_eval.get_hold_mana_penalty(
                         card, context, self.strategy.reactivity
                     )
-                    base_score -= penalty
 
         # Pass gets bonus if holding for reaction
         if action.type == ActionType.PASS:
             if context.instants_in_hand and context.available_mana >= 2:
                 if context.stack_threats or not context.is_our_turn:
-                    base_score += 0.3 * self.strategy.reactivity
+                    breakdown.reactive += 0.3 * self.strategy.reactivity
 
         # Adventure casting - evaluate the adventure spell portion
         if action.type == ActionType.CAST_ADVENTURE and action.card_id:
             card = state.objects.get(action.card_id)
             if card:
-                base_score += self._get_adventure_bonus(card, context, state, player_id)
+                breakdown.adventure += self._get_adventure_bonus(card, context, state, player_id)
 
         # Split card casting - evaluate the chosen half
         if action.type == ActionType.CAST_SPLIT_LEFT and action.card_id:
             card = state.objects.get(action.card_id)
             if card:
-                base_score += self._get_split_bonus(card, 'left', context, state, player_id)
+                breakdown.split += self._get_split_bonus(card, 'left', context, state, player_id)
 
         if action.type == ActionType.CAST_SPLIT_RIGHT and action.card_id:
             card = state.objects.get(action.card_id)
             if card:
-                base_score += self._get_split_bonus(card, 'right', context, state, player_id)
+                breakdown.split += self._get_split_bonus(card, 'right', context, state, player_id)
 
         # Graveyard keyword activations (Unearth/Embalm/Eternalize) are modeled as
         # ACTIVATE_ABILITY actions. Many strategies only score CAST_SPELL/PLAY_LAND
@@ -1172,9 +1399,181 @@ class AIEngine:
 
                     mv = max(1, int(mana_value or 1))
                     efficiency = stats_total / mv
-                    base_score += 1.0 + (efficiency * 0.3)
+                    breakdown.graveyard_activation += 1.0 + (efficiency * 0.3)
 
-        return base_score
+        return ActionCandidateScore(
+            action=action,
+            bucket=bucket,
+            breakdown=breakdown,
+        )
+
+    def _action_bucket(self, action: 'LegalAction', state: 'GameState') -> str:
+        from src.engine import ActionType, CardType
+
+        if action.type == ActionType.PASS:
+            return "pass"
+        if action.type == ActionType.PLAY_LAND:
+            return "land"
+        if action.type == ActionType.ACTIVATE_ABILITY:
+            return "ability"
+        if action.type in (ActionType.CAST_ADVENTURE, ActionType.CAST_SPLIT_LEFT, ActionType.CAST_SPLIT_RIGHT):
+            return "modal_spell"
+        if action.type != ActionType.CAST_SPELL or not action.card_id:
+            return "other"
+
+        card = state.objects.get(action.card_id)
+        if not card:
+            return "spell"
+        types = card.characteristics.types or set()
+        text = (card.card_def.text or "").lower() if card.card_def else ""
+        if CardType.CREATURE in types:
+            return "creature"
+        if "counter target" in text and "spell" in text:
+            return "counter"
+        if "destroy" in text or "exile" in text or "damage" in text:
+            return "removal"
+        if "draw" in text:
+            return "card_draw"
+        if "+" in text and "/" in text:
+            return "combat_trick"
+        return "spell"
+
+    def _apply_deep_action_score(
+        self,
+        candidate: ActionCandidateScore,
+        state: 'GameState',
+        evaluator: BoardEvaluator,
+        player_id: str
+    ) -> None:
+        """Add target-aware and board-delta terms to retained candidates."""
+        from src.engine import ActionType, CardType, ManaCost
+
+        action = candidate.action
+        if action.type == ActionType.PASS:
+            analysis = evaluator.analyze(player_id)
+            if analysis.crack_back_risk > 0.4 and self._has_instant_in_hand(state, player_id):
+                candidate.breakdown.risk += 0.2 * self.strategy.reactivity
+            return
+
+        if action.type == ActionType.PLAY_LAND:
+            candidate.breakdown.mana_posture += 0.15
+            return
+
+        if action.type not in (
+            ActionType.CAST_SPELL,
+            ActionType.CAST_ADVENTURE,
+            ActionType.CAST_SPLIT_LEFT,
+            ActionType.CAST_SPLIT_RIGHT,
+        ) or not action.card_id:
+            return
+
+        card = state.objects.get(action.card_id)
+        if not card:
+            return
+
+        layers = self.strategy.get_layers(card.name) if hasattr(self.strategy, "get_layers") else None
+        if layers:
+            candidate.breakdown.layer += self._programmatic_layer_bonus(card, layers, state, evaluator, player_id)
+
+        target_ids = self._select_target_ids_for_spell(card, player_id, state)
+        candidate.target_ids = target_ids
+        if target_ids:
+            target_scores = [
+                evaluator.target_threat_value(
+                    target_id,
+                    player_id,
+                    source_card=card,
+                    layers=layers,
+                    is_removal=self._is_removal_like(card),
+                )
+                for target_id in target_ids
+            ]
+            best_target = max(target_scores) if target_scores else 0.0
+            candidate.breakdown.target_quality += max(-1.0, min(1.5, best_target / 10.0))
+
+        types = card.characteristics.types or set()
+        if CardType.CREATURE in types:
+            creature_value = evaluator._creature_value(card)
+            candidate.breakdown.board_delta += max(0.0, min(1.4, creature_value / 10.0))
+            if evaluator.detect_role(player_id) == "beatdown":
+                candidate.breakdown.combat_outlook += min(0.4, max(0, card.characteristics.power or 0) * 0.08)
+        elif self._is_removal_like(card) and target_ids:
+            threat_removed = max(
+                evaluator.target_threat_value(target_id, player_id, source_card=card, layers=layers, is_removal=True)
+                for target_id in target_ids
+            )
+            candidate.breakdown.board_delta += max(0.0, min(1.2, threat_removed / 12.0))
+            if evaluator.attack_pressure(player_id) > 0:
+                candidate.breakdown.combat_outlook += 0.15
+        elif self._is_card_draw_text(card):
+            candidate.breakdown.board_delta += 0.25
+
+        available = self._count_available_mana(state, player_id)
+        mana_value = 0
+        if card.characteristics.mana_cost:
+            try:
+                mana_value = ManaCost.parse(card.characteristics.mana_cost).mana_value
+            except Exception:
+                mana_value = 0
+        remaining = max(0, available - mana_value)
+        if remaining >= 2 and self._has_instant_in_hand(state, player_id):
+            candidate.breakdown.mana_posture += 0.12 * self.strategy.reactivity
+        elif remaining == 0 and evaluator.analyze(player_id).crack_back_risk > 0.5:
+            candidate.breakdown.risk -= 0.25 * self.strategy.reactivity
+
+    def _programmatic_layer_bonus(self, card, layers, state: 'GameState', evaluator: BoardEvaluator, player_id: str) -> float:
+        bonus = 0.0
+        strategy = layers.card_strategy
+        bonus += (strategy.base_priority - 0.5) * 0.4
+        if layers.deck_role:
+            bonus += (layers.deck_role.role_weight - 1.0) * 0.3
+            if layers.deck_role.is_key_card:
+                bonus += 0.15
+        if layers.matchup_guide:
+            bonus += (layers.matchup_guide.priority_modifier - 1.0) * 0.25
+        return bonus
+
+    def _select_target_ids_for_spell(self, card, player_id: str, state: 'GameState') -> list[str]:
+        ids = []
+        for target_group in self._select_targets_for_spell(card, player_id, state):
+            for target in target_group:
+                ids.append(getattr(target, "id", target))
+        return ids
+
+    def _has_instant_in_hand(self, state: 'GameState', player_id: str) -> bool:
+        from src.engine import CardType
+        hand = state.zones.get(f"hand_{player_id}")
+        if not hand:
+            return False
+        for card_id in hand.objects:
+            card = state.objects.get(card_id)
+            if card and CardType.INSTANT in (card.characteristics.types or set()):
+                return True
+        return False
+
+    def _count_available_mana(self, state: 'GameState', player_id: str) -> int:
+        from src.engine import CardType
+        battlefield = state.zones.get('battlefield')
+        if not battlefield:
+            return 0
+        count = 0
+        for obj_id in battlefield.objects:
+            obj = state.objects.get(obj_id)
+            if (
+                obj and obj.controller == player_id
+                and CardType.LAND in (obj.characteristics.types or set())
+                and not obj.state.tapped
+            ):
+                count += 1
+        return count
+
+    def _is_removal_like(self, card) -> bool:
+        text = (card.card_def.text or '').lower() if card and card.card_def else ''
+        return any(word in text for word in ("destroy", "exile", "damage", "return target", "tap target"))
+
+    def _is_card_draw_text(self, card) -> bool:
+        text = (card.card_def.text or '').lower() if card and card.card_def else ''
+        return "draw" in text
 
     def _play_fundamentals_bonus(self, action, state, player_id) -> float:
         """
@@ -1510,7 +1909,9 @@ class AIEngine:
                                      if state.objects.get(tid) and
                                      state.objects[tid].controller != player_id]
                     if opp_creatures:
-                        best = Heuristics.get_best_target(opp_creatures, state, prefer_creatures=True)
+                        best = self._best_target_id(
+                            opp_creatures, state, player_id, is_removal=True, source_card=card
+                        )
                         if best:
                             targets.append([Target(id=best)])
 
@@ -1532,15 +1933,21 @@ class AIEngine:
                     if obj and obj.controller == opponent_id and CardType.CREATURE in obj.characteristics.types:
                         opp_creatures.append(obj_id)
 
-            # If opponent is low on life, go face
-            if opponent and opponent.life <= 5:
+            face_score = self._score_target(
+                opponent_id, state, player_id, is_removal=True, source_card=card
+            ) if opponent_id else -999
+            best_creature = self._best_target_id(
+                opp_creatures, state, player_id, is_removal=True, source_card=card
+            ) if opp_creatures else None
+            creature_score = self._score_target(
+                best_creature, state, player_id, is_removal=True, source_card=card
+            ) if best_creature else -999
+
+            # Burn goes face for lethal/near-lethal or when layer advice prefers players.
+            if opponent and (opponent.life <= 5 or face_score >= creature_score + 0.5):
                 targets.append([Target(id=opponent_id, is_player=True)])
-            # If there are threatening creatures, kill them
-            elif opp_creatures:
-                best = Heuristics.get_best_target(opp_creatures, state, prefer_creatures=True)
-                if best:
-                    targets.append([Target(id=best)])
-            # Default: go face
+            elif best_creature:
+                targets.append([Target(id=best_creature)])
             elif opponent_id:
                 targets.append([Target(id=opponent_id, is_player=True)])
 
@@ -1581,6 +1988,95 @@ class AIEngine:
                 return False
 
         return True
+
+    def _phase_name(self, state: 'GameState') -> str:
+        phase = getattr(state, "phase", None)
+        if phase is None and hasattr(state, "turn_state"):
+            phase = getattr(state.turn_state, "phase", None)
+        return phase.name if hasattr(phase, "name") else str(phase or "")
+
+    def _ultra_trace_metadata(self) -> dict:
+        strategy = self.strategy
+        data = {}
+        stats_fn = getattr(strategy, "trace_metadata", None)
+        if callable(stats_fn):
+            data.update(stats_fn())
+        elif strategy.__class__.__name__ == "UltraStrategy":
+            data["strategy"] = "Ultra"
+        return data
+
+    def _action_quality_metadata(
+        self,
+        chosen: ActionCandidateScore,
+        candidates: list[ActionCandidateScore],
+        state: 'GameState',
+        evaluator: BoardEvaluator,
+        player_id: str
+    ) -> dict:
+        metadata = {}
+        lethal_candidates = [
+            c for c in candidates
+            if c.breakdown.x_spell >= 2.5 or self._action_represents_attack_lethal(c, state, evaluator, player_id)
+        ]
+        if lethal_candidates and chosen not in lethal_candidates:
+            metadata["missed_lethal"] = True
+        if chosen.target_ids:
+            best_target_score = max(
+                (
+                    self._score_target(target_id, state, player_id, self._is_removal_like(
+                        state.objects.get(chosen.action.card_id)
+                    ) if chosen.action.card_id else True)
+                    for target_id in chosen.target_ids
+                ),
+                default=0.0,
+            )
+            metadata["target_score"] = round(best_target_score, 4)
+        return metadata
+
+    def _action_represents_attack_lethal(
+        self,
+        candidate: ActionCandidateScore,
+        state: 'GameState',
+        evaluator: BoardEvaluator,
+        player_id: str
+    ) -> bool:
+        from src.engine import ActionType
+        if candidate.action.type not in (ActionType.CAST_SPELL, ActionType.CAST_ADVENTURE):
+            return False
+        opponent_id = self._get_opponent_id(player_id, state)
+        opponent = state.players.get(opponent_id) if opponent_id else None
+        card = state.objects.get(candidate.action.card_id) if candidate.action.card_id else None
+        if not opponent or not card:
+            return False
+        damage = self._estimate_damage_spell_amount(card)
+        return damage >= opponent.life
+
+    def _estimate_damage_spell_amount(self, card) -> int:
+        import re
+        text = (card.card_def.text or "").lower() if card and card.card_def else ""
+        if "damage" not in text:
+            return 0
+        matches = [int(n) for n in re.findall(r"\b(\d+)\s+damage\b", text)]
+        if matches:
+            return max(matches)
+        return 0
+
+    def _has_obvious_bad_block(self, blocks: list, state: 'GameState', evaluator: BoardEvaluator) -> bool:
+        from src.engine import get_power, get_toughness
+        for block in blocks:
+            blocker = state.objects.get(block.blocker_id)
+            attacker = state.objects.get(block.blocking_attacker_id)
+            if not blocker or not attacker:
+                continue
+            blocker_power = get_power(blocker, state)
+            blocker_toughness = get_toughness(blocker, state)
+            attacker_power = get_power(attacker, state)
+            attacker_toughness = get_toughness(attacker, state)
+            blocker_kills = evaluator._has_ability(blocker, "deathtouch") or blocker_power >= attacker_toughness
+            blocker_dies = evaluator._has_ability(attacker, "deathtouch") or attacker_power >= blocker_toughness
+            if blocker_dies and not blocker_kills and attacker_power < 3:
+                return True
+        return False
 
     # === Layer Preparation ===
 
