@@ -157,6 +157,7 @@ class PokemonAIAdapter:
             'use_prize_tracking': True,
             'use_resource_conservation': True,
             'use_setup_consistency': True,
+            'use_attack_pressure': True,
         },
     }
 
@@ -220,6 +221,51 @@ class PokemonAIAdapter:
         if pokemon.card_def:
             return pokemon.card_def.hp or 0
         return 0
+
+    def choose_setup_active(self, player_id: str, state: GameState,
+                            basic_ids: list[str]) -> Optional[str]:
+        """Choose an opening Active Pokemon for stronger profiles."""
+        settings = self._get_settings(player_id)
+        if (not settings.get('use_setup_consistency')
+                or not settings.get('use_opening_active_selection')):
+            return None
+
+        best_id = None
+        best_score = -999.0
+        for card_id in basic_ids:
+            pokemon = state.objects.get(card_id)
+            if not pokemon or not pokemon.card_def:
+                continue
+
+            hp = pokemon.card_def.hp or 0
+            score = hp / 8.0
+            score -= (pokemon.card_def.retreat_cost or 0) * 4.0
+
+            attacks = pokemon.card_def.attacks or []
+            for attack in attacks:
+                damage = attack.get('damage', 0)
+                total_cost = sum(
+                    req.get('count', 0)
+                    for req in attack.get('cost', [])
+                )
+                if total_cost <= 1:
+                    score += 12.0 + damage / 4.0
+                elif total_cost == 2:
+                    score += 6.0 + damage / 6.0
+                if damage >= 50:
+                    score += 8.0
+
+            if pokemon.card_def.is_ex:
+                score -= 6.0
+            if hp <= 60 and not any(
+                    attack.get('damage', 0) >= 30 for attack in attacks):
+                score -= 8.0
+
+            if score > best_score:
+                best_score = score
+                best_id = card_id
+
+        return best_id
 
     # ── Scoring / lethal delegates ────────────────────────────────
 
@@ -497,7 +543,24 @@ class PokemonAIAdapter:
                 if _game_over():
                     break
 
-            # 2. Play Supporter (1 per turn)
+            # 2. Codex/Ultra: cash setup/search Items before hand-reset
+            # Supporters. This preserves Balls, Candy, and guild energy search
+            # instead of letting Professor's Research discard them first.
+            if settings.get('use_action_reordering'):
+                setup_item_events = self._do_play_items(
+                    player_id, state, turn_mgr, setup_only=True)
+                if setup_item_events:
+                    events.extend(setup_item_events)
+                    action_taken = True
+                    context_dirty = True
+                    if _game_over():
+                        break
+                if context_dirty and settings.get('use_context'):
+                    self._current_context = self._build_turn_context(
+                        player_id, state)
+                    context_dirty = False
+
+            # 3. Play Supporter (1 per turn)
             supporter_events = self._do_play_supporter(
                 player_id, state, turn_mgr)
             if supporter_events:
@@ -507,7 +570,7 @@ class PokemonAIAdapter:
                 if _game_over():
                     break
 
-            # 3. Codex/Ultra: play setup Items before board/energy decisions.
+            # 4. Codex/Ultra: play setup Items before board/energy decisions.
             # Search cards such as Nest Ball and Ultra Ball can change this turn's
             # bench, evolution options, and energy target, so they belong before
             # the rest of main-phase sequencing for stronger profiles.
@@ -520,7 +583,7 @@ class PokemonAIAdapter:
                     if _game_over():
                         break
 
-            # 4. Play Basic Pokemon to bench
+            # 5. Play Basic Pokemon to bench
             basic_events = self._do_play_basics(player_id, state, turn_mgr)
             if basic_events:
                 events.extend(basic_events)
@@ -528,7 +591,7 @@ class PokemonAIAdapter:
                 if settings.get('use_action_reordering'):
                     context_dirty = True
 
-            # 5. Evolve Pokemon
+            # 6. Evolve Pokemon
             evolve_events = self._do_evolve(player_id, state, turn_mgr)
             if evolve_events:
                 events.extend(evolve_events)
@@ -542,13 +605,13 @@ class PokemonAIAdapter:
                     player_id, state)
                 context_dirty = False
 
-            # 6. Attach Energy (1 per turn)
+            # 7. Attach Energy (1 per turn)
             energy_events = self._do_attach_energy(player_id, state, turn_mgr)
             if energy_events:
                 events.extend(energy_events)
                 action_taken = True
 
-            # 7. Medium keeps the historical order. Reordered profiles get a
+            # 8. Medium keeps the historical order. Reordered profiles get a
             # second pass so utility Items drawn by a Supporter/search effect can
             # still be used later in the same turn.
             item_events = self._do_play_items(player_id, state, turn_mgr)
@@ -560,7 +623,7 @@ class PokemonAIAdapter:
                 if _game_over():
                     break
 
-            # 8. Retreat if favorable
+            # 9. Retreat if favorable
             retreat_events = self._do_retreat(player_id, state, turn_mgr)
             if retreat_events:
                 events.extend(retreat_events)
@@ -901,6 +964,12 @@ class PokemonAIAdapter:
                                     if self._can_pay_with(test, cost):
                                         return ctx.my_active
 
+        if self._get_settings(player_id).get('use_attack_pressure'):
+            pressure_target = self._select_pressure_energy_target(
+                ctx, state, player_id, energy_cards)
+            if pressure_target:
+                return pressure_target
+
         # Priority 2: Follow existing plan
         plan = self._energy_plans.get(player_id)
         if plan and self._is_energy_plan_valid(plan, state):
@@ -954,6 +1023,96 @@ class PokemonAIAdapter:
             return ctx.my_active
 
         return best_id
+
+    def _select_pressure_energy_target(self, ctx: TurnContext, state: GameState,
+                                       player_id: str,
+                                       energy_cards: list[str]) -> Optional[str]:
+        """Prefer attachments that create immediate attack pressure."""
+        energy_system = PokemonEnergySystem(state)
+        combat_mgr = PokemonCombatManager(state)
+
+        current_active_damage = 0
+        if ctx.my_active and ctx.opp_active:
+            for attack in combat_mgr.get_available_attacks(ctx.my_active):
+                dmg = attack.get('damage', 0)
+                if dmg > 0:
+                    current_active_damage = max(
+                        current_active_damage,
+                        combat_mgr.calculate_damage(
+                            ctx.my_active, ctx.opp_active, dmg),
+                    )
+
+        best_target = None
+        best_score = 0.0
+        targets = ([ctx.my_active] if ctx.my_active else []) + ctx.my_bench
+        for pkm_id in targets:
+            pokemon = state.objects.get(pkm_id)
+            if not pokemon or not pokemon.card_def:
+                continue
+            attached = energy_system.get_attached_energy(pkm_id)
+            total_have = energy_system.get_total_energy(pkm_id)
+            for energy_id in energy_cards:
+                energy_obj = state.objects.get(energy_id)
+                if not energy_obj:
+                    continue
+                energy_type = energy_system._get_energy_type(energy_obj)
+                test_energy = dict(attached)
+                test_energy[energy_type] = test_energy.get(energy_type, 0) + 1
+
+                for index, attack in enumerate(pokemon.card_def.attacks or []):
+                    damage = attack.get('damage', 0)
+                    if damage <= 0:
+                        continue
+                    cost = attack.get('cost', [])
+                    if energy_system.can_pay_cost(pkm_id, cost):
+                        continue
+                    if not self._can_pay_with(test_energy, cost):
+                        continue
+
+                    final_damage = damage
+                    opp_remaining = None
+                    if ctx.opp_active:
+                        opp = state.objects.get(ctx.opp_active)
+                        if opp:
+                            final_damage = self._estimate_damage(
+                                pokemon, opp, damage, state)
+                            opp_remaining = self._remaining_hp(opp)
+                    is_ko = bool(opp_remaining is not None and final_damage >= opp_remaining)
+                    if final_damage < 50 and not is_ko:
+                        continue
+                    total_cost = sum(req.get('count', 0) for req in cost)
+                    score = final_damage / max(total_cost, 1)
+
+                    if pkm_id == ctx.my_active:
+                        score += 80.0
+                        if final_damage > current_active_damage:
+                            score += (final_damage - current_active_damage) / 2.0
+                    elif current_active_damage == 0:
+                        score += 35.0
+                    else:
+                        score += 15.0
+
+                    if is_ko:
+                        score += 45.0
+
+                    if total_have > 0:
+                        score += total_have * 6.0
+                    if pokemon.name in ctx.evolution_map:
+                        score += 12.0
+
+                    if score > best_score:
+                        best_score = score
+                        best_target = pkm_id
+                        self._energy_plans[player_id] = EnergyPlan(
+                            target_pokemon_id=pkm_id,
+                            target_attack_index=index,
+                            energy_type_needed=energy_type,
+                            turns_remaining=0,
+                            priority=score,
+                            created_turn=getattr(state, 'turn_number', 0),
+                        )
+
+        return best_target
 
     def _pick_best_energy_for_target(self, target_id: str, energy_cards: list[str],
                                      state: GameState) -> Optional[str]:
@@ -1029,7 +1188,7 @@ class PokemonAIAdapter:
     # ── 6. Items ─────────────────────────────────────────────────
 
     def _do_play_items(self, player_id: str, state: GameState,
-                       turn_mgr) -> list[Event]:
+                       turn_mgr, setup_only: bool = False) -> list[Event]:
         """Play beneficial Item cards (no per-turn limit)."""
         events: list[Event] = []
         hand = self._get_hand(state, player_id)
@@ -1041,6 +1200,8 @@ class PokemonAIAdapter:
                 continue
             types = obj.characteristics.types if obj.characteristics else set()
             if CardType.ITEM in types:
+                if setup_only and not self._is_setup_item(obj):
+                    continue
                 score = self._score_trainer(obj, state, player_id)
                 items.append((card_id, score))
 
@@ -1067,6 +1228,18 @@ class PokemonAIAdapter:
                 events.extend(item_events)
 
         return events
+
+    def _is_setup_item(self, card: 'GameObject') -> bool:
+        if not card.card_def:
+            return False
+        name = card.card_def.name
+        text = (card.card_def.text or '').lower()
+        if name in {"Nest Ball", "Rare Candy"}:
+            return True
+        return (
+            'search your deck' in text
+            and ('energy' in text or 'pokemon' in text or 'attach' in text)
+        )
 
     # ── 7. Retreat ───────────────────────────────────────────────
 
@@ -1118,6 +1291,23 @@ class PokemonAIAdapter:
                 ctx, state, player_id)
             if not replacement_id:
                 return []
+
+            if settings.get('use_attack_pressure') and urgency < 50:
+                combat_mgr = PokemonCombatManager(state)
+                active_best = max(
+                    (attack.get('damage', 0)
+                     for attack in combat_mgr.get_available_attacks(active_id)),
+                    default=0,
+                )
+                replacement_best = max(
+                    (attack.get('damage', 0)
+                     for attack in combat_mgr.get_available_attacks(replacement_id)),
+                    default=0,
+                )
+                if active_best >= 50:
+                    return []
+                if replacement_best < 50 and replacement_best <= active_best + 20:
+                    return []
 
             active_score = self._score_attacker(active, state, player_id)
 
@@ -1256,6 +1446,9 @@ class PokemonAIAdapter:
                 scored_attacks[i] = (atk, sc + random.uniform(0, settings['random_factor'] * 30))
 
         scored_attacks.sort(key=lambda x: x[1], reverse=True)
+
+        if settings.get('use_resource_conservation') and scored_attacks[0][1] <= -25:
+            return []
 
         # Mistake chance
         if len(scored_attacks) >= 2 and random.random() < settings['mistake_chance']:

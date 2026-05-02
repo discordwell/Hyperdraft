@@ -885,8 +885,15 @@ class PokemonTurnManager(TurnManager):
         if not basics_in_hand:
             return events
 
-        # First basic goes to Active Spot
+        # First basic goes to Active Spot. Stronger AI profiles may choose a
+        # deliberate opener; existing/default play keeps hand order.
         first_basic = basics_in_hand[0]
+        if self._is_ai_player(player_id) and self.pokemon_ai_handler:
+            chooser = getattr(self.pokemon_ai_handler, 'choose_setup_active', None)
+            if chooser:
+                chosen = chooser(player_id, self.state, list(basics_in_hand))
+                if chosen in basics_in_hand:
+                    first_basic = chosen
         hand.objects.remove(first_basic)
         active_zone.objects.append(first_basic)
         obj = self.state.objects.get(first_basic)
@@ -896,7 +903,9 @@ class PokemonTurnManager(TurnManager):
             obj.state.turns_in_play = 0
 
         # Remaining basics go to bench (up to 5)
-        for basic_id in basics_in_hand[1:6]:  # Max 5 on bench
+        bench_candidates = [basic_id for basic_id in basics_in_hand
+                            if basic_id != first_basic]
+        for basic_id in bench_candidates[:5]:  # Max 5 on bench
             hand.objects.remove(basic_id)
             bench.objects.append(basic_id)
             obj = self.state.objects.get(basic_id)
