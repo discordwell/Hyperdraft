@@ -2949,8 +2949,40 @@ def insidious_fungus_setup(obj: GameObject, state: GameState) -> list[Intercepto
                     payload={'player': o.controller, 'count': 1},
                     source=o.id, controller=o.controller,
                 )]
-            # Modes 0/1: chained target choice from inside an activated-ability
-            # modal handler isn't fully wired, so skip with a comment.
+
+            # Modes 0/1: chain a target-choice for destroy artifact/enchantment.
+            if mode == 0:
+                type_filter = CardType.ARTIFACT
+                prompt_text = "Insidious Fungus — destroy target artifact"
+            else:
+                type_filter = CardType.ENCHANTMENT
+                prompt_text = "Insidious Fungus — destroy target enchantment"
+
+            legal = [
+                oid for oid, oo in gs.objects.items()
+                if oo.zone == ZoneType.BATTLEFIELD
+                and type_filter in oo.characteristics.types
+            ]
+            if not legal:
+                return []
+
+            def _execute(_ch, selected_targets, st2: GameState) -> list[Event]:
+                if not selected_targets:
+                    return []
+                return [Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': selected_targets[0]},
+                    source=o.id, controller=o.controller,
+                )]
+
+            target_choice = create_target_choice(
+                state=gs, player_id=o.controller, source_id=o.id,
+                legal_targets=legal,
+                prompt=prompt_text,
+                min_targets=1, max_targets=1,
+            )
+            target_choice.choice_type = "target_with_callback"
+            target_choice.callback_data['handler'] = _execute
             return []
 
         choice.choice_type = "modal_with_callback"
