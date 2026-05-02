@@ -81,6 +81,7 @@ class EventType(Enum):
     QUERY_COLORS = auto()
     QUERY_ABILITIES = auto()
     QUERY_COST = auto()
+    QUERY_ACTIVATION_COST = auto()  # Synthetic query for activated-ability cost reduction
 
     # Targeting
     TARGET_REQUIRED = auto()  # Card requires a target to be chosen

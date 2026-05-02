@@ -27,6 +27,7 @@ from typing import Optional, Callable
 from src.cards.interceptor_helpers import (
     make_etb_trigger, create_target_choice, create_modal_choice,
     make_cycling_setup, make_exhaust_ability,
+    make_activate_exhaust_trigger, make_activated_cost_reduction,
 )
 import re
 
@@ -313,6 +314,128 @@ def camera_launcher_setup(obj: GameObject, state: GameState) -> list[Interceptor
         description="{3}: Put a +1/+1 counter on this creature. Create a 1/1 colorless Thopter artifact creature token with flying.",
     )
     return []
+
+
+# -----------------------------------------------------------------------------
+# Exhaust-ecosystem cards (W2 engine extension)
+# -----------------------------------------------------------------------------
+
+
+def boom_scholar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Boom Scholar.
+
+    Static: Exhaust abilities of OTHER permanents you control cost {2} less to
+    activate. (Coloured pips never reduce.)
+
+    Plus its own Exhaust — {4}{R}{G}: Creatures and Vehicles you control gain
+    trample until end of turn. Put two +1/+1 counters on this creature.
+    """
+    obj_id = obj.id
+    obj_controller = obj.controller
+
+    def _applies(ability, src, st: GameState) -> bool:
+        # Reduce only Exhaust abilities of OTHER permanents I control.
+        if ability is None or src is None:
+            return False
+        if not getattr(ability, 'is_exhaust', False):
+            return False
+        if getattr(src, 'id', None) == obj_id:
+            return False  # Don't reduce own Exhaust ability.
+        if getattr(src, 'controller', None) != obj_controller:
+            return False
+        return True
+
+    def _exhaust_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for other_id, other in st.objects.items():
+            if other.zone != ZoneType.BATTLEFIELD:
+                continue
+            if other.controller != o.controller:
+                continue
+            if (CardType.CREATURE in other.characteristics.types or
+                    'Vehicle' in other.characteristics.subtypes):
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': other_id, 'keyword': 'trample',
+                             'duration': 'end_of_turn'},
+                    source=o.id, controller=o.controller,
+                ))
+        events.extend(_emit_self_counters(o, 2))
+        return events
+
+    make_exhaust_ability(
+        obj, cost="{4}{R}{G}", effect_fn=_exhaust_effect,
+        description="{4}{R}{G}: Creatures and Vehicles you control gain trample until end of turn. Put two +1/+1 counters on this creature.",
+    )
+
+    return [make_activated_cost_reduction(
+        obj, amount=2, applies_filter=_applies,
+    )]
+
+
+def afterburner_expert_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Afterburner Expert (battlefield half) — Exhaust: +1/+1 counters x2."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return _emit_self_counters(o, 2)
+    make_exhaust_ability(
+        obj, cost="{2}{G}{G}", effect_fn=_effect,
+        description="{2}{G}{G}: Put two +1/+1 counters on this creature.",
+    )
+    return []
+
+
+def afterburner_expert_in_graveyard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Afterburner Expert (graveyard half).
+
+    "Whenever you activate an exhaust ability, return Afterburner Expert from
+    your graveyard to the battlefield."
+
+    Returns an interceptor that fires on any exhaust activation by the card's
+    controller while this card is in the graveyard.
+    """
+    def _trigger_effect(event: Event, st: GameState) -> list[Event]:
+        # Defensive: fire only if the source object still exists and is in GY.
+        current = st.objects.get(obj.id)
+        if current is None or current.zone != ZoneType.GRAVEYARD:
+            return []
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={
+                'object_id': obj.id,
+                'controller': obj.controller,
+                'player': obj.controller,
+                'destination': 'battlefield',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [make_activate_exhaust_trigger(
+        obj, _trigger_effect,
+        controller_only=True,
+        while_in_zone=ZoneType.GRAVEYARD,
+    )]
+
+
+def rangers_refueler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Rangers' Refueler.
+
+    Trigger: "Whenever you activate an exhaust ability, draw a card."
+    Plus Exhaust — {4}: This Vehicle becomes an artifact creature... (deferred,
+    see TODO).
+    """
+    # TODO: vehicle animation half deferred — engine doesn't yet model
+    # "this Vehicle becomes an artifact creature" via an exhaust activation.
+
+    def _draw(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [make_activate_exhaust_trigger(obj, _draw, controller_only=True)]
 
 
 # =============================================================================
@@ -3248,6 +3371,7 @@ RANGERS_REFUELER = make_artifact(
     text="Whenever you activate an exhaust ability, draw a card.\nExhaust — {4}: This Vehicle becomes an artifact creature. Put a +1/+1 counter on it. (Activate each exhaust ability only once.)\nCrew 2",
     rarity="uncommon",
     subtypes={"Vehicle"},
+    setup_interceptors=rangers_refueler_setup,
 )
 
 REPURPOSING_BAY = make_artifact(
@@ -4146,7 +4270,9 @@ AFTERBURNER_EXPERT = make_creature(
     subtypes={"Artificer", "Goblin"},
     text="Exhaust — {2}{G}{G}: Put two +1/+1 counters on this creature. (Activate each exhaust ability only once.)\nWhenever you activate an exhaust ability, return this card from your graveyard to the battlefield.",
     rarity="rare",
+    setup_interceptors=afterburner_expert_setup,
 )
+AFTERBURNER_EXPERT.setup_in_graveyard = afterburner_expert_in_graveyard_setup
 
 AGONASAUR_REX = make_creature(
     name="Agonasaur Rex",
@@ -4522,6 +4648,7 @@ BOOM_SCHOLAR = make_creature(
     subtypes={"Advisor", "Goblin"},
     text="Exhaust abilities of other permanents you control cost {2} less to activate.\nExhaust — {4}{R}{G}: Creatures and Vehicles you control gain trample until end of turn. Put two +1/+1 counters on this creature. (Activate each exhaust ability only once.)",
     rarity="uncommon",
+    setup_interceptors=boom_scholar_setup,
 )
 
 BOOSTED_SLOOP = make_artifact(
