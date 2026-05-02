@@ -40,6 +40,8 @@ from src.cards.interceptor_helpers import (
     make_sac_destroy_ability,
     # Phase 3: equipment / aura statics
     make_equipment_setup, make_aura_setup,
+    # Ward
+    make_ward,
     # Dynamic P/T helpers
     count_permanents_with_subtype,
     count_permanents_of_type,
@@ -1922,9 +1924,7 @@ def archangel_of_tithes_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def armored_armadillo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ward {1}; activated {3}{W}: +X/+0 EOT, X = its toughness.
-    Ward remains an engine gap; the activated ability is wired here.
-    """
+    """Ward {1}; activated {3}{W}: +X/+0 EOT, X = its toughness."""
     def _pump_effect(o: GameObject, st: GameState, targets) -> list[Event]:
         # Compute X = source's toughness right now
         try:
@@ -1951,7 +1951,7 @@ def armored_armadillo_setup(obj: GameObject, state: GameState) -> list[Intercept
         effect_fn=_pump_effect,
         description="{3}{W}: This creature gets +X/+0 until end of turn, where X is its toughness.",
     )
-    return []
+    return [make_ward(obj, mana_cost="{1}")]
 
 
 def aven_interrupter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3620,8 +3620,8 @@ def gold_pan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 lavaspur_boots_setup = make_equipment_setup(
     power_mod=1, toughness_mod=0, keywords=["haste"], equip_cost="{1}",
+    ward_cost="{1}",
 )
-# engine gap: ward {1} grant on equipped creature not wired.
 
 
 def luxurious_locomotive_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

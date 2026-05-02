@@ -578,32 +578,6 @@ def make_cost_reduction(
     coloured, colourless ({C}), snow ({S}), hybrid, and Phyrexian symbols are
     always preserved (so {2}{R}{R} reduced by {3} stays at {R}{R}, not {0}).
     Multiple reductions stack additively. Generic is clamped at 0.
-
-    Args:
-        source_obj: the permanent that owns the static ability ("Spells you cast
-                    cost {1} less"), or the spell card itself when ``self_only``
-                    is set.
-        applies_to: predicate ``(card, player_id, state) -> bool`` that decides
-                    whether the reduction applies to a given casting attempt.
-                    ``card`` is the would-be-cast object (in HAND/GRAVEYARD/etc),
-                    ``player_id`` is the would-be caster.
-        amount: either an int, or a callable ``(card, state) -> int``. The
-                callable variant lets reductions read live state ("for each
-                colour among permanents you control", "for each Forest", ...).
-        self_only: convenience flag - if True, ``applies_to`` is wrapped so the
-                   reduction only fires for casts of ``source_obj`` itself.
-                   Useful for "This spell costs {X} less to cast..." text.
-
-    Event: ``EventType.QUERY_COST`` (synthetic - emitted by ``cost_query``).
-    Priority: QUERY (so reductions are read-only and don't touch the event
-              pipeline). Interceptors carry ``duration='while_on_battlefield'``
-              so the pipeline's standard gating already prevents them from
-              applying once the source leaves play - except when ``self_only``
-              is set, where we use ``duration='forever'`` because the source
-              card is in HAND (not the battlefield) at query time.
-
-    Returns:
-        A single Interceptor ready to be returned from ``setup_interceptors``.
     """
     source_id = source_obj.id
 
@@ -618,10 +592,6 @@ def make_cost_reduction(
             return bool(original_applies(card, pid, state))
 
         applies_to = _self_applies
-        # When the source is the spell card itself, the source object is in
-        # HAND (or GY for flashback, etc.). The pipeline gating would suppress
-        # 'while_on_battlefield' interceptors there, so use 'forever'. The
-        # filter still pins the reduction to this specific card via id.
         duration = 'forever'
     else:
         duration = 'while_on_battlefield'
@@ -629,9 +599,6 @@ def make_cost_reduction(
     def cost_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.QUERY_COST:
             return False
-        # When source is a battlefield permanent, ensure it's still in play.
-        # (The pipeline gates 'while_on_battlefield' interceptors generally,
-        # but cost queries are synthesised reads, so we double-check here.)
         if not self_only:
             src = state.objects.get(source_id)
             if not src or src.zone != ZoneType.BATTLEFIELD:
@@ -646,7 +613,6 @@ def make_cost_reduction(
             return False
 
     def cost_handler(event: Event, state: GameState) -> InterceptorResult:
-        # Resolve the reduction amount (int or callable).
         try:
             if callable(amount):
                 card = event.payload.get('card')
@@ -675,6 +641,85 @@ def make_cost_reduction(
         filter=cost_filter,
         handler=cost_handler,
         duration=duration,
+    )
+
+
+# =============================================================================
+# WARD
+# =============================================================================
+#
+# Ward {N} (or "ward—pay X life", "ward—sacrifice a creature", etc.) is a
+# triggered ability that fires whenever an opponent's spell or ability targets
+# the warded permanent. The triggered ability counters that spell unless the
+# opponent pays the ward cost.
+#
+# v1 simplifications:
+#   * Targets are committed to a stack item; priority emits one
+#     ``EventType.TARGET_CHOSEN`` per chosen target. Ward reacts to those.
+#   * The ward effect emits ``COUNTER_SPELL_UNLESS_PAY``; existing system
+#     interceptor treats that as an unconditional counter — it does not yet
+#     prompt the opponent to pay.
+#   * Triggered abilities targeting the warded permanent are out of scope.
+# =============================================================================
+
+def make_ward(
+    source_obj: GameObject,
+    *,
+    mana_cost: Optional[str] = None,
+    life_cost: Optional[int] = None,
+    custom_cost: Optional[str] = None,
+) -> Interceptor:
+    """Register a Ward static ability on ``source_obj``."""
+    source_id = source_obj.id
+    controller_id = source_obj.controller
+
+    cost_payload: dict[str, Any] = {}
+    if mana_cost:
+        cost_payload['mana_cost'] = mana_cost
+    if life_cost is not None:
+        cost_payload['life_cost'] = int(life_cost)
+    if custom_cost:
+        cost_payload['custom_cost'] = custom_cost
+
+    def ward_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.TARGET_CHOSEN:
+            return False
+        if event.payload.get('target_id') != source_id:
+            return False
+        source = state.objects.get(source_id)
+        cur_controller = source.controller if source else controller_id
+        spell_controller = event.payload.get('controller')
+        if not spell_controller or spell_controller == cur_controller:
+            return False
+        return True
+
+    def ward_handler(event: Event, state: GameState) -> InterceptorResult:
+        spell_id = event.payload.get('spell_id')
+        if not spell_id:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_SPELL_UNLESS_PAY,
+                payload={
+                    'spell_id': spell_id,
+                    'target_id': source_id,
+                    'reason': 'ward',
+                    **cost_payload,
+                },
+                source=source_id,
+                controller=controller_id,
+            )],
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=controller_id,
+        priority=InterceptorPriority.REACT,
+        filter=ward_filter,
+        handler=ward_handler,
+        duration='while_on_battlefield',
     )
 
 
@@ -4898,6 +4943,69 @@ def _make_attached_subtypes_listener(
     )
 
 
+def _make_attached_ward_interceptor(
+    source_obj: GameObject,
+    ward_cost: Optional[str],
+) -> Optional[Interceptor]:
+    """Build a TARGET_CHOSEN REACT interceptor that grants Ward to whichever
+    creature ``source_obj`` (an Equipment or Aura) is currently attached to.
+
+    ``ward_cost`` is a cost string like "{1}" or "{2}{U}". When None, no
+    interceptor is built.
+    """
+    if not ward_cost:
+        return None
+    source_id = source_obj.id
+    controller_id = source_obj.controller
+
+    def ward_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.TARGET_CHOSEN:
+            return False
+        source = state.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        attached = source.state.attached_to
+        if not attached:
+            return False
+        if event.payload.get('target_id') != attached:
+            return False
+        target_obj = state.objects.get(attached)
+        target_controller = target_obj.controller if target_obj else controller_id
+        spell_controller = event.payload.get('controller')
+        if not spell_controller or spell_controller == target_controller:
+            return False
+        return True
+
+    def ward_handler(event: Event, state: GameState) -> InterceptorResult:
+        spell_id = event.payload.get('spell_id')
+        if not spell_id:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_SPELL_UNLESS_PAY,
+                payload={
+                    'spell_id': spell_id,
+                    'target_id': event.payload.get('target_id'),
+                    'reason': 'ward',
+                    'mana_cost': ward_cost,
+                },
+                source=source_id,
+                controller=controller_id,
+            )],
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=controller_id,
+        priority=InterceptorPriority.REACT,
+        filter=ward_filter,
+        handler=ward_handler,
+        duration='while_on_battlefield',
+    )
+
+
 def make_equipment_setup(
     *,
     power_mod: int = 0,
@@ -4905,6 +5013,7 @@ def make_equipment_setup(
     keywords: Optional[list[str]] = None,
     subtypes_to_add: Optional[set[str]] = None,
     equip_cost: Optional[str] = None,
+    ward_cost: Optional[str] = None,
 ):
     """Return a setup_interceptors callable for an Equipment card.
 
@@ -4926,6 +5035,10 @@ def make_equipment_setup(
     creature is a Shaman in addition to its other types." Subtypes are
     applied on ATTACH and reverted on UNATTACH via direct mutation of
     ``target.characteristics.subtypes`` (no QUERY_SUBTYPES yet).
+
+    ``ward_cost`` ("{1}", "{2}{U}", ...) grants Ward to the equipped
+    creature. See ``make_ward()`` for v1 limitations (always counter, no
+    cost prompt).
     """
     keywords_list = list(keywords) if keywords else []
     subs = set(subtypes_to_add) if subtypes_to_add else set()
@@ -4938,6 +5051,9 @@ def make_equipment_setup(
         sti = _make_attached_subtypes_listener(obj, subs)
         if sti is not None:
             interceptors.append(sti)
+        wi = _make_attached_ward_interceptor(obj, ward_cost)
+        if wi is not None:
+            interceptors.append(wi)
         if equip_cost:
             _make_equip_activated_ability(obj, equip_cost)
         return interceptors
@@ -4952,6 +5068,7 @@ def make_aura_setup(
     keywords: Optional[list[str]] = None,
     subtypes_to_add: Optional[set[str]] = None,
     target_id_attr: str = "_aura_target_id",
+    ward_cost: Optional[str] = None,
 ):
     """Return a setup_interceptors callable for an Aura card.
 
@@ -4964,6 +5081,9 @@ def make_aura_setup(
     ``subtypes_to_add`` covers Auras like "Enchanted creature is an
     Angel/Symbiote/Avatar in addition to its other types" — applied via
     direct mutation on ATTACH and reverted on UNATTACH.
+
+    ``ward_cost`` ("{1}", "{2}{U}", ...) grants Ward to the enchanted
+    creature. See ``make_ward()`` for v1 limitations.
     """
     keywords_list = list(keywords) if keywords else []
     subs = set(subtypes_to_add) if subtypes_to_add else set()
@@ -4993,6 +5113,9 @@ def make_aura_setup(
         sti = _make_attached_subtypes_listener(obj, subs)
         if sti is not None:
             interceptors.append(sti)
+        wi = _make_attached_ward_interceptor(obj, ward_cost)
+        if wi is not None:
+            interceptors.append(wi)
         return interceptors
 
     return _setup

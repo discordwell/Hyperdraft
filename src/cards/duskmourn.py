@@ -1099,7 +1099,12 @@ def sheltered_by_ghosts_setup(obj: GameObject, state: GameState) -> list[Interce
                      'filter': 'opponent_nonland_permanent'},
             source=obj.id,
         )]
-    return [make_etb_trigger(obj, etb_effect)]
+    aura_static_setup = make_aura_setup(
+        power_mod=1, toughness_mod=0,
+        keywords=["lifelink"],
+        ward_cost="{2}",
+    )
+    return [make_etb_trigger(obj, etb_effect)] + aura_static_setup(obj, state)
 
 
 def shepherding_spirits_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

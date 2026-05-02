@@ -85,6 +85,16 @@ class EventType(Enum):
     # Targeting
     TARGET_REQUIRED = auto()  # Card requires a target to be chosen
     TARGET_CHANGED = auto()   # Legacy marker (target changed by an effect)
+    # TARGET_CHOSEN fires once per (spell/ability, target) pair when a spell or
+    # ability finalises its target selection (i.e. just after the stack item is
+    # built and its chosen_targets are committed). Payload:
+    #   spell_id   - id of the spell/ability source object (or stack item card_id)
+    #   target_id  - id of the chosen target (object id or player id)
+    #   controller - controller of the spell/ability (the caster)
+    # Used by Ward to react to opponent-targeting; intentionally fires for both
+    # SPELL and ACTIVATED/TRIGGERED ABILITY stack items so a v1 of Ward can be
+    # implemented without the engine having to model abilities-on-the-stack.
+    TARGET_CHOSEN = auto()
 
     # Library manipulation
     SCRY = auto()              # Look at top N cards, put any on bottom
