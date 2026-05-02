@@ -2539,6 +2539,7 @@ class PrioritySystem:
                             'G': ManaType.GREEN,
                             'C': ManaType.COLORLESS,
                         }
+                        produced_any = False
                         for symbol in mana_symbols:
                             mana_type = symbol_to_type.get(symbol)
                             if mana_type and self.mana_system:
@@ -2552,6 +2553,45 @@ class PrioritySystem:
                                     },
                                     source=source.id,
                                     controller=action.player_id
+                                ))
+                                produced_any = True
+
+                        # Pragmatic fallback for "Add one mana of any color"
+                        # / "Add two mana in any combination of colors":
+                        # the cast UI doesn't yet prompt the player for a
+                        # color, so we produce colorless. This unblocks ~40
+                        # cards across the 12 sets at the cost of perfect
+                        # color flexibility. (Engine gap: PendingChoice
+                        # integration in the mana ability path.)
+                        if not produced_any:
+                            lower_line = ability_line.lower()
+                            any_color_match = re.search(
+                                r'add (\w+) mana (?:of any (?:one )?color|in any combination of colors)',
+                                lower_line,
+                            )
+                            if any_color_match and self.mana_system:
+                                amount_word = any_color_match.group(1)
+                                amount_map = {
+                                    'one': 1, 'a': 1, 'two': 2, 'three': 3,
+                                    'four': 4, 'five': 5, 'six': 6, 'seven': 7,
+                                    'eight': 8,
+                                }
+                                amount = amount_map.get(amount_word, 1)
+                                if amount_word.isdigit():
+                                    amount = int(amount_word)
+                                self.mana_system.produce_mana(
+                                    action.player_id, ManaType.COLORLESS, amount,
+                                )
+                                events.append(Event(
+                                    type=EventType.MANA_PRODUCED,
+                                    payload={
+                                        'player': action.player_id,
+                                        'color': ManaType.COLORLESS.value,
+                                        'amount': amount,
+                                        'note': 'any-color fallback (colorless)',
+                                    },
+                                    source=source.id,
+                                    controller=action.player_id,
                                 ))
                     except ValueError:
                         pass
