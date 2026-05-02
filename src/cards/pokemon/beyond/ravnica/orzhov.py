@@ -191,7 +191,7 @@ KARLOV_OF_THE_GHOST_COUNCIL = make_pokemon(
     attacks=[
         {"name": "Ghostly Ledger",
          "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 30,
+         "damage": 50,
          "text": "If you have at least 5 cards in your discard pile, "
                  "this attack does 20 more damage.",
          "effect_fn": _ghostly_ledger_effect},
@@ -451,7 +451,7 @@ VIZKOPA_GUILDMAGE = make_pokemon(
     attacks=[
         {"name": "Drain Life",
          "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 30,
+         "damage": 40,
          "text": "Heal 30 damage from this Pokemon.",
          "effect_fn": _drain_life_effect},
     ],
