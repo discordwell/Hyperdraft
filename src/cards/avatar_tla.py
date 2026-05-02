@@ -2953,12 +2953,22 @@ def wolfbat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 # --- RED ---
 
+def _mountain_or_cave_filter():
+    """Library-search filter: any card with the Mountain or Cave subtype."""
+    def _filter(card: GameObject, state: GameState) -> bool:
+        subs = card.characteristics.subtypes or set()
+        return ('Mountain' in subs) or ('Cave' in subs)
+    return _filter
+
+
 def the_cave_of_two_lovers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Saga I/II/III.
 
     I — Create two 1/1 white Ally creature tokens.
-    II — Search library for a Mountain or Cave (engine gap: library search).
-    III — Earthbend 3 (engine gap: target land + bending mechanic)."""
+    II — Search library for a Mountain or Cave card and put it onto the
+        battlefield tapped (then shuffle).
+    III — Earthbend 3 (engine gap: target land + bending mechanic).
+    """
     def i(o, s):
         return [Event(
             type=EventType.CREATE_TOKEN,
@@ -2976,7 +2986,17 @@ def the_cave_of_two_lovers_setup(obj: GameObject, state: GameState) -> list[Inte
             source=o.id,
         )]
 
-    def ii(_o, _s): return []  # engine gap: library search
+    def ii(o, s):
+        return open_library_search(
+            s, o.controller, o.id,
+            filter_fn=_mountain_or_cave_filter(),
+            destination="battlefield",
+            tapped=True,
+            shuffle_after=True,
+            optional=True,
+            prompt="Search for a Mountain or Cave to put onto the battlefield tapped",
+        )
+
     def iii(_o, _s): return []  # engine gap: earthbend target
 
     return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
@@ -3413,7 +3433,8 @@ def leaves_from_the_vine_setup(obj: GameObject, state: GameState) -> list[Interc
     """Saga I/II/III.
 
     I — Mill 3, then create a Food token.
-    II — Put a +1/+1 counter on each of up to two target creatures you control (engine gap: target up to two).
+    II — Put a +1/+1 counter on each of up to two target creatures you
+        control.
     III — Draw a card if there's a creature or Lesson card in your graveyard."""
     def i(o, s):
         return [
@@ -3433,7 +3454,22 @@ def leaves_from_the_vine_setup(obj: GameObject, state: GameState) -> list[Interc
                   source=o.id),
         ]
 
-    def ii(_o, _s): return []  # engine gap: target up to two
+    def ii(o, s):
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': o.id,
+                'controller': o.controller,
+                'effect': 'counter_add',
+                'effect_params': {'counter_type': '+1/+1', 'amount': 1},
+                'target_filter': 'your_creature',
+                'min_targets': 0,
+                'max_targets': 2,
+                'optional': True,
+                'prompt': "Put a +1/+1 counter on each of up to two target creatures you control",
+            },
+            source=o.id, controller=o.controller,
+        )]
 
     def iii(o, s):
         gy_key = f"graveyard_{o.controller}"

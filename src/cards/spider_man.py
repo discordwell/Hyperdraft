@@ -2154,11 +2154,39 @@ def spiderman_no_more_setup(obj: GameObject, state: GameState) -> list[Intercept
 def the_death_of_gwen_stacy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Saga I/II/III.
 
-    I — Destroy target creature (engine gap: target).
-    II — Each player may discard a card; each who doesn't loses 3 life (engine gap: optional discard prompt).
+    I — Destroy target creature.
+    II — Each player may discard a card; each who doesn't loses 3 life
+        (simplified: each opponent loses 3 life — discard-or-lose-life
+        prompt deferred).
     III — Exile any number of target players' graveyards (engine gap: target)."""
-    def i(_o, _s): return []  # engine gap: target creature
-    def ii(_o, _s): return []  # engine gap: optional discard prompt
+    def i(o, s):
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': o.id,
+                'controller': o.controller,
+                'effect': 'destroy',
+                'target_filter': 'creature',
+                'min_targets': 1,
+                'max_targets': 1,
+                'prompt': "Destroy target creature",
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    def ii(o, s):
+        # Best-effort: opponents lose 3 life (skipping the optional-discard prompt).
+        events: list[Event] = []
+        for pid in s.players:
+            if pid == o.controller:
+                continue
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': pid, 'amount': -3},
+                source=o.id, controller=o.controller,
+            ))
+        return events
+
     def iii(_o, _s): return []  # engine gap: target graveyards
 
     return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
@@ -2485,9 +2513,11 @@ def kravens_cats_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def kravens_last_hunt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Saga I/II/III.
 
-    I — Mill 5; conditional damage to target creature (engine gap: conditional damage from greatest power in graveyard).
-    II — Target creature you control gets +2/+2 EOT (engine gap: target).
-    III — Return target creature card from your graveyard to your hand (engine gap: target card in graveyard)."""
+    I — Mill 5. (Conditional damage to a target creature from
+        greatest-power-in-graveyard deferred — needs dynamic-damage path.)
+    II — Target creature you control gets +2/+2 EOT.
+    III — Return target creature card from your graveyard to your hand
+        (engine gap: target card in graveyard)."""
     def i(o, s):
         return [Event(
             type=EventType.MILL,
@@ -2495,7 +2525,22 @@ def kravens_last_hunt_setup(obj: GameObject, state: GameState) -> list[Intercept
             source=o.id,
         )]
 
-    def ii(_o, _s): return []  # engine gap: target + buff
+    def ii(o, s):
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': o.id,
+                'controller': o.controller,
+                'effect': 'pump',
+                'effect_params': {'power_mod': 2, 'toughness_mod': 2},
+                'target_filter': 'your_creature',
+                'min_targets': 1,
+                'max_targets': 1,
+                'prompt': "Target creature you control gets +2/+2 EOT",
+            },
+            source=o.id, controller=o.controller,
+        )]
+
     def iii(_o, _s): return []  # engine gap: target card in graveyard
 
     return make_saga_setup(obj, {1: i, 2: ii, 3: iii})
