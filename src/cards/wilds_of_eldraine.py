@@ -7261,11 +7261,44 @@ TORCH_THE_TOWER = make_instant(
     resolve=torch_the_tower_resolve,
 )
 
+def twisted_fealty_resolve(targets: list, state: GameState) -> list[Event]:
+    """Twisted Fealty: gain control + untap + haste. Wicked Role token side
+    is an engine gap (Role tokens with attach + dies trigger).
+    """
+    from src.cards.interceptor_helpers import threaten_creature
+    caster_id, spell_id = _phase2b_caster_and_spell(state, "Twisted Fealty")
+
+    # Pick any opposing creature.
+    legal: list[str] = []
+    for obj_id, obj in state.objects.items():
+        if (obj.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in obj.characteristics.types
+                and obj.controller != caster_id):
+            legal.append(obj_id)
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        return threaten_creature(selected[0], caster_id, source_id=spell_id)
+
+    choice = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Twisted Fealty: choose target creature to steal",
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _handler
+    return []
+
+
 TWISTED_FEALTY = make_sorcery(
     name="Twisted Fealty",
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn.\nCreate a Wicked Role token attached to up to one target creature. (If you control another Role on it, put that one into the graveyard. Enchanted creature gets +1/+1. When this token is put into a graveyard, each opponent loses 1 life.)",
+    resolve=twisted_fealty_resolve,
 )
 
 TWOHEADED_HUNTER = make_creature(

@@ -4735,11 +4735,54 @@ GIANTFALL = make_instant(
     text="Choose one —\n• Target creature you control deals damage equal to its power to target creature an opponent controls.\n• Destroy target artifact.",
 )
 
+def goatnap_resolve(targets: list, state: GameState) -> list[Event]:
+    """Goatnap: threaten target creature; +3/+0 EOT bonus if it's a Goat."""
+    from src.cards.interceptor_helpers import threaten_creature
+    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Goatnap")
+
+    legal: list[str] = []
+    for obj_id, obj in state.objects.items():
+        if (obj.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in obj.characteristics.types
+                and obj.controller != caster_id):
+            legal.append(obj_id)
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        target_id = selected[0]
+        events = list(threaten_creature(target_id, caster_id, source_id=spell_id))
+        target = gs.objects.get(target_id)
+        if target and "Goat" in target.characteristics.subtypes:
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': target_id,
+                    'power_mod': 3, 'toughness_mod': 0,
+                    'duration': 'end_of_turn',
+                },
+                source=spell_id, controller=caster_id,
+            ))
+        return events
+
+    ch = create_target_choice(
+        state=state, player_id=caster_id, source_id=spell_id,
+        legal_targets=legal,
+        prompt="Goatnap: Choose target creature to steal",
+    )
+    ch.choice_type = "target_with_callback"
+    ch.callback_data['handler'] = _handler
+    return []
+
+
 GOATNAP = make_sorcery(
     name="Goatnap",
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn. If that creature is a Goat, it also gets +3/+0 until end of turn.",
+    resolve=goatnap_resolve,
 )
 
 GOLIATH_DAYDREAMER = make_creature(
