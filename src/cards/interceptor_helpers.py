@@ -4827,7 +4827,154 @@ __all_phase5__ = [
     "suspect_creature",
     "collect_evidence",
     "was_bargained",
+    "make_room_setup",
+    "is_door_unlocked",
 ]
+
+
+# =============================================================================
+# Phase 5D: Rooms / Doors (Duskmourn)
+# =============================================================================
+#
+# A Room is an enchantment with two halves separated by ``//``. Each half is
+# a "door" with its own name, mana cost, and effect.
+# Pragmatic implementation: Door 1 unlocks on ETB. Door 2 has a sorcery-speed
+# activated ability `{door2_cost}: Unlock`. Each door's "unlock effect" is
+# emitted by an interceptor that listens for UNLOCK_DOOR events on this Room.
+# =============================================================================
+
+
+def is_door_unlocked(obj: GameObject, door_name: str) -> bool:
+    """Helper: true iff the given door has been unlocked on this Room."""
+    doors = getattr(obj.state, "unlocked_doors", None)
+    if not isinstance(doors, list):
+        return False
+    return door_name in doors
+
+
+def make_room_setup(
+    *,
+    door1_name: str,
+    door1_unlock_effect: Optional[Callable[[GameObject, GameState], list[Event]]] = None,
+    door2_name: str,
+    door2_cost: str,
+    door2_unlock_effect: Optional[Callable[[GameObject, GameState], list[Event]]] = None,
+    extra_setup: Optional[Callable[[GameObject, GameState], list[Interceptor]]] = None,
+):
+    """Return a setup_interceptors callable for a Room enchantment.
+
+    On ETB the setup:
+      1. Initializes ``obj.state.unlocked_doors = []``.
+      2. Fires an UNLOCK_DOOR event for ``door1_name`` (Door 1 enters
+         unlocked by default — cast-time door selection is engine gap).
+      3. Registers an UNLOCK_DOOR REACT interceptor that emits the door's
+         unlock effect events whenever the matching door is unlocked.
+      4. Registers a sorcery-speed activated ability for door2_cost that
+         emits UNLOCK_DOOR for door2.
+      5. Calls ``extra_setup`` for any extra interceptors (continuous
+         statics, attack triggers, etc. — the second-half "passive" parts
+         that aren't gated on unlock).
+
+    The unlock-effect callables receive (room_obj, state) and return Events.
+    """
+    from src.engine.activated import register_activated_ability
+
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        # Initialise tracking.
+        if not isinstance(getattr(obj.state, "unlocked_doors", None), list):
+            obj.state.unlocked_doors = []
+
+        interceptors: list[Interceptor] = []
+
+        # UNLOCK_DOOR REACT — emits the door-specific unlock effect events.
+        def _unlock_filter(event: Event, st: GameState) -> bool:
+            if event.type != EventType.UNLOCK_DOOR:
+                return False
+            return event.payload.get("object_id") == obj.id
+
+        def _unlock_handler(event: Event, st: GameState) -> InterceptorResult:
+            door_name = event.payload.get("door_name")
+            current = st.objects.get(obj.id)
+            if current is None:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            new_events: list[Event] = []
+            if door_name == door1_name and door1_unlock_effect is not None:
+                new_events.extend(door1_unlock_effect(current, st) or [])
+            elif door_name == door2_name and door2_unlock_effect is not None:
+                new_events.extend(door2_unlock_effect(current, st) or [])
+            if not new_events:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=new_events)
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_unlock_filter,
+            handler=_unlock_handler,
+            duration='while_on_battlefield',
+        ))
+
+        # Activated ability: pay door2_cost to unlock door 2.
+        def _door2_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+            return [Event(
+                type=EventType.UNLOCK_DOOR,
+                payload={"object_id": o.id, "door_name": door2_name},
+                source=o.id,
+                controller=o.controller,
+            )]
+        register_activated_ability(
+            obj,
+            cost=door2_cost,
+            effect_fn=_door2_effect,
+            description=f"Unlock {door2_name}",
+            sorcery_speed=True,
+            once_per_turn=False,
+        )
+
+        # ETB trigger: unlock Door 1.
+        def _etb_filter(event: Event, st: GameState) -> bool:
+            if event.type != EventType.ZONE_CHANGE:
+                return False
+            return (
+                event.payload.get("object_id") == obj.id
+                and event.payload.get("to_zone_type") == ZoneType.BATTLEFIELD
+            )
+
+        _fired_etb = {"done": False}
+        def _etb_handler(event: Event, st: GameState) -> InterceptorResult:
+            if _fired_etb["done"]:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            _fired_etb["done"] = True
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.UNLOCK_DOOR,
+                    payload={"object_id": obj.id, "door_name": door1_name},
+                    source=obj.id,
+                    controller=obj.controller,
+                )],
+            )
+
+        interceptors.append(Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_etb_filter,
+            handler=_etb_handler,
+            duration='forever',
+        ))
+
+        if extra_setup is not None:
+            extra = extra_setup(obj, state)
+            if extra:
+                interceptors.extend(extra)
+
+        return interceptors
+
+    return _setup
 
 
 # =============================================================================

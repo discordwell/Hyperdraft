@@ -67,6 +67,7 @@ from .misc import (
 from ...saga import SAGA_EVENT_HANDLERS
 from ...face_down import _handle_turn_face_up
 from ...attach import ATTACH_EVENT_HANDLERS
+from ...rooms import ROOMS_EVENT_HANDLERS
 
 
 EVENT_HANDLERS = {
@@ -133,6 +134,9 @@ EVENT_HANDLERS.update(SAGA_EVENT_HANDLERS)
 
 # Phase 3 attach mechanic — ATTACH/UNATTACH handlers from src/engine/attach.py.
 EVENT_HANDLERS.update(ATTACH_EVENT_HANDLERS)
+
+# Phase 5D rooms/doors — UNLOCK_DOOR handler from src/engine/rooms.py.
+EVENT_HANDLERS.update(ROOMS_EVENT_HANDLERS)
 
 
 __all__ = ["EVENT_HANDLERS"]
