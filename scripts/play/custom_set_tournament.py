@@ -140,54 +140,34 @@ def build_set_deck(domain: str, cards_dict) -> tuple[list, dict]:
         if getattr(cd, "setup_interceptors", None):
             score -= 0.5
         if getattr(cd, "resolve", None):
-            score -= 2.0
+            # Functional spell. Match the creature body bonus (-5) plus
+            # the 'wired' tax (-0.5) to put functional spells on equal
+            # footing with complex creatures at the same CMC. Decks with
+            # strong creatures still pick mostly creatures (since each
+            # creature gets 2 copies vs 1 for spells), but a clutch burn
+            # spell beats a marginal vanilla 3-drop. Cosmetic spells
+            # without resolve= stay heavily penalised.
+            score -= 5.5
         return score
 
     spells.sort(key=quality)
 
-    # Build to 36 spells, max 4 copies each. Reserve ~6 slots for the best
-    # non-creature spells (instants/sorceries/enchantments) so sets that
-    # rely on burn / removal / card-draw actually get to play their spells.
-    # Without this allocation the loop fills with creatures only because
-    # creatures score 5 points lower (better) than non-creatures.
+    # Build to 36 spells, max 4 copies each. No spell slot reservation —
+    # quality scoring decides. Sets with strong functional spells will
+    # naturally include some; sets without won't (stay creature-heavy).
     deck: list = []
     seen: dict[str, int] = defaultdict(int)
-    spell_slots_target = 6  # non-creature spell budget out of 36
-
-    creatures = [cd for cd in spells if CardType.CREATURE in card_types(cd)]
-    non_creatures = [cd for cd in spells if CardType.CREATURE not in card_types(cd)]
-
-    # First: top non-creature spells, 1 copy each, up to spell_slots_target.
-    spell_slots_used = 0
-    for cd in non_creatures:
-        if spell_slots_used >= spell_slots_target:
-            break
-        if seen[cd.name] >= 4:
-            continue
-        deck.append(cd)
-        seen[cd.name] += 1
-        spell_slots_used += 1
-
-    # Then: creatures, 2 copies each, until we hit 36.
-    for cd in creatures:
+    for cd in spells:
         if len(deck) >= 36:
             break
         if seen[cd.name] >= 4:
             continue
-        for _ in range(2):
+        copies = 2 if CardType.CREATURE in card_types(cd) else 1
+        for _ in range(copies):
             if len(deck) >= 36 or seen[cd.name] >= 4:
                 break
             deck.append(cd)
             seen[cd.name] += 1
-
-    # Pad with more non-creature spells if creature pool was thin.
-    for cd in non_creatures:
-        if len(deck) >= 36:
-            break
-        if seen[cd.name] >= 4:
-            continue
-        deck.append(cd)
-        seen[cd.name] += 1
 
     # If we still didn't fill 36, repeat best cards
     if len(deck) < 36 and spells:
