@@ -130,7 +130,47 @@ def test_granted_damage_trigger_one_shot():
     print("PASS: one-shot granted damage trigger fires once")
 
 
+def test_end_of_turn_sweep_removes_granted_trigger():
+    """A `duration='end_of_turn'` granted trigger must be removed at EOT."""
+    import asyncio
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+
+    bear_def = make_creature(
+        name="Bear", power=2, toughness=2, mana_cost="{1}{G}",
+        colors={Color.GREEN}, subtypes={"Bear"}, text="",
+    )
+    source_def = make_creature(
+        name="Source", power=1, toughness=1, mana_cost="{R}",
+        colors={Color.RED}, subtypes={"Wizard"}, text="",
+    )
+    bear = _spawn(game, p1, bear_def)
+    source = _spawn(game, p1, source_def)
+
+    def filt(event, state, target_id):
+        return event.type == EventType.DAMAGE and event.payload.get("target") == target_id
+    def effect(target_obj, event, state):
+        return []
+
+    grant_triggered_ability(
+        bear, source, game.state,
+        event_filter=filt, effect_fn=effect,
+        duration='end_of_turn', one_shot=False,
+    )
+    interceptor_count_before = len(game.state.interceptors)
+
+    # Run end-of-turn sweep manually via the turn manager's cleanup step.
+    asyncio.run(game.turn_manager._do_cleanup_step())
+
+    interceptor_count_after = len(game.state.interceptors)
+    assert interceptor_count_after < interceptor_count_before, \
+        f"end_of_turn interceptor not swept; before={interceptor_count_before}, after={interceptor_count_after}"
+    print("PASS: end-of-turn sweep removes granted trigger")
+
+
 if __name__ == "__main__":
     test_granted_attack_trigger_fires()
     test_granted_damage_trigger_one_shot()
+    test_end_of_turn_sweep_removes_granted_trigger()
     print("\nAll grant_triggered_ability tests passed!")
