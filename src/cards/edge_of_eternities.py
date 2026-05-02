@@ -40,6 +40,8 @@ from src.cards.interceptor_helpers import (
     make_activated_ability, make_pump_self_ability, make_draw_ability,
     make_damage_ability, make_destroy_ability, make_counter_ability,
     make_token_creation_ability, make_sac_destroy_ability,
+    # Phase 3: equipment / aura statics
+    make_equipment_setup, make_aura_setup,
 )
 
 
@@ -2340,17 +2342,14 @@ def sunstar_expansionist_setup(obj: GameObject, state: GameState) -> list[Interc
     return interceptors
 
 
-def atomic_microsizer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment: equipped +1/+0; whenever equipped attacks, target gets unblockable + base 1/1 EOT."""
-    # engine gap: equipment system (static buff via attached_to + attack trigger forwarded through equip)
-    # plus targeted can't-be-blocked grant and base-P/T-set effect (until end of turn).
-    return []
+atomic_microsizer_setup = make_equipment_setup(
+    power_mod=1, toughness_mod=0, equip_cost="{2}",
+)
+# engine gap: equipped-attacks trigger granting unblockable + base-P/T 1/1 EOT not wired.
 
 
-def cryoshatter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura: enchanted creature gets -5/-0; when tapped or damaged, destroy it."""
-    # engine gap: aura attachment + -5/-0 + conditional destroy on tap/damage
-    return []
+cryoshatter_setup = make_aura_setup(power_mod=-5, toughness_mod=0)
+# engine gap: conditional destroy trigger on enchanted-creature tap-or-damage not wired.
 
 
 def gigastorm_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3168,11 +3167,10 @@ def dawnsire_sunstar_dreadnought_setup(obj: GameObject, state: GameState) -> lis
     return interceptors
 
 
-def the_dominion_bracelet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment: equipped +1/+1 with granted '{15}, exile bracelet: control opponent's next turn' ability."""
-    # engine gap: equipment system (static buff via attached_to) + ability-grant-to-equipped
-    # + control-opponent action + dynamic cost reduction by equipped creature's power.
-    return []
+the_dominion_bracelet_setup = make_equipment_setup(
+    power_mod=1, toughness_mod=1, equip_cost="{1}",
+)
+# engine gap: granted '{15}, exile self: control opponent next turn' ability + dynamic cost reduction not wired.
 
 
 def the_endstone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

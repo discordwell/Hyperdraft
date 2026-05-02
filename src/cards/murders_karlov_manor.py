@@ -37,6 +37,7 @@ from src.cards.interceptor_helpers import (
     make_replacement_interceptor,
     make_draw_ability,
     make_activated_ability,
+    make_equipment_setup, make_aura_setup,
 )
 
 
@@ -7689,7 +7690,7 @@ CURIOUS_INQUIRY = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature\nEnchanted creature gets +1/+1 and has \"Whenever this creature deals combat damage to a player, investigate.\" (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
     subtypes={"Aura"},
-    setup_interceptors=curious_inquiry_setup
+    setup_interceptors=make_aura_setup(power_mod=1, toughness_mod=1)
 )
 
 DEDUCE = make_instant(
@@ -9681,7 +9682,7 @@ THINKING_CAP = make_artifact(
     mana_cost="{1}",
     text="Equipped creature gets +1/+2.\nEquip Detective {1}\nEquip {3} ({3}: Attach to target creature you control. Equip only as a sorcery.)",
     subtypes={"Equipment"},
-    setup_interceptors=thinking_cap_setup
+    setup_interceptors=make_equipment_setup(power_mod=1, toughness_mod=2, equip_cost="{3}")
 )
 
 BRANCH_OF_VITUGHAZI = make_land(
