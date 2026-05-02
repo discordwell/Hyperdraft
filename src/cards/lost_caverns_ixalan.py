@@ -32,7 +32,46 @@ from src.cards.interceptor_helpers import (
     creatures_you_control, creatures_with_subtype, create_target_choice,
     make_activated_ability, becomes_creature, make_ward,
     make_activated_ability, becomes_creature, make_cost_reduction,
+    make_cycling_setup,
 )
+
+
+def _make_typecycling_setup(mana_cost: str, land_subtype):
+    """Local helper: typecycling activated ability registered via setup_in_hand.
+
+    Cost: ``{mana}, Discard this card``. Effect emits a SEARCH_LIBRARY event
+    keyed to the basic land subtype (or any basic land if ``land_subtype`` is
+    None — used for "Basic landcycling"). The SEARCH_LIBRARY handler is an
+    engine gap, but the discard cost + activation registration still wire.
+    """
+    cost_text = f"{mana_cost}, Discard this card"
+
+    def _effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        payload = {
+            'player': o.controller,
+            'card_type': 'basic_land',
+            'destination': 'hand',
+        }
+        if land_subtype:
+            payload['subtype'] = land_subtype
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload=payload,
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        make_activated_ability(
+            obj,
+            cost=cost_text,
+            effect_fn=_effect,
+            description=f"Typecycling {mana_cost}",
+            sorcery_speed=False,
+        )
+        return []
+
+    return _setup
 
 
 # =============================================================================
@@ -5357,6 +5396,7 @@ SOARING_SANDWING = make_creature(
     text="Flying\nWhen this creature enters, you gain 3 life.\nPlainscycling {2} ({2}, Discard this card: Search your library for a Plains card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=soaring_sandwing_setup
 )
+SOARING_SANDWING.setup_in_hand = _make_typecycling_setup("{2}", "Plains")
 
 SPRINGLOADED_SAWBLADES = make_artifact(
     name="Spring-Loaded Sawblades",
@@ -5607,6 +5647,7 @@ MARAUDING_BRINEFANG = make_creature(
     text="Ward {3} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {3}.)\nIslandcycling {2} ({2}, Discard this card: Search your library for an Island card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=marauding_brinefang_setup,
 )
+MARAUDING_BRINEFANG.setup_in_hand = _make_typecycling_setup("{2}", "Island")
 
 MERFOLK_CAVEDIVER = make_creature(
     name="Merfolk Cave-Diver",
@@ -6154,6 +6195,7 @@ RAMPAGING_SPIKETAIL = make_creature(
     text="When this creature enters, target creature you control gets +2/+0 and gains indestructible until end of turn.\nSwampcycling {2} ({2}, Discard this card: Search your library for a Swamp card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=rampaging_spiketail_setup
 )
+RAMPAGING_SPIKETAIL.setup_in_hand = _make_typecycling_setup("{2}", "Swamp")
 
 RAY_OF_RUIN = make_sorcery(
     name="Ray of Ruin",
@@ -6616,6 +6658,7 @@ SEISMIC_MONSTROSAUR = make_creature(
     text="Trample\n{2}{R}, Sacrifice a land: Draw a card.\nMountaincycling {2} ({2}, Discard this card: Search your library for a Mountain card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=seismic_monstrosaur_setup,
 )
+SEISMIC_MONSTROSAUR.setup_in_hand = _make_typecycling_setup("{2}", "Mountain")
 
 SUNFIRE_TORCH = make_artifact(
     name="Sunfire Torch",
@@ -6949,6 +6992,7 @@ NURTURING_BRISTLEBACK = make_creature(
     text="When this creature enters, create a 3/3 green Dinosaur creature token.\nForestcycling {2} ({2}, Discard this card: Search your library for a Forest card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=nurturing_bristleback_setup
 )
+NURTURING_BRISTLEBACK.setup_in_hand = _make_typecycling_setup("{2}", "Forest")
 
 OJER_KASLEM_DEEPEST_GROWTH = make_creature(
     name="Ojer Kaslem, Deepest Growth",
@@ -7481,6 +7525,7 @@ RUNAWAY_BOULDER = make_artifact(
     text="Flash\nWhen this artifact enters, it deals 6 damage to target creature an opponent controls.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     setup_interceptors=runaway_boulder_setup
 )
+RUNAWAY_BOULDER.setup_in_hand = make_cycling_setup("{2}")
 
 SCAMPERING_SURVEYOR = make_artifact_creature(
     name="Scampering Surveyor",
