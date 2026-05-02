@@ -38,6 +38,7 @@ from src.cards.interceptor_helpers import (
     make_draw_ability,
     make_activated_ability,
     make_equipment_setup, make_aura_setup,
+    suspect_creature,
 )
 
 
@@ -4530,7 +4531,7 @@ def _handle_caught_redhanded_target(choice, selected: list, state: GameState) ->
     if not target or target.zone != ZoneType.BATTLEFIELD:
         return []
 
-    return [
+    events = [
         Event(
             type=EventType.CONTROL_CHANGE,
             payload={'object_id': target_id, 'new_controller': choice.player, 'until': 'end_of_turn'},
@@ -4547,6 +4548,8 @@ def _handle_caught_redhanded_target(choice, selected: list, state: GameState) ->
             source=choice.source_id
         )
     ]
+    events.extend(suspect_creature(target_id, choice.source_id, choice.player, state=state))
+    return events
 
 
 def caught_redhanded_resolve(targets: list, state: GameState) -> list[Event]:
@@ -4779,6 +4782,12 @@ def _handle_reasonable_doubt_target(choice, selected: list, state: GameState) ->
             payload={'spell_id': spell_target, 'unless_pay': 2},
             source=choice.source_id
         ))
+
+    # The "Suspect up to one target creature" mode — if a creature was
+    # passed via callback_data, suspect it. (Spell-target only casts will
+    # leave creature_target unset.)
+    if creature_target:
+        events.extend(suspect_creature(creature_target, choice.source_id, choice.player, state=state))
 
     return events
 
@@ -6045,8 +6054,22 @@ def polygraph_orb_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def repeat_offender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated: if suspected get +1/+1, else suspect."""
-    # engine gap: activated ability + suspect mechanic
+    """Repeat Offender: {2}{B} — if suspected, +1/+1 counter on self; else suspect self."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.state.suspected:
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=o.id,
+                controller=o.controller,
+            )]
+        # Otherwise suspect self.
+        return suspect_creature(o.id, o.id, o.controller, state=st)
+
+    make_activated_ability(
+        obj, cost="{2}{B}", effect_fn=_effect,
+        description="If suspected put a +1/+1 counter; else suspect this creature",
+    )
     return []
 
 
@@ -8026,11 +8049,61 @@ ILLICIT_MASQUERADE = make_enchantment(
     setup_interceptors=illicit_masquerade_setup
 )
 
+def it_doesnt_add_up_resolve(targets: list, state: GameState) -> list[Event]:
+    """It Doesn't Add Up: return target creature card from your graveyard to the
+    battlefield, then suspect it.
+    """
+    spell_id, caster_id = _get_spell_and_caster(state, "It Doesn't Add Up")
+    grave = state.zones.get(f"graveyard_{caster_id}")
+    legal: list[str] = []
+    if grave:
+        for cid in grave.objects:
+            obj = state.objects.get(cid)
+            if obj and CardType.CREATURE in obj.characteristics.types:
+                legal.append(cid)
+    if not legal:
+        return []
+
+    def _handler(choice, selected, gs):
+        if not selected:
+            return []
+        cid = selected[0]
+        obj = gs.objects.get(cid)
+        if not obj:
+            return []
+        events = [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': cid,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'from_zone': f'graveyard_{obj.owner}',
+                'to_zone_type': ZoneType.BATTLEFIELD,
+                'to_zone': 'battlefield',
+            },
+            source=choice.source_id,
+            controller=choice.player,
+        )]
+        events.extend(suspect_creature(cid, choice.source_id, choice.player, state=gs))
+        return events
+
+    choice = create_target_choice(
+        state=state,
+        player_id=caster_id,
+        source_id=spell_id,
+        legal_targets=legal,
+        prompt="It Doesn't Add Up: Choose a creature card from your graveyard",
+    )
+    choice.choice_type = "target_with_callback"
+    choice.callback_data['handler'] = _handler
+    return []
+
+
 IT_DOESNT_ADD_UP = make_instant(
     name="It Doesn't Add Up",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     text="Return target creature card from your graveyard to the battlefield. Suspect it. (It has menace and can't block.)",
+    resolve=it_doesnt_add_up_resolve,
 )
 
 LEAD_PIPE = make_artifact(
