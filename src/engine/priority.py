@@ -24,7 +24,7 @@ from .types import (
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
     new_id,
 )
-from .stack import StackManager, StackItem, StackItemType
+from .stack import StackManager, StackItem, StackItemType, build_target_chosen_events
 from .mana import ManaSystem, ManaCost, ManaType
 from .pipeline import EventPipeline
 from .casting_costs import (
@@ -1626,6 +1626,17 @@ class PrioritySystem:
                 )
                 self.stack.push(item)
 
+            # Ward / TARGET_CHOSEN: now that the spell's chosen targets are
+            # committed to a stack item, fire one TARGET_CHOSEN per (spell,
+            # target) pair so static abilities like Ward can react. We do this
+            # here (instead of stack.push) so we don't double-fire when the
+            # same item is pushed via multiple paths in tests.
+            target_chosen_events = build_target_chosen_events(
+                spell_id=action.card_id,
+                controller_id=action.player_id,
+                targets=action.targets,
+            )
+
             # EOE Warp: mark the in-flight object so end-step exile is
             # registered after ETB, and mark the card definition as having
             # used its warp cast (one warp per card per game).
@@ -1679,7 +1690,7 @@ class PrioritySystem:
                 },
                 source=action.card_id,
                 controller=action.player_id,
-            )] + extra_events
+            )] + extra_events + target_chosen_events
 
         step = plan[0]
         rest = plan[1:]
