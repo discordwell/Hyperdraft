@@ -43,6 +43,15 @@ from src.cards.ability_bundles import (
 # HELPER FUNCTIONS
 # =============================================================================
 
+def _self_kw(keywords):
+    """Self-granting keyword setup factory. Returns a setup_interceptors fn."""
+    def setup(obj, state):
+        def affects(target, st, src=obj):
+            return target.id == src.id
+        return [make_keyword_grant(obj, keywords, affects)]
+    return setup
+
+
 # =============================================================================
 # POKEMON KEYWORD MECHANICS
 # =============================================================================
@@ -1117,7 +1126,7 @@ CHARMELEON = make_creature(
 )
 
 FLAREON = make_creature(
-    name="Flareon", power=4, toughness=2, mana_cost="{1}{R}{R}",
+    name="Flareon", power=3, toughness=2, mana_cost="{1}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fire"},
     text="When Flareon enters, it deals 2 damage to any target."
 )
@@ -1133,7 +1142,7 @@ EEVEE_R = make_creature(
 )
 
 JOLTEON = make_creature(
-    name="Jolteon", power=3, toughness=2, mana_cost="{1}{R}{R}",
+    name="Jolteon", power=2, toughness=2, mana_cost="{1}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Electric"},
     text="First strike, haste.",
 )
@@ -1256,6 +1265,43 @@ VOLTORB = make_creature(
     name="Voltorb", power=1, toughness=2, mana_cost="{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Electric"},
     text="Sacrifice Voltorb: It deals 2 damage to any target."
+)
+
+# --- Curve-smoothing 1-2 cmc Red Pokemon ---
+
+CYNDAQUIL = make_creature(
+    name="Cyndaquil", power=2, toughness=1, mana_cost="{R}",
+    colors={Color.RED}, subtypes={"Pokemon", "Fire"},
+    text="Haste.",
+    setup_interceptors=_self_kw(["haste"]),
+)
+
+LITTEN = make_creature(
+    name="Litten", power=1, toughness=2, mana_cost="{R}",
+    colors={Color.RED}, subtypes={"Pokemon", "Fire"},
+    text="Deathtouch.",
+    setup_interceptors=_self_kw(["deathtouch"]),
+)
+
+TORCHIC = make_creature(
+    name="Torchic", power=3, toughness=1, mana_cost="{1}{R}",
+    colors={Color.RED}, subtypes={"Pokemon", "Fire"},
+    text="First strike.",
+    setup_interceptors=_self_kw(["first strike"]),
+)
+
+NUMEL = make_creature(
+    name="Numel", power=2, toughness=3, mana_cost="{1}{R}",
+    colors={Color.RED}, subtypes={"Pokemon", "Fire"},
+    text="Vigilance.",
+    setup_interceptors=_self_kw(["vigilance"]),
+)
+
+SLUGMA = make_creature(
+    name="Slugma", power=3, toughness=2, mana_cost="{1}{R}",
+    colors={Color.RED}, subtypes={"Pokemon", "Fire"},
+    text="Haste.",
+    setup_interceptors=_self_kw(["haste"]),
 )
 
 # --- Red Trainers ---
@@ -1981,6 +2027,11 @@ POKEMON_HORIZONS_CARDS = {
     "Luxray": LUXRAY,
     "Electrode": ELECTRODE,
     "Voltorb": VOLTORB,
+    "Cyndaquil": CYNDAQUIL,
+    "Litten": LITTEN,
+    "Torchic": TORCHIC,
+    "Numel": NUMEL,
+    "Slugma": SLUGMA,
     "Flamethrower": FLAMETHROWER,
     "Thunderbolt": THUNDERBOLT,
     "Fire Blast": FIRE_BLAST,
@@ -2234,6 +2285,11 @@ CARDS = [
     LUXRAY,
     ELECTRODE,
     VOLTORB,
+    CYNDAQUIL,
+    LITTEN,
+    TORCHIC,
+    NUMEL,
+    SLUGMA,
     FLAMETHROWER,
     THUNDERBOLT,
     FIRE_BLAST,
