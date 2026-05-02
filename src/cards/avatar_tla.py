@@ -3863,14 +3863,13 @@ def trusty_boomerang_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def airship_engine_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    """{4}, {T}, Sacrifice this land: Draw a card. (ETB-tapped auto-detected.)"""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
-    # engine gap: ETB tapped on land
     return []
 
 
 def boiling_rock_prison_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    """{4}, {T}, Sacrifice this land: Draw a card. (ETB-tapped auto-detected.)"""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
@@ -3882,7 +3881,7 @@ def fire_nation_palace_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def foggy_bottom_swamp_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    """{4}, {T}, Sacrifice this land: Draw a card. (ETB-tapped auto-detected.)"""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
@@ -3906,31 +3905,31 @@ def jasmine_dragon_tea_shop_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 def kyoshi_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    """{4}, {T}, Sacrifice this land: Draw a card. (ETB-tapped auto-detected.)"""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
 def meditation_pools_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    """{4}, {T}, Sacrifice this land: Draw a card. (ETB-tapped auto-detected.)"""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
 def misty_palms_oasis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    """{4}, {T}, Sacrifice this land: Draw a card. (ETB-tapped auto-detected.)"""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
 def north_pole_gates_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    """{4}, {T}, Sacrifice this land: Draw a card. (ETB-tapped auto-detected.)"""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
 def omashu_city_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    """{4}, {T}, Sacrifice this land: Draw a card. (ETB-tapped auto-detected.)"""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
@@ -3969,13 +3968,13 @@ def secret_tunnel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def serpents_pass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    """{4}, {T}, Sacrifice this land: Draw a card. (ETB-tapped auto-detected.)"""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 
 
 def sunblessed_peak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped (engine gap). {4}, {T}, Sacrifice this land: Draw a card."""
+    """{4}, {T}, Sacrifice this land: Draw a card. (ETB-tapped auto-detected.)"""
     make_draw_ability(obj, cost="{4}, {T}, Sacrifice this land", count=1)
     return []
 

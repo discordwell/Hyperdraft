@@ -3057,7 +3057,7 @@ def stalactite_dagger_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def blood_crypt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Shockland: pay 2 life or enter tapped (engine gap)."""
-    return []  # engine gap: as-enters shockland choice
+    return []  # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
 
 
 def evolving_wilds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3086,22 +3086,22 @@ def evolving_wilds_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 def hallowed_fountain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Shockland (engine gap)."""
-    return []  # engine gap: as-enters shockland choice
+    return []  # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
 
 
 def overgrown_tomb_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Shockland (engine gap)."""
-    return []  # engine gap: as-enters shockland choice
+    return []  # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
 
 
 def steam_vents_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Shockland (engine gap)."""
-    return []  # engine gap: as-enters shockland choice
+    return []  # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
 
 
 def temple_garden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Shockland (engine gap)."""
-    return []  # engine gap: as-enters shockland choice
+    return []  # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
 
 
 # =============================================================================

@@ -55,6 +55,7 @@ from .library import (
     _handle_impulse_to_graveyard,
     _handle_surveil,
     _handle_scry,
+    _handle_discover,
 )
 from .mana import _handle_mana_produced
 from .targeting import _handle_target_required
@@ -117,6 +118,7 @@ EVENT_HANDLERS = {
     EventType.IMPULSE_TO_GRAVEYARD: _handle_impulse_to_graveyard,
     EventType.SURVEIL: _handle_surveil,
     EventType.SCRY: _handle_scry,
+    EventType.DISCOVER: _handle_discover,
     EventType.MILL: _handle_mill,
     EventType.DISCARD: _handle_discard,
     EventType.TARGET_REQUIRED: _handle_target_required,

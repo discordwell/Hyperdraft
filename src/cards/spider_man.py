@@ -37,6 +37,7 @@ from src.cards.interceptor_helpers import (
     make_web_slinging_setup, make_mayhem_setup, combine_setups,
     # Phase 4: activated abilities.
     make_activated_ability, make_pump_self_ability, make_counter_ability,
+    make_surveil_ability,
     # Phase 3: Equipment / Aura attach statics.
     make_equipment_setup, make_aura_setup,
     # Ward.
@@ -3255,6 +3256,10 @@ def multiversal_passage_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 # --- Ominous Asylum ---
+def ominous_asylum_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{4}, {T}: Surveil 1. (ETB-tapped + dual-mana auto-detected from text.)"""
+    make_surveil_ability(obj, cost="{4}, {T}", surveil_n=1)
+    return []
 
 
 # --- Oscorp Industries ---
@@ -3263,15 +3268,31 @@ def oscorp_industries_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 # --- Savage Mansion ---
+def savage_mansion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{4}, {T}: Surveil 1. (ETB-tapped + dual-mana auto-detected from text.)"""
+    make_surveil_ability(obj, cost="{4}, {T}", surveil_n=1)
+    return []
 
 
 # --- Sinister Hideout ---
+def sinister_hideout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{4}, {T}: Surveil 1. (ETB-tapped + dual-mana auto-detected from text.)"""
+    make_surveil_ability(obj, cost="{4}, {T}", surveil_n=1)
+    return []
 
 
 # --- Suburban Sanctuary ---
+def suburban_sanctuary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{4}, {T}: Surveil 1. (ETB-tapped + dual-mana auto-detected from text.)"""
+    make_surveil_ability(obj, cost="{4}, {T}", surveil_n=1)
+    return []
 
 
 # --- University Campus ---
+def university_campus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{4}, {T}: Surveil 1. (ETB-tapped + dual-mana auto-detected from text.)"""
+    make_surveil_ability(obj, cost="{4}, {T}", surveil_n=1)
+    return []
 
 
 # --- Urban Retreat ---
@@ -5468,6 +5489,7 @@ MULTIVERSAL_PASSAGE = make_land(
 OMINOUS_ASYLUM = make_land(
     name="Ominous Asylum",
     text="This land enters tapped.\n{T}: Add {B} or {R}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=ominous_asylum_setup,
 )
 
 OSCORP_INDUSTRIES = make_land(
@@ -5479,21 +5501,25 @@ OSCORP_INDUSTRIES = make_land(
 SAVAGE_MANSION = make_land(
     name="Savage Mansion",
     text="This land enters tapped.\n{T}: Add {R} or {G}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=savage_mansion_setup,
 )
 
 SINISTER_HIDEOUT = make_land(
     name="Sinister Hideout",
     text="This land enters tapped.\n{T}: Add {U} or {B}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=sinister_hideout_setup,
 )
 
 SUBURBAN_SANCTUARY = make_land(
     name="Suburban Sanctuary",
     text="This land enters tapped.\n{T}: Add {G} or {W}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=suburban_sanctuary_setup,
 )
 
 UNIVERSITY_CAMPUS = make_land(
     name="University Campus",
     text="This land enters tapped.\n{T}: Add {W} or {U}.\n{4}, {T}: Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=university_campus_setup,
 )
 
 URBAN_RETREAT = make_land(

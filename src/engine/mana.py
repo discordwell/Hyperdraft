@@ -638,14 +638,25 @@ class ManaSystem:
             'C': ManaType.COLORLESS,
         }
 
-        # Match tap abilities: {T}: Add {X} or {T}: Add {X}{Y}...
-        # Pattern matches: {T}: Add {R}, {T}: Add {G}{G}, etc.
-        tap_add_pattern = r'\{T\}:\s*Add\s+(\{[WUBRGC]\}(?:\{[WUBRGC]\})*)'
+        # Match tap abilities. Four forms:
+        #   "{T}: Add {R}"                 → single color
+        #   "{T}: Add {G}{G}"              → repeated symbols
+        #   "{T}: Add {U} or {R}"          → dual-color choice
+        #   "{T}: Add {U}, {B}, or {R}"    → tri-color choice
+        # Separator between symbols can be any mix of whitespace, commas, and
+        # the word "or" (e.g. ", " / " or " / ", or ").
+        tap_add_pattern = (
+            r'\{T\}:\s*Add\s+'
+            # First mana symbol cluster (e.g. {R} or {G}{G})
+            r'(\{[WUBRGC]\}(?:\{[WUBRGC]\})*)'
+            # Continuations: separator + symbol-cluster, repeated.
+            r'((?:[\s,]+(?:or\s+)?\{[WUBRGC]\}(?:\{[WUBRGC]\})*)*)'
+        )
         matches = re.findall(tap_add_pattern, text)
 
-        for match in matches:
-            # Extract individual mana symbols from the match
-            symbols = re.findall(r'\{([WUBRGC])\}', match)
+        for first, rest in matches:
+            # Extract symbols from the entire run (first cluster + continuations)
+            symbols = re.findall(r'\{([WUBRGC])\}', first + rest)
             for symbol in symbols:
                 if symbol in MANA_SYMBOL_MAP:
                     mana_type = MANA_SYMBOL_MAP[symbol]

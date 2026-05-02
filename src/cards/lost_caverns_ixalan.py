@@ -5014,44 +5014,36 @@ def forgotten_monument_setup(obj: GameObject, state: GameState) -> list[Intercep
     return [make_etb_trigger(obj, effect_fn)]
 
 
-def hidden_cataract_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. {T}: {U}. {4}{U},{T},sac: discover 4."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: activated land with sacrifice cost
+def _make_hidden_land_setup(color: str):
+    """Build a setup for the LCI Hidden cycle.
+
+    Pattern: ``{4}{C}, {T}, Sacrifice this land: Discover 4``.
+    ETB-tapped and the basic ``{T}: Add {C}`` mana ability are auto-detected
+    from card text.
+    """
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def discover_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+            return [Event(
+                type=EventType.DISCOVER,
+                payload={'player': o.controller, 'value': 4},
+                source=o.id, controller=o.controller,
+            )]
+        make_activated_ability(
+            obj,
+            cost=f"{{4}}{{{color}}}, {{T}}, Sacrifice this land",
+            effect_fn=discover_effect,
+            description="Discover 4",
+            sorcery_speed=True,
+        )
         return []
-    return [make_etb_trigger(obj, effect_fn)]
+    return _setup
 
 
-def hidden_courtyard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. {T}: {W}. {4}{W},{T},sac: discover 4."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: activated land with sacrifice cost
-        return []
-    return [make_etb_trigger(obj, effect_fn)]
-
-
-def hidden_necropolis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. {T}: {B}. {4}{B},{T},sac: discover 4."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: activated land with sacrifice cost
-        return []
-    return [make_etb_trigger(obj, effect_fn)]
-
-
-def hidden_nursery_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. {T}: {G}. {4}{G},{T},sac: discover 4."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: activated land with sacrifice cost
-        return []
-    return [make_etb_trigger(obj, effect_fn)]
-
-
-def hidden_volcano_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB tapped. {T}: {R}. {4}{R},{T},sac: discover 4."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: activated land with sacrifice cost
-        return []
-    return [make_etb_trigger(obj, effect_fn)]
+hidden_cataract_setup = _make_hidden_land_setup("U")
+hidden_courtyard_setup = _make_hidden_land_setup("W")
+hidden_necropolis_setup = _make_hidden_land_setup("B")
+hidden_nursery_setup = _make_hidden_land_setup("G")
+hidden_volcano_setup = _make_hidden_land_setup("R")
 
 
 def promising_vein_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
