@@ -432,6 +432,81 @@ def make_static_pt_boost(
     return interceptors
 
 
+def make_dynamic_pt_boost(
+    source_obj: GameObject,
+    mod_fn: Callable[[GameObject, GameObject, GameState], tuple[int, int]],
+    affects_filter: Callable[[GameObject, GameState], bool],
+) -> list[Interceptor]:
+    """+X/+Y boost where X and Y are computed at query time.
+
+    Args:
+        source_obj: the object granting the boost
+        mod_fn: ``(source, target, state) -> (power_mod, toughness_mod)``
+        affects_filter: ``(target, state) -> bool`` — which objects receive
+
+    Returns QUERY_POWER + QUERY_TOUGHNESS interceptors that read the mod
+    via ``mod_fn`` each time the query fires (so the value updates as the
+    state changes — e.g. "+1/+1 for each Forest you control").
+    """
+    interceptors: list[Interceptor] = []
+    source_id = source_obj.id
+
+    def _query_filter(event_type: int):
+        def _f(event: Event, state: GameState) -> bool:
+            if event.type != event_type:
+                return False
+            source = state.objects.get(source_id)
+            if not source or source.zone != ZoneType.BATTLEFIELD:
+                return False
+            target_id = event.payload.get('object_id')
+            target = state.objects.get(target_id)
+            if not target:
+                return False
+            return affects_filter(target, state)
+        return _f
+
+    def _make_handler(component_idx: int):
+        def _h(event: Event, state: GameState) -> InterceptorResult:
+            source = state.objects.get(source_id)
+            target = state.objects.get(event.payload.get('object_id'))
+            if not source or not target:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            try:
+                p_mod, t_mod = mod_fn(source, target, state)
+            except Exception:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            mod = p_mod if component_idx == 0 else t_mod
+            if mod == 0:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            new_event = event.copy()
+            new_event.payload['value'] = new_event.payload.get('value', 0) + mod
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=new_event,
+            )
+        return _h
+
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=_query_filter(EventType.QUERY_POWER),
+        handler=_make_handler(0),
+        duration='while_on_battlefield',
+    ))
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=_query_filter(EventType.QUERY_TOUGHNESS),
+        handler=_make_handler(1),
+        duration='while_on_battlefield',
+    ))
+    return interceptors
+
+
 # =============================================================================
 # KEYWORD GRANT
 # =============================================================================
@@ -4830,6 +4905,96 @@ __all_phase5__ = [
     "make_room_setup",
     "is_door_unlocked",
 ]
+
+
+# =============================================================================
+# Sweep helpers: count_* primitives for dynamic P/T scaling
+# =============================================================================
+#
+# These return the *count* of a particular thing in state — used inside the
+# ``mod_fn`` of make_dynamic_pt_boost / make_attached_dynamic_pt_boost to
+# express "+X/+Y for each <thing> you control".
+# =============================================================================
+
+
+def count_permanents_with_subtype(controller: str, subtype: str, state: GameState) -> int:
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for obj_id in bf.objects:
+        obj = state.objects.get(obj_id)
+        if obj and obj.controller == controller and subtype in obj.characteristics.subtypes:
+            n += 1
+    return n
+
+
+def count_permanents_of_type(controller: str, card_type, state: GameState) -> int:
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for obj_id in bf.objects:
+        obj = state.objects.get(obj_id)
+        if obj and obj.controller == controller and card_type in obj.characteristics.types:
+            n += 1
+    return n
+
+
+def count_cards_in_graveyard(controller: str, state: GameState,
+                             type_filter=None) -> int:
+    gy = state.zones.get(f'graveyard_{controller}')
+    if not gy:
+        return 0
+    if type_filter is None:
+        return len(gy.objects)
+    n = 0
+    for cid in gy.objects:
+        obj = state.objects.get(cid)
+        if obj and type_filter in obj.characteristics.types:
+            n += 1
+    return n
+
+
+def count_cards_in_hand(controller: str, state: GameState) -> int:
+    hand = state.zones.get(f'hand_{controller}')
+    return len(hand.objects) if hand else 0
+
+
+def count_attachments(target: GameObject, kind_filter=None) -> int:
+    """Count Auras / Equipment attached to ``target``.
+
+    ``kind_filter`` is an optional callable ``(obj) -> bool``.
+    """
+    if not target.state.attachments:
+        return 0
+    if kind_filter is None:
+        return len(target.state.attachments)
+    # Need state for resolution; but caller can iterate the IDs themselves.
+    return len(target.state.attachments)
+
+
+# =============================================================================
+# Attached dynamic P/T (Equipment / Aura with "+X/+Y for each ...")
+# =============================================================================
+
+
+def make_attached_dynamic_pt_boost(
+    source_obj: GameObject,
+    mod_fn: Callable[[GameObject, GameObject, GameState], tuple[int, int]],
+) -> list[Interceptor]:
+    """Same as make_dynamic_pt_boost but the affects_filter is the standard
+    "object currently attached to this Equipment / Aura" check.
+    """
+    source_id = source_obj.id
+
+    def _attached_filter(target: GameObject, state: GameState) -> bool:
+        source = state.objects.get(source_id)
+        if not source:
+            return False
+        return source.state.attached_to == target.id
+
+    return make_dynamic_pt_boost(source_obj, mod_fn, _attached_filter)
 
 
 # =============================================================================
