@@ -36,6 +36,7 @@ from src.cards.interceptor_helpers import (
     make_life_gain_ability,
     make_equipment_setup,
     make_aura_setup,
+    make_ward,
     was_bargained,
 )
 
@@ -5147,8 +5148,8 @@ def rootrider_faun_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 def toadstool_admirer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Ward {2}; activated {3}{G}: +1/+1 counter."""
-    # engine gap: ward + activated counter ability.
-    return []
+    # engine gap: activated counter ability.
+    return [make_ward(obj, mana_cost="{2}")]
 
 
 def verdant_outrider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
