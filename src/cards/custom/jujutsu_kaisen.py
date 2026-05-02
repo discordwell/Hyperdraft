@@ -4293,6 +4293,65 @@ GRADE_FOUR_SORCERER = make_creature(
 
 
 # =============================================================================
+# WAVE 19 DAMAGE-AMPLIFIER PASS (Sorcerer lord + ETB burn payoffs)
+# =============================================================================
+
+def _jujutsu_veteran_setup(obj, state):
+    return list(_ih.make_static_pt_boost(
+        obj, 1, 0, _ih.other_creatures_with_subtype(obj, "Sorcerer")
+    ))
+
+JUJUTSU_VETERAN = make_creature(
+    name="Jujutsu Veteran",
+    power=2, toughness=3, mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Sorcerer"},
+    text="Other Sorcerer creatures you control get +1/+0.",
+    setup_interceptors=_jujutsu_veteran_setup,
+)
+
+
+def _curse_brigand_setup(obj, state):
+    def etb_effect(event, st):
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': pid, 'amount': 1, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ) for pid in st.players if pid != obj.controller]
+    return [_ih.make_etb_trigger(obj, etb_effect)]
+
+CURSE_BRIGAND = make_creature(
+    name="Curse Brigand",
+    power=2, toughness=2, mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Sorcerer"},
+    text="When Curse Brigand enters, deal 1 damage to each opponent.",
+    setup_interceptors=_curse_brigand_setup,
+)
+
+
+def _cursed_spirit_reaver_setup(obj, state):
+    def etb_effect(event, st):
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': pid, 'amount': 2, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ) for pid in st.players if pid != obj.controller]
+    return [_ih.make_etb_trigger(obj, etb_effect)]
+
+CURSED_SPIRIT_REAVER = make_creature(
+    name="Cursed Spirit Reaver",
+    power=3, toughness=2, mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    subtypes={"Spirit", "Curse"},
+    text="When Cursed Spirit Reaver enters, deal 2 damage to each opponent.",
+    setup_interceptors=_cursed_spirit_reaver_setup,
+)
+
+
+# =============================================================================
 # EXPORT
 # =============================================================================
 
@@ -4559,6 +4618,11 @@ JUJUTSU_KAISEN_CARDS = {
     "Tokyo School Student": TOKYO_SCHOOL_STUDENT,
     "Kyoto School Recruit": KYOTO_SCHOOL_RECRUIT,
     "Grade Four Sorcerer": GRADE_FOUR_SORCERER,
+
+    # Wave 19 damage-amplifier pass
+    "Jujutsu Veteran": JUJUTSU_VETERAN,
+    "Curse Brigand": CURSE_BRIGAND,
+    "Cursed Spirit Reaver": CURSED_SPIRIT_REAVER,
 }
 
 
@@ -4786,4 +4850,8 @@ CARDS = [
     TOKYO_SCHOOL_STUDENT,
     KYOTO_SCHOOL_RECRUIT,
     GRADE_FOUR_SORCERER,
+    # Wave 19 damage-amplifier pass
+    JUJUTSU_VETERAN,
+    CURSE_BRIGAND,
+    CURSED_SPIRIT_REAVER,
 ]
