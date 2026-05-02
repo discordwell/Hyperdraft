@@ -547,6 +547,9 @@ class ObjectState:
     # Phase 4: registered activated abilities (list of ActivatedAbility descriptors).
     activated_abilities: list = field(default_factory=list)
 
+    # Phase 5: MKM Suspect mechanic — creature is suspected (menace + can't block).
+    suspected: bool = False
+
     # Hearthstone-specific (optional, unused in MTG)
     divine_shield: bool = False       # Prevents first damage
     frozen: bool = False              # Can't attack next turn

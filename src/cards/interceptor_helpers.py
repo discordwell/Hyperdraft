@@ -4773,3 +4773,56 @@ __all_phase3__ = [
     "make_aura_setup",
     "attach_aura_to_target",
 ]
+
+
+# =============================================================================
+# Phase 5: Suspect mechanic (Murders at Karlov Manor)
+# =============================================================================
+#
+# A "suspected" creature has menace and can't block. Suspect persists until
+# it's removed (typically by a "no longer suspected" trigger that none of the
+# wired cards include yet, so we treat it as forever).
+# =============================================================================
+
+
+def suspect_creature(target_id: str, source_id: str, controller: str,
+                     state: Optional[GameState] = None) -> list[Event]:
+    """Emit the events needed to suspect a creature.
+
+    A suspected creature gains menace and can't block. Both grants use
+    duration='forever' since there is no engine concept of "becomes
+    no longer suspected" yet.
+
+    If ``state`` is provided, also sets ``obj.state.suspected = True`` for
+    cards (e.g. Repeat Offender) that branch on suspect status.
+    """
+    if state is not None:
+        target = state.objects.get(target_id)
+        if target is not None:
+            target.state.suspected = True
+    return [
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': target_id,
+                'keyword': 'menace',
+                'duration': 'forever',
+            },
+            source=source_id,
+            controller=controller,
+        ),
+        Event(
+            type=EventType.CANT_BLOCK,
+            payload={
+                'object_id': target_id,
+                'duration': 'forever',
+            },
+            source=source_id,
+            controller=controller,
+        ),
+    ]
+
+
+__all_phase5__ = [
+    "suspect_creature",
+]
