@@ -957,6 +957,76 @@ def make_end_step_trigger(
 
 
 # =============================================================================
+# SURVIVAL TRIGGER (DSK)
+# =============================================================================
+
+def make_survival_trigger(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+) -> Interceptor:
+    """
+    Create a Survival trigger interceptor.
+
+    Survival is a Duskmourn (DSK) keyword: "At the beginning of your second
+    main phase, if this creature is tapped, X." This helper registers a
+    PHASE_START interceptor that fires only when:
+      1. The event is PHASE_START with phase == 'postcombat_main'
+         (the engine emits this for the second main phase).
+      2. The active player is the source's controller (it's their second main).
+      3. The source is on the battlefield and tapped at trigger time.
+
+    Args:
+        source_obj: The creature with Survival.
+        effect_fn: Function(event, state) -> list[Event] to execute when the
+            trigger fires (the X in "if this creature is tapped, X").
+
+    Returns:
+        An Interceptor at REACT priority, scoped to ``while_on_battlefield``.
+    """
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        # Accept the canonical "postcombat_main" plus a couple of legacy
+        # spellings that other card files have used historically, so that
+        # any future engine renaming doesn't silently turn Survival cards
+        # into no-ops.
+        if event.payload.get('phase') not in (
+            'postcombat_main', 'main2', 'second_main',
+        ):
+            return False
+        # Must be the controller's own second main phase.
+        if state.active_player != source_obj.controller:
+            return False
+        # Re-resolve the source from state (handler may capture a stale
+        # snapshot if the card moved zones, e.g. a token Survivor exiled).
+        current = state.objects.get(source_obj.id)
+        if current is None:
+            return False
+        if current.zone != ZoneType.BATTLEFIELD:
+            return False
+        if not current.state.tapped:
+            return False
+        return True
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_events = effect_fn(event, state)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events,
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield',
+    )
+
+
+# =============================================================================
 # LIFE CHANGE TRIGGER
 # =============================================================================
 
@@ -4728,6 +4798,85 @@ def make_token_creation_ability(
         obj, cost=cost, effect_fn=_effect,
         description=desc, sorcery_speed=sorcery_speed, once_per_turn=once_per_turn,
     )
+
+
+def make_copy_token_event(
+    target_id: str,
+    controller: str,
+    source_id: Optional[str] = None,
+    *,
+    count: int = 1,
+    owner: Optional[str] = None,
+    tapped: bool = False,
+    add_subtypes: Optional[set] = None,
+    except_subtypes: Optional[set] = None,
+    except_power: Optional[int] = None,
+    except_toughness: Optional[int] = None,
+    except_colors: Optional[set] = None,
+    except_keywords: Optional[list] = None,
+    except_name: Optional[str] = None,
+) -> list[Event]:
+    """Build OBJECT_CREATED events that create N tokens copying ``target_id``.
+
+    The copy gets the original's printed characteristics (types, subtypes,
+    colors, P/T, abilities) and inherits its ``card_def`` so the original's
+    setup_interceptors fire when the copy enters the battlefield.
+
+    Args:
+        target_id: object id of the permanent to copy.
+        controller: player id who will control the copy.
+        source_id: object id of the spell/ability creating the copy
+            (used as ``Event.source`` for downstream triggers).
+        count: number of copies to create. Default 1.
+        owner: optional owner override (defaults to ``controller``).
+        tapped: whether the copy enters tapped.
+        add_subtypes: subtypes to add *in addition* to the copied subtypes
+            (e.g. "...except it's a Reflection in addition to its other
+            creature types").
+        except_subtypes: replace the copied subtypes entirely.
+        except_power: override the copied power.
+        except_toughness: override the copied toughness.
+        except_colors: replace the copied colors entirely.
+        except_keywords: replace the copied keyword abilities entirely
+            (list of lowercase keyword strings).
+        except_name: override the copied name.
+
+    Returns:
+        ``count`` OBJECT_CREATED events; emit each through ``state.emit`` /
+        ``game.emit`` to instantiate the tokens.
+    """
+    payload_template: dict = {
+        'copy_of': target_id,
+        'controller': controller,
+        'owner': owner or controller,
+        'is_token': True,
+        'to_zone_type': ZoneType.BATTLEFIELD,
+        'tapped': bool(tapped),
+    }
+    if add_subtypes:
+        payload_template['add_subtypes'] = set(add_subtypes)
+    if except_subtypes is not None:
+        payload_template['except_subtypes'] = set(except_subtypes)
+    if except_power is not None:
+        payload_template['except_power'] = int(except_power)
+    if except_toughness is not None:
+        payload_template['except_toughness'] = int(except_toughness)
+    if except_colors is not None:
+        payload_template['except_colors'] = set(except_colors)
+    if except_keywords is not None:
+        payload_template['except_keywords'] = list(except_keywords)
+    if except_name is not None:
+        payload_template['except_name'] = str(except_name)
+
+    events: list[Event] = []
+    for _ in range(max(0, int(count))):
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload=dict(payload_template),
+            source=source_id,
+            controller=controller,
+        ))
+    return events
 
 
 def make_sac_destroy_ability(
