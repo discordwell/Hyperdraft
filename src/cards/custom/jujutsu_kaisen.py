@@ -2171,8 +2171,8 @@ HEAVENLY_RESTRICTION_WARRIOR = _make_creature_with_keywords(
 
 YUTA_OKKOTSU = _make_creature_with_keywords(
     name="Yuta Okkotsu, Rika's Beloved",
-    power=4, toughness=4,
-    mana_cost="{2}{U}{U}",
+    power=3, toughness=3,
+    mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
@@ -2184,7 +2184,7 @@ YUTA_OKKOTSU = _make_creature_with_keywords(
 TOGE_INUMAKI = _make_creature_with_keywords(
     name="Toge Inumaki, Cursed Speech",
     power=2, toughness=2,
-    mana_cost="{1}{U}{W}",
+    mana_cost="{U}{W}",
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Human", "Sorcerer", "Student"},
     supertypes={"Legendary"},
@@ -2290,8 +2290,8 @@ ILLUSION_CASTER = make_creature(
 
 CURSED_TECHNIQUE_THIEF = make_creature(
     name="Cursed Technique Thief",
-    power=3, toughness=2,
-    mana_cost="{3}{U}",
+    power=2, toughness=2,
+    mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"}
 )
@@ -4006,8 +4006,8 @@ FINGER_GUARDIAN = _make_creature_with_keywords(
 
 DOMAIN_MASTER = _make_creature_with_keywords(
     name="Domain Master",
-    power=3, toughness=4,
-    mana_cost="{2}{U}{U}",
+    power=3, toughness=3,
+    mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Sorcerer"},
     text='Whenever you cast a enchantment, draw a card.',
@@ -4254,6 +4254,41 @@ SIX_EYES_PERFECT_CALCULATION = make_sorcery(
           "into your hand, then shuffle. The next instant or sorcery spell you "
           "cast this turn costs {3} less to cast. (The Six Eyes sees every path.)"),
     resolve=_six_eyes_perfect_calculation_resolve,
+)
+
+
+# =============================================================================
+# WAVE 5 BUFF COMMONS (Blue, Sorcerer/Curse-flavored)
+# =============================================================================
+
+JUJUTSU_TRAINEE = make_creature(
+    name="Jujutsu Trainee",
+    power=2, toughness=1, mana_cost="{U}", colors={Color.BLUE},
+    subtypes={"Human", "Sorcerer"}, text="Menace"
+)
+
+CURSED_SPIRIT_APPRENTICE = make_creature(
+    name="Cursed Spirit Apprentice",
+    power=1, toughness=2, mana_cost="{U}", colors={Color.BLUE},
+    subtypes={"Spirit", "Curse"}, text="Deathtouch"
+)
+
+TOKYO_SCHOOL_STUDENT = make_creature(
+    name="Tokyo School Student",
+    power=3, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Sorcerer"}, text=""
+)
+
+KYOTO_SCHOOL_RECRUIT = make_creature(
+    name="Kyoto School Recruit",
+    power=2, toughness=3, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Sorcerer"}, text="Menace"
+)
+
+GRADE_FOUR_SORCERER = make_creature(
+    name="Grade Four Sorcerer",
+    power=2, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
+    subtypes={"Human", "Sorcerer"}, text="Lifelink"
 )
 
 
@@ -4517,6 +4552,13 @@ JUJUTSU_KAISEN_CARDS = {
     "Binding Vow, Limitless Exchange": BINDING_VOW_LIMITLESS_EXCHANGE,
     "Malevolent Shrine, Flame Arrow": MALEVOLENT_SHRINE_FLAME_ARROW,
     "Six Eyes, Perfect Calculation": SIX_EYES_PERFECT_CALCULATION,
+
+    # WAVE 5 BUFF COMMONS
+    "Jujutsu Trainee": JUJUTSU_TRAINEE,
+    "Cursed Spirit Apprentice": CURSED_SPIRIT_APPRENTICE,
+    "Tokyo School Student": TOKYO_SCHOOL_STUDENT,
+    "Kyoto School Recruit": KYOTO_SCHOOL_RECRUIT,
+    "Grade Four Sorcerer": GRADE_FOUR_SORCERER,
 }
 
 
@@ -4739,4 +4781,9 @@ CARDS = [
     BINDING_VOW_LIMITLESS_EXCHANGE,
     MALEVOLENT_SHRINE_FLAME_ARROW,
     SIX_EYES_PERFECT_CALCULATION,
+    JUJUTSU_TRAINEE,
+    CURSED_SPIRIT_APPRENTICE,
+    TOKYO_SCHOOL_STUDENT,
+    KYOTO_SCHOOL_RECRUIT,
+    GRADE_FOUR_SORCERER,
 ]
