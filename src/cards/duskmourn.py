@@ -55,6 +55,11 @@ from src.cards.interceptor_helpers import (
     make_copy_token_event,
     # Survival (DSK keyword: at second main, if tapped)
     make_survival_trigger,
+    # W3 — Survival per-card helpers
+    make_counter_transfer_on_death,
+    track_exile_with, count_exiled_with,
+    make_hand_to_battlefield_choice,
+    reveal_top_n_with_distinct_filter,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -1180,9 +1185,49 @@ def possessed_goat_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def reluctant_role_model_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival; on death of any creature you control with counters, transfer counters."""
-    # engine gap: Survival; counter transfer on death
-    return []
+    """Survival — At the beginning of your second main phase, if this creature
+    is tapped, put a flying counter, lifelink counter, or +1/+1 counter on it.
+    Whenever this creature or another creature you control dies, if it had
+    counters on it, put those counters on up to one target creature.
+    """
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
+        from src.engine.types import PendingChoice as _PendingChoice
+        # The card text says "put a flying / lifelink / +1+1 counter on it".
+        # Open a 3-mode modal so the controller (or the AI) chooses which.
+        # Each mode emits a single COUNTER_ADDED on the source.
+        def _on_modal(choice, selected, st):
+            if not selected:
+                return []
+            sel = selected[0]
+            mode = sel.get('index') if isinstance(sel, dict) else sel
+            counter_type = {0: 'flying', 1: 'lifelink', 2: '+1/+1'}.get(int(mode), '+1/+1')
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': counter_type, 'amount': 1},
+                source=obj.id, controller=obj.controller,
+            )]
+
+        choice = _PendingChoice(
+            choice_type="modal",
+            player=obj.controller,
+            prompt="Reluctant Role Model — choose a counter to add",
+            options=[
+                {'index': 0, 'text': 'Flying counter'},
+                {'index': 1, 'text': 'Lifelink counter'},
+                {'index': 2, 'text': '+1/+1 counter'},
+            ],
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            callback_data={'handler': _on_modal},
+        )
+        state.pending_choice = choice
+        return []
+
+    return [
+        make_survival_trigger(obj, survival_effect),
+        make_counter_transfer_on_death(obj),
+    ]
 
 
 def savior_of_the_small_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1342,9 +1387,130 @@ def unsettling_twins_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def veteran_survivor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — exile from a graveyard; +3/+3 hexproof if 3+ exiled with this."""
-    # engine gap: Survival; exile-with-this tracking
-    return []
+    """Survival — At the beginning of your second main phase, if this creature
+    is tapped, exile up to one target card from a graveyard.
+    As long as there are three or more cards exiled with this creature, it
+    gets +3/+3 and has hexproof.
+    (Card text on this build is +3/+3 + hexproof; the task description quotes
+    +1/+1 + lifelink. We follow the actual card text printed in the
+    CardDefinition `text` above — this is the Scryfall-imported text.)
+    """
+    from src.engine.types import PendingChoice as _PendingChoice
+
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
+        # Open a target choice over all cards in any graveyard. Player may
+        # choose 0 or 1 ("up to one"). On selection, emit EXILE and record
+        # the exiled id on this source's exiled_with_source tracker.
+        legal: list[str] = []
+        for pid in state.players.keys():
+            gy = state.zones.get(f"graveyard_{pid}")
+            if gy is None:
+                continue
+            legal.extend(gy.objects)
+        if not legal:
+            return []
+
+        def _on_target(choice, selected, st):
+            if not selected:
+                return []
+            target_id = selected[0]
+            # Track exile-with-source bookkeeping.
+            track_exile_with(st, obj.id, target_id)
+            return [Event(
+                type=EventType.EXILE,
+                payload={'object_id': target_id},
+                source=obj.id, controller=obj.controller,
+            )]
+
+        choice = _PendingChoice(
+            choice_type="target",
+            player=obj.controller,
+            prompt="Veteran Survivor — exile up to one target card from a graveyard",
+            options=legal,
+            source_id=obj.id,
+            min_choices=0,
+            max_choices=1,
+            callback_data={'handler': _on_target},
+        )
+        state.pending_choice = choice
+        return []
+
+    # Static ability: while this creature is on the battlefield AND
+    # count_exiled_with(state, obj.id) >= 3, grant +3/+3 + hexproof.
+    interceptors: list[Interceptor] = [make_survival_trigger(obj, survival_effect)]
+    source_id = obj.id
+
+    def _is_self(target: GameObject, state: GameState) -> bool:
+        return target.id == source_id
+
+    def _power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        src = state.objects.get(source_id)
+        if src is None or src.zone != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('object_id') != source_id:
+            return False
+        return count_exiled_with(state, source_id) >= 3
+
+    def _power_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = new_event.payload.get('value', 0) + 3
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    def _toughness_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_TOUGHNESS:
+            return False
+        src = state.objects.get(source_id)
+        if src is None or src.zone != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('object_id') != source_id:
+            return False
+        return count_exiled_with(state, source_id) >= 3
+
+    def _toughness_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = new_event.payload.get('value', 0) + 3
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    def _abilities_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        src = state.objects.get(source_id)
+        if src is None or src.zone != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('object_id') != source_id:
+            return False
+        return count_exiled_with(state, source_id) >= 3
+
+    def _abilities_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        granted = list(new_event.payload.get('granted', []))
+        if 'hexproof' not in granted:
+            granted.append('hexproof')
+        new_event.payload['granted'] = granted
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=source_id, controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=_power_filter, handler=_power_handler,
+        duration='while_on_battlefield',
+    ))
+    interceptors.append(Interceptor(
+        id=new_id(), source=source_id, controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=_toughness_filter, handler=_toughness_handler,
+        duration='while_on_battlefield',
+    ))
+    interceptors.append(Interceptor(
+        id=new_id(), source=source_id, controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=_abilities_filter, handler=_abilities_handler,
+        duration='while_on_battlefield',
+    ))
+
+    return interceptors
 
 
 def the_wandering_rescuer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1833,9 +1999,30 @@ def cracked_skull_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def cynical_loner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Can't be blocked by Glimmers; Survival — search-and-bin (graveyard)."""
-    # engine gap: Survival; subtype-specific blocker restriction
-    return []
+    """This creature can't be blocked by Glimmers.
+    Survival — At the beginning of your second main phase, if this creature
+    is tapped, you may search your library for a card, put it into your
+    graveyard, then shuffle.
+
+    The "can't be blocked by Glimmers" half is a known engine gap (subtype-
+    specific blocker restriction) — wire only the Survival half.
+    """
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
+        # Emit a SEARCH_LIBRARY event with destination='graveyard'. The
+        # engine handler routes this to a PendingChoice and on selection
+        # moves the chosen card to the graveyard, shuffling after.
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'destination': 'graveyard',
+                'shuffle_after': True,
+                'amount': 1,
+                'min_count': 0,  # "you may"
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_survival_trigger(obj, survival_effect)]
 
 
 def defiled_crypt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2965,9 +3152,18 @@ def insidious_fungus_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def kona_rescue_beastie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — may put a permanent from hand onto bf."""
-    # engine gap: Survival
-    return []
+    """Survival — At the beginning of your second main phase, if Kona is
+    tapped, you may put a permanent card from your hand onto the battlefield.
+    """
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
+        # Open a hand-to-battlefield choice over the controller's hand,
+        # filtered to permanent cards only. Optional ("you may").
+        return make_hand_to_battlefield_choice(
+            state, obj.controller, obj.id,
+            optional=True,
+            prompt="Kona — choose a permanent card from your hand to put onto the battlefield",
+        )
+    return [make_survival_trigger(obj, survival_effect)]
 
 
 def leyline_of_mutation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3361,9 +3557,38 @@ def restricted_office_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def rip_spawn_hunter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Survival — power-many reveal, distinct-power cards to hand."""
-    # engine gap: Survival
-    return []
+    """Survival — At the beginning of your second main phase, if Rip is
+    tapped, reveal the top X cards of your library, where X is its power.
+    Put any number of creature and/or Vehicle cards with different powers
+    from among them into your hand. Put the rest on the bottom of your
+    library in a random order.
+    """
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
+        # X = Rip's current power (state-time look-up).
+        try:
+            x = int(get_power(obj, state))
+        except Exception:
+            x = obj.characteristics.power or 0
+        if x <= 0:
+            return []
+
+        def _is_creature_or_vehicle(cobj: GameObject, _st: GameState) -> bool:
+            chars = cobj.characteristics
+            if CardType.CREATURE in (chars.types or set()):
+                return True
+            subs = chars.subtypes or set()
+            return 'Vehicle' in subs
+
+        return reveal_top_n_with_distinct_filter(
+            state, obj.controller, obj.id, x,
+            filter_fn=_is_creature_or_vehicle,
+            distinct_attr='power',
+            destination='hand',
+            remainder='bottom_random',
+            prompt=("Rip — choose any number of creature and/or Vehicle cards "
+                    "(with different powers) to put into your hand"),
+        )
+    return [make_survival_trigger(obj, survival_effect)]
 
 
 def roaring_furnace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

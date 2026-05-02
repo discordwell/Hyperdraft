@@ -577,6 +577,14 @@ class ObjectState:
     # be cast a second time from exile.
     adventure_exile: bool = False
 
+    # DSK Survival / generic per-source exile tracking. When a card exiles
+    # other cards as part of its effect (e.g. Veteran Survivor's "exile up
+    # to one target card from a graveyard"), each exiled card's id is
+    # appended here on the SOURCE object. Static abilities can then read
+    # ``len(source.state.exiled_with_source)`` to compute things like
+    # "as long as there are three or more cards exiled with this creature".
+    exiled_with_source: list = field(default_factory=list)
+
     # Hearthstone-specific (optional, unused in MTG)
     divine_shield: bool = False       # Prevents first damage
     frozen: bool = False              # Can't attack next turn
