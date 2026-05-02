@@ -4483,6 +4483,7 @@ def make_activated_ability(
     sorcery_speed: bool = False,
     own_turn_only: bool = False,
     once_per_turn: bool = False,
+    once_per_game: bool = False,
     targets_required: int = 0,
     target_kind: str = "any",
 ):
@@ -4521,6 +4522,47 @@ def make_activated_ability(
         sorcery_speed=sorcery_speed,
         own_turn_only=own_turn_only,
         once_per_turn=once_per_turn,
+        once_per_game=once_per_game,
+        targets_required=targets_required,
+        target_kind=target_kind,
+    )
+
+
+def make_exhaust_ability(
+    obj: GameObject,
+    cost: str,
+    effect_fn: Callable[[GameObject, GameState, list], list[Event]],
+    *,
+    description: str = "",
+    sorcery_speed: bool = False,
+    own_turn_only: bool = False,
+    targets_required: int = 0,
+    target_kind: str = "any",
+):
+    """Register an Exhaust ability — activate at most once per permanent, ever.
+
+    Exhaust is from Aetherdrift / Avatar: TLA. The ability is written
+    "Exhaust — {cost}: <effect>" and includes the reminder
+    "(Activate each exhaust ability only once.)". Once activated, the same
+    ability descriptor cannot be re-activated on the same permanent — even
+    across turns. A new permanent (different ``obj.id``, e.g. recasting from
+    the graveyard or a fresh copy) registers its own descriptor and starts
+    fresh.
+
+    The description is prefixed with ``Exhaust — `` to make the legal-action
+    surface readable to humans and AIs.
+    """
+    desc = description or f"{cost}: ..."
+    if not desc.lower().startswith("exhaust"):
+        desc = f"Exhaust — {desc}"
+    return make_activated_ability(
+        obj,
+        cost=cost,
+        effect_fn=effect_fn,
+        description=desc,
+        sorcery_speed=sorcery_speed,
+        own_turn_only=own_turn_only,
+        once_per_game=True,
         targets_required=targets_required,
         target_kind=target_kind,
     )
@@ -4909,6 +4951,7 @@ def make_sac_destroy_ability(
 
 __all_phase4__ = [
     "make_activated_ability",
+    "make_exhaust_ability",
     "make_pump_self_ability",
     "make_draw_ability",
     "make_loot_ability",

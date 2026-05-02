@@ -26,7 +26,7 @@ from src.engine import (
 from typing import Optional, Callable
 from src.cards.interceptor_helpers import (
     make_etb_trigger, create_target_choice, create_modal_choice,
-    make_cycling_setup,
+    make_cycling_setup, make_exhaust_ability,
 )
 import re
 
@@ -154,6 +154,165 @@ def perilous_snare_setup(obj: GameObject, state: GameState) -> list[Interceptor]
     )
 
     return [etb_trigger, leaves_trigger]
+
+
+# =============================================================================
+# EXHAUST SETUP FUNCTIONS
+# =============================================================================
+#
+# Exhaust is a once-per-game activated ability. The mechanic is wired through
+# ``make_exhaust_ability`` (interceptor_helpers) which sets ``once_per_game``
+# on the resulting ActivatedAbility — once activated, the ability is gone for
+# good on that specific permanent. Re-entering the battlefield (a fresh GameObject)
+# starts a new copy from scratch.
+
+def _emit_self_counters(obj: GameObject, amount: int) -> list[Event]:
+    """Helper: put N +1/+1 counters on self."""
+    return [Event(
+        type=EventType.COUNTER_ADDED,
+        payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': amount},
+        source=obj.id, controller=obj.controller,
+    )]
+
+
+def _emit_create_token(
+    obj: GameObject,
+    *,
+    name: str,
+    power: int,
+    toughness: int,
+    subtypes: set,
+    colors: set,
+    keywords: list,
+    is_artifact: bool = False,
+) -> Event:
+    """Helper: create a creature token with the given characteristics."""
+    types = {CardType.CREATURE}
+    if is_artifact:
+        types.add(CardType.ARTIFACT)
+    return Event(
+        type=EventType.OBJECT_CREATED,
+        payload={
+            'name': name,
+            'controller': obj.controller,
+            'owner': obj.controller,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'types': types,
+            'subtypes': set(subtypes),
+            'colors': set(colors),
+            'power': power,
+            'toughness': toughness,
+            'abilities': list(keywords),
+            'is_token': True,
+        },
+        source=obj.id, controller=obj.controller,
+    )
+
+
+def keen_buccaneer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust — {1}{U}: Loot + put a +1/+1 counter on this creature."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'count': 1},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.DISCARD_CHOICE,
+                  payload={'player': o.controller, 'count': 1},
+                  source=o.id, controller=o.controller),
+            *_emit_self_counters(o, 1),
+        ]
+    make_exhaust_ability(
+        obj, cost="{1}{U}", effect_fn=_effect,
+        description="{1}{U}: Draw a card, then discard a card. Put a +1/+1 counter on this creature.",
+    )
+    return []
+
+
+def skystreak_engineer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust — {4}{U}: Put two +1/+1 counters on this creature."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return _emit_self_counters(o, 2)
+    make_exhaust_ability(
+        obj, cost="{4}{U}", effect_fn=_effect,
+        description="{4}{U}: Put two +1/+1 counters on this creature.",
+    )
+    return []
+
+
+def pacesetter_paragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust — {2}{R}: +1/+1 counter and double strike until end of turn."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            *_emit_self_counters(o, 1),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': o.id, 'keyword': 'double strike',
+                         'duration': 'end_of_turn'},
+                source=o.id, controller=o.controller,
+            ),
+        ]
+    make_exhaust_ability(
+        obj, cost="{2}{R}", effect_fn=_effect,
+        description="{2}{R}: Put a +1/+1 counter on this creature. It gains double strike until end of turn.",
+    )
+    return []
+
+
+def prowcatcher_specialist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust — {3}{R}: Put two +1/+1 counters on this creature."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return _emit_self_counters(o, 2)
+    make_exhaust_ability(
+        obj, cost="{3}{R}", effect_fn=_effect,
+        description="{3}{R}: Put two +1/+1 counters on this creature.",
+    )
+    return []
+
+
+def hazard_of_the_dunes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust — {6}{G}: Put three +1/+1 counters on this creature."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return _emit_self_counters(o, 3)
+    make_exhaust_ability(
+        obj, cost="{6}{G}", effect_fn=_effect,
+        description="{6}{G}: Put three +1/+1 counters on this creature.",
+    )
+    return []
+
+
+def stampeding_scurryfoot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust — {3}{G}: +1/+1 counter and create a 3/3 green Elephant token."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            *_emit_self_counters(o, 1),
+            _emit_create_token(
+                o, name="Elephant", power=3, toughness=3,
+                subtypes={"Elephant"}, colors={Color.GREEN}, keywords=[],
+            ),
+        ]
+    make_exhaust_ability(
+        obj, cost="{3}{G}", effect_fn=_effect,
+        description="{3}{G}: Put a +1/+1 counter on this creature. Create a 3/3 green Elephant creature token.",
+    )
+    return []
+
+
+def camera_launcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Exhaust — {3}: +1/+1 counter and create a 1/1 colorless Thopter token with flying."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            *_emit_self_counters(o, 1),
+            _emit_create_token(
+                o, name="Thopter", power=1, toughness=1,
+                subtypes={"Thopter"}, colors=set(), keywords=["flying"],
+                is_artifact=True,
+            ),
+        ]
+    make_exhaust_ability(
+        obj, cost="{3}", effect_fn=_effect,
+        description="{3}: Put a +1/+1 counter on this creature. Create a 1/1 colorless Thopter artifact creature token with flying.",
+    )
+    return []
 
 
 # =============================================================================
@@ -3023,6 +3182,7 @@ KEEN_BUCCANEER = make_creature(
     subtypes={"Octopus", "Pirate"},
     text="Vigilance\nExhaust — {1}{U}: Draw a card, then discard a card. Put a +1/+1 counter on this creature. (Activate each exhaust ability only once.)",
     rarity="common",
+    setup_interceptors=keen_buccaneer_setup,
 )
 
 MEMORY_GUARDIAN = make_artifact_creature(
@@ -3142,6 +3302,7 @@ SKYSTREAK_ENGINEER = make_creature(
     subtypes={"Human", "Pilot"},
     text="Flying\nExhaust — {4}{U}: Put two +1/+1 counters on this creature. (Activate each exhaust ability only once.)",
     rarity="common",
+    setup_interceptors=skystreak_engineer_setup,
 )
 
 SLICK_IMITATOR = make_creature(
@@ -3888,6 +4049,7 @@ PACESETTER_PARAGON = make_creature(
     subtypes={"Human", "Pilot"},
     text="Exhaust — {2}{R}: Put a +1/+1 counter on this creature. It gains double strike until end of turn. (Activate each exhaust ability only once.)",
     rarity="uncommon",
+    setup_interceptors=pacesetter_paragon_setup,
 )
 
 PEDAL_TO_THE_METAL = make_instant(
@@ -3907,6 +4069,7 @@ PROWCATCHER_SPECIALIST = make_creature(
     subtypes={"Goblin", "Warrior"},
     text="Haste\nExhaust — {3}{R}: Put two +1/+1 counters on this creature. (Activate each exhaust ability only once.)",
     rarity="common",
+    setup_interceptors=prowcatcher_specialist_setup,
 )
 
 PUSH_THE_LIMIT = make_sorcery(
@@ -4128,6 +4291,7 @@ HAZARD_OF_THE_DUNES = make_creature(
     subtypes={"Wurm"},
     text="Trample, reach\nExhaust — {6}{G}: Put three +1/+1 counters on this creature. (Activate each exhaust ability only once.)",
     rarity="common",
+    setup_interceptors=hazard_of_the_dunes_setup,
 )
 
 JIBBIRIK_OMNIVORE = make_creature(
@@ -4279,6 +4443,7 @@ STAMPEDING_SCURRYFOOT = make_creature(
     subtypes={"Mouse"},
     text="Exhaust — {3}{G}: Put a +1/+1 counter on this creature. Create a 3/3 green Elephant creature token. (Activate each exhaust ability only once.)",
     rarity="common",
+    setup_interceptors=stampeding_scurryfoot_setup,
 )
 
 TERRIAN_WORLD_TYRANT = make_creature(
@@ -4777,6 +4942,7 @@ CAMERA_LAUNCHER = make_artifact_creature(
     subtypes={"Construct"},
     text="Exhaust — {3}: Put a +1/+1 counter on this creature. Create a 1/1 colorless Thopter artifact creature token with flying. (Activate each exhaust ability only once.)",
     rarity="common",
+    setup_interceptors=camera_launcher_setup,
 )
 
 GUIDELIGHT_MATRIX = make_artifact(
