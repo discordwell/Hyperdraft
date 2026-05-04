@@ -84,3 +84,16 @@ def test_variant_max_hand_size_controls_cleanup_discard_count():
     assert game.state.max_hand_size == 5
     assert len(discards) == 1
     assert discards[0].payload["count"] == 1
+
+
+def test_variant_lands_allowed_per_turn_controls_turn_reset():
+    game = Game(lands_allowed_per_turn=2)
+
+    game.state.lands_played_this_turn = 1
+    game.turn_manager.turn_state.lands_played_count = 1
+    game.turn_manager._reset_turn_state()
+
+    assert game.state.base_lands_allowed_per_turn == 2
+    assert game.state.lands_allowed_this_turn == 2
+    assert game.turn_manager.turn_state.lands_allowed == 2
+    assert game.state.lands_played_this_turn == 0

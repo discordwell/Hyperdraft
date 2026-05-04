@@ -194,7 +194,8 @@ class TurnManager:
         """Reset per-turn tracking."""
         self.turn_state.land_played = False
         self.turn_state.lands_played_count = 0
-        self.turn_state.lands_allowed = 1
+        base_lands_allowed = getattr(self.state, "base_lands_allowed_per_turn", 1) or 1
+        self.turn_state.lands_allowed = base_lands_allowed
         self.turn_state.skip_untap = False
         self.turn_state.skip_draw = False
         self.turn_state.skip_combat = False
@@ -203,7 +204,7 @@ class TurnManager:
         # Also reset the centralized GameState land tracking
         # (this is the authoritative source for interceptors)
         self.state.lands_played_this_turn = 0
-        self.state.lands_allowed_this_turn = 1
+        self.state.lands_allowed_this_turn = base_lands_allowed
 
     async def _run_beginning_phase(self) -> list[Event]:
         """Run the Beginning Phase (Untap, Upkeep, Draw)."""
