@@ -308,10 +308,17 @@ def test_role_detection_flags_planeswalkers_and_large_creatures_as_wincons():
         types={CardType.SORCERY},
         text="Create two 1/1 white Soldier creature tokens.",
     )
+    reanimate = _make_spell(
+        name="Reanimate",
+        mana_cost="{4}{B}",
+        types={CardType.SORCERY},
+        text="Return target creature card from your graveyard to the battlefield.",
+    )
 
     assert role_of(planeswalker) == "wincon"
     assert role_of(large_creature) == "wincon"
     assert role_of(token_swarm) == "wincon"
+    assert role_of(reanimate) == "wincon"
     assert role_of(small_creature) == "utility"
 
 
