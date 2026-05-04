@@ -49,6 +49,7 @@ class Game:
         starting_life: Optional[int] = None,
         opening_hand_size: Optional[int] = None,
         max_hand_size: Optional[int] = None,
+        lands_allowed_per_turn: Optional[int] = None,
     ):
         self.state = GameState()
         self.state.game_mode = mode
@@ -56,6 +57,8 @@ class Game:
             self.state.starting_life = starting_life
         if opening_hand_size is not None:
             self.state.opening_hand_size = opening_hand_size
+        if lands_allowed_per_turn is not None:
+            self.state.base_lands_allowed_per_turn = lands_allowed_per_turn
         if first_player_draws is not None:
             self.state.first_player_draws = first_player_draws
         # Track spell source IDs that have been countered so subsequent effect
