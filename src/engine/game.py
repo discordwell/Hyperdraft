@@ -41,9 +41,11 @@ class Game:
     - Targeting System
     """
 
-    def __init__(self, mode: str = "mtg"):
+    def __init__(self, mode: str = "mtg", *, first_player_draws: Optional[bool] = None):
         self.state = GameState()
         self.state.game_mode = mode
+        if first_player_draws is not None:
+            self.state.first_player_draws = first_player_draws
         # Track spell source IDs that have been countered so subsequent effect
         # events from the same spell object can be suppressed in helper-driven
         # tests that emit spell effects directly.
