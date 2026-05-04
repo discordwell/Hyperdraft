@@ -290,9 +290,16 @@ def test_role_detection_flags_planeswalkers_and_large_creatures_as_wincons():
         toughness=2,
         text="",
     )
+    token_swarm = _make_spell(
+        name="Token Swarm",
+        mana_cost="{3}{W}",
+        types={CardType.SORCERY},
+        text="Create two 1/1 white Soldier creature tokens.",
+    )
 
     assert role_of(planeswalker) == "wincon"
     assert role_of(large_creature) == "wincon"
+    assert role_of(token_swarm) == "wincon"
     assert role_of(small_creature) == "utility"
 
 
