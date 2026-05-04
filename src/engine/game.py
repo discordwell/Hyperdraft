@@ -51,6 +51,7 @@ class Game:
         max_hand_size: Optional[int] = None,
         lands_allowed_per_turn: Optional[int] = None,
         max_mulligans: Optional[int] = None,
+        empty_library_draw_loses: Optional[bool] = None,
     ):
         self.state = GameState()
         self.state.game_mode = mode
@@ -64,6 +65,8 @@ class Game:
             self.state.base_lands_allowed_per_turn = lands_allowed_per_turn
         if first_player_draws is not None:
             self.state.first_player_draws = first_player_draws
+        if empty_library_draw_loses is not None:
+            self.state.empty_library_draw_loses = empty_library_draw_loses
         # Track spell source IDs that have been countered so subsequent effect
         # events from the same spell object can be suppressed in helper-driven
         # tests that emit spell effects directly.

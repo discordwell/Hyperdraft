@@ -160,7 +160,8 @@ class GameModeAdapter:
         HS: fatigue damage (1, then 2, 3, ...).
         Returns a list of follow-up events to inject (e.g. fatigue DAMAGE).
         """
-        player.has_lost = True
+        if state.empty_library_draw_loses:
+            player.has_lost = True
         return []
 
     # ---------------------------------------------------------------

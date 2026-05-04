@@ -1017,6 +1017,7 @@ class GameState:
     base_lands_allowed_per_turn: int = 1
     max_hand_size: int = 7           # 7 for MTG, 10 for Hearthstone (no limit for Pokemon)
     first_player_draws: bool = False # MTG default skips the first player's first draw
+    empty_library_draw_loses: bool = True
 
     # Pending events (the "stack")
     pending_events: list[Event] = field(default_factory=list)
