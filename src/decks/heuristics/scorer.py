@@ -122,6 +122,7 @@ _ROLE_PATTERNS: dict[str, list[str]] = {
         r"\bdoubles? (your )?life total\b",
         r"\b(opponent|target opponent) loses the game\b",
         r"\bdeals? (\d+|x) damage to (each|any|target) (opponent|player)\b",
+        r"\bcreate(s)? (two|three|four|five|x) .*creature tokens?\b",
     ],
     # "utility" is the residual catch-all when no other role matches.
 }
