@@ -370,6 +370,23 @@ def test_modal_choice_prefers_early_treasure_over_minor_life_gain():
     assert selected == [0]
 
 
+def test_modal_choice_prefers_card_selection_over_minor_life_gain():
+    game, p1, _ = _game()
+    choice = PendingChoice(
+        choice_type="modal",
+        player=p1.id,
+        prompt="Choose one",
+        options=["Scry 2.", "You gain 2 life."],
+        source_id="source",
+        min_choices=1,
+        max_choices=1,
+    )
+
+    selected = AIEngine(strategy=MidrangeStrategy(), difficulty="hard").make_choice(p1.id, choice, game.state)
+
+    assert selected == [0]
+
+
 def test_combat_keyword_pain_points_are_assertions():
     game, p1, p2 = _game()
     first_striker = _obj(

@@ -734,6 +734,10 @@ class AIEngine:
             if "draw" in mode_text:
                 score += 4
 
+            # Card selection modes improve future draw quality even without immediate cards.
+            if any(w in mode_text for w in ["scry", "surveil", "discover", "look at the top"]):
+                score += 2.5
+
             # Early ramp/fixing modes help deploy future plays.
             if "treasure" in mode_text or ("add" in mode_text and "mana" in mode_text):
                 score += 3 if self._count_lands(player_id, state) < 5 else 1
