@@ -874,6 +874,8 @@ class AIEngine:
         # Score cards - discard lowest value cards
         scored = []
         current_lands = self._count_lands(player_id, state)
+        opponent_id = self._get_opponent_id(player_id, state)
+        opponent_creatures = self._count_creatures(opponent_id, state) if opponent_id else 0
 
         for card_id in options:
             card = state.objects.get(card_id)
@@ -904,8 +906,8 @@ class AIEngine:
                     score -= 1.5
                 if "draw" in text:
                     score += 2
-                if "destroy" in text or "exile" in text:
-                    score += 1
+                if any(w in text for w in ["destroy", "exile", "damage"]):
+                    score += 3 if opponent_creatures > 0 else 1
 
             scored.append((card_id, score))
 

@@ -351,6 +351,35 @@ def test_discard_choice_prefers_graveyard_recursive_card():
     assert selected == [recursive.id]
 
 
+def test_discard_choice_keeps_removal_when_opponent_has_creature():
+    game, p1, p2 = _game()
+    removal = _obj(
+        game, p1.id, "Removal", ZoneType.HAND,
+        {CardType.INSTANT}, text="Destroy target creature.", mana_cost="{1}{B}"
+    )
+    draw_spell = _obj(
+        game, p1.id, "Draw Spell", ZoneType.HAND,
+        {CardType.SORCERY}, text="Draw a card.", mana_cost="{1}{U}"
+    )
+    _obj(
+        game, p2.id, "Opponent Threat", ZoneType.BATTLEFIELD,
+        {CardType.CREATURE}, power=3, toughness=3
+    )
+    choice = PendingChoice(
+        choice_type="discard",
+        player=p1.id,
+        prompt="Discard a card",
+        options=[removal.id, draw_spell.id],
+        source_id="source",
+        min_choices=1,
+        max_choices=1,
+    )
+
+    selected = AIEngine(strategy=MidrangeStrategy(), difficulty="hard").make_choice(p1.id, choice, game.state)
+
+    assert selected == [draw_spell.id]
+
+
 def test_modal_choice_prefers_early_treasure_over_minor_life_gain():
     game, p1, _ = _game()
     for idx in range(2):
