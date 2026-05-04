@@ -53,3 +53,19 @@ def test_variant_starting_life_sets_default_for_new_players():
     assert game.state.starting_life == 25
     assert default_player.life == 25
     assert explicit_player.life == 12
+
+
+def test_variant_opening_hand_size_controls_mtg_mulligan_draw():
+    game = Game(opening_hand_size=5)
+    p1 = game.add_player("P1")
+    p2 = game.add_player("P2")
+    for player in (p1, p2):
+        for idx in range(5):
+            game.create_object(name=f"Card {player.name} {idx}", owner_id=player.id, zone=ZoneType.LIBRARY)
+    game.set_mulligan_handler(lambda _player_id, _hand, _mulligan_count: True)
+
+    asyncio.run(game.start_game())
+
+    assert game.state.opening_hand_size == 5
+    assert len(game.state.zones[f"hand_{p1.id}"].objects) == 5
+    assert len(game.state.zones[f"hand_{p2.id}"].objects) == 5
