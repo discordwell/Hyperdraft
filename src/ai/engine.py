@@ -595,10 +595,28 @@ class AIEngine:
             # Player target
             if target_id in state.players:
                 player = state.players[target_id]
-                # For damage, lower life = better target
-                score = 100 - player.life if target_id != player_id else -100
-                if layers and "player" in (layers.card_strategy.target_priority or []):
-                    score += 5
+                if target_id == player_id:
+                    return -100
+
+                damage = self._estimate_damage_spell_amount(source_card)
+                if damage >= player.life and damage > 0:
+                    score = 100.0
+                elif damage > 0:
+                    remaining_life = max(0, player.life - damage)
+                    score = damage * 1.5
+                    score += max(0, 6 - remaining_life) * 1.5
+                    if remaining_life <= 2:
+                        score += 5
+                else:
+                    score = max(0, 20 - player.life) * 0.25
+
+                if layers:
+                    priority = layers.card_strategy.target_priority or []
+                    if "player" in priority:
+                        score += max(1, 5 - priority.index("player"))
+                    if "creature" in priority and "player" in priority:
+                        if priority.index("creature") < priority.index("player"):
+                            score -= 1
                 return score
             return 0
 
@@ -1923,6 +1941,10 @@ class AIEngine:
         elif 'any target' in text or 'target creature or player' in text:
             # Damage spells - prefer opponent if going face is good
             opponent = state.players.get(opponent_id)
+            damage = self._estimate_damage_spell_amount(card)
+            layers = self.strategy.get_layers(card.name) if hasattr(self.strategy, "get_layers") else None
+            priority = layers.card_strategy.target_priority if layers else []
+            player_priority = "player" in (priority or [])
 
             # Check if there are threatening creatures to remove
             opp_creatures = []
@@ -1943,8 +1965,12 @@ class AIEngine:
                 best_creature, state, player_id, is_removal=True, source_card=card
             ) if best_creature else -999
 
-            # Burn goes face for lethal/near-lethal or when layer advice prefers players.
-            if opponent and (opponent.life <= 5 or face_score >= creature_score + 0.5):
+            lethal_burn = opponent and damage > 0 and damage >= opponent.life
+            near_lethal_burn = opponent and damage > 0 and opponent.life - damage <= 2
+            layer_face_burn = player_priority and face_score >= creature_score - 2
+
+            # Burn goes face for lethal, low-life pressure, or explicit layer advice.
+            if opponent and (lethal_burn or near_lethal_burn or layer_face_burn):
                 targets.append([Target(id=opponent_id, is_player=True)])
             elif best_creature:
                 targets.append([Target(id=best_creature)])
