@@ -290,6 +290,24 @@ def test_role_detection_flags_planeswalkers_and_large_creatures_as_wincons():
     assert role_of(small_creature) == "utility"
 
 
+def test_role_detection_treats_selection_and_impulse_as_card_draw():
+    scry = _make_spell(name="Scry", mana_cost="{U}", text="Scry 2.")
+    surveil = _make_spell(name="Surveil", mana_cost="{1}{U}", text="Surveil 2.")
+    connive = _make_spell(name="Connive", mana_cost="{1}{U}", text="Target creature connives.")
+    discover = _make_spell(name="Discover", mana_cost="{2}{R}", text="Discover 3.")
+    impulse = _make_spell(
+        name="Impulse",
+        mana_cost="{1}{R}",
+        text="Exile the top two cards of your library. You may play those cards this turn.",
+    )
+
+    assert role_of(scry) == "card_draw"
+    assert role_of(surveil) == "card_draw"
+    assert role_of(connive) == "card_draw"
+    assert role_of(discover) == "card_draw"
+    assert role_of(impulse) == "card_draw"
+
+
 def test_role_weighting_archetype_dependent():
     """A counterspell scores poorly in Aggro and well in Control.
 
