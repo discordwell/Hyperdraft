@@ -306,12 +306,16 @@ def test_role_detection_treats_selection_and_impulse_as_card_draw():
         mana_cost="{1}{R}",
         text="Exile the top two cards of your library. You may play those cards this turn.",
     )
+    clue = _make_spell(name="Clue", mana_cost="{1}{U}", text="Create a Clue token.")
+    blood = _make_spell(name="Blood", mana_cost="{1}{B}", text="Create a Blood token.")
 
     assert role_of(scry) == "card_draw"
     assert role_of(surveil) == "card_draw"
     assert role_of(connive) == "card_draw"
     assert role_of(discover) == "card_draw"
     assert role_of(impulse) == "card_draw"
+    assert role_of(clue) == "card_draw"
+    assert role_of(blood) == "card_draw"
 
 
 def test_role_weighting_archetype_dependent():

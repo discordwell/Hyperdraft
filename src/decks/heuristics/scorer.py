@@ -107,6 +107,8 @@ _ROLE_PATTERNS: dict[str, list[str]] = {
         r"\bconnives?\b",
         r"\bdiscover \d+\b",
         r"\bexile the top \w+ cards? of your library\b.*\bmay play\b",
+        r"\bcreate(s)? (a|one|two|three|x) clue\b",
+        r"\bcreate(s)? (a|one|two|three|x) blood\b",
     ],
     "ramp": [
         r"\bsearch your library for (a|up to) (basic )?land\b",
