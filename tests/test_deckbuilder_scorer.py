@@ -263,6 +263,33 @@ def test_role_detection_removal_counterspell_card_draw():
     assert role_of(vanilla) == "utility"
 
 
+def test_role_detection_flags_planeswalkers_and_large_creatures_as_wincons():
+    planeswalker = _make_spell(
+        name="Test Walker",
+        mana_cost="{3}{U}",
+        types={CardType.PLANESWALKER},
+        text="",
+    )
+    large_creature = _make_creature(
+        name="Huge Beast",
+        mana_cost="{4}{G}",
+        power=5,
+        toughness=5,
+        text="",
+    )
+    small_creature = _make_creature(
+        name="Small Beast",
+        mana_cost="{1}{G}",
+        power=2,
+        toughness=2,
+        text="",
+    )
+
+    assert role_of(planeswalker) == "wincon"
+    assert role_of(large_creature) == "wincon"
+    assert role_of(small_creature) == "utility"
+
+
 def test_role_weighting_archetype_dependent():
     """A counterspell scores poorly in Aggro and well in Control.
 
