@@ -47,11 +47,14 @@ class Game:
         *,
         first_player_draws: Optional[bool] = None,
         starting_life: Optional[int] = None,
+        opening_hand_size: Optional[int] = None,
     ):
         self.state = GameState()
         self.state.game_mode = mode
         if starting_life is not None:
             self.state.starting_life = starting_life
+        if opening_hand_size is not None:
+            self.state.opening_hand_size = opening_hand_size
         if first_player_draws is not None:
             self.state.first_player_draws = first_player_draws
         # Track spell source IDs that have been countered so subsequent effect
@@ -828,17 +831,16 @@ class Game:
         Handle mulligan decisions for a player using London Mulligan rules.
 
         London Mulligan:
-        1. Draw 7 cards
+        1. Draw opening_hand_size cards
         2. Decide to keep or mulligan
-        3. If mulligan: shuffle hand back, draw 7, repeat
+        3. If mulligan: shuffle hand back, draw opening_hand_size, repeat
         4. After keeping: put X cards on bottom (X = number of mulligans taken)
         """
         mulligan_count = 0
-        max_mulligans = 7  # Can't mulligan more than 7 times
+        max_mulligans = max(1, self.state.opening_hand_size)
 
         while mulligan_count < max_mulligans:
-            # Draw 7 cards
-            self.draw_cards(player_id, 7)
+            self.draw_cards(player_id, self.state.opening_hand_size)
 
             # Get the hand
             hand = self.get_hand(player_id)
