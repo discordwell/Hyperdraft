@@ -269,11 +269,23 @@ def test_role_detection_removal_counterspell_card_draw():
         types={CardType.SORCERY},
         text="Target creature you control deals damage equal to its power to target creature you don't control.",
     )
+    sweeper = _make_spell(
+        name="Wrath", mana_cost="{2}{W}{W}",
+        types={CardType.SORCERY},
+        text="Destroy all creatures.",
+    )
+    damage_sweeper = _make_spell(
+        name="Damage Sweeper", mana_cost="{2}{R}",
+        types={CardType.SORCERY},
+        text="Damage Sweeper deals 3 damage to each creature.",
+    )
     vanilla = _make_creature(name="Bear", mana_cost="{1}{G}", power=2, toughness=2, text="")
 
     assert role_of(removal) == "removal"
     assert role_of(fight) == "removal"
     assert role_of(bite) == "removal"
+    assert role_of(sweeper) == "removal"
+    assert role_of(damage_sweeper) == "removal"
     assert role_of(counter) == "counterspell"
     assert role_of(draw) == "card_draw"
     assert role_of(ramp) == "ramp"

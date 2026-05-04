@@ -88,8 +88,11 @@ _RARITY_PRIOR: dict[str, float] = {
 _ROLE_PATTERNS: dict[str, list[str]] = {
     "removal": [
         r"\bdestroy target\b",
+        r"\bdestroy all creatures\b",
         r"\bexile target\b",
+        r"\bexile all creatures\b",
         r"\b(deals?|dealt)\b.*\bdamage to (any target|target creature|target player|target opponent)\b",
+        r"\b(deals?|dealt)\b.*\bdamage to each creature\b",
         r"\btarget creature you control fights target creature\b",
         r"\btarget creature you control deals damage equal to its power to target creature\b",
         r"\btarget creature gets -",
