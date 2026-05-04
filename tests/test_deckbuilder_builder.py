@@ -15,7 +15,9 @@ import pytest
 from src.cards import ALL_CARDS
 from src.decks.deck import Deck, DeckEntry, load_deck, validate_deck
 from src.decks.heuristics import ARCHETYPE_TEMPLATES, build_heuristic_deck, pick_lands
+from src.decks.heuristics.builder import _build_buckets
 from src.decks.heuristics.pool import resolve_pool
+from src.engine.types import CardDefinition, Characteristics, CardType, Color
 
 
 # =============================================================================
@@ -233,6 +235,28 @@ def test_uncastable_cards_excluded() -> None:
             assert sym not in cost, (
                 f"Mono-R deck contains off-color pip {sym} in {entry.card_name} ({cost})"
             )
+
+
+def test_builder_role_buckets_use_scorer_role_detection() -> None:
+    """Slot-filling role buckets should understand the scorer's richer tags."""
+    selection = CardDefinition(
+        name="Careful Selection",
+        mana_cost="{1}{U}",
+        characteristics=Characteristics(
+            types={CardType.SORCERY},
+            colors={Color.BLUE},
+            mana_cost="{1}{U}",
+        ),
+        text="Look at the top two cards of your library. Put one into your hand.",
+    )
+
+    _, role_buckets = _build_buckets(
+        {"Careful Selection": selection},
+        archetype="Control",
+        colors=["U"],
+    )
+
+    assert [name for _, name, _ in role_buckets["card_draw"]] == ["Careful Selection"]
 
 
 # =============================================================================
