@@ -676,6 +676,33 @@ class AIEngine:
         scored.sort(key=lambda item: item[1], reverse=True)
         return scored[0][0]
 
+    def _best_damage_target_id(
+        self,
+        targets: list[str],
+        state: 'GameState',
+        player_id: str,
+        source_card=None
+    ) -> Optional[str]:
+        """Prefer creature targets a damage spell can actually finish."""
+        if not targets:
+            return None
+        from src.engine import CardType, get_toughness
+
+        damage = self._estimate_damage_spell_amount(source_card)
+        scored = []
+        for target_id in targets:
+            score = self._score_target(
+                target_id, state, player_id, is_removal=True, source_card=source_card
+            )
+            obj = state.objects.get(target_id)
+            if damage > 0 and obj and CardType.CREATURE in obj.characteristics.types:
+                toughness_left = get_toughness(obj, state) - getattr(obj.state, "damage", 0)
+                if damage >= toughness_left:
+                    score += 30
+            scored.append((target_id, score))
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return scored[0][0]
+
     def _make_modal_choice(
         self,
         player_id: str,
@@ -1927,9 +1954,14 @@ class AIEngine:
                                      if state.objects.get(tid) and
                                      state.objects[tid].controller != player_id]
                     if opp_creatures:
-                        best = self._best_target_id(
-                            opp_creatures, state, player_id, is_removal=True, source_card=card
-                        )
+                        if self._estimate_damage_spell_amount(card) > 0:
+                            best = self._best_damage_target_id(
+                                opp_creatures, state, player_id, source_card=card
+                            )
+                        else:
+                            best = self._best_target_id(
+                                opp_creatures, state, player_id, is_removal=True, source_card=card
+                            )
                         if best:
                             targets.append([Target(id=best)])
 
@@ -1958,7 +1990,9 @@ class AIEngine:
             face_score = self._score_target(
                 opponent_id, state, player_id, is_removal=True, source_card=card
             ) if opponent_id else -999
-            best_creature = self._best_target_id(
+            best_creature = self._best_damage_target_id(
+                opp_creatures, state, player_id, source_card=card
+            ) if opp_creatures and damage > 0 else self._best_target_id(
                 opp_creatures, state, player_id, is_removal=True, source_card=card
             ) if opp_creatures else None
             creature_score = self._score_target(
