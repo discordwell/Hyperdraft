@@ -90,6 +90,8 @@ _ROLE_PATTERNS: dict[str, list[str]] = {
         r"\bdestroy target\b",
         r"\bexile target\b",
         r"\b(deals?|dealt)\b.*\bdamage to (any target|target creature|target player|target opponent)\b",
+        r"\btarget creature you control fights target creature\b",
+        r"\btarget creature you control deals damage equal to its power to target creature\b",
         r"\btarget creature gets -",
         r"\bsacrifices? (a|target) creature\b",
         r"\breturn target creature to its owner's hand\b",
