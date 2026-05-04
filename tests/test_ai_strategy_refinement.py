@@ -38,6 +38,7 @@ def _obj(game, owner, name, zone, types, text="", power=None, toughness=None, ma
         "deathtouch",
         "lifelink",
         "vigilance",
+        "menace",
         "first strike",
         "double strike",
         "haste",
@@ -248,6 +249,21 @@ def test_ultra_role_changes_attack_posture():
     beatdown_attacks = strategy.plan_attacks(game.state, p1.id, evaluator, [attacker.id])
     assert len(beatdown_attacks) == 1
     assert beatdown_attacks[0].attacker_id == attacker.id
+
+
+def test_midrange_attacks_with_menace_when_behind_and_underblocked():
+    game, p1, p2 = _game()
+    menace_attacker = _obj(
+        game, p1.id, "Menace Attacker", ZoneType.BATTLEFIELD,
+        {CardType.CREATURE}, text="Menace", power=2, toughness=2
+    )
+    _obj(game, p2.id, "Large Blocker", ZoneType.BATTLEFIELD, {CardType.CREATURE}, power=5, toughness=5)
+
+    strategy = MidrangeStrategy()
+    attacks = strategy.plan_attacks(game.state, p1.id, BoardEvaluator(game.state), [menace_attacker.id])
+
+    assert len(attacks) == 1
+    assert attacks[0].attacker_id == menace_attacker.id
 
 
 def test_combat_keyword_pain_points_are_assertions():
