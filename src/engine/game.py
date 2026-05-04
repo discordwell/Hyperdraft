@@ -41,9 +41,17 @@ class Game:
     - Targeting System
     """
 
-    def __init__(self, mode: str = "mtg", *, first_player_draws: Optional[bool] = None):
+    def __init__(
+        self,
+        mode: str = "mtg",
+        *,
+        first_player_draws: Optional[bool] = None,
+        starting_life: Optional[int] = None,
+    ):
         self.state = GameState()
         self.state.game_mode = mode
+        if starting_life is not None:
+            self.state.starting_life = starting_life
         if first_player_draws is not None:
             self.state.first_player_draws = first_player_draws
         # Track spell source IDs that have been countered so subsequent effect
@@ -110,10 +118,11 @@ class Game:
         self.combat_manager.priority_system = self.priority_system
         self.combat_manager.pipeline = self.pipeline
 
-    def add_player(self, name: str, life: int = 20) -> Player:
+    def add_player(self, name: str, life: Optional[int] = None) -> Player:
         """Add a player to the game."""
         player_id = new_id()
-        player = Player(id=player_id, name=name, life=life)
+        starting_life = self.state.starting_life if life is None else life
+        player = Player(id=player_id, name=name, life=starting_life)
         self.state.players[player_id] = player
 
         # Create zones for this player
