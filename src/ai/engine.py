@@ -890,6 +890,8 @@ class AIEngine:
             # Card draw effects are valuable
             if card.card_def and card.card_def.text:
                 text = card.card_def.text.lower()
+                if any(w in text for w in ["flashback", "escape", "from your graveyard"]):
+                    score -= 1.5
                 if "draw" in text:
                     score += 2
                 if "destroy" in text or "exile" in text:
