@@ -734,6 +734,10 @@ class AIEngine:
             if "draw" in mode_text:
                 score += 4
 
+            # Early ramp/fixing modes help deploy future plays.
+            if "treasure" in mode_text or ("add" in mode_text and "mana" in mode_text):
+                score += 3 if self._count_lands(player_id, state) < 5 else 1
+
             # Counter modes if something on stack
             if "counter" in mode_text:
                 if state.zones.get('stack') and state.zones['stack'].objects:

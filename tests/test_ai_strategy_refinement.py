@@ -351,6 +351,25 @@ def test_discard_choice_prefers_graveyard_recursive_card():
     assert selected == [recursive.id]
 
 
+def test_modal_choice_prefers_early_treasure_over_minor_life_gain():
+    game, p1, _ = _game()
+    for idx in range(2):
+        _land(game, p1.id, f"Mountain {idx}")
+    choice = PendingChoice(
+        choice_type="modal",
+        player=p1.id,
+        prompt="Choose one",
+        options=["Create a Treasure token.", "You gain 2 life."],
+        source_id="source",
+        min_choices=1,
+        max_choices=1,
+    )
+
+    selected = AIEngine(strategy=MidrangeStrategy(), difficulty="hard").make_choice(p1.id, choice, game.state)
+
+    assert selected == [0]
+
+
 def test_combat_keyword_pain_points_are_assertions():
     game, p1, p2 = _game()
     first_striker = _obj(
