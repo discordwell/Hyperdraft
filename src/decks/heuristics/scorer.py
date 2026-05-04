@@ -102,6 +102,11 @@ _ROLE_PATTERNS: dict[str, list[str]] = {
         r"\bdraw (a|two|three|four|five|that many|x) cards?\b",
         r"\bdraws? a card\b",
         r"\blook at the top \w+ cards? of your library\b",
+        r"\bscry \d+\b",
+        r"\bsurveil \d+\b",
+        r"\bconnives?\b",
+        r"\bdiscover \d+\b",
+        r"\bexile the top \w+ cards? of your library\b.*\bmay play\b",
     ],
     "ramp": [
         r"\bsearch your library for (a|up to) (basic )?land\b",
