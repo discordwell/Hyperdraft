@@ -1013,6 +1013,7 @@ class GameState:
     game_mode: str = "mtg"           # "mtg", "hearthstone", or "pokemon"
     starting_life: int = 20          # Default life total for newly added MTG-style players
     opening_hand_size: int = 7       # Default MTG opening hand size
+    draw_step_cards: int = 1         # Cards drawn by the active player during a normal draw step
     max_mulligans: int = 7           # Safety cap for MTG-style mulligan loops
     base_lands_allowed_per_turn: int = 1
     max_hand_size: int = 7           # 7 for MTG, 10 for Hearthstone (no limit for Pokemon)

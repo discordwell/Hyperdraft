@@ -364,11 +364,15 @@ class TurnManager:
 
     async def _do_draw_step(self) -> list[Event]:
         """Perform draw step action."""
+        draw_count = max(0, int(getattr(self.state, "draw_step_cards", 1) or 0))
+        if draw_count == 0:
+            return []
+
         event = Event(
             type=EventType.DRAW,
             payload={
                 'player': self.turn_state.active_player_id,
-                'count': 1
+                'count': draw_count
             }
         )
         # Emit the event through the pipeline to actually draw

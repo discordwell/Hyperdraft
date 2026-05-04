@@ -48,6 +48,7 @@ class Game:
         first_player_draws: Optional[bool] = None,
         starting_life: Optional[int] = None,
         opening_hand_size: Optional[int] = None,
+        draw_step_cards: Optional[int] = None,
         max_hand_size: Optional[int] = None,
         lands_allowed_per_turn: Optional[int] = None,
         max_mulligans: Optional[int] = None,
@@ -60,6 +61,8 @@ class Game:
             self.state.starting_life = starting_life
         if opening_hand_size is not None:
             self.state.opening_hand_size = opening_hand_size
+        if draw_step_cards is not None:
+            self.state.draw_step_cards = draw_step_cards
         if max_mulligans is not None:
             self.state.max_mulligans = max_mulligans
         if lands_allowed_per_turn is not None:

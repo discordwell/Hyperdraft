@@ -71,6 +71,21 @@ def test_variant_opening_hand_size_controls_mtg_mulligan_draw():
     assert len(game.state.zones[f"hand_{p2.id}"].objects) == 5
 
 
+def test_variant_draw_step_card_count_controls_normal_draw():
+    game = Game(draw_step_cards=2)
+    player = game.add_player("P1")
+    for idx in range(2):
+        game.create_object(name=f"Library Card {idx}", owner_id=player.id, zone=ZoneType.LIBRARY)
+    game.turn_manager.turn_state.active_player_id = player.id
+
+    events = asyncio.run(game.turn_manager._do_draw_step())
+
+    assert game.state.draw_step_cards == 2
+    assert events[0].payload["count"] == 2
+    assert len(game.state.zones[f"hand_{player.id}"].objects) == 2
+    assert game.state.zones[f"library_{player.id}"].objects == []
+
+
 def test_variant_max_hand_size_controls_cleanup_discard_count():
     game = Game(max_hand_size=5)
     player = game.add_player("P1")
