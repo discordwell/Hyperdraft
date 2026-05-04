@@ -303,6 +303,31 @@ def test_surveil_yards_excess_lands_when_flooded():
     assert selected == [top_land.id]
 
 
+def test_discard_choice_prefers_graveyard_recursive_card():
+    game, p1, _ = _game()
+    recursive = _obj(
+        game, p1.id, "Graveyard Spell", ZoneType.HAND,
+        {CardType.SORCERY}, text="Flashback {2}{B}. Draw a card.", mana_cost="{2}{B}"
+    )
+    normal = _obj(
+        game, p1.id, "Normal Spell", ZoneType.HAND,
+        {CardType.SORCERY}, text="Draw a card.", mana_cost="{2}{U}"
+    )
+    choice = PendingChoice(
+        choice_type="discard",
+        player=p1.id,
+        prompt="Discard a card",
+        options=[normal.id, recursive.id],
+        source_id="source",
+        min_choices=1,
+        max_choices=1,
+    )
+
+    selected = AIEngine(strategy=MidrangeStrategy(), difficulty="hard").make_choice(p1.id, choice, game.state)
+
+    assert selected == [recursive.id]
+
+
 def test_combat_keyword_pain_points_are_assertions():
     game, p1, p2 = _game()
     first_striker = _obj(
