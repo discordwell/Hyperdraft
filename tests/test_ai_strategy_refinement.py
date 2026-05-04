@@ -13,6 +13,7 @@ from src.engine import (
     Game,
     LegalAction,
     ZoneType,
+    has_ability,
 )
 
 
@@ -264,6 +265,17 @@ def test_midrange_attacks_with_menace_when_behind_and_underblocked():
 
     assert len(attacks) == 1
     assert attacks[0].attacker_id == menace_attacker.id
+
+
+def test_keyword_queries_accept_space_and_underscore_aliases():
+    game, p1, _ = _game()
+    first_striker = _obj(
+        game, p1.id, "First Striker", ZoneType.BATTLEFIELD,
+        {CardType.CREATURE}, text="First strike", power=2, toughness=2
+    )
+
+    assert has_ability(first_striker, "first strike", game.state)
+    assert has_ability(first_striker, "first_strike", game.state)
 
 
 def test_combat_keyword_pain_points_are_assertions():
