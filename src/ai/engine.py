@@ -817,6 +817,7 @@ class AIEngine:
 
         # Similar to scry, but graveyard can be beneficial
         to_graveyard = []
+        current_lands = self._count_lands(player_id, state)
 
         for card_id in options:
             card = state.objects.get(card_id)
@@ -824,6 +825,9 @@ class AIEngine:
                 continue
 
             should_yard = False
+            from src.engine import CardType
+            if CardType.LAND in card.characteristics.types and current_lands >= 5:
+                should_yard = True
 
             # Check for graveyard synergies in card text
             if card.card_def and card.card_def.text:
@@ -836,7 +840,6 @@ class AIEngine:
             if card.characteristics.mana_cost:
                 from src.engine.mana import ManaCost
                 cost = ManaCost.parse(card.characteristics.mana_cost)
-                current_lands = self._count_lands(player_id, state)
                 if cost.mana_value > current_lands + 3:
                     should_yard = True
 
