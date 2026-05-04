@@ -86,6 +86,19 @@ def test_variant_max_hand_size_controls_cleanup_discard_count():
     assert discards[0].payload["count"] == 1
 
 
+def test_variant_zero_max_hand_size_disables_cleanup_discard():
+    game = Game(max_hand_size=0)
+    player = game.add_player("P1")
+    for idx in range(8):
+        game.create_object(name=f"Hand Card {idx}", owner_id=player.id, zone=ZoneType.HAND)
+    game.turn_manager.turn_state.active_player_id = player.id
+
+    events = asyncio.run(game.turn_manager._do_cleanup_step())
+
+    assert game.state.max_hand_size == 0
+    assert [event for event in events if event.type == EventType.DISCARD] == []
+
+
 def test_variant_lands_allowed_per_turn_controls_turn_reset():
     game = Game(lands_allowed_per_turn=2)
 
