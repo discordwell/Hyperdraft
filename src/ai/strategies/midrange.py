@@ -303,6 +303,10 @@ class MidrangeStrategy(AIStrategy):
                 if self._has_ability(attacker, 'unblockable', state):
                     should_attack = True
 
+                # Menace is effectively unblockable when the opponent has fewer than two blockers.
+                if self._has_ability(attacker, 'menace', state) and len(opp_blockers) < 2:
+                    should_attack = True
+
                 # Attack if we can't lose the creature
                 if self._has_ability(attacker, 'indestructible', state):
                     should_attack = True
@@ -324,7 +328,9 @@ class MidrangeStrategy(AIStrategy):
                     if we_die and not they_die:
                         # Unless we have evasion
                         if not (self._has_ability(attacker, 'flying', state) or
-                                self._has_ability(attacker, 'trample', state)):
+                                self._has_ability(attacker, 'trample', state) or
+                                self._has_ability(attacker, 'unblockable', state) or
+                                (self._has_ability(attacker, 'menace', state) and len(opp_blockers) < 2)):
                             should_attack = False
                             break
 
