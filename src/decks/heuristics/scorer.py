@@ -113,6 +113,7 @@ _ROLE_PATTERNS: dict[str, list[str]] = {
         r"\badd (\{[wubrgc]\}|one mana|\{x\}|two mana|three mana)\b",
         r"\byou may put a land card from your hand\b",
         r"\buntap target land\b",
+        r"\bcreate(s)? (a|one|two|three|x) treasure\b",
     ],
     "wincon": [
         r"\bcan't be blocked\b",
