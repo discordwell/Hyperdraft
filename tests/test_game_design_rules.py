@@ -97,3 +97,17 @@ def test_variant_lands_allowed_per_turn_controls_turn_reset():
     assert game.state.lands_allowed_this_turn == 2
     assert game.turn_manager.turn_state.lands_allowed == 2
     assert game.state.lands_played_this_turn == 0
+
+
+def test_variant_max_mulligans_limits_mtg_mulligan_loop():
+    game = Game(max_mulligans=2)
+    player = game.add_player("P1")
+    for idx in range(7):
+        game.create_object(name=f"Library Card {idx}", owner_id=player.id, zone=ZoneType.LIBRARY)
+    game.set_mulligan_handler(lambda _player_id, _hand, _mulligan_count: False)
+
+    asyncio.run(game._resolve_mulligans(player.id))
+
+    assert game.state.max_mulligans == 2
+    assert len(game.state.zones[f"hand_{player.id}"].objects) == 0
+    assert len(game.state.zones[f"library_{player.id}"].objects) == 7

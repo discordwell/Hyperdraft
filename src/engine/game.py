@@ -50,6 +50,7 @@ class Game:
         opening_hand_size: Optional[int] = None,
         max_hand_size: Optional[int] = None,
         lands_allowed_per_turn: Optional[int] = None,
+        max_mulligans: Optional[int] = None,
     ):
         self.state = GameState()
         self.state.game_mode = mode
@@ -57,6 +58,8 @@ class Game:
             self.state.starting_life = starting_life
         if opening_hand_size is not None:
             self.state.opening_hand_size = opening_hand_size
+        if max_mulligans is not None:
+            self.state.max_mulligans = max_mulligans
         if lands_allowed_per_turn is not None:
             self.state.base_lands_allowed_per_turn = lands_allowed_per_turn
         if first_player_draws is not None:
@@ -843,7 +846,7 @@ class Game:
         4. After keeping: put X cards on bottom (X = number of mulligans taken)
         """
         mulligan_count = 0
-        max_mulligans = max(1, self.state.opening_hand_size)
+        max_mulligans = max(1, getattr(self.state, "max_mulligans", 7))
 
         while mulligan_count < max_mulligans:
             self.draw_cards(player_id, self.state.opening_hand_size)
