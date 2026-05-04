@@ -185,6 +185,8 @@ _KEYWORD_FALLBACK_LIST = [
     "reach", "prowess", "hexproof", "indestructible",
 ]
 
+_COLOR_INTENSITY_BASE_PENALTY = 0.45
+
 
 # =============================================================================
 # Color helpers
@@ -262,6 +264,36 @@ def _get_cmc(card_def) -> int:
         return ManaCost.parse(cost_str).mana_value
     except Exception:
         return 0
+
+
+def _colored_pip_counts(card_def) -> dict[str, int]:
+    """Count exact colored pips in the printed mana cost."""
+    counts = {letter: 0 for letter in {"W", "U", "B", "R", "G"}}
+    cost_str = card_def.mana_cost or ""
+    for raw in re.findall(r"\{([^}]+)\}", cost_str):
+        symbol = raw.upper().strip()
+        if symbol in counts:
+            counts[symbol] += 1
+    return counts
+
+
+def _color_intensity_penalty(card_def, colors: Iterable[str], cmc: int) -> float:
+    """Penalize early double-pip cards in multi-color decks."""
+    deck_colors = {c.upper() for c in colors if c}
+    if len(deck_colors) <= 1:
+        return 0.0
+    pip_counts = _colored_pip_counts(card_def)
+    intense_pips = sum(max(0, pip_counts[color] - 1) for color in deck_colors)
+    if intense_pips <= 0:
+        return 0.0
+
+    if cmc <= 2:
+        curve_multiplier = 1.5
+    elif cmc <= 4:
+        curve_multiplier = 1.0
+    else:
+        curve_multiplier = 0.5
+    return intense_pips * _COLOR_INTENSITY_BASE_PENALTY * curve_multiplier
 
 
 def _is_creature(card_def) -> bool:
@@ -380,6 +412,9 @@ def score_card(card_def, archetype: str, colors: list[str]) -> float:
     # --- Curve fit ----------------------------------------------------------
     sweet = _CMC_SWEET[arch]
     score += abs(cmc - sweet) * 1.0
+
+    # --- Mana stability -----------------------------------------------------
+    score += _color_intensity_penalty(card_def, colors, cmc)
 
     # --- Body efficiency (creatures) ---------------------------------------
     chars = card_def.characteristics
