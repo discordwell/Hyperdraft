@@ -259,9 +259,21 @@ def test_role_detection_removal_counterspell_card_draw():
         types={CardType.SORCERY},
         text="Create a Treasure token.",
     )
+    fight = _make_spell(
+        name="Fight Spell", mana_cost="{1}{G}",
+        types={CardType.SORCERY},
+        text="Target creature you control fights target creature you don't control.",
+    )
+    bite = _make_spell(
+        name="Bite Spell", mana_cost="{1}{G}",
+        types={CardType.SORCERY},
+        text="Target creature you control deals damage equal to its power to target creature you don't control.",
+    )
     vanilla = _make_creature(name="Bear", mana_cost="{1}{G}", power=2, toughness=2, text="")
 
     assert role_of(removal) == "removal"
+    assert role_of(fight) == "removal"
+    assert role_of(bite) == "removal"
     assert role_of(counter) == "counterspell"
     assert role_of(draw) == "card_draw"
     assert role_of(ramp) == "ramp"
