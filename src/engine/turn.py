@@ -383,7 +383,7 @@ class TurnManager:
         # Discard to hand size (7 by default)
         hand_key = f"hand_{active_player}"
         hand = self.state.zones.get(hand_key)
-        max_hand_size = 7  # Could be modified by effects
+        max_hand_size = getattr(self.state, "max_hand_size", 7) or 7
 
         if hand and len(hand.objects) > max_hand_size:
             excess = len(hand.objects) - max_hand_size

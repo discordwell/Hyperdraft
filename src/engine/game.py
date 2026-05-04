@@ -48,6 +48,7 @@ class Game:
         first_player_draws: Optional[bool] = None,
         starting_life: Optional[int] = None,
         opening_hand_size: Optional[int] = None,
+        max_hand_size: Optional[int] = None,
     ):
         self.state = GameState()
         self.state.game_mode = mode
@@ -70,6 +71,8 @@ class Game:
         max_hand = self.mode_adapter.default_max_hand_size()
         if max_hand is not None:
             self.state.max_hand_size = max_hand
+        if max_hand_size is not None:
+            self.state.max_hand_size = max_hand_size
 
         self.pipeline = EventPipeline(self.state)
         # Expose the pipeline on state so engine subsystems (e.g. face-down's

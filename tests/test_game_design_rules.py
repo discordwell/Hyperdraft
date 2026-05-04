@@ -69,3 +69,18 @@ def test_variant_opening_hand_size_controls_mtg_mulligan_draw():
     assert game.state.opening_hand_size == 5
     assert len(game.state.zones[f"hand_{p1.id}"].objects) == 5
     assert len(game.state.zones[f"hand_{p2.id}"].objects) == 5
+
+
+def test_variant_max_hand_size_controls_cleanup_discard_count():
+    game = Game(max_hand_size=5)
+    player = game.add_player("P1")
+    for idx in range(6):
+        game.create_object(name=f"Hand Card {idx}", owner_id=player.id, zone=ZoneType.HAND)
+    game.turn_manager.turn_state.active_player_id = player.id
+
+    events = asyncio.run(game.turn_manager._do_cleanup_step())
+
+    discards = [event for event in events if event.type == EventType.DISCARD]
+    assert game.state.max_hand_size == 5
+    assert len(discards) == 1
+    assert discards[0].payload["count"] == 1
