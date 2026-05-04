@@ -340,12 +340,21 @@ def _detect_role(card_def) -> str:
     if _is_land(card_def):
         return "utility"
     text = card_def.text or ""
-    if not text:
-        return "utility"
-    for role, patterns in _COMPILED_ROLE_PATTERNS.items():
-        for pat in patterns:
-            if pat.search(text):
-                return role
+    if text:
+        for role, patterns in _COMPILED_ROLE_PATTERNS.items():
+            for pat in patterns:
+                if pat.search(text):
+                    return role
+
+    chars = card_def.characteristics
+    types = chars.types or set()
+    if CardType.PLANESWALKER in types:
+        return "wincon"
+    if _is_creature(card_def):
+        power = chars.power if chars.power is not None else 0
+        if power >= 4:
+            return "wincon"
+
     return "utility"
 
 
