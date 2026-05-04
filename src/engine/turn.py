@@ -226,8 +226,12 @@ class TurnManager:
         self._set_step(Step.DRAW)
         if not self.turn_state.skip_draw:
             # First player doesn't draw on turn 1
-            if not (self.turn_state.turn_number == 1 and
-                    self.current_player_index == 0):
+            skip_first_player_draw = (
+                not getattr(self.state, "first_player_draws", False)
+                and self.turn_state.turn_number == 1
+                and self.current_player_index == 0
+            )
+            if not skip_first_player_draw:
                 events.extend(await self._do_draw_step())
 
         events.extend(await self._emit_step_start())
