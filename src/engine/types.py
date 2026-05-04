@@ -1011,6 +1011,7 @@ class GameState:
 
     # Game mode configuration
     game_mode: str = "mtg"           # "mtg", "hearthstone", or "pokemon"
+    starting_life: int = 20          # Default life total for newly added MTG-style players
     max_hand_size: int = 7           # 7 for MTG, 10 for Hearthstone (no limit for Pokemon)
     first_player_draws: bool = False # MTG default skips the first player's first draw
 

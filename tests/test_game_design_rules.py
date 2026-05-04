@@ -42,3 +42,14 @@ def test_hyperdraft_variant_can_let_first_player_draw():
     assert draw_events[0].payload["player"] == p1.id
     assert game.state.zones[f"hand_{p1.id}"].objects
     assert game.state.zones[f"library_{p1.id}"].objects == []
+
+
+def test_variant_starting_life_sets_default_for_new_players():
+    game = Game(starting_life=25)
+
+    default_player = game.add_player("Default")
+    explicit_player = game.add_player("Explicit", life=12)
+
+    assert game.state.starting_life == 25
+    assert default_player.life == 25
+    assert explicit_player.life == 12
