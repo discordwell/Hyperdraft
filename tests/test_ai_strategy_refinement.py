@@ -12,6 +12,7 @@ from src.engine import (
     Characteristics,
     Game,
     LegalAction,
+    PendingChoice,
     ZoneType,
     has_ability,
 )
@@ -276,6 +277,30 @@ def test_keyword_queries_accept_space_and_underscore_aliases():
 
     assert has_ability(first_striker, "first strike", game.state)
     assert has_ability(first_striker, "first_strike", game.state)
+
+
+def test_surveil_yards_excess_lands_when_flooded():
+    game, p1, _ = _game()
+    for idx in range(5):
+        _land(game, p1.id, f"Forest {idx}")
+    top_land = _obj(game, p1.id, "Extra Forest", ZoneType.LIBRARY, {CardType.LAND})
+    spell = _obj(
+        game, p1.id, "Castable Spell", ZoneType.LIBRARY,
+        {CardType.SORCERY}, text="Draw a card.", mana_cost="{2}{G}"
+    )
+    choice = PendingChoice(
+        choice_type="surveil",
+        player=p1.id,
+        prompt="Surveil 2",
+        options=[top_land.id, spell.id],
+        source_id="source",
+        min_choices=0,
+        max_choices=2,
+    )
+
+    selected = AIEngine(strategy=MidrangeStrategy(), difficulty="hard").make_choice(p1.id, choice, game.state)
+
+    assert selected == [top_land.id]
 
 
 def test_combat_keyword_pain_points_are_assertions():
