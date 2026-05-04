@@ -163,6 +163,20 @@ def test_curve_aggro_prefers_two_drop_over_five_drop():
     assert s2 < s5, f"Expected 2-drop ({s2}) to score better than 5-drop ({s5}) for Aggro"
 
 
+def test_two_color_decks_penalize_early_double_pip_cards():
+    """Two-color decks should prefer comparable early cards with easier costs."""
+    single_pip = _make_creature(name="Easy Bear", mana_cost="{1}{W}", power=2, toughness=2)
+    double_pip = _make_creature(name="Hard Bear", mana_cost="{W}{W}", power=2, toughness=2)
+
+    two_color_single = score_card(single_pip, "Aggro", ["W", "U"])
+    two_color_double = score_card(double_pip, "Aggro", ["W", "U"])
+    mono_single = score_card(single_pip, "Aggro", ["W"])
+    mono_double = score_card(double_pip, "Aggro", ["W"])
+
+    assert two_color_single < two_color_double
+    assert mono_single == mono_double
+
+
 def test_curve_control_prefers_four_drop_over_two_drop():
     """For Control (sweet=4), a {3}{U} should score better than {1}{U}."""
     two_drop = _make_creature(name="Twoer", mana_cost="{1}{U}", power=2, toughness=2)
