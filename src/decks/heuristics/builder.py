@@ -37,7 +37,7 @@ from src.engine.types import CardType
 from .archetypes import ArchetypeTemplate, get_template
 from .manabase import pick_lands
 from .pool import resolve_pool
-from .scorer import score_card
+from .scorer import role_of, score_card
 
 
 # =============================================================================
@@ -92,52 +92,14 @@ def _bucket(cmc: int) -> int:
 
 def _classify_role(card_def) -> Optional[str]:
     """
-    Cheap regex-based role classifier. Returns None if no role applies.
+    Return the scorer's role tag for slot-filling.
 
-    Matches the role-tag vocabulary used in archetype templates:
-    ``removal | counterspell | card_draw | ramp | wincon | utility``.
-
-    The W1 scorer is expected to ship a more sophisticated classifier;
-    this stub is good enough to drive role-target fulfilment in tests.
+    Keeping role buckets aligned with scorer.py avoids the builder promoting
+    cards using a weaker or contradictory strategic vocabulary.
     """
-    text = (getattr(card_def, "text", "") or "").lower()
-    chars = getattr(card_def, "characteristics", None)
-    types = (chars.types if chars is not None else set()) or set()
-
-    # Counterspells.
-    if "counter target" in text and "spell" in text:
-        return "counterspell"
-
-    # Removal: destroy / exile / deal damage to creature / -X/-X.
-    if any(kw in text for kw in ("destroy target", "exile target creature")):
-        return "removal"
-    if "deal" in text and "damage" in text and ("creature" in text or "target" in text):
-        # Burn / damage spell — count as removal.
-        if CardType.INSTANT in types or CardType.SORCERY in types:
-            return "removal"
-
-    # Card draw.
-    if "draw" in text and "card" in text:
-        return "card_draw"
-
-    # Ramp: search for basic / add mana / put a land onto the battlefield.
-    if "search your library" in text and "land" in text:
-        return "ramp"
-    if "add {" in text or "adds {" in text:
-        return "ramp"
-
-    # Win conditions: large creatures, planeswalkers.
-    if CardType.PLANESWALKER in types:
-        return "wincon"
-    power = getattr(chars, "power", None) if chars is not None else None
-    if isinstance(power, int) and power >= 4:
-        return "wincon"
-
-    # Catch-all for low-impact spells.
-    if CardType.INSTANT in types or CardType.SORCERY in types:
-        return "utility"
-
-    return None
+    if _is_land(card_def):
+        return None
+    return role_of(card_def)
 
 
 def _color_pip_count(card_def, colors: Iterable[str]) -> dict[str, int]:
