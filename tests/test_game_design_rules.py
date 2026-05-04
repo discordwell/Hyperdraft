@@ -134,3 +134,16 @@ def test_variant_can_disable_empty_library_draw_loss():
 
     assert game.state.empty_library_draw_loses is False
     assert player.has_lost is False
+
+
+def test_variant_can_keep_marked_damage_through_cleanup():
+    game = Game(clear_damage_on_cleanup=False)
+    player = game.add_player("P1")
+    creature = game.create_object(name="Damaged Creature", owner_id=player.id, zone=ZoneType.BATTLEFIELD)
+    creature.state.damage = 2
+    game.turn_manager.turn_state.active_player_id = player.id
+
+    asyncio.run(game.turn_manager._do_cleanup_step())
+
+    assert game.state.clear_damage_on_cleanup is False
+    assert creature.state.damage == 2

@@ -406,7 +406,7 @@ class TurnManager:
                 obj = self.state.objects.get(obj_id)
                 if obj:
                     # Clear damage
-                    if obj.state.damage > 0:
+                    if self.state.clear_damage_on_cleanup and obj.state.damage > 0:
                         obj.state.damage = 0
 
                     # End "crewed until end of turn" - remove CREATURE type from Vehicles
