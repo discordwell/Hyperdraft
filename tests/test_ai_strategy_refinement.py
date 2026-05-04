@@ -210,6 +210,27 @@ def test_any_target_burn_still_points_lethal_at_opponent():
     assert ai._select_target_ids_for_spell(bolt, p1.id, game.state) == [p2.id]
 
 
+def test_damage_spell_prefers_killable_creature_over_unkillable_threat():
+    game, p1, p2 = _game()
+    bolt = _obj(
+        game, p1.id, "Lightning Bolt", ZoneType.HAND,
+        {CardType.INSTANT}, text="Lightning Bolt deals 3 damage to any target.", mana_cost="{R}"
+    )
+    _obj(
+        game, p2.id, "Ancient Dragon", ZoneType.BATTLEFIELD,
+        {CardType.CREATURE}, text="Flying", power=6, toughness=6
+    )
+    killable = _obj(
+        game, p2.id, "Seasoned Duelist", ZoneType.BATTLEFIELD,
+        {CardType.CREATURE}, power=3, toughness=3
+    )
+    p2.life = 14
+
+    ai = AIEngine(strategy=MidrangeStrategy(), difficulty="hard")
+
+    assert ai._select_target_ids_for_spell(bolt, p1.id, game.state) == [killable.id]
+
+
 def test_ultra_role_changes_attack_posture():
     game, p1, p2 = _game()
     attacker = _obj(game, p1.id, "Ground Attacker", ZoneType.BATTLEFIELD, {CardType.CREATURE}, power=3, toughness=3)
