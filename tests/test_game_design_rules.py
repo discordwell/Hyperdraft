@@ -2,7 +2,7 @@
 
 import asyncio
 
-from src.engine import EventType, Game, ZoneType
+from src.engine import Event, EventType, Game, ZoneType
 
 
 async def _run_first_draw_step(first_player_draws: bool):
@@ -124,3 +124,13 @@ def test_variant_max_mulligans_limits_mtg_mulligan_loop():
     assert game.state.max_mulligans == 2
     assert len(game.state.zones[f"hand_{player.id}"].objects) == 0
     assert len(game.state.zones[f"library_{player.id}"].objects) == 7
+
+
+def test_variant_can_disable_empty_library_draw_loss():
+    game = Game(empty_library_draw_loses=False)
+    player = game.add_player("P1")
+
+    game.pipeline.emit(Event(type=EventType.DRAW, payload={"player": player.id, "count": 1}))
+
+    assert game.state.empty_library_draw_loses is False
+    assert player.has_lost is False
