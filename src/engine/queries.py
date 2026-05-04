@@ -196,10 +196,19 @@ def has_ability(obj: GameObject, ability_name: str, state: GameState) -> bool:
         ability_name, state = state, ability_name
     if not isinstance(ability_name, str):
         return False
+    canonical = ability_name.lower().replace("_", " ")
+    aliases = {canonical, canonical.replace(" ", "_")}
 
     # Check base abilities
     for ability in obj.characteristics.abilities:
-        if ability.get('name') == ability_name or ability.get('keyword') == ability_name:
+        names = {ability.get('name'), ability.get('keyword')}
+        normalized = {
+            value.lower().replace("_", " ")
+            for value in names
+            if isinstance(value, str)
+        }
+        normalized |= {value.replace(" ", "_") for value in normalized}
+        if aliases & normalized:
             return True
 
     # Check Hearthstone state flags (keywords can be set directly on state)
@@ -208,8 +217,9 @@ def has_ability(obj: GameObject, ability_name: str, state: GameState) -> bool:
         'stealth': bool(getattr(obj.state, 'stealth', False)),
         'windfury': bool(getattr(obj.state, 'windfury', False)),
     }
-    if hs_state_keywords.get(ability_name, False):
-        return True
+    for alias in aliases:
+        if hs_state_keywords.get(alias, False):
+            return True
 
     # Check granted abilities via QUERY interceptors
     interceptors = [
@@ -225,7 +235,13 @@ def has_ability(obj: GameObject, ability_name: str, state: GameState) -> bool:
         )
         if result.transformed_event:
             granted = result.transformed_event.payload.get('granted', [])
-            if ability_name in granted:
+            granted_aliases = {
+                value.lower().replace("_", " ")
+                for value in granted
+                if isinstance(value, str)
+            }
+            granted_aliases |= {value.replace(" ", "_") for value in granted_aliases}
+            if aliases & granted_aliases:
                 return True
 
     return False
