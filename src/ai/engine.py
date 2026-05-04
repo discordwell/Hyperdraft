@@ -789,7 +789,9 @@ class AIEngine:
                 cmc = cost.mana_value
 
                 # Late-game high drops are fine, early game bottom them
-                if cmc > current_lands + 2:
+                if current_lands <= 1 and cmc > current_lands + 1:
+                    should_bottom = True
+                elif cmc > current_lands + 2:
                     should_bottom = True
 
             # Duplicate lands when we have many

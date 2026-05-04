@@ -303,6 +303,29 @@ def test_surveil_yards_excess_lands_when_flooded():
     assert selected == [top_land.id]
 
 
+def test_scry_bottoms_slow_spell_when_land_light():
+    game, p1, _ = _game()
+    _land(game, p1.id, "Forest")
+    top_land = _obj(game, p1.id, "Second Forest", ZoneType.LIBRARY, {CardType.LAND})
+    slow_spell = _obj(
+        game, p1.id, "Three Drop", ZoneType.LIBRARY,
+        {CardType.CREATURE}, power=3, toughness=3, mana_cost="{2}{G}"
+    )
+    choice = PendingChoice(
+        choice_type="scry",
+        player=p1.id,
+        prompt="Scry 2",
+        options=[top_land.id, slow_spell.id],
+        source_id="source",
+        min_choices=0,
+        max_choices=2,
+    )
+
+    selected = AIEngine(strategy=MidrangeStrategy(), difficulty="hard").make_choice(p1.id, choice, game.state)
+
+    assert selected == [slow_spell.id]
+
+
 def test_discard_choice_prefers_graveyard_recursive_card():
     game, p1, _ = _game()
     recursive = _obj(
