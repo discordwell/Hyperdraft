@@ -254,12 +254,18 @@ def test_role_detection_removal_counterspell_card_draw():
         types={CardType.SORCERY},
         text="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
     )
+    treasure = _make_spell(
+        name="Treasure Maker", mana_cost="{1}{R}",
+        types={CardType.SORCERY},
+        text="Create a Treasure token.",
+    )
     vanilla = _make_creature(name="Bear", mana_cost="{1}{G}", power=2, toughness=2, text="")
 
     assert role_of(removal) == "removal"
     assert role_of(counter) == "counterspell"
     assert role_of(draw) == "card_draw"
     assert role_of(ramp) == "ramp"
+    assert role_of(treasure) == "ramp"
     assert role_of(vanilla) == "utility"
 
 
