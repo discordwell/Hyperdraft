@@ -344,6 +344,17 @@ class EventType(Enum):
     FACE_DOWN_TURNED_UP = auto()      # Marker: a permanent was turned face-up (post-flip)
     FACE_DOWN_QUERY_MASK = auto()     # Internal marker (reserved for future overrides)
 
+    # ------------------------------------------------------------------
+    # Generic replacement-effect telemetry. Fired by ``make_replacement_effect``
+    # whenever a TRANSFORM-priority replacement rewrites an event. Useful for
+    # logs / tests / future debug UIs. Payload:
+    #   source       - id of the permanent providing the replacement
+    #   replacer_id  - id of the interceptor that fired
+    #   original     - dict snapshot of the pre-replacement payload
+    #   replacement  - list of post-replacement events (typically length 1)
+    # ------------------------------------------------------------------
+    REPLACEMENT_FIRED = auto()
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
