@@ -6547,6 +6547,450 @@ __all_phase3__ = [
 
 
 # =============================================================================
+# === Type-overwrite auras ===
+# =============================================================================
+#
+# Implements Lignify-style auras: "Enchanted creature is a 0/4 Treefolk
+# creature with no abilities" (Lignify) or "Enchanted creature is a 1/1 Elf
+# with no abilities and loses all other types and subtypes" (Song of the
+# Dryads-shaped templates).
+#
+# Distinct from ``make_aura_setup``: that helper grants ADDITIVE
+# modifications (+X/+Y, +keyword, +subtype). Type-overwrite auras REPLACE
+# the enchanted creature's queryable characteristics — base power and
+# toughness, subtypes, types, colors, and (typically) abilities.
+#
+# Implementation strategy:
+#
+# 1. Install QUERY interceptors sourced on the *aura* (``while_on_battlefield``)
+#    that match ``event.payload.get('object_id') == aura.state.attached_to``
+#    (read live, so a re-attach updates the override target). Each QUERY
+#    interceptor TRANSFORMs the queried value to the aura's prescribed
+#    base. Counters and ``pt_modifiers`` apply LATER in get_power /
+#    get_toughness, so CR layer 7c (counters last) is preserved without
+#    extra effort.
+#
+# 2. Install an ATTACH / UNATTACH / ZONE_CHANGE-leaves-bf REACT listener
+#    that dual-writes onto ``target.characteristics`` (subtypes, types,
+#    colors, abilities, base power/toughness) so the ~250 direct readers
+#    across the codebase see the override. Originals are stashed on the
+#    aura's state so they can be restored on UNATTACH or when the aura
+#    leaves the battlefield.
+#
+# 3. The REACT listener uses ``duration='forever'`` plus the
+#    ``_cleanup_on_zone_change`` flag so it can still fire during the
+#    REACT phase that runs after the aura's ZONE_CHANGE-leaves-battlefield
+#    handler — the standard ``while_on_battlefield`` gate would suppress
+#    the listener because the aura's zone has already moved out of the
+#    battlefield by then. The cleanup pass at the end of the same emit()
+#    call evicts the listener via the zone-change tag, so it doesn't leak.
+# =============================================================================
+
+
+def _capture_overwrite_snapshot(target: 'GameObject') -> dict:
+    """Return a snapshot of the fields that a type-overwrite aura mutates.
+
+    The snapshot is later consumed by ``_restore_overwrite_snapshot`` when
+    the aura unattaches or leaves the battlefield.
+    """
+    return {
+        'subtypes': set(target.characteristics.subtypes),
+        'types': set(target.characteristics.types),
+        'colors': set(target.characteristics.colors),
+        'abilities': list(target.characteristics.abilities),
+        'power': target.characteristics.power,
+        'toughness': target.characteristics.toughness,
+    }
+
+
+def _apply_overwrite_dual_write(
+    target: 'GameObject',
+    *,
+    base_power: int,
+    base_toughness: int,
+    new_subtypes: set,
+    new_types: set,
+    new_colors: set,
+    keep_keywords: list,
+    lose_abilities: bool,
+) -> None:
+    """Mutate ``target.characteristics`` to reflect the aura's overwrite.
+
+    Direct mutation is required because ~250 callsites read
+    ``obj.characteristics.subtypes`` / ``.power`` / etc. directly without
+    going through the QUERY-interceptor pipeline. The QUERY interceptors
+    handle the get_power / get_subtypes paths; this dual-write covers the
+    rest.
+    """
+    target.characteristics.subtypes = set(new_subtypes)
+    target.characteristics.types = set(new_types)
+    target.characteristics.colors = set(new_colors)
+    if lose_abilities:
+        # Keep only the printed keywords listed in keep_keywords (e.g. for
+        # "Enchanted creature is a 1/1 Elf with flying" templates).
+        kept_lower = {str(k).strip().lower() for k in (keep_keywords or [])}
+        new_abilities: list[dict] = []
+        for ab in target.characteristics.abilities:
+            if isinstance(ab, dict):
+                kw = str(ab.get('keyword') or ab.get('name') or '').strip().lower()
+                if kw and kw in kept_lower:
+                    new_abilities.append(ab)
+        # Append any keep_keywords that weren't already on the target so
+        # callers who pass keep_keywords=['flying'] but the original
+        # creature didn't have flying still see it on the overwrite.
+        existing_lower = {
+            str(ab.get('keyword') or ab.get('name') or '').strip().lower()
+            for ab in new_abilities if isinstance(ab, dict)
+        }
+        for kw in (keep_keywords or []):
+            kw_norm = str(kw).strip().lower()
+            if kw_norm and kw_norm not in existing_lower:
+                new_abilities.append({'keyword': kw_norm})
+        target.characteristics.abilities = new_abilities
+    target.characteristics.power = int(base_power)
+    target.characteristics.toughness = int(base_toughness)
+
+
+def _restore_overwrite_snapshot(target: 'GameObject', snap: dict) -> None:
+    """Inverse of ``_apply_overwrite_dual_write``: restore original fields."""
+    target.characteristics.subtypes = set(snap.get('subtypes') or set())
+    target.characteristics.types = set(snap.get('types') or set())
+    target.characteristics.colors = set(snap.get('colors') or set())
+    target.characteristics.abilities = list(snap.get('abilities') or [])
+    target.characteristics.power = snap.get('power')
+    target.characteristics.toughness = snap.get('toughness')
+
+
+def make_type_overwrite_aura(
+    obj: 'GameObject',
+    *,
+    base_power: int,
+    base_toughness: int,
+    new_subtypes: list,
+    new_types: Optional[list] = None,
+    new_colors: Optional[set] = None,
+    lose_abilities: bool = True,
+    keep_keywords: Optional[list] = None,
+    ward_cost: Optional[str] = None,
+):
+    """Return a setup_interceptors callable for a type-overwrite Aura.
+
+    Implements Lignify-style auras whose static effect REPLACES (not
+    augments) the enchanted creature's queryable characteristics.
+
+    Args:
+        obj: The Aura ``GameObject``. The helper signature accepts the
+            object up-front (mirroring ``make_replacement_effect``) so the
+            returned setup callable can close over it without a second
+            indirection.
+        base_power, base_toughness: New base P/T for the enchanted creature.
+            Counters and ``pt_modifiers`` still apply on top (CR 7c).
+        new_subtypes: List of subtypes to grant (replaces the creature's
+            existing subtypes). Example: ``['Treefolk']``.
+        new_types: List of card types to grant (default
+            ``[CardType.CREATURE]``). The CREATURE type is always added
+            even if not present in ``new_types``.
+        new_colors: Set of ``Color`` values for the new permanent. Defaults
+            to the aura's own ``characteristics.colors``.
+        lose_abilities: When True (default), the enchanted creature loses
+            all abilities. When False, abilities pass through unchanged.
+        keep_keywords: List of keyword strings to grant on top of the
+            overwrite (e.g. ``['flying']`` for "is a 1/1 Elf with flying").
+        ward_cost: Layered separately via the standard ward grant — Lignify
+            doesn't grant ward but the parameter is exposed for future
+            cards (e.g. "is a 0/4 Treefolk with ward {1}"). Falls through
+            to the same primitive ``make_aura_setup`` uses.
+
+    Returns:
+        A setup_interceptors callable: ``(obj, state) -> list[Interceptor]``.
+        The QUERY interceptors are sourced on the aura with
+        ``duration='while_on_battlefield'`` so they self-evict when the
+        aura leaves play. The ATTACH/UNATTACH listener uses
+        ``duration='forever'`` plus the ``_cleanup_on_zone_change`` flag
+        so it can fire during REACT for the aura's leaves-battlefield
+        ZONE_CHANGE (the post-RESOLVE zone has already moved, so the
+        ``while_on_battlefield`` gate would otherwise suppress it).
+
+    Edge cases handled:
+        - Counter stacking: counters on the enchanted creature add on top
+          of the new base in ``get_power`` / ``get_toughness`` (CR 7c).
+        - Re-attach: the QUERY interceptors filter on the aura's live
+          ``attached_to``, so attaching to a new creature instantly moves
+          the override.
+        - Aura leaves BF (destroyed / bounced): the synchronous
+          ZONE_CHANGE branch of the listener restores the original
+          characteristics before ``_cleanup_departed_interceptors``
+          evicts the aura's QUERY interceptors.
+        - Multiple overlapping auras: each registers its own QUERY
+          interceptor; the latest-timestamp wins (the loop in
+          ``get_power`` etc. applies them in timestamp order, and each
+          TRANSFORMs the value, so the last one's value sticks).
+    """
+    # Normalise inputs.
+    new_subtypes_set = set(new_subtypes or [])
+    types_input = list(new_types) if new_types else [CardType.CREATURE]
+    new_types_set = set(types_input)
+    new_types_set.add(CardType.CREATURE)
+    keep_kw_list = [str(k).strip().lower() for k in (keep_keywords or []) if str(k).strip()]
+    aura_id = obj.id
+    aura_controller = obj.controller
+    # Capture the aura's printed colors at definition time so the runtime
+    # default doesn't re-read characteristics (which may be live-mutated).
+    default_colors = set(obj.characteristics.colors) if new_colors is None else set(new_colors)
+
+    # ------------------------------------------------------------------
+    # QUERY filter: matches whichever creature the aura is *currently*
+    # attached to (read live so re-attaches re-target).
+    # ------------------------------------------------------------------
+    def _matches_attached(ev_type, event: Event, state: GameState) -> bool:
+        if event.type != ev_type:
+            return False
+        aura = state.objects.get(aura_id)
+        if aura is None or aura.zone != ZoneType.BATTLEFIELD:
+            return False
+        attached = aura.state.attached_to
+        if not attached:
+            return False
+        return event.payload.get('object_id') == attached
+
+    # ------------------------------------------------------------------
+    # POWER override
+    # ------------------------------------------------------------------
+    def power_filter(event: Event, state: GameState) -> bool:
+        return _matches_attached(EventType.QUERY_POWER, event, state)
+
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = int(base_power)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # TOUGHNESS override
+    # ------------------------------------------------------------------
+    def tough_filter(event: Event, state: GameState) -> bool:
+        return _matches_attached(EventType.QUERY_TOUGHNESS, event, state)
+
+    def tough_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = int(base_toughness)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # TYPES override (replace, but always include CREATURE)
+    # ------------------------------------------------------------------
+    def types_filter(event: Event, state: GameState) -> bool:
+        return _matches_attached(EventType.QUERY_TYPES, event, state)
+
+    def types_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = set(new_types_set)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # SUBTYPES override (replace)
+    # ------------------------------------------------------------------
+    def subtypes_filter(event: Event, state: GameState) -> bool:
+        return _matches_attached(EventType.QUERY_SUBTYPES, event, state)
+
+    def subtypes_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = set(new_subtypes_set)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # COLORS override (replace)
+    # ------------------------------------------------------------------
+    def colors_filter(event: Event, state: GameState) -> bool:
+        return _matches_attached(EventType.QUERY_COLORS, event, state)
+
+    def colors_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload['value'] = set(default_colors)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # ABILITIES override
+    #   - lose_abilities=True: only ``keep_keywords`` survive the
+    #     overwrite (the QUERY_ABILITIES interceptor produces a granted
+    #     list containing only those keywords; ``has_ability`` checks
+    #     printed abilities first, so the dual-write step strips printed
+    #     keywords too).
+    #   - lose_abilities=False: abilities pass through (the dual-write
+    #     leaves printed abilities alone, and the keep_keywords list is
+    #     simply added to granted).
+    # ------------------------------------------------------------------
+    def abilities_filter(event: Event, state: GameState) -> bool:
+        return _matches_attached(EventType.QUERY_ABILITIES, event, state)
+
+    def abilities_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        if lose_abilities:
+            # REPLACE the granted set with just the kept keywords.
+            new_event.payload['granted'] = list(keep_kw_list)
+            existing_value = new_event.payload.get('value')
+            if isinstance(existing_value, (set, list)):
+                new_event.payload['value'] = set(keep_kw_list)
+        else:
+            granted = list(new_event.payload.get('granted', []) or [])
+            for kw in keep_kw_list:
+                if kw not in granted:
+                    granted.append(kw)
+            new_event.payload['granted'] = granted
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+
+    # ------------------------------------------------------------------
+    # ATTACH / UNATTACH / ZONE_CHANGE-leaves-bf REACT listener.
+    # Handles dual-write of characteristics so direct readers stay
+    # consistent with the QUERY-pipeline result.
+    # ------------------------------------------------------------------
+    def _listener_filter(event: Event, state: GameState) -> bool:
+        if event.type in (EventType.ATTACH, EventType.UNATTACH):
+            return event.payload.get('object_id') == aura_id
+        if event.type == EventType.ZONE_CHANGE:
+            if event.payload.get('object_id') != aura_id:
+                return False
+            from_t = event.payload.get('from_zone_type')
+            to_t = event.payload.get('to_zone_type')
+            return from_t == ZoneType.BATTLEFIELD and to_t != ZoneType.BATTLEFIELD
+        return False
+
+    def _listener_handler(event: Event, state: GameState) -> InterceptorResult:
+        aura = state.objects.get(aura_id)
+        if aura is None:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        if event.type == EventType.ATTACH:
+            target_id = event.payload.get('target_id') or event.payload.get('target')
+            if not target_id:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            target = state.objects.get(target_id)
+            if target is None:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            # If we were already overwriting a different creature, restore it.
+            prior_target_id = getattr(aura.state, '_overwrite_target_id', None)
+            prior_snap = getattr(aura.state, '_overwrite_snapshot', None)
+            if prior_target_id and prior_target_id != target_id and prior_snap is not None:
+                prior = state.objects.get(prior_target_id)
+                if prior is not None:
+                    _restore_overwrite_snapshot(prior, prior_snap)
+            # Snapshot original, then apply the overwrite.
+            snap = _capture_overwrite_snapshot(target)
+            _apply_overwrite_dual_write(
+                target,
+                base_power=base_power,
+                base_toughness=base_toughness,
+                new_subtypes=new_subtypes_set,
+                new_types=new_types_set,
+                new_colors=default_colors,
+                keep_keywords=keep_kw_list,
+                lose_abilities=lose_abilities,
+            )
+            setattr(aura.state, '_overwrite_target_id', target_id)
+            setattr(aura.state, '_overwrite_snapshot', snap)
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        # UNATTACH or aura leaves BF — restore the prior snapshot.
+        prior_target_id = getattr(aura.state, '_overwrite_target_id', None)
+        prior_snap = getattr(aura.state, '_overwrite_snapshot', None)
+        if prior_target_id and prior_snap is not None:
+            prior = state.objects.get(prior_target_id)
+            if prior is not None:
+                _restore_overwrite_snapshot(prior, prior_snap)
+        try:
+            delattr(aura.state, '_overwrite_target_id')
+        except AttributeError:
+            pass
+        try:
+            delattr(aura.state, '_overwrite_snapshot')
+        except AttributeError:
+            pass
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def _setup(setup_obj: 'GameObject', state: GameState) -> list:
+        # Build interceptor list. All QUERY interceptors are sourced on the
+        # aura so they self-evict when the aura leaves the battlefield.
+        pairs = [
+            (power_filter, power_handler),
+            (tough_filter, tough_handler),
+            (types_filter, types_handler),
+            (subtypes_filter, subtypes_handler),
+            (colors_filter, colors_handler),
+            (abilities_filter, abilities_handler),
+        ]
+        interceptors: list[Interceptor] = []
+        for filt, hand in pairs:
+            interceptors.append(Interceptor(
+                id=new_id(),
+                source=aura_id,
+                controller=aura_controller,
+                priority=InterceptorPriority.QUERY,
+                filter=filt,
+                handler=hand,
+                duration='while_on_battlefield',
+            ))
+        # Attach/unattach listener (REACT, dual-write). We use
+        # ``duration='forever'`` plus ``_cleanup_on_zone_change=True`` so
+        # the listener still fires during the REACT phase that runs after
+        # the aura's ZONE_CHANGE-leaves-battlefield handler — the standard
+        # ``while_on_battlefield`` gate would suppress it because the
+        # aura's zone has already moved out of the battlefield by then.
+        # The cleanup pass at the end of the same emit() call evicts the
+        # listener via the zone-change tag.
+        listener = Interceptor(
+            id=new_id(),
+            source=aura_id,
+            controller=aura_controller,
+            priority=InterceptorPriority.REACT,
+            filter=_listener_filter,
+            handler=_listener_handler,
+            duration='forever',
+        )
+        setattr(listener, '_cleanup_on_zone_change', True)
+        interceptors.append(listener)
+
+        # Optional ward grant (matches make_aura_setup behaviour).
+        if ward_cost:
+            wi = _make_attached_ward_interceptor(setup_obj, ward_cost)
+            if wi is not None:
+                interceptors.append(wi)
+
+        # Fast-path: if the aura already knows its target (cast/resolve
+        # set ``_aura_target_id`` before our setup runs), apply the
+        # overwrite immediately so direct readers see it before the
+        # ATTACH event fires through the pipeline.
+        target_id = getattr(setup_obj.state, '_aura_target_id', None) or setup_obj.state.attached_to
+        if target_id:
+            if setup_obj.state.attached_to != target_id:
+                setup_obj.state.attached_to = target_id
+                target = state.objects.get(target_id)
+                if target is not None and setup_obj.id not in target.state.attachments:
+                    target.state.attachments.append(setup_obj.id)
+            target = state.objects.get(target_id)
+            if target is not None and not getattr(setup_obj.state, '_overwrite_snapshot', None):
+                snap = _capture_overwrite_snapshot(target)
+                _apply_overwrite_dual_write(
+                    target,
+                    base_power=base_power,
+                    base_toughness=base_toughness,
+                    new_subtypes=new_subtypes_set,
+                    new_types=new_types_set,
+                    new_colors=default_colors,
+                    keep_keywords=keep_kw_list,
+                    lose_abilities=lose_abilities,
+                )
+                setattr(setup_obj.state, '_overwrite_target_id', target_id)
+                setattr(setup_obj.state, '_overwrite_snapshot', snap)
+        return interceptors
+
+    return _setup
+
+
+__all_type_overwrite_aura__ = [
+    "make_type_overwrite_aura",
+]
+
+
+# =============================================================================
 # Phase 5: Suspect mechanic (Murders at Karlov Manor)
 # =============================================================================
 #
