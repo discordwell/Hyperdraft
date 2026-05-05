@@ -2,6 +2,7 @@
 
 from src.ai.pokemon_adapter import PokemonAIAdapter
 from src.cards.pokemon.sv_starter import (
+    BOSS_ORDERS,
     CHARIZARD_EX,
     CHARMANDER,
     PROFESSOR_RESEARCH,
@@ -37,6 +38,7 @@ def _basic(
     pokemon_type: str = PokemonType.COLORLESS.value,
     damage: int = 30,
     retreat_cost: int = 0,
+    is_ex: bool = False,
 ):
     return make_pokemon(
         name=name,
@@ -50,6 +52,7 @@ def _basic(
             "text": "",
         }],
         retreat_cost=retreat_cost,
+        is_ex=is_ex,
     )
 
 
@@ -66,3 +69,31 @@ def test_hard_ai_preserves_rare_candy_stage2_combo_over_research():
 
     assert events == []
     assert research.id in game.state.zones[f"hand_{p1.id}"].objects
+
+
+def test_hard_ai_boss_orders_targets_game_winning_ex_over_weak_bench():
+    game, p1, p2, ai = _new_pokemon_game("hard")
+    game.turn_manager.pkm_turn_state.game_turn_count = 2
+    p1.prizes_remaining = 2
+
+    attacker = _card(game, _basic("Ready Attacker", hp=110, damage=120), p1, ZoneType.ACTIVE_SPOT)
+    _card(game, BOSS_ORDERS, p1, ZoneType.HAND)
+    _card(game, _basic("Opponent Active", hp=180, damage=30), p2, ZoneType.ACTIVE_SPOT)
+    weak_bench = _card(game, _basic("Damaged One-Prizer", hp=70, damage=20), p2, ZoneType.BENCH)
+    weak_bench.state.damage_counters = 4
+    ex_bench = _card(
+        game,
+        _basic("Prize-Rich ex", hp=120, damage=80, is_ex=True),
+        p2,
+        ZoneType.BENCH,
+    )
+
+    assert ai.choose_boss_target(p1.id, game.state, [weak_bench.id, ex_bench.id]) == ex_bench.id
+
+    ai._current_context = ai._build_turn_context(p1.id, game.state)
+    events = ai._do_play_supporter(p1.id, game.state, game.turn_manager)
+
+    assert events
+    assert attacker.id in game.state.zones[f"active_spot_{p1.id}"].objects
+    assert ex_bench.id in game.state.zones[f"active_spot_{p2.id}"].objects
+    assert weak_bench.id in game.state.zones[f"bench_{p2.id}"].objects

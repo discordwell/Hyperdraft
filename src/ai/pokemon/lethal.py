@@ -47,31 +47,23 @@ def _check_lethal(adapter, ctx: TurnContext, state: GameState,
                 boss_card_id = card_id
                 break
         if boss_card_id and ctx.opp_bench and ctx.my_active:
-            # Boss's Orders drags the weakest bench Pokemon
-            worst_id = None
-            worst_hp = 9999
-            for pkm_id in ctx.opp_bench:
-                pkm = state.objects.get(pkm_id)
-                if pkm and pkm.card_def:
-                    remaining = (pkm.card_def.hp or 0) - pkm.state.damage_counters * 10
-                    if remaining < worst_hp:
-                        worst_hp = remaining
-                        worst_id = pkm_id
-            if worst_id:
-                target = state.objects.get(worst_id)
+            chosen_id = adapter.choose_boss_target(player_id, state, ctx.opp_bench)
+            if chosen_id:
+                target = state.objects.get(chosen_id)
                 if target and target.card_def:
                     prize_value = target.card_def.prize_count
                     if ctx.my_prizes_remaining <= prize_value:
+                        remaining_hp = adapter._remaining_hp(target)
                         for attack in combat_mgr.get_available_attacks(ctx.my_active):
                             dmg = attack.get('damage', 0)
                             if dmg > 0:
                                 final_dmg = combat_mgr.calculate_damage(
-                                    ctx.my_active, worst_id, dmg)
-                                if final_dmg >= worst_hp:
+                                    ctx.my_active, chosen_id, dmg)
+                                if final_dmg >= remaining_hp:
                                     return {
                                         'path': 2,
                                         'attack_index': attack.get('_index', 0),
-                                        'target_id': worst_id,
+                                        'target_id': chosen_id,
                                         'boss_card_id': boss_card_id,
                                     }
 

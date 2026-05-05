@@ -91,8 +91,42 @@ def _score_boss_orders(ctx: TurnContext, state: GameState, player_id: str) -> fl
     score = 5.0
     if not ctx.opp_bench:
         return -10.0
-    # Find which bench target Boss's Orders would drag (weakest)
-    worst_id = None
+
+    best_target_score = 0.0
+    for target_id in ctx.opp_bench:
+        target = state.objects.get(target_id)
+        if not target or not target.card_def:
+            continue
+
+        remaining_hp = (target.card_def.hp or 0) - target.state.damage_counters * 10
+        prize_value = target.card_def.prize_count if target.card_def else 1
+        target_score = prize_value * 8.0
+        if target.card_def.is_ex:
+            target_score += 8.0
+
+        if ctx.my_active:
+            active = state.objects.get(ctx.my_active)
+            if active and active.card_def:
+                combat_mgr = PokemonCombatManager(state)
+                for attack in combat_mgr.get_available_attacks(ctx.my_active):
+                    dmg = attack.get('damage', 0)
+                    if dmg <= 0:
+                        continue
+                    final_dmg = combat_mgr.calculate_damage(ctx.my_active, target_id, dmg)
+                    if final_dmg >= remaining_hp:
+                        target_score += 30.0
+                        if ctx.my_prizes_remaining <= prize_value:
+                            target_score += 100.0
+                        elif prize_value >= 2:
+                            target_score += 15.0
+                        break
+        best_target_score = max(best_target_score, target_score)
+
+    if best_target_score > 0:
+        score += best_target_score
+        return score
+
+    # Fallback mirrors deterministic card resolution for non-AI paths.
     worst_hp = 9999
     for pkm_id in ctx.opp_bench:
         pkm = state.objects.get(pkm_id)
@@ -100,29 +134,8 @@ def _score_boss_orders(ctx: TurnContext, state: GameState, player_id: str) -> fl
             remaining = (pkm.card_def.hp or 0) - pkm.state.damage_counters * 10
             if remaining < worst_hp:
                 worst_hp = remaining
-                worst_id = pkm_id
-    if not worst_id:
-        return score
-    target = state.objects.get(worst_id)
-    if not target:
-        return score
-    # Check if we can KO the dragged target
-    if ctx.my_active:
-        active = state.objects.get(ctx.my_active)
-        if active and active.card_def:
-            combat_mgr = PokemonCombatManager(state)
-            for attack in combat_mgr.get_available_attacks(ctx.my_active):
-                dmg = attack.get('damage', 0)
-                if dmg > 0:
-                    final_dmg = combat_mgr.calculate_damage(ctx.my_active, worst_id, dmg)
-                    if final_dmg >= worst_hp:
-                        prize_value = target.card_def.prize_count if target.card_def else 1
-                        score += 30.0
-                        if ctx.my_prizes_remaining <= prize_value:
-                            score += 100.0
-                        elif prize_value >= 2:
-                            score += 15.0
-                        break
+    if worst_hp < 9999:
+        score += max(0.0, 10.0 - worst_hp / 20.0)
     return score
 
 
