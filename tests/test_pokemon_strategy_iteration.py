@@ -6,6 +6,7 @@ from src.cards.pokemon.sv_starter import (
     CHARIZARD_EX,
     FIRE_ENERGY,
     CHARMANDER,
+    POTION,
     PROFESSOR_RESEARCH,
     RARE_CANDY,
 )
@@ -152,3 +153,20 @@ def test_hard_ai_avoids_draw_attack_when_library_is_low():
     safe_score = ai._score_attack(attacker, attacker.card_def.attacks[1], game.state, p1.id)
 
     assert safe_score > draw_score
+
+
+def test_hard_ai_potion_heals_survival_target_over_most_damaged_bench():
+    game, p1, p2, ai = _new_pokemon_game("hard")
+    active = _card(game, _basic("Fragile Active", hp=70, damage=60), p1, ZoneType.ACTIVE_SPOT)
+    active.state.damage_counters = 4
+    bench = _card(game, _basic("Damaged Bench", hp=160, damage=80), p1, ZoneType.BENCH)
+    bench.state.damage_counters = 5
+    _card(game, _basic("Opponent", hp=160, damage=50), p2, ZoneType.ACTIVE_SPOT)
+    _card(game, POTION, p1, ZoneType.HAND)
+
+    ai._current_context = ai._build_turn_context(p1.id, game.state)
+    events = ai._do_play_items(p1.id, game.state, game.turn_manager)
+
+    assert events
+    assert active.state.damage_counters == 1
+    assert bench.state.damage_counters == 5

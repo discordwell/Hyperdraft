@@ -317,6 +317,50 @@ class PokemonAIAdapter:
 
         return best_id
 
+    def choose_potion_target(self, player_id: str, state: GameState,
+                             candidates: list[str] | None = None) -> Optional[str]:
+        """Choose the Pokemon that gains the most from a 30-damage heal."""
+        settings = self._get_settings(player_id)
+        if not (settings.get('use_prize_strategy') or settings.get('use_anti_lethal')):
+            return None
+
+        candidate_ids = list(candidates) if candidates is not None else self._get_all_in_play(state, player_id)
+        if not candidate_ids:
+            return None
+
+        ctx = self._current_context or self._build_turn_context(player_id, state)
+        active_id = self._get_active(state, player_id)
+        incoming = ctx.opp_estimated_max_damage
+
+        best_id = None
+        best_score = 0.0
+        for pkm_id in candidate_ids:
+            pokemon = state.objects.get(pkm_id)
+            if not pokemon or not pokemon.card_def or pokemon.state.damage_counters <= 0:
+                continue
+
+            heal_counters = min(3, pokemon.state.damage_counters)
+            remaining = self._remaining_hp(pokemon)
+            healed_remaining = remaining + heal_counters * 10
+            score = heal_counters * 8.0
+
+            if pkm_id == active_id:
+                score += 10.0
+                if incoming and remaining <= incoming < healed_remaining:
+                    score += 55.0
+
+            if pokemon.card_def.is_ex:
+                score += 8.0
+                if incoming and remaining <= incoming < healed_remaining:
+                    score += 10.0
+
+            score += min(10.0, self._max_hp(pokemon) / 30.0)
+            if score > best_score:
+                best_score = score
+                best_id = pkm_id
+
+        return best_id
+
     # ── Scoring / lethal delegates ────────────────────────────────
 
     def _estimate_damage(self, attacker: 'GameObject', defender: 'GameObject',
