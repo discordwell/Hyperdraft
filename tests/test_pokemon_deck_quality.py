@@ -8,6 +8,7 @@ import pytest
 
 from src.cards.pokemon.deck_builder import (
     SV_STARTER_DECK_BUILDERS,
+    build_all_sv_starter_decks,
     build_sv_starter_deck,
     list_sv_starter_decks,
 )
@@ -105,6 +106,10 @@ def test_validated_sv_starter_deckbuilder_serves_all_decks():
         assert strategy["role"] == "starter"
         assert not summary["quality_flags"]
         assert deck is not build_sv_starter_deck(deck_name, enforce_quality=False)[0]
+
+    all_decks = build_all_sv_starter_decks()
+    assert sorted(all_decks) == list_sv_starter_decks()
+    assert all(len(deck) == 60 for deck, _strategy in all_decks.values())
 
 
 def test_validated_sv_starter_deckbuilder_rejects_unknown_decks():

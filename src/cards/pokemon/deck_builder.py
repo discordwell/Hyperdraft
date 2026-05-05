@@ -40,3 +40,11 @@ def build_sv_starter_deck(name: str, *, enforce_quality: bool = True) -> tuple[l
         if flags:
             raise ValueError(f"Pokemon starter deck '{name}' failed quality checks: {flags}")
     return deck, strategy
+
+
+def build_all_sv_starter_decks(*, enforce_quality: bool = True) -> dict[str, tuple[list, dict]]:
+    """Return every validated Scarlet/Violet starter deck."""
+    return {
+        name: build_sv_starter_deck(name, enforce_quality=enforce_quality)
+        for name in list_sv_starter_decks()
+    }
