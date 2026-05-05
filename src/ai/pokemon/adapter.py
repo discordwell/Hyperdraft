@@ -744,7 +744,8 @@ class PokemonAIAdapter:
             chosen_id = random.choice(supporters[1:])[0]
         else:
             chosen_id = supporters[0][0]
-            if settings.get('use_resource_conservation') and supporters[0][1] <= 0:
+            if ((settings.get('use_resource_conservation') or settings.get('use_prize_strategy'))
+                    and supporters[0][1] <= 0):
                 return []
 
         if turn_mgr and hasattr(turn_mgr, '_play_trainer'):
