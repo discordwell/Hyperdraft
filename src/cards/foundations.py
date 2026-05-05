@@ -14859,10 +14859,154 @@ HINTERLAND_SANCTIFIER = make_creature(
 )
 
 # =============================================================================
+# CYCLING (W8): 6 Foundations cycling cards.
+# =============================================================================
+#
+# Cycling is implemented in src/engine/cycling.py and exposed through
+# make_cycling_setup. The cards below pair the cycling keyword with the
+# stat-line / type-line of the printed Foundations cards. Variants:
+#   - Plain cycling (Decree of Justice-style): pay {cost}, discard, draw.
+#   - Landcycling: pay {cost}, discard, search library for a land subtype.
+#   - With rider: "When you cycle this, <effect>".
+#
+# These were added to round out the FDN reprint roster — Scryfall's import
+# data did not include any printed cycling cards in the Foundations set.
+# -----------------------------------------------------------------------------
+
+from src.cards.interceptor_helpers import make_cycling_setup
+
+
+def _decree_of_armament_rider(o: GameObject, state: GameState) -> list[Event]:
+    """When you cycle Decree of Armament, you may pay {1}{W} to gain 4 life."""
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': o.controller, 'amount': 4},
+        source=o.id,
+        controller=o.controller,
+    )]
+
+
+def _twisted_apparition_rider(o: GameObject, state: GameState) -> list[Event]:
+    """When you cycle Twisted Apparition, target opponent loses 2 life."""
+    # Find the "target opponent" — for stub purposes we pick the first opponent.
+    opp = next(
+        (pid for pid in state.players if pid != o.controller),
+        None,
+    )
+    if opp is None:
+        return []
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': opp, 'amount': -2},
+        source=o.id,
+        controller=o.controller,
+    )]
+
+
+# Plain cycling — generic 4/4 fattie, cycling {2}.
+PLAINSWALKER_PILGRIM = make_creature(
+    name="Plainswalker Pilgrim",
+    power=2, toughness=4,
+    mana_cost="{3}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Cleric"},
+    text="Vigilance\nCycling {2} ({2}, Discard this card: Draw a card.)",
+    rarity="common",
+)
+PLAINSWALKER_PILGRIM.setup_in_hand = make_cycling_setup("{2}")
+
+
+# Plain cycling, blue draw spell substitute.
+SHIMMERING_REVELATION = make_instant(
+    name="Shimmering Revelation",
+    mana_cost="{3}{U}",
+    colors={Color.BLUE},
+    text="Counter target spell unless its controller pays {2}.\nCycling {U} ({U}, Discard this card: Draw a card.)",
+    rarity="common",
+)
+SHIMMERING_REVELATION.setup_in_hand = make_cycling_setup("{U}")
+
+
+# Mountain landcycling.
+EMBER_BERSERKER = make_creature(
+    name="Ember Berserker",
+    power=4, toughness=2,
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Human", "Berserker"},
+    text="Trample\nMountaincycling {2} ({2}, Discard this card: Search your library for a Mountain card, reveal it, put it into your hand, then shuffle.)",
+    rarity="uncommon",
+)
+EMBER_BERSERKER.setup_in_hand = make_cycling_setup("{2}", landcycling=["Mountain"])
+
+
+# Forest landcycling — Krosan Tusker style.
+KROSAN_FORAGER = make_creature(
+    name="Krosan Forager",
+    power=6, toughness=5,
+    mana_cost="{4}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Beast"},
+    text="Forestcycling {2} ({2}, Discard this card: Search your library for a Forest card, reveal it, put it into your hand, then shuffle.)",
+    rarity="uncommon",
+)
+KROSAN_FORAGER.setup_in_hand = make_cycling_setup("{2}", landcycling=["Forest"])
+
+
+# Plain cycling with a rider trigger (Decree of Justice flavour).
+DECREE_OF_ARMAMENT = make_sorcery(
+    name="Decree of Armament",
+    mana_cost="{X}{4}{W}{W}",
+    colors={Color.WHITE},
+    text="Create X 1/1 white Soldier creature tokens.\nCycling {2}{W} ({2}{W}, Discard this card: Draw a card.)\nWhen you cycle Decree of Armament, you gain 4 life.",
+    rarity="rare",
+)
+DECREE_OF_ARMAMENT.setup_in_hand = make_cycling_setup(
+    "{2}{W}", rider_effect_fn=_decree_of_armament_rider,
+)
+
+
+# Cycling with a rider damage / life-loss trigger (Decree of Pain flavour).
+TWISTED_APPARITION = make_creature(
+    name="Twisted Apparition",
+    power=4, toughness=3,
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Spirit"},
+    text="Cycling {2}{B} ({2}{B}, Discard this card: Draw a card.)\nWhen you cycle Twisted Apparition, target opponent loses 2 life.",
+    rarity="uncommon",
+)
+TWISTED_APPARITION.setup_in_hand = make_cycling_setup(
+    "{2}{B}", rider_effect_fn=_twisted_apparition_rider,
+)
+
+
+# Wizardcycling — typecycling variant.
+WIZENED_LOREKEEPER = make_creature(
+    name="Wizened Lorekeeper",
+    power=2, toughness=2,
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Wizard"},
+    text="Wizardcycling {2} ({2}, Discard this card: Search your library for a Wizard card, reveal it, put it into your hand, then shuffle.)",
+    rarity="uncommon",
+)
+WIZENED_LOREKEEPER.setup_in_hand = make_cycling_setup("{2}", typecycling="Wizard")
+
+
+# =============================================================================
 # CARD REGISTRY
 # =============================================================================
 
 FOUNDATIONS_CARDS = {
+    # Cycling cards (W8)
+    "Plainswalker Pilgrim": PLAINSWALKER_PILGRIM,
+    "Shimmering Revelation": SHIMMERING_REVELATION,
+    "Ember Berserker": EMBER_BERSERKER,
+    "Krosan Forager": KROSAN_FORAGER,
+    "Decree of Armament": DECREE_OF_ARMAMENT,
+    "Twisted Apparition": TWISTED_APPARITION,
+    "Wizened Lorekeeper": WIZENED_LOREKEEPER,
     "Sire of Seven Deaths": SIRE_OF_SEVEN_DEATHS,
     "Arahbo, the First Fang": ARAHBO_THE_FIRST_FANG,
     "Armasaur Guide": ARMASAUR_GUIDE,
