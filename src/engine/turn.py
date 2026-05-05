@@ -159,6 +159,12 @@ class TurnManager:
         self.state.turn_number = self.turn_state.turn_number
         self._reset_turn_state()
 
+        # Sweep "until your next turn" effects whose owner is the player
+        # whose turn is about to begin. This must happen *before* TURN_START
+        # so the new active player starts the turn with their previously
+        # registered until-next-turn animations / grants peeled off.
+        self._do_until_your_next_turn_cleanup(self.turn_state.active_player_id)
+
         events.extend(await self._emit_turn_start())
 
         # Beginning Phase
@@ -509,6 +515,91 @@ class TurnManager:
         # (Would be handled by mana system)
 
         return events
+
+    # =====================================================================
+    # "Until your next turn" duration cleanup
+    # =====================================================================
+    # A handful of cards (Rootwise Survivor, etc.) install effects that
+    # last "until your next turn" — the same player's next turn, *across*
+    # the opponent's turn. Standard EOT cleanup runs at the end of each
+    # turn, which is too eager. Instead, sweep these at the *start* of the
+    # owner's next turn (i.e., when ``active_player == ic.controller``).
+    #
+    # Implementation parallels the EOT sweep in ``_do_cleanup_step``:
+    #   1. Drop interceptors whose ``duration`` matches the recognized
+    #      until-next-turn alias and whose ``controller`` is the player
+    #      whose turn is starting.
+    #   2. Restore stashed subtype dual-writes for ``becomes_creature``-style
+    #      effects (mirrors the EOT subtype-restoration hook), keyed off
+    #      ``state._until_your_next_turn_cleanups``.
+    # =====================================================================
+    def _do_until_your_next_turn_cleanup(self, active_player: Optional[str]) -> None:
+        """Remove interceptors with duration='until_your_next_turn' whose
+        controller is ``active_player`` (it's now their turn again).
+
+        Also peel off any subtype dual-writes those interceptors had stashed
+        in ``state._until_your_next_turn_cleanups`` so subtypes added by
+        ``becomes_creature``-style helpers don't leak.
+        """
+        if not active_player:
+            return
+
+        unt_aliases = {
+            "until_your_next_turn",
+            "until_my_next_turn",
+            "untilyournext_turn",
+            "until_next_turn",
+        }
+
+        # 1. Sweep matching interceptors.
+        to_remove = []
+        for iid, ic in self.state.interceptors.items():
+            dur = getattr(ic, "duration", None)
+            if not isinstance(dur, str):
+                continue
+            normalized = dur.strip().lower().replace(" ", "_")
+            if normalized not in unt_aliases:
+                continue
+            if getattr(ic, "controller", None) != active_player:
+                continue
+            to_remove.append(iid)
+
+        removed_tags: set = set()
+        for iid in to_remove:
+            ic = self.state.interceptors.pop(iid, None)
+            if ic is None:
+                continue
+            # Detach from owning object's interceptor_ids list, if any.
+            src = self.state.objects.get(getattr(ic, "source", None))
+            if src is not None and iid in src.interceptor_ids:
+                src.interceptor_ids.remove(iid)
+            # Track the becomes_creature tag so we can restore subtypes.
+            tag = getattr(ic, "_becomes_creature_tag", None)
+            if tag is not None:
+                removed_tags.add(tag)
+
+        # 2. Restore subtype dual-writes that were stashed for these
+        #    until-next-turn animations. The dict is keyed by tag id and
+        #    populated by the helper that installed the animation.
+        unt_cleanups = getattr(self.state, "_until_your_next_turn_cleanups", None)
+        if unt_cleanups:
+            for tag_id in list(unt_cleanups.keys()):
+                payload = unt_cleanups.get(tag_id, {}) or {}
+                # Only act on cleanups owned by this player; if the helper
+                # recorded the controller, gate on it. Otherwise fall back
+                # to "tag was just removed".
+                cleanup_owner = payload.get("controller")
+                if cleanup_owner is not None and cleanup_owner != active_player:
+                    continue
+                if cleanup_owner is None and tag_id not in removed_tags:
+                    continue
+                target_id = payload.get("target_id")
+                target_obj = self.state.objects.get(target_id) if target_id else None
+                if target_obj is not None:
+                    original = payload.get("original_subtypes")
+                    if isinstance(original, set):
+                        target_obj.characteristics.subtypes = set(original)
+                unt_cleanups.pop(tag_id, None)
 
     async def _emit_game_start(self) -> list[Event]:
         """Emit game start event."""
