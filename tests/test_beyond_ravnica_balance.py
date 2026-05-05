@@ -116,6 +116,25 @@ def test_ravnica_balance_report_writes_json_artifact(tmp_path):
     assert len(file_report["guilds"]) == 10
 
 
+def test_ravnica_balance_report_can_focus_one_guild():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/play/ravnica_balance_report.py",
+            "--guild",
+            "izzet",
+            "--fail-on-flags",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    report = json.loads(result.stdout)
+    assert set(report["guilds"]) == {"izzet"}
+    assert report["guilds"]["izzet"]["primary_energy_count"] >= 7
+
+
 def test_validated_ravnica_deckbuilder_serves_all_guilds():
     assert list_ravnica_guild_decks() == sorted(GUILD_DECK_BUILDERS)
 
