@@ -54,6 +54,9 @@ from src.cards.interceptor_helpers import (
     make_dynamic_pt_boost,
     # Modal resolve
     make_modal_resolve,
+    # Planeswalker loyalty framework
+    make_loyalty_ability,
+    make_planeswalker_setup,
 )
 from src.engine.blb_mechanics import (
     make_forage_trigger,
@@ -4398,7 +4401,31 @@ def muerra_trash_tactician_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def ral_crackling_wit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you cast a noncreature spell, put a loyalty counter on Ral."""
+    """Ral, Crackling Wit (BLB) — proof-of-concept for the planeswalker
+    loyalty framework.
+
+    Text:
+      Whenever you cast a noncreature spell, put a loyalty counter on Ral.
+      +1: Create a 1/1 blue and red Otter creature token with prowess.
+      −3: Draw three cards, then discard two cards.
+      −10: Draw three cards. You get an emblem with "Instant and sorcery
+           spells you cast have storm." (Whenever you cast an instant or
+           sorcery spell, copy it for each spell cast before it this turn.)
+
+    Wiring:
+      - ``make_planeswalker_setup(obj, starting_loyalty=4)`` installs the
+        ETB-loyalty trigger, damage-to-loyalty redirection, the once-per-turn
+        lockout, and the zero-loyalty SBA hook.
+      - One ``make_loyalty_ability`` per ``+N: ...`` / ``-N: ...`` line.
+      - The "Whenever you cast a noncreature spell" trigger is preserved as a
+        regular spell-cast trigger.
+      - The −10 emblem effect is too plane-specific to model in the engine
+        today; we resolve the "Draw three cards" half and leave the emblem
+        as an engine gap.
+    """
+    setup = make_planeswalker_setup(obj, starting_loyalty=4)
+
+    # Static trigger: cast a noncreature spell -> +1 loyalty.
     def noncreature_filter(event: Event, state: GameState, source: GameObject) -> bool:
         if event.type not in (EventType.CAST, EventType.SPELL_CAST):
             return False
@@ -4413,8 +4440,62 @@ def ral_crackling_wit_setup(obj: GameObject, state: GameState) -> list[Intercept
                       payload={'object_id': obj.id,
                                'counter_type': 'loyalty', 'amount': 1},
                       source=obj.id)]
-    # engine gap: planeswalker loyalty abilities
-    return [make_spell_cast_trigger(obj, loyalty_effect, filter_fn=noncreature_filter)]
+    setup.append(make_spell_cast_trigger(obj, loyalty_effect, filter_fn=noncreature_filter))
+
+    # +1: Create a 1/1 blue and red Otter creature token with prowess.
+    def plus1_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token_type': 'Creature',
+                'name': 'Otter',
+                'power': 1, 'toughness': 1,
+                'colors': {Color.BLUE, Color.RED},
+                'subtypes': {'Otter'},
+                'keywords': ['prowess'],
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+    make_loyalty_ability(
+        obj, cost=+1, effect_fn=plus1_effect, ability_id="+1",
+        description="+1: Create a 1/1 blue/red Otter token with prowess.",
+    )
+
+    # −3: Draw three cards, then discard two cards.
+    def minus3_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'count': 3},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.DISCARD_CHOICE,
+                  payload={'player': o.controller, 'count': 2},
+                  source=o.id, controller=o.controller),
+        ]
+    make_loyalty_ability(
+        obj, cost=-3, effect_fn=minus3_effect, ability_id="-3",
+        description="-3: Draw three cards, then discard two cards.",
+    )
+
+    # −10: Draw three cards. You get an emblem with "Instant and sorcery
+    # spells you cast have storm."
+    # engine gap: emblems / storm aren't fully modelled, so we only resolve
+    # the draw three cards half. The emblem itself is left as a TODO marker
+    # so the framework wiring stays honest about what does and doesn't fire.
+    def minus10_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'count': 3},
+                  source=o.id, controller=o.controller),
+            # engine gap: emblem creation + storm-grant for instants/sorceries
+        ]
+    make_loyalty_ability(
+        obj, cost=-10, effect_fn=minus10_effect, ability_id="-10",
+        description='-10: Draw three cards. You get an emblem with "Instant and sorcery spells you cast have storm."',
+    )
+
+    return setup
 
 
 def seedglaive_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

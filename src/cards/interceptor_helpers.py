@@ -5394,6 +5394,54 @@ def make_exhaust_ability(
 
 
 # =============================================================================
+# Planeswalker loyalty
+# =============================================================================
+#
+# Re-exports from ``src/engine/planeswalker.py``. Card scripts wire
+# ``make_planeswalker_setup`` for ETB / damage redirection / once-per-turn
+# bookkeeping, then call ``make_loyalty_ability`` once per loyalty ability.
+#
+# Typical usage::
+#
+#     def ral_setup(obj, state):
+#         interceptors = make_planeswalker_setup(obj, starting_loyalty=4)
+#
+#         def plus1_effect(o, st, targets):
+#             # +1: Create a 1/1 blue and red Otter creature token with prowess.
+#             return [Event(type=EventType.CREATE_TOKEN, ...)]
+#         make_loyalty_ability(
+#             obj, cost=+1, effect_fn=plus1_effect, ability_id="+1",
+#         )
+#
+#         def minus3_effect(o, st, targets):
+#             # -3: Draw three cards, then discard two cards.
+#             return [
+#                 Event(type=EventType.DRAW, payload={'player': o.controller, 'count': 3}),
+#                 Event(type=EventType.DISCARD_CHOICE, payload={'player': o.controller, 'count': 2}),
+#             ]
+#         make_loyalty_ability(
+#             obj, cost=-3, effect_fn=minus3_effect, ability_id="-3",
+#         )
+#
+#         return interceptors
+#
+# CR 113.5g (damage redirection), 606 (loyalty abilities), 716 (planeswalkers):
+# the helpers handle ETB starting loyalty, damage-to-loyalty redirection, the
+# once-per-turn-per-planeswalker activation lock, and pre-validation of
+# negative loyalty costs (planeswalker must have >= |cost| loyalty). The
+# 0-loyalty SBA (planeswalker destroyed when loyalty hits 0) lives in the
+# state-based-actions hook in src/engine/turn.py.
+# -----------------------------------------------------------------------------
+
+from src.engine.planeswalker import (
+    make_loyalty_ability,
+    make_planeswalker_setup,
+    planeswalkers_with_zero_loyalty,
+    get_loyalty,
+)
+
+
+# =============================================================================
 # Tiered cost (FIN)
 # =============================================================================
 #
@@ -6036,6 +6084,11 @@ __all_phase4__ = [
     "make_counter_ability",
     "make_token_creation_ability",
     "make_sac_destroy_ability",
+    # Planeswalker loyalty framework — re-exported from src/engine/planeswalker.py
+    "make_loyalty_ability",
+    "make_planeswalker_setup",
+    "planeswalkers_with_zero_loyalty",
+    "get_loyalty",
 ]
 
 
