@@ -28,7 +28,9 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, creatures_with_subtype,
     make_spell_cast_trigger, make_upkeep_trigger, make_end_step_trigger,
     make_life_gain_trigger, make_life_loss_trigger, creatures_you_control,
-    other_creatures_with_subtype, all_opponents
+    other_creatures_with_subtype, all_opponents,
+    # Phase A spice-pass additions:
+    make_activated_ability, make_cost_reduction, make_equipment_setup,
 )
 
 
@@ -3607,6 +3609,481 @@ LOTHAL = make_land(
 
 
 # =============================================================================
+# SPICE PASS — Format-Defining Cards (Wave 22+)
+# =============================================================================
+# Modeled on real MTG broken-card patterns. See plans/proud-singing-sonnet.md
+# for the design taxonomy. Phase A — within-engine cards only.
+# =============================================================================
+
+
+# --- Boba Fett, Hunter of Hunters --- {1}{R} 2/2 Mythic (Ragavan analogue)
+def boba_fett_hoh_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self flying+haste; combat damage to player → exile-top-play + Treasure."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def damage_effect(event: Event, st: GameState) -> list[Event]:
+        target = event.payload.get('target')
+        if not target or target not in st.players:
+            return []
+        return [
+            Event(
+                type=EventType.EXILE_TOP_PLAY,
+                payload={
+                    'player': target,
+                    'caster': obj.controller,
+                    'until_end_of_turn': True,
+                    'mana_color_override': 'any',
+                },
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': obj.controller,
+                    'token': {'name': 'Treasure', 'types': {CardType.ARTIFACT},
+                              'subtypes': {'Treasure'}},
+                },
+                source=obj.id,
+            ),
+        ]
+
+    return [
+        make_keyword_grant(obj, ['flying', 'haste'], affects_self),
+        make_damage_trigger(obj, damage_effect, combat_only=True),
+    ]
+
+BOBA_FETT_HUNTER_OF_HUNTERS = make_creature(
+    name="Boba Fett, Hunter of Hunters",
+    power=2, toughness=2,
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    subtypes={"Human", "Bounty Hunter"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying, haste. Whenever Boba Fett deals combat damage to a player, "
+        "exile the top card of that player's library; you may play that card "
+        "this turn, and you may spend mana as though it were any color to cast it. "
+        "Then create a Treasure token."
+    ),
+    setup_interceptors=boba_fett_hoh_setup,
+)
+
+
+# --- IG-88, Assassin Droid Network --- {3}{B}{R} 4/4 Mythic (Droid value engine)
+def ig88_network_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """+1/+1 + token when another Droid you control enters. Drain on Droid death.
+    Activated: sac a Droid → damage = source's power to any target."""
+
+    def droid_etb_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        # Cards entering from any zone fire ZONE_CHANGE; copy-tokens use
+        # OBJECT_CREATED; standard token minting (CREATE_TOKEN handler) does
+        # NOT emit ZONE_CHANGE/OBJECT_CREATED — the new token's id is just
+        # written back into CREATE_TOKEN's payload['object_id']. Listen to all
+        # three so token Droids also trigger. The CREATE_TOKEN branch ignores
+        # tokens IG-88 itself created to avoid an infinite trigger chain (each
+        # of IG-88's own 1/1 Droid tokens would otherwise mint another).
+        if event.type == EventType.ZONE_CHANGE:
+            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+                return False
+        elif event.type == EventType.OBJECT_CREATED:
+            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+                return False
+        elif event.type == EventType.CREATE_TOKEN:
+            if event.source == src.id:
+                return False
+        else:
+            return False
+        entering_id = event.payload.get('object_id')
+        if not entering_id or entering_id == src.id:
+            return False
+        entering = st.objects.get(entering_id)
+        if not entering or entering.controller != src.controller:
+            return False
+        if CardType.CREATURE not in entering.characteristics.types:
+            return False
+        return 'Droid' in (entering.characteristics.subtypes or set())
+
+    def droid_etb_effect(event: Event, st: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': obj.controller,
+                    'token': {
+                        'name': 'Droid', 'power': 1, 'toughness': 1,
+                        'types': {CardType.ARTIFACT, CardType.CREATURE},
+                        'subtypes': {'Droid'},
+                    },
+                },
+                source=obj.id,
+            ),
+        ]
+
+    def droid_death_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        dead_id = event.payload.get('object_id')
+        if not dead_id or dead_id == src.id:
+            return False
+        dead = st.objects.get(dead_id)
+        if not dead or dead.controller != src.controller:
+            return False
+        if CardType.CREATURE not in dead.characteristics.types:
+            return False
+        return 'Droid' in dead.characteristics.subtypes
+
+    def droid_death_effect(event: Event, st: GameState) -> list[Event]:
+        events = []
+        for pid, p in st.players.items():
+            if pid == obj.controller:
+                continue
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': pid, 'amount': -1},
+                source=obj.id,
+            ))
+        return events
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_etb_trigger(obj, droid_etb_effect, filter_fn=droid_etb_filter))
+    interceptors.append(make_death_trigger(obj, droid_death_effect, filter_fn=droid_death_filter))
+
+    def sac_damage_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        sac_id = None
+        for tid in [t.object_id if hasattr(t, 'object_id') else t for t in targets]:
+            tobj = st.objects.get(tid)
+            if (tobj and tobj.zone == ZoneType.BATTLEFIELD
+                    and tobj.controller == o.controller
+                    and 'Droid' in tobj.characteristics.subtypes):
+                sac_id = tid
+                break
+        if not sac_id:
+            return []
+        amt = get_power(o, st) or 0
+        events = [Event(
+            type=EventType.SACRIFICE,
+            payload={'object_id': sac_id},
+            source=o.id,
+        )]
+        if len(targets) >= 2:
+            dmg_target = targets[1].object_id if hasattr(targets[1], 'object_id') else targets[1]
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': dmg_target, 'amount': amt, 'source': o.id},
+                source=o.id,
+            ))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{B}{R}",
+        effect_fn=sac_damage_effect,
+        description="Sacrifice a Droid: deals damage equal to IG-88's power to any target.",
+        targets_required=2,
+        target_kind="any",
+    )
+
+    return interceptors
+
+IG_88_NETWORK = make_creature(
+    name="IG-88, Assassin Droid Network",
+    power=4, toughness=4,
+    mana_cost="{3}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Droid", "Assassin"},
+    supertypes={"Legendary"},
+    types={CardType.ARTIFACT, CardType.CREATURE},
+    text=(
+        "Whenever another Droid you control enters, IG-88 gets a +1/+1 counter "
+        "and create a 1/1 colorless Droid artifact creature token. "
+        "Whenever a Droid you control dies, each opponent loses 1 life. "
+        "{B}{R}, Sacrifice a Droid: IG-88 deals damage equal to its power to any target."
+    ),
+    setup_interceptors=ig88_network_setup,
+)
+
+
+# --- Yoda, Living Force --- {G}{W}{U} 2/4 Rare (flash hexproof scry lord)
+def yoda_living_force_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self flash+hexproof; ETB scry 3; other Jedi +1/+1."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id,
+        )]
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_keyword_grant(obj, ['flash', 'hexproof'], affects_self))
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    interceptors.extend(make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Jedi")))
+    return interceptors
+
+YODA_LIVING_FORCE = make_creature(
+    name="Yoda, Living Force",
+    power=2, toughness=4,
+    mana_cost="{G}{W}{U}",
+    colors={Color.GREEN, Color.WHITE, Color.BLUE},
+    subtypes={"Jedi"},
+    supertypes={"Legendary"},
+    text=(
+        "Flash. Hexproof. When Yoda enters, scry 3. "
+        "Other Jedi creatures you control get +1/+1."
+    ),
+    setup_interceptors=yoda_living_force_setup,
+)
+
+
+# --- Bossk, Trandoshan Hunter Prime --- {2}{R}{G} 4/4 Rare
+def bossk_prime_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self trample+haste. Attack: tutor a Bounty Hunter. Cost reduction for BH."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'subtype': 'Bounty Hunter',
+                'destination': 'hand',
+                'min_count': 0,
+                'max_count': 1,
+            },
+            source=obj.id,
+        )]
+
+    def applies_to_bh(card: GameObject, pid: str, st: GameState) -> bool:
+        if pid != obj.controller or card is None:
+            return False
+        chars = card.characteristics
+        if 'Bounty Hunter' in (chars.subtypes or set()):
+            return True
+        return False
+
+    return [
+        make_keyword_grant(obj, ['trample', 'haste'], affects_self),
+        make_attack_trigger(obj, attack_effect),
+        make_cost_reduction(obj, applies_to=applies_to_bh, amount=1),
+    ]
+
+BOSSK_PRIME = make_creature(
+    name="Bossk, Trandoshan Hunter Prime",
+    power=4, toughness=4,
+    mana_cost="{2}{R}{G}",
+    colors={Color.RED, Color.GREEN},
+    subtypes={"Trandoshan", "Bounty Hunter"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample, haste. Whenever Bossk attacks, search your library for a "
+        "Bounty Hunter card, reveal it, put it into your hand, then shuffle. "
+        "Bounty Hunter spells you cast cost {1} less."
+    ),
+    setup_interceptors=bossk_prime_setup,
+)
+
+
+# --- Han Solo, Hotshot Pilot --- {1}{R} 2/2 Uncommon (Treasure ETB + sac payoff)
+def han_solo_hotshot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self first strike. ETB Treasure. Sacrificing a Treasure: +2/+0 EOT."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {'name': 'Treasure', 'types': {CardType.ARTIFACT},
+                          'subtypes': {'Treasure'}},
+            },
+            source=obj.id,
+        )]
+
+    def treasure_sac_filter(event: Event, st: GameState) -> bool:
+        # The system-level TRANSFORM interceptor in src/engine/game.py rewrites
+        # SACRIFICE events into ZONE_CHANGE events (with payload['reason'] ==
+        # 'sacrifice') *before* they reach REACT, so listen on the post-transform
+        # shape.
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('reason') != 'sacrifice':
+            return False
+        sacced_id = event.payload.get('object_id')
+        if not sacced_id:
+            return False
+        sacced = st.objects.get(sacced_id)
+        if not sacced:
+            return False
+        if sacced.controller != obj.controller:
+            return False
+        return 'Treasure' in (sacced.characteristics.subtypes or set())
+
+    def treasure_sac_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': obj.id,
+                    'power_mod': 2,
+                    'toughness_mod': 0,
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id,
+            )],
+        )
+
+    sac_trigger = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=treasure_sac_filter,
+        handler=treasure_sac_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [
+        make_keyword_grant(obj, ['first_strike'], affects_self),
+        make_etb_trigger(obj, etb_effect),
+        sac_trigger,
+    ]
+
+HAN_SOLO_HOTSHOT_PILOT = make_creature(
+    name="Han Solo, Hotshot Pilot",
+    power=2, toughness=2,
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    subtypes={"Human", "Pilot", "Smuggler"},
+    supertypes={"Legendary"},
+    text=(
+        "First strike. When Han Solo enters, create a Treasure token. "
+        "Whenever you sacrifice a Treasure, Han Solo gets +2/+0 until end of turn."
+    ),
+    setup_interceptors=han_solo_hotshot_setup,
+)
+
+
+# --- Holocron of the High Council --- {2} Artifact Uncommon (faction tutor)
+def holocron_hc_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: {C}. {4}, {T}, sacrifice: tutor a Jedi or Sith card."""
+
+    def mana_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {'C': 1}},
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=mana_effect,
+        description="Tap: Add {C}.",
+    )
+
+    def tutor_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        # Sacrifice is part of the cost (parsed from cost string), so we just
+        # emit the search here.
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'destination': 'hand',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+                'subtypes_any': ['Jedi', 'Sith'],
+            },
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{4}, {T}, Sacrifice this artifact",
+        effect_fn=tutor_effect,
+        description="{4}, {T}, Sacrifice: tutor a Jedi or Sith card to hand.",
+    )
+
+    return []
+
+HOLOCRON_OF_THE_HIGH_COUNCIL = make_artifact(
+    name="Holocron of the High Council",
+    mana_cost="{2}",
+    text=(
+        "{T}: Add {C}. "
+        "{4}, {T}, Sacrifice Holocron of the High Council: Search your library "
+        "for a Jedi or Sith card, reveal it, put it into your hand, then shuffle."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=holocron_hc_setup,
+)
+
+
+# --- Mandalorian Beskar Plating --- {2} Equipment Uncommon
+MANDALORIAN_BESKAR_PLATING = make_equipment(
+    name="Mandalorian Beskar Plating",
+    mana_cost="{2}",
+    text=(
+        "Equipped creature gets +2/+2 and has indestructible. "
+        "Equip {2}."
+    ),
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=2,
+        keywords=["indestructible"],
+        equip_cost="{2}",
+    ),
+)
+
+
+# --- Sith Resurgence --- {2}{B} Sorcery Uncommon (reanimator)
+def sith_resurgence_resolve(targets: list, state: GameState) -> list[Event]:
+    """Return target Sith creature card from your graveyard to the battlefield."""
+    if not targets:
+        return []
+    target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    chars = target.characteristics
+    if not chars or CardType.CREATURE not in chars.types:
+        return []
+    if 'Sith' not in (chars.subtypes or set()):
+        return []
+    return [Event(
+        type=EventType.RETURN_FROM_GRAVEYARD,
+        payload={
+            'object_id': target_id,
+            'destination': 'battlefield',
+            'controller': target.controller,
+        },
+        source=target_id,
+    )]
+
+SITH_RESURGENCE = make_sorcery(
+    name="Sith Resurgence",
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    text=(
+        "Return target Sith creature card from your graveyard to the battlefield."
+    ),
+    resolve=sith_resurgence_resolve,
+)
+
+
+# =============================================================================
 # CARD REGISTRY
 # =============================================================================
 
@@ -3925,6 +4402,16 @@ STAR_WARS_CARDS = {
     "Mandalore": MANDALORE,
     "Bespin": BESPIN,
     "Lothal": LOTHAL,
+
+    # SPICE PASS — Wave 22+ format-defining cards
+    "Boba Fett, Hunter of Hunters": BOBA_FETT_HUNTER_OF_HUNTERS,
+    "IG-88, Assassin Droid Network": IG_88_NETWORK,
+    "Yoda, Living Force": YODA_LIVING_FORCE,
+    "Bossk, Trandoshan Hunter Prime": BOSSK_PRIME,
+    "Han Solo, Hotshot Pilot": HAN_SOLO_HOTSHOT_PILOT,
+    "Holocron of the High Council": HOLOCRON_OF_THE_HIGH_COUNCIL,
+    "Mandalorian Beskar Plating": MANDALORIAN_BESKAR_PLATING,
+    "Sith Resurgence": SITH_RESURGENCE,
 }
 
 print(f"Loaded {len(STAR_WARS_CARDS)} Star Wars: Galactic Conflict cards")
@@ -4199,5 +4686,14 @@ CARDS = [
     JEDHA,
     MANDALORE,
     BESPIN,
-    LOTHAL
+    LOTHAL,
+    # SPICE PASS — Wave 22+
+    BOBA_FETT_HUNTER_OF_HUNTERS,
+    IG_88_NETWORK,
+    YODA_LIVING_FORCE,
+    BOSSK_PRIME,
+    HAN_SOLO_HOTSHOT_PILOT,
+    HOLOCRON_OF_THE_HIGH_COUNCIL,
+    MANDALORIAN_BESKAR_PLATING,
+    SITH_RESURGENCE,
 ]
