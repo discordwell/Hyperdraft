@@ -91,8 +91,14 @@ class YugiohAIAdapter:
                             state: GameState) -> Optional[dict]:
         """Pick the best monster to Normal Summon."""
         summonable = []
+        set_priority = set((self.strategy or {}).get('set_priority', []))
+        summon_priority = set((self.strategy or {}).get('summon_priority', []))
         for obj in hand:
             if CardType.YGO_MONSTER not in obj.characteristics.types:
+                continue
+            if (self.difficulty in ("hard", "ultra")
+                    and obj.name in set_priority
+                    and obj.name not in summon_priority):
                 continue
             level = getattr(obj.card_def, 'level', 1) or 1
             atk = getattr(obj.card_def, 'atk', 0) or 0
