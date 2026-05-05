@@ -27,6 +27,7 @@ def test_sv_starter_decks_have_clean_quality_metrics():
         assert summary["search_count"] >= 4, deck_name
         assert summary["draw_count"] >= 4, deck_name
         assert summary["rare_candy_count"] >= 1, deck_name
+        assert summary["setup_item_count"] >= 6, deck_name
         assert summary["primary_energy_count"] == summary["energy_count"], deck_name
         assert summary["off_type_energy_count"] == 0, deck_name
         assert len(summary["energy_type_counts"]) == 1, deck_name
@@ -122,3 +123,20 @@ def test_pokemon_deck_quality_flags_unstable_energy_mix():
 
     assert summary["off_type_energy_count"] == 8
     assert "unstable_energy_mix" in summary["quality_flags"]
+
+
+def test_pokemon_deck_quality_flags_thin_stage2_setup_engine():
+    from src.cards.pokemon.sv_starter import make_fire_deck
+
+    deck = [
+        card for card in make_fire_deck()
+        if card.name not in {"Nest Ball", "Ultra Ball", "Rare Candy"}
+    ]
+    while len(deck) < 60:
+        deck.append(deck[-1])
+
+    summary = analyze_pokemon_deck_quality(deck, role="starter")
+
+    assert summary["stage2_count"] > 0
+    assert summary["setup_item_count"] == 0
+    assert "midrange_low_setup_engine" in summary["role_quality_flags"]
