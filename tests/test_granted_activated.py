@@ -492,12 +492,15 @@ def test_aura_grants_activated_ability():
 
 
 def test_lci_deconstruction_hammer():
-    """Deconstruction Hammer (real LCI): +1/+1 + '{3}, {T}, Sacrifice this:
-    Destroy target artifact or enchantment.' Equip {1}.
+    """Deconstruction Hammer (real LCI): +1/+1 + '{3}, {T}, Sacrifice
+    Deconstruction Hammer: Destroy target artifact or enchantment.'
+    Equip {1}.
 
-    Note: the cost text we register is "{3}, {T}" — the equipment-sacrifice
-    is folded into the effect_fn (cost parser doesn't yet handle
-    "Sacrifice <named card>").
+    After W19, the registered cost text is the printed
+    "{3}, {T}, Sacrifice Deconstruction Hammer" — the cost parser
+    handles the named-card sacrifice via the ``sacrifice_named`` step
+    kind, so the effect_fn only emits the destroy event. The equipment
+    sacrifice is paid by ``pay_activation_cost`` at activation time.
     """
     from src.cards.lost_caverns_ixalan import DECONSTRUCTION_HAMMER
     from src.engine import get_power, get_toughness
@@ -522,13 +525,23 @@ def test_lci_deconstruction_hammer():
     assert get_power(bear, game.state) == 3, \
         f"expected 3 power, got {get_power(bear, game.state)}"
     assert get_toughness(bear, game.state) == 3
-    # Granted destroy ability registered.
+    # Granted destroy ability registered with full printed cost text.
     granted = [a for a in bear.state.activated_abilities
                if getattr(a, "_granted_by", None) == hammer.id]
     assert len(granted) == 1, f"expected 1 granted ability, got {len(granted)}"
-    assert granted[0].cost_text == "{3}, {T}", \
+    assert granted[0].cost_text == "{3}, {T}, Sacrifice Deconstruction Hammer", \
         f"unexpected cost: {granted[0].cost_text!r}"
-    # Effect emits both DESTROY (target) and SACRIFICE (equipment).
+    # The cost parser should have produced a sacrifice_named CostStep
+    # for the additional cost plan.
+    plan = granted[0].additional_cost_plan
+    assert plan is not None and len(plan) == 1, \
+        f"expected 1-step additional plan, got {plan}"
+    assert plan[0].kind == "sacrifice_named", \
+        f"expected sacrifice_named, got {plan[0].kind}"
+    assert plan[0].name_match == "deconstruction hammer"
+
+    # Effect_fn alone now emits ONLY the destroy event (sacrifice is paid
+    # by pay_activation_cost via the sacrifice_named step).
     from src.engine.targeting import Target
 
     # Make a fake artifact target.
@@ -540,11 +553,9 @@ def test_lci_deconstruction_hammer():
     events = granted[0].effect_fn(bear, game.state, [Target(id=dummy.id)])
     types = [e.type for e in events]
     assert EventType.OBJECT_DESTROYED in types
-    assert EventType.SACRIFICE in types
-    sac_event = next(e for e in events if e.type == EventType.SACRIFICE)
-    assert sac_event.payload["object_id"] == hammer.id, \
-        "sac event should target the Deconstruction Hammer, not the bear"
-    print("PASS: Deconstruction Hammer wires grant + P/T boost + sac-effect")
+    assert EventType.SACRIFICE not in types, \
+        "SACRIFICE should be emitted by pay_activation_cost, not effect_fn"
+    print("PASS: Deconstruction Hammer wires grant + P/T boost + parsed sacrifice_named cost")
 
 
 def test_lci_swashbucklers_whip():
