@@ -6,6 +6,7 @@ from src.cards.yugioh.ygo_optimized import (
     CHAIN_BURN_STRATEGY,
     HEAVY_STORM,
     MIRROR_FORCE,
+    OOKAZI,
     PREMATURE_BURIAL,
     SAKURETSU_ARMOR,
     STEALTH_BIRD,
@@ -138,3 +139,21 @@ def test_hard_ai_battle_assignment_preserves_matchups_for_other_attackers():
         (weak.id, small.id),
     }
     assert (action["attacker_id"], action["target_id"]) != (strong.id, small.id)
+
+
+def test_hard_ai_casts_lethal_burn_before_summoning():
+    game, p1, p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    p2.lp = 800
+    burn = _card(game, OOKAZI, p1, ZoneType.HAND)
+    _card(game, BLUE_EYES_WHITE_DRAGON, p1, ZoneType.HAND)
+    turn_state = game.turn_manager.ygo_turn_state
+    turn_state.active_player_id = p1.id
+    turn_state.normal_summon_used = False
+
+    action = ai.get_main_phase_action(p1.id, game.state, turn_state)
+
+    assert action == {
+        "action_type": "activate_spell",
+        "card_id": burn.id,
+    }

@@ -52,6 +52,12 @@ class YugiohAIAdapter:
         opp_id = self._get_opponent(player_id, state)
         opp_monsters = self._get_monsters(opp_id, state)
 
+        # 0. Take immediate lethal before spending summon/position resources.
+        if self.difficulty in ("hard", "ultra"):
+            lethal_spell = self._pick_lethal_spell_activation(hand, player_id, state, opp_id)
+            if lethal_spell:
+                return lethal_spell
+
         # 1. Normal Summon the best monster from hand (if not used this turn)
         if not turn_state.normal_summon_used:
             summon = self._pick_normal_summon(hand, monsters, player_id, state)
@@ -344,6 +350,20 @@ class YugiohAIAdapter:
             if name not in self._KNOWN_SPELLS and spell_type == "Normal" and self.difficulty in ("easy", "medium"):
                 return {'action_type': 'activate_spell', 'card_id': obj.id}
 
+        return None
+
+    def _pick_lethal_spell_activation(self, hand: list, player_id: str,
+                                      state: GameState, opp_id: str) -> Optional[dict]:
+        """Pick a known direct-damage spell if it wins immediately."""
+        opponent = state.players.get(opp_id)
+        if not opponent:
+            return None
+        opp_lp = getattr(opponent, 'lp', 0)
+        for obj in hand:
+            if CardType.YGO_SPELL not in obj.characteristics.types:
+                continue
+            if obj.name == "Ookazi" and opp_lp <= 800:
+                return {'action_type': 'activate_spell', 'card_id': obj.id}
         return None
 
     def _pick_set_trap(self, hand: list, player_id: str,
