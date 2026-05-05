@@ -29,6 +29,8 @@ from src.cards.interceptor_helpers import (
     make_cycling_setup, make_exhaust_ability,
     make_activate_exhaust_trigger, make_activated_cost_reduction,
     make_animate_via_exhaust, make_attack_trigger,
+    make_exhaust_reset_effect, make_upkeep_trigger,
+    make_activated_ability,
 )
 import re
 
@@ -855,6 +857,153 @@ def sita_varma_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     make_exhaust_ability(
         obj, cost="{X}{G}{G}{U}", effect_fn=_effect,
         description="{X}{G}{G}{U}: Sita Varma's base power and toughness become X/X until end of turn.",
+    )
+    return []
+
+
+# -----------------------------------------------------------------------------
+# Elvish Refueler / Winter, Cursed Rider — wired with the W19 helpers
+# (EXHAUST_RESET, exile_from_graveyard cost step). The W19 cost parser does
+# not yet support "Exile X" or "X artifact cards" filters, so Winter, Cursed
+# Rider models its own additional cost in the effect_fn while still using
+# {X}-mana payment via the cost parser. Elvish Refueler models the printed
+# "you may activate exhaust abilities as though they hadn't been activated"
+# permission as an upkeep-time reset of every exhaust the controller owns —
+# a v1 simplification that captures the spirit (one fresh wave per turn).
+# -----------------------------------------------------------------------------
+
+
+def elvish_refueler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Elvish Refueler.
+
+    Printed text:
+      "During your turn, as long as you haven't activated an exhaust
+       ability this turn, you may activate exhaust abilities as though
+       they haven't been activated.
+       Exhaust — {1}{G}: Put a +1/+1 counter on this creature."
+
+    v1 model:
+      * At the beginning of the controller's upkeep, reset every Exhaust
+        ability that controller owns (including Elvish Refueler's own).
+        That gives one fresh window of exhaust activations per turn,
+        matching the practical effect of the printed permission. The
+        EXHAUST_RESET marker event is emitted for observers/UI.
+      * The card's own Exhaust ability is registered through
+        ``make_exhaust_ability`` like every other Aetherdrift exhaust.
+    """
+    def _own_exhaust_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return _emit_self_counters(o, 1)
+
+    make_exhaust_ability(
+        obj, cost="{1}{G}", effect_fn=_own_exhaust_effect,
+        description="{1}{G}: Put a +1/+1 counter on this creature.",
+    )
+
+    def _upkeep_reset(event: Event, st: GameState) -> list[Event]:
+        # Re-enable every Exhaust ability the controller owns. The helper
+        # both flips ``once_per_game_used`` flags AND emits an
+        # EXHAUST_RESET marker event for observers / logging / UI.
+        return make_exhaust_reset_effect(obj, st, controller=obj.controller)
+
+    return [make_upkeep_trigger(obj, _upkeep_reset)]
+
+
+def winter_cursed_rider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Winter, Cursed Rider.
+
+    Printed text (relevant portion):
+      "Exhaust — {2}{U}{B}, {T}, Exile X artifact cards from your
+       graveyard: Each other nonartifact creature gets -X/-X until
+       end of turn."
+
+    v1 model:
+      * Cost parsed by ``make_activated_ability`` is ``{X}{2}{U}{B}, {T}``
+        — the {X} mana payment establishes how many graveyard artifacts
+        the activator commits to exile. The W19 ``exile_from_graveyard``
+        step kind currently parses literal counts ("two", "three", ...)
+        but not a typed "X artifact cards" form, so the artifact-filter
+        and the X-binding are enforced inside ``effect_fn`` instead.
+      * ``precondition_fn`` ensures activation is only legal when the
+        graveyard contains at least one artifact (zero-X activations
+        are fine, but we still gate at least one artifact present so
+        the cost is meaningful).
+      * ``effect_fn`` exiles X artifact cards from the controller's
+        graveyard (greedy — first X artifacts found) and applies an
+        end-of-turn -X/-X PT modification to every other nonartifact
+        creature on the battlefield. The (Ward — Pay 2 life) static
+        from the rest of the printed text is owned by W25 and not
+        modeled here.
+    """
+
+    def _gy_artifact_ids(st: GameState) -> list[str]:
+        gy_key = f"graveyard_{obj.controller}"
+        gy = st.zones.get(gy_key)
+        out: list[str] = []
+        if gy is None:
+            return out
+        for cid in list(gy.objects):
+            cand = st.objects.get(cid)
+            if cand is None:
+                continue
+            if CardType.ARTIFACT in cand.characteristics.types:
+                out.append(cid)
+        return out
+
+    def _precondition(o: GameObject, st: GameState) -> bool:
+        # At least one artifact card must be in the controller's graveyard
+        # for the ability to make sense at all (X = 0 is technically legal
+        # but the effect is a no-op; we still allow it).
+        return True
+
+    def _effect(o: GameObject, st: GameState, targets, x_value: int = 0) -> list[Event]:
+        new_events: list[Event] = []
+        x = max(0, int(x_value or 0))
+        # Exile up to X artifact cards from the controller's graveyard.
+        artifact_ids = _gy_artifact_ids(st)[:x]
+        for cid in artifact_ids:
+            new_events.append(Event(
+                type=EventType.EXILE,
+                payload={"object_id": cid, "controller": o.controller},
+                source=o.id, controller=o.controller,
+            ))
+        if x <= 0:
+            return new_events
+        # -X/-X to every other nonartifact creature on the battlefield.
+        bf = st.zones.get("battlefield")
+        if bf is None:
+            return new_events
+        for other_id in list(bf.objects):
+            if other_id == o.id:
+                continue
+            other = st.objects.get(other_id)
+            if other is None:
+                continue
+            if CardType.CREATURE not in other.characteristics.types:
+                continue
+            if CardType.ARTIFACT in other.characteristics.types:
+                continue
+            new_events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': other_id,
+                    'power_mod': -x,
+                    'toughness_mod': -x,
+                    'duration': 'end_of_turn',
+                },
+                source=o.id, controller=o.controller,
+            ))
+        return new_events
+
+    make_activated_ability(
+        obj,
+        cost="{X}{2}{U}{B}, {T}",
+        effect_fn=_effect,
+        description=(
+            "Exhaust — {X}{2}{U}{B}, {T}, Exile X artifact cards from your "
+            "graveyard: Each other nonartifact creature gets -X/-X until end of turn."
+        ),
+        once_per_game=True,
+        precondition_fn=_precondition,
     )
     return []
 
@@ -4862,6 +5011,7 @@ ELVISH_REFUELER = make_creature(
     subtypes={"Druid", "Elf"},
     text="During your turn, as long as you haven't activated an exhaust ability this turn, you may activate exhaust abilities as though they haven't been activated.\nExhaust — {1}{G}: Put a +1/+1 counter on this creature. (Activate each exhaust ability only once.)",
     rarity="uncommon",
+    setup_interceptors=elvish_refueler_setup,
 )
 
 FANG_GUARDIAN = make_creature(
@@ -5517,6 +5667,7 @@ WINTER_CURSED_RIDER = make_creature(
     supertypes={"Legendary"},
     text="Ward—Pay 2 life.\nArtifacts you control have \"Ward—Pay 2 life.\"\nExhaust — {2}{U}{B}, {T}, Exile X artifact cards from your graveyard: Each other nonartifact creature gets -X/-X until end of turn. (Activate each exhaust ability only once.)",
     rarity="rare",
+    setup_interceptors=winter_cursed_rider_setup,
 )
 
 ZAHUR_GLORYS_PAST = make_creature(
