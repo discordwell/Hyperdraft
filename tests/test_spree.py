@@ -518,11 +518,24 @@ def test_final_showdown_destroy_all_costs_more():
     print(f"OK: destroy-all mode wiped {len(destroys)} creatures")
 
 
+def submit_target(game, player_id, target_id):
+    """Submit a chained per-mode target choice via PendingChoice.
+
+    The target prompt opens during stack resolution of a Spree spell whose
+    chosen mode has ``targets_required > 0``. The handler runs the mode's
+    effect_fn with the chosen target and chains to the next mode.
+    """
+    choice = game.state.pending_choice
+    assert choice is not None, "expected pending target choice"
+    assert choice.choice_type == "target_with_callback", \
+        f"expected target_with_callback; got {choice.choice_type}"
+    return game.submit_choice(choice.id, player_id, [target_id])
+
+
 def test_requisition_raid_artifact_destroy():
-    """+ {1} destroy target artifact."""
-    print("\n=== Test: Requisition Raid (artifact destroy) ===")
+    """+ {1} destroy target artifact (uses chained per-mode target prompt)."""
+    print("\n=== Test: Requisition Raid (artifact destroy w/ target prompt) ===")
     game, p1, p2 = make_two_player_game()
-    artifact_def = otj.SHEPHERD_OF_THE_CLOUDS  # any def with ARTIFACT works for type only
     # Build a vanilla artifact via factories.
     from src.cards.card_factories import make_artifact
     plain_artifact = make_artifact(name="Test Artifact", mana_cost="{2}", text="")
@@ -538,18 +551,26 @@ def test_requisition_raid_artifact_destroy():
     add_mana(game, p1.id, "W", 1)
     add_mana(game, p1.id, "C", 1)
     cast_spell(game, p1.id, spell)
-    submit_spree(game, p1.id, [0])  # destroy artifact
-    events = game.stack.resolve_top()
+    submit_spree(game, p1.id, [0])  # destroy artifact mode
+    # Resolve top — should open a target_with_callback for the artifact.
+    pre_events = game.stack.resolve_top()
+    pc = game.state.pending_choice
+    assert pc is not None, "expected pending target prompt for artifact mode"
+    assert pc.choice_type == "target_with_callback"
+    assert art.id in pc.options, f"artifact should be a legal target; got {pc.options}"
+    # Submit the artifact as the target — callback fires the destroy.
+    ok, msg, events = submit_target(game, p1.id, art.id)
+    assert ok, msg
     destroys = [e for e in events
                 if e.type == EventType.OBJECT_DESTROYED
                 and e.payload.get('object_id') == art.id]
-    assert destroys, f"expected p2's artifact to be destroyed; got events {[e.type for e in events]}"
-    print("OK: Requisition Raid destroyed opponent's artifact")
+    assert destroys, f"expected p2's artifact to be destroyed; got {[e.type for e in events]}"
+    print("OK: Requisition Raid prompted for + destroyed targeted artifact")
 
 
 def test_rustler_rampage_double_strike_mode():
-    """+ {1} target creature gains double strike."""
-    print("\n=== Test: Rustler Rampage (double strike) ===")
+    """+ {1} target creature gains double strike (uses chained per-mode prompt)."""
+    print("\n=== Test: Rustler Rampage (double strike w/ target prompt) ===")
     game, p1, p2 = make_two_player_game()
     bear_def = make_creature(name="P1 Bear", power=2, toughness=2,
                              mana_cost="{2}", colors=set())
@@ -562,19 +583,24 @@ def test_rustler_rampage_double_strike_mode():
     add_mana(game, p1.id, "W", 1)
     add_mana(game, p1.id, "C", 1)
     cast_spell(game, p1.id, spell)
-    submit_spree(game, p1.id, [1])
-    events = game.stack.resolve_top()
+    submit_spree(game, p1.id, [1])  # double-strike mode (targeted)
+    pre_events = game.stack.resolve_top()
+    pc = game.state.pending_choice
+    assert pc is not None, "expected pending target prompt for double-strike mode"
+    assert bear.id in pc.options
+    ok, msg, events = submit_target(game, p1.id, bear.id)
+    assert ok, msg
     grants = [e for e in events
               if e.type == EventType.GRANT_KEYWORD
               and e.payload.get('keyword') == 'double_strike']
     assert grants, f"expected double_strike grant; got {[e.payload for e in events]}"
     assert any(e.payload.get('object_id') == bear.id for e in grants)
-    print("OK: Rustler Rampage granted double strike to a creature")
+    print("OK: Rustler Rampage prompted for + granted double strike")
 
 
 def test_explosive_derailment_damage_mode():
-    """+ {2} 4 damage to target creature."""
-    print("\n=== Test: Explosive Derailment (damage) ===")
+    """+ {2} 4 damage to target creature (uses chained per-mode prompt)."""
+    print("\n=== Test: Explosive Derailment (damage w/ target prompt) ===")
     game, p1, p2 = make_two_player_game()
     bear_def = make_creature(name="P2 Bear", power=2, toughness=2,
                              mana_cost="{2}", colors=set())
@@ -587,13 +613,296 @@ def test_explosive_derailment_damage_mode():
     add_mana(game, p1.id, "R", 1)
     add_mana(game, p1.id, "C", 2)
     cast_spell(game, p1.id, spell)
-    submit_spree(game, p1.id, [0])
-    events = game.stack.resolve_top()
+    submit_spree(game, p1.id, [0])  # damage mode
+    pre_events = game.stack.resolve_top()
+    pc = game.state.pending_choice
+    assert pc is not None, "expected pending target prompt for damage mode"
+    assert bear.id in pc.options
+    ok, msg, events = submit_target(game, p1.id, bear.id)
+    assert ok, msg
     dmg = [e for e in events if e.type == EventType.DAMAGE]
     assert dmg, f"expected damage event; got {[e.type for e in events]}"
     assert dmg[0].payload.get('amount') == 4, f"expected 4 damage; got {dmg[0].payload}"
     assert dmg[0].payload.get('target') == bear.id
-    print("OK: Explosive Derailment dealt 4 damage to opponent's creature")
+    print("OK: Explosive Derailment prompted for + dealt 4 damage to chosen target")
+
+
+# ---------------------------------------------------------------------------
+# 8. Per-mode targeting: chained PendingChoices at resolve
+# ---------------------------------------------------------------------------
+
+
+def test_spree_single_targeted_mode_opens_prompt():
+    """Cast a Spree spell with one targeted mode -> PendingChoice for target."""
+    print("\n=== Test: Single targeted-mode opens target_with_callback ===")
+    fired_with: list = []
+
+    def m_targeted(spell, state, targets):
+        fired_with.append(list(targets))
+        return [Event(type=EventType.OBJECT_DESTROYED,
+                      payload={'object_id': targets[0]}, source=spell.id)]
+
+    modes = [
+        SpreeMode(name="Destroy", extra_cost="{1}",
+                  effect_fn=m_targeted, target_kind="creature",
+                  targets_required=1,
+                  description="Destroy target creature."),
+    ]
+    card = _build_synthetic_spree(modes, mana_cost="{R}")
+    game, p1, p2 = make_two_player_game()
+    bear_def = make_creature(name="Test Bear", power=2, toughness=2,
+                             mana_cost="{2}", colors=set())
+    bear = game.create_object(
+        name="Test Bear", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=bear_def.characteristics, card_def=bear_def,
+    )
+    spell = make_spell(game, p1.id, card)
+    add_mana(game, p1.id, "R", 1)
+    add_mana(game, p1.id, "C", 1)
+    cast_spell(game, p1.id, spell)
+    submit_spree(game, p1.id, [0])  # mode 0 (targeted)
+    # Resolve — should open target_with_callback for the creature.
+    game.stack.resolve_top()
+    pc = game.state.pending_choice
+    assert pc is not None, "expected target_with_callback"
+    assert pc.choice_type == "target_with_callback"
+    assert bear.id in pc.options, f"bear should be legal target; got {pc.options}"
+    # Submit the target — effect fires.
+    ok, msg, events = submit_target(game, p1.id, bear.id)
+    assert ok, msg
+    assert fired_with == [[bear.id]], f"effect_fn should receive [bear.id]; got {fired_with}"
+    destroys = [e for e in events if e.type == EventType.OBJECT_DESTROYED]
+    assert destroys, f"expected destroy event; got {[e.type for e in events]}"
+    print("OK: targeted mode opened prompt + fired effect with chosen target")
+
+
+def test_spree_two_targeted_modes_chain_in_order():
+    """Two targeted modes -> chained PendingChoices in declaration order."""
+    print("\n=== Test: Two targeted modes chain in declaration order ===")
+    target_log: list = []
+
+    def m1(spell, state, targets):
+        target_log.append(("M1", list(targets)))
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': targets[0], 'amount': 1, 'source': spell.id, 'is_combat': False},
+                      source=spell.id)]
+
+    def m2(spell, state, targets):
+        target_log.append(("M2", list(targets)))
+        return [Event(type=EventType.OBJECT_DESTROYED,
+                      payload={'object_id': targets[0]}, source=spell.id)]
+
+    modes = [
+        SpreeMode(name="Damage", extra_cost="{1}",
+                  effect_fn=m1, target_kind="creature",
+                  targets_required=1,
+                  description="Deal 1 damage to target creature."),
+        SpreeMode(name="Destroy", extra_cost="{1}",
+                  effect_fn=m2, target_kind="creature",
+                  targets_required=1,
+                  description="Destroy target creature."),
+    ]
+    card = _build_synthetic_spree(modes, mana_cost="{R}")
+    game, p1, p2 = make_two_player_game()
+    bear_def = make_creature(name="Test Bear", power=2, toughness=2,
+                             mana_cost="{2}", colors=set())
+    a = game.create_object(
+        name="Bear A", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=bear_def.characteristics, card_def=bear_def,
+    )
+    b = game.create_object(
+        name="Bear B", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=bear_def.characteristics, card_def=bear_def,
+    )
+    spell = make_spell(game, p1.id, card)
+    add_mana(game, p1.id, "R", 1)
+    add_mana(game, p1.id, "C", 2)
+    cast_spell(game, p1.id, spell)
+    submit_spree(game, p1.id, [0, 1])  # both targeted modes
+    # Resolve — opens M1's target prompt first.
+    game.stack.resolve_top()
+    pc1 = game.state.pending_choice
+    assert pc1 is not None
+    assert pc1.callback_data.get("mode_name") == "Damage", \
+        f"expected M1 (Damage) prompt first; got {pc1.callback_data}"
+    # Submit a as M1's target.
+    ok, msg, events1 = submit_target(game, p1.id, a.id)
+    assert ok, msg
+    # M2's prompt should now be open.
+    pc2 = game.state.pending_choice
+    assert pc2 is not None, "expected chained target prompt for M2"
+    assert pc2.callback_data.get("mode_name") == "Destroy", \
+        f"expected M2 (Destroy) prompt second; got {pc2.callback_data}"
+    # Submit b as M2's target.
+    ok, msg, events2 = submit_target(game, p1.id, b.id)
+    assert ok, msg
+    # Verify both effects fired in correct order with correct targets.
+    assert target_log == [("M1", [a.id]), ("M2", [b.id])], \
+        f"chained order broken; got {target_log}"
+    # Combined events should include damage to a + destroy of b.
+    all_events = list(events1) + list(events2)
+    dmg = [e for e in all_events if e.type == EventType.DAMAGE]
+    destroys = [e for e in all_events if e.type == EventType.OBJECT_DESTROYED]
+    assert dmg and dmg[0].payload.get('target') == a.id
+    assert destroys and destroys[0].payload.get('object_id') == b.id
+    print("OK: two targeted modes chained PendingChoices in declaration order")
+
+
+def test_spree_targeted_mode_with_no_legal_targets_skipped():
+    """Targeted mode with no legal targets is skipped (CR 608.2b)."""
+    print("\n=== Test: Targeted mode w/ no legal targets is skipped ===")
+    fired: list = []
+
+    def m_targeted(spell, state, targets):
+        fired.append(("targeted", list(targets)))
+        return []
+
+    def m_inline(spell, state, targets):
+        fired.append(("inline", list(targets)))
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': spell.controller, 'amount': 1},
+                      source=spell.id)]
+
+    modes = [
+        SpreeMode(name="Destroy creature", extra_cost="{1}",
+                  effect_fn=m_targeted, target_kind="creature",
+                  targets_required=1,
+                  description="Destroy target creature."),
+        SpreeMode(name="Gain 1", extra_cost="{1}",
+                  effect_fn=m_inline,
+                  description="Gain 1 life."),
+    ]
+    card = _build_synthetic_spree(modes, mana_cost="{R}")
+    game, p1, p2 = make_two_player_game()
+    # NO creatures on the battlefield -> mode 0 has no legal targets.
+    spell = make_spell(game, p1.id, card)
+    add_mana(game, p1.id, "R", 1)
+    add_mana(game, p1.id, "C", 2)
+    cast_spell(game, p1.id, spell)
+    submit_spree(game, p1.id, [0, 1])  # both modes chosen
+    events = game.stack.resolve_top()
+    # Mode 0 should be silently skipped (no prompt opens for it).
+    assert game.state.pending_choice is None, \
+        f"no creature exists -> mode 0 skipped; pending={game.state.pending_choice}"
+    # Mode 1 (inline life-gain) should still fire.
+    assert fired == [("inline", [])], \
+        f"only mode 1 should fire; got {fired}"
+    life = [e for e in events if e.type == EventType.LIFE_CHANGE]
+    assert life, f"expected life gain from mode 1; got {[e.type for e in events]}"
+    print("OK: no-legal-targets mode skipped, later mode still resolved")
+
+
+def test_spree_legal_targets_filter_override():
+    """SpreeMode.legal_targets_filter overrides default target enumeration."""
+    print("\n=== Test: legal_targets_filter custom predicate ===")
+
+    def m_targeted(spell, state, targets):
+        return [Event(type=EventType.OBJECT_DESTROYED,
+                      payload={'object_id': targets[0]}, source=spell.id)]
+
+    def filter_only_outlaws(spell, state):
+        outlaw_types = {'Pirate', 'Rogue', 'Mercenary', 'Assassin', 'Warlock'}
+        return [
+            obj.id for obj in state.objects.values()
+            if obj.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in obj.characteristics.types
+            and (obj.characteristics.subtypes or set()) & outlaw_types
+        ]
+
+    modes = [
+        SpreeMode(name="Outlaw destroy", extra_cost="{1}",
+                  effect_fn=m_targeted, target_kind="creature",
+                  targets_required=1,
+                  legal_targets_filter=filter_only_outlaws,
+                  description="Destroy target outlaw creature."),
+    ]
+    card = _build_synthetic_spree(modes, mana_cost="{R}")
+    game, p1, p2 = make_two_player_game()
+    # Create a non-outlaw bear and an outlaw pirate.
+    bear_def = make_creature(name="Plain Bear", power=2, toughness=2,
+                             mana_cost="{2}", colors=set())
+    pirate_def = make_creature(name="Plain Pirate", power=2, toughness=2,
+                               mana_cost="{2}", colors=set(),
+                               subtypes={"Pirate"})
+    bear = game.create_object(
+        name="Plain Bear", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=bear_def.characteristics, card_def=bear_def,
+    )
+    pirate = game.create_object(
+        name="Plain Pirate", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=pirate_def.characteristics, card_def=pirate_def,
+    )
+    spell = make_spell(game, p1.id, card)
+    add_mana(game, p1.id, "R", 1)
+    add_mana(game, p1.id, "C", 1)
+    cast_spell(game, p1.id, spell)
+    submit_spree(game, p1.id, [0])
+    game.stack.resolve_top()
+    pc = game.state.pending_choice
+    assert pc is not None
+    # Only the pirate should be a legal target (filter excludes the bear).
+    assert pirate.id in pc.options, f"pirate should be legal; got {pc.options}"
+    assert bear.id not in pc.options, f"bear should be filtered out; got {pc.options}"
+    ok, msg, events = submit_target(game, p1.id, pirate.id)
+    assert ok, msg
+    destroys = [e for e in events if e.type == EventType.OBJECT_DESTROYED]
+    assert destroys and destroys[0].payload.get('object_id') == pirate.id
+    print("OK: legal_targets_filter constrained target options correctly")
+
+
+def test_spree_mixed_targeted_and_inline_modes_chain_correctly():
+    """Mix of targeted + inline modes preserves declaration order."""
+    print("\n=== Test: Mixed targeted/inline modes preserve order ===")
+    fired: list = []
+
+    def m_inline_a(spell, state, targets):
+        fired.append("A")
+        return []
+
+    def m_targeted_b(spell, state, targets):
+        fired.append(("B", list(targets)))
+        return []
+
+    def m_inline_c(spell, state, targets):
+        fired.append("C")
+        return []
+
+    modes = [
+        SpreeMode(name="A inline", extra_cost="{1}",
+                  effect_fn=m_inline_a,
+                  description="Inline A."),
+        SpreeMode(name="B targeted", extra_cost="{1}",
+                  effect_fn=m_targeted_b, target_kind="creature",
+                  targets_required=1,
+                  description="Targeted B."),
+        SpreeMode(name="C inline", extra_cost="{1}",
+                  effect_fn=m_inline_c,
+                  description="Inline C."),
+    ]
+    card = _build_synthetic_spree(modes, mana_cost="{R}")
+    game, p1, p2 = make_two_player_game()
+    bear_def = make_creature(name="Test Bear", power=2, toughness=2,
+                             mana_cost="{2}", colors=set())
+    bear = game.create_object(
+        name="Test Bear", owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=bear_def.characteristics, card_def=bear_def,
+    )
+    spell = make_spell(game, p1.id, card)
+    add_mana(game, p1.id, "R", 1)
+    add_mana(game, p1.id, "C", 3)
+    cast_spell(game, p1.id, spell)
+    submit_spree(game, p1.id, [0, 1, 2])  # all three modes
+    game.stack.resolve_top()
+    # A fired inline; then prompt for B.
+    assert fired == ["A"], f"expected A inline before B prompt; got {fired}"
+    pc = game.state.pending_choice
+    assert pc is not None and pc.callback_data.get("mode_name") == "B targeted"
+    ok, msg, events = submit_target(game, p1.id, bear.id)
+    assert ok, msg
+    # B fires with bear.id, then C inline.
+    assert fired == ["A", ("B", [bear.id]), "C"], \
+        f"expected A,B(bear),C in declaration order; got {fired}"
+    print("OK: mixed inline + targeted modes chained in declaration order")
 
 
 # ---------------------------------------------------------------------------
@@ -621,6 +930,12 @@ def main():
         test_requisition_raid_artifact_destroy,
         test_rustler_rampage_double_strike_mode,
         test_explosive_derailment_damage_mode,
+        # Per-mode-targeting tests (W12 follow-up)
+        test_spree_single_targeted_mode_opens_prompt,
+        test_spree_two_targeted_modes_chain_in_order,
+        test_spree_targeted_mode_with_no_legal_targets_skipped,
+        test_spree_legal_targets_filter_override,
+        test_spree_mixed_targeted_and_inline_modes_chain_correctly,
     ]
     passed = 0
     failed = []
