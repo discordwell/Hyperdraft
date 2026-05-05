@@ -1675,7 +1675,10 @@ class PokemonAIAdapter:
             if (settings.get('use_prize_strategy') and ctx
                     and ctx.prize_gap <= -2
                     and pkm.card_def and pkm.card_def.is_ex):
-                score -= 20.0
+                if pkm.card_def.prize_count >= ctx.opp_prizes_remaining:
+                    score -= 80.0
+                else:
+                    score -= 20.0
 
             scored.append((pkm_id, score))
 

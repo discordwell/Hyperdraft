@@ -207,3 +207,20 @@ def test_hard_ai_picks_energy_that_unlocks_attack_now():
     fire = _card(game, FIRE_ENERGY, p1, ZoneType.HAND)
 
     assert ai._pick_best_energy_for_target(target.id, [water.id, fire.id], game.state) == fire.id
+
+
+def test_hard_ai_promotion_denies_game_winning_ex_prizes():
+    game, p1, p2, ai = _new_pokemon_game("hard")
+    p1.prizes_remaining = 5
+    p2.prizes_remaining = 2
+    ex_pokemon = _card(
+        game,
+        _basic("Huge ex", hp=300, damage=120, is_ex=True),
+        p1,
+        ZoneType.BENCH,
+    )
+    single_prizer = _card(game, _basic("One Prize Wall", hp=100, damage=0), p1, ZoneType.BENCH)
+    _card(game, _basic("Opponent", hp=160, damage=80), p2, ZoneType.ACTIVE_SPOT)
+
+    assert ai.choose_promote(p1.id, game.state) == single_prizer.id
+    assert ai.choose_promote(p1.id, game.state) != ex_pokemon.id
