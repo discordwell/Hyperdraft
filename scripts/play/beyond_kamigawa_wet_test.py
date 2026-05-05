@@ -193,6 +193,11 @@ def main():
                 "b_wins": data["b_wins"],
                 "draws": data["draws"],
                 "crashes": data["crashes"],
+                "completed_games": data["a_wins"] + data["b_wins"] + data["draws"],
+                "a_win_rate": (
+                    data["a_wins"] / (data["a_wins"] + data["b_wins"] + data["draws"])
+                    if (data["a_wins"] + data["b_wins"] + data["draws"]) else 0
+                ),
                 "turns": data["turns"],
                 "avg_turns": sum(data["turns"]) / len(data["turns"]) if data["turns"] else 0,
             }
