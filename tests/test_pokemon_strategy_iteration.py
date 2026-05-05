@@ -5,6 +5,7 @@ from src.cards.pokemon.sv_starter import (
     BOSS_ORDERS,
     CHARIZARD_EX,
     FIRE_ENERGY,
+    WATER_ENERGY,
     CHARMANDER,
     POTION,
     PROFESSOR_RESEARCH,
@@ -170,3 +171,39 @@ def test_hard_ai_potion_heals_survival_target_over_most_damaged_bench():
     assert events
     assert active.state.damage_counters == 1
     assert bench.state.damage_counters == 5
+
+
+def test_hard_ai_picks_energy_that_unlocks_attack_now():
+    game, p1, _p2, ai = _new_pokemon_game("hard")
+    target = _card(
+        game,
+        make_pokemon(
+            name="Mixed Attacker",
+            hp=120,
+            pokemon_type=PokemonType.FIRE.value,
+            evolution_stage="Basic",
+            attacks=[
+                {
+                    "name": "Fire Jab",
+                    "cost": [{"type": PokemonType.FIRE.value, "count": 1}],
+                    "damage": 60,
+                    "text": "",
+                },
+                {
+                    "name": "Water Charge",
+                    "cost": [
+                        {"type": PokemonType.WATER.value, "count": 1},
+                        {"type": "C", "count": 2},
+                    ],
+                    "damage": 120,
+                    "text": "",
+                },
+            ],
+        ),
+        p1,
+        ZoneType.ACTIVE_SPOT,
+    )
+    water = _card(game, WATER_ENERGY, p1, ZoneType.HAND)
+    fire = _card(game, FIRE_ENERGY, p1, ZoneType.HAND)
+
+    assert ai._pick_best_energy_for_target(target.id, [water.id, fire.id], game.state) == fire.id
