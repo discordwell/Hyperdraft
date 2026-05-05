@@ -119,3 +119,22 @@ def test_hard_ai_does_not_heavy_storm_equal_backrow():
     )
 
     assert choice == {"action_type": "activate_spell", "card_id": storm.id}
+
+
+def test_hard_ai_battle_assignment_preserves_matchups_for_other_attackers():
+    game, p1, p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    strong = _field_monster(game, p1, "Strong Attacker", 2500, 2000)
+    weak = _field_monster(game, p1, "Weak Attacker", 1600, 1200)
+    small = _field_monster(game, p2, "Small Target", 1500, 1000)
+    big = _field_monster(game, p2, "Big Target", 2400, 1800)
+    turn_state = game.turn_manager.ygo_turn_state
+
+    action = ai.get_battle_action(p1.id, game.state, turn_state)
+
+    assert action["action_type"] == "declare_attack"
+    assert (action["attacker_id"], action["target_id"]) in {
+        (strong.id, big.id),
+        (weak.id, small.id),
+    }
+    assert (action["attacker_id"], action["target_id"]) != (strong.id, small.id)
