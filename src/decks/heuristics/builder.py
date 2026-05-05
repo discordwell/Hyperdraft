@@ -293,16 +293,16 @@ def _slot_fill(
                 break
             if not _has_room(name):
                 continue
-            while sum(e.quantity for e in chosen) >= _curve_total(template):
-                if not _free_slot_for_role(role, card_def):
+            while deficit > 0 and _has_room(name):
+                if sum(e.quantity for e in chosen) >= _curve_total(template):
+                    if not _free_slot_for_role(role, card_def):
+                        break
+                if sum(e.quantity for e in chosen) >= _curve_total(template):
                     break
-            if sum(e.quantity for e in chosen) >= _curve_total(template):
-                continue
-            # If we'd push past the curve total + role overflow, stop —
-            # we don't want to permanently exceed the mainboard size.
-            qty = min(_multiples_for_index(slot_index), deficit)
-            actual = _take(name, card_def, qty)
-            deficit -= actual
+                actual = _take(name, card_def, 1)
+                if actual <= 0:
+                    break
+                deficit -= actual
 
     # ------------------------------------------------------------------
     # Pass 3: pad up to curve total if anything fell short (ramps that
