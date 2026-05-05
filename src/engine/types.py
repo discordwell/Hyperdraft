@@ -389,6 +389,25 @@ class EventType(Enum):
     CAST_FROM_ZONE_GRANT = auto()     # Marker: permission to cast from a zone was granted
     QUERY_CAST_LEGALITY = auto()      # Synthetic query: is this card castable from its current zone?
 
+    # ------------------------------------------------------------------
+    # Cycling (W8). CR 702.32. Implementation: src/engine/cycling.py.
+    #
+    # CYCLE: marker event fired when a player resolves a cycling ability.
+    #   Payload: {'player': str, 'card_id': str, 'card_name': str,
+    #             'variant': 'plain'|'landcycling'|'typecycling',
+    #             'mana_cost': str (the cost text, e.g. '{2}')}.
+    #   Used by external "Whenever a player cycles a card, ..." triggers and
+    #   for telemetry. Emitted from the cycling ability's resolve_fn before
+    #   any draw / search effects so triggers can read pre-effect state.
+    #
+    # CYCLING_TRIGGERED: rider trigger marker fired immediately after the
+    #   on-card "When you cycle this, ..." rider effect_fn runs. Used for
+    #   tests/logs (rider events themselves are returned as new events from
+    #   the resolve_fn and are processed normally).
+    # ------------------------------------------------------------------
+    CYCLE = auto()
+    CYCLING_TRIGGERED = auto()
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
