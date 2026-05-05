@@ -685,7 +685,9 @@ def arahbo_the_first_fang_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=other_cat_filter_wrapper,
         handler=other_cat_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=other_cat_effect,
     ))
 
     return interceptors
@@ -727,7 +729,9 @@ def dazzling_angel_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=filter_wrapper,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -858,7 +862,9 @@ def youthful_valkyrie_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=filter_wrapper,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -922,7 +928,9 @@ def skyknight_squire_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=filter_wrapper,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1107,7 +1115,9 @@ def vengeful_bloodwitch_setup(obj: GameObject, state: GameState) -> list[Interce
         priority=InterceptorPriority.REACT,
         filter=creature_dies_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1162,7 +1172,9 @@ def bloodthirsty_conqueror_setup(obj: GameObject, state: GameState) -> list[Inte
         priority=InterceptorPriority.REACT,
         filter=opponent_loses_life_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1263,7 +1275,9 @@ def firebrand_archer_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=noncreature_spell_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1300,7 +1314,9 @@ def firespitter_whelp_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=spell_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1371,7 +1387,9 @@ def spitfire_lagac_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=land_enters_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1425,7 +1443,9 @@ def elfsworn_giant_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=land_enters_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1526,7 +1546,9 @@ def good_fortune_unicorn_setup(obj: GameObject, state: GameState) -> list[Interc
         priority=InterceptorPriority.REACT,
         filter=creature_enters_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1626,7 +1648,9 @@ def tatyova_benthic_druid_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=land_enters_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1777,7 +1801,9 @@ def authority_of_the_consuls_setup(obj: GameObject, state: GameState) -> list[In
         priority=InterceptorPriority.REACT,
         filter=opponent_creature_enters_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1817,7 +1843,9 @@ def impact_tremors_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=creature_enters_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1891,7 +1919,9 @@ def rampaging_baloths_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=land_enters_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1961,7 +1991,9 @@ def wildwood_scourge_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=counter_added_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2038,7 +2070,9 @@ def brineborn_cutthroat_setup(obj: GameObject, state: GameState) -> list[Interce
         priority=InterceptorPriority.REACT,
         filter=opponent_turn_cast_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2108,7 +2142,9 @@ def scrawling_crawler_setup(obj: GameObject, state: GameState) -> list[Intercept
             priority=InterceptorPriority.REACT,
             filter=opponent_draw_filter,
             handler=draw_handler,
-            duration='while_on_battlefield'
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=opponent_draw_effect,
         )
     ]
 
@@ -2368,7 +2404,9 @@ def highsociety_hunter_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.REACT,
         filter=creature_dies_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2425,7 +2463,9 @@ def crackling_cyclops_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=noncreature_spell_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2471,7 +2511,9 @@ def beastkin_ranger_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=creature_enters_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2526,7 +2568,9 @@ def mossborn_hydra_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=land_enters_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2614,7 +2658,9 @@ def kykar_zephyr_awakener_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=noncreature_spell_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2651,7 +2697,9 @@ def nivmizzet_visionary_setup(obj: GameObject, state: GameState) -> list[Interce
         priority=InterceptorPriority.REACT,
         filter=damage_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2742,7 +2790,9 @@ def midnight_reaper_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=creature_dies_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2800,7 +2850,9 @@ def kalastria_highborn_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.REACT,
         filter=vampire_dies_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2860,7 +2912,9 @@ def lathliss_dragon_queen_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=filter_wrapper,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2954,7 +3008,9 @@ def garna_bloodfist_of_keld_setup(obj: GameObject, state: GameState) -> list[Int
         priority=InterceptorPriority.REACT,
         filter=creature_dies_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -3002,7 +3058,9 @@ def massacre_wurm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             priority=InterceptorPriority.REACT,
             filter=opponent_creature_dies_filter,
             handler=death_handler,
-            duration='while_on_battlefield'
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=death_effect,
         )
     ]
 
@@ -3219,7 +3277,9 @@ def linden_the_steadfast_queen_setup(obj: GameObject, state: GameState) -> list[
         priority=InterceptorPriority.REACT,
         filter=white_creature_attacks_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -3258,7 +3318,9 @@ def mentor_of_the_meek_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.REACT,
         filter=creature_enters_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -3304,7 +3366,9 @@ def felidar_retreat_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=land_enters_filter,
         handler=handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -3361,7 +3425,9 @@ def primeval_bounty_setup(obj: GameObject, state: GameState) -> list[Interceptor
             priority=InterceptorPriority.REACT,
             filter=creature_spell_filter,
             handler=creature_handler,
-            duration='while_on_battlefield'
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=creature_effect,
         ),
         Interceptor(
             id=new_id(),
@@ -3370,7 +3436,9 @@ def primeval_bounty_setup(obj: GameObject, state: GameState) -> list[Interceptor
             priority=InterceptorPriority.REACT,
             filter=noncreature_spell_filter,
             handler=noncreature_handler,
-            duration='while_on_battlefield'
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=noncreature_effect,
         )
     ]
 
@@ -6114,7 +6182,9 @@ def armasaur_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6161,7 +6231,9 @@ def valkyries_call_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6212,7 +6284,9 @@ def grappling_kraken_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6250,7 +6324,9 @@ def kaito_cunning_infiltrator_setup(obj: GameObject, state: GameState) -> list[I
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6324,7 +6400,9 @@ def tinybones_bauble_burglar_setup(obj: GameObject, state: GameState) -> list[In
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6367,7 +6445,9 @@ def battlesong_berserker_setup(obj: GameObject, state: GameState) -> list[Interc
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6474,7 +6554,9 @@ def quilled_greatwurm_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6503,7 +6585,9 @@ def spinner_of_souls_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6572,7 +6656,9 @@ def zimone_paradox_sculptor_setup(obj: GameObject, state: GameState) -> list[Int
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6633,7 +6719,9 @@ def liliana_dreadhorde_general_setup(obj: GameObject, state: GameState) -> list[
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6691,7 +6779,9 @@ def flamewake_phoenix_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6762,7 +6852,9 @@ def nessian_hornbeetle_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6811,7 +6903,9 @@ def adventuring_gear_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -6954,7 +7048,9 @@ def leonin_vanguard_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -7077,7 +7173,9 @@ def battlerattle_shaman_setup(obj: GameObject, state: GameState) -> list[Interce
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -7501,7 +7599,9 @@ def surrak_the_hunt_caller_setup(obj: GameObject, state: GameState) -> list[Inte
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -7524,7 +7624,9 @@ def venom_connoisseur_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -7547,7 +7649,9 @@ def wildborn_preserver_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -7583,7 +7687,9 @@ def halana_and_alena_partners_setup(obj: GameObject, state: GameState) -> list[I
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -7662,7 +7768,9 @@ def gate_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -7817,7 +7925,9 @@ def hinterland_sanctifier_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -8591,7 +8701,9 @@ def ancestor_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -8760,7 +8872,9 @@ def crossway_troublemakers_setup(obj: GameObject, state: GameState) -> list[Inte
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 
@@ -9091,7 +9205,9 @@ def dictate_of_kruphix_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (trigger_handler(e, s).new_events or []),
     )]
 
 

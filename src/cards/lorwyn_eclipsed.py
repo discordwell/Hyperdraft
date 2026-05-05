@@ -1596,7 +1596,9 @@ def _make_combat_begin_trigger(source_obj: GameObject,
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )
 
 
@@ -1622,7 +1624,9 @@ def _make_main_phase_trigger(source_obj: GameObject,
         priority=InterceptorPriority.REACT,
         filter=trigger_filter,
         handler=trigger_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )
 
 

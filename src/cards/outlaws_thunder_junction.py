@@ -2597,6 +2597,8 @@ def ferocification_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         filter=beginning_of_combat_filter,
         handler=open_modal,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (open_modal(e, s).new_events or []),
     )]
 
 
@@ -3020,6 +3022,8 @@ def ornery_tumblewagg_setup(obj: GameObject, state: GameState) -> list[Intercept
         filter=beginning_of_combat_filter,
         handler=open_counter_target,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (open_counter_target(e, s).new_events or []),
     )
 
     def saddled_attack_effect(event: Event, state: GameState) -> list[Event]:
@@ -3232,6 +3236,8 @@ def cactusfolk_sureshot_setup(obj: GameObject, state: GameState) -> list[Interce
         filter=beginning_of_combat_filter,
         handler=boost_handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (boost_handler(e, s).new_events or []),
     )]
 
 
@@ -3317,6 +3323,8 @@ def jolene_plundering_pugilist_setup(obj: GameObject, state: GameState) -> list[
         filter=attack_filter,
         handler=trigger_handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=make_treasure,
     )]
 
 
@@ -3466,6 +3474,8 @@ def oko_the_ringleader_setup(obj: GameObject, state: GameState) -> list[Intercep
         filter=combat_start_filter,
         handler=combat_handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (combat_handler(e, s).new_events or []),
     )]
 
 
@@ -3570,6 +3580,8 @@ def rakdos_the_muscle_setup(obj: GameObject, state: GameState) -> list[Intercept
         filter=sacrifice_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=exile_effect(e, s)),
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=exile_effect,
     )]
 
 
@@ -3687,6 +3699,8 @@ def taii_wakeen_perfect_shot_setup(obj: GameObject, state: GameState) -> list[In
         filter=damage_filter,
         handler=draw_handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (draw_handler(e, s).new_events or []),
     )]
 
 
@@ -3744,6 +3758,8 @@ def wylie_duke_atiin_hero_setup(obj: GameObject, state: GameState) -> list[Inter
         filter=tap_filter,
         handler=tap_handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=tap_effect,
     )]
 
 

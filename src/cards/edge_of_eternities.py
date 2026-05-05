@@ -491,7 +491,9 @@ def lightless_evangel_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=sacrifice_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=sacrifice_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=sacrifice_effect,
     )]
 
 
@@ -563,6 +565,8 @@ def elegy_acolyte_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             filter=damage_filter,
             handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=damage_effect,
         ),
         make_void_end_step_trigger(obj, void_effect),
     ]
@@ -700,7 +704,9 @@ def molecular_modifier_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.REACT,
         filter=combat_start_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=combat_effect,
     )]
 
 
@@ -1212,7 +1218,9 @@ def virulent_silencer_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=damage_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=damage_effect,
     )]
 
 
@@ -1783,7 +1791,9 @@ def ouroboroid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=combat_start_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=combat_effect,
     )]
 
 
@@ -1865,7 +1875,9 @@ def skystinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=lambda e, s: block_filter(e, s, obj),
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=block_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=block_effect,
     )]
 
 
@@ -1986,7 +1998,9 @@ def starwinder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=damage_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=damage_effect,
     )]
 
 
@@ -2560,7 +2574,9 @@ def entropic_battlecruiser_setup(obj: GameObject, state: GameState) -> list[Inte
         priority=InterceptorPriority.REACT,
         filter=discard_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=discard_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=discard_effect,
     ))
 
     def attack_effect(event: Event, state: GameState) -> list[Event]:
@@ -3108,7 +3124,9 @@ def terrasymbiosis_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=counter_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=counter_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=counter_effect,
     )]
 
 
@@ -3285,7 +3303,9 @@ def the_endstone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=play_or_cast_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=draw_effect,
     ))
 
     def end_step_effect(event: Event, state: GameState) -> list[Event]:

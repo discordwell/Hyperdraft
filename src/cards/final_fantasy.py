@@ -1582,7 +1582,9 @@ def jenova_ancient_calamity_setup(obj: GameObject, state: GameState) -> list[Int
         priority=InterceptorPriority.REACT,
         filter=combat_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=combat_effect,
     )]
 
 
@@ -1995,7 +1997,9 @@ def rosa_resolute_white_mage_setup(obj: GameObject, state: GameState) -> list[In
         priority=InterceptorPriority.REACT,
         filter=combat_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=combat_effect,
     )]
 
 
@@ -2079,7 +2083,9 @@ def matoya_archon_elder_setup(obj: GameObject, state: GameState) -> list[Interce
         priority=InterceptorPriority.REACT,
         filter=surveil_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=surveil_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=surveil_effect,
     )]
 
 
@@ -2925,7 +2931,9 @@ def zodiark_umbral_god_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.REACT,
         filter=sac_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=sac_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=sac_effect,
     ))
 
     return interceptors
@@ -3862,7 +3870,9 @@ def ardyn_the_usurper_ff_setup(obj: GameObject, state: GameState) -> list[Interc
         priority=InterceptorPriority.REACT,
         filter=combat_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=combat_effect,
     ))
     return interceptors
 
@@ -3965,7 +3975,9 @@ def fang_fearless_lcie_ff_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=gy_leave_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=gy_leave_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=gy_leave_effect,
     )]
 
 
@@ -4169,7 +4181,9 @@ def item_shopkeep_ff_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=attack_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=attack_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=attack_effect,
     )]
 
 
@@ -4301,6 +4315,8 @@ def sandworm_red_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
         filter=follow_filter,
         handler=follow_handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (follow_handler(e, s).new_events or []),
     ))
     return interceptors
 
@@ -4746,6 +4762,8 @@ def sazh_katzroy_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
         filter=double_filter,
         handler=double_handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (double_handler(e, s).new_events or []),
     ))
 
     # Reset the pending flag at PHASE_START so the next attack fires fresh.
@@ -4764,6 +4782,8 @@ def sazh_katzroy_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
         filter=reset_filter,
         handler=reset_handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (reset_handler(e, s).new_events or []),
     ))
 
     return interceptors
@@ -4879,7 +4899,9 @@ def choco_seeker_of_paradise_ff_setup(obj: GameObject, state: GameState) -> list
         priority=InterceptorPriority.REACT,
         filter=attack_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=attack_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=attack_effect,
     ))
 
     # Landfall +1/+0
@@ -5161,7 +5183,9 @@ def zidane_tantalus_thief_ff_setup(obj: GameObject, state: GameState) -> list[In
         priority=InterceptorPriority.REACT,
         filter=control_change_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=control_change_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=control_change_effect,
     ))
     return interceptors
 
@@ -5376,7 +5400,9 @@ def beatrix_loyal_general_ff_setup(obj: GameObject, state: GameState) -> list[In
         priority=InterceptorPriority.REACT,
         filter=combat_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=combat_effect,
     )]
 
 

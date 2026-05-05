@@ -2311,6 +2311,8 @@ def dour_portmage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             action=InterceptorAction.REACT,
             new_events=draw_effect(e, s)),
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=draw_effect,
     )
     # engine gap: activated bounce ability
     return [leave_trigger]
@@ -2881,7 +2883,9 @@ def scavengers_talent_setup(obj: GameObject, state: GameState) -> list[Intercept
         handler=lambda e, s: InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=food_effect(e, s)),
-        duration='while_on_battlefield')
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=food_effect)
     return [death_int]
 
 
@@ -2915,6 +2919,8 @@ def sinister_monolith_setup(obj: GameObject, state: GameState) -> list[Intercept
         handler=lambda e, s: InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=drain_effect(e, s)),
+            is_triggered_ability=True,
+            effect_fn=drain_effect,
         duration='while_on_battlefield')]
 
 
@@ -3066,6 +3072,8 @@ def brambleguard_captain_setup(obj: GameObject, state: GameState) -> list[Interc
         handler=lambda e, s: InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=pump_effect(e, s)),
+            is_triggered_ability=True,
+            effect_fn=pump_effect,
         duration='while_on_battlefield')]
 
 
@@ -3335,6 +3343,8 @@ def manifold_mouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         handler=lambda e, s: InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=grant_effect(e, s)),
+            is_triggered_ability=True,
+            effect_fn=grant_effect,
         duration='while_on_battlefield')]
 
 
@@ -3766,6 +3776,8 @@ def innkeepers_talent_setup(obj: GameObject, state: GameState) -> list[Intercept
         handler=lambda e, s: InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=counter_effect(e, s)),
+            is_triggered_ability=True,
+            effect_fn=counter_effect,
         duration='while_on_battlefield')]
 
 
@@ -3934,6 +3946,8 @@ def stocking_the_pantry_setup(obj: GameObject, state: GameState) -> list[Interce
         handler=lambda e, s: InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=supply_effect(e, s)),
+            is_triggered_ability=True,
+            effect_fn=supply_effect,
         duration='while_on_battlefield')]
 
 
@@ -3985,6 +3999,8 @@ def three_tree_scribe_setup(obj: GameObject, state: GameState) -> list[Intercept
         handler=lambda e, s: InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=counter_effect(e, s)),
+            is_triggered_ability=True,
+            effect_fn=counter_effect,
         duration='while_on_battlefield')]
 
 
@@ -4150,7 +4166,9 @@ def corpseberry_cultivator_setup(obj: GameObject, state: GameState) -> list[Inte
             handler=lambda e, s: InterceptorResult(
                 action=InterceptorAction.REACT,
                 new_events=begin_combat_forage(e, s)),
-            duration='while_on_battlefield'),
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=begin_combat_forage),
         make_forage_trigger(obj, counter_on_forage),
     ]
 
@@ -4187,6 +4205,8 @@ def fireglass_mentor_setup(obj: GameObject, state: GameState) -> list[Intercepto
         handler=lambda e, s: InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=impulse_effect(e, s)),
+            is_triggered_ability=True,
+            effect_fn=impulse_effect,
         duration='while_on_battlefield')]
 
 
@@ -4397,6 +4417,8 @@ def muerra_trash_tactician_setup(obj: GameObject, state: GameState) -> list[Inte
         handler=lambda e, s: InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=mana_effect(e, s)),
+            is_triggered_ability=True,
+            effect_fn=mana_effect,
         duration='while_on_battlefield')]
 
 
@@ -4534,6 +4556,8 @@ def ral_crackling_wit_setup(obj: GameObject, state: GameState) -> list[Intercept
                 filter=_filter,
                 handler=_handler,
                 duration='forever',
+                is_triggered_ability=True,
+                effect_fn=lambda e, s: (_handler(e, s).new_events or []),
             )]
 
         emblem_setup_fn = make_emblem_setup(
@@ -4698,6 +4722,8 @@ def ygra_eater_of_all_setup(obj: GameObject, state: GameState) -> list[Intercept
         handler=lambda e, s: InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=counter_effect(e, s)),
+            is_triggered_ability=True,
+            effect_fn=counter_effect,
         duration='while_on_battlefield')]
 
 

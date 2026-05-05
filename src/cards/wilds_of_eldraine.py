@@ -166,7 +166,9 @@ def knight_of_doves_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=enchantment_dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=create_bird(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=create_bird,
     )]
 
 
@@ -243,7 +245,9 @@ def savior_of_the_sleeping_setup(obj: GameObject, state: GameState) -> list[Inte
         priority=InterceptorPriority.REACT,
         filter=enchantment_dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=add_counter(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=add_counter,
     )]
 
 
@@ -380,7 +384,9 @@ def talions_messenger_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=faerie_attack_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_discard_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=draw_discard_effect,
     )]
 
 
@@ -411,7 +417,9 @@ def ashioks_reaper_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=enchantment_dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_card(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=draw_card,
     )]
 
 
@@ -438,7 +446,9 @@ def dream_spoilers_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=opponent_turn_cast_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=minus_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=minus_effect,
     )]
 
 
@@ -527,7 +537,9 @@ def lord_skitter_sewer_king_setup(obj: GameObject, state: GameState) -> list[Int
         priority=InterceptorPriority.REACT,
         filter=combat_trigger_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=create_rat(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=create_rat,
     )]
 
 
@@ -665,7 +677,9 @@ def voracious_vermin_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=creature_dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=add_counter(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=add_counter,
     ))
 
     return interceptors
@@ -709,7 +723,9 @@ def warehouse_tabby_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=enchantment_dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=create_rat(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=create_rat,
     )]
 
 
@@ -746,7 +762,9 @@ def wicked_visitor_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=enchantment_dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=opponent_life_loss(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=opponent_life_loss,
     )]
 
 
@@ -2711,7 +2729,9 @@ def elvish_archivist_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=artifact_enters_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=add_counters(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=add_counters,
     ))
 
     # Enchantment enters trigger
@@ -2736,7 +2756,9 @@ def elvish_archivist_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=enchantment_enters_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_card(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=draw_card,
     ))
 
     return interceptors
@@ -2886,7 +2908,9 @@ def tanglespan_lookout_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.REACT,
         filter=aura_enters_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_card(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=draw_card,
     )]
 
 
@@ -2950,7 +2974,9 @@ def wildwood_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=token_enters_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=add_counter(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=add_counter,
     )]
 
 
@@ -3065,7 +3091,9 @@ def neva_stalked_by_nightmares_setup(obj: GameObject, state: GameState) -> list[
         priority=InterceptorPriority.REACT,
         filter=enchantment_dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=counter_and_scry(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=counter_and_scry,
     )]
 
 
@@ -3103,7 +3131,9 @@ def obyra_dreaming_duelist_setup(obj: GameObject, state: GameState) -> list[Inte
         priority=InterceptorPriority.REACT,
         filter=faerie_enters_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=opponent_life_loss(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=opponent_life_loss,
     )]
 
 
@@ -3199,7 +3229,9 @@ def totentanz_swarm_piper_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=creature_dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=create_rat(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=create_rat,
     )]
 
 
@@ -3265,7 +3297,9 @@ def syr_ginger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=artifact_dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=counter_and_scry(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=counter_and_scry,
     )]
 
 
@@ -3302,7 +3336,9 @@ def pests_of_honor_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=combat_trigger_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=add_counter(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=add_counter,
     )]
 
 
@@ -3329,7 +3365,9 @@ def storyteller_pixie_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=adventure_cast_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_card(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=draw_card,
     )]
 
 
@@ -3392,7 +3430,9 @@ def experimental_confectioner_setup(obj: GameObject, state: GameState) -> list[I
         priority=InterceptorPriority.REACT,
         filter=food_sacrificed_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=create_rat(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=create_rat,
     ))
 
     return interceptors
@@ -3434,7 +3474,9 @@ def old_flitterfang_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=end_step_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=end_step_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=end_step_effect,
     )]
 
 
@@ -3513,7 +3555,9 @@ def rimefur_reindeer_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=enchantment_enters_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=tap_creature(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=tap_creature,
     )]
 
 
@@ -3580,7 +3624,9 @@ def slumbering_keepguard_setup(obj: GameObject, state: GameState) -> list[Interc
         priority=InterceptorPriority.REACT,
         filter=enchantment_enters_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=scry_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=scry_effect,
     )]
 
 
@@ -3635,7 +3681,9 @@ def chancellor_of_tales_setup(obj: GameObject, state: GameState) -> list[Interce
         priority=InterceptorPriority.REACT,
         filter=adventure_cast_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=copy_spell(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=copy_spell,
     )]
 
 
@@ -3745,7 +3793,9 @@ def belligerent_of_the_ball_setup(obj: GameObject, state: GameState) -> list[Int
         priority=InterceptorPriority.REACT,
         filter=combat_trigger_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=menace_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=menace_effect,
     )]
 
 
@@ -3780,7 +3830,9 @@ def boundary_lands_ranger_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=combat_trigger_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=loot_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=loot_effect,
     )]
 
 
@@ -3838,7 +3890,9 @@ def skewer_slinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=block_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=ping_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=ping_effect,
     )]
 
 
@@ -3869,7 +3923,9 @@ def tattered_ratter_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=rat_blocked_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=pump_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=pump_effect,
     )]
 
 
@@ -3914,7 +3970,9 @@ def imodane_the_pyrohammer_setup(obj: GameObject, state: GameState) -> list[Inte
         priority=InterceptorPriority.REACT,
         filter=damage_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_opponents(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=damage_opponents,
     )]
 
 
@@ -3988,7 +4046,9 @@ def territorial_witchstalker_setup(obj: GameObject, state: GameState) -> list[In
         priority=InterceptorPriority.REACT,
         filter=combat_trigger_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=pump_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=pump_effect,
     )]
 
 
@@ -4029,7 +4089,9 @@ def hylda_of_the_icy_crown_setup(obj: GameObject, state: GameState) -> list[Inte
         priority=InterceptorPriority.REACT,
         filter=tap_opponent_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=create_elemental(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=create_elemental,
     )]
 
 
@@ -4057,7 +4119,9 @@ def talion_the_kindly_lord_setup(obj: GameObject, state: GameState) -> list[Inte
         priority=InterceptorPriority.REACT,
         filter=spell_cast_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=drain_and_draw(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=drain_and_draw,
     )]
 
 
@@ -4117,7 +4181,9 @@ def the_irencrag_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=legendary_enters_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=transform_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=transform_effect,
     )]
 
 
@@ -4402,7 +4468,9 @@ def glass_casket_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=leaves_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=leaves_effect(e, s)),
-        duration='until_leaves'
+        duration='until_leaves',
+        is_triggered_ability=True,
+        effect_fn=leaves_effect,
     )
 
     return [make_etb_trigger(obj, etb_effect), leaves_trigger]
@@ -4528,7 +4596,9 @@ def spellbook_vendor_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=combat_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=combat_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=combat_effect,
     )]
 
 
@@ -4692,7 +4762,9 @@ def werefox_bodyguard_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=leaves_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=leaves_effect(e, s)),
-        duration='until_leaves'
+        duration='until_leaves',
+        is_triggered_ability=True,
+        effect_fn=leaves_effect,
     )
 
     return [make_etb_trigger(obj, etb_effect), leaves_trigger]
@@ -5177,7 +5249,9 @@ def lord_skitters_blessing_setup(obj: GameObject, state: GameState) -> list[Inte
             priority=InterceptorPriority.REACT,
             filter=draw_step_filter,
             handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_step_effect(e, s)),
-            duration='while_on_battlefield'
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=draw_step_effect,
         )
     ]
 
@@ -5385,7 +5459,9 @@ def virtue_of_courage_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=noncombat_dmg_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=impulse_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=impulse_effect,
     )]
 
 
@@ -5613,6 +5689,8 @@ def johann_apprentice_sorcerer_setup(obj: GameObject, state: GameState) -> list[
         filter=cast_filter,
         handler=cast_handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (cast_handler(e, s).new_events or []),
     ))
 
     return interceptors

@@ -428,7 +428,9 @@ def pirate_peddlers_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=sacrifice_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=counter_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=counter_effect,
     )]
 
 
@@ -863,7 +865,9 @@ def long_feng_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=counter_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=counter_effect,
     )]
 
 
@@ -1153,7 +1157,9 @@ def zhao_ruthless_admiral_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=sacrifice_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=pump_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=pump_effect,
     )]
 
 
@@ -1490,7 +1496,9 @@ def earth_kingdom_general_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=counter_added_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=life_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=life_effect,
     )]
 
 
@@ -1590,7 +1598,9 @@ def sandbender_scavengers_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=sacrifice_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=counter_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=counter_effect,
     )]
 
 
@@ -1733,7 +1743,9 @@ def invasion_tactics_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=damage_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=draw_effect,
     )]
 
 
@@ -2218,6 +2230,8 @@ def team_avatar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             new_events=pump_lone_attacker(e, s),
         ),
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=pump_lone_attacker,
     )]
     # engine gap: activated discard ability {2}{W}, Discard ~: damage = creatures you control
 
@@ -2467,6 +2481,8 @@ def otterpenguin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             new_events=pump_and_unblockable(e, s),
         ),
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=pump_and_unblockable,
     )]
 
 
@@ -2605,7 +2621,9 @@ def waterbender_ascension_setup(obj: GameObject, state: GameState) -> list[Inter
         priority=InterceptorPriority.REACT,
         filter=damage_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=damage_effect,
     )]
 
 
@@ -2724,7 +2742,9 @@ def fire_navy_trebuchet_setup(obj: GameObject, state: GameState) -> list[Interce
         priority=InterceptorPriority.REACT,
         filter=attack_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=token_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=token_effect,
     )]
 
 
@@ -2781,7 +2801,9 @@ def hogmonkey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=combat_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=menace_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=menace_effect,
     )]
 
 
@@ -2847,7 +2869,9 @@ def koh_the_face_stealer_setup(obj: GameObject, state: GameState) -> list[Interc
             priority=InterceptorPriority.REACT,
             filter=creature_death_filter,
             handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=exile_effect(e, s)),
-            duration='while_on_battlefield'
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=exile_effect,
         ),
     ]
 
@@ -3743,7 +3767,9 @@ def bitter_work_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=attack_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=draw_effect,
     )]
 
 
@@ -3776,7 +3802,9 @@ def bumi_unleashed_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             priority=InterceptorPriority.REACT,
             filter=damage_filter,
             handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=untap_extra_combat(e, s)),
-            duration='while_on_battlefield'
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=untap_extra_combat,
         ),
     ]
 

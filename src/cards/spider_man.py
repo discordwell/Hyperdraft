@@ -147,7 +147,9 @@ def city_pigeon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=lambda e, s: leaves_battlefield_filter(e, s, obj),
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='until_leaves'
+        duration='until_leaves',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -302,7 +304,9 @@ def agent_venom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=lambda e, s: other_creature_dies_filter(e, s, obj),
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -714,7 +718,9 @@ def spider_girl_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=lambda e, s: leaves_battlefield_filter(e, s, obj),
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='until_leaves'
+        duration='until_leaves',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -773,7 +779,9 @@ def cosmic_spiderman_setup(obj: GameObject, state: GameState) -> list[Intercepto
         priority=InterceptorPriority.REACT,
         filter=combat_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -919,7 +927,9 @@ def ezekiel_sims_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=combat_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -981,7 +991,9 @@ def hobgoblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=discard_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1085,7 +1097,9 @@ def spinneret_and_spiderling_setup(obj: GameObject, state: GameState) -> list[In
         priority=InterceptorPriority.REACT,
         filter=attack_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1244,7 +1258,9 @@ def kraven_the_hunter_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=creature_dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1355,7 +1371,9 @@ def spiderwoman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=etb_filter,
         handler=tap_handler,
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (tap_handler(e, s).new_events or []),
     )]
 
 
@@ -1384,7 +1402,9 @@ def arana_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=attack_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1432,7 +1452,9 @@ def spiderman_noir_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=attack_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1471,7 +1493,9 @@ def shriek_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=creature_dies_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -1582,7 +1606,9 @@ def costume_closet_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=modified_leaves_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=modified_leaves_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=modified_leaves_effect,
     ))
     return interceptors
 
@@ -1848,7 +1874,9 @@ def wild_pack_squad_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=combat_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2064,7 +2092,9 @@ def impostor_syndrome_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=damage_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2403,7 +2433,9 @@ def shadow_of_the_goblin_setup(obj: GameObject, state: GameState) -> list[Interc
         priority=InterceptorPriority.REACT,
         filter=first_main_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=first_main_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=first_main_effect,
     ))
 
     # engine gap: "play a land or cast a spell from anywhere other than your hand" trigger
@@ -2692,7 +2724,9 @@ def web_of_life_and_destiny_setup(obj: GameObject, state: GameState) -> list[Int
         priority=InterceptorPriority.REACT,
         filter=combat_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -2718,7 +2752,9 @@ def cheering_crowd_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         priority=InterceptorPriority.REACT,
         filter=first_main_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -3008,7 +3044,9 @@ def doc_ocks_tentacles_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.REACT,
         filter=big_creature_etb_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=attach_effect(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=attach_effect,
     )]
 
 
@@ -3085,7 +3123,9 @@ def living_brain_mechanical_marvel_setup(obj: GameObject, state: GameState) -> l
         priority=InterceptorPriority.REACT,
         filter=combat_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 
@@ -3193,7 +3233,9 @@ def spidermobile_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.REACT,
         filter=attack_or_block_filter,
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(e, s)),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
     )]
 
 

@@ -608,7 +608,9 @@ def screaming_nemesis_setup(obj: GameObject, state: GameState) -> list[Intercept
             action=InterceptorAction.REACT,
             new_events=reflect_damage(e, s)
         ),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=reflect_damage,
     )
 
     # Prevent life gain for marked players
@@ -1139,6 +1141,8 @@ def lionheart_glimmer_setup(obj: GameObject, state: GameState) -> list[Intercept
         priority=InterceptorPriority.REACT,
         filter=attack_filter, handler=handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (handler(e, s).new_events or []),
     )]
 
 
@@ -1343,6 +1347,8 @@ def surgical_suite_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             filter=attack_filter,
             handler=handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -1582,6 +1588,8 @@ def bottomless_pool_setup(obj: GameObject, state: GameState) -> list[Interceptor
             filter=filt,
             handler=handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -1636,6 +1644,8 @@ def central_elevator_setup(obj: GameObject, state: GameState) -> list[Intercepto
             filter=upkeep_filter,
             handler=upkeep_handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (upkeep_handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -1867,6 +1877,8 @@ def paranormal_analyst_setup(obj: GameObject, state: GameState) -> list[Intercep
         priority=InterceptorPriority.REACT,
         filter=manifest_filter, handler=handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (handler(e, s).new_events or []),
     )]
 
 
@@ -1901,6 +1913,8 @@ def scrabbling_skullcrab_setup(obj: GameObject, state: GameState) -> list[Interc
         priority=InterceptorPriority.REACT,
         filter=eerie_filter, handler=handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (handler(e, s).new_events or []),
     )]
 
 
@@ -2126,6 +2140,8 @@ def defiled_crypt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             filter=filt,
             handler=handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -2196,6 +2212,8 @@ def derelict_attic_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             filter=filt,
             handler=handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -2282,6 +2300,8 @@ def funeral_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             filter=filt,
             handler=handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -2387,6 +2407,8 @@ def popular_egotist_setup(obj: GameObject, state: GameState) -> list[Interceptor
         priority=InterceptorPriority.REACT,
         filter=sac_filter, handler=handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (handler(e, s).new_events or []),
     )]
 
 
@@ -2483,6 +2505,8 @@ def unholy_annex_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             filter=filt,
             handler=handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -2572,6 +2596,8 @@ def chainsaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             priority=InterceptorPriority.REACT,
             filter=death_filter, handler=rev_handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (rev_handler(e, s).new_events or []),
         ),
     ]
 
@@ -2674,6 +2700,8 @@ def glassworks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             filter=filt,
             handler=handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -2796,6 +2824,8 @@ def painters_studio_setup(obj: GameObject, state: GameState) -> list[Interceptor
             filter=filt,
             handler=handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -2951,6 +2981,8 @@ def ticket_booth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             filter=filt,
             handler=handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -2986,6 +3018,8 @@ def altanak_the_thricecalled_setup(obj: GameObject, state: GameState) -> list[In
         priority=InterceptorPriority.REACT,
         filter=filter_fn, handler=handler,
         duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (handler(e, s).new_events or []),
     )]
 
 
@@ -3416,6 +3450,8 @@ def walkin_closet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             filter=filt,
             handler=handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -3487,6 +3523,8 @@ def disturbing_mirth_setup(obj: GameObject, state: GameState) -> list[Intercepto
             priority=InterceptorPriority.REACT,
             filter=sac_filter, handler=sac_handler,
             duration='until_leaves',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (sac_handler(e, s).new_events or []),
         ),
     ]
 
@@ -3518,6 +3556,8 @@ def growing_dread_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             priority=InterceptorPriority.REACT,
             filter=face_up_filter, handler=face_up_handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (face_up_handler(e, s).new_events or []),
         ),
     ]
 
@@ -3754,6 +3794,8 @@ def roaring_furnace_setup(obj: GameObject, state: GameState) -> list[Interceptor
             filter=filt,
             handler=handler,
             duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
         )]
 
     return make_room_setup(
@@ -4138,7 +4180,9 @@ def enduring_innocence_setup(obj: GameObject, state: GameState) -> list[Intercep
             action=InterceptorAction.REACT,
             new_events=lifelink_effect(e, s)
         ),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lifelink_effect,
     )
 
     # Trigger 2: Draw when small creatures enter (once per turn)
@@ -4181,7 +4225,9 @@ def enduring_innocence_setup(obj: GameObject, state: GameState) -> list[Intercep
             action=InterceptorAction.REACT,
             new_events=draw_on_small_creature(e, s)
         ),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=draw_on_small_creature,
     )
 
     # Reset once-per-turn at turn start
@@ -4974,7 +5020,9 @@ def enduring_curiosity_setup(obj: GameObject, state: GameState) -> list[Intercep
             action=InterceptorAction.REACT,
             new_events=draw_on_combat_damage(e, s)
         ),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=draw_on_combat_damage,
     )
 
     interceptors = [combat_trigger]
@@ -5896,7 +5944,9 @@ def enduring_tenacity_setup(obj: GameObject, state: GameState) -> list[Intercept
             action=InterceptorAction.REACT,
             new_events=drain_opponent(e, s)
         ),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=drain_opponent,
     )
 
     interceptors = [life_drain_trigger]
@@ -6880,7 +6930,9 @@ def enduring_courage_setup(obj: GameObject, state: GameState) -> list[Intercepto
             action=InterceptorAction.REACT,
             new_events=buff_entering_creature(e, s)
         ),
-        duration='while_on_battlefield'
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=buff_entering_creature,
     )
 
     # Clean up at end of turn
