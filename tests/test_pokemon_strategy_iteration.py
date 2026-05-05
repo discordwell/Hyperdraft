@@ -6,7 +6,9 @@ from src.cards.pokemon.sv_starter import (
     CHARIZARD_EX,
     FIRE_ENERGY,
     WATER_ENERGY,
+    CHARMELEON,
     CHARMANDER,
+    NEST_BALL,
     POTION,
     PROFESSOR_RESEARCH,
     RARE_CANDY,
@@ -245,3 +247,18 @@ def test_ultra_ball_preserves_rare_candy_stage2_combo():
     assert stage2.id in hand
     assert research.id in graveyard
     assert boss.id in graveyard
+
+
+def test_nest_ball_fetches_basic_matching_evolution_in_hand():
+    game, p1, _p2, ai = _new_pokemon_game("hard")
+    _card(game, NEST_BALL, p1, ZoneType.HAND)
+    _card(game, CHARMELEON, p1, ZoneType.HAND)
+    target = _card(game, CHARMANDER, p1, ZoneType.LIBRARY)
+    bulky = _card(game, _basic("Bulky Basic", hp=140, damage=20), p1, ZoneType.LIBRARY)
+
+    assert ai.choose_nest_ball_target(p1.id, game.state, [bulky.id, target.id]) == target.id
+
+    game.turn_manager._play_trainer(p1.id, game.state.zones[f"hand_{p1.id}"].objects[0], "item")
+
+    assert target.id in game.state.zones[f"bench_{p1.id}"].objects
+    assert bulky.id in game.state.zones[f"library_{p1.id}"].objects

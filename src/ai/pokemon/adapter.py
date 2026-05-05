@@ -361,6 +361,47 @@ class PokemonAIAdapter:
 
         return best_id
 
+    def choose_nest_ball_target(self, player_id: str, state: GameState,
+                                candidates: list[str] | None = None) -> Optional[str]:
+        """Choose the best Basic Pokemon to fetch with Nest Ball."""
+        settings = self._get_settings(player_id)
+        if not settings.get('use_evolution_priority'):
+            return None
+
+        candidate_ids = list(candidates or [])
+        if not candidate_ids:
+            return None
+
+        hand = self._get_hand(state, player_id)
+        hand_evolutions = []
+        for card_id in hand:
+            obj = state.objects.get(card_id)
+            if (obj and obj.card_def
+                    and obj.card_def.evolution_stage in {"Stage 1", "Stage 2"}):
+                hand_evolutions.append(obj.card_def)
+
+        best_id = None
+        best_score = -999.0
+        for card_id in candidate_ids:
+            pokemon = state.objects.get(card_id)
+            if not pokemon or not pokemon.card_def:
+                continue
+            score = (pokemon.card_def.hp or 0) / 10.0
+            for evolution in hand_evolutions:
+                if evolution.evolves_from == pokemon.name:
+                    score += 60.0
+                    if evolution.is_ex:
+                        score += 20.0
+                elif evolution.evolution_stage == "Stage 2":
+                    score += 8.0
+            if pokemon.card_def.is_ex:
+                score += 6.0
+            if score > best_score:
+                best_score = score
+                best_id = card_id
+
+        return best_id
+
     # ── Scoring / lethal delegates ────────────────────────────────
 
     def _estimate_damage(self, attacker: 'GameObject', defender: 'GameObject',
