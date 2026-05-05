@@ -35,6 +35,7 @@ from .archetypes import (
 )
 from .builder import build_heuristic_deck
 from .manabase import pick_lands
+from .metrics import analyze_deck_quality
 from .pool import resolve_pool
 from .scorer import score_card, role_of, cmc_of, is_castable
 
@@ -53,5 +54,6 @@ __all__ = [
     "get_template",
     "resolve_pool",
     "build_heuristic_deck",
+    "analyze_deck_quality",
     "pick_lands",
 ]

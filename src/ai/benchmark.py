@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import random
-from typing import Optional
+from typing import Any, Optional
 
 from .tracing import AITraceRecorder
 
@@ -42,12 +42,14 @@ class AIBenchmarkRun:
     def attach(self, ai_engine) -> None:
         ai_engine.set_trace_recorder(self.recorder)
 
-    def finish(self) -> dict:
+    def finish(self, extra: Optional[dict[str, Any]] = None) -> dict:
         summary = self.recorder.summary()
         summary.update({
             "benchmark_name": self.name,
             "seed": self.seed,
         })
+        if extra:
+            summary.update(extra)
         if self.summary_path:
             self.summary_path.write_text(
                 json.dumps(summary, indent=2, sort_keys=True) + "\n",

@@ -2,7 +2,7 @@
 
 import asyncio
 
-from src.engine import Event, EventType, Game, ZoneType
+from src.engine import Event, EventType, Game, ZoneType, variant_rule_summary
 
 
 async def _run_first_draw_step(first_player_draws: bool):
@@ -162,3 +162,24 @@ def test_variant_can_keep_marked_damage_through_cleanup():
 
     assert game.state.clear_damage_on_cleanup is False
     assert creature.state.damage == 2
+
+
+def test_variant_rule_summary_reports_mtg_baseline():
+    summary = variant_rule_summary(Game())
+
+    assert summary["schema_version"] == "hyperdraft.engine.variant_rules.v1"
+    assert summary["is_mtg_baseline"] is True
+    assert summary["deviation_count"] == 0
+    assert summary["rules"]["starting_life"] == 20
+
+
+def test_variant_rule_summary_reports_deviations():
+    game = Game(starting_life=25, first_player_draws=True, draw_step_cards=2)
+
+    summary = variant_rule_summary(game)
+
+    assert summary["is_mtg_baseline"] is False
+    assert summary["deviation_count"] == 3
+    assert summary["deviations"]["starting_life"] == {"baseline": 20, "actual": 25}
+    assert summary["deviations"]["first_player_draws"] == {"baseline": False, "actual": True}
+    assert summary["deviations"]["draw_step_cards"] == {"baseline": 1, "actual": 2}

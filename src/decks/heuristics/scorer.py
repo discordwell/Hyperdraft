@@ -370,6 +370,9 @@ def _detect_role(card_def) -> str:
         power = chars.power if chars.power is not None else 0
         if power >= 4:
             return "wincon"
+        evasive_keywords = {"flying", "menace", "unblockable"}
+        if power >= 2 and (_keywords_of(card_def) & evasive_keywords):
+            return "wincon"
 
     return "utility"
 

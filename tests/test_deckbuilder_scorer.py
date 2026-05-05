@@ -314,6 +314,14 @@ def test_role_detection_flags_planeswalkers_and_large_creatures_as_wincons():
         toughness=2,
         text="",
     )
+    evasive_creature = _make_creature(
+        name="Evasive Threat",
+        mana_cost="{1}{U}",
+        power=2,
+        toughness=1,
+        keywords=["flying"],
+        text="Flying",
+    )
     token_swarm = _make_spell(
         name="Token Swarm",
         mana_cost="{3}{W}",
@@ -329,6 +337,7 @@ def test_role_detection_flags_planeswalkers_and_large_creatures_as_wincons():
 
     assert role_of(planeswalker) == "wincon"
     assert role_of(large_creature) == "wincon"
+    assert role_of(evasive_creature) == "wincon"
     assert role_of(token_swarm) == "wincon"
     assert role_of(reanimate) == "wincon"
     assert role_of(small_creature) == "utility"

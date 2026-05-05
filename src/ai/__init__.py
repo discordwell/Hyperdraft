@@ -13,6 +13,8 @@ from .engine import AIEngine
 from .evaluator import BoardEvaluator
 from .heuristics import Heuristics
 from .benchmark import AIBenchmarkRun
+from .benchmark_scenarios import ScenarioResult, run_fixed_decision_benchmark
+from .strategy_pass import DEFAULT_DECK_SPECS, run_strategy_pass_report
 from .tracing import AITraceRecorder, DecisionTraceEvent
 from .reactive import ReactiveEvaluator, ReactiveContext, StackThreatAssessment, CombatCreatureInfo
 from .strategies import AIStrategy, AggroStrategy, ControlStrategy, MidrangeStrategy, UltraStrategy
@@ -27,6 +29,10 @@ __all__ = [
     'BoardEvaluator',
     'Heuristics',
     'AIBenchmarkRun',
+    'ScenarioResult',
+    'run_fixed_decision_benchmark',
+    'DEFAULT_DECK_SPECS',
+    'run_strategy_pass_report',
     'AITraceRecorder',
     'DecisionTraceEvent',
     # Reactive

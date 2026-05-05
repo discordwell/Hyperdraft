@@ -2,7 +2,14 @@
 
 import json
 
-from src.ai import AIBenchmarkRun, AIEngine, BoardEvaluator, Heuristics
+from src.ai import (
+    AIBenchmarkRun,
+    AIEngine,
+    BoardEvaluator,
+    Heuristics,
+    run_fixed_decision_benchmark,
+    run_strategy_pass_report,
+)
 from src.ai.layers import CardLayers, CardStrategy, DeckAnalysis, DeckRole, MatchupAnalysis, MatchupGuide
 from src.ai.strategies import MidrangeStrategy, UltraStrategy
 from src.engine import (
@@ -125,7 +132,38 @@ def test_trace_recorder_writes_jsonl_and_summary(tmp_path):
     assert summary["benchmark_name"] == "smoke"
     assert summary["seed"] == 7
     assert "PLAY_LAND" in summary["action_mix"]
+    assert summary["decision_type_mix"] == {"action": 1}
+    assert summary["avg_legal_count"] == 2
     assert (tmp_path / "summary.json").exists()
+
+
+def test_fixed_decision_benchmark_writes_trace_artifacts(tmp_path):
+    summary = run_fixed_decision_benchmark(tmp_path, seed=11)
+
+    assert summary["benchmark_name"] == "fixed_decision_smoke"
+    assert summary["scenario_count"] == 4
+    assert summary["scenario_pass_rate"] == 1.0
+    assert summary["decision_count"] == 4
+    assert summary["decision_type_mix"]["action"] == 1
+    assert summary["decision_type_mix"]["pending_target"] == 1
+    assert summary["decision_type_mix"]["attack"] == 1
+    assert summary["decision_type_mix"]["block"] == 1
+    assert summary["target_accuracy"] == 1.0
+    assert summary["selected_target_count"] == 1
+    assert (tmp_path / "decisions.jsonl").exists()
+    assert (tmp_path / "summary.json").exists()
+
+
+def test_strategy_pass_report_combines_ai_deck_and_variant_metrics(tmp_path):
+    report = run_strategy_pass_report(tmp_path, seed=13, set_codes=["FDN"])
+
+    assert report["schema_version"] == "hyperdraft.strategy_pass.v1"
+    assert report["ai"]["scenario_pass_rate"] == 1.0
+    assert set(report["decks"]) == {"aggro_r", "tempo_u", "midrange_g", "control_wu", "ramp_g"}
+    assert report["decks"]["aggro_r"]["mainboard_count"] == 60
+    assert report["variants"]["mtg_baseline"]["is_mtg_baseline"] is True
+    assert report["variants"]["high_resource"]["deviation_count"] == 3
+    assert (tmp_path / "strategy_pass_summary.json").exists()
 
 
 def test_staged_scoring_prefers_answering_large_threat():
