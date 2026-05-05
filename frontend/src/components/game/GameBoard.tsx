@@ -11,6 +11,7 @@ import { PhaseIndicator } from './PhaseIndicator';
 import { Battlefield } from './Battlefield';
 import { HandView } from './HandView';
 import { StackView } from './StackView';
+import { TriggerQueuePanel } from './TriggerQueuePanel';
 import MTGCardDetailPanel from './MTGCardDetailPanel';
 import { MultiTargetModal } from '../actions/MultiTargetModal';
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
@@ -313,10 +314,14 @@ export function GameBoard({
         onCardDrop={handleCardDrop}
       />
 
-      {/* Middle Row: Stack */}
-      <div className="flex justify-center">
-        <div className="w-80">
+      {/* Middle Row: Stack + queued triggers */}
+      <div className="flex justify-center gap-2">
+        <div className="w-80 flex flex-col gap-2">
           <StackView items={gameState.stack} playerId={playerId} />
+          <TriggerQueuePanel
+            pendingTriggers={gameState.pending_triggers ?? []}
+            playerId={playerId}
+          />
         </div>
       </div>
 

@@ -9,7 +9,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useGame } from '../hooks/useGame';
 import { useGameStore } from '../stores/gameStore';
 import { useDragDropStore } from '../hooks/useDragDrop';
-import { GameBoard, GraveyardModal } from '../components/game';
+import { GameBoard, GraveyardModal, PriorityPrompt } from '../components/game';
 import { GameLog } from '../components/game/GameLog';
 import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
 import { ActionMenu, TargetPicker, ChoiceModal } from '../components/actions';
@@ -250,6 +250,18 @@ export function GameView() {
     }
   }, [ui.targetingMode, cancelTargeting, selectAction, selectCard]);
 
+  // Handle "Respond" from the priority prompt — scroll the sidebar's
+  // action menu into view so the player sees their options. v1 deliberately
+  // doesn't pop a modal — the action menu already lists everything cast/
+  // activate-able. Future: a richer popup that filters to instant-speed
+  // responses while the stack is non-empty.
+  const handleRespondToPriority = useCallback(() => {
+    const menu = document.getElementById('action-menu-anchor');
+    if (menu) {
+      menu.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, []);
+
   // Handle concede
   const handleConcede = useCallback(async () => {
     if (!matchId || !playerId) return;
@@ -403,6 +415,17 @@ export function GameView() {
           onCastMultiTargetSpell={handleCastMultiTargetSpell}
         />
 
+        {/* Priority Prompt — surfaces priority window during stack
+            resolution. Auto-pass already handles the no-stack case;
+            this only renders when something is on the stack OR a
+            trigger has just fired and is waiting in the queue. */}
+        <PriorityPrompt
+          gameState={gameState}
+          playerId={playerId}
+          onPass={pass}
+          onRespond={handleRespondToPriority}
+        />
+
         {/* Target Picker Overlay */}
         <TargetPicker
           isActive={ui.targetingMode !== 'none'}
@@ -459,7 +482,7 @@ export function GameView() {
         </div>
 
         {/* Action Menu */}
-        <div className="flex-1 p-4 overflow-y-auto">
+        <div id="action-menu-anchor" className="flex-1 p-4 overflow-y-auto">
           <ActionMenu
             actions={gameState.legal_actions}
             selectedAction={ui.selectedAction}
