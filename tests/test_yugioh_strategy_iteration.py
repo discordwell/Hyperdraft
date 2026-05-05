@@ -3,7 +3,7 @@
 from src.ai.yugioh_adapter import YugiohAIAdapter
 from src.cards.yugioh.ygo_classic import BLUE_EYES_WHITE_DRAGON
 from src.cards.yugioh.ygo_optimized import PREMATURE_BURIAL
-from src.engine.game import Game
+from src.engine.game import Game, make_ygo_monster
 from src.engine.types import ZoneType
 
 
@@ -24,6 +24,15 @@ def _card(game: Game, card_def, owner, zone: ZoneType):
         characteristics=card_def.characteristics,
         card_def=card_def,
     )
+
+
+def _field_monster(game: Game, owner, name: str, atk: int, def_val: int,
+                   position: str = "face_up_atk"):
+    card_def = make_ygo_monster(name, atk=atk, def_val=def_val, level=4)
+    obj = _card(game, card_def, owner, ZoneType.MONSTER_ZONE)
+    obj.state.ygo_position = position
+    obj.state.face_down = position == "face_down_def"
+    return obj
 
 
 def test_hard_ai_does_not_activate_premature_burial_at_lethal_cost():
@@ -49,3 +58,17 @@ def test_hard_ai_does_not_activate_premature_burial_at_lethal_cost():
         "card_id": spell.id,
         "targets": [target.id],
     }
+
+
+def test_hard_ai_skips_battle_phase_when_no_safe_attack_exists():
+    game, p1, p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    _field_monster(game, p1, "Outclassed Attacker", 1200, 1000)
+    blocker = _field_monster(game, p2, "Visible Beater", 2000, 1600)
+
+    assert ai.should_enter_battle(p1.id, game.state) is False
+
+    blocker.state.ygo_position = "face_up_def"
+    blocker.card_def.def_val = 1000
+
+    assert ai.should_enter_battle(p1.id, game.state) is True

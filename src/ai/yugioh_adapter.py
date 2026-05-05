@@ -417,7 +417,14 @@ class YugiohAIAdapter:
                 continue
             atk = getattr(obj.card_def, 'atk', 0) or 0
             if atk > 0:
-                return True
+                if self.difficulty == "easy":
+                    return True
+                opp_id = self._get_opponent(player_id, state)
+                target = self._pick_attack_target(
+                    obj, self._get_monsters(opp_id, state), opp_id, state
+                )
+                if target != "__SKIP__":
+                    return True
         return False
 
     def get_battle_action(self, player_id: str, state: GameState,
