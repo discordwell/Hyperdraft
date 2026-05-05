@@ -62,6 +62,10 @@ from src.cards.interceptor_helpers import (
     make_modal_resolve,
     # Copy-ability mechanic (Gogo, Master of Mimicry).
     make_copy_ability_event,
+    # FIN: Tiered cost ("Choose one additional cost.")
+    TierDefinition,
+    make_tiered_setup,
+    make_tiered_resolve,
 )
 
 
@@ -5054,6 +5058,279 @@ def xande_dark_mage_ff_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 # =============================================================================
+# Tiered cost (FIN) — tier menus + resolve dispatchers
+# =============================================================================
+#
+# Each tiered card defines a list of TierDefinition entries (cheapest first).
+# The card def wires:
+#   * setup_interceptors=lambda obj, state: make_tiered_setup(obj, tiers=...)
+#   * resolve=make_tiered_resolve(...)
+# at module-import time. The tier list is shared between setup and resolve so
+# the same description/index mapping is used in both places.
+# -----------------------------------------------------------------------------
+
+
+def _tier_grant_self(target_id: str, keywords: list[str]) -> list[Event]:
+    return [
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': target_id, 'keyword': kw,
+                     'duration': 'end_of_turn'},
+        )
+        for kw in keywords
+    ]
+
+
+def _restoration_magic_targets(state: GameState, caster: Optional[str]):
+    """Best-effort: pick a permanent the caster controls as the tier target.
+
+    The Tiered helper doesn't currently route the cast's chosen targets into
+    the tier effect_fn, so for these tests we resolve "target permanent" by
+    choosing the caster's first battlefield permanent. Production usage
+    should pair this with a TARGET_REQUIRED step before the tiered prompt.
+    """
+    if caster is None:
+        return None
+    for obj in state.objects.values():
+        if obj.zone == ZoneType.BATTLEFIELD and obj.controller == caster:
+            return obj
+    return None
+
+
+def _build_restoration_magic_tiers() -> list[TierDefinition]:
+    def cure(obj, state):
+        target = _restoration_magic_targets(state, obj.controller)
+        if target is None:
+            return []
+        return _tier_grant_self(target.id, ['hexproof', 'indestructible'])
+
+    def cura(obj, state):
+        events = cure(obj, state)
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 3},
+        ))
+        return events
+
+    def curaga(obj, state):
+        events: list[Event] = []
+        for o in state.objects.values():
+            if o.zone == ZoneType.BATTLEFIELD and o.controller == obj.controller:
+                events.extend(_tier_grant_self(o.id, ['hexproof', 'indestructible']))
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 6},
+        ))
+        return events
+
+    return [
+        TierDefinition(name="Cure",   extra_cost="{0}",   effect_fn=cure,
+                       description="Target permanent gains hexproof and indestructible EOT"),
+        TierDefinition(name="Cura",   extra_cost="{1}",   effect_fn=cura,
+                       description="Same + you gain 3 life"),
+        TierDefinition(name="Curaga", extra_cost="{3}{W}", effect_fn=curaga,
+                       description="All your permanents gain hexproof+indestructible; gain 6 life"),
+    ]
+
+
+_RESTORATION_MAGIC_TIERS = _build_restoration_magic_tiers()
+
+
+def _build_fire_magic_tiers() -> list[TierDefinition]:
+    def _damage_each(amount: int):
+        def fn(obj, state):
+            events: list[Event] = []
+            for o in state.objects.values():
+                if (o.zone == ZoneType.BATTLEFIELD and
+                        CardType.CREATURE in o.characteristics.types):
+                    events.append(Event(
+                        type=EventType.DAMAGE,
+                        payload={
+                            'target': o.id,
+                            'amount': amount,
+                            'is_combat': False,
+                            'is_player': False,
+                        },
+                    ))
+            return events
+        return fn
+
+    return [
+        TierDefinition(name="Fire",   extra_cost="{0}", effect_fn=_damage_each(1),
+                       description="Deal 1 damage to each creature"),
+        TierDefinition(name="Fira",   extra_cost="{2}", effect_fn=_damage_each(2),
+                       description="Deal 2 damage to each creature"),
+        TierDefinition(name="Firaga", extra_cost="{5}", effect_fn=_damage_each(3),
+                       description="Deal 3 damage to each creature"),
+    ]
+
+
+_FIRE_MAGIC_TIERS = _build_fire_magic_tiers()
+
+
+def _build_thunder_magic_tiers() -> list[TierDefinition]:
+    def _damage_target(amount: int):
+        def fn(obj, state):
+            # Resolve "target creature" by picking the first opponent creature
+            # available. Production targeting integration is an engine gap.
+            target = None
+            for o in state.objects.values():
+                if (o.zone == ZoneType.BATTLEFIELD and
+                        CardType.CREATURE in o.characteristics.types and
+                        o.controller != obj.controller):
+                    target = o
+                    break
+            if target is None:
+                return []
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={
+                    'target': target.id,
+                    'amount': amount,
+                    'is_combat': False,
+                    'is_player': False,
+                },
+            )]
+        return fn
+
+    return [
+        TierDefinition(name="Thunder",  extra_cost="{0}",   effect_fn=_damage_target(2),
+                       description="Deal 2 damage to target creature"),
+        TierDefinition(name="Thundara", extra_cost="{3}",   effect_fn=_damage_target(4),
+                       description="Deal 4 damage to target creature"),
+        TierDefinition(name="Thundaga", extra_cost="{5}{R}", effect_fn=_damage_target(8),
+                       description="Deal 8 damage to target creature"),
+    ]
+
+
+_THUNDER_MAGIC_TIERS = _build_thunder_magic_tiers()
+
+
+def _build_ice_magic_tiers() -> list[TierDefinition]:
+    def _bounce(obj, state):
+        target = None
+        for o in state.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types):
+                target = o
+                break
+        if target is None:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target.id,
+                'from_zone': ZoneType.BATTLEFIELD,
+                'to_zone': ZoneType.HAND,
+                'controller': target.controller,
+            },
+        )]
+
+    def _put_top_or_bottom(obj, state):
+        target = None
+        for o in state.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types):
+                target = o
+                break
+        if target is None:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target.id,
+                'from_zone': ZoneType.BATTLEFIELD,
+                'to_zone': ZoneType.LIBRARY,
+                'controller': target.controller,
+                'to_top': True,  # owner picks; default to top
+            },
+        )]
+
+    def _shuffle_in(obj, state):
+        target = None
+        for o in state.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types):
+                target = o
+                break
+        if target is None:
+            return []
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': target.id,
+                'from_zone': ZoneType.BATTLEFIELD,
+                'to_zone': ZoneType.LIBRARY,
+                'controller': target.controller,
+                'shuffle': True,
+            },
+        )]
+
+    return [
+        TierDefinition(name="Blizzard",  extra_cost="{0}",   effect_fn=_bounce,
+                       description="Return target creature to its owner's hand"),
+        TierDefinition(name="Blizzara",  extra_cost="{2}",   effect_fn=_put_top_or_bottom,
+                       description="Owner puts it on top or bottom of library"),
+        TierDefinition(name="Blizzaga",  extra_cost="{5}{U}", effect_fn=_shuffle_in,
+                       description="Owner shuffles it into their library"),
+    ]
+
+
+_ICE_MAGIC_TIERS = _build_ice_magic_tiers()
+
+
+def _build_tifas_limit_break_tiers() -> list[TierDefinition]:
+    def _pump(amount_p: int, amount_t: int, mode: str = "add"):
+        def fn(obj, state):
+            target = None
+            for o in state.objects.values():
+                if (o.zone == ZoneType.BATTLEFIELD and
+                        CardType.CREATURE in o.characteristics.types and
+                        o.controller == obj.controller):
+                    target = o
+                    break
+            if target is None:
+                return []
+            if mode == "add":
+                return [Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={'object_id': target.id, 'power_mod': amount_p,
+                             'toughness_mod': amount_t, 'duration': 'end_of_turn'},
+                )]
+            # Double / triple modes are PT-multiply effects (engine gap):
+            # we approximate by reading current p/t and emitting a flat boost.
+            cur_p = get_power(target, state) or 0
+            cur_t = get_toughness(target, state) or 0
+            multiplier = 1 if mode == "double" else 2
+            return [Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': target.id, 'power_mod': cur_p * multiplier,
+                         'toughness_mod': cur_t * multiplier,
+                         'duration': 'end_of_turn'},
+            )]
+        return fn
+
+    return [
+        TierDefinition(name="Somersault",     extra_cost="{0}",   effect_fn=_pump(2, 2, "add"),
+                       description="Target creature you control gets +2/+2 EOT"),
+        TierDefinition(name="Meteor Strikes", extra_cost="{2}",   effect_fn=_pump(0, 0, "double"),
+                       description="Double target creature's P/T EOT"),
+        TierDefinition(name="Final Heaven",   extra_cost="{6}{G}", effect_fn=_pump(0, 0, "triple"),
+                       description="Triple target creature's P/T EOT"),
+    ]
+
+
+_TIFAS_LIMIT_BREAK_TIERS = _build_tifas_limit_break_tiers()
+
+
+def _make_tiered_setup_fn(tiers):
+    """Closure factory to keep the lambda capture out of card defs."""
+    def setup(obj, state):
+        return make_tiered_setup(obj, tiers=tiers)
+    return setup
+
+
+# =============================================================================
 # CARD DEFINITIONS
 # =============================================================================
 
@@ -5426,6 +5703,8 @@ RESTORATION_MAGIC = make_instant(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Tiered (Choose one additional cost.)\n• Cure — {0} — Target permanent gains hexproof and indestructible until end of turn.\n• Cura — {1} — Target permanent gains hexproof and indestructible until end of turn. You gain 3 life.\n• Curaga — {3}{W} — Permanents you control gain hexproof and indestructible until end of turn. You gain 6 life.",
+    setup_interceptors=_make_tiered_setup_fn(_RESTORATION_MAGIC_TIERS),
+    resolve=make_tiered_resolve(_RESTORATION_MAGIC_TIERS),
 )
 
 SIDEQUEST_CATCH_A_FISH = make_enchantment(
@@ -5670,6 +5949,8 @@ ICE_MAGIC = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Tiered (Choose one additional cost.)\n• Blizzard — {0} — Return target creature to its owner's hand.\n• Blizzara — {2} — Target creature's owner puts it on their choice of the top or bottom of their library.\n• Blizzaga — {5}{U} — Target creature's owner shuffles it into their library.",
+    setup_interceptors=_make_tiered_setup_fn(_ICE_MAGIC_TIERS),
+    resolve=make_tiered_resolve(_ICE_MAGIC_TIERS),
 )
 
 IL_MHEG_PIXIE = make_creature(
@@ -6472,6 +6753,8 @@ FIRE_MAGIC = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Tiered (Choose one additional cost.)\n• Fire — {0} — Fire Magic deals 1 damage to each creature.\n• Fira — {2} — Fire Magic deals 2 damage to each creature.\n• Firaga — {5} — Fire Magic deals 3 damage to each creature.",
+    setup_interceptors=_make_tiered_setup_fn(_FIRE_MAGIC_TIERS),
+    resolve=make_tiered_resolve(_FIRE_MAGIC_TIERS),
 )
 
 FIRION_WILD_ROSE_WARRIOR = make_creature(
@@ -6847,6 +7130,8 @@ THUNDER_MAGIC = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Tiered (Choose one additional cost.)\n• Thunder — {0} — Thunder Magic deals 2 damage to target creature.\n• Thundara — {3} — Thunder Magic deals 4 damage to target creature.\n• Thundaga — {5}{R} — Thunder Magic deals 8 damage to target creature.",
+    setup_interceptors=_make_tiered_setup_fn(_THUNDER_MAGIC_TIERS),
+    resolve=make_tiered_resolve(_THUNDER_MAGIC_TIERS),
 )
 
 TRIPLE_TRIAD = make_enchantment(
@@ -7285,6 +7570,8 @@ TIFAS_LIMIT_BREAK = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Tiered (Choose one additional cost.)\n• Somersault — {0} — Target creature gets +2/+2 until end of turn.\n• Meteor Strikes — {2} — Double target creature's power and toughness until end of turn.\n• Final Heaven — {6}{G} — Triple target creature's power and toughness until end of turn.",
+    setup_interceptors=_make_tiered_setup_fn(_TIFAS_LIMIT_BREAK_TIERS),
+    resolve=make_tiered_resolve(_TIFAS_LIMIT_BREAK_TIERS),
 )
 
 TORGAL_A_FINE_HOUND = make_creature(

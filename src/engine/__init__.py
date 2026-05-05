@@ -114,6 +114,17 @@ from .plot_saddle import (
 from .variant_metrics import MTG_BASELINE_RULES, variant_rule_summary
 from .mode_metrics import NON_MTG_MODES, mode_health_summary, non_mtg_health_report
 
+from .tiered import (
+    TierDefinition,
+    make_tiered_setup,
+    make_tiered_resolve,
+    compute_affordable_tiers,
+    get_chosen_tier_index,
+    get_chosen_tier_indices,
+    clear_chosen_tier,
+    TURN_DATA_TIER_KEY,
+)
+
 __all__ = [
     # IDs
     'new_id',
@@ -182,4 +193,9 @@ __all__ = [
 
     # Mode metrics
     'NON_MTG_MODES', 'mode_health_summary', 'non_mtg_health_report',
+
+    # FIN Tiered cost
+    'TierDefinition', 'make_tiered_setup', 'make_tiered_resolve',
+    'compute_affordable_tiers', 'get_chosen_tier_index',
+    'get_chosen_tier_indices', 'clear_chosen_tier', 'TURN_DATA_TIER_KEY',
 ]
