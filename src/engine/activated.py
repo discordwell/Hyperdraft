@@ -88,6 +88,13 @@ class ActivatedAbility:
     # casting the main half from exile.
     is_adventure: bool = False
 
+    # Optional state-time gate. When provided, ``can_pay_activation`` invokes
+    # ``precondition_fn(obj, state) -> bool``; if it returns False, the ability
+    # is treated as not legal. Use for "Activate only if X happened this turn"
+    # / "Activate only while you control a Y". Distinct from ``mana_cost`` /
+    # ``requires_tap`` etc. — those are *costs*; this is a *condition*.
+    precondition_fn: Optional[Callable[[Any, Any], bool]] = None
+
 
 # ----------------------------------------------------------------------
 # Cost parsing
@@ -262,6 +269,7 @@ def register_activated_ability(
     targets_required: int = 0,
     target_kind: str = "any",
     is_adventure: bool = False,
+    precondition_fn: Optional[Callable[[Any, Any], bool]] = None,
 ) -> ActivatedAbility:
     """Register an activated ability descriptor on ``obj.state.activated_abilities``.
 
@@ -304,6 +312,7 @@ def register_activated_ability(
         targets_required=targets_required,
         target_kind=target_kind,
         is_adventure=is_adventure,
+        precondition_fn=precondition_fn,
     )
 
     if not isinstance(obj.state.activated_abilities, list):
@@ -373,6 +382,14 @@ def can_pay_activation(
     ``cost_query.get_effective_activation_cost``); the printed cost is used
     otherwise.
     """
+    # State-time precondition (e.g. "Activate only if Vader was destroyed
+    # this turn"). Distinct from cost/timing — guards legality entirely.
+    if ability.precondition_fn is not None:
+        try:
+            if not ability.precondition_fn(obj, state):
+                return False
+        except Exception:
+            return False
     # Tap requirement
     if ability.requires_tap and obj.state.tapped:
         return False

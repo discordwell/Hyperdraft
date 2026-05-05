@@ -785,6 +785,7 @@ def make_cost_reduction(
     applies_to: Callable[[GameObject, str, GameState], bool],
     amount,
     self_only: bool = False,
+    condition_fn: Optional[Callable[[GameState], bool]] = None,
 ) -> Interceptor:
     """
     Register a cost-reduction interceptor.
@@ -793,6 +794,10 @@ def make_cost_reduction(
     coloured, colourless ({C}), snow ({S}), hybrid, and Phyrexian symbols are
     always preserved (so {2}{R}{R} reduced by {3} stays at {R}{R}, not {0}).
     Multiple reductions stack additively. Generic is clamped at 0.
+
+    `condition_fn(state) -> bool`: optional state-time gate. If provided and
+    returns False, the reduction is skipped for this query. Use for "Dark Side
+    — costs less while life < 10" / "if it's your second spell this turn".
     """
     source_id = source_obj.id
 
@@ -822,6 +827,12 @@ def make_cost_reduction(
         pid = event.payload.get('player_id')
         if card is None or pid is None:
             return False
+        if condition_fn is not None:
+            try:
+                if not condition_fn(state):
+                    return False
+            except Exception:
+                return False
         try:
             return bool(applies_to(card, pid, state))
         except Exception:
@@ -5311,6 +5322,7 @@ def make_activated_ability(
     once_per_game: bool = False,
     targets_required: int = 0,
     target_kind: str = "any",
+    precondition_fn: Optional[Callable[[GameObject, GameState], bool]] = None,
 ):
     """Register an activated ability on ``obj`` and return the descriptor.
 
@@ -5350,6 +5362,7 @@ def make_activated_ability(
         once_per_game=once_per_game,
         targets_required=targets_required,
         target_kind=target_kind,
+        precondition_fn=precondition_fn,
     )
 
 
@@ -8571,3 +8584,65 @@ def make_copy_ability_event(
         source=source_id,
         controller=controller,
     )
+
+
+# =============================================================================
+# Per-turn destruction tracker (for "if X was destroyed this turn" predicates)
+# =============================================================================
+#
+# Used by Vader-style reassembly abilities and any "when target died this turn"
+# checks. The tracker is installed lazily the first time `was_destroyed_this_turn`
+# is queried — installing once per game keeps it cheap and safe to call from card
+# scripts without each card worrying about lifecycle.
+
+_DESTRUCTION_TRACKER_FLAG = "_destruction_tracker_installed"
+
+
+def _ensure_destruction_tracker(state: GameState) -> None:
+    """Install the system-level destruction tracker once per game state."""
+    if getattr(state, _DESTRUCTION_TRACKER_FLAG, False):
+        return
+    setattr(state, _DESTRUCTION_TRACKER_FLAG, True)
+
+    def record_destruction(event: Event, _st: GameState) -> InterceptorResult:
+        oid = event.payload.get("object_id")
+        if oid:
+            destroyed: set = state.turn_data.setdefault("destroyed_this_turn", set())
+            destroyed.add(oid)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def reset_on_turn_start(_event: Event, _st: GameState) -> InterceptorResult:
+        state.turn_data["destroyed_this_turn"] = set()
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    record_int = Interceptor(
+        id=new_id(),
+        source="SYSTEM_DESTRUCTION_TRACKER",
+        controller="SYSTEM",
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, _s: e.type == EventType.OBJECT_DESTROYED,
+        handler=record_destruction,
+        duration="forever",
+    )
+    reset_int = Interceptor(
+        id=new_id(),
+        source="SYSTEM_DESTRUCTION_TRACKER",
+        controller="SYSTEM",
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, _s: e.type == EventType.TURN_START,
+        handler=reset_on_turn_start,
+        duration="forever",
+    )
+    state.interceptors[record_int.id] = record_int
+    state.interceptors[reset_int.id] = reset_int
+
+
+def was_destroyed_this_turn(obj_id: str, state: GameState) -> bool:
+    """Return True iff `obj_id` was destroyed since the start of the current turn.
+
+    Lazy-installs the per-turn destruction tracker on first call. Cheap idempotent
+    install; subsequent calls are O(1) lookups against `state.turn_data`.
+    """
+    _ensure_destruction_tracker(state)
+    destroyed: set = state.turn_data.get("destroyed_this_turn") or set()
+    return obj_id in destroyed
