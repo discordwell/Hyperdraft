@@ -1008,6 +1008,166 @@ def test_cost_reduction_condition_fn_skipped_when_false():
     print(f"  disabled: {eff_disabled.mana_value}; enabled: {eff_enabled.mana_value}")
 
 
+# ============================================================================
+# Phase B-2: The Force Itself (Saga)
+# ============================================================================
+
+def test_force_itself_loads_as_saga():
+    """The Force Itself loads with the Saga subtype + chapter dispatcher."""
+    print("\n=== Force Itself: loads ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    saga = _put_on_battlefield(game, p1, "The Force Itself")
+    assert saga.zone == ZoneType.BATTLEFIELD
+    assert "Saga" in saga.characteristics.subtypes
+    # ETB sets first lore counter.
+    assert saga.state.counters.get('lore', 0) == 1, (
+        f"ETB should set 1 lore counter; got {saga.state.counters}"
+    )
+    print(f"  Lore counter at ETB: {saga.state.counters.get('lore', 0)}")
+
+
+def test_force_itself_chapter_i_exiles_top_creature():
+    """Chapter I exiles top of each opponent's library if it's a creature."""
+    print("\n=== Force Itself: chapter I ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+
+    # Plant a creature on top of Bob's library.
+    cd = STAR_WARS_CARDS["Jedi Padawan"]
+    library = game.state.zones.get(f"library_{p2.id}")
+    target = game.create_object(
+        name="Jedi Padawan",
+        owner_id=p2.id,
+        zone=ZoneType.LIBRARY,
+        characteristics=cd.characteristics,
+        card_def=cd,
+    )
+    library.objects.remove(target.id)
+    library.objects.insert(0, target.id)
+
+    _put_on_battlefield(game, p1, "The Force Itself")
+    # Chapter I should have run on ETB.
+    assert target.zone == ZoneType.EXILE, (
+        f"Top creature should be exiled; got {target.zone}"
+    )
+    print(f"  Bob's top library card exiled to {target.zone.name}")
+
+
+def test_force_itself_chapter_i_skips_noncreature():
+    """Chapter I leaves non-creatures alone."""
+    print("\n=== Force Itself: chapter I noncreature edge ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+
+    # Plant an instant on top of Bob's library.
+    cd = STAR_WARS_CARDS["Force Push"]  # instant
+    library = game.state.zones.get(f"library_{p2.id}")
+    target = game.create_object(
+        name="Force Push",
+        owner_id=p2.id,
+        zone=ZoneType.LIBRARY,
+        characteristics=cd.characteristics,
+        card_def=cd,
+    )
+    library.objects.remove(target.id)
+    library.objects.insert(0, target.id)
+
+    _put_on_battlefield(game, p1, "The Force Itself")
+    assert target.zone == ZoneType.LIBRARY, (
+        f"Non-creature should not be exiled; got {target.zone}"
+    )
+    print(f"  Non-creature stays in library (correct)")
+
+
+def test_force_itself_chapter_ii_pumps_negatively_only_opponent():
+    """Chapter II gives -3/-3 to opponent creatures, not own."""
+    print("\n=== Force Itself: chapter II ===")
+    from src.engine import Characteristics, Color
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+
+    # Drop creatures for both.
+    own = game.create_object(
+        name="Mine",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            colors={Color.WHITE},
+            power=4, toughness=4,
+        ),
+    )
+    enemy = game.create_object(
+        name="Theirs",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            colors={Color.RED},
+            power=4, toughness=4,
+        ),
+    )
+    saga = _put_on_battlefield(game, p1, "The Force Itself")
+    # Advance to chapter II via a draw step trigger.
+    game.state.active_player = p1.id
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'draw', 'step': 'draw',
+                 'active_player': p1.id, 'turn_number': 1},
+    ))
+    assert saga.state.counters.get('lore', 0) == 2, (
+        f"After draw step, saga should be at lore 2; got {saga.state.counters}"
+    )
+    own_p, own_t = get_power(own, game.state), get_toughness(own, game.state)
+    en_p, en_t = get_power(enemy, game.state), get_toughness(enemy, game.state)
+    assert own_p == 4 and own_t == 4, (
+        f"Own creature should be untouched: {own_p}/{own_t}"
+    )
+    assert en_p == 1 and en_t == 1, (
+        f"Enemy should be -3/-3: {en_p}/{en_t}"
+    )
+    print(f"  Own {own_p}/{own_t}, enemy {en_p}/{en_t}")
+
+
+def test_force_itself_chapter_iii_emits_two_searches_and_sacrifices():
+    """Chapter III emits two SEARCH_LIBRARY events; saga sacrificed after III."""
+    print("\n=== Force Itself: chapter III ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    saga = _put_on_battlefield(game, p1, "The Force Itself")
+
+    game.state.active_player = p1.id
+    # Two draw steps to get to chapter III.
+    for turn in (1, 2):
+        game.emit(Event(
+            type=EventType.PHASE_START,
+            payload={'phase': 'draw', 'step': 'draw',
+                     'active_player': p1.id, 'turn_number': turn},
+        ))
+
+    # SEARCH_LIBRARY emitted twice (creature tutor + equipment tutor).
+    sl_events = [e for e in game.state.event_log
+                 if e.type == EventType.SEARCH_LIBRARY
+                 and e.source == saga.id]
+    assert len(sl_events) >= 2, (
+        f"Expected ≥2 SEARCH_LIBRARY from saga, got {len(sl_events)}"
+    )
+    payloads = [e.payload for e in sl_events]
+    has_jedi_or_sith = any(p.get('subtypes_any') == ['Jedi', 'Sith'] for p in payloads)
+    has_equipment = any(p.get('subtype') == 'Equipment' for p in payloads)
+    assert has_jedi_or_sith, f"Missing Jedi/Sith tutor: {payloads}"
+    assert has_equipment, f"Missing Equipment tutor: {payloads}"
+    # Final-chapter sacrifice.
+    assert saga.zone == ZoneType.GRAVEYARD, (
+        f"Saga should be sacrificed after III; got {saga.zone}"
+    )
+    print(f"  Two tutors emitted, saga sacrificed to graveyard")
+
+
 if __name__ == "__main__":
     test_boba_fett_loads_and_grants_keywords()
     test_boba_fett_combat_damage_triggers_exile_and_treasure()
