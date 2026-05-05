@@ -445,6 +445,7 @@ class YugiohAIAdapter:
         opp_monsters = self._get_monsters(opp_id, state)
 
         # Find attackers that haven't attacked yet
+        attackers = []
         for obj in monsters:
             if obj.state.face_down:
                 continue
@@ -456,7 +457,19 @@ class YugiohAIAdapter:
             atk = getattr(obj.card_def, 'atk', 0) or 0
             if atk <= 0:
                 continue
+            attackers.append(obj)
 
+        if self.difficulty in ("hard", "ultra"):
+            best_attack = self._pick_best_battle_attack(attackers, opp_monsters, opp_id, state)
+            if best_attack:
+                attacker, target = best_attack
+                return {
+                    'action_type': 'declare_attack',
+                    'attacker_id': attacker.id,
+                    'target_id': target,
+                }
+
+        for obj in attackers:
             target = self._pick_attack_target(obj, opp_monsters, opp_id, state)
             if target == "__SKIP__":
                 continue  # Can't safely attack with this monster
@@ -468,6 +481,76 @@ class YugiohAIAdapter:
 
         return {'action_type': 'end_phase'}
 
+    def _pick_best_battle_attack(self, attackers: list, opp_monsters: list,
+                                 opp_id: str, state: GameState) -> Optional[tuple]:
+        """Pick the best next attack with shallow lookahead over remaining attackers."""
+        if not attackers:
+            return None
+        if not opp_monsters:
+            best_direct = max(
+                attackers,
+                key=lambda obj: getattr(obj.card_def, 'atk', 0) or 0,
+            )
+            return (best_direct, None)
+
+        best = None
+        best_score = -1
+        for attacker in attackers:
+            for option in self._attack_options(attacker, opp_monsters):
+                score = self._score_attack_option(
+                    attacker, option, attackers, opp_monsters, opp_id, state
+                )
+                if score > best_score:
+                    best_score = score
+                    best = (attacker, option["target"].id)
+        return best
+
+    def _score_attack_option(self, attacker: 'GameObject', option: dict,
+                             attackers: list, opp_monsters: list,
+                             opp_id: str, state: GameState) -> int:
+        """Score an attack plus the best immediate follow-up by another attacker."""
+        target = option["target"]
+        damage = option["damage"]
+        target_value = option["target_value"]
+        opponent = state.players.get(opp_id)
+        if opponent and damage >= getattr(opponent, 'lp', 0):
+            return 1_000_000 + damage
+
+        remaining_targets = [m for m in opp_monsters if m.id != target.id]
+        followup = 0
+        for other in attackers:
+            if other.id == attacker.id:
+                continue
+            options = self._attack_options(other, remaining_targets)
+            if not options:
+                continue
+            followup = max(
+                followup,
+                max(opt["damage"] + opt["target_value"] for opt in options),
+            )
+        return damage + target_value + followup
+
+    def _attack_options(self, attacker: 'GameObject', opp_monsters: list) -> list[dict]:
+        """Return safe attack options against visible/acceptable targets."""
+        atk = getattr(attacker.card_def, 'atk', 0) or 0
+        options = []
+        for m in opp_monsters:
+            m_atk = getattr(m.card_def, 'atk', 0) or 0
+            m_def = getattr(m.card_def, 'def_val', 0) or 0
+
+            if m.state.ygo_position == 'face_up_atk':
+                if atk > m_atk:
+                    options.append({"target": m, "damage": atk - m_atk, "target_value": m_atk})
+                elif atk == m_atk and self.difficulty in ("easy", "medium"):
+                    options.append({"target": m, "damage": 0, "target_value": m_atk})
+            elif m.state.ygo_position in ('face_up_def', 'face_down_def'):
+                if m.state.face_down:
+                    if self.difficulty in ("easy", "medium") or atk >= 1500:
+                        options.append({"target": m, "damage": 0, "target_value": 0})
+                elif atk > m_def:
+                    options.append({"target": m, "damage": 0, "target_value": m_def})
+        return options
+
     def _pick_attack_target(self, attacker: 'GameObject', opp_monsters: list,
                             opp_id: str, state: GameState) -> Optional[str]:
         """Pick the best target for an attack."""
@@ -477,29 +560,7 @@ class YugiohAIAdapter:
             return None  # Direct attack
 
         # Filter to monsters we can beat
-        beatable = []
-        for m in opp_monsters:
-            m_atk = getattr(m.card_def, 'atk', 0) or 0
-            m_def = getattr(m.card_def, 'def_val', 0) or 0
-
-            if m.state.ygo_position == 'face_up_atk':
-                if atk > m_atk:
-                    # We win and deal LP damage = atk - m_atk
-                    beatable.append((m, atk - m_atk, m_atk))
-                elif atk == m_atk and self.difficulty in ("easy", "medium"):
-                    # Trade — both destroyed, no LP damage
-                    beatable.append((m, 0, m_atk))
-            elif m.state.ygo_position in ('face_up_def', 'face_down_def'):
-                if m.state.face_down:
-                    # Unknown DEF — risk it on easy/medium, hard risks if ATK >= 1500
-                    if self.difficulty in ("easy", "medium"):
-                        beatable.append((m, 0, 0))
-                    elif atk >= 1500:
-                        # Hard/ultra: attack face-downs with strong monsters
-                        beatable.append((m, 0, 0))
-                elif atk > m_def:
-                    # Known DEF we can destroy — no LP damage but clears board
-                    beatable.append((m, 0, m_def))
+        beatable = self._attack_options(attacker, opp_monsters)
 
         if not beatable:
             # No safe target — medium+ skip, easy attacks anyway
@@ -510,11 +571,11 @@ class YugiohAIAdapter:
 
         if self.difficulty in ("hard", "ultra"):
             # Prioritize: ATK monsters that deal LP damage first, then clear DEF
-            beatable.sort(key=lambda x: (x[1], x[2]), reverse=True)
+            beatable.sort(key=lambda x: (x["damage"], x["target_value"]), reverse=True)
         else:
             random.shuffle(beatable)
 
-        return beatable[0][0].id
+        return beatable[0]["target"].id
 
     # === Helper Methods ===
 
