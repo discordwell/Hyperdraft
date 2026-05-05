@@ -343,6 +343,14 @@ class EventType(Enum):
     FACE_DOWN_ENTER = auto()          # Marker: a permanent has entered the battlefield face-down
     FACE_DOWN_TURNED_UP = auto()      # Marker: a permanent was turned face-up (post-flip)
     FACE_DOWN_QUERY_MASK = auto()     # Internal marker (reserved for future overrides)
+    # ------------------------------------------------------------------
+    # Final Fantasy (FIN) — Tiered cost mechanic.
+    # Implementation lives in src/engine/tiered.py and the helper in
+    # src/cards/interceptor_helpers.py (TIERED COST section).
+    # Payload: {'player': str, 'card_id': str, 'tiers': list[dict]}, where
+    # each tier dict is {'name': str, 'extra_cost': str, 'effect_label': str}.
+    # ------------------------------------------------------------------
+    TIERED_CHOICE = auto()            # Player must choose a tier as the spell is cast
 
     # ------------------------------------------------------------------
     # Generic replacement-effect telemetry. Fired by ``make_replacement_effect``
