@@ -1798,6 +1798,20 @@ class PrioritySystem:
                 targets=action.targets,
             )
 
+            # === Crime tracking (OTJ) ===
+            # CR 701.55: a player commits a crime as they cast a spell that
+            # targets opponents / opp's permanents / opp's GY cards. Detect
+            # and emit CRIME_COMMITTED for any pre-chosen targets on this
+            # cast; choices made via PendingChoice are detected in
+            # ``Game.submit_choice`` instead.
+            from .crime import check_cast_targets_for_crime
+            crime_events = check_cast_targets_for_crime(
+                controller_id=action.player_id,
+                targets=action.targets,
+                state=self.state,
+                source_id=action.card_id,
+            )
+
             # EOE Warp: mark the in-flight object so end-step exile is
             # registered after ETB, and mark the card definition as having
             # used its warp cast (one warp per card per game).
@@ -1832,7 +1846,7 @@ class PrioritySystem:
                     controller=action.player_id,
                 ))
 
-            return [Event(
+            return crime_events + [Event(
                 type=EventType.CAST,
                 payload={
                     # Canonical spell-cast payload (used by spell-cast triggers).
@@ -2453,6 +2467,17 @@ class PrioritySystem:
                     ))
                     pushed_stack_item = True
                 record_activation(ability, self.state)
+                # === Crime tracking (OTJ) ===
+                # CR 701.55: activating an ability that targets an
+                # opponent / their permanents / their GY cards is a crime.
+                from .crime import check_cast_targets_for_crime as _ccfc
+                _crime_events = _ccfc(
+                    controller_id=action.player_id,
+                    targets=action.targets,
+                    state=self.state,
+                    source_id=action.source_id,
+                )
+                events.extend(_crime_events)
                 events.append(Event(
                     type=EventType.ACTIVATE,
                     payload={
@@ -2869,6 +2894,18 @@ class PrioritySystem:
             )
             self.stack.push(item)
             pushed_stack_item = True
+
+        # === Crime tracking (OTJ) ===
+        # CR 701.55: activating an ability with opponent-facing targets is a
+        # crime. This covers fallback / unknown activated-ability shapes.
+        if action.targets:
+            from .crime import check_cast_targets_for_crime as _ccfc_fallback
+            events.extend(_ccfc_fallback(
+                controller_id=action.player_id,
+                targets=action.targets,
+                state=self.state,
+                source_id=action.source_id,
+            ))
 
         events.append(Event(
             type=EventType.ACTIVATE,
