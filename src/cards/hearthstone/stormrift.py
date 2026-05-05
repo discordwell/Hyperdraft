@@ -181,7 +181,7 @@ def ember_channeler_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 EMBER_CHANNELER = make_minion(
     name="Ember Channeler",
-    attack=2, health=3,
+    attack=2, health=4,
     mana_cost="{2}",
     subtypes={"Elemental"},
     text="After you cast a spell, gain +1 Attack and ignore the next Rift Storm this turn.",
@@ -1811,6 +1811,7 @@ def stormrift_deck_profile(deck: list) -> dict:
     spell_count = 0
     early_count = 0
     early_resilient_minions = 0
+    early_durable_minions = 0
     fragile_one_health_minions = 0
     armor_cards = 0
     draw_cards = 0
@@ -1830,6 +1831,8 @@ def stormrift_deck_profile(deck: list) -> dict:
             health = card.characteristics.toughness or 0
             if cost <= 3 and health >= 3:
                 early_resilient_minions += 1
+            if cost <= 3 and health >= 4:
+                early_durable_minions += 1
             if health <= 1:
                 fragile_one_health_minions += 1
         if CardType.SPELL in types:
@@ -1848,6 +1851,7 @@ def stormrift_deck_profile(deck: list) -> dict:
         "minion_count": minion_count,
         "spell_count": spell_count,
         "early_resilient_minions": early_resilient_minions,
+        "early_durable_minions": early_durable_minions,
         "fragile_one_health_minions": fragile_one_health_minions,
         "armor_cards": armor_cards,
         "draw_cards": draw_cards,
