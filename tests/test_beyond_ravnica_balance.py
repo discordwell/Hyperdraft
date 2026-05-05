@@ -31,6 +31,8 @@ def test_ravnica_balance_summary_tracks_all_guilds():
         assert profile["pokemon_count"] == 16, guild
         assert profile["basic_count"] >= 8, guild
         assert 10 <= profile["energy_count"] <= 18, guild
+        assert profile["trainer_count"] >= 30, guild
+        assert profile["trainer_to_energy_ratio"] >= 2.0, guild
         assert profile["supporter_count"] >= 8, guild
         assert profile["item_count"] >= 12, guild
         assert profile["primary_energy_count"] >= 7, guild

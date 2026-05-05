@@ -18,6 +18,7 @@ def ravnica_guild_profile(guild: str, deck: list[CardDefinition]) -> dict:
     item = [card for card in deck if _has(card, CardType.ITEM)]
     supporter = [card for card in deck if _has(card, CardType.SUPPORTER)]
     stadium = [card for card in deck if _has(card, CardType.STADIUM)]
+    trainer_count = len(item) + len(supporter) + len(stadium)
     pokemon_type_counts = Counter(
         card.pokemon_type
         for card in pokemon
@@ -46,6 +47,8 @@ def ravnica_guild_profile(guild: str, deck: list[CardDefinition]) -> dict:
         "stage2_count": sum(1 for card in pokemon if card.evolution_stage == "Stage 2"),
         "ex_count": sum(1 for card in pokemon if card.is_ex),
         "energy_count": len(energy),
+        "trainer_count": trainer_count,
+        "trainer_to_energy_ratio": round(trainer_count / max(1, len(energy)), 2),
         "item_count": len(item),
         "supporter_count": len(supporter),
         "stadium_count": len(stadium),
