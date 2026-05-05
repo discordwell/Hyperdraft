@@ -1758,8 +1758,8 @@ PYROMANCER_DECK = [
     PYROCLASM,
     # Legendary spell (1)
     SPELL_ECHO,            # LEGENDARY
-    # Neutral filler (2)
-    RIFT_WALKER, RIFT_WALKER,
+    # Neutral / resilience filler (2)
+    PYROCLASM_ADEPT, RIFT_WALKER,
 ]
 
 # Cryomancer deck
@@ -1801,6 +1801,66 @@ STORMRIFT_DECKS = {
 
 assert len(PYROMANCER_DECK) == 30, f"Pyromancer deck has {len(PYROMANCER_DECK)} cards, expected 30"
 assert len(CRYOMANCER_DECK) == 30, f"Cryomancer deck has {len(CRYOMANCER_DECK)} cards, expected 30"
+
+
+def stormrift_deck_profile(deck: list) -> dict:
+    """Return compact balance metrics for a Stormrift deck."""
+    import re
+
+    minion_count = 0
+    spell_count = 0
+    early_count = 0
+    early_resilient_minions = 0
+    fragile_one_health_minions = 0
+    armor_cards = 0
+    draw_cards = 0
+    burn_cards = 0
+    curve: dict[int, int] = {}
+
+    for card in deck:
+        cost = sum(int(num) for num in re.findall(r"\{(\d+)\}", card.mana_cost or ""))
+        curve[cost] = curve.get(cost, 0) + 1
+        if cost <= 3:
+            early_count += 1
+
+        text = (card.text or "").lower()
+        types = card.characteristics.types if card.characteristics else set()
+        if CardType.MINION in types:
+            minion_count += 1
+            health = card.characteristics.toughness or 0
+            if cost <= 3 and health >= 3:
+                early_resilient_minions += 1
+            if health <= 1:
+                fragile_one_health_minions += 1
+        if CardType.SPELL in types:
+            spell_count += 1
+        if "armor" in text:
+            armor_cards += 1
+        if "draw" in text:
+            draw_cards += 1
+        if "deal" in text and "damage" in text:
+            burn_cards += 1
+
+    return {
+        "size": len(deck),
+        "curve": dict(sorted(curve.items())),
+        "early_count": early_count,
+        "minion_count": minion_count,
+        "spell_count": spell_count,
+        "early_resilient_minions": early_resilient_minions,
+        "fragile_one_health_minions": fragile_one_health_minions,
+        "armor_cards": armor_cards,
+        "draw_cards": draw_cards,
+        "burn_cards": burn_cards,
+    }
+
+
+def stormrift_balance_summary() -> dict:
+    """Return per-faction Stormrift deck balance metrics."""
+    return {
+        faction: stormrift_deck_profile(deck)
+        for faction, deck in STORMRIFT_DECKS.items()
+    }
 
 
 # =============================================================================
