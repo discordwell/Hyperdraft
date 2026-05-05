@@ -62,6 +62,8 @@ from src.cards.interceptor_helpers import (
     becomes_creature,
     # Sweep 10: granted death triggers
     grant_death_trigger,
+    # Replacement effects (general "if X would happen, Y instead")
+    make_replacement_effect,
 )
 
 from src.engine.spell_resolve import (
@@ -7939,18 +7941,51 @@ def sower_of_chaos_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 # --- TWINFLAME TYRANT ---
 # Flying / If a source you control would deal damage to an opponent or permanent an opponent controls, it deals double that damage instead.
 def twinflame_tyrant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Damage from your sources to opponents (or their permanents) is doubled."""
-    from src.engine.replacements import make_damage_doubler
+    """Damage from your sources to opponents (or their permanents) is doubled.
+
+    Wired through ``make_replacement_effect`` (the generic "if X would happen,
+    Y instead" primitive). The filter requires DAMAGE events whose source is
+    controlled by Twinflame's controller AND whose target is an opponent or a
+    permanent controlled by an opponent. The replacement is a single DAMAGE
+    event with ``amount * 2``. The marker pin on the new event prevents
+    Twinflame from re-doubling its own output.
+    """
     src_controller = obj.controller
+    src_id = obj.id
 
-    def opponent_target(target_obj, target_player_id, state: GameState) -> bool:
-        if target_player_id is not None:
-            return target_player_id != src_controller
-        if target_obj is not None:
-            return target_obj.controller != src_controller
-        return False
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return False
+        # Source must be controlled by Twinflame's controller.
+        damage_source_id = event.source or event.payload.get('source')
+        damage_source = state.objects.get(damage_source_id) if damage_source_id else None
+        if not damage_source or damage_source.controller != src_controller:
+            return False
+        # Target must be an opponent or an opponent's permanent.
+        target_id = event.payload.get('target')
+        if target_id in state.players:
+            return target_id != src_controller
+        target_obj = state.objects.get(target_id) if target_id else None
+        if target_obj is None:
+            return False
+        return target_obj.controller != src_controller
 
-    return [make_damage_doubler(obj, target_filter=opponent_target)]
+    def double_damage(event: Event, state: GameState) -> Event:
+        new_event = event.copy()
+        new_event.payload['amount'] = int(event.payload.get('amount', 0)) * 2
+        new_event.payload['_doubled_by'] = src_id
+        return new_event
+
+    return make_replacement_effect(
+        obj,
+        event_filter=damage_filter,
+        replace_fn=double_damage,
+        duration='permanent',
+        apply_once_per_event=True,
+    )
 
 
 # --- LOOT, EXUBERANT EXPLORER ---
@@ -9453,18 +9488,55 @@ def confiscate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 # --- GRATUITOUS VIOLENCE ---
 # If a creature you control would deal damage, it deals double instead.
 def gratuitous_violence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """If a creature you control would deal damage, it deals double instead."""
-    from src.engine.replacements import make_damage_doubler
-    src_controller = obj.controller
+    """If a creature you control would deal damage to a permanent or player, it deals double instead.
 
-    def your_creature_source(damage_source, state: GameState) -> bool:
+    Wired through ``make_replacement_effect`` (the generic "if X would happen,
+    Y instead" primitive). Filter: DAMAGE event whose source is a creature
+    controlled by Gratuitous Violence's controller AND whose target is a
+    permanent or player. Replacement: ``amount * 2``. The marker pin prevents
+    Gratuitous Violence from re-doubling its own output.
+    """
+    src_controller = obj.controller
+    src_id = obj.id
+
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return False
+        # Source must be a creature you control.
+        damage_source_id = event.source or event.payload.get('source')
+        damage_source = state.objects.get(damage_source_id) if damage_source_id else None
         if damage_source is None:
             return False
         if damage_source.controller != src_controller:
             return False
-        return CardType.CREATURE in damage_source.characteristics.types
+        if CardType.CREATURE not in damage_source.characteristics.types:
+            return False
+        # Target must be a permanent or a player. (Players are by id in
+        # ``state.players``; permanents are GameObjects on the battlefield.)
+        target_id = event.payload.get('target')
+        if target_id in state.players:
+            return True
+        target_obj = state.objects.get(target_id) if target_id else None
+        if target_obj is None:
+            return False
+        return target_obj.zone == ZoneType.BATTLEFIELD
 
-    return [make_damage_doubler(obj, source_filter=your_creature_source)]
+    def double_damage(event: Event, state: GameState) -> Event:
+        new_event = event.copy()
+        new_event.payload['amount'] = int(event.payload.get('amount', 0)) * 2
+        new_event.payload['_doubled_by'] = src_id
+        return new_event
+
+    return make_replacement_effect(
+        obj,
+        event_filter=damage_filter,
+        replace_fn=double_damage,
+        duration='permanent',
+        apply_once_per_event=True,
+    )
 
 
 # --- UNFLINCHING COURAGE ---
