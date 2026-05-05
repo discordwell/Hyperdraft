@@ -5,7 +5,7 @@ from src.cards.hearthstone.basic import BLOODFEN_RAPTOR, CHILLWIND_YETI, THE_COI
 from src.cards.hearthstone.hero_powers import HERO_POWERS
 from src.cards.hearthstone.heroes import HEROES
 from src.engine.game import Game
-from src.engine.types import CardType, Event, EventType, ZoneType
+from src.engine.types import CardDefinition, CardType, Characteristics, Event, EventType, ZoneType
 
 
 def _new_hs_game(hero1: str = "Mage", hero2: str = "Warrior"):
@@ -114,3 +114,32 @@ def test_rogue_ai_does_not_replace_existing_dagger_before_attacking():
     p1.weapon_durability = 0
 
     assert ai._should_use_hero_power(game.state, p1.id) is True
+
+
+def test_minion_only_damage_spell_does_not_create_fake_face_lethal():
+    game, p1, p2 = _new_hs_game("Druid", "Warrior")
+    ai = HearthstoneAIAdapter(difficulty="hard")
+    p1.mana_crystals_available = 2
+    p2.life = 3
+    target = _summon_minion(game, p2, "Damaged Threat", 3, 3)
+    wrath_def = CardDefinition(
+        name="Test Wrath",
+        mana_cost="{2}",
+        characteristics=Characteristics(types={CardType.SPELL}, mana_cost="{2}"),
+        text="Deal 3 damage to a minion.",
+        requires_target=True,
+    )
+    wrath = game.create_object(
+        name=wrath_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.HAND,
+        characteristics=wrath_def.characteristics,
+        card_def=wrath_def,
+    )
+
+    lethal = ai._calculate_lethal(p1.id, game.state)
+    targets = ai._choose_spell_targets(wrath, game.state, p1.id)
+
+    assert lethal["is_lethal"] is False
+    assert lethal["burn_damage"] == 0
+    assert targets == [[target.id]]
