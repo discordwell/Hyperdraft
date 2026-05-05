@@ -207,23 +207,158 @@ class EventPipeline:
         return False, []
 
     def _run_react_phase(self, event: Event) -> list[Event]:
-        """Run all REACT interceptors. Returns triggered events."""
-        triggered = []
+        """Run all REACT interceptors. Returns triggered events.
+
+        Two paths:
+          * Plain REACT interceptor (``is_triggered_ability=False``): runs
+            ``handler`` inline and queues the resulting events. Used by
+            replacement-effect telemetry markers, system observers, etc.
+          * Triggered ability (``is_triggered_ability=True``): builds a
+            ``TriggeredStackItem`` from the interceptor's ``effect_fn`` and
+            appends to ``state.pending_triggers``. The pipeline does NOT
+            run effect_fn inline; resolution happens at the next priority
+            window via ``process_pending_triggers`` / ``auto_resolve``.
+        """
+        # Imported lazily to avoid circular imports at module load.
+        from ..stack import TriggeredStackItem
+
+        triggered_events: list[Event] = []
+        any_queued = False
 
         for interceptor in self._get_interceptors(InterceptorPriority.REACT):
             if not interceptor.filter(event, self.state):
                 continue
 
-            result = interceptor.handler(event, self.state)
+            if getattr(interceptor, 'is_triggered_ability', False):
+                # Build a TriggeredStackItem and enqueue it. Do NOT run
+                # effect_fn inline — that happens on resolution.
+                effect_fn = getattr(interceptor, 'effect_fn', None)
+                if effect_fn is None:
+                    # Defensive: if a helper marked is_triggered_ability=True
+                    # but didn't store effect_fn, fall back to handler-based
+                    # immediate fire so we don't silently swallow the trigger.
+                    result = interceptor.handler(event, self.state)
+                    if result.action == InterceptorAction.REACT:
+                        for new_event in result.new_events:
+                            new_event.timestamp = self.state.next_timestamp()
+                            triggered_events.append(new_event)
+                    self._consume_use(interceptor)
+                    continue
 
+                # Snapshot the triggering event so the resolve_fn sees the
+                # state at trigger time.
+                trigger_snapshot = event.copy()
+                source_obj = self.state.objects.get(interceptor.source)
+                source_name = source_obj.name if source_obj else interceptor.source
+
+                trig = TriggeredStackItem(
+                    id='',  # Assigned by stack on push
+                    controller=interceptor.controller,
+                    source_id=interceptor.source,
+                    source_card_name=source_name,
+                    trigger_event=trigger_snapshot,
+                    effect_fn=effect_fn,
+                    description=getattr(interceptor, 'description', '') or '',
+                )
+                self.state.pending_triggers.append(trig)
+                any_queued = True
+                self._consume_use(interceptor)
+                continue
+
+            # Legacy REACT (telemetry markers, system observers, etc.)
+            result = interceptor.handler(event, self.state)
             if result.action == InterceptorAction.REACT:
                 for new_event in result.new_events:
                     new_event.timestamp = self.state.next_timestamp()
-                    triggered.append(new_event)
-
+                    triggered_events.append(new_event)
             self._consume_use(interceptor)
 
-        return triggered
+        # If auto_resolve_triggers is True (default), drain immediately so
+        # tests that expect "ETB → effect runs now" continue to pass. The
+        # production server flips this to False for real priority windows.
+        if any_queued and getattr(self.state, 'options', None) is not None \
+                and getattr(self.state.options, 'auto_resolve_triggers', True):
+            triggered_events.extend(self._drain_pending_triggers_inline())
+
+        return triggered_events
+
+    def _drain_pending_triggers_inline(self, depth: int = 0) -> list[Event]:
+        """Drain ``state.pending_triggers`` and run their effect_fns inline.
+
+        Auto-resolve mode: bypass the priority window entirely. Triggers are
+        ordered APNAP and effects produced by each trigger are emitted into
+        the pipeline's event queue so they process before the next event.
+        """
+        from ..stack import process_pending_triggers as _process
+
+        # Recursion guard for the (rare) case where a trigger keeps queueing
+        # itself. 64 is plenty for any sensible card and prevents stack
+        # overflow.
+        if depth > 64:
+            return []
+
+        if not self.state.pending_triggers:
+            return []
+
+        # Order the triggers (active player first, then others). We don't
+        # actually push onto the StackManager here — that's a heavier path
+        # used by the priority loop. For auto-resolve we just call effect_fn
+        # in APNAP order and stitch the events into the queue.
+        by_player: dict = {}
+        order_seen: list = []
+        for trig in self.state.pending_triggers:
+            bucket = by_player.setdefault(trig.controller, [])
+            if not bucket:
+                order_seen.append(trig.controller)
+            bucket.append(trig)
+        self.state.pending_triggers = []
+
+        active = self.state.active_player
+        apnap_order: list = []
+        if active and active in by_player:
+            apnap_order.append(active)
+        for pid in self.state.players:
+            if pid == active:
+                continue
+            if pid in by_player and pid not in apnap_order:
+                apnap_order.append(pid)
+        for pid in order_seen:
+            if pid not in apnap_order:
+                apnap_order.append(pid)
+
+        out_events: list[Event] = []
+        for pid in apnap_order:
+            for trig in by_player.get(pid, []):
+                # Emit the marker event so observers/tests see the trigger.
+                marker = Event(
+                    type=EventType.TRIGGERED_ABILITY_PUT_ON_STACK,
+                    payload={
+                        'source_id': trig.source_id,
+                        'source_card_name': trig.source_card_name,
+                        'controller': trig.controller,
+                        'description': trig.description,
+                    },
+                    source=trig.source_id,
+                    controller=trig.controller,
+                )
+                marker.timestamp = self.state.next_timestamp()
+                self.state.event_log.append(marker)
+
+                # Resolve the trigger by running effect_fn now.
+                try:
+                    produced = trig.effect_fn(trig.trigger_event, self.state) or []
+                except Exception as exc:  # pragma: no cover - defensive
+                    print(f"Error resolving auto-trigger {trig.source_card_name}: {exc}")
+                    produced = []
+                for ev in produced:
+                    ev.timestamp = self.state.next_timestamp()
+                    out_events.append(ev)
+
+        # Recursively drain anything queued during this drain (chained triggers).
+        if self.state.pending_triggers:
+            out_events.extend(self._drain_pending_triggers_inline(depth + 1))
+
+        return out_events
 
     def _consume_use(self, interceptor: Interceptor):
         """Decrement uses_remaining if applicable, remove if exhausted."""

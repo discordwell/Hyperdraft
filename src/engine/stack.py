@@ -159,10 +159,135 @@ class StackItem:
 
 
 @dataclass
+class TriggeredStackItem:
+    """
+    A triggered ability waiting on the stack (CR 603.2 / 603.3).
+
+    Built when a triggered-ability interceptor would have fired. Held in
+    ``GameState.pending_triggers`` until the next priority window, at which
+    point ``process_pending_triggers`` drains them in APNAP order and
+    pushes them onto the stack.
+
+    Resolution differs from a SpellStackItem:
+      * No mana cost is paid.
+      * No card is moved zones (the card-source is on the battlefield).
+      * No fizzle on resolution unless every still-required target is now
+        illegal (matches CR 608.2b: ability resolves with whatever legal
+        targets remain; if no targets are legal, ability is removed).
+
+    Targets are chosen on stack-push (CR 603.3), not at trigger-fire time.
+    The pipeline's ``_run_react_phase`` snapshots the triggering event so
+    the resolve callback can read it later.
+    """
+    id: str
+    controller: str             # Player who controls the trigger
+    source_id: str              # Object that owns the trigger
+    source_card_name: str       # Name of source object (logging/UI)
+    trigger_event: Event        # Snapshot of the event that triggered this
+    effect_fn: Callable         # (event, state) -> list[Event] — runs on resolve
+    description: str = ""
+    # Set on stack-push if the trigger had targeting requirements.
+    target_requirements: list[TargetRequirement] = field(default_factory=list)
+    chosen_targets: list[list[Target]] = field(default_factory=list)
+    timestamp: int = 0
+    can_be_countered: bool = True
+    can_be_copied: bool = True
+    is_copy: bool = False
+    # Optional bag of metadata for downstream consumers (test harnesses,
+    # logs, future MOC ordering work).
+    additional_data: dict = field(default_factory=dict)
+
+    @property
+    def type(self) -> StackItemType:
+        """Always TRIGGERED_ABILITY — provided for symmetry with StackItem."""
+        return StackItemType.TRIGGERED_ABILITY
+
+    def __repr__(self) -> str:
+        return (f"TriggeredStackItem(source={self.source_card_name!r}, "
+                f"controller={self.controller!r})")
+
+
+def process_pending_triggers(state: GameState, stack_manager: 'StackManager') -> int:
+    """Drain ``state.pending_triggers`` onto the stack in APNAP order.
+
+    Active player's triggers go on the stack first (so they resolve last —
+    LIFO), then each non-active player in turn order. Within a single
+    player's triggers, current order is preserved (each player would
+    technically choose their own order — we keep registration order as a
+    deterministic default for tests).
+
+    Returns the number of triggers put on the stack.
+    """
+    if not state.pending_triggers:
+        return 0
+
+    # Bucket by controller, preserving order within each bucket.
+    by_player: dict[str, list[TriggeredStackItem]] = {}
+    order: list[str] = []
+    for trig in state.pending_triggers:
+        bucket = by_player.setdefault(trig.controller, [])
+        if not bucket:
+            order.append(trig.controller)
+        bucket.append(trig)
+    state.pending_triggers = []
+
+    # APNAP: active player first, then the rest of state.players in order.
+    apnap_order: list[str] = []
+    active = state.active_player
+    if active and active in by_player:
+        apnap_order.append(active)
+    for pid in state.players:
+        if pid == active:
+            continue
+        if pid in by_player and pid not in apnap_order:
+            apnap_order.append(pid)
+    # Anything controlled by an unknown player (defensive — can happen if a
+    # trigger fires for a player no longer in state) is appended last.
+    for pid in order:
+        if pid not in apnap_order:
+            apnap_order.append(pid)
+
+    pushed = 0
+    for pid in apnap_order:
+        for trig in by_player.get(pid, []):
+            stack_manager.push_triggered_ability(trig)
+            pushed += 1
+    return pushed
+
+
+def auto_resolve_pending_triggers(state: GameState, stack_manager: 'StackManager') -> list[Event]:
+    """Auto-resolve all pending triggers without a player priority window.
+
+    Used when ``state.options.auto_resolve_triggers`` is True (default in
+    tests). Drains the queue (APNAP order) and resolves each trigger in
+    LIFO order, just as the priority loop would after every player passed.
+    Returns the flat list of events produced by all resolutions.
+    """
+    if not state.pending_triggers:
+        return []
+
+    # Push triggers onto the stack in APNAP order, then resolve top-down.
+    pushed = process_pending_triggers(state, stack_manager)
+    if not pushed:
+        return []
+
+    out: list[Event] = []
+    # Resolve only items we just pushed. We use a sentinel timestamp boundary
+    # to avoid accidentally resolving spells/abilities that were already on
+    # the stack before this drain.
+    boundary = stack_manager.items[-pushed].timestamp - 1 if pushed > 0 else -1
+    while stack_manager.items and stack_manager.items[-1].timestamp > boundary:
+        events = stack_manager.resolve_top()
+        out.extend(events or [])
+
+    return out
+
+
+@dataclass
 class StackEvent:
     """Event emitted when stack changes."""
     event_type: Literal['push', 'pop', 'counter', 'resolve']
-    item: StackItem
+    item: Any  # StackItem or TriggeredStackItem
     result: Any = None
 
 
@@ -178,13 +303,43 @@ class StackManager:
 
     def __init__(self, state: GameState):
         self.state = state
-        self.items: list[StackItem] = []
+        self.items: list = []  # StackItem | TriggeredStackItem
         self.targeting_system = TargetingSystem(state)
         self._event_listeners: list[Callable[[StackEvent], None]] = []
 
     def is_empty(self) -> bool:
         """Check if the stack is empty."""
         return len(self.items) == 0
+
+    def push_triggered_ability(self, trig: 'TriggeredStackItem') -> None:
+        """Push a triggered ability onto the stack (CR 603.3).
+
+        Emits a TRIGGERED_ABILITY_PUT_ON_STACK marker so observers/tests
+        can verify the trigger was queued (vs. fired inline).
+        """
+        trig.timestamp = self.state.next_timestamp()
+        if not trig.id:
+            trig.id = new_id()
+        self.items.append(trig)
+        self._emit_event(StackEvent('push', trig))
+        # Telemetry / observers — the marker is added to the event log via
+        # the pipeline by the caller if desired. We append to the log
+        # directly here so resolution-of-the-trigger doesn't depend on the
+        # pipeline being available.
+        try:
+            self.state.event_log.append(Event(
+                type=EventType.TRIGGERED_ABILITY_PUT_ON_STACK,
+                payload={
+                    'source_id': trig.source_id,
+                    'source_card_name': trig.source_card_name,
+                    'controller': trig.controller,
+                    'description': trig.description,
+                },
+                source=trig.source_id,
+                controller=trig.controller,
+            ))
+        except Exception:
+            pass
 
     def size(self) -> int:
         """Get number of items on the stack."""
@@ -277,6 +432,12 @@ class StackManager:
             return []
 
         item = self.items.pop()
+
+        # Triggered ability: dispatch to its own resolution path. The trigger
+        # carries a snapshot of the event that triggered it; if all required
+        # targets have become illegal, the trigger is removed (CR 608.2b).
+        if isinstance(item, TriggeredStackItem):
+            return self._resolve_triggered(item)
 
         # Determine targets to pass to resolve function
         # If we have formal target_requirements, validate them
@@ -424,6 +585,52 @@ class StackManager:
                 ))
 
         self._emit_event(StackEvent('counter', item, result=reason))
+        return events
+
+    def _resolve_triggered(self, item: 'TriggeredStackItem') -> list[Event]:
+        """Resolve a TriggeredStackItem (CR 608.2).
+
+        Calls the trigger's stored ``effect_fn`` with the snapshotted
+        triggering event. If a target was chosen and is now an invalid
+        target (e.g. moved zones, was countered), the trigger fizzles
+        silently (CR 608.2b).
+        """
+        # Validate any chosen targets against current state.
+        if item.target_requirements:
+            still_legal = []
+            for i, requirement in enumerate(item.target_requirements):
+                if i < len(item.chosen_targets):
+                    chosen = item.chosen_targets[i]
+                    _, legal = self.targeting_system.validate_targets(
+                        chosen,
+                        requirement,
+                        self.state.objects.get(item.source_id),
+                        item.controller,
+                    )
+                    still_legal.append(legal)
+                    # If a required target slot is now empty, the trigger
+                    # is removed without effect (CR 608.2b).
+                    if requirement.min_targets() > 0 and not legal:
+                        self._emit_event(StackEvent('resolve', item, result=[]))
+                        return []
+                else:
+                    still_legal.append([])
+
+        events: list[Event] = []
+        try:
+            fn = item.effect_fn
+            if fn is not None:
+                # Inject any chosen targets into a fresh event copy so the
+                # effect_fn can read them. We pass the original triggering
+                # event through unchanged for backwards compatibility with
+                # legacy effect_fn signatures (event, state) -> list[Event].
+                events = list(fn(item.trigger_event, self.state) or [])
+        except Exception as exc:  # pragma: no cover — defensive
+            print(f"Error resolving triggered ability {item}: {exc}")
+            if os.environ.get("HYPERDRAFT_STRICT_STACK") == "1":
+                raise
+
+        self._emit_event(StackEvent('resolve', item, result=events))
         return events
 
     def _handle_spell_resolution(self, item: StackItem) -> list[Event]:

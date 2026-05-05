@@ -109,12 +109,15 @@ def make_valiant_trigger(
             return False
         return True
 
-    def valiant_handler(event: Event, state: GameState) -> InterceptorResult:
+    def _set_gate(state: GameState) -> None:
         gate = state.turn_data.setdefault(_VALIANT_FIRED_KEY, {})
         if not isinstance(gate, dict):
             gate = {}
             state.turn_data[_VALIANT_FIRED_KEY] = gate
         gate[_valiant_gate_key(source_obj.id, state.turn_number)] = True
+
+    def valiant_handler(event: Event, state: GameState) -> InterceptorResult:
+        _set_gate(state)
         try:
             new_events = effect_fn(event, state) or []
         except Exception:
@@ -124,15 +127,31 @@ def make_valiant_trigger(
             new_events=list(new_events),
         )
 
-    return Interceptor(
+    # When queued as a TriggeredStackItem, the gate must be set immediately
+    # (at queue time) — otherwise a same-turn second TARGET_CHOSEN event
+    # arriving before the trigger resolves would re-queue. We do this by
+    # wrapping the original ``valiant_filter`` to set the gate as a side
+    # effect when it returns True, and pass the unmodified ``effect_fn`` to
+    # the stack item.
+    def _gating_filter(event: Event, state: GameState) -> bool:
+        if not valiant_filter(event, state):
+            return False
+        _set_gate(state)
+        return True
+
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
         priority=InterceptorPriority.REACT,
-        filter=valiant_filter,
+        filter=_gating_filter,
         handler=valiant_handler,
         duration='while_on_battlefield',
     )
+    interceptor.is_triggered_ability = True
+    interceptor.effect_fn = effect_fn
+    interceptor.description = "Valiant trigger"
+    return interceptor
 
 
 # =============================================================================
@@ -205,7 +224,7 @@ def make_expend_trigger(
             new_events=list(new_events),
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -214,6 +233,10 @@ def make_expend_trigger(
         handler=expend_handler,
         duration='while_on_battlefield',
     )
+    interceptor.is_triggered_ability = True
+    interceptor.effect_fn = effect_fn
+    interceptor.description = f"Expend {n} trigger"
+    return interceptor
 
 
 __all__ = [
