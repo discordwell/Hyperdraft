@@ -421,6 +421,7 @@ def analyze_deck_quality(deck: list) -> dict:
     weapon_count = 0
     draw_count = 0
     burn_count = 0
+    ramp_count = 0
     taunt_count = 0
     dead_zero_minion_count = 0
 
@@ -450,6 +451,8 @@ def analyze_deck_quality(deck: list) -> dict:
             draw_count += 1
         if "deal" in text and "damage" in text:
             burn_count += 1
+        if "mana crystal" in text or "mana crystals" in text:
+            ramp_count += 1
         if "taunt" in text or "taunt" in keywords:
             taunt_count += 1
 
@@ -489,6 +492,7 @@ def analyze_deck_quality(deck: list) -> dict:
         "weapon_count": weapon_count,
         "draw_count": draw_count,
         "burn_count": burn_count,
+        "ramp_count": ramp_count,
         "taunt_count": taunt_count,
         "dead_zero_minion_count": dead_zero_minion_count,
         "quality_flags": quality_flags,
@@ -532,6 +536,8 @@ def deck_role_quality_flags(role: str, summary: dict) -> list[str]:
         if summary["burn_count"] < 6:
             flags.append("tempo_low_reach")
     elif role == "ramp":
+        if summary["ramp_count"] < 4:
+            flags.append("ramp_low_ramp_cards")
         if summary["draw_count"] < 5:
             flags.append("ramp_low_card_draw")
         if summary["taunt_count"] < 4:
