@@ -2,6 +2,7 @@
 
 from src.cards.hearthstone.decks import (
     HEARTHSTONE_DECKS,
+    HEARTHSTONE_DECK_ROLES,
     WARLOCK_DECK,
     analyze_all_decks,
     analyze_deck_quality,
@@ -14,11 +15,20 @@ def test_all_hearthstone_decks_have_clean_quality_metrics():
 
     assert set(summaries) == set(HEARTHSTONE_DECKS)
     for hero_class, summary in summaries.items():
+        assert summary["role"] == HEARTHSTONE_DECK_ROLES[hero_class]
         assert summary["size"] == 30, hero_class
         assert summary["early_count"] >= 8, hero_class
         assert summary["minion_count"] >= 10, hero_class
         assert summary["dead_zero_minion_count"] == 0, hero_class
         assert summary["quality_flags"] == [], hero_class
+
+
+def test_control_decks_have_defensive_stabilizers():
+    summaries = analyze_all_decks()
+
+    assert summaries["Warrior"]["taunt_count"] >= 1
+    assert summaries["Priest"]["taunt_count"] >= 2
+    assert "Sen'jin Shieldmasta" in [card.name for card in HEARTHSTONE_DECKS["Warrior"]]
 
 
 def test_warlock_zoo_uses_real_one_drops_over_dead_zero_minions():
