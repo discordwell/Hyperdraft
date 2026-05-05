@@ -4843,8 +4843,41 @@ from src.engine.turn_state import (  # noqa: E402  (re-exports)
     creatures_died_this_turn,
     cards_drawn_this_turn,
     combat_damage_dealt_to_this_turn,
+    cards_exiled_this_turn,
+    card_was_exiled_this_turn,
     flip_coin,
     emit_coin_flip,
+)
+
+
+# =============================================================================
+# === EOE Station + Void ===
+# =============================================================================
+# Edge of Eternities Station + Void mechanics.
+#
+# Station ("Tap an untapped creature you control: charge counters") is the
+# Spacecraft / Planet activated ability. ``make_station_ability`` registers
+# the printed activation and an optional threshold-gated effect that fires
+# once when the charge first reaches the threshold.
+#
+# ``make_charge_threshold_ability`` wires the Planet "12+ | <cost>: <effect>"
+# pattern — an activated ability that's only legal once charge >= 12.
+#
+# Void is a triggered ability gated on the per-turn condition "a card was
+# exiled / a nonland permanent left the battlefield / a spell was warped".
+# ``make_void_trigger`` builds the canonical "at the beginning of your end
+# step, if void, ..." trigger; the engine-side condition tracking lives in
+# ``src.engine.void`` and ``src.engine.turn_state``.
+#
+# All three helpers are thin re-exports of the mechanic modules.
+from src.engine.eoe_mechanics import (  # noqa: E402  (re-exports)
+    make_station_ability,
+    make_charge_threshold_ability,
+    make_void_trigger,
+    CHARGE_COUNTER,
+    add_station_charge,
+    get_station_charge,
+    is_stationed,
 )
 
 
