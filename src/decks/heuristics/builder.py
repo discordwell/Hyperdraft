@@ -194,6 +194,7 @@ def _slot_fill(
     """
     chosen: list[DeckEntry] = []
     chosen_defs: list = []
+    name_to_def: dict[str, object] = {}
     name_counts: Counter = Counter()
     role_counts: Counter = Counter()
 
@@ -215,6 +216,7 @@ def _slot_fill(
                 break
         else:
             chosen.append(DeckEntry(card_name=name, quantity=take))
+        name_to_def[name] = card_def
         name_counts[name] += take
         for _ in range(take):
             chosen_defs.append(card_def)
@@ -222,6 +224,31 @@ def _slot_fill(
             if role:
                 role_counts[role] += 1
         return take
+
+    def _free_slot_for_role(required_role: str) -> bool:
+        """
+        Remove one replaceable copy so role promotion can improve deck shape
+        without being trimmed back off after the mana-base pass.
+        """
+        for entry in reversed(chosen):
+            card_def = name_to_def.get(entry.card_name)
+            role = _classify_role(card_def) if card_def else None
+            if role == required_role:
+                continue
+            target = (template.role_targets or {}).get(role or "", 0)
+            if role and role_counts.get(role, 0) <= target:
+                continue
+
+            entry.quantity -= 1
+            name_counts[entry.card_name] -= 1
+            if role:
+                role_counts[role] -= 1
+            if card_def in chosen_defs:
+                chosen_defs.remove(card_def)
+            if entry.quantity <= 0:
+                chosen.remove(entry)
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # Pass 1: fill curve buckets with 4-3-2-1 multiples.
@@ -254,6 +281,11 @@ def _slot_fill(
             if deficit <= 0:
                 break
             if not _has_room(name):
+                continue
+            while sum(e.quantity for e in chosen) >= _curve_total(template):
+                if not _free_slot_for_role(role):
+                    break
+            if sum(e.quantity for e in chosen) >= _curve_total(template):
                 continue
             # If we'd push past the curve total + role overflow, stop —
             # we don't want to permanently exceed the mainboard size.

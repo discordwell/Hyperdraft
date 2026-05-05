@@ -125,6 +125,32 @@ def _burn_target_scenario(ai: AIEngine) -> ScenarioResult:
     return ScenarioResult("burn_killable_creature_over_face", selected == expected, expected, selected)
 
 
+def _lethal_burn_scenario(ai: AIEngine) -> ScenarioResult:
+    game, p1, p2 = _game()
+    bolt = _obj(
+        game, p1.id, "Lightning Bolt", ZoneType.HAND,
+        {CardType.INSTANT}, text="Lightning Bolt deals 3 damage to any target.", mana_cost="{R}"
+    )
+    threat = _obj(
+        game, p2.id, "Killable Threat", ZoneType.BATTLEFIELD,
+        {CardType.CREATURE}, power=3, toughness=3
+    )
+    p2.life = 3
+    choice = PendingChoice(
+        choice_type="target",
+        player=p1.id,
+        prompt="Choose any target",
+        options=[threat.id, p2.id],
+        source_id=bolt.id,
+        min_choices=1,
+        max_choices=1,
+    )
+
+    selected = ai.make_choice(p1.id, choice, game.state)
+    expected = [p2.id]
+    return ScenarioResult("lethal_burn_targets_opponent", selected == expected, expected, selected)
+
+
 def _attack_scenario(ai: AIEngine) -> ScenarioResult:
     game, p1, _ = _game()
     attacker = _obj(
@@ -182,6 +208,7 @@ def run_fixed_decision_benchmark(
     results = [
         _play_land_scenario(ai),
         _burn_target_scenario(ai),
+        _lethal_burn_scenario(ai),
         _attack_scenario(ai),
         _block_scenario(ai),
     ]
