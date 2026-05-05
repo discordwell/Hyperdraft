@@ -6,11 +6,12 @@ Hero powers for the 9 classic heroes.
 
 from src.engine.game import make_hero_power
 from src.engine.types import Event, EventType, GameObject, GameState, CardType
+from src.engine.queries import get_power, get_toughness
 
 
 # Mage Hero Power
 def fireblast_effect(obj: GameObject, state: GameState) -> list[Event]:
-    """Deal 1 damage to enemy hero (auto-target for AI)."""
+    """Deal 1 damage, preferring lethal face or a killable enemy minion."""
     # Find opponent's hero
     opponent_id = None
     for pid in state.players.keys():
@@ -25,9 +26,29 @@ def fireblast_effect(obj: GameObject, state: GameState) -> list[Event]:
     if not opponent.hero_id:
         return []
 
+    target_id = opponent.hero_id
+    if opponent.life + opponent.armor > 1:
+        killable_minions: list[tuple[int, str]] = []
+        battlefield = state.zones.get("battlefield")
+        if battlefield:
+            for minion_id in battlefield.objects:
+                minion = state.objects.get(minion_id)
+                if not minion or minion.controller == obj.controller:
+                    continue
+                if CardType.MINION not in minion.characteristics.types:
+                    continue
+                if minion.state.stealth:
+                    continue
+                remaining_health = get_toughness(minion, state) - minion.state.damage
+                if remaining_health <= 1:
+                    killable_minions.append((get_power(minion, state), minion_id))
+        if killable_minions:
+            killable_minions.sort(reverse=True)
+            target_id = killable_minions[0][1]
+
     return [Event(
         type=EventType.DAMAGE,
-        payload={'target': opponent.hero_id, 'amount': 1, 'source': obj.id},
+        payload={'target': target_id, 'amount': 1, 'source': obj.id},
         source=obj.id
     )]
 
