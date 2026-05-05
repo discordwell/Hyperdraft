@@ -344,6 +344,18 @@ class EventType(Enum):
     FACE_DOWN_TURNED_UP = auto()      # Marker: a permanent was turned face-up (post-flip)
     FACE_DOWN_QUERY_MASK = auto()     # Internal marker (reserved for future overrides)
 
+    # ------------------------------------------------------------------
+    # Cast-from-zone permission system (W7).
+    # See src/engine/cast_permission.py and the make_castable_from_zone
+    # helper in src/cards/interceptor_helpers.py. The priority handler
+    # (_handle_cast_spell) consults QUERY_CAST_LEGALITY before refusing a
+    # cast from a non-HAND zone. CAST_FROM_ZONE_GRANT is a marker emitted
+    # when a permission interceptor is installed (useful for triggers /
+    # debugging; not required by the lookup itself).
+    # ------------------------------------------------------------------
+    CAST_FROM_ZONE_GRANT = auto()     # Marker: permission to cast from a zone was granted
+    QUERY_CAST_LEGALITY = auto()      # Synthetic query: is this card castable from its current zone?
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to

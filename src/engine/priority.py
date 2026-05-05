@@ -28,6 +28,10 @@ from .stack import StackManager, StackItem, StackItemType, build_target_chosen_e
 from .mana import ManaSystem, ManaCost, ManaType
 from .pipeline import EventPipeline
 from .cost_query import get_effective_mana_cost
+from .cast_permission import (
+    is_castable_from_zone as _w7_is_castable_from_zone,
+    cost_override_for as _w7_cast_cost_override_for,
+)
 from .casting_costs import (
     CastCostContext,
     CostPlan, CostStep,
@@ -627,6 +631,63 @@ class PrioritySystem:
                     requires_mana=not cost.is_free(),
                     mana_cost=cost,
                 ))
+
+        # === W7 cast-from-zone (legal actions surface) ===
+        # Generic cast-from-zone permissions installed via cast_permission.py.
+        # We surface a CAST_SPELL action for any card whose owner has a W7
+        # grant in its current non-HAND zone. Bespoke handlers above have
+        # already added their own actions; we skip cards that already produced
+        # a flashback/adventure/etc. action this pass.
+        existing_w7_keys = {
+            (a.card_id, a.ability_id) for a in actions
+            if a.type == ActionType.CAST_SPELL
+        }
+        for obj_id, candidate in self.state.objects.items():
+            if candidate.owner != player_id:
+                continue
+            if candidate.zone in (ZoneType.HAND, ZoneType.STACK, ZoneType.BATTLEFIELD):
+                continue
+            if not _w7_is_castable_from_zone(obj_id, candidate.zone, self.state):
+                continue
+            if (obj_id, None) in existing_w7_keys:
+                continue
+            override = _w7_cast_cost_override_for(obj_id, candidate.zone, self.state)
+            base = override if override is not None else \
+                ManaCost.parse(candidate.characteristics.mana_cost or "")
+            cost_for_cast = get_effective_mana_cost(
+                candidate, player_id, self.state, base_cost=base,
+            )
+            mana_cost_str = candidate.characteristics.mana_cost
+            cost_override_for_can = cost_for_cast if (
+                override is not None or (mana_cost_str and mana_cost_str.strip() != "")
+            ) else None
+            if cost_override_for_can is None:
+                continue
+            if not self._can_cast(candidate, player_id, cost_override=cost_override_for_can):
+                continue
+            std_plan = self._get_standard_additional_cost_plan(candidate)
+            ctx = CastCostContext(
+                state=self.state,
+                mana_system=self.mana_system,
+                player_id=player_id,
+                casting_card_id=obj_id,
+                casting_card_name=candidate.name,
+                casting_zone=candidate.zone,
+                base_mana_cost=cost_for_cast,
+                x_value=0,
+            )
+            if not self._can_pay_cost_plan(std_plan, ctx):
+                continue
+            zone_label = candidate.zone.name.lower()
+            desc = f"Cast {candidate.name} (from {zone_label})"
+            actions.append(LegalAction(
+                type=ActionType.CAST_SPELL,
+                card_id=obj_id,
+                description=desc,
+                requires_mana=not cost_for_cast.is_free(),
+                mana_cost=cost_for_cast,
+            ))
+        # === end W7 ===
 
         # Check if player can play lands
         if self._can_play_land(player_id):
@@ -1529,6 +1590,21 @@ class PrioritySystem:
         if not card:
             return []
 
+        # === W7 cast-from-zone (pre zone-check) ===
+        # Generic cast-from-zone permission lookup. Runs BEFORE the bespoke
+        # graveyard/adventure handling so a card whose only ticket out of a
+        # non-HAND zone is a W7 grant still gets a chance to be cast. Bespoke
+        # paths (Flashback, Adventure recursion, Warp) take precedence and are
+        # consulted in their own branches below; we only set the override when
+        # neither of those applies.
+        w7_cost_override: Optional[ManaCost] = None
+        if (card.zone not in (ZoneType.HAND, ZoneType.STACK)
+                and action.ability_id is None
+                and not getattr(card.state, 'adventure_exile', False)
+                and _w7_is_castable_from_zone(card.id, card.zone, self.state)):
+            w7_cost_override = _w7_cast_cost_override_for(card.id, card.zone, self.state)
+        # === end W7 ===
+
         from_graveyard = card.zone == ZoneType.GRAVEYARD
 
         # WOE Adventure: cast the main half from exile for the printed cost.
@@ -1552,7 +1628,18 @@ class PrioritySystem:
         exile_on_leave_stack = False
         option_plan: Optional[CostPlan] = None
 
-        if from_graveyard:
+        # === W7 cast-from-zone (graveyard fast path) ===
+        # When a W7 grant exists for a graveyard card and no bespoke
+        # graveyard option (Flashback/Harmonize/Mayhem/etc.) applies, route
+        # through the W7 generic path so the action isn't rejected. Bespoke
+        # paths still take precedence when available.
+        w7_use_for_graveyard = (
+            from_graveyard
+            and _w7_is_castable_from_zone(card.id, card.zone, self.state)
+            and not self._get_graveyard_cast_options(card, action.player_id)
+        )
+
+        if from_graveyard and not w7_use_for_graveyard:
             options = self._get_graveyard_cast_options(card, action.player_id)
             if not options:
                 return []
@@ -1592,7 +1679,12 @@ class PrioritySystem:
             # the card castable from exile next time.
             paid_cost = ManaCost.parse(card.characteristics.mana_cost or "")
         else:
-            paid_cost = ManaCost.parse(card.characteristics.mana_cost or "")
+            # === W7 cast-from-zone (cost selection) ===
+            # If a generic cast-from-zone permission applies (and we didn't
+            # already use a bespoke alt-cost above), prefer the W7 cost
+            # override. Falls back to the printed cost otherwise.
+            paid_cost = w7_cost_override if w7_cost_override is not None else \
+                ManaCost.parse(card.characteristics.mana_cost or "")
 
         printed_cost = ManaCost.parse(card.characteristics.mana_cost or "")
 
