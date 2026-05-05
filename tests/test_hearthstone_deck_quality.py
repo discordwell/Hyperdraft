@@ -38,13 +38,16 @@ def test_deck_role_metrics_cover_each_strategy_family():
 
     assert summaries["Hunter"]["role"] == "aggro"
     assert summaries["Hunter"]["early_count"] >= 14
+    assert summaries["Hunter"]["reliable_reach_count"] >= 4
     assert summaries["Warlock"]["role"] == "aggro"
     assert summaries["Warlock"]["minion_count"] >= 16
+    assert summaries["Warlock"]["reliable_reach_count"] >= 4
 
     assert summaries["Mage"]["role"] == "tempo"
-    assert summaries["Mage"]["burn_count"] >= 6
+    assert summaries["Mage"]["reliable_reach_count"] >= 4
     assert summaries["Rogue"]["role"] == "tempo"
     assert summaries["Rogue"]["early_count"] >= 12
+    assert summaries["Rogue"]["reliable_reach_count"] >= 4
 
     assert summaries["Warrior"]["role"] == "control"
     assert summaries["Warrior"]["draw_count"] >= 4
