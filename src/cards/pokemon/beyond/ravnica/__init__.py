@@ -21,6 +21,7 @@ from .orzhov import BEYOND_RAVNICA_ORZHOV, make_orzhov_deck
 from .rakdos import BEYOND_RAVNICA_RAKDOS, make_rakdos_deck
 from .selesnya import BEYOND_RAVNICA_SELESNYA, make_selesnya_deck
 from .simic import BEYOND_RAVNICA_SIMIC, make_simic_deck
+from .balance import ravnica_balance_flags, ravnica_balance_summary
 
 
 GUILD_REGISTRIES = {
@@ -59,6 +60,8 @@ __all__ = [
     "BEYOND_RAVNICA_CARDS",
     "GUILD_REGISTRIES",
     "GUILD_DECK_BUILDERS",
+    "ravnica_balance_flags",
+    "ravnica_balance_summary",
     # Per-guild registries
     "BEYOND_RAVNICA_AZORIUS",
     "BEYOND_RAVNICA_BOROS",

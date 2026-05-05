@@ -1,0 +1,57 @@
+"""Beyond Ravnica Pokemon custom-set balance checks."""
+
+from src.cards.pokemon.beyond.ravnica import ravnica_balance_flags, ravnica_balance_summary
+
+
+def test_ravnica_balance_summary_tracks_all_guilds():
+    summary = ravnica_balance_summary()
+
+    assert set(summary) == {
+        "azorius", "boros", "dimir", "golgari", "gruul",
+        "izzet", "orzhov", "rakdos", "selesnya", "simic",
+    }
+    for guild, profile in summary.items():
+        assert profile["size"] == 60, guild
+        assert profile["pokemon_count"] == 16, guild
+        assert profile["basic_count"] >= 8, guild
+        assert 10 <= profile["energy_count"] <= 18, guild
+        assert profile["supporter_count"] >= 8, guild
+        assert profile["item_count"] >= 12, guild
+        assert profile["copy_violations"] == [], guild
+        assert profile["balance_flags"] == [], guild
+
+
+def test_ravnica_balance_scores_remain_in_expected_band():
+    summary = ravnica_balance_summary()
+
+    for profile in summary.values():
+        assert profile["consistency_score"] >= 45
+        assert profile["pressure_score"] >= 40
+        assert profile["stadium_count"] <= 3
+
+
+def test_ravnica_balance_flags_detect_bad_profiles():
+    assert "too_few_basics" in ravnica_balance_flags("izzet", {
+        "size": 60,
+        "copy_violations": [],
+        "pokemon_count": 16,
+        "basic_count": 4,
+        "energy_count": 13,
+        "supporter_count": 10,
+        "item_count": 16,
+        "consistency_score": 50,
+        "pressure_score": 45,
+        "stadium_count": 2,
+    })
+    assert "low_pressure_score" in ravnica_balance_flags("azorius", {
+        "size": 60,
+        "copy_violations": [],
+        "pokemon_count": 16,
+        "basic_count": 9,
+        "energy_count": 13,
+        "supporter_count": 10,
+        "item_count": 16,
+        "consistency_score": 50,
+        "pressure_score": 20,
+        "stadium_count": 2,
+    })
