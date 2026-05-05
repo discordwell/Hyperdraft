@@ -5,7 +5,7 @@ from src.cards.hearthstone.basic import BLOODFEN_RAPTOR, CHILLWIND_YETI, THE_COI
 from src.cards.hearthstone.hero_powers import HERO_POWERS
 from src.cards.hearthstone.heroes import HEROES
 from src.engine.game import Game
-from src.engine.types import ZoneType
+from src.engine.types import CardType, Event, EventType, ZoneType
 
 
 def _new_hs_game(hero1: str = "Mage", hero2: str = "Warrior"):
@@ -27,6 +27,14 @@ def _hand_card(game: Game, card_def, owner):
     )
 
 
+def _summon_minion(game: Game, owner, name: str, attack: int, health: int):
+    minion = game.create_object(name=name, owner_id=owner.id, zone=ZoneType.BATTLEFIELD)
+    minion.characteristics.types = {CardType.MINION}
+    minion.characteristics.power = attack
+    minion.characteristics.toughness = health
+    return minion
+
+
 def test_hard_ai_uses_coin_to_unlock_much_better_curve_play():
     game, p1, _p2 = _new_hs_game()
     ai = HearthstoneAIAdapter(difficulty="hard")
@@ -40,3 +48,21 @@ def test_hard_ai_uses_coin_to_unlock_much_better_curve_play():
 
     assert choice is not None
     assert choice["card_id"] == coin.id
+
+
+def test_fireblast_kills_one_health_threat_before_defaulting_face():
+    game, p1, p2 = _new_hs_game("Mage", "Warrior")
+    p1.mana_crystals_available = 2
+    p2.life = 30
+    _summon_minion(game, p2, "Low Threat", 1, 1)
+    threat = _summon_minion(game, p2, "Knife Juggler", 3, 1)
+
+    events = game.pipeline.emit(Event(
+        type=EventType.HERO_POWER_ACTIVATE,
+        payload={"hero_power_id": p1.hero_power_id, "player": p1.id},
+        source=p1.hero_power_id,
+    ))
+
+    damage_events = [event for event in events if event.type == EventType.DAMAGE]
+    assert damage_events
+    assert damage_events[-1].payload["target"] == threat.id
