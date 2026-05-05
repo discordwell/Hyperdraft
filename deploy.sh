@@ -42,6 +42,8 @@ rsync -az --delete \
   --exclude='*.pyc' \
   --exclude='oldpad.md' \
   --exclude='claudepad.md' \
+  --exclude='.claude' \
+  --exclude='codex-pokemon-strategy/scratch' \
   -e "ssh" \
   . "${SSH_HOST}:$REMOTE_DIR/"
 
