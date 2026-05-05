@@ -225,29 +225,40 @@ def _slot_fill(
                 role_counts[role] += 1
         return take
 
-    def _free_slot_for_role(required_role: str) -> bool:
+    def _free_slot_for_role(required_role: str, replacement_card_def) -> bool:
         """
         Remove one replaceable copy so role promotion can improve deck shape
         without being trimmed back off after the mana-base pass.
         """
-        for entry in reversed(chosen):
-            card_def = name_to_def.get(entry.card_name)
-            role = _classify_role(card_def) if card_def else None
-            if role == required_role:
-                continue
-            target = (template.role_targets or {}).get(role or "", 0)
-            if role and role_counts.get(role, 0) <= target:
-                continue
+        replacement_bucket = _bucket(_cmc(replacement_card_def))
 
-            entry.quantity -= 1
-            name_counts[entry.card_name] -= 1
-            if role:
-                role_counts[role] -= 1
-            if card_def in chosen_defs:
-                chosen_defs.remove(card_def)
-            if entry.quantity <= 0:
-                chosen.remove(entry)
-            return True
+        def can_replace(entry: DeckEntry, require_same_bucket: bool) -> bool:
+            card_def = name_to_def.get(entry.card_name)
+            if not card_def:
+                return False
+            if require_same_bucket and _bucket(_cmc(card_def)) != replacement_bucket:
+                return False
+            role = _classify_role(card_def)
+            if role == required_role:
+                return False
+            target = (template.role_targets or {}).get(role or "", 0)
+            return not role or role_counts.get(role, 0) > target
+
+        for require_same_bucket in (True, False):
+            for entry in reversed(chosen):
+                if not can_replace(entry, require_same_bucket):
+                    continue
+                card_def = name_to_def.get(entry.card_name)
+                role = _classify_role(card_def) if card_def else None
+                entry.quantity -= 1
+                name_counts[entry.card_name] -= 1
+                if role:
+                    role_counts[role] -= 1
+                if card_def in chosen_defs:
+                    chosen_defs.remove(card_def)
+                if entry.quantity <= 0:
+                    chosen.remove(entry)
+                return True
         return False
 
     # ------------------------------------------------------------------
@@ -283,7 +294,7 @@ def _slot_fill(
             if not _has_room(name):
                 continue
             while sum(e.quantity for e in chosen) >= _curve_total(template):
-                if not _free_slot_for_role(role):
+                if not _free_slot_for_role(role, card_def):
                     break
             if sum(e.quantity for e in chosen) >= _curve_total(template):
                 continue

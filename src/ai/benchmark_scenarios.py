@@ -64,6 +64,18 @@ def _obj(
     toughness: int | None = None,
     mana_cost: str | None = None,
 ):
+    abilities = []
+    for keyword in [
+        "flying",
+        "trample",
+        "deathtouch",
+        "lifelink",
+        "menace",
+        "first strike",
+        "double strike",
+    ]:
+        if keyword in text.lower():
+            abilities.append({"name": keyword, "keyword": keyword})
     obj = game.create_object(
         name=name,
         owner_id=owner,
@@ -73,6 +85,7 @@ def _obj(
             power=power,
             toughness=toughness,
             mana_cost=mana_cost,
+            abilities=abilities,
         ),
         card_def=_CardDef(text),
     )
@@ -190,6 +203,29 @@ def _block_scenario(ai: AIEngine) -> ScenarioResult:
     return ScenarioResult("block_with_profitable_creature", observed == expected, expected, observed)
 
 
+def _avoid_trample_chump_scenario(ai: AIEngine) -> ScenarioResult:
+    game, p1, p2 = _game()
+    attacker = _obj(
+        game, p2.id, "Huge Trampler", ZoneType.BATTLEFIELD,
+        {CardType.CREATURE}, text="Trample", power=5, toughness=5
+    )
+    chump = _obj(
+        game, p1.id, "Small Blocker", ZoneType.BATTLEFIELD,
+        {CardType.CREATURE}, power=1, toughness=1
+    )
+    p1.life = 20
+
+    blocks = ai.get_block_declarations(
+        p1.id,
+        game.state,
+        [AttackDeclaration(attacker_id=attacker.id, defending_player_id=p1.id)],
+        [chump.id],
+    )
+    observed = [block.blocker_id for block in blocks]
+    expected: list[str] = []
+    return ScenarioResult("avoid_nonlethal_trample_chump", observed == expected, expected, observed)
+
+
 def run_fixed_decision_benchmark(
     output_dir: str | Path,
     *,
@@ -211,6 +247,7 @@ def run_fixed_decision_benchmark(
         _lethal_burn_scenario(ai),
         _attack_scenario(ai),
         _block_scenario(ai),
+        _avoid_trample_chump_scenario(ai),
     ]
     passed = sum(1 for result in results if result.passed)
     extra = {

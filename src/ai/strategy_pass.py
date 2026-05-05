@@ -25,10 +25,16 @@ def _summarize_deck_metrics(deck_metrics: dict[str, dict[str, Any]]) -> dict[str
     decks_with_flags = 0
     curve_error_total = 0
     fill_rates: list[float] = []
+    worst_curve_deck = ""
+    worst_curve_error = -1
 
-    for metrics in deck_metrics.values():
+    for label, metrics in deck_metrics.items():
         role_deficit_total += sum(int(v) for v in metrics.get("role_deficits", {}).values())
-        curve_error_total += int(metrics.get("curve_error", 0) or 0)
+        curve_error = int(metrics.get("curve_error", 0) or 0)
+        curve_error_total += curve_error
+        if curve_error > worst_curve_error:
+            worst_curve_deck = label
+            worst_curve_error = curve_error
         fill_rates.append(float(metrics.get("role_fill_rate", 0.0) or 0.0))
         if metrics.get("quality_flags"):
             decks_with_flags += 1
@@ -38,7 +44,17 @@ def _summarize_deck_metrics(deck_metrics: dict[str, dict[str, Any]]) -> dict[str
         "avg_role_fill_rate": round(sum(fill_rates) / len(fill_rates), 3) if fill_rates else 0.0,
         "role_deficit_total": role_deficit_total,
         "curve_error_total": curve_error_total,
+        "worst_curve_error_deck": worst_curve_deck,
+        "worst_curve_error": max(0, worst_curve_error),
         "decks_with_quality_flags": decks_with_flags,
+    }
+
+
+def _summarize_variants(variants: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "variant_count": len(variants),
+        "mtg_baseline_count": sum(1 for metrics in variants.values() if metrics.get("is_mtg_baseline")),
+        "deviation_total": sum(int(metrics.get("deviation_count", 0) or 0) for metrics in variants.values()),
     }
 
 
@@ -71,6 +87,7 @@ def run_strategy_pass_report(
         "high_resource": variant_rule_summary(Game(starting_life=25, first_player_draws=True, draw_step_cards=2)),
         "persistent_damage": variant_rule_summary(Game(clear_damage_on_cleanup=False)),
     }
+    variant_summary = _summarize_variants(variants)
 
     report = {
         "schema_version": "hyperdraft.strategy_pass.v1",
@@ -80,6 +97,7 @@ def run_strategy_pass_report(
         "decks": deck_metrics,
         "deck_summary": deck_summary,
         "variants": variants,
+        "variant_summary": variant_summary,
     }
     (out / "strategy_pass_summary.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n",
