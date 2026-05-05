@@ -5,7 +5,9 @@ from src.cards.yugioh.ygo_classic import BLUE_EYES_WHITE_DRAGON
 from src.cards.yugioh.beyond.kamigawa.staples import LIGHTNING_BOLT
 from src.cards.yugioh.ygo_optimized import (
     CHAIN_BURN_STRATEGY,
+    DRAGON_BEATDOWN_STRATEGY,
     HEAVY_STORM,
+    MESSENGER_OF_PEACE,
     MIRROR_FORCE,
     MONSTER_REBORN,
     OOKAZI,
@@ -202,4 +204,29 @@ def test_hard_ai_does_not_reborn_when_monster_zones_are_full():
         "action_type": "activate_spell",
         "card_id": reborn.id,
         "targets": [target.id],
+    }
+
+
+def test_hard_ai_uses_stall_spells_by_role_and_board_posture():
+    game, p1, p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    ai.strategy = DRAGON_BEATDOWN_STRATEGY
+    messenger = _card(game, MESSENGER_OF_PEACE, p1, ZoneType.HAND)
+    my_monster = _field_monster(game, p1, "My Beater", 1900, 1200)
+    opp_monster = _field_monster(game, p2, "Small Fodder", 1000, 1000)
+
+    choice = ai._pick_spell_activation(
+        [messenger], p1.id, game.state, p2.id, [opp_monster], [my_monster]
+    )
+
+    assert choice is None
+
+    ai.strategy = CHAIN_BURN_STRATEGY
+    choice = ai._pick_spell_activation(
+        [messenger], p1.id, game.state, p2.id, [opp_monster], [my_monster]
+    )
+
+    assert choice == {
+        "action_type": "activate_spell",
+        "card_id": messenger.id,
     }

@@ -347,7 +347,22 @@ class YugiohAIAdapter:
 
             if name in ("Messenger of Peace", "Level Limit - Area B"):
                 if opp_monsters:
-                    return {'action_type': 'activate_spell', 'card_id': obj.id}
+                    if self.difficulty in ("hard", "ultra"):
+                        role = ((self.strategy or {}).get('archetype') or '').lower()
+                        if "burn" in role or "stall" in role:
+                            return {'action_type': 'activate_spell', 'card_id': obj.id}
+                        my_big = sum(
+                            1 for m in my_monsters
+                            if not m.state.face_down and (getattr(m.card_def, 'atk', 0) or 0) >= 1500
+                        )
+                        opp_big = sum(
+                            1 for m in opp_monsters
+                            if not m.state.face_down and (getattr(m.card_def, 'atk', 0) or 0) >= 1500
+                        )
+                        if opp_big > my_big:
+                            return {'action_type': 'activate_spell', 'card_id': obj.id}
+                    else:
+                        return {'action_type': 'activate_spell', 'card_id': obj.id}
                 continue
 
             # === Field spells ===
