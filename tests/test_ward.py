@@ -849,6 +849,140 @@ def test_ward_handler_fallback_when_flag_disabled():
     print("  legacy fallback path still counters the spell")
 
 
+def test_ward_does_not_fire_when_target_was_hexproof_and_skipped():
+    """W27 / CR 702.11+603.10 — a creature that has BOTH hexproof and ward
+    cannot be targeted by an opponent in the first place. The targeting
+    system rejects the spell at choice time, so no TARGET_CHOSEN ever fires
+    and Ward shouldn't trigger.
+
+    Test rig: spawn a warded+hexproof creature, attempt to push a spell
+    targeting it from an opponent — the targeting system would normally
+    block this. Here we simulate "no TARGET_CHOSEN ever fired" by NOT
+    invoking ``push_targeted_spell``; the assertion is just that no Ward
+    trigger fires when no TARGET_CHOSEN events are emitted.
+    """
+    print("\n=== Test: Ward does not fire when target was hexproof and skipped ===")
+    game, p1, p2 = create_test_game()
+
+    def setup_fn(obj, state):
+        return [make_ward(obj, mana_cost="{1}")]
+    warded = make_creature_obj(
+        game, p1, "Warded + Hexproof", 3, 3, setup_fn=setup_fn,
+    )
+    warded.characteristics.abilities.append({'keyword': 'hexproof'})
+
+    # Sanity: targeting system would reject this — we mirror that by NOT
+    # emitting TARGET_CHOSEN.  Confirm: no COUNTER_SPELL_UNLESS_PAY in log.
+    counter_events = [
+        e for e in game.state.event_log
+        if e.type == EventType.COUNTER_SPELL_UNLESS_PAY
+    ]
+    assert not counter_events, (
+        f"Ward should not fire when no TARGET_CHOSEN was ever emitted; "
+        f"got {len(counter_events)} counter events"
+    )
+    # Cross-check: confirm the engine's targeting system DOES reject the
+    # hexproof+warded creature for opponent-cast spells.
+    from src.engine.targeting import TargetingSystem, TargetFilter, TargetRequirement
+    targeting = TargetingSystem(game.state)
+    spell_chars = Characteristics(types={CardType.INSTANT}, colors={Color.RED})
+    spell_def = CardDefinition(
+        name="Bolt", mana_cost="{R}", characteristics=spell_chars, text="",
+    )
+    spell_obj = game.create_object(
+        name="Bolt", owner_id=p2.id, zone=ZoneType.HAND,
+        characteristics=spell_chars, card_def=spell_def,
+    )
+    legal = targeting.get_legal_targets(
+        TargetRequirement(filter=TargetFilter(types={CardType.CREATURE})),
+        spell_obj, p2.id,
+    )
+    assert warded.id not in legal, (
+        f"hexproof creature must not be a legal target for an opponent's spell; "
+        f"got legal_ids={legal}"
+    )
+    print("  hexproof+warded creature filtered at target-choice time, no Ward fired")
+
+
+def test_ward_resolves_on_still_legal_target_when_other_gains_hexproof():
+    """W27 — multi-target spell hits two warded creatures. One gains
+    hexproof mid-stack (after TARGET_CHOSEN fired). The Ward trigger from
+    the still-legal one resolves normally; the spell itself is a separate
+    rules question (CR 608.2b only fizzles when ALL targets become illegal).
+    """
+    print("\n=== Test: Ward resolves on still-legal target when other gains hexproof ===")
+    game, p1, p2 = create_test_game()
+    game.state.options.auto_resolve_triggers = False
+
+    def setup_fn(obj, state):
+        return [make_ward(obj, mana_cost="{1}")]
+    a = make_creature_obj(game, p1, "Warded A", 2, 2, setup_fn=setup_fn)
+    b = make_creature_obj(game, p1, "Warded B", 2, 2, setup_fn=setup_fn)
+
+    # Push a multi-target spell from p2 (TARGET_CHOSEN fires for both).
+    spell_chars = Characteristics(types={CardType.INSTANT})
+    spell_def = CardDefinition(
+        name="Forked Bolt", mana_cost="{1}{R}",
+        characteristics=spell_chars, text="Two targets.",
+    )
+    spell_obj = game.create_object(
+        name="Forked Bolt", owner_id=p2.id, zone=ZoneType.HAND,
+        characteristics=spell_chars, card_def=spell_def,
+    )
+    item = StackItem(
+        id=new_id(), type=StackItemType.SPELL, source_id=spell_obj.id,
+        controller_id=p2.id, card_id=spell_obj.id,
+        chosen_targets=[[Target(id=a.id, is_player=False),
+                         Target(id=b.id, is_player=False)]],
+    )
+    game.stack.push(item)
+    target_events = build_target_chosen_events(
+        spell_id=spell_obj.id, controller_id=p2.id,
+        targets=[[Target(id=a.id, is_player=False),
+                  Target(id=b.id, is_player=False)]],
+    )
+    for ev in target_events:
+        game.emit(ev)
+
+    # Two Ward triggers should be queued.
+    assert len(game.state.pending_triggers) == 2, (
+        f"expected 2 ward triggers; got {len(game.state.pending_triggers)}"
+    )
+
+    # Now grant hexproof to A AFTER TARGET_CHOSEN — but BEFORE Ward resolves.
+    # Ward triggered (TARGET_CHOSEN already fired); whether the trigger
+    # *resolves* or fizzles is a separate rules question. v1: Ward emits
+    # COUNTER_SPELL_UNLESS_PAY for the spell regardless — the spell-side
+    # legality re-check happens elsewhere.
+    a.characteristics.abilities.append({'keyword': 'hexproof'})
+
+    # Drain. Both Ward triggers should resolve and emit
+    # COUNTER_SPELL_UNLESS_PAY events. The first one fires the system
+    # counter glue, removing the spell from the stack.
+    pushed = process_pending_triggers(game.state, game.stack)
+    assert pushed == 2
+
+    # Resolve the top Ward trigger.
+    events1 = game.stack.resolve_top()
+    assert events1, "Ward resolution should produce events"
+    counter_events = [e for e in events1 if e.type == EventType.COUNTER_SPELL_UNLESS_PAY]
+    assert len(counter_events) == 1, (
+        f"first Ward should emit 1 COUNTER_SPELL_UNLESS_PAY; got {len(counter_events)}"
+    )
+    for ev in events1:
+        game.emit(ev)
+    # Drain the second trigger if it's still on the stack — its target
+    # spell has been countered already, so the system glue no-ops.
+    if not game.stack.is_empty():
+        events2 = game.stack.resolve_top()
+        for ev in events2:
+            game.emit(ev)
+
+    # Spell should be countered.
+    assert spell_obj.zone != ZoneType.STACK
+    print("  Ward fired on the still-legal target, spell countered")
+
+
 def test_make_ward_fires_on_activated_ability_target():
     """Ward fires on activated-ability targeting too (not just spells)."""
     print("\n=== Test: Ward fires on activated-ability target ===")
@@ -934,6 +1068,9 @@ if __name__ == "__main__":
         test_ward_marker_event_emitted_when_queued,
         test_ward_handler_fallback_when_flag_disabled,
         test_make_ward_fires_on_activated_ability_target,
+        # W27 — hexproof / shroud edge cases.
+        test_ward_does_not_fire_when_target_was_hexproof_and_skipped,
+        test_ward_resolves_on_still_legal_target_when_other_gains_hexproof,
     ]
     failed = 0
     for t in tests:

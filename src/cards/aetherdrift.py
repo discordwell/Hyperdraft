@@ -862,12 +862,12 @@ def sita_varma_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 # -----------------------------------------------------------------------------
-# Elvish Refueler / Winter, Cursed Rider — wired with the W19 helpers
-# (EXHAUST_RESET, exile_from_graveyard cost step). The W19 cost parser does
-# not yet support "Exile X" or "X artifact cards" filters, so Winter, Cursed
-# Rider models its own additional cost in the effect_fn while still using
-# {X}-mana payment via the cost parser. Elvish Refueler models the printed
-# "you may activate exhaust abilities as though they hadn't been activated"
+# Elvish Refueler / Winter, Cursed Rider — wired with the W19/W27 helpers
+# (EXHAUST_RESET, exile_from_graveyard cost step). W27 extended the cost
+# parser to handle "X" counts and typed filters ("X artifact cards"), so
+# Winter, Cursed Rider now uses the full printed cost end-to-end — no
+# effect_fn workaround. Elvish Refueler models the printed "you may
+# activate exhaust abilities as though they hadn't been activated"
 # permission as an upkeep-time reset of every exhaust the controller owns —
 # a v1 simplification that captures the spirit (one fresh wave per turn).
 # -----------------------------------------------------------------------------
@@ -912,63 +912,33 @@ def winter_cursed_rider_setup(obj: GameObject, state: GameState) -> list[Interce
     """Winter, Cursed Rider.
 
     Printed text (relevant portion):
-      "Exhaust — {2}{U}{B}, {T}, Exile X artifact cards from your
+      "Exhaust — {X}{2}{U}{B}, {T}, Exile X artifact cards from your
        graveyard: Each other nonartifact creature gets -X/-X until
        end of turn."
 
     v1 model:
-      * Cost parsed by ``make_activated_ability`` is ``{X}{2}{U}{B}, {T}``
-        — the {X} mana payment establishes how many graveyard artifacts
-        the activator commits to exile. The W19 ``exile_from_graveyard``
-        step kind currently parses literal counts ("two", "three", ...)
-        but not a typed "X artifact cards" form, so the artifact-filter
-        and the X-binding are enforced inside ``effect_fn`` instead.
-      * ``precondition_fn`` ensures activation is only legal when the
-        graveyard contains at least one artifact (zero-X activations
-        are fine, but we still gate at least one artifact present so
-        the cost is meaningful).
-      * ``effect_fn`` exiles X artifact cards from the controller's
-        graveyard (greedy — first X artifacts found) and applies an
-        end-of-turn -X/-X PT modification to every other nonartifact
-        creature on the battlefield. The (Ward — Pay 2 life) static
-        from the rest of the printed text is owned by W25 and not
-        modeled here.
+      * Cost parsed by ``make_activated_ability`` is the full printed
+        ``{X}{2}{U}{B}, {T}, Exile X artifact cards from your graveyard``.
+        After W27, the casting-cost parser supports the "X" count token
+        and the typed "artifact cards" filter, so the GY-exile portion
+        is now a real ``exile_from_graveyard`` ``CostStep`` with
+        ``count_is_x=True`` and ``subtype_filter=CardType.ARTIFACT``.
+        ``can_pay_activation`` consults ``action.x_value`` to gate
+        legality (need X artifacts in GY) and ``pay_activation_cost``
+        emits the X EXILE events from the cost side, so ``effect_fn``
+        only owns the -X/-X PT modifications.
+      * The (Ward — Pay 2 life) static from the rest of the printed text
+        is owned by W25 and not modeled here.
     """
-
-    def _gy_artifact_ids(st: GameState) -> list[str]:
-        gy_key = f"graveyard_{obj.controller}"
-        gy = st.zones.get(gy_key)
-        out: list[str] = []
-        if gy is None:
-            return out
-        for cid in list(gy.objects):
-            cand = st.objects.get(cid)
-            if cand is None:
-                continue
-            if CardType.ARTIFACT in cand.characteristics.types:
-                out.append(cid)
-        return out
-
-    def _precondition(o: GameObject, st: GameState) -> bool:
-        # At least one artifact card must be in the controller's graveyard
-        # for the ability to make sense at all (X = 0 is technically legal
-        # but the effect is a no-op; we still allow it).
-        return True
 
     def _effect(o: GameObject, st: GameState, targets, x_value: int = 0) -> list[Event]:
         new_events: list[Event] = []
         x = max(0, int(x_value or 0))
-        # Exile up to X artifact cards from the controller's graveyard.
-        artifact_ids = _gy_artifact_ids(st)[:x]
-        for cid in artifact_ids:
-            new_events.append(Event(
-                type=EventType.EXILE,
-                payload={"object_id": cid, "controller": o.controller},
-                source=o.id, controller=o.controller,
-            ))
         if x <= 0:
             return new_events
         # -X/-X to every other nonartifact creature on the battlefield.
+        # The X artifact-card exiles are emitted by pay_activation_cost
+        # (W27) — effect_fn only handles the post-cost PT swing.
         bf = st.zones.get("battlefield")
         if bf is None:
             return new_events
@@ -996,14 +966,13 @@ def winter_cursed_rider_setup(obj: GameObject, state: GameState) -> list[Interce
 
     make_activated_ability(
         obj,
-        cost="{X}{2}{U}{B}, {T}",
+        cost="{X}{2}{U}{B}, {T}, Exile X artifact cards from your graveyard",
         effect_fn=_effect,
         description=(
             "Exhaust — {X}{2}{U}{B}, {T}, Exile X artifact cards from your "
             "graveyard: Each other nonartifact creature gets -X/-X until end of turn."
         ),
         once_per_game=True,
-        precondition_fn=_precondition,
     )
     return []
 

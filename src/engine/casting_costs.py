@@ -108,6 +108,14 @@ class CostStep:
     # name to match against ``GameObject.name``. Lowercased at parse time
     # for case-insensitive matching during cost validation/payment.
     name_match: Optional[str] = None
+    # For ``exile_from_graveyard``: when ``count_is_x`` is True, the cost
+    # uses the spell/ability's chosen X value (read at validation/payment
+    # time from ``action.x_value``) instead of ``amount``.
+    count_is_x: bool = False
+    # For ``exile_from_graveyard``: optional CardType filter restricting
+    # which graveyard cards qualify (e.g. "exile two ARTIFACT cards from
+    # your graveyard"). ``None`` means any card type.
+    subtype_filter: Optional[CardType] = None
 
 
 CostPlan = tuple[CostStep, ...]
@@ -142,7 +150,20 @@ def describe_plan(plan: CostPlan) -> str:
         elif step.kind == "tap":
             parts.append(f"tap {step.amount} permanent(s)")
         elif step.kind == "exile_from_graveyard":
-            parts.append(f"exile {step.amount} card(s) from your graveyard")
+            count_label = "X" if step.count_is_x else str(step.amount)
+            type_label = ""
+            if step.subtype_filter is not None:
+                _type_names = {
+                    CardType.ARTIFACT: "artifact",
+                    CardType.CREATURE: "creature",
+                    CardType.ENCHANTMENT: "enchantment",
+                    CardType.LAND: "land",
+                    CardType.PLANESWALKER: "planeswalker",
+                    CardType.INSTANT: "instant",
+                    CardType.SORCERY: "sorcery",
+                }
+                type_label = f" {_type_names.get(step.subtype_filter, '')}".rstrip()
+            parts.append(f"exile {count_label}{type_label} card(s) from your graveyard")
         elif step.kind == "sacrifice_named":
             parts.append(f"sacrifice {step.name_match}")
         elif step.kind == "return_to_hand":
@@ -249,7 +270,10 @@ _SACRIFICE_NAMED_RE = re.compile(
     re.IGNORECASE,
 )
 _TAP_RE = re.compile(r"^(?:tap|tapping)\s+(\w+)\s+untapped\s+(.+?)\s+you control$", re.IGNORECASE)
-_EXILE_FROM_GY_RE = re.compile(r"^(?:exile|exiling)\s+(\w+)\s+cards?\s+from your graveyard$", re.IGNORECASE)
+_EXILE_FROM_GY_RE = re.compile(
+    r"^(?:exile|exiling)\s+(?P<count>x|\w+)(?:\s+(?P<subtype>\w+))?\s+cards?\s+from your graveyard$",
+    re.IGNORECASE,
+)
 _RETURN_TO_HAND_RE = re.compile(r"^(?:return|returning)\s+(?:a|an|one)\s+permanent you control to its owner's hand$", re.IGNORECASE)
 _EXILE_YOU_CONTROL_RE = re.compile(r"^(?:exile|exiling)\s+(?:a|an|one)\s+creature you control$", re.IGNORECASE)
 _REMOVE_COUNTERS_RE = re.compile(r"^(?:remove|removing)\s+(\w+)\s+counters?\s+from among creatures you control$", re.IGNORECASE)
@@ -375,13 +399,44 @@ def _parse_single_phrase(expr: str) -> Optional[CostStep]:
         allowed = _parse_permanent_type_list(types_text)
         return CostStep(kind="tap", amount=n, allowed_types=allowed)
 
-    # exile N cards from your graveyard
+    # exile N|X [<typed>] cards from your graveyard
     m = _EXILE_FROM_GY_RE.match(expr)
     if m:
-        n = _parse_int(m.group(1))
+        count_token = (m.group("count") or "").strip().lower()
+        subtype_token = (m.group("subtype") or "").strip().lower()
+        # Resolve type filter (if any).
+        type_map = {
+            "artifact": CardType.ARTIFACT,
+            "creature": CardType.CREATURE,
+            "enchantment": CardType.ENCHANTMENT,
+            "land": CardType.LAND,
+            "planeswalker": CardType.PLANESWALKER,
+            "instant": CardType.INSTANT,
+            "sorcery": CardType.SORCERY,
+        }
+        subtype_filter: Optional[CardType] = None
+        if subtype_token:
+            if subtype_token not in type_map:
+                # Unknown qualifier — bail rather than silently swallowing it
+                # (e.g. "exile two GHOST cards" isn't supported here).
+                return None
+            subtype_filter = type_map[subtype_token]
+        # X uses count_is_x; literal-count words / digits resolve via _parse_int.
+        if count_token == "x":
+            return CostStep(
+                kind="exile_from_graveyard",
+                amount=0,
+                count_is_x=True,
+                subtype_filter=subtype_filter,
+            )
+        n = _parse_int(count_token)
         if n is None:
             return None
-        return CostStep(kind="exile_from_graveyard", amount=n)
+        return CostStep(
+            kind="exile_from_graveyard",
+            amount=n,
+            subtype_filter=subtype_filter,
+        )
 
     # return a permanent you control to its owner's hand
     if _RETURN_TO_HAND_RE.match(expr):

@@ -738,6 +738,169 @@ def test_ral_emblem_no_legal_targets_does_nothing():
 
 
 # ---------------------------------------------------------------------------
+# W27 — hexproof / shroud interaction with Ral's emblem target paths
+# ---------------------------------------------------------------------------
+
+
+def test_ral_emblem_auto_resolve_skips_hexproof_creature_when_no_player():
+    """W27 — auto-resolve mode: with no opponent player and the only opposing
+    creature having hexproof, the trigger fizzles (no self-damage)."""
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        # No opponent player — only opposing creatures will be picked. We
+        # populate a single hexproof bear with no controller (None) to
+        # simulate "creature not controlled by emblem.controller".
+        _setup_active(p1.id, game)
+
+        emblem = await _create_ral_emblem_async(game, p1.id)
+        # Spawn a hexproof creature owned by a synthetic opposing controller
+        # so _default_any_target sees it as opposing. We re-use the bear
+        # spawn helper but flip the controller.
+        bear = _spawn_creature(game, p1, name="Hexproof Bear", power=2, toughness=2)
+        bear.controller = "OPPOSING_GHOST"   # synthetic non-controller id.
+        bear.characteristics.abilities.append({'keyword': 'hexproof'})
+
+        alice_life_pre = game.state.players[p1.id].life
+        game.emit(Event(
+            type=EventType.SPELL_CAST,
+            payload={'caster': p1.id, 'types': [CardType.INSTANT]},
+            controller=p1.id,
+        ))
+        # No legal target (no opp player, hexproof bear filtered out) ->
+        # default picker returns None -> emblem fizzles.
+        assert game.state.players[p1.id].life == alice_life_pre, (
+            "emblem must not damage its own controller when only opposing "
+            "creatures have hexproof"
+        )
+        print("PASS: Ral emblem — auto-resolve skips hexproof opposing creature, fizzles")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_ral_emblem_interactive_excludes_hexproof_creature_from_options():
+    """W27 — interactive mode: a hexproof opposing creature is NOT enumerated
+    as a legal option in the PendingChoice. Player-controlled hexproof
+    creatures and the player are still legal."""
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        _setup_active(p1.id, game)
+
+        bob_hexproof_bear = _spawn_creature(
+            game, p2, name="Bob's Hexproof Bear", power=2, toughness=2,
+        )
+        bob_hexproof_bear.characteristics.abilities.append({'keyword': 'hexproof'})
+        bob_normal_bear = _spawn_creature(
+            game, p2, name="Bob's Normal Bear", power=2, toughness=2,
+        )
+        # Alice's own hexproof creature — still targetable by Alice's emblem.
+        alice_hexproof = _spawn_creature(
+            game, p1, name="Alice's Hexproof Bear", power=2, toughness=2,
+        )
+        alice_hexproof.characteristics.abilities.append({'keyword': 'hexproof'})
+
+        emblem = await _create_ral_emblem_async(game, p1.id)
+        game.stack.items.clear()
+        game.state.options.auto_resolve_triggers = False
+
+        game.emit(Event(
+            type=EventType.SPELL_CAST,
+            payload={'caster': p1.id, 'types': [CardType.INSTANT]},
+            controller=p1.id,
+        ))
+
+        from src.engine.stack import process_pending_triggers
+        process_pending_triggers(game.state, game.stack)
+        assert len(game.stack.items) == 1
+        produced = game.stack.resolve_top()
+        for e in produced:
+            game.emit(e)
+
+        choice = game.state.pending_choice
+        assert choice is not None
+        # Bob's hexproof bear is NOT in options.
+        assert bob_hexproof_bear.id not in choice.options, (
+            f"opponent's hexproof creature must be excluded; got "
+            f"{choice.options}"
+        )
+        # Bob's normal bear and Bob himself ARE in options.
+        assert bob_normal_bear.id in choice.options
+        assert p2.id in choice.options
+        # Alice's own hexproof is still legal (hexproof only blocks opponents).
+        assert alice_hexproof.id in choice.options
+        # Cancel cleanly (auto-resolve disabled won't auto-fire).
+        game.state.pending_choice = None
+        print("PASS: Ral emblem — interactive options exclude opponent hexproof, "
+              "include self-hexproof + player")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_ral_emblem_interactive_target_gains_hexproof_at_resolution():
+    """W27 / CR 608.2b — sole legal target gains hexproof at choice-resolution
+    time. Emblem trigger fizzles (no DAMAGE event) per illegal-target rule."""
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        _setup_active(p1.id, game)
+
+        bob_bear = _spawn_creature(
+            game, p2, name="Bob's Bear", power=2, toughness=2,
+        )
+
+        emblem = await _create_ral_emblem_async(game, p1.id)
+        game.stack.items.clear()
+        game.state.options.auto_resolve_triggers = False
+
+        game.emit(Event(
+            type=EventType.SPELL_CAST,
+            payload={'caster': p1.id, 'types': [CardType.INSTANT]},
+            controller=p1.id,
+        ))
+
+        from src.engine.stack import process_pending_triggers
+        process_pending_triggers(game.state, game.stack)
+        produced = game.stack.resolve_top()
+        for e in produced:
+            game.emit(e)
+
+        choice = game.state.pending_choice
+        assert choice is not None
+        # Bear should currently be legal.
+        assert bob_bear.id in choice.options
+
+        # NOW — simulate the bear gaining hexproof between choice-open and
+        # submission (e.g. an instant pumping it). The re-validation in the
+        # callback should cause the trigger to do nothing.
+        bob_bear.characteristics.abilities.append({'keyword': 'hexproof'})
+
+        bob_life_pre = game.state.players[p2.id].life
+        # The submit path itself goes through choice.callback_data. Even
+        # though we passed the hexproof bear (was legal at choice-open),
+        # CR 608.2b re-checks at resolution.
+        ok, err, events = game.submit_choice(choice.id, p1.id, [bob_bear.id])
+        assert ok, f"submit_choice should succeed at the protocol level: {err!r}"
+
+        # No DAMAGE event should have flowed: bear is not in graveyard,
+        # has no marked damage, Bob's life unchanged.
+        bear_dmg = getattr(bob_bear.state, 'damage_marked', 0)
+        assert bear_dmg == 0, (
+            f"Hexproofed bear must NOT take damage; got damage_marked={bear_dmg}"
+        )
+        assert bob_bear.zone == ZoneType.BATTLEFIELD, (
+            "Hexproofed bear should still be on the battlefield (no damage)"
+        )
+        assert game.state.players[p2.id].life == bob_life_pre
+        print("PASS: Ral emblem — target hexproofed at resolution => trigger fizzles "
+              "(CR 608.2b)")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+# ---------------------------------------------------------------------------
 # Ajani, Caller of the Pride per-card test
 # ---------------------------------------------------------------------------
 
@@ -944,6 +1107,10 @@ def run_all():
         test_ral_emblem_interactive_opens_target_choice,
         test_ral_emblem_auto_resolve_picks_default_opponent,
         test_ral_emblem_no_legal_targets_does_nothing,
+        # W27 — hexproof / shroud interactions on emblem target paths.
+        test_ral_emblem_auto_resolve_skips_hexproof_creature_when_no_player,
+        test_ral_emblem_interactive_excludes_hexproof_creature_from_options,
+        test_ral_emblem_interactive_target_gains_hexproof_at_resolution,
         test_ajani_caller_full_activation_cycle,
         test_ajani_minus8_emblem_variant_creates_emblem,
         test_non_combat_damage_redirect_helper,
