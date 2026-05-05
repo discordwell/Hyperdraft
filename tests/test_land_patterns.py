@@ -262,6 +262,14 @@ def test_discover_handler_finds_and_pulls_to_hand():
         )
         game.pipeline.emit(ev)
 
+        # W11: discover now prompts a cast-vs-hand choice. Submit the "hand"
+        # branch to match the legacy expectation.
+        choice = game.state.pending_choice
+        assert choice is not None, "Discover should set a pending choice for the hit"
+        assert choice.choice_type == "discover_cast_or_hand"
+        ok, err, _ = game.submit_choice(choice.id, p1.id, [{'id': 'hand'}])
+        assert ok, f"submit_choice failed: {err}"
+
         hand = game.state.zones[f'hand_{p1.id}']
         assert cheap_obj.id in hand.objects, "Discover hit should be in hand"
         # big should be at the bottom of the library
