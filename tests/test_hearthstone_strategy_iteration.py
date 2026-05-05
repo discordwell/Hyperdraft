@@ -90,7 +90,7 @@ def test_lesser_heal_restores_damaged_friendly_minion_when_hero_full():
 
 
 def test_hard_ai_damages_best_forced_taunt_target_instead_of_board_order():
-    game, p1, p2 = _new_hs_game("Mage", "Warrior")
+    game, p1, p2 = _new_hs_game("Druid", "Warrior")
     ai = HearthstoneAIAdapter(difficulty="hard")
     attacker = _summon_minion(game, p1, "River Crocolisk", 2, 2)
     attacker.state.summoning_sickness = False
@@ -185,3 +185,31 @@ def test_ultra_does_not_score_minion_only_removal_as_lethal_burn():
 
     assert ai._calculate_lethal(p1.id, game.state)["is_lethal"] is True
     assert score < 100
+
+
+def test_random_enemy_burn_is_not_guaranteed_lethal_through_minions():
+    game, p1, p2 = _new_hs_game("Druid", "Warrior")
+    ai = HearthstoneAIAdapter(difficulty="hard")
+    p1.mana_crystals_available = 2
+    p2.life = 2
+    random_burn_def = CardDefinition(
+        name="Random Spark",
+        mana_cost="{2}",
+        characteristics=Characteristics(types={CardType.SPELL}, mana_cost="{2}"),
+        text="Deal 2 damage to a random enemy.",
+    )
+    game.create_object(
+        name=random_burn_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.HAND,
+        characteristics=random_burn_def.characteristics,
+        card_def=random_burn_def,
+    )
+
+    assert ai._calculate_lethal(p1.id, game.state)["is_lethal"] is True
+
+    _summon_minion(game, p2, "Lightning Rod", 1, 1)
+    lethal = ai._calculate_lethal(p1.id, game.state)
+
+    assert lethal["is_lethal"] is False
+    assert lethal["burn_damage"] == 0

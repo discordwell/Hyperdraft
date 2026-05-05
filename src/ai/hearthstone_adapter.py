@@ -562,7 +562,7 @@ class HearthstoneAIAdapter:
                 if CardType.SPELL in card.characteristics.types:
                     if (
                         'deal' in card_text and 'damage' in card_text
-                        and self._damage_spell_can_hit_enemy_hero(card_text)
+                        and self._damage_spell_has_reliable_enemy_hero_damage(card_text, state, player_id)
                     ):
                         score += 100  # Burn spells
                 if CardType.MINION in card.characteristics.types:
@@ -1008,7 +1008,7 @@ class HearthstoneAIAdapter:
                 if dmg_match:
                     dmg = int(dmg_match.group(1))
                     spell_cost = self._get_mana_cost(card, state, player_id)
-                    if self._damage_spell_can_hit_enemy_hero(text):
+                    if self._damage_spell_has_reliable_enemy_hero_damage(text, state, player_id):
                         burn_spells.append((card_id, dmg, spell_cost))
 
             # Sort by damage efficiency
@@ -1352,6 +1352,20 @@ class HearthstoneAIAdapter:
             r'\bminions\b',
         )
         return not any(re.search(pattern, lower) for pattern in minion_only_patterns)
+
+    def _damage_spell_has_reliable_enemy_hero_damage(
+        self,
+        text: str,
+        state: 'GameState',
+        player_id: str,
+    ) -> bool:
+        """Return True when damage text can deterministically contribute to face lethal."""
+        if not self._damage_spell_can_hit_enemy_hero(text):
+            return False
+        lower = text.lower()
+        if 'random enemy' in lower and self._count_enemy_minions(state, player_id) > 0:
+            return False
+        return True
 
     # ─── Hero Power ──────────────────────────────────────────────
 
