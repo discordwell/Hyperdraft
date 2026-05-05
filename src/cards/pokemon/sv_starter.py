@@ -152,7 +152,19 @@ def _ultra_ball_effect(event, state):
     graveyard = state.zones.get(graveyard_key)
     if not hand or len(hand.objects) < 2:
         return []
-    # Discard 2 cards (pick least valuable — energy first, then lowest-HP pokemon)
+    has_rare_candy_stage2 = False
+    for card_id in hand.objects:
+        obj = state.objects.get(card_id)
+        if obj and obj.name == "Rare Candy":
+            has_rare_candy_stage2 = any(
+                state.objects.get(other_id)
+                and state.objects[other_id].card_def
+                and state.objects[other_id].card_def.evolution_stage == "Stage 2"
+                for other_id in hand.objects
+            )
+            break
+
+    # Discard 2 cards, preserving assembled Rare Candy + Stage 2 lines.
     discard_candidates = []
     for card_id in hand.objects:
         obj = state.objects.get(card_id)
@@ -164,6 +176,11 @@ def _ultra_ball_effect(event, state):
             score = 10  # Energy is cheap to discard
         elif obj.card_def and obj.card_def.hp:
             score = obj.card_def.hp  # Higher HP = less discardable
+        if has_rare_candy_stage2 and obj.name == "Rare Candy":
+            score += 90
+        if (has_rare_candy_stage2 and obj.card_def
+                and obj.card_def.evolution_stage == "Stage 2"):
+            score += 90
         discard_candidates.append((card_id, score))
     discard_candidates.sort(key=lambda x: x[1])
     discarded = 0

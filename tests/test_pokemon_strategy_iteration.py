@@ -10,6 +10,7 @@ from src.cards.pokemon.sv_starter import (
     POTION,
     PROFESSOR_RESEARCH,
     RARE_CANDY,
+    ULTRA_BALL,
 )
 from src.engine.game import Game, make_pokemon
 from src.engine.types import PokemonType, ZoneType
@@ -224,3 +225,23 @@ def test_hard_ai_promotion_denies_game_winning_ex_prizes():
 
     assert ai.choose_promote(p1.id, game.state) == single_prizer.id
     assert ai.choose_promote(p1.id, game.state) != ex_pokemon.id
+
+
+def test_ultra_ball_preserves_rare_candy_stage2_combo():
+    game, p1, _p2, _ai = _new_pokemon_game("hard")
+    ultra_ball = _card(game, ULTRA_BALL, p1, ZoneType.HAND)
+    rare_candy = _card(game, RARE_CANDY, p1, ZoneType.HAND)
+    stage2 = _card(game, CHARIZARD_EX, p1, ZoneType.HAND)
+    research = _card(game, PROFESSOR_RESEARCH, p1, ZoneType.HAND)
+    boss = _card(game, BOSS_ORDERS, p1, ZoneType.HAND)
+    _card(game, _basic("Search Target", hp=90, damage=40), p1, ZoneType.LIBRARY)
+
+    events = game.turn_manager._play_trainer(p1.id, ultra_ball.id, "item")
+
+    hand = game.state.zones[f"hand_{p1.id}"].objects
+    graveyard = game.state.zones[f"graveyard_{p1.id}"].objects
+    assert events
+    assert rare_candy.id in hand
+    assert stage2.id in hand
+    assert research.id in graveyard
+    assert boss.id in graveyard
