@@ -52,6 +52,22 @@ def _choose_ai_boss_orders_target(state, player_id, candidates):
     return chosen if chosen in candidates else None
 
 
+def _choose_ai_potion_target(state, player_id, candidates):
+    """Let AI profiles choose the highest-leverage Potion target."""
+    game = getattr(state, '_game', None)
+    turn_manager = getattr(game, 'turn_manager', None) if game else None
+    ai_handler = getattr(turn_manager, 'pokemon_ai_handler', None)
+    ai_players = getattr(turn_manager, 'ai_players', set())
+    if not ai_handler or player_id not in ai_players:
+        return None
+
+    chooser = getattr(ai_handler, 'choose_potion_target', None)
+    if not chooser:
+        return None
+    chosen = chooser(player_id, state, candidates)
+    return chosen if chosen in candidates else None
+
+
 def _professors_research_effect(event, state):
     """Discard your hand and draw 7 cards."""
     player_id = event.payload.get('player')
@@ -473,15 +489,21 @@ def _potion_effect(event, state):
     if not player_id:
         return []
     # Find the most damaged Pokemon
+    candidates = []
     best_id = None
     most_damage = 0
     for zone_key, zone in state.zones.items():
         if zone.type in (ZoneType.ACTIVE_SPOT, ZoneType.BENCH) and zone.owner == player_id:
             for pkm_id in zone.objects:
                 pkm = state.objects.get(pkm_id)
+                if pkm and pkm.state.damage_counters > 0:
+                    candidates.append(pkm_id)
                 if pkm and pkm.state.damage_counters > most_damage:
                     most_damage = pkm.state.damage_counters
                     best_id = pkm_id
+    ai_target = _choose_ai_potion_target(state, player_id, candidates)
+    if ai_target:
+        best_id = ai_target
     if not best_id or most_damage == 0:
         return []
     pkm = state.objects.get(best_id)
