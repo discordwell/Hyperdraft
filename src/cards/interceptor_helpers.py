@@ -6905,6 +6905,250 @@ __all_sweep4b__ = [
 
 
 # =============================================================================
+# Replacement effects
+# =============================================================================
+#
+# A replacement effect rewrites an event as it passes through the pipeline:
+# "If X would happen, Y instead." Implemented as TRANSFORM-priority
+# interceptors. A loop-prevention marker is pinned on the event payload so a
+# replacement does not re-fire on its own output (see ``apply_once_per_event``).
+#
+# This helper is a card-side wrapper around the engine-level primitive in
+# ``src/engine/replacements.py::make_replacement_interceptor``. The core
+# differences:
+#
+#   * ``replace_fn`` is allowed to return either a single ``Event`` or a
+#     ``list[Event]`` for ergonomics. The first event is what the resolver
+#     actually applies; any extras are queued as REACT-phase follow-ups via a
+#     one-shot interceptor so they ride out on the same emit() call (this is a
+#     v1 simplification for the rare multi-event replacement; the common case
+#     is a single rewritten event).
+#   * ``duration`` accepts ``'permanent'`` (alias for ``'forever'``),
+#     ``'end_of_turn'`` (swept by the existing TurnManager cleanup), and
+#     ``'one_shot'`` (use it once, then self-destruct). Permanent replacements
+#     get tagged with ``_cleanup_on_zone_change`` so the source's death/exile
+#     evicts the interceptor automatically.
+#   * Optionally fires ``EventType.REPLACEMENT_FIRED`` for tracing.
+# =============================================================================
+
+
+def make_replacement_effect(
+    source: GameObject,
+    *,
+    event_filter: Callable[[Event, GameState], bool],
+    replace_fn: Callable[[Event, GameState], Any],
+    duration: str = 'permanent',
+    apply_once_per_event: bool = True,
+    emit_telemetry: bool = False,
+    require_battlefield: bool = True,
+) -> list[Interceptor]:
+    """Build a generic "if X would happen, Y instead" replacement effect.
+
+    Args:
+        source: the permanent providing the replacement effect.
+        event_filter: ``(event, state) -> bool``. Return True to replace.
+        replace_fn: ``(event, state) -> Event | list[Event] | None``. The
+            returned event(s) replace the original. Return None or an empty
+            list to fall through (no replacement happens).
+        duration: ``'permanent'`` (alias for ``'forever'``), ``'end_of_turn'``
+            (swept by TurnManager cleanup), or ``'one_shot'`` (one use,
+            self-destruct after firing).
+        apply_once_per_event: when True (default), the marker
+            ``_replaced_by_<interceptor_id>`` is pinned on the replacement
+            event so this same replacer cannot re-fire on its own output.
+            *Other* replacers may still rewrite the output.
+        emit_telemetry: when True, fires an ``EventType.REPLACEMENT_FIRED``
+            event after the replacement. The event is added as a REACT-phase
+            follow-up so it doesn't itself get replaced.
+        require_battlefield: gate on the source still being on the
+            battlefield. Almost always desirable.
+
+    Returns:
+        A list with one ``Interceptor`` (returning a list keeps a uniform shape
+        with other helpers like ``becomes_creature``). Permanent replacements
+        get the ``_cleanup_on_zone_change`` tag so they self-evict if the
+        source leaves play.
+    """
+    # Normalise duration aliases.
+    duration_norm = (duration or 'permanent').strip().lower().replace(' ', '_')
+    if duration_norm in ('permanent', 'forever', 'static'):
+        engine_duration = 'forever'
+    elif duration_norm in ('end_of_turn', 'eot', 'until_end_of_turn',
+                           'until_eot', 'this_turn', 'next_end_step',
+                           'end_of_this_turn'):
+        engine_duration = 'end_of_turn'
+    elif duration_norm in ('one_shot', 'oneshot', 'once', 'use_once'):
+        engine_duration = 'forever'  # self-destructs via uses_remaining=1
+    else:
+        engine_duration = duration_norm  # passthrough for advanced callers
+
+    one_shot = duration_norm in ('one_shot', 'oneshot', 'once', 'use_once')
+
+    source_id = source.id
+    interceptor_id = new_id()
+    marker_key = f"_replaced_by_{interceptor_id}"
+
+    def _has_marker(event: Event) -> bool:
+        return bool(event.payload.get(marker_key))
+
+    def _set_marker(event: Event) -> None:
+        event.payload[marker_key] = True
+
+    def filter_fn(event: Event, state: GameState) -> bool:
+        if apply_once_per_event and _has_marker(event):
+            return False
+        if require_battlefield:
+            src = state.objects.get(source_id)
+            if not src or src.zone != ZoneType.BATTLEFIELD:
+                return False
+        try:
+            return bool(event_filter(event, state))
+        except Exception:
+            return False
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        try:
+            replacement = replace_fn(event, state)
+        except Exception:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        # Normalise return shape: None / [] -> no-op; Event -> [Event].
+        if replacement is None:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        if isinstance(replacement, Event):
+            replacement_events = [replacement]
+        elif isinstance(replacement, (list, tuple)):
+            replacement_events = [e for e in replacement if isinstance(e, Event)]
+        else:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        if not replacement_events:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        primary = replacement_events[0]
+        extras = list(replacement_events[1:])
+
+        # Pin the loop-prevention marker on every replacement event so this
+        # replacer cannot fire on its own output. Other replacers still can.
+        if apply_once_per_event:
+            _set_marker(primary)
+            for extra in extras:
+                _set_marker(extra)
+
+        react_followups: list[Event] = []
+        if extras:
+            # Queue extras as REACT-phase events so they ride out on the same
+            # emit() call. They're already marker-tagged so the same replacer
+            # won't bite them.
+            react_followups.extend(extras)
+
+        if emit_telemetry:
+            try:
+                original_payload = {
+                    k: v for k, v in event.payload.items()
+                    if not (isinstance(k, str) and k.startswith('_replaced_by_'))
+                }
+            except Exception:
+                original_payload = {}
+            react_followups.append(Event(
+                type=EventType.REPLACEMENT_FIRED,
+                payload={
+                    'source': source_id,
+                    'replacer_id': interceptor_id,
+                    'original_type': event.type,
+                    'original_payload': original_payload,
+                    'replacement_count': len(replacement_events),
+                },
+                source=source_id,
+                controller=getattr(source, 'controller', None),
+            ))
+
+        # If we have any react-phase follow-ups, stash them on the state so
+        # a sibling REACT interceptor can drain them. Simpler: put them on
+        # state._replacement_effect_followups, drained by a system REACT
+        # interceptor we register lazily.
+        if react_followups:
+            buf = getattr(state, '_replacement_effect_followups', None)
+            if buf is None:
+                buf = []
+                state._replacement_effect_followups = buf  # type: ignore[attr-defined]
+            buf.extend(react_followups)
+            _ensure_replacement_followup_drainer(state)
+
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=primary,
+        )
+
+    interceptor = Interceptor(
+        id=interceptor_id,
+        source=source_id,
+        controller=source.controller,
+        priority=InterceptorPriority.TRANSFORM,
+        filter=filter_fn,
+        handler=handler,
+        duration=engine_duration,
+        uses_remaining=1 if one_shot else None,
+    )
+    if engine_duration == 'forever':
+        # Self-evict on source leaving the battlefield (graveyard / exile),
+        # mirroring how ``make_cost_reduction(self_only=True)`` works.
+        setattr(interceptor, "_cleanup_on_zone_change", True)
+    return [interceptor]
+
+
+def _ensure_replacement_followup_drainer(state: GameState) -> None:
+    """Lazily install a system REACT interceptor that drains queued follow-ups.
+
+    The drainer fires after every event, walks ``state._replacement_effect_followups``,
+    and emits one new event per buffered entry. This is the v1 mechanism for
+    multi-event replacements and ``REPLACEMENT_FIRED`` telemetry — both ride
+    out on the same ``emit()`` call as the original event.
+    """
+    if getattr(state, '_replacement_effect_drainer_installed', False):
+        return
+
+    drainer_id = new_id()
+
+    def drain_filter(event: Event, st: GameState) -> bool:
+        # Avoid recursing on our own telemetry / extras: the marker is set so
+        # the original replacer skips them, but the drainer should still
+        # process *every other event* once (so extras emitted during a TRANSFORM
+        # get drained promptly).
+        buf = getattr(st, '_replacement_effect_followups', None)
+        return bool(buf)
+
+    def drain_handler(event: Event, st: GameState) -> InterceptorResult:
+        buf = getattr(st, '_replacement_effect_followups', None) or []
+        if not buf:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # Drain everything currently queued. New entries added during the
+        # subsequent emits will be picked up on the next pipeline iteration.
+        outgoing = list(buf)
+        buf.clear()
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=outgoing,
+        )
+
+    drainer = Interceptor(
+        id=drainer_id,
+        source="SYSTEM",
+        controller="SYSTEM",
+        priority=InterceptorPriority.REACT,
+        filter=drain_filter,
+        handler=drain_handler,
+        duration='forever',
+    )
+    state.interceptors[drainer_id] = drainer
+    state._replacement_effect_drainer_installed = True  # type: ignore[attr-defined]
+
+
+__all_replacement_effects__ = [
+    "make_replacement_effect",
+]
+
+
+# =============================================================================
 # Sweep 7: Threaten — "Gain control of target + untap + haste EOT"
 # =============================================================================
 #
