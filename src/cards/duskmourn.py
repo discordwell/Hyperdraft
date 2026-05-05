@@ -3255,9 +3255,64 @@ def patchwork_beastie_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def rootwise_survivor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Haste; Survival — counter and turn land into creature."""
-    # engine gap: Survival; land animation
-    return []
+    """Haste; Survival — At the beginning of your second main phase, if this
+    creature is tapped, put three +1/+1 counters on up to one target land you
+    control. That land becomes a 0/0 Elemental creature in addition to its
+    other types. It gains haste until your next turn.
+
+    Best-effort target selection (engine gap: Survival target choice): pick
+    the first non-creature land controlled by ``obj.controller``. Animation
+    uses ``duration='until_your_next_turn'`` so the land stays a creature
+    through the opponent's turn and reverts at the controller's next TURN_START.
+    """
+    from src.cards.interceptor_helpers import make_until_next_turn_animation
+
+    def survival_effect(event: Event, state: GameState) -> list[Event]:
+        # Find the first land controlled by us that isn't already a creature.
+        target_land = None
+        battlefield = state.zones.get('battlefield')
+        if battlefield:
+            for oid in battlefield.objects:
+                cand = state.objects.get(oid)
+                if cand is None:
+                    continue
+                if cand.controller != obj.controller:
+                    continue
+                if CardType.LAND not in cand.characteristics.types:
+                    continue
+                if CardType.CREATURE in cand.characteristics.types:
+                    continue
+                target_land = cand
+                break
+        if target_land is None:
+            return []
+
+        # Animate "until your next turn" — controller is obj.controller (the
+        # Rootwise's controller), since the duration is keyed off *their* turn.
+        make_until_next_turn_animation(
+            target_land,
+            state,
+            controller=obj.controller,
+            power=0,
+            toughness=0,
+            subtypes={"Elemental"},
+            keywords=["haste"],
+            keep_land=True,
+        )
+
+        # Three +1/+1 counters on the targeted land (now a creature).
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={
+                'object_id': target_land.id,
+                'counter_type': '+1/+1',
+                'amount': 3,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return [make_survival_trigger(obj, survival_effect)]
 
 
 def slavering_branchsnapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
