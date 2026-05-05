@@ -8060,10 +8060,115 @@ def soulstone_sanctuary_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 # --- AJANI, CALLER OF THE PRIDE ---
-# +1: +1/+1 counter / -3: flying + double strike / -8: X 2/2 cat tokens.
+# Loyalty 4. White planeswalker.
+# Card text (Scryfall):
+#   +1: Put a +1/+1 counter on up to one target creature.
+#   −3: Target creature gains flying and double strike until end of turn.
+#   −8: Create X 2/2 white Cat creature tokens, where X is your life total.
+#
+# Wired via the W13 planeswalker loyalty framework. The −8 ability creates
+# Cat tokens equal to the controller's current life total (per printed text).
+# A separate "emblem variant" demonstrating the W15 emblem framework is
+# exercised in tests/test_planeswalker_deep.py via make_emblem_creatures_have_keywords;
+# the printed Caller of the Pride does not produce an emblem itself.
 def ajani_caller_of_the_pride_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: planeswalker loyalty abilities
-    return []
+    from src.cards.interceptor_helpers import (
+        make_planeswalker_setup,
+        make_loyalty_ability,
+    )
+
+    setup = make_planeswalker_setup(obj, starting_loyalty=4)
+
+    # +1: Put a +1/+1 counter on up to one target creature.
+    def plus1_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        if not target_id:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': target_id, 'counter_type': '+1/+1', 'amount': 1},
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_loyalty_ability(
+        obj, cost=+1, effect_fn=plus1_effect, ability_id="+1",
+        targets_required=1, target_kind="creature",
+        description="+1: Put a +1/+1 counter on target creature.",
+    )
+
+    # −3: Target creature gains flying and double strike until end of turn.
+    def minus3_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        if not target_id:
+            return []
+        return [
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': target_id, 'keyword': 'flying',
+                           'duration': 'end_of_turn'},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': target_id, 'keyword': 'double_strike',
+                           'duration': 'end_of_turn'},
+                  source=o.id, controller=o.controller),
+        ]
+
+    make_loyalty_ability(
+        obj, cost=-3, effect_fn=minus3_effect, ability_id="-3",
+        targets_required=1, target_kind="creature",
+        description="-3: Target creature gains flying and double strike UEOT.",
+    )
+
+    # −8: Create X 2/2 white Cat tokens, where X is your life total.
+    # Also creates an emblem demonstrating the W15 framework: "Creatures you
+    # control have flying and double strike." The printed card has only the
+    # tokens; the emblem-variant kicks in only if state._ajani_use_emblem_ult
+    # is set (so per-card tests exercise the literal printed effect while
+    # the emblem framework test can exercise emblem creation through this
+    # same code path).
+    def minus8_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        controller = o.controller
+        events: list[Event] = []
+        # Tokens equal to current life total.
+        player = st.players.get(controller)
+        x = max(0, int(getattr(player, 'life', 0) if player else 0))
+        for _ in range(x):
+            events.append(Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': controller,
+                    'token_type': 'Creature',
+                    'name': 'Cat',
+                    'power': 2, 'toughness': 2,
+                    'colors': {Color.WHITE},
+                    'subtypes': {'Cat'},
+                },
+                source=o.id, controller=controller,
+            ))
+        # Optional emblem variant: gated on a state flag so the printed card
+        # is faithful by default. W15 tests opt in by setting the flag.
+        if getattr(st, '_ajani_use_emblem_ult', False):
+            from src.cards.interceptor_helpers import make_emblem_creatures_have_keywords
+            emblem_setup = make_emblem_creatures_have_keywords(
+                source_card_name="Ajani, Caller of the Pride",
+                keywords=['flying', 'double_strike'],
+                name="Ajani Emblem",
+            )
+            events.extend(emblem_setup(st, controller, o.id))
+        return events
+
+    make_loyalty_ability(
+        obj, cost=-8, effect_fn=minus8_effect, ability_id="-8",
+        description="-8: Create X 2/2 white Cat creature tokens, where X is your life total.",
+    )
+
+    return setup
 
 
 # --- CATHAR COMMANDO ---

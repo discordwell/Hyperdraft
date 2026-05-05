@@ -5580,7 +5580,144 @@ from src.engine.planeswalker import (
     make_planeswalker_setup,
     planeswalkers_with_zero_loyalty,
     get_loyalty,
+    is_planeswalker,
+    planeswalkers_controlled_by,
+    redirect_attack_to_planeswalker,
+    redirect_damage_to_planeswalker,
 )
+
+
+# =============================================================================
+# W15: Emblems (CR 113.1c)
+# =============================================================================
+#
+# Emblems are persistent global effects with no characteristics other than
+# "Emblem". They never leave play. Created by planeswalker ultimates ("you
+# get an emblem with...").
+#
+# Helper API:
+#
+#   make_emblem_setup(name, static_effects_fn) -> callable
+#
+# The returned callable takes ``(state, controller, source_id) -> list[Event]``
+# and is intended to be called from a loyalty ability's effect_fn::
+#
+#       def minus10_effect(o, state, targets):
+#           setup_fn = make_emblem_setup(
+#               name="Ral Emblem",
+#               text='Whenever you cast an instant or sorcery, this emblem deals 4 damage to any target.',
+#               static_effects_fn=ral_emblem_statics,
+#           )
+#           return setup_fn(state, o.controller, o.id)
+#
+# ``static_effects_fn(emblem, state) -> list[Interceptor]`` builds the static
+# interceptors. Their ``source`` defaults to the emblem's id, their
+# ``controller`` to the emblem's controller, and their ``duration`` is forced
+# to ``"forever"`` so they survive battlefield sweeps and end-of-turn cleanup.
+#
+# Emblems live on ``state.emblems``. Lookup helpers are exported from
+# ``src.engine.emblem``.
+# -----------------------------------------------------------------------------
+
+from src.engine.emblem import (
+    Emblem,
+    create_emblem,
+    get_emblems,
+    get_emblems_for_player,
+)
+
+
+def make_emblem_setup(
+    *,
+    source_card_name: str,
+    static_effects_fn: Callable[["Emblem", GameState], list[Interceptor]],
+    name: str = "",
+    text: str = "",
+):
+    """Return a callable usable as the body of a planeswalker ultimate.
+
+    The returned function has signature
+    ``(state, controller, source_id) -> list[Event]`` and creates the emblem
+    + registers its interceptors as a side-effect, returning an
+    EMBLEM_CREATED marker event for the caller to bubble back to the
+    pipeline.
+    """
+    def _create(state: GameState, controller: str, source_id: Optional[str] = None) -> list[Event]:
+        _emblem, events = create_emblem(
+            state,
+            controller=controller,
+            source_id=source_id,
+            source_card_name=source_card_name,
+            static_effects_fn=static_effects_fn,
+            name=name,
+            text=text,
+        )
+        return events
+
+    return _create
+
+
+def make_emblem_creatures_have_keywords(
+    *,
+    source_card_name: str,
+    keywords: list[str],
+    name: str = "",
+):
+    """Common emblem pattern: "Creatures you control have <keyword(s)>".
+
+    Builds an emblem whose static QUERY_ABILITIES interceptor grants the
+    listed keywords to creatures controlled by the emblem's owner. Used by
+    Ajani, Caller of the Pride's -8 ultimate (in spirit; see card text).
+    """
+    text = f"Creatures you control have {', '.join(keywords)}."
+
+    def _statics(emblem, state):
+        controller = emblem.controller
+
+        def _filter(event: Event, st: GameState) -> bool:
+            if event.type != EventType.QUERY_ABILITIES:
+                return False
+            target_id = event.payload.get('object_id')
+            target = st.objects.get(target_id)
+            if not target:
+                return False
+            if target.controller != controller:
+                return False
+            if target.zone != ZoneType.BATTLEFIELD:
+                return False
+            from src.engine.queries import is_creature
+            if not is_creature(target, st):
+                return False
+            return True
+
+        def _handler(event: Event, st: GameState) -> InterceptorResult:
+            new_event = event.copy()
+            granted = list(new_event.payload.get('granted', []))
+            for kw in keywords:
+                if kw not in granted:
+                    granted.append(kw)
+            new_event.payload['granted'] = granted
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=new_event,
+            )
+
+        return [Interceptor(
+            id=new_id(),
+            source=emblem.id,
+            controller=controller,
+            priority=InterceptorPriority.QUERY,
+            filter=_filter,
+            handler=_handler,
+            duration='forever',
+        )]
+
+    return make_emblem_setup(
+        source_card_name=source_card_name,
+        static_effects_fn=_statics,
+        name=name,
+        text=text,
+    )
 
 
 # =============================================================================
@@ -6231,6 +6368,17 @@ __all_phase4__ = [
     "make_planeswalker_setup",
     "planeswalkers_with_zero_loyalty",
     "get_loyalty",
+    # W15: PW combat redirect + emblems.
+    "is_planeswalker",
+    "planeswalkers_controlled_by",
+    "redirect_attack_to_planeswalker",
+    "redirect_damage_to_planeswalker",
+    "Emblem",
+    "create_emblem",
+    "get_emblems",
+    "get_emblems_for_player",
+    "make_emblem_setup",
+    "make_emblem_creatures_have_keywords",
 ]
 
 

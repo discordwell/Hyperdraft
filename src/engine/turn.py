@@ -698,3 +698,101 @@ def check_planeswalker_zero_loyalty_sbas(state: GameState, pipeline=None) -> lis
         if pipeline is not None:
             pipeline.emit(evt)
     return events
+
+
+# =============================================================================
+# State-based actions: legend rule (CR 704.5j) — W15
+# =============================================================================
+#
+# CR 704.5j: "If a player controls two or more legendary permanents with the
+# same name, that player chooses one of them, and the rest are put into their
+# owners' graveyards. This is called the 'legend rule'."
+#
+# Implementation notes:
+#  - Tokens with the Legendary supertype participate (W16+ pendant cards).
+#  - Choice rule: for the simple SBA helper we keep the highest-loyalty
+#    planeswalker (so PWs whose ult just fired aren't penalized) or the
+#    most-recent ETB (highest entered_zone_at) for non-PW legends. Tests
+#    can override by setting ``state._legend_rule_keep_picker`` to a
+#    callable ``(controller, name, candidates_list) -> chosen``.
+# -----------------------------------------------------------------------------
+
+def check_legend_rule_sbas(state: GameState, pipeline=None) -> list[Event]:
+    """Apply the legend rule: for each player, group legendary permanents on
+    the battlefield by name; if a player controls 2+ in a group, keep one and
+    destroy the rest.
+
+    Returns OBJECT_DESTROYED events emitted (or constructed when no pipeline).
+    Idempotent.
+    """
+    from collections import defaultdict
+    events: list[Event] = []
+    battlefield = state.zones.get('battlefield')
+    if not battlefield:
+        return events
+
+    # Group: (controller, name) -> list[GameObject]
+    groups: dict[tuple[str, str], list] = defaultdict(list)
+    for obj_id in list(battlefield.objects):
+        obj = state.objects.get(obj_id)
+        if obj is None:
+            continue
+        # Tokens with no name still participate via Characteristics; but most
+        # legend tokens have a name set on the GameObject.
+        supertypes = obj.characteristics.supertypes if obj.characteristics else set()
+        if "Legendary" not in supertypes:
+            continue
+        name = obj.name or (obj.card_def.name if getattr(obj, "card_def", None) else "")
+        if not name:
+            continue
+        groups[(obj.controller, name)].append(obj)
+
+    picker = getattr(state, "_legend_rule_keep_picker", None)
+    for (controller, name), objs in groups.items():
+        if len(objs) < 2:
+            continue
+        if callable(picker):
+            try:
+                kept = picker(controller, name, list(objs))
+            except Exception:
+                kept = None
+            if kept not in objs:
+                kept = None
+        else:
+            kept = None
+
+        if kept is None:
+            # Default: keep most-recent ETB (highest entered_zone_at). For PWs,
+            # break ties by highest current loyalty so a freshly-resolved
+            # ultimate doesn't lose to its sibling.
+            from .types import CardType
+            def _rank(o):
+                ts = getattr(o, "entered_zone_at", 0) or 0
+                loyalty = 0
+                if CardType.PLANESWALKER in o.characteristics.types:
+                    loyalty = int(o.state.counters.get("loyalty", 0))
+                return (ts, loyalty)
+            kept = max(objs, key=_rank)
+
+        for obj in objs:
+            if obj is kept:
+                continue
+            evt = Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': obj.id, 'reason': 'legend_rule',
+                         'kept_id': kept.id, 'name': name},
+                source=obj.id,
+                controller=controller,
+            )
+            events.append(evt)
+            marker = Event(
+                type=EventType.LEGEND_RULE_TRIGGERED,
+                payload={'object_id': obj.id, 'kept_id': kept.id, 'name': name},
+                source=obj.id,
+                controller=controller,
+            )
+            events.append(marker)
+            if pipeline is not None:
+                pipeline.emit(evt)
+                pipeline.emit(marker)
+    return events
