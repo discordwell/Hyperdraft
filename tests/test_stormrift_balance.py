@@ -24,6 +24,7 @@ def test_stormrift_balance_summary_tracks_both_factions():
         assert profile["early_count"] >= 10, faction
         assert profile["minion_count"] >= 12, faction
         assert profile["spell_count"] >= 8, faction
+        assert profile["balance_flags"] == [], faction
 
 
 def test_pyromancer_has_enough_resilient_early_minions_for_rift_storm():

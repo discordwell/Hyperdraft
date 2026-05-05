@@ -1909,8 +1909,37 @@ def stormrift_balance_summary() -> dict:
         profile["hero_power_armor"] = hp_armor
         profile["pressure_score"] += hp_damage * 5
         profile["defense_score"] += hp_armor * 5
+        profile["balance_flags"] = stormrift_balance_flags(faction, profile)
         summary[faction] = profile
     return summary
+
+
+def stormrift_balance_flags(faction: str, profile: dict) -> list[str]:
+    """Return role-specific Stormrift balance warnings for a faction profile."""
+    flags = []
+    if faction == "Pyromancer":
+        if profile["pressure_score"] <= profile["defense_score"]:
+            flags.append("pyromancer_low_pressure_identity")
+        if profile["burn_cards"] < 18:
+            flags.append("pyromancer_low_burn_density")
+        if profile["charge_minions"] < 3:
+            flags.append("pyromancer_low_immediacy")
+        if profile["hero_power_damage"] < 2:
+            flags.append("pyromancer_low_hero_power_pressure")
+        if profile["fragile_one_health_minions"] > 3:
+            flags.append("pyromancer_too_fragile_for_rift_storm")
+    elif faction == "Cryomancer":
+        if profile["defense_score"] <= profile["pressure_score"]:
+            flags.append("cryomancer_low_defense_identity")
+        if profile["freeze_cards"] < 4:
+            flags.append("cryomancer_low_freeze_density")
+        if profile["taunt_count"] < 7:
+            flags.append("cryomancer_low_taunt_density")
+        if profile["armor_score"] < 6:
+            flags.append("cryomancer_low_armor_density")
+        if profile["hero_power_armor"] < 3:
+            flags.append("cryomancer_low_hero_power_defense")
+    return flags
 
 
 # =============================================================================
