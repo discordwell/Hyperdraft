@@ -291,6 +291,8 @@ class YugiohAIAdapter:
 
             # === Targeted removal / utility ===
             if name == "Monster Reborn":
+                if not self._has_empty_monster_slot(player_id, state):
+                    continue
                 target = self._find_reborn_target(player_id, opp_id, state)
                 if target:
                     return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target]}
@@ -299,6 +301,8 @@ class YugiohAIAdapter:
             if name == "Premature Burial":
                 player = state.players.get(player_id)
                 if player and getattr(player, 'lp', 0) <= 800:
+                    continue
+                if not self._has_empty_monster_slot(player_id, state):
                     continue
                 target = self._find_own_gy_target(player_id, state)
                 if target:
@@ -636,6 +640,14 @@ class YugiohAIAdapter:
             state.objects[oid] for oid in zone.objects
             if oid and oid in state.objects
         ]
+
+    def _has_empty_monster_slot(self, player_id: str, state: GameState) -> bool:
+        """Return True if the player has an open monster zone slot."""
+        zone = state.zones.get(f"monster_zone_{player_id}")
+        return bool(zone and any(
+            i >= len(zone.objects) or zone.objects[i] is None
+            for i in range(5)
+        ))
 
     def _get_opponent(self, player_id: str, state: GameState) -> str:
         """Get opponent's player ID."""

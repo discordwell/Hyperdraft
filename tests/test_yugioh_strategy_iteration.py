@@ -7,6 +7,7 @@ from src.cards.yugioh.ygo_optimized import (
     CHAIN_BURN_STRATEGY,
     HEAVY_STORM,
     MIRROR_FORCE,
+    MONSTER_REBORN,
     OOKAZI,
     PREMATURE_BURIAL,
     SAKURETSU_ARMOR,
@@ -175,4 +176,30 @@ def test_hard_ai_casts_custom_lethal_burn_before_summoning():
     assert action == {
         "action_type": "activate_spell",
         "card_id": bolt.id,
+    }
+
+
+def test_hard_ai_does_not_reborn_when_monster_zones_are_full():
+    game, p1, p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    reborn = _card(game, MONSTER_REBORN, p1, ZoneType.HAND)
+    target = _card(game, BLUE_EYES_WHITE_DRAGON, p1, ZoneType.GRAVEYARD)
+    for idx in range(5):
+        _field_monster(game, p1, f"Filled Slot {idx}", 1000, 1000)
+
+    choice = ai._pick_spell_activation(
+        [reborn], p1.id, game.state, p2.id, [], []
+    )
+
+    assert choice is None
+
+    game.state.zones[f"monster_zone_{p1.id}"].objects[0] = None
+    choice = ai._pick_spell_activation(
+        [reborn], p1.id, game.state, p2.id, [], []
+    )
+
+    assert choice == {
+        "action_type": "activate_spell",
+        "card_id": reborn.id,
+        "targets": [target.id],
     }
