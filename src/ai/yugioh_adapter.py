@@ -266,7 +266,11 @@ class YugiohAIAdapter:
 
             if name == "Heavy Storm":
                 opp_st = self._get_spell_traps(opp_id, state)
-                if len(opp_st) >= 2 or (len(opp_st) >= 1 and self.difficulty in ("easy", "medium")):
+                own_st = self._get_spell_traps(player_id, state)
+                if self.difficulty in ("hard", "ultra"):
+                    if len(opp_st) >= 2 and len(opp_st) > len(own_st):
+                        return {'action_type': 'activate_spell', 'card_id': obj.id}
+                elif len(opp_st) >= 1:
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
                 continue
 

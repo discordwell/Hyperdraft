@@ -4,7 +4,10 @@ from src.ai.yugioh_adapter import YugiohAIAdapter
 from src.cards.yugioh.ygo_classic import BLUE_EYES_WHITE_DRAGON
 from src.cards.yugioh.ygo_optimized import (
     CHAIN_BURN_STRATEGY,
+    HEAVY_STORM,
+    MIRROR_FORCE,
     PREMATURE_BURIAL,
+    SAKURETSU_ARMOR,
     STEALTH_BIRD,
 )
 from src.engine.game import Game, make_ygo_monster
@@ -93,3 +96,26 @@ def test_hard_ai_sets_strategy_set_priority_monster_before_summoning():
         "action_type": "set_monster",
         "card_id": bird.id,
     }
+
+
+def test_hard_ai_does_not_heavy_storm_equal_backrow():
+    game, p1, p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    storm = _card(game, HEAVY_STORM, p1, ZoneType.HAND)
+    _card(game, MIRROR_FORCE, p1, ZoneType.SPELL_TRAP_ZONE)
+    _card(game, SAKURETSU_ARMOR, p1, ZoneType.SPELL_TRAP_ZONE)
+    _card(game, MIRROR_FORCE, p2, ZoneType.SPELL_TRAP_ZONE)
+    _card(game, SAKURETSU_ARMOR, p2, ZoneType.SPELL_TRAP_ZONE)
+
+    choice = ai._pick_spell_activation(
+        [storm], p1.id, game.state, p2.id, [], []
+    )
+
+    assert choice is None
+
+    game.state.zones[f"spell_trap_zone_{p1.id}"].objects.pop()
+    choice = ai._pick_spell_activation(
+        [storm], p1.id, game.state, p2.id, [], []
+    )
+
+    assert choice == {"action_type": "activate_spell", "card_id": storm.id}
