@@ -471,6 +471,17 @@ class EventType(Enum):
     # ------------------------------------------------------------------
     EXHAUST_RESET = auto()
 
+    # ------------------------------------------------------------------
+    # Triggered abilities on the stack (CR 603.2 / 603.3).
+    # Marker emitted whenever a triggered-ability interceptor is queued onto
+    # state.pending_triggers. Useful for telemetry, logs, and tests. Payload:
+    #   source_id          - object that owns the trigger
+    #   source_card_name   - name of the source object (informational)
+    #   controller         - player who controls the trigger
+    #   description        - human-readable description (e.g. "ETB: gain 3 life")
+    # ------------------------------------------------------------------
+    TRIGGERED_ABILITY_PUT_ON_STACK = auto()
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
@@ -545,6 +556,23 @@ class Interceptor:
     # Lifecycle
     duration: Optional[str] = None  # 'forever', 'end_of_turn', 'until_leaves'
     uses_remaining: Optional[int] = None
+
+    # CR 603.2: Marks this interceptor as a triggered ability. When True, the
+    # pipeline's REACT phase will not invoke effect_fn inline; it will instead
+    # queue a ``TriggeredStackItem`` onto ``state.pending_triggers`` so the
+    # trigger can be put on the stack at the next priority window. Replacement
+    # effects (TRANSFORM-priority) and other react-phase observers (telemetry,
+    # markers) leave this False.
+    is_triggered_ability: bool = False
+    # Cached ``effect_fn`` and human-readable description for trigger handlers.
+    # Set by the helpers in src/cards/interceptor_helpers.py and consumed by
+    # the pipeline when building a ``TriggeredStackItem``. The handler itself
+    # remains the legacy-shape ``(event, state) -> InterceptorResult`` so non-
+    # auto-resolve fallback paths still work, but when ``is_triggered_ability``
+    # is True the pipeline reads ``effect_fn`` directly instead of running
+    # ``handler``.
+    effect_fn: Optional[Callable[['Event', 'GameState'], list['Event']]] = None
+    description: str = ""
 
 
 # =============================================================================
@@ -1119,12 +1147,37 @@ class PendingChoice:
 
 
 @dataclass
+class GameOptions:
+    """Per-game runtime configuration knobs.
+
+    Lives on ``GameState.options`` to keep tunables out of the GameState dict.
+    Most values default to the most permissive / test-friendly setting; the
+    server flips them at game start when a different default is appropriate
+    for production play.
+    """
+    # CR 603.2: Triggered abilities go on the stack and players receive
+    # priority before they resolve. When True (test-friendly default),
+    # trigger queueing is bypassed and the trigger's effect resolves
+    # immediately when drained — preserves pre-existing test semantics where
+    # ETB triggers fire inline. Set False on the live server to enable real
+    # response windows.
+    auto_resolve_triggers: bool = True
+
+
+@dataclass
 class GameState:
     """Complete game state."""
     players: dict[str, Player] = field(default_factory=dict)
     objects: dict[str, GameObject] = field(default_factory=dict)
     zones: dict[str, Zone] = field(default_factory=dict)
     interceptors: dict[str, Interceptor] = field(default_factory=dict)
+    options: 'GameOptions' = field(default_factory=lambda: GameOptions())
+    # CR 603.2 trigger queue. Triggers accumulate here when they fire but
+    # haven't been put on the stack yet (i.e. between the triggering event
+    # and the next priority window). Drained by ``process_pending_triggers``
+    # in src/engine/stack.py — ordered by APNAP and pushed onto the stack
+    # as TriggeredStackItem entries.
+    pending_triggers: list = field(default_factory=list)
 
     # Turn tracking
     active_player: Optional[str] = None

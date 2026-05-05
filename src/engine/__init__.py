@@ -80,8 +80,10 @@ from .mana import (
 
 from .stack import (
     StackManager, StackItem, StackItemType, StackEvent, SpellBuilder,
-    create_damage_spell, create_draw_spell, create_destroy_spell, create_counter_spell
+    create_damage_spell, create_draw_spell, create_destroy_spell, create_counter_spell,
+    TriggeredStackItem, process_pending_triggers, auto_resolve_pending_triggers,
 )
+from .types import GameOptions
 
 from .turn import (
     TurnManager, TurnState, Phase, Step
@@ -180,6 +182,8 @@ __all__ = [
     # Stack
     'StackManager', 'StackItem', 'StackItemType', 'StackEvent', 'SpellBuilder',
     'create_damage_spell', 'create_draw_spell', 'create_destroy_spell', 'create_counter_spell',
+    'TriggeredStackItem', 'process_pending_triggers', 'auto_resolve_pending_triggers',
+    'GameOptions',
 
     # Turn
     'TurnManager', 'TurnState', 'Phase', 'Step',

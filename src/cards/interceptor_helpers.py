@@ -15,6 +15,29 @@ from src.engine import (
 
 
 # =============================================================================
+# Triggered-ability decoration (CR 603.2)
+# =============================================================================
+
+def _mark_triggered_ability(
+    interceptor: Interceptor,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+    description: str = "",
+) -> Interceptor:
+    """Tag a REACT-priority interceptor as a triggered ability.
+
+    The pipeline reads ``is_triggered_ability`` and ``effect_fn`` directly
+    when queueing the trigger onto ``state.pending_triggers``. The original
+    ``handler`` is preserved for legacy/fallback paths (e.g. tests that
+    flip is_triggered_ability=False to disable trigger queueing).
+    """
+    interceptor.is_triggered_ability = True
+    interceptor.effect_fn = effect_fn
+    if description and not interceptor.description:
+        interceptor.description = description
+    return interceptor
+
+
+# =============================================================================
 # FILTER FACTORY FUNCTIONS
 # =============================================================================
 
@@ -109,7 +132,7 @@ def make_etb_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -118,6 +141,7 @@ def make_etb_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="ETB trigger")
 
 
 # =============================================================================
@@ -180,7 +204,7 @@ def make_death_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -189,6 +213,7 @@ def make_death_trigger(
         handler=trigger_handler,
         duration='until_leaves'  # Stays registered to fire after leaving
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Death trigger")
 
 
 # =============================================================================
@@ -411,7 +436,7 @@ def make_attack_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -420,6 +445,7 @@ def make_attack_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Attack trigger")
 
 
 # =============================================================================
@@ -480,7 +506,7 @@ def make_block_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -489,6 +515,7 @@ def make_block_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Block trigger")
 
 
 # =============================================================================
@@ -542,7 +569,7 @@ def make_damage_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -551,6 +578,7 @@ def make_damage_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Damage trigger")
 
 
 # =============================================================================
@@ -1030,7 +1058,7 @@ def make_spell_cast_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -1039,6 +1067,7 @@ def make_spell_cast_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Spell cast trigger")
 
 
 # =============================================================================
@@ -1077,7 +1106,7 @@ def make_tap_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -1086,6 +1115,7 @@ def make_tap_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Tap trigger")
 
 
 # =============================================================================
@@ -1124,7 +1154,7 @@ def make_upkeep_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -1133,6 +1163,7 @@ def make_upkeep_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Upkeep trigger")
 
 
 # =============================================================================
@@ -1171,7 +1202,7 @@ def make_end_step_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -1180,6 +1211,7 @@ def make_end_step_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="End step trigger")
 
 
 # =============================================================================
@@ -1279,6 +1311,11 @@ def make_delayed_trigger(
     )
 
     def deferred_filter(event: Event, state: GameState) -> bool:
+        # Only fire if there's actually something accumulated. This prevents
+        # an empty trigger from queueing on every PHASE_START.
+        td = getattr(state, "turn_data", None)
+        if td is None or not (td.get(tracker_key) or []):
+            return False
         if deferred_at in ('end_of_your_turn', 'end_of_turn'):
             if event.type != EventType.PHASE_START:
                 return False
@@ -1314,6 +1351,17 @@ def make_delayed_trigger(
             new_events=new_events,
         )
 
+    # Wrap the deferred handler effect so it can be queued as a TriggeredStackItem.
+    def _deferred_effect_fn(event: Event, state: GameState) -> list[Event]:
+        td = getattr(state, "turn_data", None)
+        if td is None:
+            return []
+        bucket = td.get(tracker_key) or []
+        td[tracker_key] = []
+        if not bucket:
+            return []
+        return list(deferred_effect_fn(source_obj, state, bucket) or [])
+
     deferred = Interceptor(
         id=new_id(),
         source=source_obj.id,
@@ -1323,6 +1371,7 @@ def make_delayed_trigger(
         handler=deferred_handler,
         duration=duration,
     )
+    _mark_triggered_ability(deferred, _deferred_effect_fn, description="Delayed trigger")
 
     # Safety-net cleanup at TURN_END so a queue from a turn whose end step
     # was skipped doesn't leak into the next turn.
@@ -1407,7 +1456,7 @@ def make_survival_trigger(
             new_events=new_events,
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -1416,6 +1465,7 @@ def make_survival_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield',
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Survival trigger")
 
 
 # =============================================================================
@@ -1503,7 +1553,7 @@ def make_life_gain_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -1512,6 +1562,7 @@ def make_life_gain_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Life gain trigger")
 
 
 def make_life_loss_trigger(
@@ -1547,7 +1598,7 @@ def make_life_loss_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -1556,6 +1607,7 @@ def make_life_loss_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Life loss trigger")
 
 
 # =============================================================================
@@ -1592,7 +1644,7 @@ def make_draw_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -1601,6 +1653,7 @@ def make_draw_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Draw trigger")
 
 
 # =============================================================================
@@ -1641,7 +1694,7 @@ def make_counter_added_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -1650,6 +1703,7 @@ def make_counter_added_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Counter added trigger")
 
 
 # =============================================================================
@@ -2262,7 +2316,7 @@ def make_leaves_battlefield_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -2271,6 +2325,7 @@ def make_leaves_battlefield_trigger(
         handler=trigger_handler,
         duration='until_leaves'  # Fire once when leaving
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Leaves-battlefield trigger")
 
 
 # =============================================================================
@@ -3074,7 +3129,7 @@ def make_end_of_turn_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -3083,6 +3138,7 @@ def make_end_of_turn_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="End-of-turn trigger")
 
 
 def make_start_of_turn_trigger(
@@ -3105,7 +3161,7 @@ def make_start_of_turn_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -3114,6 +3170,7 @@ def make_start_of_turn_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Start-of-turn trigger")
 
 
 def make_whenever_healed_trigger(
@@ -3141,7 +3198,7 @@ def make_whenever_healed_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -3150,6 +3207,7 @@ def make_whenever_healed_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Healed trigger")
 
 
 def make_whenever_takes_damage_trigger(
@@ -3171,7 +3229,7 @@ def make_whenever_takes_damage_trigger(
             new_events=new_events
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -3180,6 +3238,7 @@ def make_whenever_takes_damage_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield'
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Takes-damage trigger")
 
 
 def make_modal_spell_trigger(
@@ -4638,6 +4697,31 @@ def make_saga_setup(
             new_events=new_events,
         )
 
+    # CR 715.4: A Saga's chapter ability is a triggered ability that goes on
+    # the stack. The ETB-lore and draw-step-lore interceptors above are
+    # state-transition observers that just emit SAGA_LORE_ADDED — they don't
+    # represent triggered abilities themselves.
+    def _chapter_effect_fn(event: Event, state: GameState) -> list[Event]:
+        chapter = int(event.payload.get('chapter', 0) or 0)
+        from src.engine.saga import _saga_final_chapter as _engine_final
+        live_final = _engine_final(source_obj) if source_obj else final_chapter
+        new_events: list[Event] = []
+        cb = handlers_by_chapter.get(chapter)
+        if cb is not None:
+            try:
+                produced = cb(source_obj, state) or []
+            except Exception:
+                produced = []
+            new_events.extend(list(produced))
+        if chapter >= int(live_final or 0):
+            new_events.append(Event(
+                type=EventType.SACRIFICE,
+                payload={'object_id': saga_id, 'player': controller_id},
+                source=saga_id,
+                controller=controller_id,
+            ))
+        return new_events
+
     chapter_interceptor = Interceptor(
         id=new_id(),
         source=saga_id,
@@ -4647,6 +4731,7 @@ def make_saga_setup(
         handler=chapter_handler,
         duration='while_on_battlefield',
     )
+    _mark_triggered_ability(chapter_interceptor, _chapter_effect_fn, description="Saga chapter trigger")
 
     return [etb_interceptor, draw_interceptor, chapter_interceptor]
 
@@ -4725,7 +4810,16 @@ def make_crime_committed_trigger(
             new_events=new_events,
         )
 
-    return Interceptor(
+    # Wrap effect_fn so the once-per-turn marker is set on resolution, not on
+    # queueing. This matches CR 603.4: a triggered ability that's still on the
+    # stack hasn't "fired" yet from the per-turn perspective.
+    def _resolved_effect(event: Event, state: GameState) -> list[Event]:
+        if once_per_turn:
+            key = f'crime_trigger_{source_id}_{state.turn_number}'
+            state.turn_data[key] = True
+        return effect_fn(event, state) or []
+
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -4734,6 +4828,7 @@ def make_crime_committed_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield',
     )
+    return _mark_triggered_ability(interceptor, _resolved_effect, description="Crime trigger")
 
 
 # Short alias requested by ``src/engine/crime.py`` consumers. Identical
@@ -4785,7 +4880,13 @@ def make_crime_trigger(
             new_events=effect_fn(event, state),
         )
 
-    return Interceptor(
+    def _resolved_effect(event: Event, state: GameState) -> list[Event]:
+        if once_per_turn:
+            key = f'crime_trigger_{source_id}_{state.turn_number}'
+            state.turn_data[key] = True
+        return effect_fn(event, state) or []
+
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -4794,6 +4895,7 @@ def make_crime_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield',
     )
+    return _mark_triggered_ability(interceptor, _resolved_effect, description="Crime trigger")
 
 
 # =============================================================================
@@ -4973,7 +5075,18 @@ def make_web_slinging_setup(
                 new_events=new_events,
             )
 
-        return [Interceptor(
+        def _ws_eff(event: Event, state: GameState) -> list[Event]:
+            payload = event.payload or {}
+            try:
+                returned_mv = int(payload.get('web_slinging_returned_mv', 0) or 0)
+            except (TypeError, ValueError):
+                returned_mv = 0
+            track_web_slinging_cast(state, source_id, returned_mv)
+            if on_websling_cast is not None:
+                return list(on_websling_cast(event, state, obj) or [])
+            return []
+
+        cast_int = Interceptor(
             id=new_id(),
             source=obj.id,
             controller=obj.controller,
@@ -4981,7 +5094,9 @@ def make_web_slinging_setup(
             filter=cast_filter,
             handler=cast_handler,
             duration='forever',
-        )]
+        )
+        _mark_triggered_ability(cast_int, _ws_eff, description="Web-slinging cast trigger")
+        return [cast_int]
 
     return setup
 
@@ -5054,7 +5169,10 @@ def make_mayhem_setup(
                     new_events=list(new_events),
                 )
 
-            interceptors.append(Interceptor(
+            def _mh_eff(event: Event, state: GameState) -> list[Event]:
+                return list(on_mayhem_cast(event, state, obj) or [])
+
+            mayhem_int = Interceptor(
                 id=new_id(),
                 source=obj.id,
                 controller=obj.controller,
@@ -5062,7 +5180,9 @@ def make_mayhem_setup(
                 filter=cast_filter,
                 handler=cast_handler,
                 duration='forever',
-            ))
+            )
+            _mark_triggered_ability(mayhem_int, _mh_eff, description="Mayhem cast trigger")
+            interceptors.append(mayhem_int)
 
         return interceptors
 
@@ -5117,7 +5237,10 @@ def make_lander_etb_trigger(obj):
             new_events=[make_lander_token_event(obj.controller, source_obj_id=obj.id)],
         )
 
-    return Interceptor(
+    def _eff(event, state):
+        return [make_lander_token_event(obj.controller, source_obj_id=obj.id)]
+
+    interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
@@ -5126,6 +5249,7 @@ def make_lander_etb_trigger(obj):
         handler=handler,
         duration='while_on_battlefield',
     )
+    return _mark_triggered_ability(interceptor, _eff, description="Lander ETB trigger")
 
 
 def make_lander_death_trigger(obj):
@@ -5141,7 +5265,10 @@ def make_lander_death_trigger(obj):
             new_events=[make_lander_token_event(obj.controller, source_obj_id=obj.id)],
         )
 
-    return Interceptor(
+    def _eff(event, state):
+        return [make_lander_token_event(obj.controller, source_obj_id=obj.id)]
+
+    interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
@@ -5150,6 +5277,7 @@ def make_lander_death_trigger(obj):
         handler=handler,
         duration='while_on_battlefield',
     )
+    return _mark_triggered_ability(interceptor, _eff, description="Lander death trigger")
 
 
 def make_lander_for_each_player_death_trigger(obj):
@@ -5165,7 +5293,10 @@ def make_lander_for_each_player_death_trigger(obj):
             events.append(make_lander_token_event(pid, source_obj_id=obj.id))
         return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
 
-    return Interceptor(
+    def _eff(event, state):
+        return [make_lander_token_event(pid, source_obj_id=obj.id) for pid in state.players.keys()]
+
+    interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
@@ -5174,6 +5305,7 @@ def make_lander_for_each_player_death_trigger(obj):
         handler=handler,
         duration='while_on_battlefield',
     )
+    return _mark_triggered_ability(interceptor, _eff, description="Lander each-player death trigger")
 
 
 # =============================================================================
@@ -5199,11 +5331,12 @@ def make_void_end_step_trigger(obj, effect_fn):
     def handler(event, state):
         return InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(event, state))
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(), source=obj.id, controller=obj.controller,
         priority=InterceptorPriority.REACT, filter=filt, handler=handler,
         duration='while_on_battlefield',
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Void end-step trigger")
 
 
 def make_void_attack_trigger(obj, effect_fn):
@@ -5218,11 +5351,12 @@ def make_void_attack_trigger(obj, effect_fn):
     def handler(event, state):
         return InterceptorResult(action=InterceptorAction.REACT, new_events=effect_fn(event, state))
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(), source=obj.id, controller=obj.controller,
         priority=InterceptorPriority.REACT, filter=filt, handler=handler,
         duration='while_on_battlefield',
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Void attack trigger")
 
 
 # =============================================================================
@@ -5428,7 +5562,13 @@ def make_life_gain_threshold_trigger(obj, threshold, effect_fn,
             new_events=list(effect_fn(event, state) or []),
         )
 
-    return Interceptor(
+    def _eff(event, state):
+        td = getattr(state, "turn_data", None)
+        if td is not None:
+            td[flag_key] = True
+        return list(effect_fn(event, state) or [])
+
+    interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
@@ -5437,6 +5577,7 @@ def make_life_gain_threshold_trigger(obj, threshold, effect_fn,
         handler=handler,
         duration="while_on_battlefield",
     )
+    return _mark_triggered_ability(interceptor, _eff, description="Life-gain threshold trigger")
 
 
 def make_nth_spell_cast_trigger(obj, n, effect_fn):
@@ -5469,7 +5610,7 @@ def make_nth_spell_cast_trigger(obj, n, effect_fn):
             new_events=list(effect_fn(event, state) or []),
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
@@ -5478,6 +5619,7 @@ def make_nth_spell_cast_trigger(obj, n, effect_fn):
         handler=handler,
         duration="while_on_battlefield",
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Nth spell cast trigger")
 
 
 def make_morbid_etb_trigger(obj, effect_fn):
@@ -5500,7 +5642,7 @@ def make_morbid_etb_trigger(obj, effect_fn):
             new_events=list(effect_fn(event, state) or []),
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
@@ -5509,6 +5651,7 @@ def make_morbid_etb_trigger(obj, effect_fn):
         handler=handler,
         duration="while_on_battlefield",
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Morbid ETB trigger")
 
 
 def make_attacks_alone_trigger(obj, effect_fn):
@@ -5536,7 +5679,7 @@ def make_attacks_alone_trigger(obj, effect_fn):
             new_events=list(effect_fn(event, state) or []),
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
@@ -5545,6 +5688,7 @@ def make_attacks_alone_trigger(obj, effect_fn):
         handler=handler,
         duration="while_on_battlefield",
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Attacks alone trigger")
 
 
 # =============================================================================
@@ -6279,7 +6423,7 @@ def make_activate_exhaust_trigger(
     else:
         duration = 'forever'
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=obj_id,
         controller=obj_controller,
@@ -6288,6 +6432,7 @@ def make_activate_exhaust_trigger(
         handler=_handler,
         duration=duration,
     )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Exhaust-activate trigger")
 
 
 def make_activated_cost_reduction(
@@ -9134,6 +9279,19 @@ def grant_death_trigger(
             new_events=new_events,
         )
 
+    def _grant_death_eff(event: Event, st: GameState) -> list[Event]:
+        fired["done"] = True
+        target_obj = st.objects.get(target_id)
+        if target_obj is None:
+            st.interceptors.pop(int_id, None)
+            return []
+        try:
+            new_events = effect_fn(target_obj, st) or []
+        except Exception:
+            new_events = []
+        st.interceptors.pop(int_id, None)
+        return list(new_events)
+
     interceptor = Interceptor(
         id=int_id,
         source=source_id,
@@ -9143,6 +9301,7 @@ def grant_death_trigger(
         handler=_handler,
         duration=duration,
     )
+    _mark_triggered_ability(interceptor, _grant_death_eff, description="Granted death trigger")
     interceptor.timestamp = state.next_timestamp()
     state.interceptors[int_id] = interceptor
     return interceptor
@@ -9223,6 +9382,22 @@ def grant_triggered_ability(
             new_events=new_events,
         )
 
+    def _granted_eff(event: Event, st: GameState) -> list[Event]:
+        target_obj = st.objects.get(target_id)
+        if target_obj is None:
+            if one_shot:
+                fired["done"] = True
+                st.interceptors.pop(int_id, None)
+            return []
+        try:
+            new_events = effect_fn(target_obj, event, st) or []
+        except Exception:
+            new_events = []
+        if one_shot:
+            fired["done"] = True
+            st.interceptors.pop(int_id, None)
+        return list(new_events)
+
     interceptor = Interceptor(
         id=int_id,
         source=source_id,
@@ -9232,6 +9407,7 @@ def grant_triggered_ability(
         handler=_handler,
         duration=duration,
     )
+    _mark_triggered_ability(interceptor, _granted_eff, description="Granted triggered ability")
     interceptor.timestamp = state.next_timestamp()
     state.interceptors[int_id] = interceptor
     return interceptor
@@ -9504,7 +9680,19 @@ def make_room_setup(
                 return InterceptorResult(action=InterceptorAction.PASS)
             return InterceptorResult(action=InterceptorAction.REACT, new_events=new_events)
 
-        interceptors.append(Interceptor(
+        def _unlock_effect_fn(event: Event, st: GameState) -> list[Event]:
+            door_name = event.payload.get("door_name")
+            current = st.objects.get(obj.id)
+            if current is None:
+                return []
+            new_events: list[Event] = []
+            if door_name == door1_name and door1_unlock_effect is not None:
+                new_events.extend(door1_unlock_effect(current, st) or [])
+            elif door_name == door2_name and door2_unlock_effect is not None:
+                new_events.extend(door2_unlock_effect(current, st) or [])
+            return new_events
+
+        unlock_int = Interceptor(
             id=new_id(),
             source=obj.id,
             controller=obj.controller,
@@ -9512,7 +9700,9 @@ def make_room_setup(
             filter=_unlock_filter,
             handler=_unlock_handler,
             duration='while_on_battlefield',
-        ))
+        )
+        _mark_triggered_ability(unlock_int, _unlock_effect_fn, description="Door unlock trigger")
+        interceptors.append(unlock_int)
 
         # Activated ability: pay door2_cost to unlock door 2.
         def _door2_effect(o: GameObject, st: GameState, targets) -> list[Event]:
@@ -9555,7 +9745,18 @@ def make_room_setup(
                 )],
             )
 
-        interceptors.append(Interceptor(
+        def _etb_effect_fn(event: Event, st: GameState) -> list[Event]:
+            if _fired_etb["done"]:
+                return []
+            _fired_etb["done"] = True
+            return [Event(
+                type=EventType.UNLOCK_DOOR,
+                payload={"object_id": obj.id, "door_name": door1_name},
+                source=obj.id,
+                controller=obj.controller,
+            )]
+
+        etb_int = Interceptor(
             id=new_id(),
             source=obj.id,
             controller=obj.controller,
@@ -9563,7 +9764,9 @@ def make_room_setup(
             filter=_etb_filter,
             handler=_etb_handler,
             duration='forever',
-        ))
+        )
+        _mark_triggered_ability(etb_int, _etb_effect_fn, description="Room ETB unlock trigger")
+        interceptors.append(etb_int)
 
         if extra_setup is not None:
             extra = extra_setup(obj, state)

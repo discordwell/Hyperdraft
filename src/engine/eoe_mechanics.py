@@ -302,7 +302,30 @@ def _make_threshold_trigger(
                 td[fired_key] = True
         return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
 
-    return Interceptor(
+    def _eff(event: Event, state: GameState) -> list[Event]:
+        events = list(effect_fn(event, state) or [])
+        events.append(Event(
+            type=EventType.STATION_ACTIVATED,
+            payload={
+                "object_id": obj.id,
+                "threshold": threshold,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        ))
+        if once:
+            extras = getattr(obj.state, "extras", None)
+            if extras is None:
+                obj.state.extras = {}
+                extras = obj.state.extras
+            if isinstance(extras, dict):
+                extras[fired_key] = True
+            td = getattr(state, "turn_data", None)
+            if td is not None:
+                td[fired_key] = True
+        return events
+
+    interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
@@ -311,6 +334,10 @@ def _make_threshold_trigger(
         handler=handler,
         duration="while_on_battlefield",
     )
+    interceptor.is_triggered_ability = True
+    interceptor.effect_fn = _eff
+    interceptor.description = f"Station threshold {threshold} trigger"
+    return interceptor
 
 
 # =============================================================================
@@ -436,7 +463,20 @@ def make_void_trigger(
         ))
         return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
 
-    return Interceptor(
+    def _eff(event: Event, state: GameState) -> list[Event]:
+        events = list(effect_fn(event, state) or [])
+        events.append(Event(
+            type=EventType.VOID_TRIGGERED,
+            payload={
+                "player": obj.controller,
+                "source": obj.id,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        ))
+        return events
+
+    interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
@@ -445,6 +485,10 @@ def make_void_trigger(
         handler=handler,
         duration="while_on_battlefield",
     )
+    interceptor.is_triggered_ability = True
+    interceptor.effect_fn = _eff
+    interceptor.description = "Void trigger"
+    return interceptor
 
 
 # =============================================================================

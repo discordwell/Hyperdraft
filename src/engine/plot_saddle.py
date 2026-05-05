@@ -238,7 +238,7 @@ def make_becomes_plotted_trigger(
             new_events=effect_fn(event, state),
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -251,6 +251,10 @@ def make_becomes_plotted_trigger(
         # away from battlefield.
         duration='forever',
     )
+    interceptor.is_triggered_ability = True
+    interceptor.effect_fn = effect_fn
+    interceptor.description = "Becomes-plotted trigger"
+    return interceptor
 
 
 # -----------------------------------------------------------------------------
@@ -414,7 +418,7 @@ def make_saddle_trigger(
     # Stash the threshold on the object so pay_saddle_cost() can find it.
     source_obj.state.saddle_threshold = int(threshold)
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -423,6 +427,10 @@ def make_saddle_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield',
     )
+    interceptor.is_triggered_ability = True
+    interceptor.effect_fn = effect_fn
+    interceptor.description = "Saddle attack trigger"
+    return interceptor
 
 
 def make_becomes_saddled_trigger(
@@ -448,7 +456,7 @@ def make_becomes_saddled_trigger(
             new_events=effect_fn(event, state),
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_obj.id,
         controller=source_obj.controller,
@@ -457,6 +465,10 @@ def make_becomes_saddled_trigger(
         handler=trigger_handler,
         duration='while_on_battlefield',
     )
+    interceptor.is_triggered_ability = True
+    interceptor.effect_fn = effect_fn
+    interceptor.description = "Becomes-saddled trigger"
+    return interceptor
 
 
 def set_saddle_threshold(card_def, threshold: int) -> None:

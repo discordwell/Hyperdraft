@@ -3355,9 +3355,27 @@ class PrioritySystem:
                 break
 
     async def _put_triggers_on_stack(self) -> None:
-        """Put any waiting triggered abilities on the stack."""
-        # This would process triggered abilities waiting to go on stack
-        pass
+        """Put any waiting triggered abilities on the stack (CR 603.3).
+
+        Drains ``state.pending_triggers`` in APNAP order and pushes them
+        onto the stack as TriggeredStackItem entries. Players will then
+        receive priority and may respond before the triggers resolve.
+
+        When ``state.options.auto_resolve_triggers`` is True (the test
+        default), the pipeline already drained these triggers inline before
+        returning, so this is a no-op. When False (production play), this
+        is the canonical path that brings triggers onto the stack.
+        """
+        if not self.state.pending_triggers:
+            return
+        if self.stack is None:
+            return
+        try:
+            from .stack import process_pending_triggers
+            process_pending_triggers(self.state, self.stack)
+        except Exception:
+            # Defensive: don't let a malformed trigger crash the priority loop.
+            pass
 
     def _is_game_over(self) -> bool:
         """Check if the game is over."""
