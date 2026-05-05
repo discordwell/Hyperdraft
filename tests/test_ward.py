@@ -27,7 +27,11 @@ from src.engine import (
 )
 from src.engine.types import Characteristics, CardDefinition, new_id
 from src.engine.targeting import Target
-from src.engine.stack import StackItem, StackItemType, build_target_chosen_events
+from src.engine.stack import (
+    StackItem, StackItemType, TriggeredStackItem,
+    build_target_chosen_events,
+    process_pending_triggers,
+)
 from src.cards.interceptor_helpers import (
     make_ward,
     make_equipment_setup,
@@ -578,6 +582,273 @@ def test_noop_ward_cards_wired():
 # Test runner
 # =============================================================================
 
+# =============================================================================
+# TriggeredStackItem framework integration (W22)
+# =============================================================================
+
+def test_ward_marked_as_triggered_ability():
+    """make_ward returns an interceptor with is_triggered_ability=True."""
+    print("\n=== Test: Ward interceptor is marked as triggered ability ===")
+    game, p1, _p2 = create_test_game()
+
+    def setup_fn(obj, state):
+        return [make_ward(obj, mana_cost="{1}")]
+    warded = make_creature_obj(game, p1, "Marked", 2, 2, setup_fn=setup_fn)
+
+    # Find the ward interceptor on the warded creature.
+    ward_ints = [
+        game.state.interceptors[i_id]
+        for i_id in warded.interceptor_ids
+        if i_id in game.state.interceptors
+    ]
+    assert ward_ints, "Expected at least one ward interceptor on warded"
+    # All registered interceptors here should be ward triggers.
+    for w in ward_ints:
+        assert getattr(w, 'is_triggered_ability', False), (
+            "make_ward must set is_triggered_ability=True"
+        )
+        assert getattr(w, 'effect_fn', None) is not None, (
+            "make_ward must store effect_fn for the trigger framework"
+        )
+    print("  Ward interceptor carries is_triggered_ability + effect_fn")
+
+
+def test_ward_queues_when_auto_resolve_disabled():
+    """With auto_resolve_triggers=False, Ward enqueues a TriggeredStackItem
+    instead of firing inline."""
+    print("\n=== Test: Ward queues TriggeredStackItem (no auto-resolve) ===")
+    game, p1, p2 = create_test_game()
+    game.state.options.auto_resolve_triggers = False
+
+    def setup_fn(obj, state):
+        return [make_ward(obj, mana_cost="{1}")]
+    warded = make_creature_obj(game, p1, "Queued Beast", 3, 3, setup_fn=setup_fn)
+
+    # Opponent casts a spell at the warded creature.
+    item, spell_obj = push_targeted_spell(game, p2, warded.id, name="Opp Bolt")
+
+    # Without auto-resolve, the spell should still be on the stack — Ward
+    # should be queued in pending_triggers, not fired.
+    assert game.stack.size() == 1, (
+        f"Expected spell still on stack while ward is queued, got "
+        f"{game.stack.size()} items"
+    )
+    assert spell_obj.zone == ZoneType.STACK, (
+        f"Spell should still be on the stack pre-drain, got {spell_obj.zone}"
+    )
+    # Ward trigger should be in pending_triggers.
+    assert len(game.state.pending_triggers) == 1, (
+        f"Expected 1 ward trigger queued, got {len(game.state.pending_triggers)}"
+    )
+    trig = game.state.pending_triggers[0]
+    assert isinstance(trig, TriggeredStackItem)
+    assert trig.controller == p1.id, (
+        f"Ward trigger controller should be the warded creature's controller "
+        f"(p1={p1.id}); got {trig.controller}"
+    )
+    assert trig.source_id == warded.id
+    print("  Ward queued instead of firing inline")
+
+
+def test_ward_resolves_before_spell_via_drain():
+    """With auto-resolve disabled, draining the queue puts Ward on top of
+    the stack so it resolves before the warded spell (CR 603 priority)."""
+    print("\n=== Test: Ward resolves before spell after drain ===")
+    game, p1, p2 = create_test_game()
+    game.state.options.auto_resolve_triggers = False
+
+    def setup_fn(obj, state):
+        return [make_ward(obj, mana_cost="{1}")]
+    warded = make_creature_obj(game, p1, "Stacked Beast", 3, 3, setup_fn=setup_fn)
+
+    # Opponent casts a spell at the warded creature.
+    item, spell_obj = push_targeted_spell(game, p2, warded.id, name="Opp Bolt")
+
+    # Pre-drain: spell on stack, Ward queued.
+    assert game.stack.size() == 1
+    assert len(game.state.pending_triggers) == 1
+
+    # Drain the queue. Ward gets pushed onto the stack on top of the spell.
+    pushed = process_pending_triggers(game.state, game.stack)
+    assert pushed == 1, f"Expected 1 ward trigger pushed, got {pushed}"
+    assert game.stack.size() == 2, (
+        f"Expected stack to hold spell+ward, got {game.stack.size()} items"
+    )
+    # Top of stack should be the Ward TriggeredStackItem (resolves first).
+    top = game.stack.top()
+    assert isinstance(top, TriggeredStackItem), (
+        f"Top of stack should be a TriggeredStackItem, got {type(top).__name__}"
+    )
+    assert top.source_id == warded.id
+
+    # Resolve the top item — Ward fires, emits COUNTER_SPELL_UNLESS_PAY.
+    events = game.stack.resolve_top()
+    assert events, "Ward resolution should produce events"
+    counter_events = [e for e in events if e.type == EventType.COUNTER_SPELL_UNLESS_PAY]
+    assert len(counter_events) == 1, (
+        f"Expected 1 COUNTER_SPELL_UNLESS_PAY event from Ward, got "
+        f"{len(counter_events)}"
+    )
+    # Now emit those events through the pipeline so the system counterspell
+    # glue can handle them.
+    for ev in events:
+        game.emit(ev)
+
+    # Spell should now be countered → out of stack.
+    assert game.stack.is_empty(), (
+        f"Stack should be empty after Ward counters spell, got "
+        f"{game.stack.size()} items: {[type(x).__name__ for x in game.stack.items]}"
+    )
+    assert spell_obj.zone != ZoneType.STACK, (
+        f"Countered spell should leave stack, got {spell_obj.zone}"
+    )
+    print("  Ward resolved on top of stack, countered the warded spell")
+
+
+def test_ward_multiple_targets_apnap_ordering():
+    """A spell with two targets — both warded by different opponent creatures
+    — fires two Ward triggers that drain in APNAP order."""
+    print("\n=== Test: Ward APNAP with multiple targets ===")
+    game, p1, p2 = create_test_game()
+    game.state.options.auto_resolve_triggers = False
+    # Active player is p2 (the spell's caster). Triggers controlled by p1
+    # (NAP) come second; only p1 has ward triggers, so APNAP ordering still
+    # produces a deterministic batch.
+    game.turn_manager.turn_state.active_player_id = p2.id
+
+    def setup_fn(obj, state):
+        return [make_ward(obj, mana_cost="{1}")]
+    a = make_creature_obj(game, p1, "Warded A", 2, 2, setup_fn=setup_fn)
+    b = make_creature_obj(game, p1, "Warded B", 2, 2, setup_fn=setup_fn)
+
+    # Build a multi-target spell from p2 hitting both A and B.
+    spell_chars = Characteristics(types={CardType.INSTANT})
+    spell_def = CardDefinition(
+        name="Forked Bolt", mana_cost="{1}{R}",
+        characteristics=spell_chars,
+        text="Two targets.",
+    )
+    spell_obj = game.create_object(
+        name="Forked Bolt", owner_id=p2.id, zone=ZoneType.HAND,
+        characteristics=spell_chars, card_def=spell_def,
+    )
+    item = StackItem(
+        id=new_id(),
+        type=StackItemType.SPELL,
+        source_id=spell_obj.id,
+        controller_id=p2.id,
+        card_id=spell_obj.id,
+        chosen_targets=[[Target(id=a.id, is_player=False),
+                         Target(id=b.id, is_player=False)]],
+    )
+    game.stack.push(item)
+    target_events = build_target_chosen_events(
+        spell_id=spell_obj.id,
+        controller_id=p2.id,
+        targets=[[Target(id=a.id, is_player=False),
+                  Target(id=b.id, is_player=False)]],
+    )
+    for ev in target_events:
+        game.emit(ev)
+
+    # Two Ward triggers should be queued (one per warded target).
+    assert len(game.state.pending_triggers) == 2, (
+        f"Expected 2 ward triggers, got {len(game.state.pending_triggers)}"
+    )
+    for t in game.state.pending_triggers:
+        assert isinstance(t, TriggeredStackItem)
+        assert t.controller == p1.id, (
+            f"Both ward triggers should be controlled by p1, got {t.controller}"
+        )
+
+    # Drain. With p2 active, p1 is NAP — both triggers belong to NAP and
+    # are pushed last (so they're on top, LIFO resolves them first). Stack
+    # holds [spell, ward_a, ward_b] (order within bucket is registration).
+    pushed = process_pending_triggers(game.state, game.stack)
+    assert pushed == 2
+    assert game.stack.size() == 3
+    # Top item is one of the Ward triggers.
+    items = game.stack.get_items()
+    assert isinstance(items[1], TriggeredStackItem)
+    assert isinstance(items[2], TriggeredStackItem)
+    # The bottom item is the original spell.
+    assert items[0].id == item.id, (
+        "Original spell should still be at the bottom of the stack"
+    )
+
+    # Resolve top: first Ward fires, counters the spell.
+    events1 = game.stack.resolve_top()
+    for ev in events1:
+        game.emit(ev)
+    # The spell was countered by the first Ward firing — once that's done,
+    # the second Ward trigger remains on the stack but its target spell is
+    # gone from the stack. We resolve it; the COUNTER_SPELL_UNLESS_PAY for
+    # an already-gone spell is a no-op (system glue finds no matching item).
+    if not game.stack.is_empty():
+        events2 = game.stack.resolve_top()
+        for ev in events2:
+            game.emit(ev)
+    # Original spell countered; stack ultimately empty.
+    assert game.stack.is_empty(), (
+        f"Expected empty stack after both ward triggers drained, got "
+        f"{game.stack.size()} items"
+    )
+    assert spell_obj.zone != ZoneType.STACK
+    print("  Two ward triggers drained APNAP, spell countered")
+
+
+def test_ward_marker_event_emitted_when_queued():
+    """When Ward queues, a TRIGGERED_ABILITY_PUT_ON_STACK marker fires (via
+    the auto-resolve drain in the pipeline)."""
+    print("\n=== Test: Ward emits TRIGGERED_ABILITY_PUT_ON_STACK marker ===")
+    game, p1, p2 = create_test_game()
+    # Auto-resolve True so the pipeline drain emits the marker.
+    def setup_fn(obj, state):
+        return [make_ward(obj, mana_cost="{1}")]
+    warded = make_creature_obj(game, p1, "Marker Beast", 3, 3, setup_fn=setup_fn)
+
+    pre_log_size = len(game.state.event_log)
+    item, spell_obj = push_targeted_spell(game, p2, warded.id, name="Opp Bolt")
+
+    markers = [
+        e for e in game.state.event_log[pre_log_size:]
+        if e.type == EventType.TRIGGERED_ABILITY_PUT_ON_STACK
+        and e.payload.get('source_id') == warded.id
+    ]
+    assert markers, (
+        f"Expected at least one TRIGGERED_ABILITY_PUT_ON_STACK marker for "
+        f"the ward trigger; got {len(markers)}"
+    )
+    print(f"  marker emitted (description={markers[0].payload.get('description')!r})")
+
+
+def test_ward_handler_fallback_when_flag_disabled():
+    """If a caller flips is_triggered_ability=False (e.g. legacy tests),
+    the handler still emits COUNTER_SPELL_UNLESS_PAY directly. This is the
+    fallback path through Interceptor.handler."""
+    print("\n=== Test: Ward handler-fallback path ===")
+    from src.engine.types import InterceptorAction
+    game, p1, p2 = create_test_game()
+
+    # Build the ward interceptor manually so we can inspect/flip flags.
+    def setup_fn(obj, state):
+        ward = make_ward(obj, mana_cost="{1}")
+        # Force the legacy inline-handler path.
+        ward.is_triggered_ability = False
+        return [ward]
+    warded = make_creature_obj(game, p1, "Legacy Ward", 2, 2, setup_fn=setup_fn)
+
+    item, spell_obj = push_targeted_spell(game, p2, warded.id, name="Opp Bolt")
+    # Even without is_triggered_ability, the handler returns a REACT result
+    # and the system glue counters the spell.
+    assert game.stack.is_empty(), (
+        f"Even with is_triggered_ability=False the legacy handler should "
+        f"counter the spell, got {game.stack.size()}"
+    )
+    assert spell_obj.zone != ZoneType.STACK
+    print("  legacy fallback path still counters the spell")
+
+
 def test_make_ward_fires_on_activated_ability_target():
     """Ward fires on activated-ability targeting too (not just spells)."""
     print("\n=== Test: Ward fires on activated-ability target ===")
@@ -655,6 +926,13 @@ if __name__ == "__main__":
         test_armored_armadillo_grants_ward,
         test_lavaspur_boots_grants_ward_to_equipped,
         test_noop_ward_cards_wired,
+        # W22 — TriggeredStackItem framework integration
+        test_ward_marked_as_triggered_ability,
+        test_ward_queues_when_auto_resolve_disabled,
+        test_ward_resolves_before_spell_via_drain,
+        test_ward_multiple_targets_apnap_ordering,
+        test_ward_marker_event_emitted_when_queued,
+        test_ward_handler_fallback_when_flag_disabled,
         test_make_ward_fires_on_activated_ability_target,
     ]
     failed = 0
