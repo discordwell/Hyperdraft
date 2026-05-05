@@ -238,8 +238,8 @@ export default function PKMCardDetailPanel({ card: cardProp }: PKMCardDetailPane
               </div>
             )}
 
-            {/* Weakness / Resistance / Retreat */}
-            {(card.weakness_type || card.resistance_type || card.retreat_cost != null) && (
+            {/* Weakness / Resistance / Retreat — Pokemon only */}
+            {card.types?.includes('POKEMON') && (card.weakness_type || card.resistance_type || card.retreat_cost != null) && (
               <div className="flex items-center gap-3 text-xs">
                 {card.weakness_type && (
                   <div className="flex items-center gap-1">
