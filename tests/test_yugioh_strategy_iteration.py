@@ -10,6 +10,8 @@ from src.cards.yugioh.ygo_optimized import (
     MESSENGER_OF_PEACE,
     MIRROR_FORCE,
     MONSTER_REBORN,
+    MOUNTAIN,
+    MYSTICAL_SPACE_TYPHOON,
     OOKAZI,
     PREMATURE_BURIAL,
     SAKURETSU_ARMOR,
@@ -229,4 +231,21 @@ def test_hard_ai_uses_stall_spells_by_role_and_board_posture():
     assert choice == {
         "action_type": "activate_spell",
         "card_id": messenger.id,
+    }
+
+
+def test_hard_ai_targets_field_spells_with_mst_effects():
+    game, p1, p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    mst = _card(game, MYSTICAL_SPACE_TYPHOON, p1, ZoneType.HAND)
+    field_spell = _card(game, MOUNTAIN, p2, ZoneType.FIELD_SPELL_ZONE)
+
+    choice = ai._pick_spell_activation(
+        [mst], p1.id, game.state, p2.id, [], []
+    )
+
+    assert choice == {
+        "action_type": "activate_spell",
+        "card_id": mst.id,
+        "targets": [field_spell.id],
     }

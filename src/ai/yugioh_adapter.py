@@ -716,12 +716,19 @@ class YugiohAIAdapter:
     def _find_mst_target(self, opp_id: str, state: GameState) -> Optional[str]:
         """Find an opponent's set spell/trap to destroy."""
         zone = state.zones.get(f"spell_trap_zone_{opp_id}")
-        if not zone:
-            return None
-        for oid in zone.objects:
-            if oid is None:
-                continue
-            obj = state.objects.get(oid)
-            if obj:
-                return oid
+        if zone:
+            for oid in zone.objects:
+                if oid is None:
+                    continue
+                obj = state.objects.get(oid)
+                if obj:
+                    return oid
+        field_zone = state.zones.get(f"field_spell_zone_{opp_id}")
+        if field_zone:
+            for oid in field_zone.objects:
+                if oid is None:
+                    continue
+                obj = state.objects.get(oid)
+                if obj:
+                    return oid
         return None
