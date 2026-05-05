@@ -20,6 +20,11 @@ def main() -> None:
         action="store_true",
         help="Print compact JSON instead of indented JSON.",
     )
+    parser.add_argument(
+        "--fail-on-flags",
+        action="store_true",
+        help="Exit with status 1 if any faction reports balance flags.",
+    )
     args = parser.parse_args()
 
     with contextlib.redirect_stdout(sys.stderr):
@@ -31,6 +36,15 @@ def main() -> None:
 
     indent = None if args.compact else 2
     print(json.dumps(report, indent=indent, sort_keys=True))
+
+    if args.fail_on_flags:
+        flagged = {
+            faction: profile.get("balance_flags", [])
+            for faction, profile in report.items()
+            if profile.get("balance_flags")
+        }
+        if flagged:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":
