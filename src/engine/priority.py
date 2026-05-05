@@ -103,6 +103,7 @@ class ActionType(Enum):
     CAST_SPLIT_LEFT = auto()   # Cast left half of split card
     CAST_SPLIT_RIGHT = auto()  # Cast right half of split card
     CREW = auto()              # Crew a Vehicle
+    CYCLE_CARD = auto()        # W8: cycle a card from hand (alias for ACTIVATE_ABILITY on a cycling ability)
 
 
 @dataclass
@@ -185,6 +186,8 @@ class PrioritySystem:
             ActionType.PLAY_LAND: self._handle_play_land,
             ActionType.SPECIAL_ACTION: self._handle_special_action,
             ActionType.CREW: self._handle_crew,
+            # W8 Cycling: dispatched through the same activated-ability path.
+            ActionType.CYCLE_CARD: self._handle_cycle_card,
         }
 
     def set_ai_player(self, player_id: str) -> None:
@@ -749,6 +752,29 @@ class PrioritySystem:
                 if obj and obj.owner == player_id and getattr(obj.state, 'activated_abilities', None):
                     abilities = self._get_activatable_abilities(obj, player_id)
                     actions.extend(abilities)
+
+        # === Cycling (W8) ===
+        # Re-tag any HAND-zone activated-ability action whose ability text is
+        # "Cycling ..." with ActionType.CYCLE_CARD so AI/UI can filter cycling
+        # actions separately. Dispatch still flows through the normal
+        # activated-ability handler (it accepts CYCLE_CARD via the action
+        # handler registry below). Cycling abilities are identified by the
+        # description prefix set in src/engine/cycling.py.
+        for la in actions:
+            if (la.type == ActionType.ACTIVATE_ABILITY
+                    and la.source_id is not None
+                    and la.ability_id and la.ability_id.startswith("activated:")
+                    and la.description.startswith("Activate ")
+                    and ": Cycling " in la.description):
+                source = self.state.objects.get(la.source_id)
+                if source is not None and source.zone == ZoneType.HAND:
+                    la.type = ActionType.CYCLE_CARD
+                    la.card_id = source.id
+                    # Trim "Activate <name>: " prefix; keep the cycling cost label.
+                    la.description = la.description.split(": ", 1)[-1].replace(
+                        "Cycling ", f"Cycle {source.name} for "
+                    )
+        # === end Cycling (W8) ===
 
         return actions
 
@@ -3128,6 +3154,22 @@ class PrioritySystem:
         vehicle.state.crewed_until_eot = True
 
         return events
+
+    # === Cycling (W8) ===
+    async def _handle_cycle_card(self, action: PlayerAction) -> list[Event]:
+        """Handle a CYCLE_CARD action by dispatching through the activated path.
+
+        The cycle is registered as an activated ability with a cycling
+        ``description`` (see ``src/engine/cycling.py``). The legal-actions
+        surface re-tags such actions to ``ActionType.CYCLE_CARD`` and uses
+        ``card_id`` to point at the card in hand. We translate back to the
+        activated-ability dispatch by setting ``source_id`` from ``card_id``
+        and forwarding to ``_handle_activate_ability``.
+        """
+        if action.source_id is None and action.card_id is not None:
+            action.source_id = action.card_id
+        return await self._handle_activate_ability(action)
+    # === end Cycling (W8) ===
 
     def _all_players_passed(self) -> bool:
         """Check if all players have passed priority."""
