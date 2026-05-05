@@ -154,6 +154,7 @@ def test_kamigawa_wet_test_can_write_json_summary(tmp_path):
     report = json.loads(out_path.read_text())
     assert report["games_per_pairing"] == 1
     assert report["min_mirror_games_for_imbalance"] == 5
+    assert report["elapsed_seconds"] >= 0
     assert len(report["results"]) == 5
     assert report["anomalies"] == []
     for pairing in report["results"].values():
