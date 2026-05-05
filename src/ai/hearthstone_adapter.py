@@ -328,6 +328,21 @@ class HearthstoneAIAdapter:
         if not playable_cards:
             return None
 
+        coin_play = self._choose_coin_enabler(
+            playable_cards,
+            hand_zone.objects,
+            available_for_cards,
+            state,
+            player_id,
+            board_full,
+        )
+        if coin_play:
+            return {
+                'card_id': coin_play['card_id'],
+                'card': coin_play['card'],
+                'targets': []
+            }
+
         # Apply difficulty-based noise to scores
         settings = self._get_hs_settings(player_id)
         if settings['random_factor'] > 0:
@@ -348,6 +363,66 @@ class HearthstoneAIAdapter:
             'card': chosen['card'],
             'targets': []  # TODO: Target selection
         }
+
+    def _choose_coin_enabler(
+        self,
+        playable_cards: list[dict],
+        hand_card_ids: list[str],
+        available_mana: int,
+        state: 'GameState',
+        player_id: str,
+        board_full: bool,
+    ) -> Optional[dict]:
+        """Play The Coin first when it unlocks a clearly better card this turn."""
+        settings = self._get_hs_settings(player_id)
+        if not settings.get('use_synergy_scoring'):
+            return None
+
+        from src.engine.types import CardType
+
+        coin_action = next(
+            (item for item in playable_cards if self._is_coin(item['card'])),
+            None,
+        )
+        if not coin_action:
+            return None
+
+        best_current = max(
+            (item['score'] for item in playable_cards if not self._is_coin(item['card'])),
+            default=-999.0,
+        )
+        best_enabled = -999.0
+
+        for card_id in hand_card_ids:
+            card = state.objects.get(card_id)
+            if not card or self._is_coin(card):
+                continue
+            if board_full and CardType.MINION in card.characteristics.types:
+                continue
+
+            cost = self._get_mana_cost(card, state, player_id)
+            if cost != available_mana + 1:
+                continue
+            if CardType.SPELL in card.characteristics.types:
+                card_def = card.card_def
+                if card_def and getattr(card_def, 'requires_target', False):
+                    if not self._choose_spell_targets(card, state, player_id):
+                        continue
+
+            best_enabled = max(best_enabled, self._score_card_play(card, state, player_id))
+
+        # Require a real improvement so Coin is not burned for marginal upgrades.
+        if best_enabled >= best_current + 20.0:
+            return coin_action
+        return None
+
+    def _is_coin(self, card: 'GameObject') -> bool:
+        name = ''
+        if card.card_def and card.card_def.name:
+            name = card.card_def.name
+        else:
+            name = card.name
+        return name.lower() == 'the coin'
 
     def _score_card_play(self, card: 'GameObject', state: 'GameState', player_id: str) -> float:
         """
