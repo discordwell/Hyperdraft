@@ -1,7 +1,11 @@
 """Stormrift custom Hearthstone balance checks."""
 
+from src.engine.game import Game
+from src.engine.types import Event, EventType
 from src.cards.hearthstone.stormrift import (
     EMBER_CHANNELER,
+    FROST_RIFT,
+    GLACIEL_HERO,
     IGNIS_HERO,
     PYROMANCER_DECK,
     RIFT_SPARK,
@@ -44,6 +48,27 @@ def test_stormrift_deck_registry_lengths_are_stable():
 def test_pyromancer_hero_power_matches_aggro_role():
     assert "Deal 2 damage" in IGNIS_HERO.text
     assert "Deal 2 damage" in RIFT_SPARK.text
+
+
+def test_cryomancer_hero_power_matches_control_role():
+    game = Game(mode="hearthstone")
+    p1 = game.add_player("P1")
+    p2 = game.add_player("P2")
+    game.setup_hearthstone_player(p1, GLACIEL_HERO, FROST_RIFT)
+    game.setup_hearthstone_player(p2, IGNIS_HERO, RIFT_SPARK)
+
+    events = game.pipeline.emit(Event(
+        type=EventType.HERO_POWER_ACTIVATE,
+        payload={"hero_power_id": p1.hero_power_id, "player": p1.id},
+        source=p1.hero_power_id,
+    ))
+
+    assert "Gain 3 Armor" in GLACIEL_HERO.text
+    assert "Gain 3 Armor" in FROST_RIFT.text
+    assert any(
+        event.type == EventType.ARMOR_GAIN and event.payload["amount"] == 3
+        for event in events
+    )
 
 
 def test_stormrift_faction_role_scores_stay_distinct():
