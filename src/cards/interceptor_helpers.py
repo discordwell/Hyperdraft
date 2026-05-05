@@ -423,6 +423,28 @@ def make_attack_trigger(
 
 
 # =============================================================================
+# BLB KEYWORDS (Valiant, Expend) — re-exported from src/engine/blb_keywords.py
+# =============================================================================
+#
+# These two helpers cover the Bloomburrow keyword frameworks for Valiant and
+# Expend. They live in src/engine/blb_keywords.py (so the engine layer owns
+# the event-filter logic and can be imported by tests/server code without
+# pulling card definitions). We surface them here so card-side code keeps
+# the same import sugar as the rest of the trigger helpers.
+#
+# Quick reference (full docs on the originals):
+# * make_valiant_trigger(obj, effect_fn) — REACTs to EventType.TARGET_CHOSEN
+#   when the targeted permanent is `obj` and the source spell/ability is
+#   controlled by `obj.controller`. Fires at most once per `obj` per turn.
+# * make_expend_trigger(obj, n, effect_fn) — REACTs to EventType.EXPEND_4_REACHED
+#   or EXPEND_8_REACHED for `obj.controller`. `n` must be 4 or 8.
+from src.engine.blb_keywords import (
+    make_valiant_trigger,
+    make_expend_trigger,
+)
+
+
+# =============================================================================
 # BLOCK TRIGGER
 # =============================================================================
 
