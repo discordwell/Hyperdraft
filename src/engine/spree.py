@@ -114,16 +114,28 @@ class SpreeMode:
             this mode is chosen. Spree per-mode costs are always non-empty
             (``"+ {0}"`` would be redundant).
         effect_fn: ``(spell_obj, state, targets) -> list[Event]`` — the events
-            to emit when this mode resolves. ``targets`` is the per-stack-item
-            target list passed to the resolve callable; modes that need their
-            own target choice can call ``create_target_choice`` from inside
-            ``effect_fn`` (most existing OTJ Spree resolves do this).
+            to emit when this mode resolves. ``targets`` is a list of target
+            IDs the player picked for this mode (or ``[]`` for non-targeted
+            modes). The resolve flow gathers per-mode targets via chained
+            ``target_with_callback`` PendingChoices BEFORE calling effect_fn,
+            so effect_fn just consumes them.
         description: long-form UI text. Defaults to ``name``.
-        targets_required: number of targets this mode needs (advisory; the
-            current resolve flow handles targeting per-mode via
-            ``create_target_choice`` callbacks).
+        targets_required: number of targets this mode needs. When > 0, the
+            resolve flow opens a ``target_with_callback`` PendingChoice for
+            this mode and chains to the next mode after the player submits.
         target_kind: brief target descriptor (``"creature"``, ``"any"``, ...).
-            Advisory metadata only.
+            Used as the ``target_filter`` key for the PendingChoice prompt
+            when ``legal_targets_filter`` is None. Falls through to
+            ``handlers/targeting._build_target_requirement`` for filter
+            construction (so values like ``"creature"``, ``"opponent_creature"``,
+            ``"your_creature"``, ``"player"``, ``"opponent"``, ``"artifact"``,
+            ``"enchantment"`` are supported via the standard mapping; novel
+            kinds default to "any").
+        legal_targets_filter: optional ``(spell, state) -> list[target_id]``
+            that overrides the default target enumeration. Use this for
+            custom predicates (e.g. "target tapped creature you don't
+            control"). When None, the resolve flow uses the targeting
+            system's filter for ``target_kind``.
     """
 
     name: str
@@ -132,6 +144,7 @@ class SpreeMode:
     description: str = ""
     targets_required: int = 0
     target_kind: str = "any"
+    legal_targets_filter: Optional[Callable[[GameObject, GameState], list[str]]] = None
 
     def resolved_extra_cost(self) -> ManaCost:
         """Parse ``extra_cost`` into a ManaCost (empty if free)."""
@@ -317,18 +330,230 @@ def make_spree_setup(
     return []
 
 
+def _enumerate_legal_targets(
+    spell: GameObject, state: GameState, target_kind: str
+) -> list[str]:
+    """Default per-mode legal-target enumeration.
+
+    Routes through the engine's ``handlers/targeting._build_target_requirement``
+    so Spree modes accept the same filter strings the rest of the engine uses
+    (``"creature"``, ``"opponent_creature"``, ``"your_creature"``, ``"player"``,
+    ``"opponent"``, ``"any"``, ``"permanent"``, ``"nonland_permanent"``, etc.).
+
+    Falls through to permissive matchers for kinds the targeting system
+    doesn't model (``"artifact"``, ``"enchantment"``).
+    """
+    from .pipeline.handlers.targeting import _build_target_requirement
+    from .targeting import TargetingSystem
+    from .types import CardType, ZoneType
+
+    controller_id = spell.controller
+
+    # Route well-known kinds through the standard target requirement builder.
+    standard_kinds = {
+        "any", "creature", "opponent_creature", "your_creature",
+        "other_creature_you_control", "opponent", "player",
+        "nonland_permanent", "permanent",
+        "creature_in_your_graveyard", "creature_in_graveyard",
+    }
+
+    if target_kind in standard_kinds:
+        try:
+            requirement = _build_target_requirement(
+                target_kind, spell, min_targets=1, max_targets=1, optional=False,
+            )
+            ts = TargetingSystem(state)
+            legal = list(ts.get_legal_targets(requirement, spell, controller_id))
+            # For 'any' / 'player' include players; for 'opponent', only opponents.
+            if target_kind in ("any", "player"):
+                for pid in state.players:
+                    if pid not in legal:
+                        legal.append(pid)
+            elif target_kind == "opponent":
+                for pid in state.players:
+                    if pid != controller_id and pid not in legal:
+                        legal.append(pid)
+            return legal
+        except Exception:
+            # Fall through to permissive matchers below.
+            pass
+
+    # Permissive matchers for kinds the standard system doesn't natively model.
+    if target_kind == "artifact":
+        return [
+            obj.id
+            for obj in state.objects.values()
+            if obj.zone == ZoneType.BATTLEFIELD
+            and CardType.ARTIFACT in obj.characteristics.types
+        ]
+    if target_kind == "enchantment":
+        return [
+            obj.id
+            for obj in state.objects.values()
+            if obj.zone == ZoneType.BATTLEFIELD
+            and CardType.ENCHANTMENT in obj.characteristics.types
+        ]
+
+    # Unknown kind — return empty list (mode will be skipped per CR 608.2b).
+    return []
+
+
+def _build_spree_target_choice(
+    spell: GameObject,
+    state: GameState,
+    mode: "SpreeMode",
+    legal_targets: list,
+    handler: Callable,
+) -> PendingChoice:
+    """Build a ``target_with_callback`` PendingChoice for one Spree mode."""
+    prompt = mode.description or mode.name
+    if mode.target_kind:
+        prompt = f"{mode.name}: choose {mode.target_kind}"
+    capped_min = int(mode.targets_required)
+    capped_max = int(mode.targets_required)
+    if capped_max < 1:
+        capped_max = 1
+    if capped_min < 0:
+        capped_min = 0
+    capped_max = min(capped_max, len(legal_targets))
+    capped_min = min(capped_min, capped_max)
+
+    choice = PendingChoice(
+        choice_type="target_with_callback",
+        player=spell.controller,
+        prompt=prompt,
+        options=list(legal_targets),
+        source_id=spell.id,
+        min_choices=capped_min,
+        max_choices=capped_max,
+        callback_data={
+            "handler": handler,
+            "spree_mode": True,
+            "card_id": spell.id,
+            "mode_name": mode.name,
+        },
+    )
+    state.pending_choice = choice
+    return choice
+
+
+def _resolve_spree_mode_chain(
+    spell: GameObject,
+    state: GameState,
+    mode_list: list,
+    queue: list[int],
+) -> list[Event]:
+    """Walk the remaining-modes queue, firing non-targeted modes inline and
+    opening a chained PendingChoice for the next targeted mode.
+
+    Returns the events fired so far. A PendingChoice may be set on
+    ``state.pending_choice`` if a targeted mode is encountered. The chained
+    handler keeps invoking this routine recursively until the queue is empty.
+    """
+    events: list[Event] = []
+
+    while queue:
+        idx = queue.pop(0)
+        if idx < 0 or idx >= len(mode_list):
+            continue
+        mode = mode_list[idx]
+
+        if mode.targets_required <= 0:
+            # Non-targeted mode — fire effect_fn with empty target list inline.
+            try:
+                produced = mode.effect_fn(spell, state, []) or []
+            except TypeError:
+                # Legacy effect_fns with (obj, state) signature — backward-compat.
+                try:
+                    produced = mode.effect_fn(spell, state) or []  # type: ignore[arg-type]
+                except Exception:
+                    produced = []
+            except Exception:
+                produced = []
+            events.extend(produced)
+            continue
+
+        # Targeted mode: enumerate legal targets.
+        if mode.legal_targets_filter is not None:
+            try:
+                legal = list(mode.legal_targets_filter(spell, state) or [])
+            except Exception:
+                legal = []
+        else:
+            legal = _enumerate_legal_targets(spell, state, mode.target_kind)
+
+        if not legal:
+            # CR 608.2b "do as much as possible": skip this mode (no legal target).
+            continue
+
+        # Build a chained handler so the next mode runs after this target submits.
+        captured_idx = idx
+        captured_queue = list(queue)  # snapshot remaining modes after this one
+
+        def _on_target_submitted(choice: PendingChoice, selected: list, state2: GameState,
+                                 _idx=captured_idx, _queue=captured_queue) -> list[Event]:
+            # Look up the spell by ID; it may have moved to graveyard already.
+            spell_id = choice.callback_data.get("card_id")
+            spell_obj = state2.objects.get(spell_id) if spell_id else None
+            if spell_obj is None:
+                spell_obj = spell  # closure fallback
+
+            # Normalise selected target IDs.
+            target_ids: list[str] = []
+            for sel in selected or []:
+                if isinstance(sel, dict):
+                    tid = sel.get("id") or sel.get("value") or sel.get("target")
+                    if tid is not None:
+                        target_ids.append(str(tid))
+                elif sel is not None:
+                    target_ids.append(str(sel))
+
+            # Fire the targeted mode's effect with the chosen targets.
+            this_mode = mode_list[_idx]
+            try:
+                produced = this_mode.effect_fn(spell_obj, state2, target_ids) or []
+            except TypeError:
+                try:
+                    produced = this_mode.effect_fn(spell_obj, state2) or []  # type: ignore[arg-type]
+                except Exception:
+                    produced = []
+            except Exception:
+                produced = []
+
+            # Continue chain with the remaining modes.
+            cont_events = _resolve_spree_mode_chain(spell_obj, state2, mode_list, list(_queue))
+            return list(produced) + list(cont_events)
+
+        _build_spree_target_choice(spell, state, mode, legal, _on_target_submitted)
+        # Chain pauses here — remaining modes will resume in the handler.
+        return events
+
+    # Queue exhausted with no pending prompt — clear the choice stash.
+    clear_spree_choice(state, spell.id)
+    return events
+
+
 def make_spree_resolve(modes: Sequence[SpreeMode]):
     """Build a resolve callable that fires each chosen mode's effects in
     declaration order. Compatible with the standard
     ``(targets, state) -> list[Event]`` resolve signature.
+
+    Per-mode targeting:
+    - Modes with ``targets_required > 0`` open a chained
+      ``target_with_callback`` PendingChoice. The player picks the target
+      for this mode; submission triggers the next mode (recursively) until
+      the chosen-modes queue is empty. Non-targeted modes fire inline.
+    - If a targeted mode has no legal targets at resolve time, we skip it
+      (CR 608.2b "do as much as possible"). This applies only to that one
+      mode; later modes still resolve normally.
 
     Edge cases:
     - If no choice was recorded (e.g., the spell was force-cast outside of
       the priority handler), we fall back to firing the lowest-cost mode so
       the spell does *something*.
     - Out-of-range indices are silently skipped.
-    - The chosen-modes stash is cleared after resolve so flashback / replay
-      starts fresh.
+    - The chosen-modes stash is cleared once the chain finishes (or is
+      cleared by the chained handler when the last mode resolves).
     """
     mode_list = list(modes)
 
@@ -383,25 +608,10 @@ def make_spree_resolve(modes: Sequence[SpreeMode]):
             else:
                 return []
 
-        events: list[Event] = []
-        for idx in chosen:
-            if idx < 0 or idx >= len(mode_list):
-                continue
-            mode = mode_list[idx]
-            try:
-                produced = mode.effect_fn(spell_obj, state, targets) or []
-            except TypeError:
-                # Backward-compat: some legacy effect_fns may use (obj, state)
-                try:
-                    produced = mode.effect_fn(spell_obj, state) or []  # type: ignore[arg-type]
-                except Exception:
-                    produced = []
-            except Exception:
-                produced = []
-            events.extend(produced)
-
-        clear_spree_choice(state, spell_obj.id)
-        return events
+        # Walk the chosen-modes queue. Non-targeted modes fire inline; the
+        # FIRST targeted mode opens a chained PendingChoice and pauses the
+        # chain (subsequent modes run after the player submits a target).
+        return _resolve_spree_mode_chain(spell_obj, state, mode_list, list(chosen))
 
     return _resolve
 
