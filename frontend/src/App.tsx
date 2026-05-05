@@ -18,6 +18,7 @@ const SpectatorView = lazy(() => import('./pages/SpectatorView'));
 const ReplayView = lazy(() => import('./pages/ReplayView'));
 const Deckbuilder = lazy(() => import('./pages/Deckbuilder'));
 const Gatherer = lazy(() => import('./pages/Gatherer'));
+const PokemonGatherer = lazy(() => import('./pages/PokemonGatherer'));
 
 function LoadingFallback() {
   return (
@@ -44,6 +45,7 @@ export function App() {
           <Route path="/replay/:gameId" element={<ReplayView />} />
           <Route path="/deckbuilder" element={<Deckbuilder />} />
           <Route path="/gatherer" element={<Gatherer />} />
+          <Route path="/pokemon-gatherer" element={<PokemonGatherer />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

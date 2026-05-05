@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import socketio
 
-from .routes import match_router, cards_router, bot_game_router, deckbuilder_router
+from .routes import match_router, cards_router, bot_game_router, deckbuilder_router, pokemon_gatherer_router
 
 # Directories
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -252,6 +252,7 @@ app.include_router(match_router, prefix="/api")
 app.include_router(cards_router, prefix="/api")
 app.include_router(bot_game_router, prefix="/api")
 app.include_router(deckbuilder_router, prefix="/api")
+app.include_router(pokemon_gatherer_router, prefix="/api")
 
 # Mount static files for card art
 if CARD_ART_DIR.exists():
