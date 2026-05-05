@@ -139,16 +139,11 @@ export default function PKMCardDetailPanel({ card: cardProp }: PKMCardDetailPane
 
           {/* Body */}
           <div className="p-3 space-y-2.5 text-sm">
-            {/* Name row + type badge + EX badge */}
+            {/* Name row + type badge */}
             <div className="flex items-center gap-2">
               <span className="font-bold text-white text-base truncate flex-1">
                 {card.name}
               </span>
-              {card.is_ex && (
-                <span className="text-[10px] font-bold bg-yellow-500 text-black px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0">
-                  EX
-                </span>
-              )}
               {card.pokemon_type && (
                 <span
                   className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${TYPE_BADGE_MAP[card.pokemon_type] || 'bg-gray-600 text-white'}`}
