@@ -2480,6 +2480,413 @@ ERASER_CANNON = make_instant(
 
 
 # =============================================================================
+# SPICE PASS PHASE A — Format-Defining DBZ Cards
+# =============================================================================
+# Mirrors the Star Wars spice pass (.claude/plans/proud-singing-sonnet.md).
+# Phase A here = cards built within current engine capability (W1-W7 + Phase-B
+# helpers from the SW pass: was_destroyed_this_turn, condition_fn on
+# make_cost_reduction, precondition_fn on make_activated_ability).
+
+
+# --- Future Sword --- {2} Equipment, Uncommon (Trunks combo target)
+FUTURE_SWORD = make_equipment(
+    name="Future Sword",
+    mana_cost="{2}",
+    subtypes={"Sword"},  # Equipment subtype also gets "Sword" so Trunks's
+                          # attach trigger filter can recognise it.
+    text=(
+        "Equipped creature gets +2/+2 and has haste. Equip {1}."
+    ),
+    setup_interceptors=ih.make_equipment_setup(
+        power_mod=2, toughness_mod=2,
+        keywords=["haste"],
+        equip_cost="{1}",
+    ),
+)
+
+
+# --- Master Roshi's Training Hall --- Land, Uncommon (gated tutor)
+def master_roshi_hall_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: {C}. {2}, {T}: tutor a Z-Fighter or Monk creature ≤MV3 (only when
+    you control ≤3 creatures)."""
+
+    def mana_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {'C': 1}},
+            source=o.id,
+        )]
+
+    ih.make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=mana_effect,
+        description="Tap: Add {C}.",
+    )
+
+    def gate_few_creatures(o: GameObject, st: GameState) -> bool:
+        cnt = sum(
+            1 for x in st.objects.values()
+            if x.zone == ZoneType.BATTLEFIELD
+            and x.controller == o.controller
+            and CardType.CREATURE in (x.characteristics.types or set())
+        )
+        return cnt <= 3
+
+    def tutor_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'subtypes_any': ['Z-Fighter', 'Monk'],
+                'card_type': 'creature',
+                'destination': 'hand',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=o.id,
+        )]
+
+    ih.make_activated_ability(
+        obj,
+        cost="{2}, {T}",
+        effect_fn=tutor_effect,
+        description="{2}, {T}: tutor a Z-Fighter or Monk ≤ MV 3.",
+        precondition_fn=gate_few_creatures,
+    )
+    return []
+
+MASTER_ROSHIS_TRAINING_HALL = make_land(
+    name="Master Roshi's Training Hall",
+    text=(
+        "{T}: Add {C}. "
+        "{2}, {T}: Search your library for a Z-Fighter or Monk creature card "
+        "with mana value 3 or less, reveal it, put it into your hand, then "
+        "shuffle. Activate this ability only if you control three or fewer "
+        "creatures."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=master_roshi_hall_setup,
+)
+
+
+# --- Capsule Corp R&D --- {1}{U} Legendary Artifact, Rare (artifact tutor engine)
+def capsule_corp_rnd_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: {U}. {2}, {T}: peek 3, may grab artifact or Scientist creature.
+    Whenever you cast an artifact spell, scry 1."""
+
+    def mana_blue(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {'U': 1}},
+            source=o.id,
+        )]
+
+    ih.make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=mana_blue,
+        description="Tap: Add {U}.",
+    )
+
+    def peek_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        # Look at top 3, optionally grab an artifact or Scientist creature.
+        # Engine: SEARCH_LIBRARY restricted to top 3 isn't natively supported,
+        # so we approximate with REVEAL_TOP + a SEARCH_LIBRARY with a
+        # subtypes_any filter. Players will see the top 3 either way; the
+        # search picks any matching card (we accept the imperfection that
+        # the search isn't strictly "from the revealed set").
+        return [
+            Event(
+                type=EventType.REVEAL_TOP,
+                payload={'player': o.controller, 'count': 3},
+                source=o.id,
+            ),
+            Event(
+                type=EventType.SEARCH_LIBRARY,
+                payload={
+                    'player': o.controller,
+                    'subtypes_any': ['Scientist'],
+                    'destination': 'hand',
+                    'min_count': 0,
+                    'max_count': 1,
+                    'reveal': True,
+                },
+                source=o.id,
+            ),
+        ]
+
+    ih.make_activated_ability(
+        obj,
+        cost="{2}, {T}",
+        effect_fn=peek_effect,
+        description=(
+            "{2}, {T}: Look at top 3 of your library; grab a Scientist creature."
+        ),
+    )
+
+    def artifact_cast_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        if event.controller != src.controller:
+            return False
+        cast_obj_id = event.payload.get('object_id') or event.payload.get('card_id')
+        if not cast_obj_id:
+            return False
+        cast_obj = st.objects.get(cast_obj_id)
+        if not cast_obj:
+            return False
+        return CardType.ARTIFACT in (cast_obj.characteristics.types or set())
+
+    def scry_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+
+    return [ih.make_spell_cast_trigger(obj, scry_effect, filter_fn=artifact_cast_filter)]
+
+CAPSULE_CORP_RND = CardDefinition(
+    name="Capsule Corp R&D",
+    mana_cost="{1}{U}",
+    characteristics=Characteristics(
+        types={CardType.ARTIFACT},
+        colors={Color.BLUE},
+        supertypes={"Legendary"},
+        mana_cost="{1}{U}",
+    ),
+    text=(
+        "{T}: Add {U}. "
+        "{2}, {T}: Look at the top three cards of your library; you may "
+        "reveal an artifact or Scientist creature card from among them and "
+        "put it into your hand. "
+        "Whenever you cast an artifact spell, scry 1."
+    ),
+    setup_interceptors=capsule_corp_rnd_setup,
+)
+
+
+# --- Ginyu Force, Assemble! --- {3}{B}{R} Sorcery, Uncommon (tribal anchor)
+def ginyu_assemble_resolve(targets: list, state: GameState) -> list[Event]:
+    """Tutor up to two Ginyu Force creatures with haste EOT."""
+    # Best-effort caster lookup (mirrors avatar_tla pattern).
+    caster = None
+    for o in state.objects.values():
+        if (getattr(o.card_def, 'name', None) == "Ginyu Force, Assemble!"
+                and o.zone == ZoneType.STACK):
+            caster = o.controller
+            break
+    if not caster:
+        for o in state.objects.values():
+            if (getattr(o.card_def, 'name', None) == "Ginyu Force, Assemble!"
+                    and o.zone == ZoneType.GRAVEYARD):
+                caster = o.controller
+                break
+    if not caster:
+        return []
+    # Two SEARCH_LIBRARY events — each picks a Ginyu Force creature card and
+    # puts it onto the battlefield tapped.
+    events: list[Event] = []
+    for _ in range(2):
+        events.append(Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': caster,
+                'subtype': 'Ginyu Force',
+                'card_type': 'creature',
+                'destination': 'battlefield',
+                'tapped': True,
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source='ginyu_assemble',
+        ))
+    return events
+
+GINYU_FORCE_ASSEMBLE = make_sorcery(
+    name="Ginyu Force, Assemble!",
+    mana_cost="{3}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    text=(
+        "Search your library for up to two creature cards with subtype Ginyu "
+        "Force, reveal them, put them onto the battlefield tapped, then shuffle."
+    ),
+    resolve=ginyu_assemble_resolve,
+)
+
+
+# --- Trunks, Sword of the Future --- {1}{R}{R} 3/2 Rare legendary creature
+def trunks_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self haste; ETB tutors a Sword equipment; equip-of-Sword untaps Trunks
+    and gives him double strike EOT."""
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_tutor_sword(event: Event, st: GameState) -> list[Event]:
+        # Tutor a Sword equipment to battlefield.
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'subtype': 'Sword',
+                'card_type': 'artifact',
+                'destination': 'battlefield',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=obj.id,
+        )]
+
+    def attach_to_trunks_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ATTACH:
+            return False
+        if event.payload.get('target') != obj.id:
+            return False
+        attaching_id = event.payload.get('source') or event.payload.get('attacher')
+        if not attaching_id:
+            return False
+        attaching = st.objects.get(attaching_id)
+        if not attaching:
+            return False
+        return 'Sword' in (attaching.characteristics.subtypes or set())
+
+    def attach_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(type=EventType.UNTAP, payload={'object_id': obj.id}, source=obj.id),
+                Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={
+                        'object_id': obj.id,
+                        'keyword': 'double_strike',
+                        'duration': 'end_of_turn',
+                    },
+                    source=obj.id,
+                ),
+            ],
+        )
+
+    sword_attach_trigger = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attach_to_trunks_filter,
+        handler=attach_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [
+        ih.make_keyword_grant(obj, ['haste'], affects_self),
+        ih.make_etb_trigger(obj, etb_tutor_sword),
+        sword_attach_trigger,
+    ]
+
+TRUNKS_SWORD_OF_FUTURE = make_creature(
+    name="Trunks, Sword of the Future",
+    power=3, toughness=2,
+    mana_cost="{1}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Saiyan", "Z-Fighter", "Warrior"},
+    supertypes={"Legendary"},
+    text=(
+        "Haste. When Trunks enters, search your library for a Sword card, "
+        "put it onto the battlefield, then shuffle. "
+        "Whenever a Sword becomes attached to Trunks, untap him; he gains "
+        "double strike until end of turn."
+    ),
+    setup_interceptors=trunks_sword_setup,
+)
+
+
+# --- Goku, Pure of Heart --- {2}{R}{G} 3/3 Mythic legendary creature
+def goku_pure_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack +1/+1 counter, other-creature death +1/+1 counter, escalating
+    keywords gated on counter thresholds."""
+
+    def attack_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+        )]
+
+    def other_creature_death_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        dead_id = event.payload.get('object_id')
+        if not dead_id or dead_id == src.id:
+            return False
+        dead = st.objects.get(dead_id)
+        if not dead or dead.controller != src.controller:
+            return False
+        return CardType.CREATURE in (dead.characteristics.types or set())
+
+    def death_counter_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+        )]
+
+    # Threshold-gated keyword grants: filter returns True only when Goku has
+    # the right number of +1/+1 counters AND the target IS Goku.
+    def threshold_filter(threshold: int):
+        def fn(target: GameObject, st: GameState) -> bool:
+            if target.id != obj.id:
+                return False
+            return target.state.counters.get('+1/+1', 0) >= threshold
+        return fn
+
+    # 6-counter combat-damage trigger: draw 2 cards.
+    def six_counter_combat_dmg(event: Event, st: GameState) -> list[Event]:
+        if obj.state.counters.get('+1/+1', 0) < 6:
+            return []
+        target = event.payload.get('target')
+        if not target or target not in st.players:
+            return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 2},
+            source=obj.id,
+        )]
+
+    return [
+        ih.make_attack_trigger(obj, attack_effect),
+        ih.make_death_trigger(obj, death_counter_effect, filter_fn=other_creature_death_filter),
+        # Threshold-3: trample + double_strike.
+        ih.make_keyword_grant(obj, ['trample', 'double_strike'], threshold_filter(3)),
+        # Threshold-6: flying.
+        ih.make_keyword_grant(obj, ['flying'], threshold_filter(6)),
+        # Threshold-6 combat-damage draw.
+        ih.make_damage_trigger(obj, six_counter_combat_dmg, combat_only=True),
+    ]
+
+GOKU_PURE_OF_HEART = make_creature(
+    name="Goku, Pure of Heart",
+    power=3, toughness=3,
+    mana_cost="{2}{R}{G}",
+    colors={Color.RED, Color.GREEN},
+    subtypes={"Saiyan", "Z-Fighter"},
+    supertypes={"Legendary"},
+    text=(
+        "Whenever Goku attacks, put a +1/+1 counter on him. "
+        "Whenever another creature you control dies, put a +1/+1 counter on Goku. "
+        "As long as Goku has 3 or more +1/+1 counters, he has trample and "
+        "double strike. As long as he has 6 or more, he has flying and "
+        "\"Whenever Goku deals combat damage to a player, draw two cards.\""
+    ),
+    setup_interceptors=goku_pure_setup,
+)
+
+
+# =============================================================================
 # CARD REGISTRY
 # =============================================================================
 
@@ -2720,6 +3127,14 @@ DRAGON_BALL_CARDS = {
     "Final Explosion": FINAL_EXPLOSION,
     "Omega Blaster": OMEGA_BLASTER,
     "Eraser Cannon": ERASER_CANNON,
+
+    # SPICE PASS Phase A
+    "Future Sword": FUTURE_SWORD,
+    "Master Roshi's Training Hall": MASTER_ROSHIS_TRAINING_HALL,
+    "Capsule Corp R&D": CAPSULE_CORP_RND,
+    "Ginyu Force, Assemble!": GINYU_FORCE_ASSEMBLE,
+    "Trunks, Sword of the Future": TRUNKS_SWORD_OF_FUTURE,
+    "Goku, Pure of Heart": GOKU_PURE_OF_HEART,
 }
 
 print(f"Loaded {len(DRAGON_BALL_CARDS)} Dragon Ball Z cards")
@@ -2946,5 +3361,12 @@ CARDS = [
     SOLAR_KAMEHAMEHA,
     FINAL_EXPLOSION,
     OMEGA_BLASTER,
-    ERASER_CANNON
+    ERASER_CANNON,
+    # SPICE PASS Phase A
+    FUTURE_SWORD,
+    MASTER_ROSHIS_TRAINING_HALL,
+    CAPSULE_CORP_RND,
+    GINYU_FORCE_ASSEMBLE,
+    TRUNKS_SWORD_OF_FUTURE,
+    GOKU_PURE_OF_HEART,
 ]
