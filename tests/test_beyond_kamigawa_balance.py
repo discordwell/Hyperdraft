@@ -24,6 +24,7 @@ def test_kamigawa_balance_summary_tracks_all_archetypes():
         assert profile["size"] == 40, archetype
         assert profile["extra_size"] == 5, archetype
         assert profile["monster_count"] >= 12, archetype
+        assert profile["field_spell_count"] <= 3, archetype
         assert profile["low_level_monster_count"] >= 8, archetype
         assert profile["removal_count"] >= 5, archetype
         assert profile["copy_violations"] == [], archetype
@@ -34,6 +35,7 @@ def test_kamigawa_archetype_identities_stay_distinct():
     summary = kamigawa_balance_summary()
 
     assert summary["samurai"]["monster_count"] >= 20
+    assert summary["samurai"]["field_spell_count"] == 2
     assert summary["ninja"]["spell_count"] >= 12
     assert summary["spirit_dragons"]["boss_monster_count"] >= 5
     assert summary["moonfolk"]["draw_count"] >= summary["samurai"]["draw_count"]

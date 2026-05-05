@@ -33,6 +33,10 @@ def kamigawa_deck_profile(name: str, main: list[CardDefinition], extra: list[Car
         "monster_count": len(monsters),
         "spell_count": len(spells),
         "trap_count": len(traps),
+        "field_spell_count": sum(
+            1 for card in spells
+            if getattr(card, "ygo_spell_type", "") == "Field"
+        ),
         "low_level_monster_count": sum(1 for card in monsters if (getattr(card, "level", 0) or 0) <= 4),
         "tribute_monster_count": sum(1 for card in monsters if (getattr(card, "level", 0) or 0) >= 5),
         "pressure_monster_count": sum(1 for card in monsters if (getattr(card, "atk", 0) or 0) >= 1800),
@@ -73,6 +77,8 @@ def kamigawa_balance_flags(archetype: str, profile: dict) -> list[str]:
         flags.append("extra_deck_too_large")
     if profile["copy_violations"]:
         flags.append("copy_limit_violation")
+    if profile.get("field_spell_count", 0) > 3:
+        flags.append("too_many_field_spells")
     if profile["monster_count"] < 12:
         flags.append("too_few_monsters")
     if profile["low_level_monster_count"] < 8:
