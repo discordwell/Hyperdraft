@@ -125,3 +125,30 @@ def test_hard_ai_routes_energy_to_next_attacker_when_active_is_doomed():
 
     assert ctx.opp_can_ko_me is True
     assert ai._select_energy_target(ctx, game.state, p1.id, [hand_energy.id]) == bench.id
+
+
+def test_hard_ai_avoids_draw_attack_when_library_is_low():
+    game, p1, p2, ai = _new_pokemon_game("hard")
+    attacker = _card(
+        game,
+        make_pokemon(
+            name="Careful Attacker",
+            hp=110,
+            pokemon_type=PokemonType.COLORLESS.value,
+            evolution_stage="Basic",
+            attacks=[
+                {"name": "Reckless Draw", "cost": [], "damage": 60, "text": "Draw 3 cards."},
+                {"name": "Safe Hit", "cost": [], "damage": 50, "text": ""},
+            ],
+        ),
+        p1,
+        ZoneType.ACTIVE_SPOT,
+    )
+    _card(game, _basic("Opponent", hp=160, damage=30), p2, ZoneType.ACTIVE_SPOT)
+    _card(game, _basic("Deck Card 1"), p1, ZoneType.LIBRARY)
+    _card(game, _basic("Deck Card 2"), p1, ZoneType.LIBRARY)
+
+    draw_score = ai._score_attack(attacker, attacker.card_def.attacks[0], game.state, p1.id)
+    safe_score = ai._score_attack(attacker, attacker.card_def.attacks[1], game.state, p1.id)
+
+    assert safe_score > draw_score
