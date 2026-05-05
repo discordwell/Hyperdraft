@@ -20,6 +20,14 @@ import type {
   SetCardSearchRequest,
   SetCardSearchResponse,
 } from '../types/gatherer';
+import type {
+  PokemonSetDetail,
+  PokemonSetListResponse,
+  PokemonSetCardFilter,
+  PokemonCardSearchResponse,
+  PokemonSortField,
+  PokemonSortOrder,
+} from '../types/pokemonGatherer';
 
 const API_BASE = '/api';
 
@@ -249,4 +257,54 @@ export const gathererAPI = {
         offset: request.offset || 0,
       }),
     }),
+};
+
+// Pokemon Gatherer API
+interface PokemonGetCardsOptions extends PokemonSetCardFilter {
+  sortBy?: PokemonSortField;
+  sortOrder?: PokemonSortOrder;
+  limit?: number;
+  offset?: number;
+}
+
+function pokemonQueryString(opts: PokemonGetCardsOptions): string {
+  const params = new URLSearchParams();
+  const add = (k: string, v: unknown) => {
+    if (v === undefined || v === null || v === '') return;
+    params.set(k, String(v));
+  };
+  add('supertype', opts.supertype);
+  add('trainer_subtype', opts.trainerSubtype);
+  add('pokemon_type', opts.pokemonType);
+  add('evolution_stage', opts.evolutionStage);
+  if (opts.isEx !== undefined) add('is_ex', opts.isEx);
+  add('hp_min', opts.hpMin);
+  add('hp_max', opts.hpMax);
+  add('retreat_cost_min', opts.retreatCostMin);
+  add('retreat_cost_max', opts.retreatCostMax);
+  add('guild', opts.guild);
+  add('text_search', opts.textSearch);
+  add('sort_by', opts.sortBy ?? 'name');
+  add('sort_order', opts.sortOrder ?? 'asc');
+  add('limit', opts.limit ?? 50);
+  add('offset', opts.offset ?? 0);
+  return params.toString();
+}
+
+export const pokemonGathererAPI = {
+  getSets: (setType?: string): Promise<PokemonSetListResponse> => {
+    const params = setType ? `?set_type=${setType}` : '';
+    return fetchAPI(`/pokemon/sets${params}`);
+  },
+
+  getSetDetails: (setCode: string): Promise<PokemonSetDetail> =>
+    fetchAPI(`/pokemon/sets/${setCode}`),
+
+  getSetCards: (
+    setCode: string,
+    options: PokemonGetCardsOptions = {}
+  ): Promise<PokemonCardSearchResponse> => {
+    const qs = pokemonQueryString(options);
+    return fetchAPI(`/pokemon/sets/${setCode}/cards${qs ? `?${qs}` : ''}`);
+  },
 };
