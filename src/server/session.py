@@ -1840,6 +1840,7 @@ class GameSession:
             mc_grid_y=obj.state.mc_grid_y,
             mc_gear_slot=obj.state.mc_gear_slot,
             mc_exhausted=obj.state.mc_exhausted,
+            mc_keywords=sorted(getattr(obj.card_def, "mc_keywords", None) or ()) if obj.card_def else [],
         )
 
     def _serialize_card(self, obj) -> CardData:
@@ -1862,6 +1863,7 @@ class GameSession:
             mc_grid_y=obj.state.mc_grid_y,
             mc_gear_slot=obj.state.mc_gear_slot,
             mc_exhausted=obj.state.mc_exhausted,
+            mc_keywords=sorted(getattr(obj.card_def, "mc_keywords", None) or ()) if obj.card_def else [],
         )
 
     def _serialize_stack_item(self, item) -> StackItemData:

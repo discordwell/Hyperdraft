@@ -235,6 +235,17 @@ export function MCGameBoard({
     return myMobs.filter((mob) => canBlockMob(mob) && (!legal.size || legal.has(mob.id)));
   }, [combatPrompt.legal_blockers, myMobs, canBlockMob]);
 
+  // Per-attacker eligibility: aerial attackers can only be blocked by aerial / reach.
+  const blockersForAttacker = (attackerCard: CardData | null) => {
+    if (!attackerCard) return blockableMobs;
+    const attackerKw = new Set((attackerCard.mc_keywords || []).map((k) => k.toLowerCase()));
+    if (!attackerKw.has('aerial')) return blockableMobs;
+    return blockableMobs.filter((mob) => {
+      const kw = new Set((mob.mc_keywords || []).map((k) => k.toLowerCase()));
+      return kw.has('aerial') || kw.has('reach');
+    });
+  };
+
   useEffect(() => {
     setBlockAssignments({});
   }, [isBlocking, attackKey]);
@@ -352,21 +363,28 @@ export function MCGameBoard({
                         .filter(([attackerId]) => attackerId !== attack.attacker_id)
                         .map(([, blockerId]) => blockerId),
                     );
+                    const eligible = blockersForAttacker(card);
+                    const isAerial = (card?.mc_keywords || []).map((k) => k.toLowerCase()).includes('aerial');
                     return (
                       <div key={attack.attacker_id} className="grid gap-2 border border-orange-800 bg-black/25 p-2 sm:grid-cols-[1fr_1fr]">
                         {card && <CardTile card={card} compact />}
                         <div className="grid content-center gap-1">
-                          <div className="text-[11px] uppercase tracking-wide text-orange-200">Targeting {target}</div>
+                          <div className="text-[11px] uppercase tracking-wide text-orange-200">
+                            Targeting {target}{isAerial && <span className="ml-1 text-cyan-300">· Aerial</span>}
+                          </div>
                           <select
                             value={blockAssignments[attack.attacker_id] || ''}
                             onChange={(e) => setBlockAssignments((prev) => ({ ...prev, [attack.attacker_id]: e.target.value }))}
                             className="border border-orange-800 bg-slate-950 px-2 py-1 text-xs text-slate-100"
                           >
                             <option value="">No block</option>
-                            {blockableMobs
+                            {eligible
                               .filter((mob) => !assignedElsewhere.has(mob.id) || blockAssignments[attack.attacker_id] === mob.id)
                               .map((mob) => <option key={mob.id} value={mob.id}>{mob.name} ({mob.power}/{mob.toughness})</option>)}
                           </select>
+                          {isAerial && eligible.length === 0 && (
+                            <div className="text-[10px] text-orange-300">No Aerial / Reach defender.</div>
+                          )}
                         </div>
                       </div>
                     );

@@ -236,6 +236,7 @@ class CardData(BaseModel):
     mc_grid_y: Optional[int] = None
     mc_gear_slot: Optional[str] = None
     mc_exhausted: bool = False
+    mc_keywords: list[str] = Field(default_factory=list)
 
 
 class StackItemData(BaseModel):

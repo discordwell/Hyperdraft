@@ -481,7 +481,10 @@ def test_minecraft_ranged_keyword_avoids_blocker_damage():
     assert ok, msg
     # Ranged: archer takes no damage from blocker.
     assert archer.state.damage == 0
-    assert blocker.state.damage == 3
+    # Wolf Pack (HP 2) takes 2 (capped); overflow 1 goes through to defender avatar.
+    # Blocker took 1 chip after Wolf Pack joined (worker bonus on Wolf Pack? no, ATK only)
+    assert blocker.state.damage == 2
+    assert p2.life == 19
 
 
 def test_minecraft_pillager_lord_buffs_other_raiders():
@@ -624,6 +627,210 @@ def test_minecraft_tnt_trap_deathrattle_blasts_avatar():
     game.emit(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": tnt.id, "reason": "test"}))
     game.check_state_based_actions()
     assert p2.life == 16  # 20 - 4
+
+
+def test_minecraft_aerial_attacker_cannot_be_blocked_by_ground():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Sky")
+    p2 = game.add_player("Ground")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    game.state.active_player = p1.id
+
+    ghast = game.create_object(
+        name=MINECRAFT_CARDS["Ghast"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Ghast"].characteristics,
+        card_def=MINECRAFT_CARDS["Ghast"],
+    )
+    ghast.controller = p1.id
+    ghast.state.summoning_sickness = False
+    grounded = game.create_object(
+        name=MINECRAFT_CARDS["Wolf Pack"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Wolf Pack"].characteristics,
+        card_def=MINECRAFT_CARDS["Wolf Pack"],
+    )
+    grounded.controller = p2.id
+
+    # Manual block attempt: Wolf Pack tries to block Ghast — engine rejects.
+    ok, _msg, _ = mc.declare_attackers(
+        game, p1.id,
+        [{"attacker_id": ghast.id, "target_column": 0}],
+        auto_block=False,
+    )
+    assert ok
+    ok, _msg, _ = mc.declare_blockers(
+        game, p2.id,
+        [{"attacker_id": ghast.id, "blocker_id": grounded.id}],
+    )
+    assert ok
+    # Block was discarded — Ghast went unblocked, Wolf Pack didn't engage.
+    assert grounded.state.damage == 0
+    assert ghast.state.damage == 0
+    assert p2.life == 15  # 20 - 5 (Ghast)
+
+
+def test_minecraft_reach_keyword_can_block_aerial():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Sky")
+    p2 = game.add_player("Sniper")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    game.state.active_player = p1.id
+
+    ghast = game.create_object(
+        name=MINECRAFT_CARDS["Ghast"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Ghast"].characteristics,
+        card_def=MINECRAFT_CARDS["Ghast"],
+    )
+    ghast.controller = p1.id
+    ghast.state.summoning_sickness = False
+    snow = game.create_object(
+        name=MINECRAFT_CARDS["Snow Golem"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Snow Golem"].characteristics,
+        card_def=MINECRAFT_CARDS["Snow Golem"],
+    )
+    snow.controller = p2.id
+
+    ok, _msg, _ = mc.declare_attackers(
+        game, p1.id,
+        [{"attacker_id": ghast.id, "target_column": 0}],
+        auto_block=False,
+    )
+    assert ok
+    ok, _msg, _ = mc.declare_blockers(
+        game, p2.id,
+        [{"attacker_id": ghast.id, "blocker_id": snow.id}],
+    )
+    assert ok
+    # Snow Golem (HP 4) takes 4 (capped); overflow 1 → avatar.
+    # Snow Golem chip on_block deals 1 to Ghast.
+    assert snow.state.damage == 4
+    assert ghast.state.damage == 2  # 1 chip + 1 combat
+    assert p2.life == 19
+
+
+def test_minecraft_overflow_damage_spills_to_column():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Big")
+    p2 = game.add_player("Little")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    game.state.active_player = p1.id
+    p2.mc_materials.update({"wood": 5})
+
+    bed = _hand_card(game, p2.id, MINECRAFT_CARDS["Bed"])
+    assert mc.play_card(game, p2.id, bed.id, cell={"x": 0, "y": 0})[0]
+
+    wither = game.create_object(
+        name=MINECRAFT_CARDS["Wither"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Wither"].characteristics,
+        card_def=MINECRAFT_CARDS["Wither"],
+    )
+    wither.controller = p1.id
+    wither.state.summoning_sickness = False
+    snow = game.create_object(
+        name=MINECRAFT_CARDS["Snow Golem"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Snow Golem"].characteristics,
+        card_def=MINECRAFT_CARDS["Snow Golem"],
+    )
+    snow.controller = p2.id
+
+    # Wither attacks column 0 (where the Bed sits, no front-row defense yet).
+    # Snow Golem blocks (it has reach).
+    ok, _msg, _ = mc.declare_attackers(
+        game, p1.id,
+        [{"attacker_id": wither.id, "target_column": 0}],
+        auto_block=False,
+    )
+    assert ok
+    # Wither AoE on play already hit the bed for 2; reset damage so we can verify overflow cleanly.
+    bed.state.damage = 0
+    ok, _msg, _ = mc.declare_blockers(
+        game, p2.id,
+        [{"attacker_id": wither.id, "blocker_id": snow.id}],
+    )
+    assert ok
+    # Wither (8 ATK) capped at Snow Golem (HP 4) → 4 to Snow Golem; overflow 4 → Bed.
+    assert snow.state.damage == 4
+    assert bed.state.damage == 4
+
+
+def test_minecraft_ai_skips_bad_block_when_attacker_hits_structure():
+    """AI shouldn't chump-block a wall-targeting attacker if its blocker dies for nothing."""
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Attacker")
+    p2 = game.add_player("Defender")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    game.state.active_player = p1.id
+    p2.mc_materials.update({"wood": 5, "stone": 5})
+    # Defender has a dummy structure in column 0 so the attack is non-avatar.
+    farm = _hand_card(game, p2.id, MINECRAFT_CARDS["Farm Plot"])
+    assert mc.play_card(game, p2.id, farm.id, cell={"x": 0, "y": 1})[0]
+
+    # Big attacker that would kill any cheap blocker.
+    ravager = game.create_object(
+        name=MINECRAFT_CARDS["Ravager"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Ravager"].characteristics,
+        card_def=MINECRAFT_CARDS["Ravager"],
+    )
+    ravager.controller = p1.id
+    ravager.state.summoning_sickness = False
+    helper = game.create_object(
+        name=MINECRAFT_CARDS["Steve's Helper"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Steve's Helper"].characteristics,
+        card_def=MINECRAFT_CARDS["Steve's Helper"],
+    )
+    helper.controller = p2.id
+
+    # Attacker aims at column 0 (Farm Plot). With auto_block, AI defender should
+    # decline to block — Steve's Helper would die for nothing.
+    block_map = mc.auto_blockers(game.state, p2.id, [
+        {"attacker_id": ravager.id, "target_column": 0}
+    ])
+    assert helper.id not in block_map.values()
+
+
+def test_minecraft_ai_blocks_when_avatar_at_lethal():
+    """If the avatar is about to die and there's no Bed, the AI should always block."""
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Attacker")
+    p2 = game.add_player("Defender")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    game.state.active_player = p1.id
+    p2.life = 6  # lethal range
+    # No Bed for p2.
+
+    ravager = game.create_object(
+        name=MINECRAFT_CARDS["Ravager"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Ravager"].characteristics,
+        card_def=MINECRAFT_CARDS["Ravager"],
+    )
+    ravager.controller = p1.id
+    ravager.state.summoning_sickness = False
+    helper = game.create_object(
+        name=MINECRAFT_CARDS["Steve's Helper"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Steve's Helper"].characteristics,
+        card_def=MINECRAFT_CARDS["Steve's Helper"],
+    )
+    helper.controller = p2.id
+
+    # Ravager (6 ATK) vs avatar at HP 6 = lethal. AI MUST block.
+    block_map = mc.auto_blockers(game.state, p2.id, [
+        {"attacker_id": ravager.id, "target_column": 0}
+    ])
+    assert block_map.get(ravager.id) == helper.id
 
 
 def test_create_match_minecraft_sets_up_players_decks_and_state():

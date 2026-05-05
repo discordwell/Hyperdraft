@@ -131,6 +131,7 @@ export interface CardData {
   mc_grid_y?: number | null;
   mc_gear_slot?: string | null;
   mc_exhausted?: boolean;
+  mc_keywords?: string[];
 }
 
 // Stack Item

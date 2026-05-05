@@ -683,15 +683,140 @@ def legal_blockers(state: GameState, defender_id: str) -> list[GameObject]:
     ]
 
 
+def can_block(blocker: Optional[GameObject], attacker: Optional[GameObject]) -> bool:
+    """Aerial attackers can only be blocked by aerial or reach defenders."""
+    if not blocker or not attacker:
+        return False
+    attacker_kw = mc_keywords_of(attacker)
+    if "aerial" not in attacker_kw:
+        return True
+    blocker_kw = mc_keywords_of(blocker)
+    return "aerial" in blocker_kw or "reach" in blocker_kw
+
+
+def legal_blockers_for(state: GameState, defender_id: str, attacker_id: str) -> list[GameObject]:
+    """Subset of legal_blockers that can legally block this specific attacker."""
+    attacker = state.objects.get(attacker_id)
+    return [b for b in legal_blockers(state, defender_id) if can_block(b, attacker)]
+
+
 def auto_blockers(state: GameState, defender_id: str, attackers: list[dict[str, Any]]) -> dict[str, str]:
+    """Smarter AI block selection.
+
+    Priorities:
+      1. If avatar is at lethal risk and defender has no Bed, block any attacker
+         that can be blocked, with the smallest viable blocker (preserve other
+         defenders for later).
+      2. Otherwise, only block when the trade is good — kill the attacker, or
+         block a high-threat (avatar / Bed-aimed) hit even at the cost of the
+         blocker.
+      3. Never block when the blocker dies and the attacker survives unscathed
+         and isn't aimed at avatar/Bed.
+    """
+    defender = state.players.get(defender_id)
     blockers = legal_blockers(state, defender_id)
-    blockers.sort(key=lambda o: (get_power(o, state) or 0) + (get_toughness(o, state) or 0))
+    if not blockers or not attackers:
+        return {}
+    has_bed_now = has_bed(state, defender_id)
+
+    def attacker_power(a) -> int:
+        obj = state.objects.get(a["attacker_id"])
+        return _mob_attack_power(obj, state) if obj else 0
+
+    def attack_target_id(a) -> Optional[str]:
+        attacker = state.objects.get(a["attacker_id"])
+        if not attacker:
+            return None
+        column = a.get("target_column")
+        if not isinstance(column, int):
+            return defender_id
+        return column_target(state, defender_id, column, mc_keywords_of(attacker)) or defender_id
+
+    def threat_score(a) -> int:
+        target = attack_target_id(a)
+        target_obj = state.objects.get(target) if target and target != defender_id else None
+        base = attacker_power(a)
+        if target == defender_id:
+            return 1000 + base  # avatar damage = top priority
+        if target_obj and "Bed" in target_obj.characteristics.subtypes:
+            return 800 + base
+        return 100 + base
+
+    # Total avatar damage incoming if we don't block.
+    incoming_avatar_damage = sum(
+        attacker_power(a) for a in attackers if attack_target_id(a) == defender_id
+    )
+    avatar_lethal = (
+        defender is not None
+        and not has_bed_now
+        and incoming_avatar_damage >= int(defender.life or 0)
+    )
+
+    sorted_attacks = sorted(attackers, key=threat_score, reverse=True)
     assignments: dict[str, str] = {}
-    for attack in sorted(attackers, key=lambda a: _mob_attack_power(state.objects.get(a["attacker_id"]), state) if state.objects.get(a["attacker_id"]) else 0, reverse=True):
-        if not blockers:
-            break
-        blocker = blockers.pop(0)
-        assignments[attack["attacker_id"]] = blocker.id
+    used: set[str] = set()
+
+    for attack in sorted_attacks:
+        attacker = state.objects.get(attack["attacker_id"])
+        if not attacker:
+            continue
+        attacker_kw = mc_keywords_of(attacker)
+        a_pow = _mob_attack_power(attacker, state)
+        a_tough_remaining = max(0, int(get_toughness(attacker, state) or 0) - int(attacker.state.damage or 0))
+
+        target = attack_target_id(attack)
+        hits_avatar = (target == defender_id)
+        target_obj = state.objects.get(target) if target and target != defender_id else None
+        hits_bed = bool(target_obj and "Bed" in target_obj.characteristics.subtypes)
+
+        # Find the best legal blocker.
+        best_id: Optional[str] = None
+        best_score = -10**9
+        for blocker in blockers:
+            if blocker.id in used or not can_block(blocker, attacker):
+                continue
+            b_pow = int(get_power(blocker, state) or 0)
+            b_hp = max(0, int(get_toughness(blocker, state) or 0) - int(blocker.state.damage or 0))
+            b_value = b_pow + b_hp
+            blocker_dies = b_hp <= a_pow
+            attacker_dies = (
+                "ranged" not in attacker_kw
+                and b_pow >= a_tough_remaining
+                and a_tough_remaining > 0
+            )
+
+            score = 0
+            if avatar_lethal and hits_avatar:
+                score += 5000
+            if hits_avatar:
+                score += 200
+            if hits_bed:
+                score += 120
+            if attacker_dies and not blocker_dies:
+                score += 90
+            elif attacker_dies and blocker_dies:
+                # Mutual kill: good if we trade up, bad if we trade down.
+                score += 30 + (a_pow + a_tough_remaining) - b_value
+            elif blocker_dies and not attacker_dies:
+                # Chump block: only OK if attacker is aimed at avatar/Bed.
+                if hits_avatar or hits_bed:
+                    score += 20 - b_value // 2
+                else:
+                    score -= 1000  # don't waste defenders on grid bumps
+            else:
+                # Both survive: small value if we kill nothing meaningful.
+                score += 5 + min(a_pow, b_hp) - max(0, b_pow - a_tough_remaining)
+            # Prefer smaller blockers to absorb so big mobs survive.
+            score -= b_value // 4
+
+            if score > best_score:
+                best_score = score
+                best_id = blocker.id
+
+        if best_id is not None and best_score > 0:
+            assignments[attack["attacker_id"]] = best_id
+            used.add(best_id)
+
     return assignments
 
 
@@ -803,6 +928,9 @@ def declare_blockers(game, defender_id: str, blockers: list[dict[str, Any]]) -> 
             continue
         if blocker_id in used_blockers:
             continue
+        # Aerial gating: only aerial / reach defenders can block aerial attackers.
+        if not can_block(state.objects.get(blocker_id), state.objects.get(attacker_id)):
+            continue
         used_blockers.add(blocker_id)
         block_map[attacker_id] = blocker_id
 
@@ -846,9 +974,21 @@ def resolve_combat(
                 for ev in on_block(blocker, state, attacker.id) or []:
                     game.emit(ev)
                     events.append(ev)
-            damage_to_blocker = Event(type=EventType.DAMAGE, payload={"target": blocker.id, "amount": attacker_power, "source": attacker.id, "is_combat": True}, source=attacker.id)
+            # Overflow rule: damage to blocker is capped at its remaining HP;
+            # any surplus carries through to the column target / avatar.
+            blocker_hp = max(0, int(get_toughness(blocker, state) or 0) - int(blocker.state.damage or 0))
+            to_blocker = min(attacker_power, blocker_hp) if blocker_hp > 0 else attacker_power
+            overflow = max(0, attacker_power - to_blocker)
+            damage_to_blocker = Event(type=EventType.DAMAGE, payload={"target": blocker.id, "amount": to_blocker, "source": attacker.id, "is_combat": True}, source=attacker.id)
             game.emit(damage_to_blocker)
             events.append(damage_to_blocker)
+            if overflow > 0:
+                stored_column = attack.get("target_column")
+                column = stored_column if isinstance(stored_column, int) else None
+                _, overflow_target = _resolve_attack_target(state, defender_id, attacker, column)
+                overflow_event = Event(type=EventType.DAMAGE, payload={"target": overflow_target, "amount": overflow, "source": attacker.id, "is_combat": True, "overflow": True}, source=attacker.id)
+                game.emit(overflow_event)
+                events.append(overflow_event)
             if "ranged" not in keywords:
                 damage_to_attacker = Event(type=EventType.DAMAGE, payload={"target": attacker.id, "amount": int(get_power(blocker, state) or 0), "source": blocker.id, "is_combat": True}, source=blocker.id)
                 game.emit(damage_to_attacker)
