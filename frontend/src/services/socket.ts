@@ -33,7 +33,11 @@ let handlers: SocketHandlers = {};
  * Initialize the socket connection
  */
 export function initSocket(customHandlers: SocketHandlers = {}): Socket {
-  if (socket?.connected) {
+  if (socket) {
+    handlers = customHandlers;
+    if (!socket.connected) {
+      socket.connect();
+    }
     return socket;
   }
 

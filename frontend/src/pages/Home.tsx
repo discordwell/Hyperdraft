@@ -19,7 +19,7 @@ export function Home() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone' | 'pokemon' | 'yugioh'>('hearthstone');
+  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft'>('hearthstone');
   const [hsVariant, setHsVariant] = useState<string | null>('riftclash');
   const [heroClass, setHeroClass] = useState<string>('Pyromancer');
   const [playerName, setPlayerName] = useState('Player');
@@ -30,6 +30,8 @@ export function Home() {
   const [ygoDecks, setYgoDecks] = useState<YgoDeckSummary[]>([]);
   const [playerYgoDeck, setPlayerYgoDeck] = useState<string>('');
   const [aiYgoDeck, setAiYgoDeck] = useState<string>('');
+  const [playerMinecraftDeck, setPlayerMinecraftDeck] = useState<string>('builder');
+  const [aiMinecraftDeck, setAiMinecraftDeck] = useState<string>('raider');
   const [claudexModel, setClaudexModel] = useState('claude-opus-4.6');
   const [gptModel, setGptModel] = useState('gpt-5.3');
   const [recordPrompts, setRecordPrompts] = useState(false);
@@ -66,6 +68,7 @@ export function Home() {
       const isHearthstone = gameMode === 'hearthstone';
       const isPokemon = gameMode === 'pokemon';
       const isYugioh = gameMode === 'yugioh';
+      const isMinecraft = gameMode === 'minecraft';
       const skipDeckSelection = isHearthstone || isPokemon;
 
       // Create match
@@ -76,8 +79,8 @@ export function Home() {
         hero_class: isHearthstone && hsVariant !== null ? heroClass : undefined,
         player_name: playerName,
         ai_difficulty: difficulty,
-        player_deck_id: skipDeckSelection ? undefined : (isYugioh ? (playerYgoDeck || undefined) : (playerDeck || undefined)),
-        ai_deck_id: skipDeckSelection ? undefined : (isYugioh ? (aiYgoDeck || undefined) : (aiDeck || undefined)),
+        player_deck_id: skipDeckSelection ? undefined : (isYugioh ? (playerYgoDeck || undefined) : (isMinecraft ? playerMinecraftDeck : (playerDeck || undefined))),
+        ai_deck_id: skipDeckSelection ? undefined : (isYugioh ? (aiYgoDeck || undefined) : (isMinecraft ? aiMinecraftDeck : (aiDeck || undefined))),
       });
 
       // Set connection info in store
@@ -87,7 +90,7 @@ export function Home() {
       await matchAPI.start(response.match_id);
 
       // Navigate to game
-      navigate(`/game/${response.match_id}`);
+      navigate(isMinecraft ? `/game/${response.match_id}/mc` : `/game/${response.match_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create game');
     } finally {
@@ -101,10 +104,11 @@ export function Home() {
 
     try {
       const isYgo = gameMode === 'yugioh';
+      const isMinecraft = gameMode === 'minecraft';
       const response = await botGameAPI.start({
         mode: gameMode,
-        bot1_deck_id: isYgo ? (playerYgoDeck || undefined) : (playerDeck || undefined),
-        bot2_deck_id: isYgo ? (aiYgoDeck || undefined) : (aiDeck || undefined),
+        bot1_deck_id: isYgo ? (playerYgoDeck || undefined) : (isMinecraft ? playerMinecraftDeck : (playerDeck || undefined)),
+        bot2_deck_id: isYgo ? (aiYgoDeck || undefined) : (isMinecraft ? aiMinecraftDeck : (aiDeck || undefined)),
         bot1_difficulty: difficulty,
         bot2_difficulty: difficulty,
         delay_ms: 1500,
@@ -229,7 +233,7 @@ export function Home() {
             <label className="block text-sm text-gray-400 mb-1">
               Game Mode
             </label>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setGameMode('mtg')}
                 className={`flex-1 px-4 py-2 rounded transition-colors ${
@@ -269,6 +273,16 @@ export function Home() {
                 }`}
               >
                 Yu-Gi-Oh!
+              </button>
+              <button
+                onClick={() => setGameMode('minecraft')}
+                className={`col-span-2 px-4 py-2 rounded transition-colors ${
+                  gameMode === 'minecraft'
+                    ? 'bg-emerald-700 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                Minecraft TCG
               </button>
             </div>
           </div>
@@ -525,6 +539,35 @@ export function Home() {
             </>
           )}
 
+          {gameMode === 'minecraft' && (
+            <>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-400 mb-1">Your Starter</label>
+                <select
+                  value={playerMinecraftDeck}
+                  onChange={(e) => setPlayerMinecraftDeck(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="builder">Builder Control</option>
+                  <option value="miner">Miner Ramp</option>
+                  <option value="raider">Raider Aggro</option>
+                </select>
+              </div>
+              <div className="mb-6">
+                <label className="block text-sm text-gray-400 mb-1">AI Starter</label>
+                <select
+                  value={aiMinecraftDeck}
+                  onChange={(e) => setAiMinecraftDeck(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="builder">Builder Control</option>
+                  <option value="miner">Miner Ramp</option>
+                  <option value="raider">Raider Aggro</option>
+                </select>
+              </div>
+            </>
+          )}
+
           {/* Play vs Bot Button */}
           <button
             onClick={handleStartGame}
@@ -541,7 +584,7 @@ export function Home() {
           </button>
 
           {/* Bot game options (MTG + YGO) */}
-          {(gameMode === 'mtg' || gameMode === 'yugioh') && (
+          {(gameMode === 'mtg' || gameMode === 'yugioh' || gameMode === 'minecraft') && (
             <>
               {/* Spectate Bot Game Button */}
               <button

@@ -294,6 +294,21 @@ class EventType(Enum):
     YGO_LP_CHANGE = auto()            # Life Points changed
     YGO_DRAW = auto()                 # Draw Phase draw
 
+    # Minecraft TCG mechanics
+    MC_PLAY_CARD = auto()             # Play/craft a Minecraft card
+    MC_ASSIGN_WORKER = auto()         # Exhaust a mob/worker to mine a biome
+    MC_AVATAR_ACTION = auto()         # Use the once-per-turn avatar action
+    MC_EXPLORE_BIOME = auto()         # Upgrade/replace a biome slot
+    MC_MATERIAL_GAIN = auto()         # Materials were added to a player stockpile
+    MC_MATERIAL_SPEND = auto()        # Materials were spent from a player stockpile
+    MC_GRID_PLACE = auto()            # Structure/block/tool entered Minecraft board state
+    MC_RESPAWN = auto()               # Avatar died and respawned at a Bed
+    MC_DAY_NIGHT_FLIP = auto()        # Day/night cycle changed
+    MC_DECLARE_ATTACKERS = auto()     # Minecraft combat attackers declared
+    MC_DECLARE_BLOCKERS = auto()      # Minecraft combat blockers declared
+    MC_COMBAT_DAMAGE = auto()         # Minecraft combat damage marker
+    MC_END_TURN = auto()              # Minecraft turn-end action marker
+
     # Library search subsystem (player-choice-driven tutors)
     LIBSEARCH_BEGIN = auto()          # Open the search choice (creates PendingChoice)
     LIBSEARCH_REVEAL = auto()         # Reveal a chosen card (marker event for triggers)
@@ -623,6 +638,13 @@ class CardType(Enum):
     YGO_SPELL = auto()      # Spell card
     YGO_TRAP = auto()       # Trap card
 
+    # Minecraft TCG card types
+    MC_MOB = auto()          # Creature-row unit
+    MC_STRUCTURE = auto()    # Grid structure
+    MC_BLOCK = auto()        # Grid defensive/utility block
+    MC_TOOL = auto()         # Avatar gear
+    MC_ACTION = auto()       # One-shot action card
+
 
 class Color(Enum):
     WHITE = 'W'
@@ -784,6 +806,16 @@ class ObjectState:
     turns_in_play: int = 0               # For evolution timing
     evolved_this_turn: bool = False       # Cannot evolve again
 
+    # Minecraft-specific (optional, unused in other modes)
+    mc_exhausted: bool = False            # Mined/attacked/used this turn
+    mc_grid_x: Optional[int] = None       # 3x3 base-grid x coordinate
+    mc_grid_y: Optional[int] = None       # 3x3 base-grid y coordinate
+    mc_gear_slot: Optional[str] = None    # weapon / armor / tool
+    mc_last_attack_column: Optional[int] = None      # Last column this mob attacked
+    mc_last_attack_target: Optional[str] = None      # Last attack target id (mob/structure/avatar)
+    mc_last_blocked_attacker: Optional[str] = None   # When blocking, the attacker id
+    death_triggered: bool = False                    # Once-only deathrattle/on_death guard
+
 
 @dataclass
 class GameObject:
@@ -926,6 +958,14 @@ class Player:
     supporter_played_this_turn: bool = False  # Once per turn limit
     stadium_played_this_turn: bool = False    # Once per turn limit
     retreated_this_turn: bool = False         # Once per turn limit
+
+    # Minecraft-specific (optional, unused in other modes)
+    mc_materials: dict[str, int] = field(default_factory=dict)
+    mc_avatar_gear: dict[str, Optional[str]] = field(
+        default_factory=lambda: {"weapon": None, "armor": None, "tool": None}
+    )
+    mc_avatar_action_used: bool = False
+    mc_avatar_exhausted: bool = False
 
     @property
     def cost_reductions(self) -> list:
@@ -1202,7 +1242,7 @@ class GameState:
     lands_allowed_this_turn: int = 1  # Can be increased by effects like Exploration
 
     # Game mode configuration
-    game_mode: str = "mtg"           # "mtg", "hearthstone", or "pokemon"
+    game_mode: str = "mtg"           # "mtg", "hearthstone", "pokemon", "yugioh", or "minecraft"
     starting_life: int = 20          # Default life total for newly added MTG-style players
     opening_hand_size: int = 7       # Default MTG opening hand size
     draw_step_cards: int = 1         # Cards drawn by the active player during a normal draw step
@@ -1229,6 +1269,13 @@ class GameState:
     # ``random.Random(state.rng_seed)`` lazily and stores it on
     # ``state._rng`` so subsequent flips draw from the same stream.
     rng_seed: Optional[int] = None
+
+    # Minecraft TCG mode state.
+    minecraft_day_phase: str = "day"
+    minecraft_round_turns: int = 0
+    minecraft_biomes: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    minecraft_grid: dict[str, list[list[Optional[str]]]] = field(default_factory=dict)
+    minecraft_combat: dict[str, Any] = field(default_factory=dict)
 
     # Player choice system - when set, game is paused waiting for input
     pending_choice: Optional['PendingChoice'] = None

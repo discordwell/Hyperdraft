@@ -14,6 +14,7 @@ const GameView = lazy(() => import('./pages/GameView'));
 const HSGameView = lazy(() => import('./pages/HSGameView'));
 const PKMGameView = lazy(() => import('./pages/PKMGameView'));
 const YGOGameView = lazy(() => import('./pages/YGOGameView').then(m => ({ default: m.YGOGameView })));
+const MCGameView = lazy(() => import('./pages/MCGameView'));
 const SpectatorView = lazy(() => import('./pages/SpectatorView'));
 const ReplayView = lazy(() => import('./pages/ReplayView'));
 const Deckbuilder = lazy(() => import('./pages/Deckbuilder'));
@@ -41,6 +42,7 @@ export function App() {
           <Route path="/game/:matchId/hs" element={<HSGameView />} />
           <Route path="/game/:matchId/pkm" element={<PKMGameView />} />
           <Route path="/game/:matchId/ygo" element={<YGOGameView />} />
+          <Route path="/game/:matchId/mc" element={<MCGameView />} />
           <Route path="/spectate/:gameId" element={<SpectatorView />} />
           <Route path="/replay/:gameId" element={<ReplayView />} />
           <Route path="/deckbuilder" element={<Deckbuilder />} />

@@ -42,7 +42,7 @@ def generate_id() -> str:
 
 
 # Action type prefixes handled by specific mode adapters.
-_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO"}
+_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC"}
 
 _HS_ACTION_TYPES = frozenset({
     "HS_PLAY_CARD", "HS_ATTUNE_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN",
@@ -58,6 +58,11 @@ _YGO_ACTION_TYPES = frozenset({
     "YGO_CHANGE_POSITION", "YGO_ACTIVATE", "YGO_SET_SPELL_TRAP",
     "YGO_DECLARE_ATTACK", "YGO_DIRECT_ATTACK", "YGO_CHAIN_RESPONSE",
     "YGO_CHAIN_PASS", "YGO_END_TURN", "YGO_SPECIAL_SUMMON", "YGO_END_PHASE",
+})
+
+_MC_ACTION_TYPES = frozenset({
+    "MC_PLAY_CARD", "MC_ASSIGN_WORKER", "MC_AVATAR_ACTION", "MC_EXPLORE_BIOME",
+    "MC_DECLARE_ATTACKERS", "MC_DECLARE_BLOCKERS", "MC_END_TURN",
 })
 
 
@@ -353,6 +358,9 @@ class GameSession:
                 prizes_remaining=getattr(player, 'prizes_remaining', 0),
                 energy_attached_this_turn=getattr(player, 'energy_attached_this_turn', False),
                 supporter_played_this_turn=getattr(player, 'supporter_played_this_turn', False),
+                mc_materials=dict(getattr(player, 'mc_materials', {}) or {}),
+                mc_avatar_gear=dict(getattr(player, 'mc_avatar_gear', {}) or {}),
+                mc_avatar_action_used=bool(getattr(player, 'mc_avatar_action_used', False)),
             )
 
         # Get battlefield (exclude heroes/hero powers in HS mode — those are in player data)
@@ -499,6 +507,9 @@ class GameSession:
         extra_deck_sizes: dict = {}
         ygo_phase: Optional[str] = None
         chain_links: list = []
+        minecraft_grid: dict = {}
+        minecraft_biomes: dict = {}
+        minecraft_exposed_targets: dict = {}
 
         if game_state.game_mode == "yugioh":
             def _resolve_obj(obj_or_id):
@@ -581,6 +592,26 @@ class GameSession:
                     players[pid].lp = player.lp
                     players[pid].normal_summon_used = player.normal_summon_used
 
+        if game_state.game_mode == "minecraft":
+            from src.engine import minecraft as mc
+
+            mc.cleanup_references(game_state)
+            minecraft_biomes = {
+                pid: [dict(slot) for slot in game_state.minecraft_biomes.get(pid, [])]
+                for pid in game_state.players
+            }
+            for pid in game_state.players:
+                raw_grid = game_state.minecraft_grid.get(pid) or mc.empty_grid()
+                serialized_rows = []
+                for row in raw_grid:
+                    serialized_row = []
+                    for oid in row:
+                        obj = game_state.objects.get(oid) if oid else None
+                        serialized_row.append(self._serialize_permanent(obj) if obj else None)
+                    serialized_rows.append(serialized_row)
+                minecraft_grid[pid] = serialized_rows
+                minecraft_exposed_targets[pid] = mc.exposed_grid_targets(game_state, pid)
+
         return GameStateResponse(
             match_id=self.id,
             turn_number=self.game.turn_manager.turn_number,
@@ -614,6 +645,11 @@ class GameSession:
             extra_deck_sizes=extra_deck_sizes,
             ygo_phase=ygo_phase,
             chain_links=chain_links,
+            minecraft_day_phase=game_state.minecraft_day_phase,
+            minecraft_biomes=minecraft_biomes,
+            minecraft_grid=minecraft_grid,
+            minecraft_combat=dict(game_state.minecraft_combat or {}),
+            minecraft_exposed_targets=minecraft_exposed_targets,
         )
 
     async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
@@ -640,6 +676,8 @@ class GameSession:
             return await get_server_mode_adapter("hearthstone").handle_action(self, request)
         if request.action_type in _YGO_ACTION_TYPES:
             return await get_server_mode_adapter("yugioh").handle_action(self, request)
+        if request.action_type in _MC_ACTION_TYPES:
+            return await get_server_mode_adapter("minecraft").handle_action(self, request)
 
         # Combat declarations are not wired through the priority action loop yet.
         if request.action_type in ("DECLARE_ATTACKERS", "DECLARE_BLOCKERS"):
@@ -1769,6 +1807,12 @@ class GameSession:
         """Serialize a permanent for the client."""
         from src.engine.queries import get_power, get_toughness, is_creature
 
+        toughness = get_toughness(obj, self.game.state) if (
+            is_creature(obj, self.game.state)
+            or CardType.MC_STRUCTURE in obj.characteristics.types
+            or CardType.MC_BLOCK in obj.characteristics.types
+        ) else obj.characteristics.toughness
+
         return CardData(
             id=obj.id,
             name=obj.name,
@@ -1777,7 +1821,7 @@ class GameSession:
             types=[t.name for t in obj.characteristics.types],
             subtypes=list(obj.characteristics.subtypes),
             power=get_power(obj, self.game.state) if is_creature(obj, self.game.state) else None,
-            toughness=get_toughness(obj, self.game.state) if is_creature(obj, self.game.state) else None,
+            toughness=toughness,
             text=obj.card_def.text if obj.card_def else "",
             tapped=obj.state.tapped,
             counters=dict(obj.state.counters),
@@ -1790,7 +1834,12 @@ class GameSession:
             windfury=obj.state.windfury,
             frozen=obj.state.frozen,
             summoning_sickness=obj.state.summoning_sickness,
-            attacks_this_turn=obj.state.attacks_this_turn
+            attacks_this_turn=obj.state.attacks_this_turn,
+            mc_cost=dict(getattr(obj.card_def, "mc_cost", {}) or {}) if obj.card_def else {},
+            mc_grid_x=obj.state.mc_grid_x,
+            mc_grid_y=obj.state.mc_grid_y,
+            mc_gear_slot=obj.state.mc_gear_slot,
+            mc_exhausted=obj.state.mc_exhausted,
         )
 
     def _serialize_card(self, obj) -> CardData:
@@ -1808,6 +1857,11 @@ class GameSession:
             controller=obj.controller,
             owner=obj.owner,
             keywords=list(obj.characteristics.keywords),
+            mc_cost=dict(getattr(obj.card_def, "mc_cost", {}) or {}) if obj.card_def else {},
+            mc_grid_x=obj.state.mc_grid_x,
+            mc_grid_y=obj.state.mc_grid_y,
+            mc_gear_slot=obj.state.mc_gear_slot,
+            mc_exhausted=obj.state.mc_exhausted,
         )
 
     def _serialize_stack_item(self, item) -> StackItemData:

@@ -11,6 +11,7 @@ from .mtg import MTGModeAdapter
 from .hs import HearthstoneModeAdapter
 from .pkm import PokemonModeAdapter
 from .ygo import YugiohModeAdapter
+from .mc import MinecraftModeAdapter
 
 
 _ADAPTERS: dict[str, ModeAdapter] = {
@@ -18,6 +19,7 @@ _ADAPTERS: dict[str, ModeAdapter] = {
     "hearthstone": HearthstoneModeAdapter(),
     "pokemon": PokemonModeAdapter(),
     "yugioh": YugiohModeAdapter(),
+    "minecraft": MinecraftModeAdapter(),
 }
 
 
@@ -35,5 +37,6 @@ __all__ = [
     "HearthstoneModeAdapter",
     "PokemonModeAdapter",
     "YugiohModeAdapter",
+    "MinecraftModeAdapter",
     "get_server_mode_adapter",
 ]

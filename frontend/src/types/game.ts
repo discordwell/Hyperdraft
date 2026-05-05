@@ -40,7 +40,14 @@ export type ActionType =
   | 'YGO_CHAIN_PASS'
   | 'YGO_END_TURN'
   | 'YGO_SPECIAL_SUMMON'
-  | 'YGO_END_PHASE';
+  | 'YGO_END_PHASE'
+  | 'MC_PLAY_CARD'
+  | 'MC_ASSIGN_WORKER'
+  | 'MC_AVATAR_ACTION'
+  | 'MC_EXPLORE_BIOME'
+  | 'MC_DECLARE_ATTACKERS'
+  | 'MC_DECLARE_BLOCKERS'
+  | 'MC_END_TURN';
 
 export type Phase =
   | 'BEGINNING'
@@ -118,6 +125,12 @@ export interface CardData {
   face_down?: boolean;
   overlay_units?: number;
   is_tuner?: boolean;
+  // Minecraft state/metadata
+  mc_cost?: Record<string, number>;
+  mc_grid_x?: number | null;
+  mc_grid_y?: number | null;
+  mc_gear_slot?: string | null;
+  mc_exhausted?: boolean;
 }
 
 // Stack Item
@@ -186,6 +199,10 @@ export interface PlayerData {
   // Yu-Gi-Oh! fields
   lp?: number;
   normal_summon_used?: boolean;
+  // Minecraft fields
+  mc_materials?: Record<string, number>;
+  mc_avatar_gear?: Record<string, string | null>;
+  mc_avatar_action_used?: boolean;
 }
 
 // Combat Data
@@ -197,7 +214,8 @@ export interface CombatData {
 
 export interface AttackDeclaration {
   attacker_id: string;
-  defending_player: string;
+  defending_player?: string;
+  target_id?: string;
 }
 
 export interface BlockDeclaration {
@@ -258,7 +276,7 @@ export interface GameState {
   is_game_over: boolean;
   winner: string | null;
   pending_choice?: PendingChoice | null;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft';
   variant?: string | null;
   max_hand_size?: number;
   // Pokemon zones
@@ -273,6 +291,12 @@ export interface GameState {
   extra_deck_sizes?: Record<string, number>;
   ygo_phase?: string;
   chain_links?: unknown[];
+  // Minecraft state
+  minecraft_day_phase?: string;
+  minecraft_biomes?: Record<string, { name: string; yields: Record<string, number>; mined?: boolean; level?: number }[]>;
+  minecraft_grid?: Record<string, (CardData | null)[][]>;
+  minecraft_combat?: Record<string, unknown>;
+  minecraft_exposed_targets?: Record<string, string[]>;
   // Game log
   game_log?: GameLogEntry[];
 }
@@ -280,7 +304,7 @@ export interface GameState {
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft';
   variant?: string;
   player_deck?: string[];
   player_deck_id?: string;
@@ -308,6 +332,9 @@ export interface PlayerActionRequest {
   source_id?: string;
   attackers?: AttackDeclaration[];
   blockers?: BlockDeclaration[];
+  cell?: { x: number; y: number };
+  biome_index?: number;
+  action_kind?: string;
 }
 
 export interface ActionResultResponse {
@@ -319,7 +346,7 @@ export interface ActionResultResponse {
 
 // Bot Game Types
 export interface StartBotGameRequest {
-  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh';
+  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft';
   bot1_deck: string[];
   bot2_deck: string[];
   bot1_deck_id?: string;

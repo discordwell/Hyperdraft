@@ -89,7 +89,7 @@ async def join_match(sid, data):
         session.connect_socket(player_id, sid)
 
         # Join Socket.IO room for this match
-        sio.enter_room(sid, f"match_{match_id}")
+        await sio.enter_room(sid, f"match_{match_id}")
 
         # Set up state change callback
         async def on_state_change(pid, state):
@@ -123,7 +123,7 @@ async def leave_match(sid, data):
     """
     match_id = data.get('match_id')
     if match_id:
-        sio.leave_room(sid, f"match_{match_id}")
+        await sio.leave_room(sid, f"match_{match_id}")
 
         session = session_manager.get_session(match_id)
         if session:
@@ -162,7 +162,10 @@ async def player_action(sid, data):
             ability_id=data.get('ability_id'),
             source_id=data.get('source_id'),
             attackers=data.get('attackers', []),
-            blockers=data.get('blockers', [])
+            blockers=data.get('blockers', []),
+            cell=data.get('cell'),
+            biome_index=data.get('biome_index'),
+            action_kind=data.get('action_kind'),
         )
 
         success, message = await session.handle_action(action)
@@ -196,7 +199,7 @@ async def spectate_game(sid, data):
         return
 
     # Join spectator room
-    sio.enter_room(sid, f"spectate_{game_id}")
+    await sio.enter_room(sid, f"spectate_{game_id}")
 
     # Get current state
     from .routes.bot_game import active_bot_games
@@ -213,7 +216,7 @@ async def stop_spectating(sid, data):
     """Stop spectating a game."""
     game_id = data.get('game_id')
     if game_id:
-        sio.leave_room(sid, f"spectate_{game_id}")
+        await sio.leave_room(sid, f"spectate_{game_id}")
 
 
 # =============================================================================

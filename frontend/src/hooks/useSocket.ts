@@ -71,10 +71,25 @@ export function useSocket(options: UseSocketOptions = {}) {
     });
     // If the socket was already alive when this hook mounts, reflect that
     // in the store so the UI doesn't start at "Disconnected" for a second.
-    if (socketIsConnected()) {
+    if (socketIsConnected() && !storeIsConnected) {
       setConnected(true);
+    } else if (!socketIsConnected() && storeIsConnected) {
+      setConnected(false);
     }
-  }, [handleGameState, handleError, setConnected, setError]);
+  }, [handleGameState, handleError, setConnected, setError, storeIsConnected]);
+
+  useEffect(() => {
+    const syncConnectionState = () => {
+      const connected = socketIsConnected();
+      if (useGameStore.getState().isConnected !== connected) {
+        setConnected(connected);
+      }
+    };
+
+    syncConnectionState();
+    const intervalId = window.setInterval(syncConnectionState, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [setConnected]);
 
   // Update handlers when callbacks change
   useEffect(() => {
@@ -96,7 +111,7 @@ export function useSocket(options: UseSocketOptions = {}) {
     }
 
     // Join new match
-    if (matchId && storeIsConnected) {
+    if (matchId && storeIsConnected && socketIsConnected()) {
       currentMatchRef.current = matchId;
 
       if (isSpectator) {

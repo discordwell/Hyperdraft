@@ -235,6 +235,30 @@ async def create_match(
         # Install variant global modifiers
         install_variant_modifiers(session.game)
 
+    elif request.game_mode == "minecraft":
+        from src.cards.minecraft import MINECRAFT_STARTER_DECKS
+        import random
+
+        deck_keys = ["builder", "miner", "raider"]
+        human_deck_id = request.player_deck_id if request.player_deck_id in MINECRAFT_STARTER_DECKS else "builder"
+        ai_deck_id = request.ai_deck_id if request.ai_deck_id in MINECRAFT_STARTER_DECKS else "raider"
+        if request.mode == "bot_vs_bot":
+            random.shuffle(deck_keys)
+            human_deck_id, ai_deck_id = deck_keys[0], deck_keys[1]
+
+        for pid in session.player_ids:
+            player = session.game.state.players.get(pid)
+            if player:
+                session.game.setup_minecraft_player(player, [])
+
+        session.add_cards_to_deck(human_id, MINECRAFT_STARTER_DECKS[human_deck_id]())
+        if request.mode == "human_vs_bot" and ai_id:
+            session.add_cards_to_deck(ai_id, MINECRAFT_STARTER_DECKS[ai_deck_id]())
+        elif request.mode == "bot_vs_bot":
+            session.add_cards_to_deck(ai_id, MINECRAFT_STARTER_DECKS[human_deck_id]())
+            if ai2_id:
+                session.add_cards_to_deck(ai2_id, MINECRAFT_STARTER_DECKS[ai_deck_id]())
+
     elif request.game_mode == "yugioh":
         # Yu-Gi-Oh! mode - support deck selection via deck IDs
         from src.cards.yugioh.ygo_classic import (

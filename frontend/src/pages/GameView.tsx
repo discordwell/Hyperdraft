@@ -79,6 +79,12 @@ export function GameView() {
     }
   }, [matchId, storeMatchId, storePlayerId, gameState, navigate, setGameState, setError]);
 
+  useEffect(() => {
+    if (gameState?.game_mode === 'minecraft' && matchId) {
+      navigate(`/game/${matchId}/mc`, { replace: true });
+    }
+  }, [gameState?.game_mode, matchId, navigate]);
+
   // Handle card clicks
   const handleCardClick = useCallback(
     (card: CardData, zone: 'hand' | 'battlefield') => {
@@ -384,6 +390,14 @@ export function GameView() {
   // Route to YGO view for yugioh-engine games
   if (gameState?.game_mode === 'yugioh') {
     return <YGOGameView />;
+  }
+
+  if (gameState?.game_mode === 'minecraft') {
+    return (
+      <div className="min-h-screen bg-game-bg flex items-center justify-center">
+        <div className="w-16 h-16 border-4 border-game-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
 
   // Loading state

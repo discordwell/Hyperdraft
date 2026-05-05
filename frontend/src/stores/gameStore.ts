@@ -131,18 +131,58 @@ const initialUIState: UIState = {
   animationsEnabled: true,
 };
 
+const CONNECTION_STORAGE_KEY = 'hyperdraft:lastConnection';
+
+function loadSavedConnection() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(CONNECTION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      matchId?: string;
+      playerId?: string;
+      isSpectator?: boolean;
+    };
+    if (!parsed.matchId || !parsed.playerId) return null;
+    return {
+      matchId: parsed.matchId,
+      playerId: parsed.playerId,
+      isSpectator: Boolean(parsed.isSpectator),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveConnection(matchId: string, playerId: string, isSpectator: boolean) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(
+    CONNECTION_STORAGE_KEY,
+    JSON.stringify({ matchId, playerId, isSpectator }),
+  );
+}
+
+function clearSavedConnection() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(CONNECTION_STORAGE_KEY);
+}
+
+const savedConnection = loadSavedConnection();
+
 export const useGameStore = create<GameStore>((set, get) => ({
   // Initial state
-  matchId: null,
-  playerId: null,
+  matchId: savedConnection?.matchId ?? null,
+  playerId: savedConnection?.playerId ?? null,
   isConnected: false,
-  isSpectator: false,
+  isSpectator: savedConnection?.isSpectator ?? false,
   gameState: null,
   ui: { ...initialUIState },
 
   // Connection
-  setConnection: (matchId, playerId, isSpectator = false) =>
-    set({ matchId, playerId, isSpectator }),
+  setConnection: (matchId, playerId, isSpectator = false) => {
+    saveConnection(matchId, playerId, isSpectator);
+    set({ matchId, playerId, isSpectator });
+  },
 
   setConnected: (connected) => set({ isConnected: connected }),
 
@@ -156,7 +196,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
           : prev.ui,
     })),
 
-  clearGame: () =>
+  clearGame: () => {
+    clearSavedConnection();
     set({
       matchId: null,
       playerId: null,
@@ -164,7 +205,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       isSpectator: false,
       gameState: null,
       ui: { ...initialUIState },
-    }),
+    });
+  },
 
   // Card selection
   selectCard: (cardId) =>

@@ -254,6 +254,22 @@ class Game:
                     card_def=card_def
                 )
 
+    def setup_minecraft_player(self, player: Player, deck: list = None):
+        """
+        Set up a Minecraft TCG player with avatar health, materials, biomes,
+        and an optional starting deck.
+        """
+        from .minecraft import setup_minecraft_player
+        setup_minecraft_player(self, player)
+        for card_def in (deck or []):
+            self.create_object(
+                name=card_def.name,
+                owner_id=player.id,
+                zone=ZoneType.LIBRARY,
+                characteristics=copy.deepcopy(card_def.characteristics),
+                card_def=card_def,
+            )
+
     def _setup_shared_zones(self):
         """Create battlefield, stack, exile, command (+ mode-specific shared zones)."""
         base = [ZoneType.BATTLEFIELD, ZoneType.STACK, ZoneType.EXILE, ZoneType.COMMAND]
@@ -387,13 +403,18 @@ class Game:
         """Single pass of SBA checking."""
         events = []
 
-        # Check player life totals
-        for player in self.state.players.values():
-            if player.life <= 0 and not player.has_lost:
-                events.extend(self.emit(Event(
-                    type=EventType.PLAYER_LOSES,
-                    payload={'player': player.id, 'reason': 'life'}
-                )))
+        # Check player life totals. Minecraft replaces direct life-loss with
+        # Bed-based respawn before a player can lose.
+        if self.state.game_mode == "minecraft":
+            from .minecraft import handle_avatar_deaths
+            events.extend(handle_avatar_deaths(self))
+        else:
+            for player in self.state.players.values():
+                if player.life <= 0 and not player.has_lost:
+                    events.extend(self.emit(Event(
+                        type=EventType.PLAYER_LOSES,
+                        payload={'player': player.id, 'reason': 'life'}
+                    )))
 
         # Check creature toughness
         battlefield_key = 'battlefield'

@@ -248,9 +248,13 @@ def has_ability(obj: GameObject, ability_name: str, state: GameState) -> bool:
 
 
 def is_creature(obj: GameObject, state: GameState) -> bool:
-    """Check if object is currently a creature (or minion in Hearthstone)."""
+    """Check if object is currently a creature-like combat unit."""
     types = get_types(obj, state)
-    return CardType.CREATURE in types or CardType.MINION in types
+    return (
+        CardType.CREATURE in types
+        or CardType.MINION in types
+        or CardType.MC_MOB in types
+    )
 
 
 # =============================================================================

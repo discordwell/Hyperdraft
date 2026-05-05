@@ -73,6 +73,14 @@ class ActionType(str, Enum):
     YGO_END_TURN = "YGO_END_TURN"
     YGO_SPECIAL_SUMMON = "YGO_SPECIAL_SUMMON"
     YGO_END_PHASE = "YGO_END_PHASE"
+    # Minecraft TCG action types
+    MC_PLAY_CARD = "MC_PLAY_CARD"
+    MC_ASSIGN_WORKER = "MC_ASSIGN_WORKER"
+    MC_AVATAR_ACTION = "MC_AVATAR_ACTION"
+    MC_EXPLORE_BIOME = "MC_EXPLORE_BIOME"
+    MC_DECLARE_ATTACKERS = "MC_DECLARE_ATTACKERS"
+    MC_DECLARE_BLOCKERS = "MC_DECLARE_BLOCKERS"
+    MC_END_TURN = "MC_END_TURN"
 
 
 class ChoiceType(str, Enum):
@@ -95,9 +103,9 @@ class ChoiceType(str, Enum):
 class CreateMatchRequest(BaseModel):
     """Request to create a new match."""
     mode: MatchMode = MatchMode.HUMAN_VS_BOT
-    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh"] = Field(
+    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft"] = Field(
         default="mtg",
-        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', or 'yugioh'"
+        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', or 'minecraft'"
     )
     variant: Optional[str] = Field(default=None, description="Game variant (e.g. 'stormrift') — installs heroes/decks/modifiers")
     hero_class: Optional[str] = Field(default=None, description="Hero class for variant (e.g. 'Pyromancer', 'Cryomancer')")
@@ -120,6 +128,10 @@ class PlayerActionRequest(BaseModel):
     source_id: Optional[str] = None
     attackers: list[dict] = Field(default_factory=list, description="Attack declarations")
     blockers: list[dict] = Field(default_factory=list, description="Block declarations")
+    cell: Optional[dict[str, int]] = Field(default=None, description="Minecraft 3x3 grid cell {x,y}")
+    biome_index: Optional[int] = Field(default=None, description="Minecraft biome slot index")
+    action_kind: Optional[str] = Field(default=None, description="Minecraft avatar action kind")
+    target_column: Optional[int] = Field(default=None, description="Minecraft column index for column-based attacks")
 
 
 class StartBotGameRequest(BaseModel):
@@ -218,6 +230,12 @@ class CardData(BaseModel):
     face_down: bool = False
     overlay_units: int = 0
     is_tuner: bool = False
+    # Minecraft-specific state/metadata
+    mc_cost: dict[str, int] = Field(default_factory=dict)
+    mc_grid_x: Optional[int] = None
+    mc_grid_y: Optional[int] = None
+    mc_gear_slot: Optional[str] = None
+    mc_exhausted: bool = False
 
 
 class StackItemData(BaseModel):
@@ -306,6 +324,10 @@ class PlayerData(BaseModel):
     # Yu-Gi-Oh! fields
     lp: int = 0
     normal_summon_used: bool = False
+    # Minecraft fields
+    mc_materials: dict[str, int] = Field(default_factory=dict)
+    mc_avatar_gear: dict[str, Optional[str]] = Field(default_factory=dict)
+    mc_avatar_action_used: bool = False
 
 
 class CombatData(BaseModel):
@@ -363,6 +385,12 @@ class GameStateResponse(BaseModel):
     extra_deck_sizes: dict[str, int] = Field(default_factory=dict)
     ygo_phase: Optional[str] = None
     chain_links: list[dict] = Field(default_factory=list)
+    # Minecraft zones/state
+    minecraft_day_phase: str = "day"
+    minecraft_biomes: dict[str, list[dict]] = Field(default_factory=dict)
+    minecraft_grid: dict[str, list[list[Optional[CardData]]]] = Field(default_factory=dict)
+    minecraft_combat: dict = Field(default_factory=dict)
+    minecraft_exposed_targets: dict[str, list[str]] = Field(default_factory=dict)
     # Game log
     game_log: list[GameLogEntry] = Field(default_factory=list)
 

@@ -710,6 +710,75 @@ class YugiohModeAdapter(GameModeAdapter):
 
 
 # =============================================================================
+# Minecraft TCG
+# =============================================================================
+
+class MinecraftModeAdapter(GameModeAdapter):
+    """Minecraft TCG alpha mode."""
+    mode: str = "minecraft"
+
+    def default_max_hand_size(self):
+        return 999
+
+    def create_mana_system(self, state):
+        return None
+
+    def create_combat_manager(self, state):
+        from .minecraft_combat import MinecraftCombatManager
+        return MinecraftCombatManager(state)
+
+    def create_turn_manager(self, state):
+        from .minecraft_turn import MinecraftTurnManager
+        return MinecraftTurnManager(state)
+
+    async def setup_starting_hands(self, game, player_ids):
+        for player_id in player_ids:
+            game.draw_cards(player_id, 6)
+        return True
+
+    def apply_player_damage(self, player, amount, state):
+        # Avatar armor reduces incoming player damage while equipped.
+        armor_id = getattr(player, "mc_avatar_gear", {}).get("armor")
+        armor_obj = state.objects.get(armor_id) if armor_id else None
+        reduction = 0
+        if armor_obj and armor_obj.card_def:
+            reduction = int(getattr(armor_obj.card_def, "mc_armor", 0) or 0)
+        player.life -= max(0, amount - reduction)
+        return 0
+
+    def post_creature_damage_destroy_check(self, obj, event, state):
+        from .types import CardType, Event, EventType
+        from .queries import get_toughness
+
+        if not (
+            CardType.MC_MOB in obj.characteristics.types
+            or CardType.MC_STRUCTURE in obj.characteristics.types
+            or CardType.MC_BLOCK in obj.characteristics.types
+        ):
+            return []
+        toughness = get_toughness(obj, state)
+        if toughness is not None and obj.state.damage >= toughness:
+            return [Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={"object_id": obj.id, "reason": "minecraft_damage"},
+                source=event.source,
+                controller=event.controller,
+            )]
+        return []
+
+    def register_system_interceptors(self, game):
+        from .minecraft import register_minecraft_system_interceptors
+        register_minecraft_system_interceptors(game)
+
+    def register_ai_player(self, game, player_id):
+        if hasattr(game.turn_manager, "set_ai_player"):
+            game.turn_manager.set_ai_player(player_id)
+
+    def includes_game_log_in_state(self):
+        return True
+
+
+# =============================================================================
 # Registry
 # =============================================================================
 
@@ -718,6 +787,7 @@ _REGISTRY: dict[str, GameModeAdapter] = {
     "hearthstone": HearthstoneModeAdapter(),
     "pokemon": PokemonModeAdapter(),
     "yugioh": YugiohModeAdapter(),
+    "minecraft": MinecraftModeAdapter(),
 }
 
 

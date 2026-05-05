@@ -140,7 +140,20 @@ async def start_bot_game(
 
     # === Game-mode-specific setup ===
 
-    if request.mode == "yugioh":
+    if request.mode == "minecraft":
+        from src.cards.minecraft import MINECRAFT_STARTER_DECKS
+
+        b1_key = request.bot1_deck_id if request.bot1_deck_id in MINECRAFT_STARTER_DECKS else "builder"
+        b2_key = request.bot2_deck_id if request.bot2_deck_id in MINECRAFT_STARTER_DECKS else "raider"
+
+        player_ids = list(session.game.state.players.keys())
+        for pid in player_ids[:2]:
+            player = session.game.state.players[pid]
+            session.game.setup_minecraft_player(player, [])
+        session.add_cards_to_deck(bot1_id, MINECRAFT_STARTER_DECKS[b1_key]())
+        session.add_cards_to_deck(bot2_id, MINECRAFT_STARTER_DECKS[b2_key]())
+
+    elif request.mode == "yugioh":
         # Yu-Gi-Oh! bot-vs-bot: resolve decks by ID, setup players
         from src.cards.yugioh.ygo_classic import (
             YUGI_DECK, YUGI_EXTRA_DECK, KAIBA_DECK, KAIBA_EXTRA_DECK,
@@ -281,7 +294,7 @@ async def run_bot_game(session: GameSession):
             # For non-MTG modes, the priority system loop is bypassed so
             # _on_action_processed never fires.  Record a frame per turn
             # so that replays capture the game progression.
-            if session.game.state.game_mode in ("hearthstone", "yugioh", "pokemon") and session.record_actions_for_replay:
+            if session.game.state.game_mode in ("hearthstone", "yugioh", "pokemon", "minecraft") and session.record_actions_for_replay:
                 active = session.game.get_active_player()
                 session._record_frame(action={
                     "kind": "action_processed",
@@ -297,7 +310,7 @@ async def run_bot_game(session: GameSession):
                 break
 
             # Safety limit (HS games are faster; 50 turns ~25 rounds)
-            turn_limit = 50 if session.game.state.game_mode == "hearthstone" else 100
+            turn_limit = 50 if session.game.state.game_mode in ("hearthstone", "minecraft") else 100
             if session.game.turn_manager.turn_number > turn_limit:
                 session.is_finished = True
                 break
