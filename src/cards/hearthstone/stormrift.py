@@ -1635,7 +1635,7 @@ ABSOLUTE_ZERO = make_spell(
 )
 
 def void_drain_effect(obj, state, targets=None):
-    """Deal 2 damage to a random enemy minion. Gain 2 Armor."""
+    """Deal 2 damage to a random enemy minion. Gain 3 Armor."""
     events = []
     enemies = get_enemy_minions(obj, state)
     if enemies:
@@ -1647,7 +1647,7 @@ def void_drain_effect(obj, state, targets=None):
         ))
     events.append(Event(
         type=EventType.ARMOR_GAIN,
-        payload={'player': obj.controller, 'amount': 2},
+        payload={'player': obj.controller, 'amount': 3},
         source=obj.id,
     ))
     return events
@@ -1655,7 +1655,7 @@ def void_drain_effect(obj, state, targets=None):
 VOID_DRAIN = make_spell(
     name="Void Drain",
     mana_cost="{2}",
-    text="Deal 2 damage to a random enemy minion. Gain 2 Armor.",
+    text="Deal 2 damage to a random enemy minion. Gain 3 Armor.",
     spell_effect=void_drain_effect,
     rarity="common",
 )
@@ -1814,8 +1814,12 @@ def stormrift_deck_profile(deck: list) -> dict:
     early_durable_minions = 0
     fragile_one_health_minions = 0
     armor_cards = 0
+    armor_score = 0
     draw_cards = 0
     burn_cards = 0
+    charge_minions = 0
+    freeze_cards = 0
+    taunt_count = 0
     curve: dict[int, int] = {}
 
     for card in deck:
@@ -1826,6 +1830,12 @@ def stormrift_deck_profile(deck: list) -> dict:
 
         text = (card.text or "").lower()
         types = card.characteristics.types if card.characteristics else set()
+        abilities = card.characteristics.abilities if card.characteristics else []
+        keywords = {
+            ability.get("keyword", "").lower()
+            for ability in abilities
+            if isinstance(ability, dict)
+        }
         if CardType.MINION in types:
             minion_count += 1
             health = card.characteristics.toughness or 0
@@ -1835,14 +1845,27 @@ def stormrift_deck_profile(deck: list) -> dict:
                 early_durable_minions += 1
             if health <= 1:
                 fragile_one_health_minions += 1
+            if "charge" in text or "charge" in keywords:
+                charge_minions += 1
         if CardType.SPELL in types:
             spell_count += 1
         if "armor" in text:
             armor_cards += 1
+            armor_score += sum(
+                int(num)
+                for num in re.findall(r"gain\s+(\d+)\s+armor", text)
+            )
         if "draw" in text:
             draw_cards += 1
         if "deal" in text and "damage" in text:
             burn_cards += 1
+        if "freeze" in text:
+            freeze_cards += 1
+        if "taunt" in text or "taunt" in keywords:
+            taunt_count += 1
+
+    pressure_score = burn_cards * 2 + charge_minions * 3 + early_count
+    defense_score = taunt_count * 3 + armor_score + freeze_cards * 3 + early_resilient_minions
 
     return {
         "size": len(deck),
@@ -1854,8 +1877,14 @@ def stormrift_deck_profile(deck: list) -> dict:
         "early_durable_minions": early_durable_minions,
         "fragile_one_health_minions": fragile_one_health_minions,
         "armor_cards": armor_cards,
+        "armor_score": armor_score,
         "draw_cards": draw_cards,
         "burn_cards": burn_cards,
+        "charge_minions": charge_minions,
+        "freeze_cards": freeze_cards,
+        "taunt_count": taunt_count,
+        "pressure_score": pressure_score,
+        "defense_score": defense_score,
     }
 
 

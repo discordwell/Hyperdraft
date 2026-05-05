@@ -6,6 +6,7 @@ from src.cards.hearthstone.stormrift import (
     PYROMANCER_DECK,
     RIFT_SPARK,
     STORMRIFT_DECKS,
+    VOID_DRAIN,
     stormrift_balance_summary,
 )
 
@@ -43,3 +44,37 @@ def test_stormrift_deck_registry_lengths_are_stable():
 def test_pyromancer_hero_power_matches_aggro_role():
     assert "Deal 2 damage" in IGNIS_HERO.text
     assert "Deal 2 damage" in RIFT_SPARK.text
+
+
+def test_stormrift_faction_role_scores_stay_distinct():
+    summary = stormrift_balance_summary()
+    pyro = summary["Pyromancer"]
+    cryo = summary["Cryomancer"]
+
+    assert pyro["pressure_score"] > cryo["pressure_score"]
+    assert pyro["charge_minions"] >= 3
+    assert pyro["burn_cards"] >= 18
+
+    assert cryo["defense_score"] > pyro["defense_score"]
+    assert cryo["armor_score"] >= 6
+    assert cryo["freeze_cards"] >= 4
+    assert cryo["taunt_count"] >= 7
+
+
+def test_void_drain_offsets_pyromancer_pressure():
+    events = VOID_DRAIN.spell_effect(type("Obj", (), {"id": "void", "controller": "p1"})(), type(
+        "State",
+        (),
+        {
+            "zones": {},
+            "objects": {},
+            "players": {"p1": object(), "p2": object()},
+        },
+    )())
+
+    assert "Gain 3 Armor" in VOID_DRAIN.text
+    assert any(
+        event.payload.get("amount") == 3
+        for event in events
+        if event.type.name == "ARMOR_GAIN"
+    )
