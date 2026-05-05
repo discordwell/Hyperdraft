@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 
 from src.engine.game import Game
-from src.cards.yugioh.beyond.kamigawa import ARCHETYPE_DECK_BUILDERS
+from src.cards.yugioh.beyond.kamigawa import ARCHETYPE_DECK_BUILDERS, build_kamigawa_deck
 
 
 MAX_TURNS_PER_GAME = 40
@@ -48,8 +48,8 @@ async def play_one_match(deck_a_name: str, deck_a_builder,
     g = Game(mode="yugioh")
     p1 = g.add_player(f"{deck_a_name} A")
     p2 = g.add_player(f"{deck_b_name} B")
-    main_a, extra_a = deck_a_builder()
-    main_b, extra_b = deck_b_builder()
+    main_a, extra_a = build_kamigawa_deck(deck_a_name)
+    main_b, extra_b = build_kamigawa_deck(deck_b_name)
     g.setup_yugioh_player(p1, main_a, extra_a)
     g.setup_yugioh_player(p2, main_b, extra_b)
     ai = YugiohAIAdapter(difficulty="medium")
