@@ -27,11 +27,15 @@ def _hand_card(game: Game, card_def, owner):
     )
 
 
-def _summon_minion(game: Game, owner, name: str, attack: int, health: int):
+def _summon_minion(game: Game, owner, name: str, attack: int, health: int, keywords=None):
     minion = game.create_object(name=name, owner_id=owner.id, zone=ZoneType.BATTLEFIELD)
     minion.characteristics.types = {CardType.MINION}
     minion.characteristics.power = attack
     minion.characteristics.toughness = health
+    minion.characteristics.abilities = [
+        {"keyword": keyword}
+        for keyword in (keywords or set())
+    ]
     return minion
 
 
@@ -83,3 +87,16 @@ def test_lesser_heal_restores_damaged_friendly_minion_when_hero_full():
 
     assert any(event.type == EventType.LIFE_CHANGE for event in events)
     assert minion.state.damage == 1
+
+
+def test_hard_ai_damages_best_forced_taunt_target_instead_of_board_order():
+    game, p1, p2 = _new_hs_game("Mage", "Warrior")
+    ai = HearthstoneAIAdapter(difficulty="hard")
+    attacker = _summon_minion(game, p1, "River Crocolisk", 2, 2)
+    attacker.state.summoning_sickness = False
+    _summon_minion(game, p2, "Ancient Wall", 8, 8, keywords={"taunt"})
+    smaller_taunt = _summon_minion(game, p2, "Stubborn Guard", 1, 4, keywords={"taunt"})
+
+    target_id = ai._choose_attack_target(attacker.id, game.state, p1.id)
+
+    assert target_id == smaller_taunt.id

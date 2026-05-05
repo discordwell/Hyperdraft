@@ -1656,17 +1656,12 @@ class HearthstoneAIAdapter:
         # Check for Taunt minions (MUST attack them)
         taunt_minions = self._get_enemy_taunt_minions(state, player_id)
         if taunt_minions:
-            # Pick the one we can kill without dying, preferring highest threat
-            favorable_taunts = [
-                (t_id, self._score_threat(state.objects[t_id], state))
-                for t_id in taunt_minions
-                if t_id in state.objects and self._is_favorable_trade(attacker_id, t_id, state, player_id)
-            ]
-            if favorable_taunts:
-                favorable_taunts.sort(key=lambda x: x[1], reverse=True)
-                return favorable_taunts[0][0]
-            # No favorable trades, just hit the first one
-            return taunt_minions[0]
+            return self._choose_forced_taunt_target(
+                attacker_id,
+                taunt_minions,
+                state,
+                player_id,
+            )
 
         # No taunt requirement - decide between face and trades
         enemy_minions = self._get_enemy_minions(state, player_id)
@@ -1795,6 +1790,64 @@ class HearthstoneAIAdapter:
 
         # No good trades or chose to go face
         return enemy_player.hero_id
+
+    def _choose_forced_taunt_target(
+        self,
+        attacker_id: str,
+        taunt_minions: list[str],
+        state: 'GameState',
+        player_id: str,
+    ) -> Optional[str]:
+        """Choose the best mandatory taunt target instead of using board order."""
+        from src.engine.types import CardType
+        from src.engine.queries import get_power, get_toughness, has_ability
+
+        favorable_taunts = [
+            (t_id, self._score_threat(state.objects[t_id], state))
+            for t_id in taunt_minions
+            if t_id in state.objects and self._is_favorable_trade(attacker_id, t_id, state, player_id)
+        ]
+        if favorable_taunts:
+            favorable_taunts.sort(key=lambda x: x[1], reverse=True)
+            return favorable_taunts[0][0]
+
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return taunt_minions[0] if taunt_minions else None
+
+        attacker_power = get_power(attacker, state)
+        if CardType.HERO in attacker.characteristics.types:
+            player = state.players.get(attacker.controller)
+            if player:
+                attacker_power = player.weapon_attack
+
+        scored_taunts = []
+        for taunt_id in taunt_minions:
+            taunt = state.objects.get(taunt_id)
+            if not taunt:
+                continue
+
+            taunt_health = get_toughness(taunt, state) - taunt.state.damage
+            taunt_power = get_power(taunt, state)
+            threat = self._score_threat(taunt, state)
+            damage_dealt = min(attacker_power, max(taunt_health, 0))
+            remaining_health = max(0, taunt_health - attacker_power)
+            score = damage_dealt * 8.0 + threat - remaining_health * 3.0
+
+            if has_ability(taunt, 'divine_shield', state) or taunt.state.divine_shield:
+                score += 8.0 if attacker_power <= 2 else -4.0
+            if CardType.MINION in attacker.characteristics.types:
+                score -= taunt_power * 2.0
+            if taunt_health <= attacker_power:
+                score += 50.0
+
+            scored_taunts.append((score, taunt_id))
+
+        if not scored_taunts:
+            return taunt_minions[0] if taunt_minions else None
+
+        scored_taunts.sort(key=lambda x: x[0], reverse=True)
+        return scored_taunts[0][1]
 
     def _is_favorable_trade(self, attacker_id: str, defender_id: str,
                             state: 'GameState', player_id: str = None) -> bool:
