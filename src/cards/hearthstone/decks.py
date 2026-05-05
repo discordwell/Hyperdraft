@@ -413,6 +413,27 @@ def deck_mana_cost(card) -> int:
     return sum(int(num) for num in re.findall(r"\{(\d+)\}", card.mana_cost))
 
 
+def damage_text_can_reach_face(text: str) -> bool:
+    """Conservatively detect damage text that can reliably pressure heroes."""
+    lower = (text or "").lower()
+    if "deal" not in lower or "damage" not in lower:
+        return False
+    blocked_patterns = (
+        r"\bto\s+(?:an?\s+)?(?:enemy\s+)?minion\b",
+        r"\ball\s+(?:enemy\s+)?minions\b",
+        r"\bminions\b",
+        r"\bhimself\b",
+        r"\bitself\b",
+    )
+    if any(re.search(pattern, lower) for pattern in blocked_patterns):
+        return False
+    if "random enemy" in lower:
+        return False
+    if "restore health" in lower:
+        return False
+    return True
+
+
 def analyze_deck_quality(deck: list) -> dict:
     """Return compact deckbuilding metrics for static Hearthstone decks."""
     curve: dict[int, int] = {}
@@ -421,6 +442,7 @@ def analyze_deck_quality(deck: list) -> dict:
     weapon_count = 0
     draw_count = 0
     burn_count = 0
+    reliable_reach_count = 0
     ramp_count = 0
     taunt_count = 0
     dead_zero_minion_count = 0
@@ -451,6 +473,8 @@ def analyze_deck_quality(deck: list) -> dict:
             draw_count += 1
         if "deal" in text and "damage" in text:
             burn_count += 1
+        if damage_text_can_reach_face(text):
+            reliable_reach_count += 1
         if "mana crystal" in text or "mana crystals" in text:
             ramp_count += 1
         if "taunt" in text or "taunt" in keywords:
@@ -492,6 +516,7 @@ def analyze_deck_quality(deck: list) -> dict:
         "weapon_count": weapon_count,
         "draw_count": draw_count,
         "burn_count": burn_count,
+        "reliable_reach_count": reliable_reach_count,
         "ramp_count": ramp_count,
         "taunt_count": taunt_count,
         "dead_zero_minion_count": dead_zero_minion_count,
@@ -521,7 +546,7 @@ def deck_role_quality_flags(role: str, summary: dict) -> list[str]:
             flags.append("aggro_low_early_count")
         if summary["minion_count"] < 16:
             flags.append("aggro_low_minion_count")
-        if summary["burn_count"] < 6:
+        if summary["reliable_reach_count"] < 4:
             flags.append("aggro_low_reach")
     elif role == "control":
         if summary["draw_count"] < 4:
@@ -533,7 +558,7 @@ def deck_role_quality_flags(role: str, summary: dict) -> list[str]:
     elif role == "tempo":
         if summary["early_count"] < 12:
             flags.append("tempo_low_early_count")
-        if summary["burn_count"] < 6:
+        if summary["reliable_reach_count"] < 4:
             flags.append("tempo_low_reach")
     elif role == "ramp":
         if summary["ramp_count"] < 4:
