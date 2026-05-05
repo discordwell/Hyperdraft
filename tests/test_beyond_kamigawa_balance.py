@@ -8,6 +8,7 @@ from src.cards.yugioh.beyond.kamigawa import (
     kamigawa_balance_flags,
     kamigawa_balance_summary,
 )
+from scripts.play.beyond_kamigawa_wet_test import mirror_imbalance_anomaly
 
 
 def test_kamigawa_balance_summary_tracks_all_archetypes():
@@ -76,3 +77,9 @@ def test_kamigawa_balance_report_outputs_json_without_flags():
         "samurai", "ninja", "spirit_dragons", "moonfolk", "modified",
     }
     assert all(not profile["balance_flags"] for profile in report.values())
+
+
+def test_kamigawa_wet_test_requires_enough_mirror_games_for_imbalance():
+    assert mirror_imbalance_anomaly("ninja", "ninja", 3, 1.0) is False
+    assert mirror_imbalance_anomaly("ninja", "ninja", 5, 1.0) is True
+    assert mirror_imbalance_anomaly("ninja", "samurai", 5, 1.0) is False

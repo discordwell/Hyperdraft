@@ -28,6 +28,7 @@ from src.cards.yugioh.beyond.kamigawa import ARCHETYPE_DECK_BUILDERS
 
 
 MAX_TURNS_PER_GAME = 40
+DEFAULT_MIN_MIRROR_GAMES_FOR_IMBALANCE = 5
 
 
 def run(coro):
@@ -79,6 +80,12 @@ async def play_one_match(deck_a_name: str, deck_a_builder,
     }
 
 
+def mirror_imbalance_anomaly(a: str, b: str, n: int, a_rate: float,
+                             min_games: int = DEFAULT_MIN_MIRROR_GAMES_FOR_IMBALANCE) -> bool:
+    """Return True when a mirror sample is large enough and materially skewed."""
+    return a == b and n >= min_games and (a_rate < 0.15 or a_rate > 0.85)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--games', type=int, default=3,
@@ -87,6 +94,9 @@ def main():
                         help='quick mode: 1 game per pairing')
     parser.add_argument('--mirrors-only', action='store_true',
                         help='only run mirror matches (no cross-archetype)')
+    parser.add_argument('--min-mirror-games-for-imbalance', type=int,
+                        default=DEFAULT_MIN_MIRROR_GAMES_FOR_IMBALANCE,
+                        help='minimum completed mirror games before flagging win-rate imbalance')
     args = parser.parse_args()
     if args.quick:
         args.games = 1
@@ -156,7 +166,9 @@ def main():
         # Anomaly detection
         if data['crashes'] > 0:
             anomalies.append(f"{a} vs {b}: {data['crashes']} crashes")
-        if a == b and n >= 2 and (a_rate < 0.15 or a_rate > 0.85):
+        if mirror_imbalance_anomaly(
+            a, b, n, a_rate, args.min_mirror_games_for_imbalance
+        ):
             anomalies.append(
                 f"{a} mirror imbalance: A wins {a_rate:.0%} of {n} games"
             )
