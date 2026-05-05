@@ -353,6 +353,16 @@ class EventType(Enum):
     TIERED_CHOICE = auto()            # Player must choose a tier as the spell is cast
 
     # ------------------------------------------------------------------
+    # Outlaws of Thunder Junction (OTJ) — Spree cost-per-mode mechanic.
+    # Implementation lives in src/engine/spree.py and the helper in
+    # src/cards/interceptor_helpers.py (SPREE section).
+    # Payload: {'card_id': str, 'controller': str, 'modes': list[dict],
+    #           'selected': list[int] | None}, where each mode dict is
+    # {'name': str, 'extra_cost': str, 'description': str}.
+    # ------------------------------------------------------------------
+    SPREE_MODE_CHOSEN = auto()        # Spree mode prompt opened / mode(s) chosen
+
+    # ------------------------------------------------------------------
     # Generic replacement-effect telemetry. Fired by ``make_replacement_effect``
     # whenever a TRANSFORM-priority replacement rewrites an event. Useful for
     # logs / tests / future debug UIs. Payload:
