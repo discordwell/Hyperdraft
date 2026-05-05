@@ -469,6 +469,10 @@ def score_card(card_def, archetype: str, colors: list[str]) -> float:
     # --- Rarity prior ------------------------------------------------------
     score += _rarity_prior(card_def)
 
+    # --- Functional text ---------------------------------------------------
+    if not _is_land(card_def) and not (card_def.text or "").strip() and not getattr(card_def, "resolve", None):
+        score += 2.5
+
     # --- Wired bonus -------------------------------------------------------
     score += _wired_bonus(card_def)
 

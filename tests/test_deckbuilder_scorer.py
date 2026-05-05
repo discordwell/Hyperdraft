@@ -430,6 +430,20 @@ def test_wired_bonus_setup_interceptors_lowers_score():
     assert abs((sv - sw) - 0.5) < 1e-6
 
 
+def test_functional_threat_scores_better_than_blank_stats_when_close():
+    blank = _make_creature(name="Blank Beast", mana_cost="{4}{G}", power=5, toughness=5, text="")
+    functional = _make_creature(
+        name="Trample Beast",
+        mana_cost="{4}{G}",
+        power=5,
+        toughness=5,
+        text="Trample.",
+        keywords=["trample"],
+    )
+
+    assert score_card(functional, "Ramp", ["G"]) < score_card(blank, "Ramp", ["G"])
+
+
 def test_wired_bonus_resolve_lowers_score_more_than_setup():
     """A spell with resolve= scores far lower than a setup-only card."""
 

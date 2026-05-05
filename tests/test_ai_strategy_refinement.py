@@ -141,10 +141,10 @@ def test_fixed_decision_benchmark_writes_trace_artifacts(tmp_path):
     summary = run_fixed_decision_benchmark(tmp_path, seed=11)
 
     assert summary["benchmark_name"] == "fixed_decision_smoke"
-    assert summary["scenario_count"] == 8
+    assert summary["scenario_count"] == 9
     assert summary["scenario_pass_rate"] == 1.0
-    assert summary["decision_count"] == 8
-    assert summary["decision_type_mix"]["action"] == 2
+    assert summary["decision_count"] == 9
+    assert summary["decision_type_mix"]["action"] == 3
     assert summary["decision_type_mix"]["pending_target"] == 2
     assert summary["decision_type_mix"]["attack"] == 2
     assert summary["decision_type_mix"]["block"] == 2
@@ -163,6 +163,8 @@ def test_strategy_pass_report_combines_ai_deck_and_variant_metrics(tmp_path):
     assert report["deck_summary"]["deck_count"] == 5
     assert report["deck_summary"]["role_deficit_total"] >= 0
     assert isinstance(report["deck_summary"]["role_deficits_by_role"], dict)
+    assert report["deck_summary"]["avg_functional_nonland_ratio"] >= 0
+    assert report["deck_summary"]["textless_nonland_total"] >= 0
     assert report["deck_summary"]["worst_curve_error"] >= 0
     assert report["decks"]["aggro_r"]["mainboard_count"] == 60
     assert report["variants"]["mtg_baseline"]["is_mtg_baseline"] is True
