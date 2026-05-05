@@ -147,7 +147,7 @@ PALADIN_DECK = [
     BLESSING_OF_MIGHT, BLESSING_OF_MIGHT,
     NOBLE_SACRIFICE, NOBLE_SACRIFICE,
 
-    # 2-cost (4 cards)
+    # 2-cost (5 cards)
     EQUALITY, EQUALITY,
     KNIFE_JUGGLER, KNIFE_JUGGLER,
 
@@ -344,9 +344,10 @@ DRUID_DECK = [
     # 2-cost (4 cards)
     WILD_GROWTH, WILD_GROWTH,
     WRATH, WRATH,
+    RIVER_CROCOLISK,
 
-    # 3-cost (4 cards)
-    SAVAGE_ROAR, SAVAGE_ROAR,
+    # 3-cost (3 cards)
+    SAVAGE_ROAR,
     MARK_OF_NATURE, HARVEST_GOLEM,
 
     # 4-cost (4 cards)
@@ -453,6 +454,12 @@ def analyze_deck_quality(deck: list) -> dict:
             taunt_count += 1
 
     early_count = sum(count for cost, count in curve.items() if cost <= 2)
+    early_minion_count = 0
+    for card in deck:
+        cost = deck_mana_cost(card)
+        types = card.characteristics.types if card.characteristics else set()
+        if cost <= 2 and CardType.MINION in types:
+            early_minion_count += 1
     midgame_count = sum(count for cost, count in curve.items() if 3 <= cost <= 5)
     top_heavy_count = sum(count for cost, count in curve.items() if cost >= 7)
     average_cost = (
@@ -474,6 +481,7 @@ def analyze_deck_quality(deck: list) -> dict:
         "curve": dict(sorted(curve.items())),
         "average_cost": round(average_cost, 2),
         "early_count": early_count,
+        "early_minion_count": early_minion_count,
         "midgame_count": midgame_count,
         "top_heavy_count": top_heavy_count,
         "minion_count": minion_count,
@@ -528,6 +536,8 @@ def deck_role_quality_flags(role: str, summary: dict) -> list[str]:
             flags.append("ramp_low_card_draw")
         if summary["taunt_count"] < 4:
             flags.append("ramp_low_stabilizers")
+        if summary["early_minion_count"] < 1:
+            flags.append("ramp_low_early_minions")
         if summary["top_heavy_count"] > 7:
             flags.append("ramp_top_heavy")
     else:
