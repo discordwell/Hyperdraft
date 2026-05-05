@@ -7,6 +7,9 @@ Hearthstone Deck Definitions
 - Class cards + Neutral cards allowed
 """
 
+import re
+
+from src.engine.types import CardType
 from src.cards.hearthstone.basic import *
 from src.cards.hearthstone.classic import *
 from src.cards.hearthstone.mage import *
@@ -297,14 +300,12 @@ SHAMAN_DECK = [
 # the Warlock hero power (Life Tap) for card draw. Flood the board fast,
 # buff with Power Overwhelming, Doomguard as a 5/7 Charge finisher.
 WARLOCK_DECK = [
-    # 0-cost (2 cards)
-    WISP, WISP,
-
-    # 1-cost (8 cards)
+    # 1-cost (10 cards)
     SOULFIRE, SOULFIRE,
     MORTAL_COIL, MORTAL_COIL,
     FLAME_IMP, FLAME_IMP,
     VOIDWALKER, VOIDWALKER,
+    LEPER_GNOME, LEPER_GNOME,
 
     # 2-cost (6 cards)
     KNIFE_JUGGLER, KNIFE_JUGGLER,
@@ -392,6 +393,92 @@ def get_deck_for_hero(hero_class: str):
     return HEARTHSTONE_DECKS.get(hero_class, MAGE_DECK)
 
 
+def deck_mana_cost(card) -> int:
+    """Return the generic Hearthstone mana cost encoded on a card definition."""
+    if not getattr(card, "mana_cost", None):
+        return 0
+    return sum(int(num) for num in re.findall(r"\{(\d+)\}", card.mana_cost))
+
+
+def analyze_deck_quality(deck: list) -> dict:
+    """Return compact deckbuilding metrics for static Hearthstone decks."""
+    curve: dict[int, int] = {}
+    minion_count = 0
+    spell_count = 0
+    weapon_count = 0
+    draw_count = 0
+    burn_count = 0
+    taunt_count = 0
+    dead_zero_minion_count = 0
+
+    for card in deck:
+        cost = deck_mana_cost(card)
+        curve[cost] = curve.get(cost, 0) + 1
+
+        types = card.characteristics.types if card.characteristics else set()
+        text = (card.text or "").lower()
+        abilities = card.characteristics.abilities if card.characteristics else []
+        keywords = {
+            ability.get("keyword", "").lower()
+            for ability in abilities
+            if isinstance(ability, dict)
+        }
+
+        if CardType.MINION in types:
+            minion_count += 1
+            has_text = bool(text.strip())
+            if cost == 0 and not has_text and not keywords:
+                dead_zero_minion_count += 1
+        if CardType.SPELL in types:
+            spell_count += 1
+        if CardType.WEAPON in types:
+            weapon_count += 1
+        if "draw" in text:
+            draw_count += 1
+        if "deal" in text and "damage" in text:
+            burn_count += 1
+        if "taunt" in text or "taunt" in keywords:
+            taunt_count += 1
+
+    early_count = sum(count for cost, count in curve.items() if cost <= 2)
+    average_cost = (
+        sum(cost * count for cost, count in curve.items()) / len(deck)
+        if deck else 0.0
+    )
+    quality_flags = []
+    if len(deck) != 30:
+        quality_flags.append("wrong_size")
+    if early_count < 8:
+        quality_flags.append("low_early_game")
+    if minion_count < 10:
+        quality_flags.append("low_minion_count")
+    if dead_zero_minion_count:
+        quality_flags.append("dead_zero_minions")
+
+    return {
+        "size": len(deck),
+        "curve": dict(sorted(curve.items())),
+        "average_cost": round(average_cost, 2),
+        "early_count": early_count,
+        "minion_count": minion_count,
+        "spell_count": spell_count,
+        "weapon_count": weapon_count,
+        "draw_count": draw_count,
+        "burn_count": burn_count,
+        "taunt_count": taunt_count,
+        "dead_zero_minion_count": dead_zero_minion_count,
+        "quality_flags": quality_flags,
+    }
+
+
+def analyze_all_decks() -> dict[str, dict]:
+    """Return quality metrics for every registered Hearthstone class deck."""
+    return {
+        hero_class: analyze_deck_quality(deck)
+        for hero_class, deck in HEARTHSTONE_DECKS.items()
+    }
+
+
 def validate_deck(deck: list) -> tuple[bool, str]:
     """
     Validate a Hearthstone deck.
@@ -411,6 +498,12 @@ def validate_deck(deck: list) -> tuple[bool, str]:
     for card_name, count in card_counts.items():
         if count > 2:
             return False, f"Card '{card_name}' has {count} copies (max 2)"
+
+    # Legendary cards are singleton.
+    for card in deck:
+        rarity = (getattr(card, "rarity", None) or "").lower()
+        if rarity == "legendary" and card_counts.get(card.name, 0) > 1:
+            return False, f"Legendary card '{card.name}' has more than 1 copy"
 
     return True, ""
 
