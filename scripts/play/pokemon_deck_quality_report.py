@@ -29,6 +29,20 @@ def _quality_gate(summaries: dict[str, dict]) -> dict:
     }
 
 
+def _aggregate_summary(summaries: dict[str, dict]) -> dict:
+    return {
+        "deck_count": len(summaries),
+        "min_basic_count": min((summary["basic_count"] for summary in summaries.values()), default=0),
+        "min_search_count": min((summary["search_count"] for summary in summaries.values()), default=0),
+        "total_off_type_energy": sum(summary["off_type_energy_count"] for summary in summaries.values()),
+        "flagged_deck_count": sum(
+            1
+            for summary in summaries.values()
+            if summary["quality_flags"] or summary["role_quality_flags"]
+        ),
+    }
+
+
 def build_report(deck_name: str | None = None) -> dict:
     with contextlib.redirect_stdout(io.StringIO()):
         from src.cards.pokemon.deck_quality import analyze_sv_starter_decks
@@ -42,6 +56,7 @@ def build_report(deck_name: str | None = None) -> dict:
     return {
         "schema_version": 1,
         "format": "pokemon_deck_quality",
+        "summary": _aggregate_summary(summaries),
         "decks": summaries,
         "quality_gate": _quality_gate(summaries),
     }
