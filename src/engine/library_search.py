@@ -229,6 +229,8 @@ def _handle_search_library_event(event: Event, state: GameState):
         - card_type           : CardType enum value or one of the strings above
         - subtype             : optional subtype string ("Plains", "Forest",
                                 "Dragon", ...) — combined with card_type
+        - subtypes_any        : optional list of subtype strings; matches any
+                                of them (e.g. ["Jedi", "Sith"])
         - basic_only          : if True, restrict to basic lands
     """
     from src.engine.types import CardType
@@ -263,6 +265,9 @@ def _handle_search_library_event(event: Event, state: GameState):
     filter_str = event.payload.get("filter")
     card_type = event.payload.get("card_type")
     subtype = event.payload.get("subtype")
+    subtypes_any = event.payload.get("subtypes_any") or []
+    if subtypes_any and not isinstance(subtypes_any, (list, tuple, set)):
+        subtypes_any = [subtypes_any]
     basic_only = bool(event.payload.get("basic_only", False))
 
     if isinstance(card_type, str) and not filter_str:
@@ -303,6 +308,10 @@ def _handle_search_library_event(event: Event, state: GameState):
                     return False
         if subtype and subtype not in chars.subtypes:
             return False
+        if subtypes_any:
+            card_subtypes = chars.subtypes or set()
+            if not any(s in card_subtypes for s in subtypes_any):
+                return False
         return True
 
     create_library_search_choice(
