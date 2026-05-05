@@ -14,6 +14,7 @@ Usage::
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 import time
@@ -97,6 +98,8 @@ def main():
     parser.add_argument('--min-mirror-games-for-imbalance', type=int,
                         default=DEFAULT_MIN_MIRROR_GAMES_FOR_IMBALANCE,
                         help='minimum completed mirror games before flagging win-rate imbalance')
+    parser.add_argument('--json-out', default=None,
+                        help='optional path for a machine-readable JSON summary')
     args = parser.parse_args()
     if args.quick:
         args.games = 1
@@ -182,6 +185,27 @@ def main():
             print(f"  - {a}")
     else:
         print("\nNo anomalies detected.")
+
+    if args.json_out:
+        serializable_results = {
+            f"{a} vs {b}": {
+                "a_wins": data["a_wins"],
+                "b_wins": data["b_wins"],
+                "draws": data["draws"],
+                "crashes": data["crashes"],
+                "turns": data["turns"],
+                "avg_turns": sum(data["turns"]) / len(data["turns"]) if data["turns"] else 0,
+            }
+            for (a, b), data in sorted(results.items())
+        }
+        with open(args.json_out, "w", encoding="utf-8") as fh:
+            json.dump({
+                "games_per_pairing": args.games,
+                "min_mirror_games_for_imbalance": args.min_mirror_games_for_imbalance,
+                "max_turns_per_game": MAX_TURNS_PER_GAME,
+                "results": serializable_results,
+                "anomalies": anomalies,
+            }, fh, indent=2, sort_keys=True)
 
     sys.exit(1 if anomalies else 0)
 

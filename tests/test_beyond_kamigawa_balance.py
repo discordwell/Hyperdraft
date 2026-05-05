@@ -114,3 +114,26 @@ def test_validated_kamigawa_deckbuilder_rejects_unknown_archetypes():
 
     with pytest.raises(ValueError, match="Unknown Beyond Kamigawa archetype"):
         build_kamigawa_deck("not_an_archetype")
+
+
+def test_kamigawa_wet_test_can_write_json_summary(tmp_path):
+    out_path = tmp_path / "wet.json"
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/play/beyond_kamigawa_wet_test.py",
+            "--quick",
+            "--mirrors-only",
+            "--json-out",
+            str(out_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    report = json.loads(out_path.read_text())
+    assert report["games_per_pairing"] == 1
+    assert report["min_mirror_games_for_imbalance"] == 5
+    assert len(report["results"]) == 5
+    assert report["anomalies"] == []
