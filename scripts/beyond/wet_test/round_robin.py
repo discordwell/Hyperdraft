@@ -6,6 +6,8 @@ Reports per-guild win/loss/timeout/crash and any anomaly logs.
 from __future__ import annotations
 
 import asyncio
+import argparse
+import json
 import os
 import random
 import sys
@@ -66,7 +68,50 @@ async def play_match(guild_a, guild_b):
     return {"result": "unknown", "turns": turns}
 
 
-def main():
+def build_round_robin_report(
+    guilds,
+    wins,
+    losses,
+    draws,
+    timeouts,
+    crashes,
+    anomalies,
+    turn_counts,
+    elapsed_seconds,
+    matches_run,
+):
+    standings = {}
+    for guild in guilds:
+        played = wins[guild] + losses[guild] + draws[guild] + timeouts[guild] + crashes[guild]
+        standings[guild] = {
+            "wins": wins[guild],
+            "losses": losses[guild],
+            "draws": draws[guild],
+            "timeouts": timeouts[guild],
+            "crashes": crashes[guild],
+            "played": played,
+            "win_rate": wins[guild] / played if played else 0.0,
+        }
+    return {
+        "schema_version": 1,
+        "format": "pokemon_beyond_ravnica_round_robin",
+        "matches_run": matches_run,
+        "elapsed_seconds": round(elapsed_seconds, 3),
+        "average_turns": sum(turn_counts) / max(1, len(turn_counts)),
+        "standings": standings,
+        "anomalies": list(anomalies),
+        "quality_gate": {
+            "passed": not anomalies,
+            "anomaly_count": len(anomalies),
+        },
+    }
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json-out", help="Optional JSON summary output path.")
+    args = parser.parse_args(argv)
+
     guilds = sorted(GUILD_DECK_BUILDERS.keys())
     pairs = list(combinations(guilds, 2))
     print(f"Round-robin: {len(pairs)} guild pairs, max {MAX_TURNS} turns each")
@@ -135,7 +180,20 @@ def main():
         print("=== ANOMALIES ===")
         for a in anomalies:
             print(f"  {a}")
+        if args.json_out:
+            report = build_round_robin_report(
+                guilds, wins, losses, draws, timeouts, crashes, anomalies,
+                turn_counts, dt, len(pairs),
+            )
+            Path(args.json_out).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
         return 1
+
+    if args.json_out:
+        report = build_round_robin_report(
+            guilds, wins, losses, draws, timeouts, crashes, anomalies,
+            turn_counts, dt, len(pairs),
+        )
+        Path(args.json_out).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 
     print()
     print("No crashes, no timeouts. All 45 matches resolved cleanly.")
