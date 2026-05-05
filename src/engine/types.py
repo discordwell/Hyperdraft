@@ -371,6 +371,12 @@ class EventType(Enum):
     # Payload: {'object_id': str, 'duration': 'end_of_turn'|'until_leaves'|'forever'}
     GRANT_CREATURE_TYPE = auto()
 
+    # Granted activated abilities (Equipment / Aura "Equipped creature has '<cost>: <effect>'").
+    # Payload: {'target_id': str, 'source_id': str, 'cost': str, 'effect_fn': Callable, 'description': str}.
+    # Resolution registers the ability on the target creature, tagged with
+    # _granted_by=source_id so cleanup on UNATTACH can remove it.
+    GRANT_ACTIVATED_ABILITY = auto()
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
