@@ -3802,7 +3802,7 @@ THE_FOREST_WATCHES = make_enchantment(
 )
 
 
-# --- Mei's Forest Friend --- {2}{G} 2/3 Mythic Legendary Creature
+# --- Mei's Forest Friend --- {3}{G} 2/3 Mythic Legendary Creature
 # Replacement: when a creature you control would die, instead exile it and
 # create a 1/1 white Spirit creature token with flying. Once per turn.
 def mei_forest_friend_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3874,7 +3874,7 @@ def mei_forest_friend_setup(obj: GameObject, state: GameState) -> list[Intercept
 MEI_FOREST_FRIEND = make_creature(
     name="Mei's Forest Friend",
     power=2, toughness=3,
-    mana_cost="{2}{G}",
+    mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit", "Friend"},
     supertypes={"Legendary"},
@@ -3970,9 +3970,9 @@ HOWLS_CASTLE_WANDERING_HEART = make_artifact_creature(
 # --- Catbus, Wind-Carrier of the Forest --- {2}{G}{G} 4/4 Rare Legendary Creature
 # Atmospheric weirdness: ferries a non-attacking creature into combat.
 def catbus_wind_carrier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Self haste; whenever Catbus attacks, untap target creature you control.
-    That creature gains haste and is unblockable until end of turn (it 'rides'
-    Catbus). Flavor: small creatures hitch a ride to where they need to go.
+    """Self haste; whenever Catbus attacks, untap target creature you control
+    and grant it haste until end of turn (it 'rides' Catbus into the fight).
+    Flavor: small creatures hitch a ride to where they need to go.
     """
     from src.cards.interceptor_helpers import (
         make_keyword_grant, make_attack_trigger,
@@ -4011,15 +4011,6 @@ def catbus_wind_carrier_setup(obj: GameObject, state: GameState) -> list[Interce
                 },
                 source=obj.id,
             ),
-            Event(
-                type=EventType.GRANT_KEYWORD,
-                payload={
-                    'object_id': ride_id,
-                    'keyword': 'unblockable',
-                    'duration': 'end_of_turn',
-                },
-                source=obj.id,
-            ),
         ]
 
     return [
@@ -4036,8 +4027,7 @@ CATBUS_WIND_CARRIER = make_creature(
     supertypes={"Legendary"},
     text=(
         "Haste. Whenever Catbus attacks, untap another target creature you "
-        "control. That creature gains haste and can't be blocked until end "
-        "of turn."
+        "control. That creature gains haste until end of turn."
     ),
     setup_interceptors=catbus_wind_carrier_setup,
 )

@@ -438,8 +438,8 @@ def test_catbus_wind_carrier_loads_with_haste():
     print(f"  Loaded with {len(cat.interceptor_ids)} interceptors")
 
 
-def test_catbus_attack_grants_passenger_haste_and_unblockable():
-    """Attack trigger picks a friendly creature and gives haste + unblockable."""
+def test_catbus_attack_grants_passenger_haste():
+    """Attack trigger picks a friendly creature and gives untap + haste."""
     print("\n=== Catbus: attack passenger ===")
     game = Game()
     p1 = game.add_player("Alice")
@@ -475,8 +475,10 @@ def test_catbus_attack_grants_passenger_haste_and_unblockable():
                           and e.payload.get('keyword') == 'unblockable']
     assert untaps, f"UNTAP for passenger missing: {[e.type.name for e in new]}"
     assert haste_grants, f"GRANT_KEYWORD haste missing"
-    assert unblockable_grants, f"GRANT_KEYWORD unblockable missing"
-    print(f"  Passenger got untap + haste + unblockable")
+    assert not unblockable_grants, (
+        f"Catbus should NOT grant unblockable post-balance; got {unblockable_grants}"
+    )
+    print(f"  Passenger got untap + haste (no unblockable, post-balance)")
 
 
 def test_catbus_attack_no_passenger_no_events():
@@ -996,7 +998,7 @@ if __name__ == "__main__":
     test_howls_castle_carry_effect_pumps_target()
     test_howls_castle_carry_rejects_opp_creature()
     test_catbus_wind_carrier_loads_with_haste()
-    test_catbus_attack_grants_passenger_haste_and_unblockable()
+    test_catbus_attack_grants_passenger_haste()
     test_catbus_attack_no_passenger_no_events()
     test_world_tree_gift_loads()
     test_world_tree_gift_low_life_gain_2()
