@@ -5330,26 +5330,13 @@ def _final_showdown_lose_abilities(spell, state: GameState, targets) -> list[Eve
 def _final_showdown_indestructible(spell, state: GameState, targets) -> list[Event]:
     """Mode 1: choose a creature you control; it gains indestructible until EOT.
 
-    Engine gap: per-mode target prompts during a chained Spree resolution are
-    not first-class. We auto-pick the first eligible creature the caster
-    controls so the mode does *something*. UI/AI driving the engine can wire
-    a real target prompt by replacing this effect_fn.
+    Target chosen via chained PendingChoice at resolve time.
     """
-    if not spell:
-        return []
-    controller_id = spell.controller
-    target_id: Optional[str] = None
-    for obj in state.objects.values():
-        if (obj.zone == ZoneType.BATTLEFIELD
-                and obj.controller == controller_id
-                and CardType.CREATURE in obj.characteristics.types):
-            target_id = obj.id
-            break
-    if target_id is None:
+    if not spell or not targets:
         return []
     return [Event(
         type=EventType.TEMPORARY_EFFECT,
-        payload={'effect': 'grant_keywords', 'target_id': target_id, 'keywords': ['indestructible'], 'duration': 'end_of_turn'},
+        payload={'effect': 'grant_keywords', 'target_id': targets[0], 'keywords': ['indestructible'], 'duration': 'end_of_turn'},
         source=spell.id,
     )]
 
@@ -5373,7 +5360,8 @@ _FINAL_SHOWDOWN_MODES = [
               effect_fn=_final_showdown_lose_abilities,
               description="All creatures lose all abilities until end of turn."),
     SpreeMode(name="Indestructible", extra_cost="{1}",
-              effect_fn=_final_showdown_indestructible, target_kind="creature you control",
+              effect_fn=_final_showdown_indestructible, target_kind="your_creature",
+              targets_required=1,
               description="A creature you control gains indestructible until end of turn."),
     SpreeMode(name="Wrath", extra_cost="{3}{W}{W}",
               effect_fn=_final_showdown_destroy_all,
@@ -5866,66 +5854,31 @@ def requisition_raid_resolve(targets: list, state: GameState) -> list[Event]:
 # + {1} — Destroy target enchantment.
 # + {1} — Put a +1/+1 counter on each creature target player controls.
 #
-# NOTE: Per-mode target prompts during a chained Spree resolution are an
-# engine gap. We auto-pick the first opponent's eligible permanent for
-# modes 0 and 1, and the caster (themselves) for mode 2 as a default. UI
-# layers can replace these effect_fns with target-prompting variants.
+# Per-mode targets are gathered via chained PendingChoices: each targeted
+# mode opens a target_with_callback prompt during resolve, the handler runs
+# the mode's effect with the chosen target, then chains to the next mode.
 
 def _requisition_raid_destroy_artifact(spell, state: GameState, targets) -> list[Event]:
-    """Mode 0: destroy target artifact."""
-    if not spell:
-        return []
-    target_id: Optional[str] = None
-    for obj in state.objects.values():
-        if (obj.zone == ZoneType.BATTLEFIELD
-                and CardType.ARTIFACT in obj.characteristics.types
-                and obj.controller != spell.controller):
-            target_id = obj.id
-            break
-    if target_id is None:
-        # Fall back to any artifact (including own) so the mode still does work.
-        for obj in state.objects.values():
-            if (obj.zone == ZoneType.BATTLEFIELD
-                    and CardType.ARTIFACT in obj.characteristics.types):
-                target_id = obj.id
-                break
-    if target_id is None:
+    """Mode 0: destroy target artifact (target chosen via PendingChoice chain)."""
+    if not spell or not targets:
         return []
     return [Event(type=EventType.OBJECT_DESTROYED,
-                  payload={'object_id': target_id}, source=spell.id)]
+                  payload={'object_id': targets[0]}, source=spell.id)]
 
 
 def _requisition_raid_destroy_enchantment(spell, state: GameState, targets) -> list[Event]:
-    """Mode 1: destroy target enchantment."""
-    if not spell:
-        return []
-    target_id: Optional[str] = None
-    for obj in state.objects.values():
-        if (obj.zone == ZoneType.BATTLEFIELD
-                and CardType.ENCHANTMENT in obj.characteristics.types
-                and obj.controller != spell.controller):
-            target_id = obj.id
-            break
-    if target_id is None:
-        for obj in state.objects.values():
-            if (obj.zone == ZoneType.BATTLEFIELD
-                    and CardType.ENCHANTMENT in obj.characteristics.types):
-                target_id = obj.id
-                break
-    if target_id is None:
+    """Mode 1: destroy target enchantment (target chosen via PendingChoice chain)."""
+    if not spell or not targets:
         return []
     return [Event(type=EventType.OBJECT_DESTROYED,
-                  payload={'object_id': target_id}, source=spell.id)]
+                  payload={'object_id': targets[0]}, source=spell.id)]
 
 
 def _requisition_raid_counters(spell, state: GameState, targets) -> list[Event]:
-    """Mode 2: +1/+1 counter on each creature the chosen player controls.
-
-    Defaults to the caster as the target player.
-    """
-    if not spell:
+    """Mode 2: +1/+1 counter on each creature target player controls."""
+    if not spell or not targets:
         return []
-    target_player = spell.controller
+    target_player = targets[0]
     events: list[Event] = []
     for obj in state.objects.values():
         if (obj.zone == ZoneType.BATTLEFIELD
@@ -5942,12 +5895,15 @@ def _requisition_raid_counters(spell, state: GameState, targets) -> list[Event]:
 _REQUISITION_RAID_MODES = [
     SpreeMode(name="Destroy artifact", extra_cost="{1}",
               effect_fn=_requisition_raid_destroy_artifact, target_kind="artifact",
+              targets_required=1,
               description="Destroy target artifact."),
     SpreeMode(name="Destroy enchantment", extra_cost="{1}",
               effect_fn=_requisition_raid_destroy_enchantment, target_kind="enchantment",
+              targets_required=1,
               description="Destroy target enchantment."),
     SpreeMode(name="Pump player's creatures", extra_cost="{1}",
               effect_fn=_requisition_raid_counters, target_kind="player",
+              targets_required=1,
               description="Put a +1/+1 counter on each creature target player controls."),
 ]
 
@@ -5969,19 +5925,13 @@ REQUISITION_RAID = make_sorcery(
 # + {1} — Untap all creatures target player controls.
 # + {1} — Target creature gains double strike until end of turn.
 #
-# NOTE: Mode 0 defaults to untapping the active opponent's creatures; mode
-# 1 defaults to the first creature the caster controls. Engine gap on
-# chained per-mode target prompts (see Final Showdown / Requisition Raid).
+# Per-mode targets are gathered via chained PendingChoices at resolve time.
 
 def _rustler_rampage_untap(spell, state: GameState, targets) -> list[Event]:
-    """Mode 0: untap all creatures target player controls (defaults to opponent)."""
-    if not spell:
+    """Mode 0: untap all creatures target player controls."""
+    if not spell or not targets:
         return []
-    # Default target: an opponent.
-    target_player = next(
-        (pid for pid in state.players if pid != spell.controller),
-        spell.controller,
-    )
+    target_player = targets[0]
     events: list[Event] = []
     for obj in state.objects.values():
         if (obj.zone == ZoneType.BATTLEFIELD
@@ -5997,27 +5947,11 @@ def _rustler_rampage_untap(spell, state: GameState, targets) -> list[Event]:
 
 def _rustler_rampage_double_strike(spell, state: GameState, targets) -> list[Event]:
     """Mode 1: target creature gains double strike until EOT."""
-    if not spell:
-        return []
-    target_id: Optional[str] = None
-    # Prefer caster's creatures.
-    for obj in state.objects.values():
-        if (obj.zone == ZoneType.BATTLEFIELD
-                and obj.controller == spell.controller
-                and CardType.CREATURE in obj.characteristics.types):
-            target_id = obj.id
-            break
-    if target_id is None:
-        for obj in state.objects.values():
-            if (obj.zone == ZoneType.BATTLEFIELD
-                    and CardType.CREATURE in obj.characteristics.types):
-                target_id = obj.id
-                break
-    if target_id is None:
+    if not spell or not targets:
         return []
     return [Event(
         type=EventType.GRANT_KEYWORD,
-        payload={'object_id': target_id, 'keyword': 'double_strike', 'duration': 'end_of_turn'},
+        payload={'object_id': targets[0], 'keyword': 'double_strike', 'duration': 'end_of_turn'},
         source=spell.id,
     )]
 
@@ -6025,9 +5959,11 @@ def _rustler_rampage_double_strike(spell, state: GameState, targets) -> list[Eve
 _RUSTLER_RAMPAGE_MODES = [
     SpreeMode(name="Untap all", extra_cost="{1}",
               effect_fn=_rustler_rampage_untap, target_kind="player",
+              targets_required=1,
               description="Untap all creatures target player controls."),
     SpreeMode(name="Double strike", extra_cost="{1}",
               effect_fn=_rustler_rampage_double_strike, target_kind="creature",
+              targets_required=1,
               description="Target creature gains double strike until end of turn."),
 ]
 
@@ -8846,65 +8782,35 @@ def explosive_derailment_resolve(targets: list, state: GameState) -> list[Event]
 # + {2} — Explosive Derailment deals 4 damage to target creature.
 # + {2} — Destroy target artifact.
 #
-# Engine gap: per-mode target prompts during a chained Spree resolution
-# auto-pick an opponent's permanent for both modes. UI/AI can replace the
-# effect_fns with prompting variants.
+# Per-mode targets are gathered via chained PendingChoices at resolve time.
 
 def _explosive_derailment_damage(spell, state: GameState, targets) -> list[Event]:
-    """Mode 0: 4 damage to target creature (defaults to opponent's)."""
-    if not spell:
-        return []
-    target_id: Optional[str] = None
-    for obj in state.objects.values():
-        if (obj.zone == ZoneType.BATTLEFIELD
-                and CardType.CREATURE in obj.characteristics.types
-                and obj.controller != spell.controller):
-            target_id = obj.id
-            break
-    if target_id is None:
-        for obj in state.objects.values():
-            if (obj.zone == ZoneType.BATTLEFIELD
-                    and CardType.CREATURE in obj.characteristics.types):
-                target_id = obj.id
-                break
-    if target_id is None:
+    """Mode 0: 4 damage to target creature."""
+    if not spell or not targets:
         return []
     return [Event(
         type=EventType.DAMAGE,
-        payload={'target': target_id, 'amount': 4, 'source': spell.id, 'is_combat': False},
+        payload={'target': targets[0], 'amount': 4, 'source': spell.id, 'is_combat': False},
         source=spell.id,
     )]
 
 
 def _explosive_derailment_destroy_artifact(spell, state: GameState, targets) -> list[Event]:
-    """Mode 1: destroy target artifact (defaults to opponent's)."""
-    if not spell:
-        return []
-    target_id: Optional[str] = None
-    for obj in state.objects.values():
-        if (obj.zone == ZoneType.BATTLEFIELD
-                and CardType.ARTIFACT in obj.characteristics.types
-                and obj.controller != spell.controller):
-            target_id = obj.id
-            break
-    if target_id is None:
-        for obj in state.objects.values():
-            if (obj.zone == ZoneType.BATTLEFIELD
-                    and CardType.ARTIFACT in obj.characteristics.types):
-                target_id = obj.id
-                break
-    if target_id is None:
+    """Mode 1: destroy target artifact."""
+    if not spell or not targets:
         return []
     return [Event(type=EventType.OBJECT_DESTROYED,
-                  payload={'object_id': target_id}, source=spell.id)]
+                  payload={'object_id': targets[0]}, source=spell.id)]
 
 
 _EXPLOSIVE_DERAILMENT_MODES = [
     SpreeMode(name="Damage", extra_cost="{2}",
               effect_fn=_explosive_derailment_damage, target_kind="creature",
+              targets_required=1,
               description="Explosive Derailment deals 4 damage to target creature."),
     SpreeMode(name="Destroy artifact", extra_cost="{2}",
               effect_fn=_explosive_derailment_destroy_artifact, target_kind="artifact",
+              targets_required=1,
               description="Destroy target artifact."),
 ]
 
