@@ -14,5 +14,9 @@ from .ygo_classic import (
     YUGI_DECK, YUGI_EXTRA_DECK,
     KAIBA_DECK, KAIBA_EXTRA_DECK,
 )
+from .deck_quality import (
+    analyze_all_ygo_optimized_decks,
+    analyze_ygo_deck_quality,
+)
 
 ALL_YGO_CARDS = {**YGO_STARTER_CARDS, **YGO_CLASSIC_CARDS}
