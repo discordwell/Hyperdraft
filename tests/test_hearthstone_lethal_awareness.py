@@ -81,6 +81,25 @@ def test_own_taunts_block_opponent_lethal():
     assert lethal_info['board_damage'] == 5  # 10 attack - 5 taunt HP = 5 through
 
 
+def test_opponent_hero_power_lethal_requires_available_mana():
+    """Opponent hero power damage should only count when they can pay for it."""
+    game, p1, p2 = _setup_game(hero1="Warrior", hero2="Mage")
+    adapter = HearthstoneAIAdapter(difficulty="hard")
+    p1.life = 1
+    p1.armor = 0
+    p2.mana_crystals_available = 0
+
+    lethal_info = adapter._estimate_opponent_lethal(p1.id, game.state)
+    assert lethal_info['is_lethal'] is False
+    assert lethal_info['hero_power_damage'] == 0
+
+    p2.mana_crystals_available = 2
+
+    lethal_info = adapter._estimate_opponent_lethal(p1.id, game.state)
+    assert lethal_info['is_lethal'] is True
+    assert lethal_info['hero_power_damage'] == 1
+
+
 def test_survival_mode_scores_taunt_higher():
     """In survival mode, taunt minions should get a significant scoring bonus."""
     game, p1, p2 = _setup_game()

@@ -1122,10 +1122,12 @@ class HearthstoneAIAdapter:
         if not opponent.hero_power_used and opponent.hero_power_id:
             hp_obj = state.objects.get(opponent.hero_power_id)
             if hp_obj and hp_obj.card_def:
-                hp_text = (hp_obj.card_def.text or '').lower()
-                hp_dmg = re.search(r'deal\s+(\d+)\s+damage', hp_text)
-                if hp_dmg:
-                    hero_power_damage = int(hp_dmg.group(1))
+                hp_cost = self._get_mana_cost(hp_obj, state, opponent_id) or 2
+                if opponent.mana_crystals_available >= hp_cost:
+                    hp_text = (hp_obj.card_def.text or '').lower()
+                    hp_dmg = re.search(r'deal\s+(\d+)\s+damage', hp_text)
+                    if hp_dmg:
+                        hero_power_damage = int(hp_dmg.group(1))
 
         # 4. Opponent weapon damage
         weapon_damage = 0
