@@ -136,19 +136,39 @@ REINFORCE = make_hero_power(
 
 # Priest Hero Power
 def lesser_heal_effect(obj: GameObject, state: GameState) -> list[Event]:
-    """Restore 2 Health to own hero (auto-target for AI)."""
+    """Restore 2 Health to own hero, or a damaged friendly minion if hero is full."""
     player = state.players.get(obj.controller)
     if not player or not player.hero_id:
         return []
 
-    # Skip if already at max HP
-    if player.life >= (getattr(player, 'max_life', 30) or 30):
+    if player.life < (getattr(player, 'max_life', 30) or 30):
+        # Emit full heal amount - pipeline's _handle_life_change caps at max_life
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id
+        )]
+
+    damaged_minions = []
+    battlefield = state.zones.get("battlefield")
+    if battlefield:
+        for minion_id in battlefield.objects:
+            minion = state.objects.get(minion_id)
+            if not minion or minion.controller != obj.controller:
+                continue
+            if CardType.MINION not in minion.characteristics.types:
+                continue
+            if minion.state.damage <= 0:
+                continue
+            damaged_minions.append((minion.state.damage, get_power(minion, state), minion_id))
+
+    if not damaged_minions:
         return []
 
-    # Emit full heal amount - pipeline's _handle_life_change caps at max_life
+    damaged_minions.sort(reverse=True)
     return [Event(
         type=EventType.LIFE_CHANGE,
-        payload={'player': obj.controller, 'amount': 2},
+        payload={'object_id': damaged_minions[0][2], 'amount': 2},
         source=obj.id
     )]
 

@@ -66,3 +66,20 @@ def test_fireblast_kills_one_health_threat_before_defaulting_face():
     damage_events = [event for event in events if event.type == EventType.DAMAGE]
     assert damage_events
     assert damage_events[-1].payload["target"] == threat.id
+
+
+def test_lesser_heal_restores_damaged_friendly_minion_when_hero_full():
+    game, p1, _p2 = _new_hs_game("Priest", "Warrior")
+    p1.mana_crystals_available = 2
+    p1.life = p1.max_life
+    minion = _summon_minion(game, p1, "Injured Blademaster", 4, 7)
+    minion.state.damage = 3
+
+    events = game.pipeline.emit(Event(
+        type=EventType.HERO_POWER_ACTIVATE,
+        payload={"hero_power_id": p1.hero_power_id, "player": p1.id},
+        source=p1.hero_power_id,
+    ))
+
+    assert any(event.type == EventType.LIFE_CHANGE for event in events)
+    assert minion.state.damage == 1
