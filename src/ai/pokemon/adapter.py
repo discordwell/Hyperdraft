@@ -935,7 +935,10 @@ class PokemonAIAdapter:
         basics.sort(key=lambda x: x[1], reverse=True)
 
         slots = 5 - len(bench)
-        for card_id, _ in basics[:slots]:
+        for card_id, score in basics[:slots]:
+            if ((settings.get('use_prize_strategy') or settings.get('use_resource_conservation'))
+                    and score <= 0):
+                continue
             if turn_mgr and hasattr(turn_mgr, '_play_basic'):
                 play_events = turn_mgr._play_basic(player_id, card_id)
                 events.extend(play_events)

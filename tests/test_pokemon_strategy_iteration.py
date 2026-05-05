@@ -262,3 +262,18 @@ def test_nest_ball_fetches_basic_matching_evolution_in_hand():
 
     assert target.id in game.state.zones[f"bench_{p1.id}"].objects
     assert bulky.id in game.state.zones[f"library_{p1.id}"].objects
+
+
+def test_hard_ai_does_not_bench_game_losing_ex_liability():
+    game, p1, p2, ai = _new_pokemon_game("hard")
+    p1.prizes_remaining = 5
+    p2.prizes_remaining = 2
+    _card(game, _basic("Active", hp=100, damage=40), p1, ZoneType.ACTIVE_SPOT)
+    for index in range(3):
+        _card(game, _basic(f"Bench {index}", hp=90, damage=30), p1, ZoneType.BENCH)
+    ex_basic = _card(game, _basic("Bench Liability ex", hp=220, damage=120, is_ex=True), p1, ZoneType.HAND)
+    _card(game, _basic("Opponent", hp=160, damage=80), p2, ZoneType.ACTIVE_SPOT)
+
+    assert ai._score_basic_play(ex_basic, game.state, p1.id) <= 0
+    assert ai._do_play_basics(p1.id, game.state, game.turn_manager) == []
+    assert ex_basic.id in game.state.zones[f"hand_{p1.id}"].objects
