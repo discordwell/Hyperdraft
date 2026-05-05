@@ -1600,6 +1600,102 @@ def create_modal_choice(
     return choice
 
 
+# =============================================================================
+# Spree (cost-per-mode)
+# =============================================================================
+# OTJ Spree mechanic: "Choose one or more additional costs" — each chosen mode
+# adds its mana cost to the spell AND its effect to the resolution. The
+# implementation lives in src/engine/spree.py; this helper is a thin re-export
+# so card files don't have to reach into the engine module directly.
+#
+# Pair ``make_spree_setup`` (returned from setup_interceptors=...) with
+# ``make_spree_resolve`` (set as the card's resolve=...) so chosen modes'
+# effects fire in declaration order at resolve time. The priority layer
+# detects Spree spells via ``card_def._spree`` (set by make_spree_setup) and
+# opens the mode prompt at cast time, charging each chosen mode's surcharge
+# as part of the cast.
+
+
+from src.engine.spree import (
+    SpreeMode,
+    make_spree_setup as _engine_make_spree_setup,
+    make_spree_resolve,
+    compute_affordable_spree_modes,
+    get_chosen_spree_modes,
+    is_spree_card,
+    get_spree_modes,
+    get_spree_minmax,
+)
+
+
+def make_spree_setup(obj: GameObject, *, base_modes, min_modes: int = 1, max_modes=None):
+    """Card-side helper: register Spree metadata for ``obj``.
+
+    Args:
+        obj: GameObject for the Spree spell. Its ``card_def`` is tagged with
+            the modes/min/max so the priority layer can find them.
+        base_modes: ordered list of ``SpreeMode``. Each describes one
+            ``+ <cost> — <effect>`` line on the card.
+        min_modes: minimum number of modes that must be chosen. Defaults to 1
+            (matches printed Spree text). Must be >= 1.
+        max_modes: maximum modes. Defaults to ``len(base_modes)`` (Spree
+            allows "one or more").
+
+    Returns an empty interceptor list — Spree is driven from the priority
+    layer rather than via per-event interceptors. The empty list is safe to
+    return from ``setup_interceptors``.
+
+    Example::
+
+        from src.engine import SpreeMode, make_spree_resolve
+
+        def _mode_a(spell, state, targets):
+            return [Event(type=EventType.LIFE_CHANGE,
+                          payload={'player': spell.controller, 'amount': 2},
+                          source=spell.id)]
+
+        def _mode_b(spell, state, targets):
+            return [Event(type=EventType.DRAW,
+                          payload={'player': spell.controller, 'amount': 1},
+                          source=spell.id)]
+
+        SPREE_MODES = [
+            SpreeMode(name="Mode A", extra_cost="{1}", effect_fn=_mode_a),
+            SpreeMode(name="Mode B", extra_cost="{2}", effect_fn=_mode_b),
+        ]
+
+        MY_CARD = make_instant(
+            name="My Spree Spell",
+            mana_cost="{R}",
+            colors={Color.RED},
+            text="Spree (Choose one or more additional costs.)\\n+ {1} - ...\\n+ {2} - ...",
+            setup_interceptors=lambda obj, state: make_spree_setup(
+                obj, base_modes=SPREE_MODES,
+            ),
+            resolve=make_spree_resolve(SPREE_MODES),
+        )
+    """
+    return _engine_make_spree_setup(
+        obj,
+        base_modes=base_modes,
+        min_modes=min_modes,
+        max_modes=max_modes,
+    )
+
+
+# Re-export the engine helpers for direct import from card files.
+__all_spree__ = [
+    'SpreeMode',
+    'make_spree_setup',
+    'make_spree_resolve',
+    'compute_affordable_spree_modes',
+    'get_chosen_spree_modes',
+    'is_spree_card',
+    'get_spree_modes',
+    'get_spree_minmax',
+]
+
+
 def create_scry_choice(
     state: GameState,
     player_id: str,

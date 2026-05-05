@@ -16,7 +16,7 @@
 | Suspect | helper-only | `suspect_creature` |
 | Bargain marker | helper-only | `was_bargained` |
 | Collect Evidence | helper-only | `collect_evidence` |
-| Spree | uses existing modal choice | `create_modal_choice` |
+| Spree (cost-per-mode) | `src/engine/spree.py` + priority cast hook | `make_spree_setup` + `make_spree_resolve` (W12) |
 | Rooms / Doors | `src/engine/rooms.py` | `make_room_setup` + `is_door_unlocked` |
 | Dynamic P/T scaling | helper-only | `make_dynamic_pt_boost` + 4 `count_*` primitives |
 | `becomes_creature` | `queries.py` null-safe | `becomes_creature(target, state, ...)` |
@@ -51,7 +51,7 @@ since been resolved:
 
 Patterns we do **not** yet support, in rough order of impact:
 
-1. **Modal multi-choice spells** — "Choose one or more — A B C". Some Spree cards approximate this via `create_modal_choice`, but cost-per-mode enforcement is missing.
+1. **Modal multi-choice spells** — "Choose one or more — A B C". Generic non-Spree modal multi-choice still relies on `create_modal_choice`. Spree (cost-per-mode) is wired via `make_spree_setup` / `make_spree_resolve`; remaining gap is per-mode target prompts during a chained Spree resolution (today the wired effects auto-pick the first eligible target).
 2. **Adventure mechanic** — split-cost spell+creature cards (`// Adventure —` separator). 5 prominent WOE cards.
 3. **Copy-creature** — "becomes a copy of target creature". Token-copy + permanent-copy both gappy.
 4. **Replacement effects beyond ward** — only a handful of bespoke replacement interceptors via `make_replacement_interceptor`. No general framework for "if X would happen, Y instead".

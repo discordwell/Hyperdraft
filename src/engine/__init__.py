@@ -125,6 +125,22 @@ from .tiered import (
     TURN_DATA_TIER_KEY,
 )
 
+from .spree import (
+    SpreeMode,
+    make_spree_setup,
+    make_spree_resolve,
+    compute_affordable_spree_modes,
+    get_chosen_spree_modes,
+    record_spree_choice,
+    clear_spree_choice,
+    open_spree_choice,
+    total_spree_extra_cost,
+    is_spree_card,
+    get_spree_modes,
+    get_spree_minmax,
+    TURN_DATA_SPREE_KEY,
+)
+
 __all__ = [
     # IDs
     'new_id',
@@ -198,4 +214,11 @@ __all__ = [
     'TierDefinition', 'make_tiered_setup', 'make_tiered_resolve',
     'compute_affordable_tiers', 'get_chosen_tier_index',
     'get_chosen_tier_indices', 'clear_chosen_tier', 'TURN_DATA_TIER_KEY',
+
+    # OTJ Spree cost-per-mode
+    'SpreeMode', 'make_spree_setup', 'make_spree_resolve',
+    'compute_affordable_spree_modes', 'get_chosen_spree_modes',
+    'record_spree_choice', 'clear_spree_choice', 'open_spree_choice',
+    'total_spree_extra_cost', 'is_spree_card', 'get_spree_modes',
+    'get_spree_minmax', 'TURN_DATA_SPREE_KEY',
 ]
