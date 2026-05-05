@@ -4,7 +4,14 @@ import json
 import subprocess
 import sys
 
-from src.cards.pokemon.deck_quality import analyze_sv_starter_decks
+import pytest
+
+from src.cards.pokemon.deck_builder import (
+    SV_STARTER_DECK_BUILDERS,
+    build_sv_starter_deck,
+    list_sv_starter_decks,
+)
+from src.cards.pokemon.deck_quality import analyze_pokemon_deck_quality, analyze_sv_starter_decks
 
 
 def test_sv_starter_decks_have_clean_quality_metrics():
@@ -57,3 +64,21 @@ def test_pokemon_deck_quality_report_writes_json_artifact(tmp_path):
     assert file_report["format"] == "pokemon_deck_quality"
     assert file_report["quality_gate"]["passed"] is True
     assert sorted(file_report["decks"]) == ["fire", "water"]
+
+
+def test_validated_sv_starter_deckbuilder_serves_all_decks():
+    assert list_sv_starter_decks() == sorted(SV_STARTER_DECK_BUILDERS)
+
+    for deck_name in list_sv_starter_decks():
+        deck, strategy = build_sv_starter_deck(deck_name)
+        summary = analyze_pokemon_deck_quality(deck, role=strategy["role"])
+        assert len(deck) == 60
+        assert strategy["deck"] == deck_name
+        assert strategy["role"] == "starter"
+        assert not summary["quality_flags"]
+        assert deck is not build_sv_starter_deck(deck_name, enforce_quality=False)[0]
+
+
+def test_validated_sv_starter_deckbuilder_rejects_unknown_decks():
+    with pytest.raises(ValueError, match="Unknown Pokemon starter deck"):
+        build_sv_starter_deck("not_a_deck")
