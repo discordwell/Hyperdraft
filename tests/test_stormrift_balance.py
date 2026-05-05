@@ -1,7 +1,9 @@
 """Stormrift custom Hearthstone balance checks."""
 
 from src.cards.hearthstone.stormrift import (
+    IGNIS_HERO,
     PYROMANCER_DECK,
+    RIFT_SPARK,
     STORMRIFT_DECKS,
     stormrift_balance_summary,
 )
@@ -33,3 +35,8 @@ def test_stormrift_deck_registry_lengths_are_stable():
         "Pyromancer": 30,
         "Cryomancer": 30,
     }
+
+
+def test_pyromancer_hero_power_matches_aggro_role():
+    assert "Deal 2 damage" in IGNIS_HERO.text
+    assert "Deal 2 damage" in RIFT_SPARK.text
