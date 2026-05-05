@@ -22,7 +22,11 @@ from .rakdos import BEYOND_RAVNICA_RAKDOS, make_rakdos_deck
 from .selesnya import BEYOND_RAVNICA_SELESNYA, make_selesnya_deck
 from .simic import BEYOND_RAVNICA_SIMIC, make_simic_deck
 from .balance import ravnica_balance_flags, ravnica_balance_summary
-from .deck_builder import build_ravnica_guild_deck, list_ravnica_guild_decks
+from .deck_builder import (
+    build_all_ravnica_guild_decks,
+    build_ravnica_guild_deck,
+    list_ravnica_guild_decks,
+)
 
 
 GUILD_REGISTRIES = {
@@ -64,6 +68,7 @@ __all__ = [
     "ravnica_balance_flags",
     "ravnica_balance_summary",
     "build_ravnica_guild_deck",
+    "build_all_ravnica_guild_decks",
     "list_ravnica_guild_decks",
     # Per-guild registries
     "BEYOND_RAVNICA_AZORIUS",

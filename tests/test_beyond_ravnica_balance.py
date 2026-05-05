@@ -10,6 +10,7 @@ import pytest
 from scripts.beyond.wet_test.round_robin import build_round_robin_report
 from src.cards.pokemon.beyond.ravnica import (
     GUILD_DECK_BUILDERS,
+    build_all_ravnica_guild_decks,
     build_ravnica_guild_deck,
     list_ravnica_guild_decks,
     ravnica_balance_flags,
@@ -153,6 +154,10 @@ def test_validated_ravnica_deckbuilder_serves_all_guilds():
         assert strategy["guild"] == guild
         assert not profile["balance_flags"]
         assert deck is not build_ravnica_guild_deck(guild, enforce_balance=False)[0]
+
+    all_decks = build_all_ravnica_guild_decks()
+    assert sorted(all_decks) == list_ravnica_guild_decks()
+    assert all(len(deck) == 60 for deck, _strategy in all_decks.values())
 
 
 def test_validated_ravnica_deckbuilder_rejects_unknown_guilds():
