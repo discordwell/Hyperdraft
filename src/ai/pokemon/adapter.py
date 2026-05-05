@@ -1015,6 +1015,12 @@ class PokemonAIAdapter:
                                     if self._can_pay_with(test, cost):
                                         return ctx.my_active
 
+        if self._get_settings(player_id).get('use_prize_strategy'):
+            recovery_target = self._select_recovery_energy_target(
+                ctx, state, player_id, energy_cards)
+            if recovery_target:
+                return recovery_target
+
         if self._get_settings(player_id).get('use_attack_pressure'):
             pressure_target = self._select_pressure_energy_target(
                 ctx, state, player_id, energy_cards)
@@ -1074,6 +1080,53 @@ class PokemonAIAdapter:
             return ctx.my_active
 
         return best_id
+
+    def _select_recovery_energy_target(self, ctx: TurnContext, state: GameState,
+                                       player_id: str,
+                                       energy_cards: list[str]) -> Optional[str]:
+        """Seed a Bench attacker when the Active is already powered but exposed."""
+        if not ctx.opp_can_ko_me or not ctx.my_active or not ctx.my_bench:
+            return None
+
+        active_needs = ctx.energy_needs.get(ctx.my_active, {})
+        if not active_needs.get('attacks_ready'):
+            return None
+
+        energy_system = PokemonEnergySystem(state)
+        best_target = None
+        best_score = 0.0
+        for pkm_id in ctx.my_bench:
+            pokemon = state.objects.get(pkm_id)
+            if not pokemon or not pokemon.card_def:
+                continue
+
+            attached = energy_system.get_attached_energy(pkm_id)
+            total_have = energy_system.get_total_energy(pkm_id)
+            for energy_id in energy_cards:
+                energy_obj = state.objects.get(energy_id)
+                if not energy_obj:
+                    continue
+                energy_type = energy_system._get_energy_type(energy_obj)
+                test_energy = dict(attached)
+                test_energy[energy_type] = test_energy.get(energy_type, 0) + 1
+
+                for attack in pokemon.card_def.attacks or []:
+                    damage = attack.get('damage', 0)
+                    cost = attack.get('cost', [])
+                    if damage < 50:
+                        continue
+                    if not self._can_pay_with(test_energy, cost):
+                        continue
+                    total_cost = sum(req.get('count', 0) for req in cost)
+                    score = damage + self._max_hp(pokemon) / 4.0
+                    score -= max(0, total_cost - total_have - 1) * 15.0
+                    if pokemon.card_def.is_ex:
+                        score += 10.0
+                    if score > best_score:
+                        best_score = score
+                        best_target = pkm_id
+
+        return best_target
 
     def _select_pressure_energy_target(self, ctx: TurnContext, state: GameState,
                                        player_id: str,

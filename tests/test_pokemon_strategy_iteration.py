@@ -4,6 +4,7 @@ from src.ai.pokemon_adapter import PokemonAIAdapter
 from src.cards.pokemon.sv_starter import (
     BOSS_ORDERS,
     CHARIZARD_EX,
+    FIRE_ENERGY,
     CHARMANDER,
     PROFESSOR_RESEARCH,
     RARE_CANDY,
@@ -37,6 +38,7 @@ def _basic(
     hp: int = 80,
     pokemon_type: str = PokemonType.COLORLESS.value,
     damage: int = 30,
+    cost: list[dict] | None = None,
     retreat_cost: int = 0,
     is_ex: bool = False,
 ):
@@ -47,7 +49,7 @@ def _basic(
         evolution_stage="Basic",
         attacks=[{
             "name": "Pressure",
-            "cost": [],
+            "cost": cost or [],
             "damage": damage,
             "text": "",
         }],
@@ -97,3 +99,29 @@ def test_hard_ai_boss_orders_targets_game_winning_ex_over_weak_bench():
     assert attacker.id in game.state.zones[f"active_spot_{p1.id}"].objects
     assert ex_bench.id in game.state.zones[f"active_spot_{p2.id}"].objects
     assert weak_bench.id in game.state.zones[f"bench_{p2.id}"].objects
+
+
+def test_hard_ai_routes_energy_to_next_attacker_when_active_is_doomed():
+    game, p1, p2, ai = _new_pokemon_game("hard")
+    active = _card(
+        game,
+        _basic("Overexposed Attacker", hp=80, damage=120, cost=[{"type": "C", "count": 1}]),
+        p1,
+        ZoneType.ACTIVE_SPOT,
+    )
+    active.state.damage_counters = 2
+    attached_energy = _card(game, FIRE_ENERGY, p1, ZoneType.BATTLEFIELD)
+    active.state.attached_energy.append(attached_energy.id)
+    bench = _card(
+        game,
+        _basic("Backup Attacker", hp=110, damage=90, cost=[{"type": "C", "count": 1}]),
+        p1,
+        ZoneType.BENCH,
+    )
+    hand_energy = _card(game, FIRE_ENERGY, p1, ZoneType.HAND)
+    _card(game, _basic("Opponent", hp=160, damage=70), p2, ZoneType.ACTIVE_SPOT)
+
+    ctx = ai._build_turn_context(p1.id, game.state)
+
+    assert ctx.opp_can_ko_me is True
+    assert ai._select_energy_target(ctx, game.state, p1.id, [hand_energy.id]) == bench.id
