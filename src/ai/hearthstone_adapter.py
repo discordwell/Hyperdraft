@@ -1005,9 +1005,7 @@ class HearthstoneAIAdapter:
                 if dmg_match:
                     dmg = int(dmg_match.group(1))
                     spell_cost = self._get_mana_cost(card, state, player_id)
-                    # Skip AOE-only spells (can't target face)
-                    can_go_face = 'all enemy' not in text and 'all minions' not in text
-                    if can_go_face:
+                    if self._damage_spell_can_hit_enemy_hero(text):
                         burn_spells.append((card_id, dmg, spell_cost))
 
             # Sort by damage efficiency
@@ -1282,17 +1280,18 @@ class HearthstoneAIAdapter:
         dmg_match = re.search(r'deal\s+(\d+)\s+damage', text)
         if dmg_match:
             spell_damage = int(dmg_match.group(1))
+            can_hit_face = self._damage_spell_can_hit_enemy_hero(text)
 
             # Check lethal: if burn to face wins the game, go face
             settings = self._get_hs_settings(player_id)
-            if settings['use_lethal_calc']:
+            if settings['use_lethal_calc'] and can_hit_face:
                 lethal_info = self._calculate_lethal(player_id, state)
                 if lethal_info['is_lethal'] and enemy_hero_id:
                     return [[enemy_hero_id]]
 
             valid = [m for m in enemy_minions if m in state.objects]
             if not valid:
-                return [[enemy_hero_id]] if enemy_hero_id else []
+                return [[enemy_hero_id]] if can_hit_face and enemy_hero_id else []
 
             # Prefer killable threats to avoid wasting burn on unkillable targets.
             killable = []
@@ -1314,7 +1313,7 @@ class HearthstoneAIAdapter:
                 return [[killable[0][0]]]
 
             # No killable minion: Ultra pushes face more aggressively when ahead.
-            if enemy_hero_id:
+            if can_hit_face and enemy_hero_id:
                 board_score = self._evaluate_board_state(player_id, state)
                 archetype = self._detect_deck_archetype(player_id, state)
                 if self._is_ultra(player_id) and (board_score > 0.20 or archetype == 'aggro'):
@@ -1340,6 +1339,16 @@ class HearthstoneAIAdapter:
         if enemy_minions:
             return [[enemy_minions[0]]]
         return []
+
+    def _damage_spell_can_hit_enemy_hero(self, text: str) -> bool:
+        """Return False for removal text that is restricted to minions."""
+        lower = text.lower()
+        minion_only_patterns = (
+            r'\bto\s+(?:an?\s+)?(?:enemy\s+)?minion\b',
+            r'\ball\s+(?:enemy\s+)?minions\b',
+            r'\bminions\b',
+        )
+        return not any(re.search(pattern, lower) for pattern in minion_only_patterns)
 
     # ─── Hero Power ──────────────────────────────────────────────
 
