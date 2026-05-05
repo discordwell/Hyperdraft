@@ -11,6 +11,7 @@ from src.cards.hearthstone.stormrift import (
     RIFT_SPARK,
     STORMRIFT_DECKS,
     VOID_DRAIN,
+    stormrift_balance_flags,
     stormrift_balance_summary,
 )
 
@@ -106,3 +107,22 @@ def test_void_drain_offsets_pyromancer_pressure():
         for event in events
         if event.type.name == "ARMOR_GAIN"
     )
+
+
+def test_stormrift_balance_flags_detect_off_role_profiles():
+    assert "pyromancer_low_pressure_identity" in stormrift_balance_flags("Pyromancer", {
+        "pressure_score": 10,
+        "defense_score": 20,
+        "burn_cards": 10,
+        "charge_minions": 1,
+        "hero_power_damage": 1,
+        "fragile_one_health_minions": 5,
+    })
+    assert "cryomancer_low_defense_identity" in stormrift_balance_flags("Cryomancer", {
+        "pressure_score": 20,
+        "defense_score": 10,
+        "freeze_cards": 1,
+        "taunt_count": 2,
+        "armor_score": 2,
+        "hero_power_armor": 1,
+    })
