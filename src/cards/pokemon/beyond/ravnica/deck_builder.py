@@ -38,3 +38,11 @@ def build_ravnica_guild_deck(guild: str, *, enforce_balance: bool = True) -> tup
                 f"{profile['balance_flags']}"
             )
     return deck, strategy
+
+
+def build_all_ravnica_guild_decks(*, enforce_balance: bool = True) -> dict[str, tuple[list, dict]]:
+    """Return every validated Beyond Ravnica guild deck."""
+    return {
+        guild: build_ravnica_guild_deck(guild, enforce_balance=enforce_balance)
+        for guild in list_ravnica_guild_decks()
+    }
