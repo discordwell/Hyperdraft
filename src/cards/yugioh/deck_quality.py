@@ -66,6 +66,10 @@ def analyze_ygo_deck_quality(deck: list[CardDefinition], strategy: dict | None =
     )
 
     role = (strategy or {}).get("archetype", "unknown")
+    summon_priority = list((strategy or {}).get("summon_priority", []))
+    set_priority = list((strategy or {}).get("set_priority", []))
+    missing_summon_priority = sorted(name for name in summon_priority if name not in copies)
+    missing_set_priority = sorted(name for name in set_priority if name not in copies)
     summary = {
         "size": len(deck),
         "role": role,
@@ -84,6 +88,10 @@ def analyze_ygo_deck_quality(deck: list[CardDefinition], strategy: dict | None =
             1 for card in deck
             if "Dragon" in card.characteristics.subtypes or "dragon" in card.name.lower()
         ),
+        "summon_priority_count": sum(1 for name in summon_priority if name in copies),
+        "set_priority_count": sum(1 for name in set_priority if name in copies),
+        "missing_summon_priority": missing_summon_priority,
+        "missing_set_priority": missing_set_priority,
         "copy_violations": sorted((name, count) for name, count in copies.items() if count > 3),
     }
     summary["quality_flags"] = ygo_deck_quality_flags(summary)
@@ -106,6 +114,8 @@ def ygo_deck_quality_flags(summary: dict) -> list[str]:
         flags.append("too_little_interaction")
     if summary["tribute_monster_count"] > summary["tribute_fodder_count"] + 3:
         flags.append("tribute_load_exceeds_fodder")
+    if summary["missing_summon_priority"] or summary["missing_set_priority"]:
+        flags.append("strategy_priority_missing_cards")
     return flags
 
 
