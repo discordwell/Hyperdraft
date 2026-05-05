@@ -543,6 +543,200 @@ def test_ral_minus10_updated_creates_emblem_event():
     asyncio.get_event_loop().run_until_complete(_run())
 
 
+async def _create_ral_emblem_async(game, controller_id):
+    """Helper: activate Ral's -10 (must be awaited from within an event
+    loop) and emit the resulting EMBLEM_CREATED + DRAW. Returns the
+    freshly-created :class:`Emblem`.
+    """
+    from src.cards.bloomburrow import RAL_CRACKLING_WIT
+    ral = _spawn_on_battlefield(game, game.state.players[controller_id], RAL_CRACKLING_WIT)
+    ral.state.summoning_sickness = False
+    ral.state.counters['loyalty'] = 10
+
+    minus10_idx = None
+    for idx, ab in enumerate(ral.state.activated_abilities):
+        if getattr(ab, "loyalty_cost", 0) == -10:
+            minus10_idx = idx
+            break
+    assert minus10_idx is not None
+
+    await game.priority_system._execute_action(PlayerAction(
+        type=ActionType.ACTIVATE_ABILITY,
+        player_id=controller_id, source_id=ral.id,
+        ability_id=f"activated:{minus10_idx}",
+    ))
+    item = game.stack.items[-1]
+    for e in item.resolve_fn(item.chosen_targets, game.state):
+        game.emit(e)
+
+    emblems = get_emblems_for_player(game.state, controller_id)
+    return next(e for e in emblems if e.source_card_name == "Ral, Crackling Wit")
+
+
+def test_ral_emblem_interactive_opens_target_choice():
+    """With auto_resolve_triggers=False, casting an instant queues a
+    TriggeredStackItem; resolving it opens a PendingChoice for "any target".
+    Submitting a chosen target deals 4 damage to that target."""
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        _setup_active(p1.id, game)
+
+        # Spawn a creature for Bob — we'll target it instead of Bob himself
+        # to confirm the choice respects the player's pick (not just the
+        # default-opponent fallback).
+        bear = _spawn_creature(game, p2, name="Bob's Bear", power=2, toughness=2)
+
+        emblem = await _create_ral_emblem_async(game, p1.id)
+        # The -10 activation left its loyalty-ability StackItem behind;
+        # clear the stack before the interactive test so the new trigger
+        # resolves cleanly on its own.
+        game.stack.items.clear()
+        # Force interactive mode AFTER emblem creation so the -10 itself can
+        # still resolve under auto-resolve.
+        game.state.options.auto_resolve_triggers = False
+
+        # Cast an instant — emblem should queue (not fire inline).
+        bob_life_pre = game.state.players[p2.id].life
+        bear_zone_pre = bear.zone
+
+        game.emit(Event(
+            type=EventType.SPELL_CAST,
+            payload={'caster': p1.id, 'types': [CardType.INSTANT]},
+            controller=p1.id,
+        ))
+
+        # Damage should NOT have been dealt yet.
+        assert game.state.players[p2.id].life == bob_life_pre, (
+            f"Interactive mode: life shouldn't change before choice "
+            f"resolves; got {game.state.players[p2.id].life}, expected "
+            f"{bob_life_pre}"
+        )
+
+        # The trigger should be queued.
+        assert len(game.state.pending_triggers) == 1, (
+            f"expected 1 pending trigger, got "
+            f"{len(game.state.pending_triggers)}"
+        )
+        trig = game.state.pending_triggers[0]
+        assert trig.controller == p1.id
+        assert trig.source_id == emblem.id
+
+        # Push and resolve via the stack manager (mirrors the priority loop's
+        # APNAP -> resolve flow).
+        from src.engine.stack import process_pending_triggers
+        process_pending_triggers(game.state, game.stack)
+        assert len(game.stack.items) == 1
+        produced = game.stack.resolve_top()
+        for e in produced:
+            game.emit(e)
+
+        # The trigger's effect_fn should have emitted a TARGET_REQUIRED,
+        # which the targeting handler turned into a PendingChoice.
+        choice = game.state.pending_choice
+        assert choice is not None, "expected a PendingChoice after trigger resolved"
+        assert choice.player == p1.id, (
+            f"choice should belong to emblem controller; got {choice.player}"
+        )
+        assert choice.choice_type == "target_with_callback"
+        # Bear and Bob (and Alice + Ral) should be among the legal options;
+        # the engine adds players to the options list for filter='any'.
+        assert p2.id in choice.options or any(
+            (isinstance(o, str) and o == p2.id) for o in choice.options
+        ), f"Bob should be a legal target; got {choice.options}"
+        assert bear.id in choice.options, (
+            f"Bob's bear should be a legal target; got {choice.options}"
+        )
+
+        # Submit Alice's choice: aim at Bob's bear (4 dmg should be lethal
+        # to a 2-toughness bear).
+        ok, err, _events = game.submit_choice(choice.id, p1.id, [bear.id])
+        assert ok, f"submit_choice failed: {err!r}"
+        assert game.state.pending_choice is None
+
+        # Bob's life should be unchanged (we targeted the bear), bear
+        # should have 4 marked damage and be flagged for SBA.
+        assert game.state.players[p2.id].life == bob_life_pre, (
+            f"Bob's life should be unchanged; got "
+            f"{game.state.players[p2.id].life}"
+        )
+        # Bear should have taken 4 damage. SBA may have moved it to graveyard.
+        if bear.zone == ZoneType.BATTLEFIELD:
+            game.check_state_based_actions()
+        assert bear.zone == ZoneType.GRAVEYARD or bear.state.damage_marked >= 4, (
+            f"bear should have taken 4 damage (or be in graveyard); "
+            f"zone={bear.zone}, damage_marked={getattr(bear.state, 'damage_marked', 0)}"
+        )
+        print("PASS: Ral emblem — interactive PendingChoice picks target, "
+              "damage routes correctly")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_ral_emblem_auto_resolve_picks_default_opponent():
+    """With auto_resolve_triggers=True (default), the emblem's TriggeredStackItem
+    resolves inline against the first opponent — preserving the legacy
+    behaviour for tests that don't drive PendingChoice."""
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        _setup_active(p1.id, game)
+
+        emblem = await _create_ral_emblem_async(game, p1.id)
+        # Auto-resolve mode is the default — assert it explicitly so the
+        # test documents intent.
+        assert game.state.options.auto_resolve_triggers is True
+
+        bob_life_pre = game.state.players[p2.id].life
+        game.emit(Event(
+            type=EventType.SPELL_CAST,
+            payload={'caster': p1.id, 'types': [CardType.SORCERY]},
+            controller=p1.id,
+        ))
+
+        assert game.state.players[p2.id].life == bob_life_pre - 4, (
+            f"auto-resolve: Bob should have lost 4 life; got "
+            f"{game.state.players[p2.id].life}"
+        )
+        # No PendingChoice should be left behind.
+        assert game.state.pending_choice is None
+        assert game.state.pending_triggers == []
+        print("PASS: Ral emblem — auto-resolve targets first opponent")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_ral_emblem_no_legal_targets_does_nothing():
+    """If the emblem's controller is the only living player (and no opposing
+    permanents exist), the trigger fizzles silently rather than crashing."""
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        # No opponent added — single-player edge.
+        _setup_active(p1.id, game)
+
+        emblem = await _create_ral_emblem_async(game, p1.id)
+        alice_life_pre = game.state.players[p1.id].life
+
+        # Cast an instant. With no opponents, default_target picker returns
+        # None and the trigger fizzles. Alice's own life MUST NOT drop.
+        game.emit(Event(
+            type=EventType.SPELL_CAST,
+            payload={'caster': p1.id, 'types': [CardType.INSTANT]},
+            controller=p1.id,
+        ))
+        assert game.state.players[p1.id].life == alice_life_pre, (
+            f"with no opponents the emblem shouldn't damage its own "
+            f"controller; Alice's life {alice_life_pre} -> "
+            f"{game.state.players[p1.id].life}"
+        )
+        print("PASS: Ral emblem — no legal target -> fizzle (no self-damage)")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
 # ---------------------------------------------------------------------------
 # Ajani, Caller of the Pride per-card test
 # ---------------------------------------------------------------------------
@@ -747,6 +941,9 @@ def run_all():
         test_emblem_ignored_by_object_destroyed,
         test_ral_emblem_fires_on_instant_or_sorcery_cast,
         test_ral_minus10_updated_creates_emblem_event,
+        test_ral_emblem_interactive_opens_target_choice,
+        test_ral_emblem_auto_resolve_picks_default_opponent,
+        test_ral_emblem_no_legal_targets_does_nothing,
         test_ajani_caller_full_activation_cycle,
         test_ajani_minus8_emblem_variant_creates_emblem,
         test_non_combat_damage_redirect_helper,
