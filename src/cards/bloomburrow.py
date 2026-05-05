@@ -4511,53 +4511,27 @@ def ral_crackling_wit_setup(obj: GameObject, state: GameState) -> list[Intercept
     # (make_emblem_setup) and persists across turns.
     def minus10_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
         from src.cards.interceptor_helpers import make_emblem_setup
+        from src.engine.emblem import make_emblem_damage_target_react
         controller = o.controller
 
+        def _instant_or_sorcery_cast(event: Event, st2: GameState, emblem) -> bool:
+            if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+                return False
+            caster = event.payload.get('caster') or event.controller
+            if caster != emblem.controller:
+                return False
+            types = set(event.payload.get('types', []))
+            return CardType.INSTANT in types or CardType.SORCERY in types
+
         def _emblem_statics(emblem, state):
-            def _filter(event: Event, st2: GameState) -> bool:
-                if event.type not in (EventType.CAST, EventType.SPELL_CAST):
-                    return False
-                caster = event.payload.get('caster') or event.controller
-                if caster != emblem.controller:
-                    return False
-                types = set(event.payload.get('types', []))
-                if not (CardType.INSTANT in types or CardType.SORCERY in types):
-                    return False
-                return True
-
-            def _handler(event: Event, st2: GameState) -> InterceptorResult:
-                # Auto-target: pick the active opponent (no target chosen
-                # callback infrastructure here). Real games would prompt for
-                # "any target" choice; we route to the first opponent so the
-                # emblem actually deals damage in tests.
-                target = None
-                for pid in st2.players:
-                    if pid != emblem.controller:
-                        target = pid
-                        break
-                if target is None:
-                    return InterceptorResult(action=InterceptorAction.PASS)
-                return InterceptorResult(
-                    action=InterceptorAction.REACT,
-                    new_events=[Event(
-                        type=EventType.DAMAGE,
-                        payload={'target': target, 'amount': 4,
-                                 'source': emblem.id},
-                        source=emblem.id,
-                        controller=emblem.controller,
-                    )],
-                )
-
-            return [Interceptor(
-                id=new_id(),
-                source=emblem.id,
-                controller=emblem.controller,
-                priority=InterceptorPriority.REACT,
-                filter=_filter,
-                handler=_handler,
-                duration='forever',
-                is_triggered_ability=True,
-                effect_fn=lambda e, s: (_handler(e, s).new_events or []),
+            # W22-aware triggered ability: queues a TriggeredStackItem and
+            # opens a PendingChoice (interactive) or auto-targets the first
+            # opponent (auto-resolve mode for tests).
+            return [make_emblem_damage_target_react(
+                emblem,
+                event_filter=_instant_or_sorcery_cast,
+                amount=4,
+                description="Ral emblem: deal 4 to any target",
             )]
 
         emblem_setup_fn = make_emblem_setup(
