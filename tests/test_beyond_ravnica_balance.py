@@ -118,6 +118,8 @@ def test_ravnica_balance_report_writes_json_artifact(tmp_path):
     assert file_report["summary"]["guild_count"] == 10
     assert file_report["summary"]["flagged_guild_count"] == 0
     assert file_report["summary"]["min_energy_alignment_score"] >= 7
+    assert file_report["summary"]["consistency_score_spread"] >= 0
+    assert file_report["summary"]["pressure_score_spread"] >= 0
     assert len(file_report["guilds"]) == 10
 
 

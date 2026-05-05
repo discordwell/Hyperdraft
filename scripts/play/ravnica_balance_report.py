@@ -15,20 +15,20 @@ sys.path.insert(0, str(REPO_ROOT))
 
 
 def _aggregate_summary(guilds: dict[str, dict]) -> dict:
+    consistency_scores = [profile["consistency_score"] for profile in guilds.values()]
+    pressure_scores = [profile["pressure_score"] for profile in guilds.values()]
+    alignment_scores = [profile["energy_alignment_score"] for profile in guilds.values()]
     return {
         "guild_count": len(guilds),
-        "min_consistency_score": min(
-            (profile["consistency_score"] for profile in guilds.values()),
-            default=0,
-        ),
-        "min_pressure_score": min(
-            (profile["pressure_score"] for profile in guilds.values()),
-            default=0,
-        ),
-        "min_energy_alignment_score": min(
-            (profile["energy_alignment_score"] for profile in guilds.values()),
-            default=0,
-        ),
+        "min_consistency_score": min(consistency_scores, default=0),
+        "max_consistency_score": max(consistency_scores, default=0),
+        "consistency_score_spread": max(consistency_scores, default=0) - min(consistency_scores, default=0),
+        "min_pressure_score": min(pressure_scores, default=0),
+        "max_pressure_score": max(pressure_scores, default=0),
+        "pressure_score_spread": max(pressure_scores, default=0) - min(pressure_scores, default=0),
+        "min_energy_alignment_score": min(alignment_scores, default=0),
+        "max_energy_alignment_score": max(alignment_scores, default=0),
+        "energy_alignment_spread": max(alignment_scores, default=0) - min(alignment_scores, default=0),
         "flagged_guild_count": sum(
             1 for profile in guilds.values() if profile["balance_flags"]
         ),
