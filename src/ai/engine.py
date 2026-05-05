@@ -1645,8 +1645,26 @@ class AIEngine:
         return count
 
     def _is_removal_like(self, card) -> bool:
+        # Strip flashback / unearth / cycling reminder-text parentheticals first,
+        # since they contain words like "exile" that aren't the card's actual
+        # removal effect. A flashback "Then exile it." referring to the spell
+        # itself was previously triggering the removal heuristic.
         text = (card.card_def.text or '').lower() if card and card.card_def else ''
-        return any(word in text for word in ("destroy", "exile", "damage", "return target", "tap target"))
+        if not text:
+            return False
+        import re as _re
+        text = _re.sub(r'\([^)]*\)', '', text)
+        # Match the actual removal phrasing (target/all/each), not bare keywords
+        # that may appear in flavor / reminder / cost text.
+        removal_phrases = (
+            "destroy target", "destroy all", "destroy each",
+            "exile target", "exile all", "exile each",
+            "deals damage", "damage to target", "damage to any",
+            "damage to each", "damage to all",
+            "return target", "return all",
+            "tap target", "tap all", "tap each",
+        )
+        return any(phrase in text for phrase in removal_phrases)
 
     def _is_card_draw_text(self, card) -> bool:
         text = (card.card_def.text or '').lower() if card and card.card_def else ''
