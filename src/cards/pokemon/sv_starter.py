@@ -68,6 +68,22 @@ def _choose_ai_potion_target(state, player_id, candidates):
     return chosen if chosen in candidates else None
 
 
+def _choose_ai_nest_ball_target(state, player_id, candidates):
+    """Let AI profiles pick setup-critical Basic Pokemon for Nest Ball."""
+    game = getattr(state, '_game', None)
+    turn_manager = getattr(game, 'turn_manager', None) if game else None
+    ai_handler = getattr(turn_manager, 'pokemon_ai_handler', None)
+    ai_players = getattr(turn_manager, 'ai_players', set())
+    if not ai_handler or player_id not in ai_players:
+        return None
+
+    chooser = getattr(ai_handler, 'choose_nest_ball_target', None)
+    if not chooser:
+        return None
+    chosen = chooser(player_id, state, candidates)
+    return chosen if chosen in candidates else None
+
+
 def _professors_research_effect(event, state):
     """Discard your hand and draw 7 cards."""
     player_id = event.payload.get('player')
@@ -106,17 +122,24 @@ def _nest_ball_effect(event, state):
     library = state.zones.get(library_key)
     if not library:
         return []
-    # Find best Basic Pokemon in deck
-    best_id = None
-    best_hp = 0
+    basic_candidates = []
     for card_id in library.objects:
         obj = state.objects.get(card_id)
         if not obj or not obj.card_def:
             continue
         if CardType.POKEMON not in obj.characteristics.types:
             continue
-        if obj.card_def.evolution_stage != "Basic":
-            continue
+        if obj.card_def.evolution_stage == "Basic":
+            basic_candidates.append(card_id)
+
+    ai_target = _choose_ai_nest_ball_target(state, player_id, basic_candidates)
+    # Non-AI fallback: find highest-HP Basic Pokemon in deck.
+    best_id = ai_target
+    best_hp = 0
+    for card_id in basic_candidates:
+        if ai_target:
+            break
+        obj = state.objects.get(card_id)
         hp = obj.card_def.hp or 0
         if hp > best_hp:
             best_hp = hp
