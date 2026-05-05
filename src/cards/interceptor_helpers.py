@@ -7384,6 +7384,100 @@ __all_sweep4__ = [
 
 
 # =============================================================================
+# "Until your next turn" land/creature animation
+# =============================================================================
+#
+# Some cards (Rootwise Survivor — DSK Survival) animate a permanent "until
+# your next turn" rather than "until end of turn". The animation must persist
+# through the opponent's turn and only revert at the start of the controller's
+# *next* turn. ``becomes_creature`` already accepts ``duration='until_your_next_turn'``
+# (the duration string flows down to every QUERY interceptor it installs), but
+# its EOT-only cleanup hook does not stash subtype dual-writes for that
+# duration. This wrapper fills that gap by recording the original subtypes in
+# ``state._until_your_next_turn_cleanups`` so ``TurnManager`` can peel them off
+# at TURN_START for the controller.
+# =============================================================================
+
+
+def make_until_next_turn_animation(
+    target: GameObject,
+    state: GameState,
+    *,
+    controller: str,
+    power: int,
+    toughness: int,
+    subtypes: Optional[set[str]] = None,
+    keywords: Optional[list[str]] = None,
+    keep_land: bool = True,
+) -> list[Event]:
+    """Animate ``target`` as a creature until ``controller``'s next turn.
+
+    Thin wrapper around :func:`becomes_creature` that:
+      * forces ``duration='until_your_next_turn'`` on every QUERY interceptor;
+      * stashes original subtypes (and the controller scope) into
+        ``state._until_your_next_turn_cleanups`` so the TurnManager sweep
+        at the controller's TURN_START restores them.
+
+    ``controller`` is the player whose next turn ends the effect — typically
+    the source's controller, not necessarily the target's controller (a land
+    you control with this animation reverts at *your* next turn).
+    """
+    subtypes_to_add = set(subtypes or set())
+    prior_subtypes = set(target.characteristics.subtypes)
+    target_id = target.id
+
+    # Snapshot interceptor ids registered before the call, so we can identify
+    # the ones becomes_creature just installed and tag them with the cleanup
+    # payload's controller (the TurnManager filters on ic.controller).
+    pre_ids = set(state.interceptors.keys())
+    becomes_creature(
+        target,
+        state,
+        power=power,
+        toughness=toughness,
+        subtypes=subtypes_to_add or None,
+        keywords=keywords,
+        duration="until_your_next_turn",
+        keep_land=keep_land,
+    )
+    new_ids = [iid for iid in state.interceptors.keys() if iid not in pre_ids]
+
+    # Override the controller on the freshly-installed interceptors so the
+    # cleanup sweep matches against the *animation owner's* turn, not the
+    # target's controller (in MTG these usually coincide, but the helper
+    # accepts a separate controller for safety).
+    tag_id = None
+    for iid in new_ids:
+        ic = state.interceptors.get(iid)
+        if ic is None:
+            continue
+        ic.controller = controller
+        if tag_id is None:
+            tag_id = getattr(ic, "_becomes_creature_tag", None)
+
+    # Stash subtype dual-write cleanup keyed by tag id. ``becomes_creature``
+    # only stashes for duration='end_of_turn'; we mirror that for
+    # 'until_your_next_turn'.
+    if subtypes_to_add and tag_id is not None:
+        cleanups = getattr(state, "_until_your_next_turn_cleanups", None)
+        if cleanups is None:
+            cleanups = {}
+            state._until_your_next_turn_cleanups = cleanups
+        cleanups[tag_id] = {
+            "target_id": target_id,
+            "original_subtypes": prior_subtypes,
+            "controller": controller,
+        }
+
+    return []
+
+
+__all_until_next_turn__ = [
+    "make_until_next_turn_animation",
+]
+
+
+# =============================================================================
 # Vehicle animation: Exhaust ability that turns the source into a creature
 # =============================================================================
 #
