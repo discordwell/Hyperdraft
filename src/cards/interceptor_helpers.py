@@ -9461,6 +9461,83 @@ __all_sweep12__ = [
 
 
 # =============================================================================
+# CONSPIRE GRANT (W29) — Shadowmoor / Lorwyn (CR 702.78)
+# =============================================================================
+#
+# "Each <filtered spell> you cast has conspire" — Raiding Schemes,
+# Wort, the Raidmother, etc. This is a thin re-export of
+# ``src/engine/conspire.grant_conspire`` so card scripts can call
+# ``make_conspire_grant(obj, spell_filter=...)`` from setup_interceptors
+# without importing the engine module directly.
+#
+# Quick-reference filter recipes
+# ------------------------------
+#
+#   # Noncreature spells (Raiding Schemes):
+#   def noncreature_filter(spell, state):
+#       return CardType.CREATURE not in spell.characteristics.types
+#
+#   # Red or green instant/sorcery (Wort, the Raidmother):
+#   def rg_instant_sorcery_filter(spell, state):
+#       types = spell.characteristics.types
+#       if not (CardType.INSTANT in types or CardType.SORCERY in types):
+#           return False
+#       colors = spell.characteristics.colors or set()
+#       return Color.RED in colors or Color.GREEN in colors
+#
+# The filter is invoked at cast time with the spell GameObject and the
+# current state. Filters that raise are treated as a non-match (defensive).
+# =============================================================================
+
+from src.engine.conspire import grant_conspire as _engine_grant_conspire
+
+
+def make_conspire_grant(
+    obj: GameObject,
+    state: GameState,
+    *,
+    spell_filter: Callable[[GameObject, GameState], bool],
+    color_share_required: bool = True,
+) -> Interceptor:
+    """Install a conspire grant tied to ``obj`` (Raiding Schemes / Wort).
+
+    See ``src/engine/conspire.grant_conspire`` for full semantics. Returns
+    the installed Interceptor — typically appended to the list returned by
+    ``setup_interceptors``.
+
+    Args:
+        obj: the permanent providing the grant.
+        state: GameState — needed so the grant is registered on the
+            runtime registry on install.
+        spell_filter: ``(spell_obj, state) -> bool`` — return True iff
+            this grant's conspire applies to the spell about to be cast.
+        color_share_required: True (default) = follow CR 702.78 (the two
+            tapped creatures must share a color with the spell). Reserved
+            for future custom-set variants.
+
+    Example
+    -------
+    .. code-block:: python
+
+        def raiding_schemes_setup(obj, state):
+            def noncreature(spell, _state):
+                return CardType.CREATURE not in spell.characteristics.types
+            return [make_conspire_grant(obj, state, spell_filter=noncreature)]
+    """
+    return _engine_grant_conspire(
+        obj,
+        state,
+        spell_filter=spell_filter,
+        color_share_required=color_share_required,
+    )
+
+
+__all_conspire__ = [
+    "make_conspire_grant",
+]
+
+
+# =============================================================================
 # Cycling (W8)
 # =============================================================================
 #

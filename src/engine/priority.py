@@ -66,6 +66,17 @@ from .spree import (
     open_spree_choice as _spree_open_prompt,
     total_spree_extra_cost as _spree_total_extra_cost,
 )
+# === Conspire (W29) ===
+# Shadowmoor / Lorwyn Conspire mechanic — see src/engine/conspire.py.
+# Imported here so the cast pipeline can open the optional conspire
+# prompt right after the spell lands on the stack.
+from .conspire import (
+    find_conspire_grants_for_spell as _conspire_find_grants,
+    open_conspire_prompt as _conspire_open_prompt,
+    is_conspire_handled as _conspire_is_handled,
+    mark_conspire_handled as _conspire_mark_handled,
+)
+# === end Conspire ===
 
 if TYPE_CHECKING:
     from .turn import TurnManager
@@ -1974,6 +1985,7 @@ class PrioritySystem:
             if card.zone == ZoneType.EXILE and getattr(card.state, 'adventure_exile', False):
                 card.state.adventure_exile = False
 
+            stack_item_id_for_conspire: Optional[str] = None
             if self.stack:
                 from .stack import SpellBuilder
                 builder = SpellBuilder(self.state, self.stack)
@@ -1993,6 +2005,34 @@ class PrioritySystem:
                     }
                 )
                 self.stack.push(item)
+                stack_item_id_for_conspire = item.id
+
+            # === Conspire (W29) ===
+            # CR 702.78: "As you cast a noncreature spell, you may tap two
+            # untapped creatures you control that share a color with it.
+            # When you do, copy that spell." We open the optional conspire
+            # prompt now (the spell is on the stack and we know its stack
+            # item id). If no human handler is attached or there are no two
+            # color-sharing creatures, the helper auto-declines (no prompt
+            # opens), so legacy tests aren't affected. The choice handler
+            # (when accepted) emits TAP, CONSPIRE_TRIGGERED, and
+            # COPY_STACK_ITEM events through ``submit_choice``'s normal
+            # event-emission path.
+            if (stack_item_id_for_conspire is not None
+                    and not _conspire_is_handled(self.state, action.card_id)):
+                grants = _conspire_find_grants(
+                    self.state, action.player_id, card,
+                )
+                if grants:
+                    _conspire_mark_handled(self.state, action.card_id)
+                    _conspire_open_prompt(
+                        state=self.state,
+                        spell_obj=card,
+                        spell_stack_item_id=stack_item_id_for_conspire,
+                        caster=action.player_id,
+                        grant=grants[0],
+                    )
+            # === end Conspire ===
 
             # Ward / TARGET_CHOSEN: now that the spell's chosen targets are
             # committed to a stack item, fire one TARGET_CHOSEN per (spell,

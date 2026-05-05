@@ -45,6 +45,8 @@ from src.cards.interceptor_helpers import (
     make_copy_token_event,
     # Type-overwrite auras (Lignify-style)
     make_type_overwrite_aura,
+    # Conspire (W29)
+    make_conspire_grant,
 )
 
 
@@ -2866,8 +2868,10 @@ def prideful_feastling_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def raiding_schemes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Conspire on each noncreature spell (engine gap)."""
-    return []  # engine gap: conspire mechanic
+    """Each noncreature spell you cast has conspire (W29 / CR 702.78)."""
+    def noncreature_filter(spell: GameObject, _state: GameState) -> bool:
+        return CardType.CREATURE not in spell.characteristics.types
+    return [make_conspire_grant(obj, state, spell_filter=noncreature_filter)]
 
 
 def sanar_innovative_firstyear_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

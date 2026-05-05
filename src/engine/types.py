@@ -365,6 +365,18 @@ class EventType(Enum):
     SPREE_MODE_CHOSEN = auto()        # Spree mode prompt opened / mode(s) chosen
 
     # ------------------------------------------------------------------
+    # Shadowmoor / Lorwyn — Conspire mechanic (CR 702.78). Implementation
+    # lives in src/engine/conspire.py and the helper re-export in
+    # src/cards/interceptor_helpers.py (CONSPIRE GRANT section). This is
+    # purely a telemetry/UI marker; the COPY_STACK_ITEM event does the
+    # actual work. Payload:
+    #   {'spell_id': str, 'stack_item_id': str, 'controller': str,
+    #    'tapped': list[str] (creature ids tapped to pay conspire),
+    #    'source_id': str (the grant source — e.g. Raiding Schemes id)}
+    # ------------------------------------------------------------------
+    CONSPIRE_TRIGGERED = auto()       # Marker: caster paid the conspire cost; copy is being queued
+
+    # ------------------------------------------------------------------
     # Generic replacement-effect telemetry. Fired by ``make_replacement_effect``
     # whenever a TRANSFORM-priority replacement rewrites an event. Useful for
     # logs / tests / future debug UIs. Payload:

@@ -188,7 +188,9 @@ from src.cards.interceptor_helpers import (
     other_creatures_with_subtype,
     # Targeted trigger helpers
     make_targeted_etb_trigger, make_targeted_attack_trigger,
-    make_targeted_death_trigger
+    make_targeted_death_trigger,
+    # Conspire (W29 / CR 702.78)
+    make_conspire_grant,
 )
 
 
@@ -5002,12 +5004,19 @@ GOATNAP_SPELL = make_sorcery(
 
 
 # Raiding Schemes - {3}{R}{G} Enchantment
+def raiding_schemes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Each noncreature spell you cast has conspire (W29 / CR 702.78)."""
+    def noncreature_filter(spell: GameObject, _state: GameState) -> bool:
+        return CardType.CREATURE not in spell.characteristics.types
+    return [make_conspire_grant(obj, state, spell_filter=noncreature_filter)]
+
+
 RAIDING_SCHEMES = make_enchantment(
     name="Raiding Schemes",
     mana_cost="{3}{R}{G}",
     colors={Color.RED, Color.GREEN},
     text="Each noncreature spell you cast has conspire.",
-    setup_interceptors=None
+    setup_interceptors=raiding_schemes_setup
 )
 
 
@@ -6864,10 +6873,24 @@ def knucklebone_witch_setup(obj: GameObject, state: GameState) -> list[Intercept
     return [make_death_trigger(obj, effect, filter_fn)]
 
 def wort_the_raidmother_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: two 1/1 R/G Goblin Warrior tokens.
+    Plus: each red or green instant or sorcery you cast has conspire (W29).
+    """
     def effect(event: Event, state: GameState) -> list[Event]:
         token = {'controller': obj.controller, 'name': 'Goblin Warrior', 'power': 1, 'toughness': 1, 'colors': {Color.RED, Color.GREEN}, 'subtypes': {'Goblin', 'Warrior'}}
         return [Event(type=EventType.CREATE_TOKEN, payload=dict(token), source=obj.id), Event(type=EventType.CREATE_TOKEN, payload=dict(token), source=obj.id)]
-    return [make_etb_trigger(obj, effect)]
+
+    def rg_instant_sorcery_filter(spell: GameObject, _state: GameState) -> bool:
+        types = spell.characteristics.types
+        if not (CardType.INSTANT in types or CardType.SORCERY in types):
+            return False
+        colors = spell.characteristics.colors or set()
+        return Color.RED in colors or Color.GREEN in colors
+
+    return [
+        make_etb_trigger(obj, effect),
+        make_conspire_grant(obj, state, spell_filter=rg_instant_sorcery_filter),
+    ]
 
 def jagged_scar_archers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def count_elves(st: GameState) -> int:
