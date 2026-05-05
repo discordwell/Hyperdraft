@@ -3,9 +3,11 @@
 import json
 import subprocess
 import sys
+from collections import defaultdict
 
 import pytest
 
+from scripts.beyond.wet_test.round_robin import build_round_robin_report
 from src.cards.pokemon.beyond.ravnica import (
     GUILD_DECK_BUILDERS,
     build_ravnica_guild_deck,
@@ -154,3 +156,29 @@ def test_validated_ravnica_deckbuilder_serves_all_guilds():
 def test_validated_ravnica_deckbuilder_rejects_unknown_guilds():
     with pytest.raises(ValueError, match="Unknown Beyond Ravnica guild"):
         build_ravnica_guild_deck("not_a_guild")
+
+
+def test_ravnica_round_robin_report_summarizes_anomalies():
+    wins = defaultdict(int, {"izzet": 1})
+    losses = defaultdict(int, {"azorius": 1})
+    draws = defaultdict(int)
+    timeouts = defaultdict(int)
+    crashes = defaultdict(int)
+
+    report = build_round_robin_report(
+        ["azorius", "izzet"],
+        wins,
+        losses,
+        draws,
+        timeouts,
+        crashes,
+        ["azorius vs izzet: timeout @ turn 80"],
+        [12, 80],
+        1.25,
+        2,
+    )
+
+    assert report["format"] == "pokemon_beyond_ravnica_round_robin"
+    assert report["quality_gate"]["passed"] is False
+    assert report["quality_gate"]["anomaly_count"] == 1
+    assert report["standings"]["izzet"]["win_rate"] == 1.0
