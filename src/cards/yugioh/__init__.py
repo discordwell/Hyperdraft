@@ -18,5 +18,9 @@ from .deck_quality import (
     analyze_all_ygo_optimized_decks,
     analyze_ygo_deck_quality,
 )
+from .deck_builder import (
+    build_ygo_optimized_deck,
+    list_ygo_optimized_decks,
+)
 
 ALL_YGO_CARDS = {**YGO_STARTER_CARDS, **YGO_CLASSIC_CARDS}

@@ -4,6 +4,12 @@ import json
 import subprocess
 import sys
 
+import pytest
+
+from src.cards.yugioh.deck_builder import (
+    build_ygo_optimized_deck,
+    list_ygo_optimized_decks,
+)
 from src.cards.yugioh.deck_quality import analyze_all_ygo_optimized_decks
 from src.cards.yugioh.ygo_optimized import YGO_OPTIMIZED_DECKS
 
@@ -67,3 +73,19 @@ def test_ygo_deck_quality_report_outputs_json_without_flags():
     assert set(report) == set(YGO_OPTIMIZED_DECKS)
     assert all(not summary["quality_flags"] for summary in report.values())
     assert all(not summary["role_quality_flags"] for summary in report.values())
+
+
+def test_validated_ygo_deckbuilder_serves_all_optimized_decks():
+    assert list_ygo_optimized_decks() == sorted(YGO_OPTIMIZED_DECKS)
+
+    for deck_name in list_ygo_optimized_decks():
+        main, extra, strategy = build_ygo_optimized_deck(deck_name)
+        assert len(main) == 40
+        assert len(extra) <= 15
+        assert strategy["name"] == YGO_OPTIMIZED_DECKS[deck_name]["strategy"]["name"]
+        assert main is not YGO_OPTIMIZED_DECKS[deck_name]["deck"]
+
+
+def test_validated_ygo_deckbuilder_rejects_unknown_decks():
+    with pytest.raises(ValueError, match="Unknown Yu-Gi-Oh! optimized deck"):
+        build_ygo_optimized_deck("not_a_deck")
