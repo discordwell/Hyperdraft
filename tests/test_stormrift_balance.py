@@ -77,10 +77,12 @@ def test_stormrift_faction_role_scores_stay_distinct():
     cryo = summary["Cryomancer"]
 
     assert pyro["pressure_score"] > cryo["pressure_score"]
+    assert pyro["hero_power_damage"] == 2
     assert pyro["charge_minions"] >= 3
     assert pyro["burn_cards"] >= 18
 
     assert cryo["defense_score"] > pyro["defense_score"]
+    assert cryo["hero_power_armor"] == 3
     assert cryo["armor_score"] >= 6
     assert cryo["freeze_cards"] >= 4
     assert cryo["taunt_count"] >= 7

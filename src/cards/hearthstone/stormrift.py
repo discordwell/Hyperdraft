@@ -1890,10 +1890,27 @@ def stormrift_deck_profile(deck: list) -> dict:
 
 def stormrift_balance_summary() -> dict:
     """Return per-faction Stormrift deck balance metrics."""
-    return {
-        faction: stormrift_deck_profile(deck)
-        for faction, deck in STORMRIFT_DECKS.items()
-    }
+    import re
+
+    summary = {}
+    for faction, deck in STORMRIFT_DECKS.items():
+        profile = stormrift_deck_profile(deck)
+        hero_power = STORMRIFT_HERO_POWERS.get(faction)
+        hp_text = (hero_power.text or "").lower() if hero_power else ""
+        hp_damage = sum(
+            int(num)
+            for num in re.findall(r"deal\s+(\d+)\s+damage", hp_text)
+        )
+        hp_armor = sum(
+            int(num)
+            for num in re.findall(r"gain\s+(\d+)\s+armor", hp_text)
+        )
+        profile["hero_power_damage"] = hp_damage
+        profile["hero_power_armor"] = hp_armor
+        profile["pressure_score"] += hp_damage * 5
+        profile["defense_score"] += hp_armor * 5
+        summary[faction] = profile
+    return summary
 
 
 # =============================================================================
