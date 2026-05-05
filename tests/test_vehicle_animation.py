@@ -106,7 +106,11 @@ def _mana_pool_total(player, mana_system):
 
 def test_grant_creature_type_handler_installs_interceptor():
     """Emitting GRANT_CREATURE_TYPE through the pipeline installs a QUERY
-    interceptor that adds CREATURE to the type-set."""
+    interceptor that adds CREATURE to the type-set.
+
+    CR 311.7 — the existing ARTIFACT type and the Vehicle subtype must
+    BOTH remain alongside the new CREATURE type.
+    """
     game = Game()
     p1 = game.add_player("Alice")
     game.add_player("Bob")
@@ -136,7 +140,13 @@ def test_grant_creature_type_handler_installs_interceptor():
         f"GRANT_CREATURE_TYPE should add CREATURE to {types_after}"
     )
     assert CardType.ARTIFACT in types_after, "ARTIFACT should remain"
-    print("PASS: GRANT_CREATURE_TYPE handler installs the type-grant interceptor")
+    # CR 311.7: Vehicle subtype is preserved (the handler does not touch
+    # subtypes; the QUERY interceptor only modifies the type-set).
+    assert "Vehicle" in obj.characteristics.subtypes, (
+        f"Vehicle subtype must remain (CR 311.7), got {obj.characteristics.subtypes}"
+    )
+    print("PASS: GRANT_CREATURE_TYPE handler installs the type-grant interceptor "
+          "(CR 311.7: Vehicle subtype kept)")
 
 
 def test_grant_creature_type_cleanup_at_eot():
@@ -170,7 +180,12 @@ def test_grant_creature_type_cleanup_at_eot():
             f"CREATURE should be swept at EOT, got {types_after}"
         )
         assert CardType.ARTIFACT in types_after
-        print("PASS: GRANT_CREATURE_TYPE cleans up at end of turn")
+        # CR 311.7: even after EOT cleanup the Vehicle subtype is intact.
+        assert "Vehicle" in obj.characteristics.subtypes, (
+            f"Vehicle subtype must persist post-EOT, got "
+            f"{obj.characteristics.subtypes}"
+        )
+        print("PASS: GRANT_CREATURE_TYPE cleans up at end of turn (Vehicle kept)")
 
     asyncio.get_event_loop().run_until_complete(_run())
 

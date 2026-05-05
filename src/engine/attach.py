@@ -182,7 +182,12 @@ def _cleanup_handler(event: Event, state: GameState) -> InterceptorResult:
 
 
 def register_attach_cleanup(state: GameState) -> None:
-    """Install the leaves-battlefield cleanup interceptor on ``state``."""
+    """Install the leaves-battlefield cleanup interceptor on ``state``.
+
+    Also installs the vehicle-animation auto-falloff system interceptor
+    (see ``register_animation_falloff``) so a single call from game.py
+    bootstraps all attach-related system interceptors.
+    """
     cid = "system:attach_cleanup"
     if cid not in state.interceptors:
         state.interceptors[cid] = Interceptor(
@@ -194,6 +199,116 @@ def register_attach_cleanup(state: GameState) -> None:
             handler=_cleanup_handler,
             duration="forever",
         )
+    register_animation_falloff(state)
+
+
+# =====================================================================
+# BEGIN: vehicle-animation auto-falloff hook (CR 311.7 / 704.5n / 704.5p)
+# =====================================================================
+#
+# When a Vehicle (or any artifact temporarily granted CREATURE) reverts
+# to non-creature, CR says:
+#   * 704.5p — Equipment attached to an illegal permanent becomes
+#     unattached (Equipment stays on the battlefield).
+#   * 704.5n — Aura attached to an illegal object is put into its
+#     owner's graveyard.
+#
+# ``falloff_attachments_on_creature_loss`` returns the events to queue;
+# the system end_step interceptor (registered alongside attach_cleanup)
+# scans the battlefield and fires this for each Vehicle whose
+# end-of-turn animation is about to expire.
+
+def falloff_attachments_on_creature_loss(
+    host_id: str,
+    state: GameState,
+) -> list[Event]:
+    """Detach Equipment and graveyard Auras from ``host_id``.
+
+    Returns a list of UNATTACH (and ZONE_CHANGE for Auras) events to
+    queue. Multiple Equipment / Auras are handled in one pass.
+    """
+    host = state.objects.get(host_id)
+    if host is None:
+        return []
+    events: list[Event] = []
+    for attached_id in list(host.state.attachments):
+        attached = state.objects.get(attached_id)
+        if attached is None:
+            continue
+        subs = set(attached.characteristics.subtypes)
+        events.append(Event(
+            type=EventType.UNATTACH,
+            payload={"object_id": attached_id},
+            source=host_id, controller=attached.controller,
+        ))
+        # CR 704.5n: an Aura that becomes unattached goes to its owner's
+        # graveyard. Equipment (704.5p) stays on the battlefield.
+        if "Aura" in subs:
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    "object_id": attached_id,
+                    "from_zone_type": ZoneType.BATTLEFIELD,
+                    "to_zone_type": ZoneType.GRAVEYARD,
+                    "to_zone_owner": attached.owner,
+                    "reason": "aura_falloff",
+                },
+                source=attached_id, controller=attached.controller,
+            ))
+    return events
+
+
+def _animation_falloff_filter(event: Event, state: GameState) -> bool:
+    """Fire on PHASE_START step='end_step' (before EOT interceptor sweep)."""
+    if event.type != EventType.PHASE_START:
+        return False
+    return event.payload.get("step") == "end_step"
+
+
+def _animation_falloff_handler(event: Event, state: GameState) -> InterceptorResult:
+    """Scan battlefield for hosts whose ``_grant_creature_type_tag`` interceptor
+    is about to expire (duration='end_of_turn'). For each such host, queue
+    UNATTACH (Equipment) / Aura→graveyard events so the auto-falloff happens
+    BEFORE the EOT interceptor sweep clears the type-grant.
+    """
+    eot = {"end_of_turn", "until_end_of_turn", "until_eot", "eot",
+           "next_end_step", "end_of_this_turn", "this_turn"}
+    expiring_hosts: set[str] = set()
+    for ic in state.interceptors.values():
+        if not hasattr(ic, "_grant_creature_type_tag"):
+            continue
+        d = getattr(ic, "duration", None)
+        if not isinstance(d, str):
+            continue
+        if d.strip().lower().replace(" ", "_") in eot:
+            src = ic.source
+            if src and src in state.objects:
+                expiring_hosts.add(src)
+    new_events: list[Event] = []
+    for host_id in expiring_hosts:
+        new_events.extend(falloff_attachments_on_creature_loss(host_id, state))
+    if not new_events:
+        return InterceptorResult(action=InterceptorAction.PASS)
+    return InterceptorResult(action=InterceptorAction.REACT, new_events=new_events)
+
+
+def register_animation_falloff(state: GameState) -> None:
+    """Install the system-level end_step interceptor that handles auto-falloff."""
+    cid = "system:animation_falloff"
+    if cid not in state.interceptors:
+        state.interceptors[cid] = Interceptor(
+            id=cid,
+            source="system",
+            controller=None,
+            priority=InterceptorPriority.REACT,
+            filter=_animation_falloff_filter,
+            handler=_animation_falloff_handler,
+            duration="forever",
+        )
+
+# =====================================================================
+# END: vehicle-animation auto-falloff hook
+# =====================================================================
 
 
 # ----------------------------------------------------------------------
@@ -416,4 +531,6 @@ __all__ = [
     "grant_activated_ability_on_attach",
     "revoke_granted_abilities",
     "make_granted_abilities_listener",
+    "falloff_attachments_on_creature_loss",
+    "register_animation_falloff",
 ]
