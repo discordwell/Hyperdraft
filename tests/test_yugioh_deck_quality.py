@@ -13,6 +13,8 @@ def test_all_optimized_ygo_decks_have_clean_quality_metrics():
         assert summary["monster_count"] >= 10, deck_name
         assert summary["low_level_monster_count"] >= 8, deck_name
         assert summary["removal_count"] >= 5, deck_name
+        assert summary["missing_summon_priority"] == [], deck_name
+        assert summary["missing_set_priority"] == [], deck_name
         assert summary["copy_violations"] == [], deck_name
         assert summary["quality_flags"] == [], deck_name
         assert summary["role_quality_flags"] == [], deck_name
@@ -36,8 +38,10 @@ def test_ygo_role_metrics_cover_optimized_archetypes():
     assert burn["burn_count"] >= 8
     assert burn["stall_count"] >= 3
     assert burn["monster_count"] <= 16
+    assert burn["set_priority_count"] >= 4
 
     dragon = summaries["dragon_beatdown"]
     assert dragon["role"] == "Beatdown / Aggro"
     assert dragon["dragon_count"] >= 14
     assert dragon["pressure_monster_count"] >= 10
+    assert dragon["summon_priority_count"] >= 5
