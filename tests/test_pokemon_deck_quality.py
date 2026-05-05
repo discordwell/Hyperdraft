@@ -1,5 +1,9 @@
 """Pokemon deckbuilding quality checks."""
 
+import json
+import subprocess
+import sys
+
 from src.cards.pokemon.deck_quality import analyze_sv_starter_decks
 
 
@@ -29,3 +33,27 @@ def test_sv_starter_deck_roles_have_switch_and_gust_tools():
         assert summary["switch_count"] >= 2
         assert summary["gust_count"] >= 1
         assert summary["supporter_count"] >= 6
+
+
+def test_pokemon_deck_quality_report_writes_json_artifact(tmp_path):
+    out_path = tmp_path / "pokemon_deck_quality.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/play/pokemon_deck_quality_report.py",
+            "--out",
+            str(out_path),
+            "--fail-on-flags",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    stdout_report = json.loads(result.stdout)
+    file_report = json.loads(out_path.read_text())
+    assert stdout_report == file_report
+    assert file_report["format"] == "pokemon_deck_quality"
+    assert file_report["quality_gate"]["passed"] is True
+    assert sorted(file_report["decks"]) == ["fire", "water"]
