@@ -69,6 +69,10 @@ def analyze_ygo_deck_quality(deck: list[CardDefinition], strategy: dict | None =
         "mystic tomato", "sangan", "masked dragon", "gravekeeper's spy",
         "giant germ",
     )
+    revival_terms = (
+        "monster reborn", "premature burial", "call of the haunted",
+        "revive", "special summon 1 monster from your gy",
+    )
 
     role = (strategy or {}).get("archetype", "unknown")
     summon_priority = list((strategy or {}).get("summon_priority", []))
@@ -90,6 +94,11 @@ def analyze_ygo_deck_quality(deck: list[CardDefinition], strategy: dict | None =
         "reliable_reach_count": sum(1 for card in deck if _has_any(card, reach_terms)),
         "stall_count": sum(1 for card in deck if _has_any(card, stall_terms)),
         "tribute_fodder_count": sum(1 for card in deck if _has_any(card, fodder_terms)),
+        "revival_spell_count": sum(1 for card in deck if _has_any(card, revival_terms)),
+        "revival_target_count": sum(
+            1 for card in monsters
+            if (getattr(card, "atk", 0) or 0) >= 1800 or (getattr(card, "level", 0) or 0) >= 5
+        ),
         "dragon_count": sum(
             1 for card in deck
             if "Dragon" in card.characteristics.subtypes or "dragon" in card.name.lower()
@@ -122,6 +131,8 @@ def ygo_deck_quality_flags(summary: dict) -> list[str]:
         flags.append("tribute_load_exceeds_fodder")
     if summary["missing_summon_priority"] or summary["missing_set_priority"]:
         flags.append("strategy_priority_missing_cards")
+    if summary["revival_spell_count"] >= 2 and summary["revival_target_count"] < 2:
+        flags.append("revival_package_low_targets")
     return flags
 
 

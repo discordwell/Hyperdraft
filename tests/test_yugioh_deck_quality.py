@@ -37,6 +37,7 @@ def test_ygo_role_metrics_cover_optimized_archetypes():
     assert goat["role"] == "Control"
     assert goat["draw_count"] >= 3
     assert goat["removal_count"] >= 10
+    assert goat["revival_target_count"] >= 2
 
     monarch = summaries["monarch_control"]
     assert monarch["role"] == "Tribute Control"
@@ -56,6 +57,8 @@ def test_ygo_role_metrics_cover_optimized_archetypes():
     assert dragon["dragon_count"] >= 14
     assert dragon["pressure_monster_count"] >= 10
     assert dragon["summon_priority_count"] >= 5
+    assert dragon["revival_spell_count"] >= 3
+    assert dragon["revival_target_count"] >= 10
 
 
 def test_ygo_deck_quality_report_outputs_json_without_flags():
