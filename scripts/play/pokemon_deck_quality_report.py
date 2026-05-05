@@ -29,11 +29,16 @@ def _quality_gate(summaries: dict[str, dict]) -> dict:
     }
 
 
-def build_report() -> dict:
+def build_report(deck_name: str | None = None) -> dict:
     with contextlib.redirect_stdout(io.StringIO()):
         from src.cards.pokemon.deck_quality import analyze_sv_starter_decks
 
         summaries = analyze_sv_starter_decks()
+    if deck_name:
+        if deck_name not in summaries:
+            available = ", ".join(sorted(summaries))
+            raise ValueError(f"Unknown Pokemon starter deck '{deck_name}'. Available: {available}")
+        summaries = {deck_name: summaries[deck_name]}
     return {
         "schema_version": 1,
         "format": "pokemon_deck_quality",
@@ -44,6 +49,7 @@ def build_report() -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--deck", help="Optional starter deck name to report.")
     parser.add_argument("--out", help="Optional JSON output path.")
     parser.add_argument(
         "--fail-on-flags",
@@ -52,7 +58,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    report = build_report()
+    try:
+        report = build_report(args.deck)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     payload = json.dumps(report, indent=2, sort_keys=True)
     if args.out:
         Path(args.out).write_text(payload + "\n")
