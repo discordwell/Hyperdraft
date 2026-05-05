@@ -157,3 +157,31 @@ def test_damage_hero_power_fires_before_card_play_when_lethal():
     p2.armor = 1
 
     assert ai._should_use_hero_power_early(game.state, p1.id) is False
+
+
+def test_ultra_does_not_score_minion_only_removal_as_lethal_burn():
+    game, p1, p2 = _new_hs_game("Druid", "Warrior")
+    ai = HearthstoneAIAdapter(difficulty="ultra")
+    attacker = _summon_minion(game, p1, "Board Damage", 3, 3)
+    attacker.state.summoning_sickness = False
+    p1.mana_crystals_available = 2
+    p2.life = 3
+    removal_def = CardDefinition(
+        name="Minion Bolt",
+        mana_cost="{2}",
+        characteristics=Characteristics(types={CardType.SPELL}, mana_cost="{2}"),
+        text="Deal 3 damage to a minion.",
+        requires_target=True,
+    )
+    removal = game.create_object(
+        name=removal_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.HAND,
+        characteristics=removal_def.characteristics,
+        card_def=removal_def,
+    )
+
+    score = ai._score_card_play(removal, game.state, p1.id)
+
+    assert ai._calculate_lethal(p1.id, game.state)["is_lethal"] is True
+    assert score < 100
