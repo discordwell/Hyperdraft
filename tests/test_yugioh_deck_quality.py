@@ -49,6 +49,7 @@ def test_ygo_role_metrics_cover_optimized_archetypes():
     assert burn["burn_count"] >= 8
     assert burn["reliable_reach_count"] >= 10
     assert burn["stall_count"] >= 3
+    assert burn["stall_lock_count"] >= 3
     assert burn["monster_count"] <= 16
     assert burn["set_priority_count"] >= 4
 
@@ -56,6 +57,7 @@ def test_ygo_role_metrics_cover_optimized_archetypes():
     assert dragon["role"] == "Beatdown / Aggro"
     assert dragon["dragon_count"] >= 14
     assert dragon["pressure_monster_count"] >= 10
+    assert dragon["stall_lock_count"] <= 1
     assert dragon["summon_priority_count"] >= 5
     assert dragon["revival_spell_count"] >= 3
     assert dragon["revival_target_count"] >= 10

@@ -64,6 +64,10 @@ def analyze_ygo_deck_quality(deck: list[CardDefinition], strategy: dict | None =
         "cannot attack", "gravity bind", "messenger of peace",
         "swords of revealing light", "marshmallon", "spirit reaper",
     )
+    stall_lock_terms = (
+        "gravity bind", "messenger of peace",
+        "swords of revealing light", "level limit - area b",
+    )
     fodder_terms = (
         "special summon", "token", "tribute fodder", "treeborn",
         "mystic tomato", "sangan", "masked dragon", "gravekeeper's spy",
@@ -93,6 +97,7 @@ def analyze_ygo_deck_quality(deck: list[CardDefinition], strategy: dict | None =
         "burn_count": sum(1 for card in deck if _has_any(card, burn_terms)),
         "reliable_reach_count": sum(1 for card in deck if _has_any(card, reach_terms)),
         "stall_count": sum(1 for card in deck if _has_any(card, stall_terms)),
+        "stall_lock_count": sum(1 for card in deck if _has_any(card, stall_lock_terms)),
         "tribute_fodder_count": sum(1 for card in deck if _has_any(card, fodder_terms)),
         "revival_spell_count": sum(1 for card in deck if _has_any(card, revival_terms)),
         "revival_target_count": sum(
@@ -147,6 +152,8 @@ def ygo_role_quality_flags(summary: dict) -> list[str]:
             flags.append("burn_low_reliable_reach")
         if summary["stall_count"] < 3:
             flags.append("burn_low_stall")
+        if summary["stall_lock_count"] < 3:
+            flags.append("burn_low_stall_locks")
         if summary["monster_count"] > 16:
             flags.append("burn_too_monster_heavy")
     elif "dragon" in role or "beatdown" in role:
