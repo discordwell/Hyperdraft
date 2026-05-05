@@ -3307,6 +3307,739 @@ SEASTONE_NAIL = make_artifact(
 
 
 # =============================================================================
+# SPICE PASS PHASE A — Format-defining captains, Treasure payoffs, Devil Fruit
+# tutors, bounty/crime escalators, Fish-Man tribal seat. All cards built on
+# helpers shipped through W12 (no new engine surface required).
+# =============================================================================
+# Phase A targets multiple patterns from the spice taxonomy:
+#   Compression: Luffy King of the Pirates, Zoro Demon of East Blue, Sanji Cook
+#     of the Sea — multi-clause captains that each pull in a lord, a triggered
+#     ability, and a mana-fueled activated.
+#   Asymmetric prison: Crocodile, Sandstorm of Alabasta — opp lands ETB tapped
+#     plus crime-fed Sand Soldier minting.
+#   Recursion: Buggy, the Star Clown — death trigger seeds a delayed return-
+#     to-hand on next upkeep. Hard to kill permanently.
+#   Snowball value engine + crime escalator: Wanted Poster: Three Billion
+#     Berries — counter accrues per crime, threshold = mass damage.
+#   Tutoring: Devil Fruit Vault — search a Devil Fruit aura to hand.
+#   Equipment + Fish-Man tribal: Fishman Karate Trident — +2/+2, grants Fish-
+#     Man subtype to wearer.
+#   Two-card combo enablement / Treasure sac payoff: Skypiea Gold Hoard —
+#     {3}, sac three Treasures: take an extra turn after this one.
+
+from src.cards.interceptor_helpers import (
+    make_activated_ability,
+    make_replacement_effect,
+    make_crime_committed_trigger,
+    make_equipment_setup,
+    threaten_creature,
+)
+
+
+# --- Monkey D. Luffy, King of the Pirates --- {2}{R}{R}{W} 4/5 Mythic
+# Compression: Pirate lord +1/+1, Conqueror's Haki ETB tap, treasure-fueled
+# threaten activated ability. Three abilities on one body, payoff for the
+# Treasure subtheme, lord for the Pirate seat.
+def luffy_king_of_pirates_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Other Pirates +1/+1; ETB Conqueror's Haki (tap all opp creatures);
+    {3}, sacrifice three Treasures: gain control of target creature until
+    end of turn, untap it, and it gains haste until EOT."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    interceptors: list[Interceptor] = []
+    # Self-keywords: trample + haste (wired so the AI / engine see them).
+    interceptors.append(make_keyword_grant(obj, ['trample', 'haste'], affects_self))
+    # Other-Pirates lord.
+    interceptors.extend(make_static_pt_boost(
+        obj, 1, 1, other_creatures_with_subtype(obj, "Pirate"),
+    ))
+    # Conqueror's Haki ETB: tap all opp creatures.
+    interceptors.append(make_conquerors_haki_etb(obj))
+
+    def threaten_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        # Cost (parsed): {3}, sacrifice three Treasure permanents you control.
+        # The activated ability cost parser handles the {3} mana but doesn't
+        # natively know about "sacrifice three Treasures" — we enforce that
+        # check here in the effect AND emit the SACRIFICE events directly so
+        # the player can't Treasure-cheat.
+        treasure_ids = [
+            o2.id for o2 in st.objects.values()
+            if o2.zone == ZoneType.BATTLEFIELD
+            and o2.controller == o.controller
+            and 'Treasure' in (o2.characteristics.subtypes or set())
+        ]
+        if len(treasure_ids) < 3:
+            return []
+        if not targets:
+            return []
+        target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+        target = st.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if target.controller == o.controller:
+            return []
+        if CardType.CREATURE not in (target.characteristics.types or set()):
+            return []
+        events: list[Event] = []
+        for tid in treasure_ids[:3]:
+            events.append(Event(
+                type=EventType.SACRIFICE,
+                payload={'object_id': tid},
+                source=o.id,
+            ))
+        events.extend(threaten_creature(target_id, o.controller, o.id))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{3}",
+        effect_fn=threaten_effect,
+        description=(
+            "{3}, Sacrifice three Treasures: Gain control of target creature "
+            "an opponent controls until end of turn. Untap it. It gains haste "
+            "until end of turn."
+        ),
+        targets_required=1,
+        target_kind="creature",
+    )
+    return interceptors
+
+LUFFY_KING_OF_PIRATES = make_creature(
+    name="Monkey D. Luffy, King of the Pirates",
+    power=4, toughness=5,
+    mana_cost="{2}{R}{R}{W}",
+    colors={Color.RED, Color.WHITE},
+    subtypes={"Human", "Pirate"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample, haste. Other Pirates you control get +1/+1. "
+        "Conqueror's Haki - When Luffy enters, tap all creatures opponents control. "
+        "{3}, Sacrifice three Treasures: Gain control of target creature until "
+        "end of turn. Untap it. It gains haste until end of turn."
+    ),
+    setup_interceptors=luffy_king_of_pirates_setup,
+)
+
+
+# --- Roronoa Zoro, Demon of East Blue --- {1}{G}{G} 3/3 Mythic
+# Compression: ETB tutor a Sword/Equipment to battlefield; whenever a Sword
+# becomes attached, untap him + gain double strike EOT; first strike static.
+def zoro_demon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self first strike; ETB tutor Sword/Equipment to battlefield;
+    Sword-attach untaps + grants double strike EOT."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_tutor(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'subtypes_any': ['Sword', 'Equipment'],
+                'card_type': 'artifact',
+                'destination': 'battlefield',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=obj.id,
+        )]
+
+    def attach_to_zoro_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ATTACH:
+            return False
+        if event.payload.get('target') != obj.id:
+            return False
+        attaching_id = event.payload.get('source') or event.payload.get('attacher')
+        if not attaching_id:
+            return False
+        attaching = st.objects.get(attaching_id)
+        if not attaching:
+            return False
+        subs = attaching.characteristics.subtypes or set()
+        return 'Sword' in subs or 'Equipment' in subs
+
+    def attach_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(type=EventType.UNTAP, payload={'object_id': obj.id}, source=obj.id),
+                Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={
+                        'object_id': obj.id,
+                        'keyword': 'double_strike',
+                        'duration': 'end_of_turn',
+                    },
+                    source=obj.id,
+                ),
+            ],
+        )
+
+    sword_attach_trigger = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attach_to_zoro_filter,
+        handler=attach_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [
+        make_keyword_grant(obj, ['first_strike'], affects_self),
+        make_etb_trigger(obj, etb_tutor),
+        sword_attach_trigger,
+    ]
+
+ZORO_DEMON_OF_EAST_BLUE = make_creature(
+    name="Roronoa Zoro, Demon of East Blue",
+    power=3, toughness=3,
+    mana_cost="{1}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Human", "Pirate", "Samurai"},
+    supertypes={"Legendary"},
+    text=(
+        "First strike. When Zoro enters, search your library for a Sword or "
+        "Equipment card, put it onto the battlefield, then shuffle. "
+        "Whenever a Sword or Equipment becomes attached to Zoro, untap him; "
+        "he gains double strike until end of turn."
+    ),
+    setup_interceptors=zoro_demon_setup,
+)
+
+
+# --- Sanji, Cook of the Sea --- {1}{R}{G} 3/2 Rare
+# Compression + Treasure/Food sac value engine: ETB Food token; Sanji-attacks
+# trigger creates Food; sacrificing a Food gains 2 life and pumps Sanji
+# +2/+0 EOT.
+def sanji_cook_of_sea_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self haste+lifelink; ETB Food; attack-trigger Food; sac-Food →
+    +2/+0 EOT and gain 2 life."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def make_food_event() -> Event:
+        return Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Food', 'types': {CardType.ARTIFACT},
+                    'subtypes': {'Food'},
+                },
+            },
+            source=obj.id,
+        )
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        return [make_food_event()]
+
+    def attack_effect(event: Event, st: GameState) -> list[Event]:
+        attacker_id = event.payload.get('attacker_id')
+        if attacker_id != obj.id:
+            return []
+        return [make_food_event()]
+
+    def food_sac_filter(event: Event, st: GameState) -> bool:
+        # Sacrifice fires as ZONE_CHANGE with reason='sacrifice' — see
+        # spice-pass guide gotcha #5. SACRIFICE events get rewritten in
+        # TRANSFORM phase before reaching REACT.
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('reason') != 'sacrifice':
+            return False
+        sacced_id = event.payload.get('object_id')
+        if not sacced_id:
+            return False
+        sacced = st.objects.get(sacced_id)
+        if not sacced or sacced.controller != obj.controller:
+            return False
+        return 'Food' in (sacced.characteristics.subtypes or set())
+
+    def food_sac_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': obj.id,
+                        'power_mod': 2,
+                        'toughness_mod': 0,
+                        'duration': 'end_of_turn',
+                    },
+                    source=obj.id,
+                ),
+                Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': obj.controller, 'amount': 2},
+                    source=obj.id,
+                ),
+            ],
+        )
+
+    sac_trigger = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=food_sac_filter,
+        handler=food_sac_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [
+        make_keyword_grant(obj, ['haste', 'lifelink'], affects_self),
+        make_etb_trigger(obj, etb_effect),
+        make_attack_trigger(obj, attack_effect),
+        sac_trigger,
+    ]
+
+SANJI_COOK_OF_THE_SEA = make_creature(
+    name="Sanji, Cook of the Sea",
+    power=3, toughness=2,
+    mana_cost="{1}{R}{G}",
+    colors={Color.RED, Color.GREEN},
+    subtypes={"Human", "Pirate", "Chef"},
+    supertypes={"Legendary"},
+    text=(
+        "Haste, lifelink. When Sanji enters, create a Food token. "
+        "Whenever Sanji attacks, create a Food token. "
+        "Whenever you sacrifice a Food, Sanji gets +2/+0 until end of turn "
+        "and you gain 2 life."
+    ),
+    setup_interceptors=sanji_cook_of_sea_setup,
+)
+
+
+# --- Crocodile, Sandstorm of Alabasta --- {2}{B}{B} 3/4 Rare
+# Asymmetric prison: opp lands ETB tapped; whenever you commit a crime,
+# create a 1/1 Sand Soldier token. Locks ramp + rewards aggressive play.
+def crocodile_sandstorm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Opp lands ETB tapped (replacement); when you commit a crime,
+    create a 1/1 black Soldier token."""
+    def is_opp_land_etb(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('tapped'):
+            return False  # already tapped
+        entering_id = event.payload.get('object_id')
+        if not entering_id:
+            return False
+        entering = st.objects.get(entering_id)
+        if not entering:
+            return False
+        if entering.controller == obj.controller:
+            return False
+        return CardType.LAND in (entering.characteristics.types or set())
+
+    def force_tapped(event: Event, st: GameState):
+        new_event = event.copy()
+        new_event.payload['tapped'] = True
+        return new_event
+
+    def crime_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Sand Soldier',
+                    'power': 1, 'toughness': 1,
+                    'colors': {Color.BLACK},
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Sand', 'Soldier'},
+                },
+            },
+            source=obj.id,
+        )]
+
+    interceptors: list[Interceptor] = []
+    interceptors.extend(make_replacement_effect(
+        obj,
+        event_filter=is_opp_land_etb,
+        replace_fn=force_tapped,
+    ))
+    interceptors.append(make_crime_committed_trigger(obj, crime_effect))
+    return interceptors
+
+CROCODILE_SANDSTORM = make_creature(
+    name="Crocodile, Sandstorm of Alabasta",
+    power=3, toughness=4,
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Pirate"},
+    supertypes={"Legendary"},
+    text=(
+        "Lands your opponents control enter the battlefield tapped. "
+        "Whenever you commit a crime, create a 1/1 black Sand Soldier "
+        "creature token. (Targeting an opponent or anything they control "
+        "or any card in their graveyard is a crime.)"
+    ),
+    setup_interceptors=crocodile_sandstorm_setup,
+)
+
+
+# --- Buggy, the Star Clown --- {2}{B}{R} 3/3 Rare
+# Recursion / persistence: when Buggy dies, return him to your hand at the
+# next upkeep (delayed via end-step → upkeep flag). Plus ETB-treasure to
+# fuel a sac engine.
+def buggy_star_clown_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB Treasure; on Buggy's death, set a flag — at our next upkeep,
+    return Buggy from graveyard to hand."""
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Treasure', 'types': {CardType.ARTIFACT},
+                    'subtypes': {'Treasure'},
+                },
+            },
+            source=obj.id,
+        )]
+
+    def death_effect(event: Event, st: GameState) -> list[Event]:
+        # Mark turn_data so the upkeep trigger picks Buggy up.
+        st.turn_data['_buggy_revive_owner'] = obj.controller
+        st.turn_data['_buggy_revive_id'] = obj.id
+        return []
+
+    def upkeep_revive(event: Event, st: GameState) -> list[Event]:
+        # The make_upkeep_trigger filter already gated on
+        # state.active_player == obj.controller (see gotcha #8). We still
+        # need to gate on the death-flag.
+        revive_id = st.turn_data.get('_buggy_revive_id')
+        revive_owner = st.turn_data.get('_buggy_revive_owner')
+        if revive_id != obj.id or revive_owner != obj.controller:
+            return []
+        # Verify the card is in fact in our graveyard.
+        live = st.objects.get(obj.id)
+        if not live or live.zone != ZoneType.GRAVEYARD:
+            return []
+        # Clear the flag.
+        st.turn_data.pop('_buggy_revive_id', None)
+        st.turn_data.pop('_buggy_revive_owner', None)
+        return [Event(
+            type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+            payload={'object_id': obj.id, 'controller': obj.controller},
+            source=obj.id,
+        )]
+
+    interceptors: list[Interceptor] = [
+        make_etb_trigger(obj, etb_effect),
+        make_death_trigger(obj, death_effect),
+    ]
+    # Upkeep trigger — registered with duration 'while_on_battlefield' would
+    # die when Buggy moves to the graveyard. We need a longer-lived trigger.
+    # Use 'permanent' (forever) and gate by zone in the effect_fn:
+    # make_upkeep_trigger uses duration 'while_on_battlefield' by default;
+    # build the upkeep trigger manually with a permanent duration.
+    def upkeep_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        if event.payload.get('phase') != 'upkeep':
+            return False
+        return st.active_player == obj.controller
+
+    def upkeep_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=upkeep_revive(event, st),
+        )
+
+    upkeep_trigger = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=upkeep_filter,
+        handler=upkeep_handler,
+        duration='forever',  # outlives the trip to the graveyard
+    )
+    interceptors.append(upkeep_trigger)
+    return interceptors
+
+BUGGY_STAR_CLOWN = make_creature(
+    name="Buggy, the Star Clown",
+    power=3, toughness=3,
+    mana_cost="{2}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Human", "Pirate"},
+    supertypes={"Legendary"},
+    text=(
+        "When Buggy enters, create a Treasure token. "
+        "When Buggy dies, return him to your hand at the beginning of your "
+        "next upkeep. (Buggy's body falls apart but the parts find each "
+        "other again.)"
+    ),
+    setup_interceptors=buggy_star_clown_setup,
+)
+
+
+# --- Wanted Poster: Three Billion Berries --- {2}{B} Rare Legendary Enchantment
+# Snowball value + crime escalator: each crime adds a counter; threshold (5+)
+# = deals damage to each opponent equal to counters and creates Treasures.
+def wanted_poster_3b_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you commit a crime, put a +1/+1 counter on Wanted Poster.
+    {2}{B}, Sacrifice Wanted Poster: it deals damage to each opponent equal
+    to the number of counters on it, and you create that many Treasures."""
+    def counter_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+        )]
+
+    def detonate_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        amount = o.state.counters.get('+1/+1', 0)
+        if amount <= 0:
+            return []
+        events: list[Event] = []
+        for pid in st.players:
+            if pid == o.controller:
+                continue
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': pid, 'amount': amount, 'source': o.id, 'is_combat': False},
+                source=o.id,
+            ))
+        # Treasure tokens equal to counters.
+        for _ in range(amount):
+            events.append(Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': o.controller,
+                    'token': {
+                        'name': 'Treasure',
+                        'types': {CardType.ARTIFACT},
+                        'subtypes': {'Treasure'},
+                    },
+                },
+                source=o.id,
+            ))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{2}{B}, Sacrifice Wanted Poster: Three Billion Berries",
+        effect_fn=detonate_effect,
+        description=(
+            "{2}{B}, Sacrifice Wanted Poster: It deals damage to each opponent "
+            "equal to the number of +1/+1 counters on it, and you create that "
+            "many Treasure tokens."
+        ),
+    )
+
+    return [make_crime_committed_trigger(obj, counter_effect)]
+
+WANTED_POSTER_3B = make_enchantment_with_subtypes(
+    name="Wanted Poster: Three Billion Berries",
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    subtypes=set(),
+    supertypes={"Legendary"},
+    text=(
+        "Whenever you commit a crime, put a +1/+1 counter on Wanted Poster: "
+        "Three Billion Berries. "
+        "{2}{B}, Sacrifice Wanted Poster: It deals damage to each opponent "
+        "equal to the number of +1/+1 counters on it. Then you create that "
+        "many Treasure tokens."
+    ),
+    setup_interceptors=wanted_poster_3b_setup,
+)
+
+
+# --- Devil Fruit Vault --- {3} Rare Legendary Artifact
+# Tutoring/consistency: {T}: add a colorless mana. {3}, {T}, sacrifice:
+# search your library for a Devil Fruit aura and put it into your hand.
+def devil_fruit_vault_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: {C}. {3}, {T}, sacrifice: tutor a Devil Fruit card."""
+    def mana_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {'C': 1}},
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=mana_effect,
+        description="Tap: Add {C}.",
+    )
+
+    def tutor_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        # Sacrifice is part of the cost (parsed from cost string).
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'subtype': 'Devil Fruit',
+                'destination': 'hand',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{3}, {T}, Sacrifice Devil Fruit Vault",
+        effect_fn=tutor_effect,
+        description=(
+            "{3}, {T}, Sacrifice Devil Fruit Vault: Search your library for "
+            "a Devil Fruit card, reveal it, put it into your hand."
+        ),
+    )
+    return []
+
+from src.engine import CardDefinition as _CardDef  # re-import for clarity
+
+DEVIL_FRUIT_VAULT = _CardDef(
+    name="Devil Fruit Vault",
+    mana_cost="{3}",
+    characteristics=Characteristics(
+        types={CardType.ARTIFACT},
+        supertypes={"Legendary"},
+        mana_cost="{3}",
+    ),
+    text=(
+        "{T}: Add {C}. "
+        "{3}, {T}, Sacrifice Devil Fruit Vault: Search your library for a "
+        "Devil Fruit card, reveal it, put it into your hand, then shuffle."
+    ),
+    setup_interceptors=devil_fruit_vault_setup,
+)
+
+
+# --- Fishman Karate Trident --- {2} Equipment Uncommon
+# Equipment + tribal seat: equipped creature gets +2/+2, gains the Fish-Man
+# subtype (so other Fish-Man lords pump it), and gains "{1}{U}: Tap target
+# creature." Equip {2}.
+def _fishman_trident_tap_target(o: GameObject, st: GameState, targets: list) -> list[Event]:
+    """Granted ability on the equipped creature: {1}{U}: tap target creature."""
+    if not targets:
+        return []
+    target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+    target = st.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    if CardType.CREATURE not in (target.characteristics.types or set()):
+        return []
+    return [Event(
+        type=EventType.TAP,
+        payload={'object_id': target_id},
+        source=o.id,
+    )]
+
+
+FISHMAN_KARATE_TRIDENT = _CardDef(
+    name="Fishman Karate Trident",
+    mana_cost="{2}",
+    characteristics=Characteristics(
+        types={CardType.ARTIFACT},
+        subtypes={"Equipment"},
+        mana_cost="{2}",
+    ),
+    text=(
+        "Equipped creature gets +2/+2 and is a Fish-Man in addition to its "
+        "other types. Equipped creature has \"{1}{U}: Tap target creature.\" "
+        "Equip {2}."
+    ),
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=2,
+        subtypes_to_add={"Fish-Man"},
+        equip_cost="{2}",
+        granted_activated_abilities={
+            'cost': "{1}{U}",
+            'effect_fn': _fishman_trident_tap_target,
+            'description': "{1}{U}: Tap target creature.",
+            'targets_required': 1,
+            'target_kind': 'creature',
+        },
+    ),
+)
+
+
+# --- Skypiea Gold Hoard --- {2} Rare Artifact
+# Treasure sac payoff (two-card combo enablement): {T}: add {C}. {3}, sacrifice
+# three Treasures: take an extra turn after this one. (Sacrifice is part of
+# the cost.)
+def skypiea_gold_hoard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: {C}. {3}, Sacrifice three Treasures: take an extra turn."""
+    def mana_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {'C': 1}},
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=mana_effect,
+        description="Tap: Add {C}.",
+    )
+
+    def extra_turn_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        # Cost: {3} + sacrifice three Treasures the controller controls. The
+        # cost-string parser handles the {3}; the three-Treasure sacrifice we
+        # enforce + emit here so the player can't dodge the cost.
+        treasure_ids = [
+            o2.id for o2 in st.objects.values()
+            if o2.zone == ZoneType.BATTLEFIELD
+            and o2.controller == o.controller
+            and 'Treasure' in (o2.characteristics.subtypes or set())
+        ]
+        if len(treasure_ids) < 3:
+            return []
+        events: list[Event] = []
+        for tid in treasure_ids[:3]:
+            events.append(Event(
+                type=EventType.SACRIFICE,
+                payload={'object_id': tid},
+                source=o.id,
+            ))
+        events.append(Event(
+            type=EventType.EXTRA_TURN,
+            payload={'player': o.controller},
+            source=o.id,
+        ))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{3}",
+        effect_fn=extra_turn_effect,
+        description=(
+            "{3}, Sacrifice three Treasures: Take an extra turn after this one."
+        ),
+    )
+    return []
+
+SKYPIEA_GOLD_HOARD = _CardDef(
+    name="Skypiea Gold Hoard",
+    mana_cost="{2}",
+    characteristics=Characteristics(
+        types={CardType.ARTIFACT},
+        mana_cost="{2}",
+    ),
+    text=(
+        "{T}: Add {C}. "
+        "{3}, Sacrifice three Treasures: Take an extra turn after this one."
+    ),
+    setup_interceptors=skypiea_gold_hoard_setup,
+)
+
+
+# =============================================================================
 # CARD DICTIONARY
 # =============================================================================
 
@@ -3643,6 +4376,18 @@ ONE_PIECE_CARDS = {
     "Cutlass Sailor": CUTLASS_SAILOR,
     "Helm Pirate": HELM_PIRATE,
     "Marine Strike Force": MARINE_STRIKE_FORCE,
+
+    # SPICE PASS PHASE A — format-defining captains, treasure payoffs,
+    # devil-fruit tutors, bounty/crime escalators, fish-man tribal seat.
+    "Monkey D. Luffy, King of the Pirates": LUFFY_KING_OF_PIRATES,
+    "Roronoa Zoro, Demon of East Blue": ZORO_DEMON_OF_EAST_BLUE,
+    "Sanji, Cook of the Sea": SANJI_COOK_OF_THE_SEA,
+    "Crocodile, Sandstorm of Alabasta": CROCODILE_SANDSTORM,
+    "Buggy, the Star Clown": BUGGY_STAR_CLOWN,
+    "Wanted Poster: Three Billion Berries": WANTED_POSTER_3B,
+    "Devil Fruit Vault": DEVIL_FRUIT_VAULT,
+    "Fishman Karate Trident": FISHMAN_KARATE_TRIDENT,
+    "Skypiea Gold Hoard": SKYPIEA_GOLD_HOARD,
 }
 
 print(f"Loaded {len(ONE_PIECE_CARDS)} One Piece: Grand Line cards")
@@ -3940,4 +4685,14 @@ CARDS = [
     CUTLASS_SAILOR,
     HELM_PIRATE,
     MARINE_STRIKE_FORCE,
+    # Spice Pass Phase A
+    LUFFY_KING_OF_PIRATES,
+    ZORO_DEMON_OF_EAST_BLUE,
+    SANJI_COOK_OF_THE_SEA,
+    CROCODILE_SANDSTORM,
+    BUGGY_STAR_CLOWN,
+    WANTED_POSTER_3B,
+    DEVIL_FRUIT_VAULT,
+    FISHMAN_KARATE_TRIDENT,
+    SKYPIEA_GOLD_HOARD,
 ]
