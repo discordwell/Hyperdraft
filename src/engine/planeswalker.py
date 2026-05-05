@@ -556,9 +556,92 @@ def planeswalkers_with_zero_loyalty(state: GameState) -> list:
     return out
 
 
+# ---------------------------------------------------------------------------
+# W15: Combat redirect (CR 508.1.h) and non-combat damage redirect (CR 113.5g)
+# ---------------------------------------------------------------------------
+
+
+def is_planeswalker(obj: GameObject) -> bool:
+    """True if this GameObject is a battlefield planeswalker."""
+    from .types import CardType
+    if obj is None or obj.zone != ZoneType.BATTLEFIELD:
+        return False
+    return CardType.PLANESWALKER in obj.characteristics.types
+
+
+def planeswalkers_controlled_by(state: GameState, player_id: str) -> list[GameObject]:
+    """Return battlefield planeswalkers controlled by ``player_id``."""
+    out = []
+    battlefield = state.zones.get('battlefield')
+    if not battlefield:
+        return out
+    for obj_id in list(battlefield.objects):
+        obj = state.objects.get(obj_id)
+        if obj is None:
+            continue
+        if obj.controller != player_id:
+            continue
+        if is_planeswalker(obj):
+            out.append(obj)
+    return out
+
+
+def redirect_attack_to_planeswalker(decl, state: GameState, pw_id: str) -> bool:
+    """Repoint an :class:`AttackDeclaration` from its defending player to a
+    planeswalker that player controls. Returns True on success.
+
+    CR 508.1.h: as part of declaring attackers, the active player may declare
+    that an attacker is attacking a planeswalker controlled by the defending
+    player rather than the player. The planeswalker must be controlled by
+    the defending player.
+    """
+    pw = state.objects.get(pw_id)
+    if pw is None or not is_planeswalker(pw):
+        return False
+    target_player = getattr(decl, "defending_player_id", None)
+    if target_player and pw.controller != target_player:
+        return False
+    decl.is_attacking_planeswalker = True
+    decl.defending_player_id = pw_id
+    return True
+
+
+def redirect_damage_to_planeswalker(
+    event: Event,
+    state: GameState,
+    pw_id: str,
+) -> Optional[Event]:
+    """For non-combat damage events targeting a player, return a copy of the
+    event whose ``target`` is a planeswalker that player controls (CR 113.5g).
+
+    This is the rules helper for "damage that an opponent's spell or ability
+    would deal to that player can be redirected to a planeswalker that
+    player controls." Returns None if the redirect is illegal (target isn't
+    a player, or the PW isn't controlled by that player).
+    """
+    if event.type != EventType.DAMAGE:
+        return None
+    target = event.payload.get("target")
+    if not target or target not in state.players:
+        return None
+    pw = state.objects.get(pw_id)
+    if pw is None or not is_planeswalker(pw):
+        return None
+    if pw.controller != target:
+        return None
+    new_event = event.copy()
+    new_event.payload["target"] = pw_id
+    new_event.payload["_redirected_from_player"] = target
+    return new_event
+
+
 __all__ = [
     "make_loyalty_ability",
     "make_planeswalker_setup",
     "planeswalkers_with_zero_loyalty",
     "get_loyalty",
+    "is_planeswalker",
+    "planeswalkers_controlled_by",
+    "redirect_attack_to_planeswalker",
+    "redirect_damage_to_planeswalker",
 ]

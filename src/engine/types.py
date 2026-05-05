@@ -438,6 +438,22 @@ class EventType(Enum):
     #   source        - id of the damaging permanent (or None)
     PLANESWALKER_DAMAGED = auto()
 
+    # ------------------------------------------------------------------
+    # W15: Planeswalker deepening — combat redirect, legend rule, emblems.
+    # See src/engine/planeswalker.py / src/engine/emblem.py.
+    # ------------------------------------------------------------------
+    # Emitted when an emblem is created. Payload:
+    #   emblem_id     - id of the new emblem
+    #   controller    - player who owns/controls the emblem
+    #   source_card   - source PW name (informational)
+    EMBLEM_CREATED = auto()
+    # Marker emitted when the legend rule destroys a duplicate legendary
+    # permanent. Payload:
+    #   object_id     - permanent put into graveyard
+    #   kept_id       - permanent the player chose to keep
+    #   name          - shared legendary name
+    LEGEND_RULE_TRIGGERED = auto()
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
@@ -1134,6 +1150,12 @@ class GameState:
 
     # Player choice system - when set, game is paused waiting for input
     pending_choice: Optional['PendingChoice'] = None
+
+    # W15: emblems (CR 113.1c) live forever in the command zone with their
+    # interceptors registered on ``self.interceptors``. The Emblem dataclass
+    # is defined in src/engine/emblem.py. Stored as ``Any`` here to avoid a
+    # forward import cycle through types.py.
+    emblems: list = field(default_factory=list)
 
     # ---------------------------------------------------------------------
     # Temporary permissions / replacement effects (turn-based)

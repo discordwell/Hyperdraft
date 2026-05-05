@@ -3339,6 +3339,18 @@ class PrioritySystem:
                         self._emit_event(event)
                         found_sba = True
 
+            # W15: planeswalker zero-loyalty SBA + legend rule SBA.
+            from .turn import (
+                check_planeswalker_zero_loyalty_sbas,
+                check_legend_rule_sbas,
+            )
+            pw_events = check_planeswalker_zero_loyalty_sbas(self.state, self.pipeline)
+            if pw_events:
+                found_sba = True
+            legend_events = check_legend_rule_sbas(self.state, self.pipeline)
+            if legend_events:
+                found_sba = True
+
             if not found_sba:
                 break
 
