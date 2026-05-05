@@ -143,3 +143,17 @@ def test_minion_only_damage_spell_does_not_create_fake_face_lethal():
     assert lethal["is_lethal"] is False
     assert lethal["burn_damage"] == 0
     assert targets == [[target.id]]
+
+
+def test_damage_hero_power_fires_before_card_play_when_lethal():
+    game, p1, p2 = _new_hs_game("Hunter", "Warrior")
+    ai = HearthstoneAIAdapter(difficulty="hard")
+    p1.mana_crystals_available = 2
+    p2.life = 2
+    _hand_card(game, BLOODFEN_RAPTOR, p1)
+
+    assert ai._should_use_hero_power_early(game.state, p1.id) is True
+
+    p2.armor = 1
+
+    assert ai._should_use_hero_power_early(game.state, p1.id) is False
