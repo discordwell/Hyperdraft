@@ -104,6 +104,10 @@ class CostStep:
     allowed_types: Optional[set[CardType]] = None
     # For OR steps: each option is a full sub-plan.
     options: Optional[tuple["CostPlan", ...]] = None
+    # For ``sacrifice_named`` (and other name-gated costs), the exact card
+    # name to match against ``GameObject.name``. Lowercased at parse time
+    # for case-insensitive matching during cost validation/payment.
+    name_match: Optional[str] = None
 
 
 CostPlan = tuple[CostStep, ...]
@@ -139,6 +143,8 @@ def describe_plan(plan: CostPlan) -> str:
             parts.append(f"tap {step.amount} permanent(s)")
         elif step.kind == "exile_from_graveyard":
             parts.append(f"exile {step.amount} card(s) from your graveyard")
+        elif step.kind == "sacrifice_named":
+            parts.append(f"sacrifice {step.name_match}")
         elif step.kind == "return_to_hand":
             parts.append(f"return {step.amount} permanent(s) you control to its owner's hand")
         elif step.kind == "exile_you_control":
@@ -232,6 +238,16 @@ _DISCARD_RE = re.compile(r"^discard\s+(?:a|an|one)\s+card$", re.IGNORECASE)
 _DISCARD_N_RE = re.compile(r"^discard\s+(\d+)\s+cards?$", re.IGNORECASE)
 _DISCARD_TYPED_RE = re.compile(r"^discard\s+(?:a|an|one)\s+(\w+)\s+card$", re.IGNORECASE)
 _SACRIFICE_RE = re.compile(r"^(?:sacrifice|sacrificing)\s+(?:a|an|one)\s+(.+)$", re.IGNORECASE)
+# "Sacrifice <Named Card>" — used by activated-ability costs like
+# "{3}, {T}, Sacrifice Deconstruction Hammer: ...". The named-card form
+# matches only when the phrase is NOT a known type list ("a creature",
+# "this artifact", "this") and starts with an uppercase letter (i.e.
+# a proper noun). Case-insensitive at match time, but we strip leading
+# articles to avoid colliding with the typed-sacrifice pattern.
+_SACRIFICE_NAMED_RE = re.compile(
+    r"^(?:sacrifice|sacrificing)\s+(?!a\b|an\b|one\b|two\b|three\b|four\b|five\b|six\b|seven\b|eight\b|nine\b|ten\b|this\b|that\b|it\b|another\b|all\b|each\b|the\b)(.+)$",
+    re.IGNORECASE,
+)
 _TAP_RE = re.compile(r"^(?:tap|tapping)\s+(\w+)\s+untapped\s+(.+?)\s+you control$", re.IGNORECASE)
 _EXILE_FROM_GY_RE = re.compile(r"^(?:exile|exiling)\s+(\w+)\s+cards?\s+from your graveyard$", re.IGNORECASE)
 _RETURN_TO_HAND_RE = re.compile(r"^(?:return|returning)\s+(?:a|an|one)\s+permanent you control to its owner's hand$", re.IGNORECASE)
@@ -382,6 +398,23 @@ def _parse_single_phrase(expr: str) -> Optional[CostStep]:
         if n is None:
             return None
         return CostStep(kind="remove_counters", amount=n)
+
+    # sacrifice <Named Card> — e.g. "Sacrifice Deconstruction Hammer".
+    # Tried last so the typed-list form wins for "sacrifice a creature".
+    m = _SACRIFICE_NAMED_RE.match(expr)
+    if m:
+        name = m.group(1).strip()
+        # Don't accept if the captured text starts with a known type word
+        # (defensive — the negative lookahead already screens articles).
+        first_word = name.split()[0].lower() if name else ""
+        type_words = {
+            "creature", "creatures", "artifact", "artifacts",
+            "enchantment", "enchantments", "land", "lands",
+            "planeswalker", "planeswalkers", "permanent", "permanents",
+            "token", "tokens", "elf", "goblin", "human",  # common subtypes
+        }
+        if first_word and first_word not in type_words and name:
+            return CostStep(kind="sacrifice_named", amount=1, name_match=name.lower())
 
     return None
 
