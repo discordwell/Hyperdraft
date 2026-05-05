@@ -255,6 +255,68 @@ class PokemonAIAdapter:
 
         return best_id
 
+    def choose_boss_target(self, player_id: str, state: GameState,
+                           candidates: list[str] | None = None) -> Optional[str]:
+        """Choose the best opposing Bench target for Boss's Orders."""
+        settings = self._get_settings(player_id)
+        if not (settings.get('use_prize_strategy') or settings.get('use_ko_math')):
+            return None
+
+        opp_id = self._opponent_id(state, player_id)
+        if not opp_id:
+            return None
+
+        candidate_ids = list(candidates) if candidates is not None else self._get_bench(state, opp_id)
+        if not candidate_ids:
+            return None
+
+        my_active_id = self._get_active(state, player_id)
+        my_player = state.players.get(player_id)
+        my_prizes = my_player.prizes_remaining if my_player else 6
+        combat_mgr = PokemonCombatManager(state)
+        available_attacks = (
+            combat_mgr.get_available_attacks(my_active_id) if my_active_id else []
+        )
+
+        best_id = None
+        best_score = -9999.0
+        for target_id in candidate_ids:
+            target = state.objects.get(target_id)
+            if not target or not target.card_def:
+                continue
+
+            remaining_hp = self._remaining_hp(target)
+            prize_value = target.card_def.prize_count or 1
+            best_damage = 0
+            for attack in available_attacks:
+                damage = attack.get('damage', 0)
+                if damage <= 0:
+                    continue
+                best_damage = max(
+                    best_damage,
+                    combat_mgr.calculate_damage(my_active_id, target_id, damage),
+                )
+
+            can_ko = best_damage >= remaining_hp > 0
+            score = prize_value * 24.0
+            score += target.state.damage_counters * 3.0
+            score -= max(0, remaining_hp - best_damage) / 8.0
+
+            if can_ko:
+                score += 55.0
+                if my_prizes <= prize_value:
+                    score += 120.0
+                elif prize_value >= 2:
+                    score += 25.0
+            elif target.card_def.is_ex:
+                score += 10.0
+
+            if score > best_score:
+                best_score = score
+                best_id = target_id
+
+        return best_id
+
     # ── Scoring / lethal delegates ────────────────────────────────
 
     def _estimate_damage(self, attacker: 'GameObject', defender: 'GameObject',

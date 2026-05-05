@@ -36,6 +36,22 @@ def _choose_ai_bench_switch_target(state, player_id, candidates):
     return chosen if chosen in candidates else None
 
 
+def _choose_ai_boss_orders_target(state, player_id, candidates):
+    """Let AI profiles select a Boss's Orders target when resolving the card."""
+    game = getattr(state, '_game', None)
+    turn_manager = getattr(game, 'turn_manager', None) if game else None
+    ai_handler = getattr(turn_manager, 'pokemon_ai_handler', None)
+    ai_players = getattr(turn_manager, 'ai_players', set())
+    if not ai_handler or player_id not in ai_players:
+        return None
+
+    chooser = getattr(ai_handler, 'choose_boss_target', None)
+    if not chooser:
+        return None
+    chosen = chooser(player_id, state, candidates)
+    return chosen if chosen in candidates else None
+
+
 def _professors_research_effect(event, state):
     """Discard your hand and draw 7 cards."""
     player_id = event.payload.get('player')
@@ -391,7 +407,9 @@ def _boss_orders_effect(event, state):
     bench_zone = state.zones.get(bench_key)
     if not active_zone or not active_zone.objects or not bench_zone or not bench_zone.objects:
         return []
-    # Pick the weakest bench Pokemon to drag in (lowest HP)
+    # AI profiles can prefer a high-prize or game-winning target; deterministic
+    # fallback remains the weakest bench Pokemon.
+    chosen_id = _choose_ai_boss_orders_target(state, player_id, list(bench_zone.objects))
     worst_id = None
     worst_hp = 9999
     for pkm_id in bench_zone.objects:
@@ -401,21 +419,21 @@ def _boss_orders_effect(event, state):
             if hp < worst_hp:
                 worst_hp = hp
                 worst_id = pkm_id
-    if not worst_id:
-        worst_id = bench_zone.objects[0]
+    if not chosen_id:
+        chosen_id = worst_id or bench_zone.objects[0]
     old_active_id = active_zone.objects[0]
-    active_zone.objects[0] = worst_id
-    bench_zone.objects.remove(worst_id)
+    active_zone.objects[0] = chosen_id
+    bench_zone.objects.remove(chosen_id)
     bench_zone.objects.append(old_active_id)
     old_active = state.objects.get(old_active_id)
-    new_active = state.objects.get(worst_id)
+    new_active = state.objects.get(chosen_id)
     if old_active:
         old_active.zone = ZoneType.BENCH
     if new_active:
         new_active.zone = ZoneType.ACTIVE_SPOT
     return [Event(
         type=EventType.PKM_SWITCH,
-        payload={'player': opp_id, 'old_active': old_active_id, 'new_active': worst_id},
+        payload={'player': opp_id, 'old_active': old_active_id, 'new_active': chosen_id},
     )]
 
 
