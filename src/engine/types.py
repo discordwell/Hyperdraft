@@ -326,8 +326,10 @@ class EventType(Enum):
     STATION_ACTIVATE = auto()           # Player taps another creature to charge a Station
     STATION_CHARGE = auto()             # Charge counters being added to a Station
     STATION_THRESHOLD_REACHED = auto()  # Station reached a charge threshold
+    STATION_ACTIVATED = auto()          # Marker: Station ability resolved (post-charge, post-threshold)
     # Edge of Eternities — Void mechanic
     VOID_ACTIVATED = auto()           # Marker: Void condition became true this turn for a player
+    VOID_TRIGGERED = auto()           # Marker: a Void-gated triggered ability fired this turn
 
     # Generic coin flip primitive (FIN, custom sets, legacy cards). The
     # turn_state tracker emits/observes these. Payload typically includes

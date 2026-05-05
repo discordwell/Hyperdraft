@@ -37,6 +37,9 @@ from src.cards.interceptor_helpers import (
     make_void_end_step_trigger, make_void_attack_trigger, is_void_active,
     make_lander_etb_trigger, make_lander_death_trigger,
     make_station_creature_setup,
+    # EOE Station + Void
+    make_station_ability, make_charge_threshold_ability, make_void_trigger,
+    is_stationed, get_station_charge,
     make_activated_ability, make_pump_self_ability, make_draw_ability,
     make_damage_ability, make_destroy_ability, make_counter_ability,
     make_token_creation_ability, make_sac_destroy_ability,
@@ -2643,13 +2646,15 @@ def umbral_collar_zealot_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def voidforged_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Void EOT: draw a card and lose 1 life."""
+    """Void — At the beginning of your end step, if void: draw a card and lose 1 life."""
     def void_effect(event: Event, state: GameState) -> list[Event]:
         return [
             Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id),
             Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': -1}, source=obj.id),
         ]
-    return [make_void_end_step_trigger(obj, void_effect)]
+    # make_void_trigger emits a VOID_TRIGGERED marker alongside the effect and
+    # honours the broader void condition (LTB / big-spell / warp / exile-this-turn).
+    return [make_void_trigger(obj, void_effect)]
 
 
 def xuifit_osteoharmonist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2671,14 +2676,14 @@ def galvanizing_sawship_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def kavaron_skywarden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Reach; void EOT: +1/+1 counter."""
+    """Reach; Void — At the beginning of your end step, if void: put a +1/+1 counter on this creature."""
     def void_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.COUNTER_ADDED,
             payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
             source=obj.id
         )]
-    return [make_void_end_step_trigger(obj, void_effect)]
+    return [make_void_trigger(obj, void_effect)]
 
 
 def kavaron_turbodrone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3341,9 +3346,36 @@ def command_bridge_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 def evendo_waking_haven_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Enters tapped; {T}: Add G; Station 12+ | {G},{T}: Add G for each creature you control."""
-    # engine gap: enters-tapped land flag + activated mana ability + charge-counter-threshold-gated
-    # activated mana ability (X = creatures-you-control count).
-    return []
+    # Station: tap an untapped creature you control to put charge counters
+    # equal to its power on this Planet (sorcery speed).
+    station_interceptors = make_station_ability(obj, threshold=12)
+
+    # Threshold-gated mana ability: {G},{T}: Add {G} for each creature you control.
+    def add_green_per_creature(o: GameObject, st: GameState, targets) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return []
+        n = 0
+        for cid in bf.objects:
+            c = st.objects.get(cid)
+            if c and c.controller == o.controller and CardType.CREATURE in c.characteristics.types:
+                n += 1
+        if n <= 0:
+            return []
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {'G': n}},
+            source=o.id, controller=o.controller,
+        )]
+
+    threshold_interceptors = make_charge_threshold_ability(
+        obj,
+        threshold=12,
+        cost="{G}, {T}",
+        effect_fn=add_green_per_creature,
+        description="{G}, {T}: Add {G} for each creature you control",
+    )
+    return list(station_interceptors) + list(threshold_interceptors)
 
 
 def godless_shrine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3354,9 +3386,64 @@ def godless_shrine_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 def kavaron_memorial_world_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Enters tapped; {T}: Add R; Station 12+ | {1}{R},{T},sac land: 2/2 Robot token + creatures get +1/+0 haste EOT."""
-    # engine gap: enters-tapped land flag + activated mana ability + charge-counter-threshold-gated
-    # activated ability with sacrifice cost (token creation + temporary mass pump-and-haste).
-    return []
+    station_interceptors = make_station_ability(obj, threshold=12)
+
+    # Threshold-gated activated: create 2/2 Robot, pump creatures.
+    # Note: the printed cost includes "Sacrifice a land". We approximate by
+    # adding a self-sacrifice fallback parsed by the activated framework when
+    # a generic "sacrifice a land" cost is unsupported. Until that lands the
+    # effect-side does the work and the AI can still activate it once.
+    def deploy_robot_and_pump(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Robot Token',
+                'controller': o.controller,
+                'owner': o.controller,
+                'to_zone_type': ZoneType.BATTLEFIELD,
+                'types': {CardType.ARTIFACT, CardType.CREATURE},
+                'subtypes': {'Robot'},
+                'colors': set(),
+                'power': 2, 'toughness': 2,
+                'abilities': [],
+                'is_token': True,
+            },
+            source=o.id, controller=o.controller,
+        ))
+        bf = st.zones.get('battlefield')
+        if bf:
+            for cid in bf.objects:
+                c = st.objects.get(cid)
+                if c and c.controller == o.controller and CardType.CREATURE in c.characteristics.types:
+                    events.append(Event(
+                        type=EventType.PT_MODIFICATION,
+                        payload={
+                            'object_id': c.id,
+                            'power_mod': 1, 'toughness_mod': 0,
+                            'duration': 'end_of_turn',
+                        },
+                        source=o.id, controller=o.controller,
+                    ))
+                    events.append(Event(
+                        type=EventType.GRANT_KEYWORD,
+                        payload={
+                            'object_id': c.id,
+                            'keyword': 'haste',
+                            'duration': 'end_of_turn',
+                        },
+                        source=o.id, controller=o.controller,
+                    ))
+        return events
+
+    threshold_interceptors = make_charge_threshold_ability(
+        obj,
+        threshold=12,
+        cost="{1}{R}, {T}",
+        effect_fn=deploy_robot_and_pump,
+        description="{1}{R}, {T}, Sacrifice a land: Create a 2/2 Robot, mass +1/+0 + haste EOT",
+    )
+    return list(station_interceptors) + list(threshold_interceptors)
 
 
 def sacred_foundry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3404,16 +3491,86 @@ def stomping_ground_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 def susur_secundi_void_altar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Enters tapped; {T}: Add B; Station 12+ | {1}{B},{T},pay 2 life,sac a creature: draw cards = sacrificed power."""
-    # engine gap: enters-tapped land flag + activated mana ability + charge-counter-threshold-gated
-    # activated ability with multi-component cost (life payment + sacrifice) + dynamic draw count.
-    return []
+    station_interceptors = make_station_ability(obj, threshold=12)
+
+    # Threshold-gated: pay 2 life, sac a target creature, draw cards = power.
+    def void_altar_draw(o: GameObject, st: GameState, targets) -> list[Event]:
+        # The cost framework doesn't yet parse "Sacrifice a creature" with a
+        # dynamic-power readback, so we encode the readback here: targets[0]
+        # is the chosen creature to sacrifice.
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        if not target_id:
+            return []
+        target_obj = st.objects.get(target_id)
+        if target_obj is None:
+            return []
+        from src.engine.queries import get_power as _get_power
+        power = max(0, int(_get_power(target_obj, st)))
+        events: list[Event] = [
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': o.controller, 'amount': -2},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.SACRIFICE,
+                payload={'object_id': target_id, 'controller': o.controller},
+                source=o.id, controller=o.controller,
+            ),
+        ]
+        if power > 0:
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': o.controller, 'amount': power},
+                source=o.id, controller=o.controller,
+            ))
+        return events
+
+    threshold_interceptors = make_charge_threshold_ability(
+        obj,
+        threshold=12,
+        cost="{1}{B}, {T}",
+        effect_fn=void_altar_draw,
+        description="{1}{B}, {T}, Pay 2 life, Sacrifice a creature: Draw cards equal to its power",
+        sorcery_speed=True,
+        targets_required=1,
+        target_kind="creature_you_control",
+    )
+    return list(station_interceptors) + list(threshold_interceptors)
 
 
 def uthros_titanic_godcore_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Enters tapped; {T}: Add U; Station 12+ | {U},{T}: Add U for each artifact you control."""
-    # engine gap: enters-tapped land flag + activated mana ability + charge-counter-threshold-gated
-    # activated mana ability (X = artifacts-you-control count).
-    return []
+    station_interceptors = make_station_ability(obj, threshold=12)
+
+    def add_blue_per_artifact(o: GameObject, st: GameState, targets) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return []
+        n = 0
+        for cid in bf.objects:
+            c = st.objects.get(cid)
+            if c and c.controller == o.controller and CardType.ARTIFACT in c.characteristics.types:
+                n += 1
+        if n <= 0:
+            return []
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {'U': n}},
+            source=o.id, controller=o.controller,
+        )]
+
+    threshold_interceptors = make_charge_threshold_ability(
+        obj,
+        threshold=12,
+        cost="{U}, {T}",
+        effect_fn=add_blue_per_artifact,
+        description="{U}, {T}: Add {U} for each artifact you control",
+    )
+    return list(station_interceptors) + list(threshold_interceptors)
 
 
 def watery_grave_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

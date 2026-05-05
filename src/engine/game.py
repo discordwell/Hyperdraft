@@ -803,6 +803,12 @@ class Game:
         from .void import register_void_tracker
         register_void_tracker(self)
 
+        # EOE Station mechanic — see src/engine/eoe_mechanics.py.
+        # Registers STATION_ACTIVATE / STATION_CHARGE / STATION_THRESHOLD_REACHED
+        # event handlers as REACT system interceptors.
+        from .eoe_mechanics import register_eoe_station_handlers
+        register_eoe_station_handlers(self)
+
         # EOE Lander mechanic — see src/engine/lander.py.
         from .lander import register_lander_tracker
         register_lander_tracker(self)
