@@ -26,6 +26,8 @@ def _summarize_deck_metrics(deck_metrics: dict[str, dict[str, Any]]) -> dict[str
     decks_with_flags = 0
     curve_error_total = 0
     fill_rates: list[float] = []
+    functional_rates: list[float] = []
+    textless_nonland_total = 0
     worst_curve_deck = ""
     worst_curve_error = -1
 
@@ -40,12 +42,16 @@ def _summarize_deck_metrics(deck_metrics: dict[str, dict[str, Any]]) -> dict[str
             worst_curve_deck = label
             worst_curve_error = curve_error
         fill_rates.append(float(metrics.get("role_fill_rate", 0.0) or 0.0))
+        functional_rates.append(float(metrics.get("functional_nonland_ratio", 0.0) or 0.0))
+        textless_nonland_total += int(metrics.get("textless_nonland_count", 0) or 0)
         if metrics.get("quality_flags"):
             decks_with_flags += 1
 
     return {
         "deck_count": len(deck_metrics),
         "avg_role_fill_rate": round(sum(fill_rates) / len(fill_rates), 3) if fill_rates else 0.0,
+        "avg_functional_nonland_ratio": round(sum(functional_rates) / len(functional_rates), 3) if functional_rates else 0.0,
+        "textless_nonland_total": textless_nonland_total,
         "role_deficit_total": role_deficit_total,
         "role_deficits_by_role": dict(sorted(role_deficits_by_role.items())),
         "curve_error_total": curve_error_total,

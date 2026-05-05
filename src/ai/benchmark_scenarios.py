@@ -142,6 +142,28 @@ def _answer_large_threat_scenario(ai: AIEngine) -> ScenarioResult:
     return ScenarioResult("answer_large_threat_action", observed == expected, expected, observed)
 
 
+def _cast_card_draw_over_pass_scenario(ai: AIEngine) -> ScenarioResult:
+    game, p1, _ = _game()
+    for idx in range(3):
+        _obj(game, p1.id, f"Island {idx}", ZoneType.BATTLEFIELD, {CardType.LAND})
+    draw_spell = _obj(
+        game, p1.id, "Quick Study", ZoneType.HAND,
+        {CardType.INSTANT}, text="Draw two cards.", mana_cost="{2}{U}"
+    )
+
+    action = ai.get_action(
+        p1.id,
+        game.state,
+        [
+            LegalAction(type=ActionType.PASS),
+            LegalAction(type=ActionType.CAST_SPELL, card_id=draw_spell.id),
+        ],
+    )
+    observed = game.state.objects[action.card_id].name if action.card_id else action.type.name
+    expected = "Quick Study"
+    return ScenarioResult("cast_card_draw_over_pass", observed == expected, expected, observed)
+
+
 def _burn_target_scenario(ai: AIEngine) -> ScenarioResult:
     game, p1, p2 = _game()
     bolt = _obj(
@@ -291,6 +313,7 @@ def run_fixed_decision_benchmark(
     results = [
         _play_land_scenario(ai),
         _answer_large_threat_scenario(ai),
+        _cast_card_draw_over_pass_scenario(ai),
         _burn_target_scenario(ai),
         _lethal_burn_scenario(ai),
         _attack_scenario(ai),
