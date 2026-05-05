@@ -2887,6 +2887,150 @@ GOKU_PURE_OF_HEART = make_creature(
 
 
 # =============================================================================
+# SPICE PASS PHASE B — Cards using W7 (cast-from-zone) and existing engine
+# =============================================================================
+
+
+# --- Senzu Bean Reanimator --- {1}{G}{W} Sorcery, Rare
+def senzu_reanimator_resolve(targets: list, state: GameState) -> list[Event]:
+    """Return target creature ≤MV4 from graveyard to battlefield with haste +
+    indestructible until end of turn."""
+    if not targets:
+        return []
+    target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.GRAVEYARD:
+        return []
+    if CardType.CREATURE not in (target.characteristics.types or set()):
+        return []
+    # MV ≤ 4 check.
+    cost_str = (
+        target.characteristics.mana_cost
+        or (target.card_def.mana_cost if target.card_def else "")
+        or "{0}"
+    )
+    try:
+        from src.engine import ManaCost
+        if ManaCost.parse(cost_str).mana_value > 4:
+            return []
+    except Exception:
+        pass
+    return [
+        Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={
+                'object_id': target_id,
+                'destination': 'battlefield',
+                'controller': target.controller,
+            },
+            source=target_id,
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': target_id, 'keyword': 'haste', 'duration': 'end_of_turn'},
+            source=target_id,
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': target_id, 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+            source=target_id,
+        ),
+    ]
+
+SENZU_BEAN_REANIMATOR = make_sorcery(
+    name="Senzu Bean Reanimator",
+    mana_cost="{1}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    text=(
+        "Return target creature card with mana value 4 or less from your "
+        "graveyard to the battlefield. It gains haste and indestructible "
+        "until end of turn."
+    ),
+    resolve=senzu_reanimator_resolve,
+)
+
+
+# --- Hyperbolic Time Chamber, Refurbished --- {2} Legendary Artifact, Rare
+def hyperbolic_chamber_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: {C}. {4}, {T}, exile two creature cards from your graveyard:
+    take an extra turn after this one."""
+
+    def mana_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {'C': 1}},
+            source=o.id,
+        )]
+
+    ih.make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=mana_effect,
+        description="Tap: Add {C}.",
+    )
+
+    def extra_turn_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        # Cost: {4}, {T}, plus exile two graveyard creature cards (the two
+        # targets). Verify each target is in own graveyard and a creature.
+        gy_ids = []
+        for t in targets:
+            tid = t.object_id if hasattr(t, 'object_id') else t
+            tobj = st.objects.get(tid)
+            if not tobj or tobj.zone != ZoneType.GRAVEYARD:
+                continue
+            if tobj.controller != o.controller:
+                continue
+            if CardType.CREATURE not in (tobj.characteristics.types or set()):
+                continue
+            gy_ids.append(tid)
+        if len(gy_ids) < 2:
+            return []
+        events: list[Event] = []
+        for gy_id in gy_ids[:2]:
+            events.append(Event(
+                type=EventType.EXILE,
+                payload={'object_id': gy_id},
+                source=o.id,
+            ))
+        events.append(Event(
+            type=EventType.EXTRA_TURN,
+            payload={'player': o.controller},
+            source=o.id,
+        ))
+        return events
+
+    ih.make_activated_ability(
+        obj,
+        cost="{4}, {T}",
+        effect_fn=extra_turn_effect,
+        description=(
+            "{4}, {T}, exile two creature cards from your graveyard: "
+            "take an extra turn after this one."
+        ),
+        targets_required=2,
+        target_kind="creature",
+    )
+
+    return []
+
+HYPERBOLIC_TIME_CHAMBER_REFURBISHED = CardDefinition(
+    name="Hyperbolic Time Chamber, Refurbished",
+    mana_cost="{2}",
+    characteristics=Characteristics(
+        types={CardType.ARTIFACT},
+        supertypes={"Legendary"},
+        mana_cost="{2}",
+    ),
+    text=(
+        "{T}: Add {C}. "
+        "{4}, {T}, exile two creature cards from your graveyard: Take an "
+        "extra turn after this one."
+    ),
+    setup_interceptors=hyperbolic_chamber_setup,
+)
+
+
+# =============================================================================
 # CARD REGISTRY
 # =============================================================================
 
@@ -3135,6 +3279,9 @@ DRAGON_BALL_CARDS = {
     "Ginyu Force, Assemble!": GINYU_FORCE_ASSEMBLE,
     "Trunks, Sword of the Future": TRUNKS_SWORD_OF_FUTURE,
     "Goku, Pure of Heart": GOKU_PURE_OF_HEART,
+    # SPICE PASS Phase B
+    "Senzu Bean Reanimator": SENZU_BEAN_REANIMATOR,
+    "Hyperbolic Time Chamber, Refurbished": HYPERBOLIC_TIME_CHAMBER_REFURBISHED,
 }
 
 print(f"Loaded {len(DRAGON_BALL_CARDS)} Dragon Ball Z cards")
@@ -3369,4 +3516,7 @@ CARDS = [
     GINYU_FORCE_ASSEMBLE,
     TRUNKS_SWORD_OF_FUTURE,
     GOKU_PURE_OF_HEART,
+    # SPICE PASS Phase B
+    SENZU_BEAN_REANIMATOR,
+    HYPERBOLIC_TIME_CHAMBER_REFURBISHED,
 ]

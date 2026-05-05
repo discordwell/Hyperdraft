@@ -310,6 +310,158 @@ def test_goku_pure_self_death_does_not_add_counter():
     print(f"  No self-counter (correct)")
 
 
+# ============================================================================
+# Phase B: Senzu Bean Reanimator + Hyperbolic Time Chamber Refurbished
+# ============================================================================
+
+def test_senzu_reanimator_card_def():
+    """Senzu Bean Reanimator is a sorcery with a wired resolve fn."""
+    print("\n=== Senzu Reanimator: card def ===")
+    cd = DRAGON_BALL_CARDS["Senzu Bean Reanimator"]
+    assert CardType.SORCERY in cd.characteristics.types
+    assert cd.resolve is not None
+    print(f"  Sorcery resolve: {cd.resolve.__name__}")
+
+
+def test_senzu_reanimator_resolves_low_mv_creature():
+    """Reanimates target creature ≤MV4 with haste + indestructible EOT."""
+    print("\n=== Senzu Reanimator: resolve low-MV ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Put a low-MV creature in graveyard. Goku Earth's Hero is {2}{W} = MV3.
+    cd_goku = DRAGON_BALL_CARDS["Goku, Earth's Hero"]
+    goku = game.create_object(
+        name="Goku, Earth's Hero",
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=cd_goku.characteristics,
+        card_def=cd_goku,
+    )
+    cd = DRAGON_BALL_CARDS["Senzu Bean Reanimator"]
+    events = cd.resolve([goku.id], game.state)
+    rfg = [e for e in events if e.type == EventType.RETURN_FROM_GRAVEYARD]
+    gks = [e for e in events if e.type == EventType.GRANT_KEYWORD]
+    assert rfg, f"RETURN_FROM_GRAVEYARD not emitted: {[e.type.name for e in events]}"
+    assert len(gks) >= 2, f"Should grant haste + indestructible: {gks}"
+    keywords = {e.payload.get('keyword') for e in gks}
+    assert 'haste' in keywords and 'indestructible' in keywords
+    print(f"  RFG + grants {keywords}")
+
+
+def test_senzu_reanimator_rejects_high_mv():
+    """Edge: target with MV > 4 is rejected (returns no events)."""
+    print("\n=== Senzu Reanimator: high-MV edge ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    big = game.create_object(
+        name="Big",
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            mana_cost="{5}{R}{R}",
+            colors={Color.RED},
+            power=7, toughness=7,
+        ),
+    )
+    cd = DRAGON_BALL_CARDS["Senzu Bean Reanimator"]
+    events = cd.resolve([big.id], game.state)
+    rfg = [e for e in events if e.type == EventType.RETURN_FROM_GRAVEYARD]
+    assert not rfg, f"Should reject MV > 4: got {events}"
+    print("  High-MV target rejected (correct)")
+
+
+def test_hyperbolic_time_chamber_loads():
+    """Loads with Legendary Artifact + 2 activated abilities."""
+    print("\n=== Hyperbolic Time Chamber Refurbished: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    htc = _put_on_battlefield(game, p1, "Hyperbolic Time Chamber, Refurbished")
+    chars = htc.characteristics
+    assert CardType.ARTIFACT in chars.types
+    assert 'Legendary' in (chars.supertypes or set())
+    abilities = getattr(htc.state, 'activated_abilities', [])
+    assert len(abilities) >= 2, (
+        f"Expected mana + extra-turn abilities; got {len(abilities)}"
+    )
+    print(f"  Abilities={len(abilities)}")
+
+
+def test_hyperbolic_time_chamber_extra_turn_effect_emits():
+    """Calling the extra-turn effect with two graveyard creatures emits EXILE×2 + EXTRA_TURN."""
+    print("\n=== Hyperbolic Time Chamber: effect ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    htc = _put_on_battlefield(game, p1, "Hyperbolic Time Chamber, Refurbished")
+
+    # Two creatures in P1's graveyard.
+    creatures = []
+    for i in range(2):
+        c = game.create_object(
+            name=f"GY{i}",
+            owner_id=p1.id,
+            zone=ZoneType.GRAVEYARD,
+            characteristics=Characteristics(
+                types={CardType.CREATURE},
+                colors={Color.RED},
+                power=1, toughness=1,
+            ),
+        )
+        creatures.append(c)
+
+    # Find the extra-turn ability and invoke its effect_fn directly.
+    abilities = htc.state.activated_abilities or []
+    extra = next(
+        (a for a in abilities if 'extra turn' in (a.description or '').lower()),
+        None,
+    )
+    assert extra is not None, f"Extra-turn ability not found: {[a.description for a in abilities]}"
+
+    class _T:
+        def __init__(self, oid):
+            self.object_id = oid
+
+    events = extra.effect_fn(htc, game.state, [_T(creatures[0].id), _T(creatures[1].id)])
+    types_emitted = [e.type.name for e in events]
+    assert types_emitted.count('EXILE') == 2, f"Expected 2 EXILE events: {types_emitted}"
+    assert 'EXTRA_TURN' in types_emitted, f"EXTRA_TURN not emitted: {types_emitted}"
+    print(f"  Emits 2 EXILE + EXTRA_TURN")
+
+
+def test_hyperbolic_time_chamber_requires_two_graveyard_creatures():
+    """Edge: with only 1 graveyard creature, no events are emitted."""
+    print("\n=== Hyperbolic Time Chamber: insufficient fuel edge ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    htc = _put_on_battlefield(game, p1, "Hyperbolic Time Chamber, Refurbished")
+
+    c = game.create_object(
+        name="Lonely",
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            colors={Color.RED},
+            power=1, toughness=1,
+        ),
+    )
+
+    abilities = htc.state.activated_abilities or []
+    extra = next(
+        (a for a in abilities if 'extra turn' in (a.description or '').lower()),
+        None,
+    )
+    assert extra is not None
+
+    class _T:
+        def __init__(self, oid):
+            self.object_id = oid
+
+    events = extra.effect_fn(htc, game.state, [_T(c.id)])
+    assert events == [], f"Insufficient fuel should yield no events: {events}"
+    print("  Insufficient fuel correctly returns nothing")
+
+
 if __name__ == "__main__":
     test_future_sword_loads_with_sword_subtype()
     test_future_sword_grants_pt_and_haste()
