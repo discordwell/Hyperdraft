@@ -69,6 +69,25 @@ def test_pokemon_deck_quality_report_writes_json_artifact(tmp_path):
     assert sorted(file_report["decks"]) == ["fire", "water"]
 
 
+def test_pokemon_deck_quality_report_can_focus_one_deck():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/play/pokemon_deck_quality_report.py",
+            "--deck",
+            "fire",
+            "--fail-on-flags",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    report = json.loads(result.stdout)
+    assert set(report["decks"]) == {"fire"}
+    assert report["decks"]["fire"]["primary_energy_type"] == "R"
+
+
 def test_validated_sv_starter_deckbuilder_serves_all_decks():
     assert list_sv_starter_decks() == sorted(SV_STARTER_DECK_BUILDERS)
 
