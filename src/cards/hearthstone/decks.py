@@ -97,8 +97,8 @@ WARRIOR_DECK = [
     # 7-cost (2 cards)
     GOREHOWL, STORMWIND_CHAMPION,
 
-    # 8-cost (2 cards) - Legendary
-    GROMMASH_HELLSCREAM, BOULDERFIST_OGRE,
+    # 8-cost finisher + anti-aggro stabilizer
+    GROMMASH_HELLSCREAM, SEN_JIN_SHIELDMASTA,
 ]
 
 # =============================================================================
@@ -387,6 +387,18 @@ HEARTHSTONE_DECKS = {
     "Druid": DRUID_DECK,
 }
 
+HEARTHSTONE_DECK_ROLES = {
+    "Mage": "tempo",
+    "Warrior": "control",
+    "Hunter": "aggro",
+    "Paladin": "midrange",
+    "Priest": "control",
+    "Rogue": "tempo",
+    "Shaman": "midrange",
+    "Warlock": "aggro",
+    "Druid": "ramp",
+}
+
 
 def get_deck_for_hero(hero_class: str):
     """Get the appropriate deck for a hero class."""
@@ -474,7 +486,10 @@ def analyze_deck_quality(deck: list) -> dict:
 def analyze_all_decks() -> dict[str, dict]:
     """Return quality metrics for every registered Hearthstone class deck."""
     return {
-        hero_class: analyze_deck_quality(deck)
+        hero_class: {
+            **analyze_deck_quality(deck),
+            "role": HEARTHSTONE_DECK_ROLES.get(hero_class, "midrange"),
+        }
         for hero_class, deck in HEARTHSTONE_DECKS.items()
     }
 
