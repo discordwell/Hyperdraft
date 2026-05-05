@@ -20,6 +20,28 @@ DEFAULT_DECK_SPECS: tuple[tuple[str, str, list[str]], ...] = (
 )
 
 
+def _summarize_deck_metrics(deck_metrics: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    role_deficit_total = 0
+    decks_with_flags = 0
+    curve_error_total = 0
+    fill_rates: list[float] = []
+
+    for metrics in deck_metrics.values():
+        role_deficit_total += sum(int(v) for v in metrics.get("role_deficits", {}).values())
+        curve_error_total += int(metrics.get("curve_error", 0) or 0)
+        fill_rates.append(float(metrics.get("role_fill_rate", 0.0) or 0.0))
+        if metrics.get("quality_flags"):
+            decks_with_flags += 1
+
+    return {
+        "deck_count": len(deck_metrics),
+        "avg_role_fill_rate": round(sum(fill_rates) / len(fill_rates), 3) if fill_rates else 0.0,
+        "role_deficit_total": role_deficit_total,
+        "curve_error_total": curve_error_total,
+        "decks_with_quality_flags": decks_with_flags,
+    }
+
+
 def run_strategy_pass_report(
     output_dir: str | Path,
     *,
@@ -42,6 +64,7 @@ def run_strategy_pass_report(
             seed=seed,
         )
         deck_metrics[label] = analyze_deck_quality(deck, set_codes=card_sets)
+    deck_summary = _summarize_deck_metrics(deck_metrics)
 
     variants = {
         "mtg_baseline": variant_rule_summary(Game()),
@@ -55,6 +78,7 @@ def run_strategy_pass_report(
         "set_codes": card_sets,
         "ai": ai_summary,
         "decks": deck_metrics,
+        "deck_summary": deck_summary,
         "variants": variants,
     }
     (out / "strategy_pass_summary.json").write_text(

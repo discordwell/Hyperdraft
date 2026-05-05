@@ -141,15 +141,15 @@ def test_fixed_decision_benchmark_writes_trace_artifacts(tmp_path):
     summary = run_fixed_decision_benchmark(tmp_path, seed=11)
 
     assert summary["benchmark_name"] == "fixed_decision_smoke"
-    assert summary["scenario_count"] == 4
+    assert summary["scenario_count"] == 5
     assert summary["scenario_pass_rate"] == 1.0
-    assert summary["decision_count"] == 4
+    assert summary["decision_count"] == 5
     assert summary["decision_type_mix"]["action"] == 1
-    assert summary["decision_type_mix"]["pending_target"] == 1
+    assert summary["decision_type_mix"]["pending_target"] == 2
     assert summary["decision_type_mix"]["attack"] == 1
     assert summary["decision_type_mix"]["block"] == 1
     assert summary["target_accuracy"] == 1.0
-    assert summary["selected_target_count"] == 1
+    assert summary["selected_target_count"] == 2
     assert (tmp_path / "decisions.jsonl").exists()
     assert (tmp_path / "summary.json").exists()
 
@@ -160,6 +160,8 @@ def test_strategy_pass_report_combines_ai_deck_and_variant_metrics(tmp_path):
     assert report["schema_version"] == "hyperdraft.strategy_pass.v1"
     assert report["ai"]["scenario_pass_rate"] == 1.0
     assert set(report["decks"]) == {"aggro_r", "tempo_u", "midrange_g", "control_wu", "ramp_g"}
+    assert report["deck_summary"]["deck_count"] == 5
+    assert report["deck_summary"]["role_deficit_total"] >= 0
     assert report["decks"]["aggro_r"]["mainboard_count"] == 60
     assert report["variants"]["mtg_baseline"]["is_mtg_baseline"] is True
     assert report["variants"]["high_resource"]["deviation_count"] == 3
