@@ -6061,6 +6061,7 @@ def make_equipment_setup(
     subtypes_to_add: Optional[set[str]] = None,
     equip_cost: Optional[str] = None,
     ward_cost: Optional[str] = None,
+    granted_activated_abilities: Optional[Any] = None,
 ):
     """Return a setup_interceptors callable for an Equipment card.
 
@@ -6086,6 +6087,15 @@ def make_equipment_setup(
     ``ward_cost`` ("{1}", "{2}{U}", ...) grants Ward to the equipped
     creature. See ``make_ward()`` for v1 limitations (always counter, no
     cost prompt).
+
+    ``granted_activated_abilities`` covers Equipment that says "Equipped
+    creature has '<cost>: <effect>'" — the activated ability is registered
+    on the equipped creature (not the equipment) on ATTACH and removed on
+    UNATTACH or when the equipment leaves the battlefield. Each spec is a
+    dict with ``cost`` (str), ``effect_fn`` (Callable[[GameObject, GameState,
+    list], list[Event]]), and ``description`` (str), plus optional
+    activated-ability flags (``sorcery_speed``, ``targets_required``, etc.).
+    Pass a single dict or a list of dicts to grant multiple abilities.
     """
     keywords_list = list(keywords) if keywords else []
     subs = set(subtypes_to_add) if subtypes_to_add else set()
@@ -6101,6 +6111,10 @@ def make_equipment_setup(
         wi = _make_attached_ward_interceptor(obj, ward_cost)
         if wi is not None:
             interceptors.append(wi)
+        from src.engine.attach import make_granted_abilities_listener
+        gi = make_granted_abilities_listener(obj, granted_activated_abilities)
+        if gi is not None:
+            interceptors.append(gi)
         if equip_cost:
             _make_equip_activated_ability(obj, equip_cost)
         return interceptors
@@ -6116,6 +6130,7 @@ def make_aura_setup(
     subtypes_to_add: Optional[set[str]] = None,
     target_id_attr: str = "_aura_target_id",
     ward_cost: Optional[str] = None,
+    granted_activated_abilities: Optional[Any] = None,
 ):
     """Return a setup_interceptors callable for an Aura card.
 
@@ -6131,6 +6146,10 @@ def make_aura_setup(
 
     ``ward_cost`` ("{1}", "{2}{U}", ...) grants Ward to the enchanted
     creature. See ``make_ward()`` for v1 limitations.
+
+    ``granted_activated_abilities`` covers Auras like "Enchanted creature
+    has '<cost>: <effect>'." See ``make_equipment_setup`` docs for the
+    spec shape.
     """
     keywords_list = list(keywords) if keywords else []
     subs = set(subtypes_to_add) if subtypes_to_add else set()
@@ -6163,9 +6182,77 @@ def make_aura_setup(
         wi = _make_attached_ward_interceptor(obj, ward_cost)
         if wi is not None:
             interceptors.append(wi)
+        from src.engine.attach import make_granted_abilities_listener
+        gi = make_granted_abilities_listener(obj, granted_activated_abilities)
+        if gi is not None:
+            interceptors.append(gi)
         return interceptors
 
     return _setup
+
+
+# =============================================================================
+# === Granted activated abilities ===
+# =============================================================================
+#
+# "Equipped creature has '<cost>: <effect>'" — the activated ability is
+# registered on the *equipped creature* (so the priority system discovers
+# it like any other) but tagged with ``_granted_by=<equipment_id>`` so the
+# attach listener can revoke it when the equipment unattaches or leaves
+# the battlefield.
+#
+# Most cards declare this via ``granted_activated_abilities`` on
+# ``make_equipment_setup`` / ``make_aura_setup``. Use the standalone
+# ``make_granted_activated_ability`` helper for *conditional* grants —
+# cards that only bestow the ability under some predicate (e.g. only
+# while equipped to a creature of a particular subtype).
+
+
+def make_granted_activated_ability(
+    equipped_target: GameObject,
+    equipment_source: GameObject,
+    cost: str,
+    effect_fn: Callable[[GameObject, GameState, list], list[Event]],
+    *,
+    description: str = "",
+    sorcery_speed: bool = False,
+    own_turn_only: bool = False,
+    once_per_turn: bool = False,
+    once_per_game: bool = False,
+    targets_required: int = 0,
+    target_kind: str = "any",
+):
+    """Register an activated ability on ``equipped_target`` granted by
+    ``equipment_source``.
+
+    The descriptor is appended to ``equipped_target.state.activated_abilities``
+    and tagged ``_granted_by=equipment_source.id`` so cleanup on UNATTACH /
+    leaves-battlefield can find and remove it.
+
+    Returns the registered ``ActivatedAbility`` (whose ``_granted_by``
+    attribute mirrors ``equipment_source.id``).
+    """
+    from src.engine.attach import grant_activated_ability_on_attach
+    spec = {
+        "cost": cost,
+        "effect_fn": effect_fn,
+        "description": description or f"{cost}: ...",
+        "sorcery_speed": sorcery_speed,
+        "own_turn_only": own_turn_only,
+        "once_per_turn": once_per_turn,
+        "once_per_game": once_per_game,
+        "targets_required": targets_required,
+        "target_kind": target_kind,
+    }
+    grant_activated_ability_on_attach(equipped_target, equipment_source.id, spec, None)
+    # Find and return the freshly-registered descriptor.
+    for ability in reversed(getattr(equipped_target.state, "activated_abilities", []) or []):
+        if (
+            getattr(ability, "_granted_by", None) == equipment_source.id
+            and ability.cost_text == cost
+        ):
+            return ability
+    return None
 
 
 def _make_equip_activated_ability(obj: GameObject, equip_cost: str) -> None:
@@ -6219,6 +6306,7 @@ __all_phase3__ = [
     "make_equipment_setup",
     "make_aura_setup",
     "attach_aura_to_target",
+    "make_granted_activated_ability",
 ]
 
 

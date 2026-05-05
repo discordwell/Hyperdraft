@@ -344,6 +344,12 @@ class EventType(Enum):
     FACE_DOWN_TURNED_UP = auto()      # Marker: a permanent was turned face-up (post-flip)
     FACE_DOWN_QUERY_MASK = auto()     # Internal marker (reserved for future overrides)
 
+    # Granted activated abilities (Equipment / Aura "Equipped creature has '<cost>: <effect>'").
+    # Payload: {'target_id': str, 'source_id': str, 'cost': str, 'effect_fn': Callable, 'description': str}.
+    # Resolution registers the ability on the target creature, tagged with
+    # _granted_by=source_id so cleanup on UNATTACH can remove it.
+    GRANT_ACTIVATED_ABILITY = auto()
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
