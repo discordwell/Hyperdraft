@@ -601,6 +601,413 @@ def test_han_solo_sacrifice_treasure_pump():
     print(f"  Han power {base_p} -> {new_p}")
 
 
+# ============================================================================
+# Phase B-1: 5 cards (Kylo, Stormtrooper Patrol, R2-D2, Vader, Sith Resurgence)
+# ============================================================================
+
+def test_kylo_ren_loads_with_haste():
+    """Kylo Ren has haste granted via setup."""
+    print("\n=== Kylo Ren: loads + haste ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    kylo = _put_on_battlefield(game, p1, "Kylo Ren, Conflicted Heir")
+    # Two interceptors expected: keyword grant + damage trigger.
+    assert len(kylo.interceptor_ids) >= 2
+    print(f"  Kylo registered {len(kylo.interceptor_ids)} interceptors")
+
+
+def test_kylo_ren_combat_damage_steals_and_extra_combat_with_legendary():
+    """Combat damage to a player → threaten target + EXTRA_COMBAT (when other legendary present)."""
+    print("\n=== Kylo Ren: combat damage triggers steal + extra combat ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Drop another legendary creature alongside Kylo (Yoda Living Force).
+    _put_on_battlefield(game, p1, "Yoda, Living Force")
+    kylo = _put_on_battlefield(game, p1, "Kylo Ren, Conflicted Heir")
+    # Drop an opposing creature to be stolen.
+    from src.engine import Characteristics, Color
+    enemy = game.create_object(
+        name="Foe",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Soldier"},
+            colors={Color.RED},
+            power=2, toughness=2,
+        ),
+    )
+    before = _emitted_types(game)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': kylo.id, 'target': p2.id, 'amount': 4, 'is_combat': True},
+        source=kylo.id,
+    ))
+    after = _emitted_types(game)
+    new = after[len(before):]
+    assert 'CONTROL_CHANGE' in new, f"CONTROL_CHANGE not emitted: {new}"
+    assert 'EXTRA_COMBAT' in new, f"EXTRA_COMBAT not emitted: {new}"
+    print(f"  Steal + extra combat both fired (events: {[e for e in new if e in ('CONTROL_CHANGE', 'EXTRA_COMBAT')]})")
+
+
+def test_kylo_ren_no_extra_combat_alone():
+    """No EXTRA_COMBAT when Kylo is the only legendary."""
+    print("\n=== Kylo Ren: no extra combat without other legendary ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    kylo = _put_on_battlefield(game, p1, "Kylo Ren, Conflicted Heir")
+    before = _emitted_types(game)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': kylo.id, 'target': p2.id, 'amount': 4, 'is_combat': True},
+        source=kylo.id,
+    ))
+    after = _emitted_types(game)
+    new = after[len(before):]
+    assert 'EXTRA_COMBAT' not in new, f"Should not get extra combat alone: {new}"
+    print("  No EXTRA_COMBAT (correct)")
+
+
+def test_stormtrooper_patrol_forces_opp_nonbasic_land_tapped():
+    """Opponent's nonbasic land entering battlefield is forced to enter tapped."""
+    print("\n=== Stormtrooper Patrol: opponent nonbasic enters tapped ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Stormtrooper Patrol Squadron")
+
+    # Build a nonbasic land and emit ZONE_CHANGE to battlefield untapped.
+    from src.engine import Characteristics
+    land = game.create_object(
+        name="Hidden Cove",
+        owner_id=p2.id,
+        zone=ZoneType.HAND,
+        characteristics=Characteristics(
+            types={CardType.LAND},
+            subtypes={"Cove"},   # not Basic
+        ),
+    )
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': land.id,
+            'from_zone': f'hand_{p2.id}',
+            'to_zone': 'battlefield',
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'tapped': False,
+        },
+    ))
+    # Find the resolved ZONE_CHANGE and confirm tapped flipped to True.
+    matching = [e for e in game.state.event_log
+                if e.type == EventType.ZONE_CHANGE
+                and e.payload.get('object_id') == land.id]
+    assert matching, "ZONE_CHANGE not logged"
+    assert matching[-1].payload.get('tapped') is True, (
+        f"Land should enter tapped; payload={matching[-1].payload}"
+    )
+    print("  Opponent's nonbasic land forced tapped (correct)")
+
+
+def test_stormtrooper_patrol_does_not_tap_own_lands():
+    """Squadron controller's nonbasic lands enter untapped."""
+    print("\n=== Stormtrooper Patrol: own land untapped (edge) ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    _put_on_battlefield(game, p1, "Stormtrooper Patrol Squadron")
+    from src.engine import Characteristics
+    land = game.create_object(
+        name="Friendly Cove",
+        owner_id=p1.id,
+        zone=ZoneType.HAND,
+        characteristics=Characteristics(
+            types={CardType.LAND},
+            subtypes={"Cove"},
+        ),
+    )
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': land.id,
+            'from_zone': f'hand_{p1.id}',
+            'to_zone': 'battlefield',
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'tapped': False,
+        },
+    ))
+    matching = [e for e in game.state.event_log
+                if e.type == EventType.ZONE_CHANGE
+                and e.payload.get('object_id') == land.id]
+    assert matching, "ZONE_CHANGE not logged"
+    assert matching[-1].payload.get('tapped') is not True, (
+        f"Squadron's own land should stay untapped: {matching[-1].payload}"
+    )
+    print("  Own nonbasic land untapped (correct)")
+
+
+def test_r2d2_etb_castable_when_match():
+    """R2-D2 ETB on artifact ≤MV3 → exiles + grants free cast permission."""
+    print("\n=== R2-D2: ETB cast permission for matching card ===")
+    from src.engine.cast_permission import is_castable_from_zone
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    # Stack the library: top is a low-cost artifact (any of the basic Star Wars artifacts).
+    cd = STAR_WARS_CARDS["Astromech Droid"]
+    library = game.state.zones.get(f"library_{p1.id}")
+    obj = game.create_object(
+        name="Astromech Droid",
+        owner_id=p1.id,
+        zone=ZoneType.LIBRARY,
+        characteristics=cd.characteristics,
+        card_def=cd,
+    )
+    # Move it to library top.
+    library.objects.remove(obj.id)
+    library.objects.insert(0, obj.id)
+
+    _put_on_battlefield(game, p1, "R2-D2, Master Hacker")
+    # The card should now be in exile and castable for free.
+    assert obj.zone == ZoneType.EXILE, f"Top card should be exiled, got {obj.zone}"
+    permitted = is_castable_from_zone(obj.id, "exile", game.state)
+    assert permitted, "Top card must be castable from exile after R2-D2 ETB"
+    print(f"  Astromech exiled and castable from exile (permitted={permitted})")
+
+
+def test_r2d2_etb_draws_when_filter_misses():
+    """R2-D2 ETB with non-matching top card draws instead."""
+    print("\n=== R2-D2: ETB draws when filter doesn't match ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    # Top of library: a creature (not artifact/instant/sorcery).
+    cd = STAR_WARS_CARDS["Jedi Padawan"]
+    library = game.state.zones.get(f"library_{p1.id}")
+    obj = game.create_object(
+        name="Jedi Padawan",
+        owner_id=p1.id,
+        zone=ZoneType.LIBRARY,
+        characteristics=cd.characteristics,
+        card_def=cd,
+    )
+    library.objects.remove(obj.id)
+    library.objects.insert(0, obj.id)
+
+    before = _emitted_types(game)
+    _put_on_battlefield(game, p1, "R2-D2, Master Hacker")
+    after = _emitted_types(game)
+    new = after[len(before):]
+    assert 'DRAW' in new, f"DRAW not emitted: {new}"
+    assert 'EXILE' not in new, f"EXILE should NOT be emitted on miss: {new}"
+    print("  Filter miss → DRAW (correct)")
+
+
+def test_vader_etb_drains_two():
+    """Vader ETB drains opponent and gains 2 life."""
+    print("\n=== Vader: ETB drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    p1_life = p1.life
+    p2_life = p2.life
+    _put_on_battlefield(game, p1, "Darth Vader, More Machine Than Man")
+    assert p1.life == p1_life + 2, f"P1 should gain 2: {p1_life} -> {p1.life}"
+    assert p2.life == p2_life - 2, f"P2 should lose 2: {p2_life} -> {p2.life}"
+    print(f"  P1 {p1_life}→{p1.life}, P2 {p2_life}→{p2.life}")
+
+
+def test_vader_dark_side_pt_bonus():
+    """Vader gets +3/+1 when controller has < 10 life."""
+    print("\n=== Vader: Dark Side P/T bonus ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    vader = _put_on_battlefield(game, p1, "Darth Vader, More Machine Than Man")
+    # ETB drained Bob, then gave Alice +2 life. Make Alice low.
+    p1.life = 5
+    pwr = get_power(vader, game.state)
+    tgh = get_toughness(vader, game.state)
+    assert pwr == 4 + 3, f"Vader power should be +3 (7), got {pwr}"
+    assert tgh == 4 + 1, f"Vader toughness should be +1 (5), got {tgh}"
+    p1.life = 20
+    pwr = get_power(vader, game.state)
+    assert pwr == 4, f"Vader at high life should be 4 power; got {pwr}"
+    print(f"  Vader P/T at life=5: 7/5; at life=20: {pwr}/{get_toughness(vader, game.state)}")
+
+
+def test_vader_reassemble_precondition_only_if_destroyed_this_turn():
+    """Vader's reassemble ability is only legal if Vader was destroyed this turn."""
+    print("\n=== Vader: reassemble precondition ===")
+    from src.cards.interceptor_helpers import was_destroyed_this_turn
+    from src.engine.activated import can_pay_activation
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    vader = _put_on_battlefield(game, p1, "Darth Vader, More Machine Than Man")
+
+    # Move Vader to graveyard manually (simulating death).
+    bf = game.state.zones.get("battlefield")
+    if bf and vader.id in bf.objects:
+        bf.objects.remove(vader.id)
+    gy = game.state.zones.get(f"graveyard_{p1.id}")
+    gy.objects.append(vader.id)
+    vader.zone = ZoneType.GRAVEYARD
+
+    # Re-run setup_in_graveyard manually since we didn't go through ZONE_CHANGE.
+    from src.cards.custom.star_wars import vader_machine_man_setup
+    vader_machine_man_setup(vader, game.state)
+
+    # Find the reassemble ability.
+    abilities = vader.state.activated_abilities or []
+    reassemble = [a for a in abilities if 'Reassemble' in (a.description or '')]
+    assert reassemble, f"Reassemble ability not registered: {[a.description for a in abilities]}"
+    rea = reassemble[0]
+
+    # NOT destroyed-this-turn → ability not legal.
+    assert not was_destroyed_this_turn(vader.id, game.state)
+    legal = can_pay_activation(rea, vader, game.state, p1.id, mana_system=None)
+    # mana_system=None means mana check skipped, but precondition still gates.
+    assert not legal, "Reassemble must NOT be legal before destruction is recorded"
+
+    # Record destruction → ability legal.
+    game.emit(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': vader.id},
+        source=vader.id,
+    ))
+    assert was_destroyed_this_turn(vader.id, game.state)
+    legal2 = can_pay_activation(rea, vader, game.state, p1.id, mana_system=None)
+    assert legal2, "Reassemble must be legal after destruction this turn"
+    print("  Precondition gates ability legality correctly")
+
+
+def test_sith_resurgence_dark_side_discount():
+    """Sith Resurgence with caster < 10 life costs 2 less."""
+    print("\n=== Sith Resurgence: Dark Side discount ===")
+    from src.engine.cost_query import get_effective_mana_cost
+    from src.engine import ManaCost
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    sr_def = STAR_WARS_CARDS["Sith Resurgence"]
+    sr = game.create_object(
+        name="Sith Resurgence",
+        owner_id=p1.id,
+        zone=ZoneType.HAND,
+        characteristics=sr_def.characteristics,
+        card_def=sr_def,
+    )
+    # Run setup_in_hand to register the cost-reduction interceptor.
+    if sr_def.setup_in_hand:
+        for itc in sr_def.setup_in_hand(sr, game.state):
+            game.state.interceptors[itc.id] = itc
+            sr.interceptor_ids.append(itc.id)
+
+    base = ManaCost.parse(sr_def.characteristics.mana_cost or sr_def.mana_cost)
+
+    # High life: no discount.
+    p1.life = 20
+    eff_high = get_effective_mana_cost(sr, p1.id, game.state, base_cost=base)
+    assert eff_high.mana_value == base.mana_value, (
+        f"No discount at life≥10; base={base.mana_value} eff={eff_high.mana_value}"
+    )
+
+    # Low life: discount of 2.
+    p1.life = 5
+    eff_low = get_effective_mana_cost(sr, p1.id, game.state, base_cost=base)
+    assert eff_low.mana_value == base.mana_value - 2, (
+        f"Should discount by 2 at life<10; base={base.mana_value} eff={eff_low.mana_value}"
+    )
+    print(f"  life=20: cost {eff_high.mana_value}; life=5: cost {eff_low.mana_value}")
+
+
+# ============================================================================
+# Engine extension tests
+# ============================================================================
+
+def test_was_destroyed_this_turn_lifecycle():
+    """Helper records destructions and resets on TURN_START."""
+    print("\n=== Engine: was_destroyed_this_turn lifecycle ===")
+    from src.cards.interceptor_helpers import was_destroyed_this_turn
+    from src.engine import Characteristics
+    game = Game()
+    p1 = game.add_player("Alice")
+    creature = game.create_object(
+        name="Test Creature",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            power=1, toughness=1,
+        ),
+    )
+    assert not was_destroyed_this_turn(creature.id, game.state)
+    game.emit(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': creature.id},
+    ))
+    assert was_destroyed_this_turn(creature.id, game.state)
+    game.emit(Event(
+        type=EventType.TURN_START,
+        payload={'turn_number': 2, 'active_player': p1.id},
+    ))
+    assert not was_destroyed_this_turn(creature.id, game.state), (
+        "Helper must reset on TURN_START"
+    )
+    print("  False → True after destroy → False after TURN_START (correct)")
+
+
+def test_cost_reduction_condition_fn_skipped_when_false():
+    """make_cost_reduction with condition_fn=False → no reduction."""
+    print("\n=== Engine: cost_reduction condition_fn ===")
+    from src.cards.interceptor_helpers import make_cost_reduction
+    from src.engine.cost_query import get_effective_mana_cost
+    from src.engine import ManaCost, Characteristics
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    src = game.create_object(
+        name="Source",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(types={CardType.ENCHANTMENT}),
+    )
+    target_card = game.create_object(
+        name="Target",
+        owner_id=p1.id,
+        zone=ZoneType.HAND,
+        characteristics=Characteristics(
+            types={CardType.CREATURE}, mana_cost="{3}{R}",
+            power=2, toughness=2,
+        ),
+    )
+    target_card.card_def = type("X", (), {"mana_cost": "{3}{R}", "characteristics": target_card.characteristics})()
+
+    flag = {'enabled': False}
+
+    interceptor = make_cost_reduction(
+        src,
+        applies_to=lambda c, pid, st: True,
+        amount=2,
+        condition_fn=lambda st: flag['enabled'],
+    )
+    game.state.interceptors[interceptor.id] = interceptor
+    src.interceptor_ids.append(interceptor.id)
+
+    base = ManaCost.parse("{3}{R}")
+    eff_disabled = get_effective_mana_cost(target_card, p1.id, game.state, base_cost=base)
+    assert eff_disabled.mana_value == base.mana_value, (
+        f"Disabled condition should not reduce; got {eff_disabled.mana_value}"
+    )
+
+    flag['enabled'] = True
+    eff_enabled = get_effective_mana_cost(target_card, p1.id, game.state, base_cost=base)
+    assert eff_enabled.mana_value == base.mana_value - 2, (
+        f"Enabled condition should reduce by 2; got {eff_enabled.mana_value}"
+    )
+    print(f"  disabled: {eff_disabled.mana_value}; enabled: {eff_enabled.mana_value}")
+
+
 if __name__ == "__main__":
     test_boba_fett_loads_and_grants_keywords()
     test_boba_fett_combat_damage_triggers_exile_and_treasure()

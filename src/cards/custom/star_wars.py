@@ -4072,15 +4072,399 @@ def sith_resurgence_resolve(targets: list, state: GameState) -> list[Event]:
         source=target_id,
     )]
 
+def sith_resurgence_setup_in_hand(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Dark Side: Sith Resurgence costs {2} less while caster has < 10 life."""
+    from src.cards.interceptor_helpers import make_cost_reduction
+
+    def applies_self(card: GameObject, pid: str, st: GameState) -> bool:
+        return card is not None and card.id == obj.id
+
+    def dark_side(st: GameState) -> bool:
+        owner = st.players.get(obj.controller) if obj.controller else None
+        return bool(owner and owner.life < 10)
+
+    return [make_cost_reduction(
+        obj,
+        applies_to=applies_self,
+        amount=2,
+        self_only=True,
+        condition_fn=dark_side,
+    )]
+
 SITH_RESURGENCE = make_sorcery(
     name="Sith Resurgence",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text=(
-        "Return target Sith creature card from your graveyard to the battlefield."
+        "Return target Sith creature card from your graveyard to the battlefield. "
+        "Dark Side — If you have less than 10 life, this spell costs {2} less to cast."
     ),
     resolve=sith_resurgence_resolve,
 )
+SITH_RESURGENCE.setup_in_hand = sith_resurgence_setup_in_hand
+
+
+# =============================================================================
+# SPICE PASS PHASE B — Cards using W1-W7 engine capability
+# =============================================================================
+# Built on the engine capability that landed in W1-W7 (replacement effects,
+# cast-from-zone permissions, granted activated abilities, tiered cost,
+# Valiant/Expend, vehicle animation) plus three small Phase-B helper additions
+# (was_destroyed_this_turn, precondition_fn on activated abilities, condition_fn
+# on cost reduction). See plans/proud-singing-sonnet.md for design rationale.
+
+
+# --- Kylo Ren, Conflicted Heir --- {2}{B}{R} 4/4 legendary creature, Rare
+def kylo_ren_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste; combat damage to a player → steal+untap+haste a creature; if
+    another legendary creature controlled, take an extra combat (once/turn)."""
+    from src.cards.interceptor_helpers import (
+        make_keyword_grant, make_damage_trigger, threaten_creature,
+    )
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def damage_effect(event: Event, st: GameState) -> list[Event]:
+        target = event.payload.get('target')
+        if not target or target not in st.players:
+            return []
+        # Pick any creature the damaged player controls (engine resolves the
+        # actual target via the threaten dispatcher; for now we pick the
+        # first available enemy creature).
+        victim_id = None
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller == target
+                    and CardType.CREATURE in o.characteristics.types):
+                victim_id = o.id
+                break
+        events: list[Event] = []
+        if victim_id:
+            events.extend(threaten_creature(victim_id, obj.controller, obj.id))
+        # Extra-combat gate: must control ≥1 OTHER legendary creature.
+        other_legendaries = sum(
+            1 for o in st.objects.values()
+            if (o.zone == ZoneType.BATTLEFIELD
+                and o.controller == obj.controller
+                and o.id != obj.id
+                and CardType.CREATURE in o.characteristics.types
+                and 'Legendary' in (o.characteristics.supertypes or set()))
+        )
+        used_key = 'kylo_extra_combat_used'
+        already_used = bool(st.turn_data.get(used_key))
+        if other_legendaries >= 1 and not already_used:
+            st.turn_data[used_key] = True
+            events.append(Event(
+                type=EventType.EXTRA_COMBAT,
+                payload={'player': obj.controller},
+                source=obj.id,
+            ))
+        return events
+
+    return [
+        make_keyword_grant(obj, ['haste'], affects_self),
+        make_damage_trigger(obj, damage_effect, combat_only=True),
+    ]
+
+KYLO_REN_CONFLICTED_HEIR = make_creature(
+    name="Kylo Ren, Conflicted Heir",
+    power=4, toughness=4,
+    mana_cost="{2}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Human", "Sith"},
+    supertypes={"Legendary"},
+    text=(
+        "Haste. Whenever Kylo Ren deals combat damage to a player, gain "
+        "control of target creature that player controls until end of turn. "
+        "Untap it. It gains haste until end of turn. If you control another "
+        "legendary creature, take an extra combat phase after this one. "
+        "(Only once per turn.)"
+    ),
+    setup_interceptors=kylo_ren_setup,
+)
+
+
+# --- Stormtrooper Patrol Squadron --- {2}{B} Rare legendary enchantment
+def stormtrooper_patrol_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Opponents' nonbasic lands enter tapped. Upkeep: 2/1 Empire Trooper token."""
+    from src.cards.interceptor_helpers import (
+        make_replacement_effect, make_upkeep_trigger,
+    )
+
+    def is_opp_nonbasic_land_etb(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('tapped'):
+            return False  # already entering tapped
+        entering_id = event.payload.get('object_id')
+        if not entering_id:
+            return False
+        entering = st.objects.get(entering_id)
+        if not entering or entering.controller == obj.controller:
+            return False
+        chars = entering.characteristics
+        if CardType.LAND not in (chars.types or set()):
+            return False
+        return 'Basic' not in (chars.supertypes or set())
+
+    def force_tapped(event: Event, st: GameState):
+        new_event = event.copy()
+        new_event.payload['tapped'] = True
+        return new_event
+
+    def upkeep_token(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Empire Trooper',
+                    'power': 2, 'toughness': 1,
+                    'colors': {Color.BLACK},
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Human', 'Empire', 'Soldier'},
+                },
+            },
+            source=obj.id,
+        )]
+
+    interceptors: list[Interceptor] = []
+    interceptors.extend(make_replacement_effect(
+        obj,
+        event_filter=is_opp_nonbasic_land_etb,
+        replace_fn=force_tapped,
+    ))
+    interceptors.append(make_upkeep_trigger(obj, upkeep_token))
+    return interceptors
+
+STORMTROOPER_PATROL_SQUADRON = CardDefinition(
+    name="Stormtrooper Patrol Squadron",
+    mana_cost="{2}{B}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        colors={Color.BLACK},
+        supertypes={"Legendary"},
+        mana_cost="{2}{B}",
+    ),
+    text=(
+        "Nonbasic lands your opponents control enter the battlefield tapped. "
+        "At the beginning of your upkeep, create a 2/1 black Empire Soldier "
+        "creature token."
+    ),
+    setup_interceptors=stormtrooper_patrol_setup,
+)
+
+
+# --- R2-D2, Master Hacker --- {1}{U} 1/3 Rare legendary artifact creature
+def r2d2_master_hacker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: exile top of library; cast free if it's an artifact/instant/sorcery
+    with MV ≤ 3, else draw it. {2}{U},{T}: untap another target Droid."""
+    from src.cards.interceptor_helpers import (
+        make_etb_trigger, make_activated_ability,
+        make_castable_from_exile,
+    )
+    from src.engine import ManaCost
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        library = st.zones.get(f'library_{obj.controller}')
+        if not library or not library.objects:
+            return []
+        top_id = library.objects[0]
+        top = st.objects.get(top_id)
+        if not top or not top.card_def:
+            return [Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'count': 1},
+                source=obj.id,
+            )]
+        chars = top.characteristics
+        is_castable_type = (
+            CardType.ARTIFACT in chars.types
+            or CardType.INSTANT in chars.types
+            or CardType.SORCERY in chars.types
+        )
+        cost_str = chars.mana_cost or top.card_def.mana_cost or "{0}"
+        try:
+            mv = ManaCost.parse(cost_str).mana_value
+        except Exception:
+            mv = 99
+        if is_castable_type and mv <= 3:
+            # Register a free-cast permission for this specific card from exile,
+            # then exile it. The permission self-cleans on EOT.
+            for perm_int in make_castable_from_exile(
+                obj,
+                target_card_id=top_id,
+                duration='end_of_turn',
+                cost_modifier=lambda _mc: ManaCost.parse(""),
+            ):
+                st.interceptors[perm_int.id] = perm_int
+                obj.interceptor_ids.append(perm_int.id)
+            return [Event(
+                type=EventType.EXILE,
+                payload={'object_id': top_id},
+                source=obj.id,
+            )]
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id,
+        )]
+
+    def untap_droid_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+        target = st.objects.get(target_id)
+        if not target or target.id == o.id:
+            return []
+        if 'Droid' not in (target.characteristics.subtypes or set()):
+            return []
+        return [Event(
+            type=EventType.UNTAP,
+            payload={'object_id': target_id},
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{2}{U}, {T}",
+        effect_fn=untap_droid_effect,
+        description="{2}{U}, {T}: Untap another target Droid.",
+        targets_required=1,
+        target_kind="creature",
+    )
+
+    return [make_etb_trigger(obj, etb_effect)]
+
+R2D2_MASTER_HACKER = make_artifact_creature(
+    name="R2-D2, Master Hacker",
+    power=1, toughness=3,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Droid"},
+    supertypes={"Legendary"},
+    text=(
+        "When R2-D2 enters, exile the top card of your library. If it's an "
+        "artifact, instant, or sorcery with mana value 3 or less, you may "
+        "cast it without paying its mana cost. Otherwise, draw a card. "
+        "{2}{U}, {T}: Untap another target Droid."
+    ),
+    setup_interceptors=r2d2_master_hacker_setup,
+)
+
+
+# --- Darth Vader, More Machine Than Man --- {2}{B}{B} 4/4 Mythic
+def vader_machine_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace, lifelink. ETB/attack: drain 2. Dark Side: +3/+1 and reassemble."""
+    from src.cards.interceptor_helpers import (
+        make_keyword_grant, make_etb_trigger, make_attack_trigger,
+        make_activated_ability, was_destroyed_this_turn,
+    )
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def drain_effect(event: Event, st: GameState) -> list[Event]:
+        # Pick first opponent.
+        opp = next(
+            (pid for pid in st.players if pid != obj.controller),
+            None,
+        )
+        if not opp:
+            return []
+        return [
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp, 'amount': -2},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id,
+            ),
+        ]
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_keyword_grant(obj, ['menace', 'lifelink'], affects_self))
+    interceptors.extend(make_dark_side_bonus(obj, 3, 1))
+    interceptors.append(make_etb_trigger(obj, drain_effect))
+    interceptors.append(make_attack_trigger(obj, drain_effect))
+
+    def reassemble_precondition(o: GameObject, st: GameState) -> bool:
+        # Activate from graveyard, only if Vader was destroyed this turn.
+        if o.zone != ZoneType.GRAVEYARD:
+            return False
+        return was_destroyed_this_turn(o.id, st)
+
+    def reassemble_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        # Cost: {B}, exile a creature card from your graveyard. Effect: return
+        # Vader from graveyard to hand.
+        if not targets:
+            return []
+        gy_creature_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+        gy_creature = st.objects.get(gy_creature_id)
+        if not gy_creature or gy_creature.zone != ZoneType.GRAVEYARD:
+            return []
+        if gy_creature.controller != o.controller:
+            return []
+        if CardType.CREATURE not in gy_creature.characteristics.types:
+            return []
+        if gy_creature.id == o.id:
+            return []
+        return [
+            Event(
+                type=EventType.EXILE,
+                payload={'object_id': gy_creature_id},
+                source=o.id,
+            ),
+            Event(
+                type=EventType.RETURN_TO_HAND_FROM_GRAVEYARD,
+                payload={'object_id': o.id, 'controller': o.controller},
+                source=o.id,
+            ),
+        ]
+
+    make_activated_ability(
+        obj,
+        cost="{B}",
+        effect_fn=reassemble_effect,
+        description=(
+            "Reassemble — {B}: exile a creature card from your graveyard, "
+            "return Vader to its owner's hand. Activate only if Vader was "
+            "destroyed this turn."
+        ),
+        targets_required=1,
+        target_kind="creature",
+        precondition_fn=reassemble_precondition,
+    )
+
+    return interceptors
+
+DARTH_VADER_MACHINE_MAN = make_artifact_creature(
+    name="Darth Vader, More Machine Than Man",
+    power=4, toughness=4,
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Sith", "Cyborg"},
+    supertypes={"Legendary"},
+    text=(
+        "Menace, lifelink. When Darth Vader enters or attacks, target opponent "
+        "loses 2 life and you gain 2 life. Dark Side — As long as you have less "
+        "than 10 life, Vader gets +3/+1. {B}, exile a creature card from your "
+        "graveyard: return Vader from your graveyard to its owner's hand. "
+        "Activate only if Vader was destroyed this turn."
+    ),
+    setup_interceptors=vader_machine_man_setup,
+)
+
+
+# Make Vader's reassemble ability also register when he's in the graveyard
+# (so Dark Side's setup_in_graveyard hook can register the activated ability).
+DARTH_VADER_MACHINE_MAN.setup_in_graveyard = vader_machine_man_setup
 
 
 # =============================================================================
@@ -4412,6 +4796,11 @@ STAR_WARS_CARDS = {
     "Holocron of the High Council": HOLOCRON_OF_THE_HIGH_COUNCIL,
     "Mandalorian Beskar Plating": MANDALORIAN_BESKAR_PLATING,
     "Sith Resurgence": SITH_RESURGENCE,
+    # Phase B-1
+    "Kylo Ren, Conflicted Heir": KYLO_REN_CONFLICTED_HEIR,
+    "Stormtrooper Patrol Squadron": STORMTROOPER_PATROL_SQUADRON,
+    "R2-D2, Master Hacker": R2D2_MASTER_HACKER,
+    "Darth Vader, More Machine Than Man": DARTH_VADER_MACHINE_MAN,
 }
 
 print(f"Loaded {len(STAR_WARS_CARDS)} Star Wars: Galactic Conflict cards")
@@ -4696,4 +5085,8 @@ CARDS = [
     HOLOCRON_OF_THE_HIGH_COUNCIL,
     MANDALORIAN_BESKAR_PLATING,
     SITH_RESURGENCE,
+    KYLO_REN_CONFLICTED_HEIR,
+    STORMTROOPER_PATROL_SQUADRON,
+    R2D2_MASTER_HACKER,
+    DARTH_VADER_MACHINE_MAN,
 ]
