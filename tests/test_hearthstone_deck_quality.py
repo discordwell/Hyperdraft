@@ -21,6 +21,7 @@ def test_all_hearthstone_decks_have_clean_quality_metrics():
         assert summary["minion_count"] >= 10, hero_class
         assert summary["dead_zero_minion_count"] == 0, hero_class
         assert summary["quality_flags"] == [], hero_class
+        assert summary["role_quality_flags"] == [], hero_class
 
 
 def test_control_decks_have_defensive_stabilizers():
@@ -29,6 +30,29 @@ def test_control_decks_have_defensive_stabilizers():
     assert summaries["Warrior"]["taunt_count"] >= 1
     assert summaries["Priest"]["taunt_count"] >= 2
     assert "Sen'jin Shieldmasta" in [card.name for card in HEARTHSTONE_DECKS["Warrior"]]
+
+
+def test_deck_role_metrics_cover_each_strategy_family():
+    summaries = analyze_all_decks()
+
+    assert summaries["Hunter"]["role"] == "aggro"
+    assert summaries["Hunter"]["early_count"] >= 14
+    assert summaries["Warlock"]["role"] == "aggro"
+    assert summaries["Warlock"]["minion_count"] >= 16
+
+    assert summaries["Mage"]["role"] == "tempo"
+    assert summaries["Mage"]["burn_count"] >= 6
+    assert summaries["Rogue"]["role"] == "tempo"
+    assert summaries["Rogue"]["early_count"] >= 12
+
+    assert summaries["Warrior"]["role"] == "control"
+    assert summaries["Warrior"]["draw_count"] >= 4
+    assert summaries["Priest"]["role"] == "control"
+    assert summaries["Priest"]["early_count"] >= 10
+
+    assert summaries["Druid"]["role"] == "ramp"
+    assert summaries["Druid"]["draw_count"] >= 5
+    assert summaries["Druid"]["taunt_count"] >= 4
 
 
 def test_warlock_zoo_uses_real_one_drops_over_dead_zero_minions():

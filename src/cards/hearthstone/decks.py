@@ -485,13 +485,51 @@ def analyze_deck_quality(deck: list) -> dict:
 
 def analyze_all_decks() -> dict[str, dict]:
     """Return quality metrics for every registered Hearthstone class deck."""
-    return {
-        hero_class: {
+    summaries = {}
+    for hero_class, deck in HEARTHSTONE_DECKS.items():
+        role = HEARTHSTONE_DECK_ROLES.get(hero_class, "midrange")
+        summary = {
             **analyze_deck_quality(deck),
-            "role": HEARTHSTONE_DECK_ROLES.get(hero_class, "midrange"),
+            "role": role,
         }
-        for hero_class, deck in HEARTHSTONE_DECKS.items()
-    }
+        summary["role_quality_flags"] = deck_role_quality_flags(role, summary)
+        summaries[hero_class] = summary
+    return summaries
+
+
+def deck_role_quality_flags(role: str, summary: dict) -> list[str]:
+    """Return role-specific deckbuilding deficits for a deck summary."""
+    flags = []
+    if role == "aggro":
+        if summary["early_count"] < 14:
+            flags.append("aggro_low_early_count")
+        if summary["minion_count"] < 16:
+            flags.append("aggro_low_minion_count")
+        if summary["burn_count"] < 6:
+            flags.append("aggro_low_reach")
+    elif role == "control":
+        if summary["draw_count"] < 4:
+            flags.append("control_low_card_draw")
+        if summary["taunt_count"] < 1:
+            flags.append("control_low_defense")
+        if summary["early_count"] < 10:
+            flags.append("control_low_early_interaction")
+    elif role == "tempo":
+        if summary["early_count"] < 12:
+            flags.append("tempo_low_early_count")
+        if summary["burn_count"] < 6:
+            flags.append("tempo_low_reach")
+    elif role == "ramp":
+        if summary["draw_count"] < 5:
+            flags.append("ramp_low_card_draw")
+        if summary["taunt_count"] < 4:
+            flags.append("ramp_low_stabilizers")
+    else:
+        if summary["early_count"] < 8:
+            flags.append("midrange_low_early_count")
+        if summary["minion_count"] < 12:
+            flags.append("midrange_low_minion_count")
+    return flags
 
 
 def validate_deck(deck: list) -> tuple[bool, str]:
