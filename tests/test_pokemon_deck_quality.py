@@ -66,6 +66,9 @@ def test_pokemon_deck_quality_report_writes_json_artifact(tmp_path):
     assert stdout_report == file_report
     assert file_report["format"] == "pokemon_deck_quality"
     assert file_report["quality_gate"]["passed"] is True
+    assert file_report["summary"]["deck_count"] == 2
+    assert file_report["summary"]["flagged_deck_count"] == 0
+    assert file_report["summary"]["total_off_type_energy"] == 0
     assert sorted(file_report["decks"]) == ["fire", "water"]
 
 
@@ -85,6 +88,7 @@ def test_pokemon_deck_quality_report_can_focus_one_deck():
 
     report = json.loads(result.stdout)
     assert set(report["decks"]) == {"fire"}
+    assert report["summary"]["deck_count"] == 1
     assert report["decks"]["fire"]["primary_energy_type"] == "R"
 
 
