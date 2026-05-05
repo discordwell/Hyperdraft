@@ -1366,20 +1366,24 @@ class HearthstoneAIAdapter:
             return False
 
         hp_text = (hp_obj.card_def.text or '').lower()
+        hp_cost = self._get_mana_cost(hp_obj, state, player_id) or 2
+        if player.mana_crystals_available < hp_cost:
+            return False
+
+        hp_dmg = re.search(r'deal\s+(\d+)\s+damage', hp_text)
+        if hp_dmg:
+            opponent_id = self._get_opponent_id(state, player_id)
+            opponent = state.players.get(opponent_id) if opponent_id else None
+            if opponent and opponent.life + opponent.armor <= int(hp_dmg.group(1)):
+                return True
 
         # In survival mode, early-use armor/heal hero powers too
         if self._is_in_survival_mode(player_id, state):
             if 'armor' in hp_text or 'restore' in hp_text or 'heal' in hp_text:
-                hp_cost = self._get_mana_cost(hp_obj, state, player_id) or 2
-                if player.mana_crystals_available >= hp_cost:
-                    return True
+                return True
 
         # Only early-use for draw effects (Life Tap)
         if 'draw' not in hp_text:
-            return False
-
-        hp_cost = self._get_mana_cost(hp_obj, state, player_id) or 2
-        if player.mana_crystals_available < hp_cost:
             return False
 
         # Smart checks: skip if hand is nearly full or life is dangerously low
