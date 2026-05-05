@@ -451,6 +451,7 @@ async def play_one_game(
     p2_label: str,
     max_turns: int = 25,
     per_turn_timeout_s: float = 1.5,
+    wall_deadline_s: float = 7.0,
 ) -> GameResult:
     """
     Run one MTG AI-vs-AI game and return per-card stats + outcome.
@@ -515,7 +516,7 @@ async def play_one_game(
 
         turn_count = 0
         timed_out = False
-        wall_deadline = time.perf_counter() + 7.0  # absolute cap per game
+        wall_deadline = time.perf_counter() + wall_deadline_s  # absolute cap per game
         while turn_count < max_turns and not game.is_game_over():
             if time.perf_counter() > wall_deadline:
                 timed_out = True
@@ -732,6 +733,8 @@ def run_tournament_sequential(
     max_turns: int = 14,
     difficulty: str = "hard",
     hard_timeout_s: float = 8.0,
+    per_turn_timeout_s: float = 1.5,
+    wall_deadline_s: float = 7.0,
     verbose: bool = True,
 ) -> dict[str, Any]:
     """
@@ -780,7 +783,12 @@ def run_tournament_sequential(
         ai2 = make_ai(strategy_for_domain(p2), difficulty)
         try:
             result = asyncio.run(
-                play_one_game(decks[p1], decks[p2], ai1, ai2, p1, p2, max_turns=max_turns)
+                play_one_game(
+                    decks[p1], decks[p2], ai1, ai2, p1, p2,
+                    max_turns=max_turns,
+                    per_turn_timeout_s=per_turn_timeout_s,
+                    wall_deadline_s=wall_deadline_s,
+                )
             )
             results.append(result.__dict__)
         except _HardTimeout:
@@ -1235,6 +1243,12 @@ def main():
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--sequential", action="store_true",
                         help="run sequentially (no multiprocessing)")
+    parser.add_argument("--per-turn-timeout", type=float, default=1.5,
+                        help="seconds per turn before that turn is aborted")
+    parser.add_argument("--wall-deadline", type=float, default=7.0,
+                        help="seconds total before the game is aborted")
+    parser.add_argument("--hard-timeout", type=float, default=8.0,
+                        help="SIGALRM-based outer cap per game (sequential only)")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -1260,7 +1274,11 @@ def main():
     try:
         if args.sequential:
             results = run_tournament_sequential(
-                domains, args.games, args.max_turns, args.difficulty, verbose=True,
+                domains, args.games, args.max_turns, args.difficulty,
+                hard_timeout_s=args.hard_timeout,
+                per_turn_timeout_s=args.per_turn_timeout,
+                wall_deadline_s=args.wall_deadline,
+                verbose=True,
             )
         else:
             results = run_tournament_parallel(
