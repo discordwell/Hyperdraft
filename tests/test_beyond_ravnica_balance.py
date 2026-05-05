@@ -4,7 +4,16 @@ import json
 import subprocess
 import sys
 
-from src.cards.pokemon.beyond.ravnica import ravnica_balance_flags, ravnica_balance_summary
+import pytest
+
+from src.cards.pokemon.beyond.ravnica import (
+    GUILD_DECK_BUILDERS,
+    build_ravnica_guild_deck,
+    list_ravnica_guild_decks,
+    ravnica_balance_flags,
+    ravnica_balance_summary,
+)
+from src.cards.pokemon.beyond.ravnica.balance import ravnica_guild_profile
 
 
 def test_ravnica_balance_summary_tracks_all_guilds():
@@ -83,3 +92,20 @@ def test_ravnica_balance_report_writes_json_artifact(tmp_path):
     assert file_report["format"] == "pokemon_beyond_ravnica_balance"
     assert file_report["quality_gate"]["passed"] is True
     assert len(file_report["guilds"]) == 10
+
+
+def test_validated_ravnica_deckbuilder_serves_all_guilds():
+    assert list_ravnica_guild_decks() == sorted(GUILD_DECK_BUILDERS)
+
+    for guild in list_ravnica_guild_decks():
+        deck, strategy = build_ravnica_guild_deck(guild)
+        profile = ravnica_guild_profile(guild, deck)
+        assert len(deck) == 60
+        assert strategy["guild"] == guild
+        assert not profile["balance_flags"]
+        assert deck is not build_ravnica_guild_deck(guild, enforce_balance=False)[0]
+
+
+def test_validated_ravnica_deckbuilder_rejects_unknown_guilds():
+    with pytest.raises(ValueError, match="Unknown Beyond Ravnica guild"):
+        build_ravnica_guild_deck("not_a_guild")
