@@ -358,18 +358,9 @@ class PokemonCombatManager:
             active_key = f"active_spot_{owner}"
             active_zone = self.state.zones.get(active_key)
             if bench and bench.objects and active_zone:
-                # Auto-promote: pick the bench Pokemon with the most energy/HP
-                best_id = bench.objects[0]
-                best_score = -1
-                for bid in bench.objects:
-                    b_obj = self.state.objects.get(bid)
-                    if b_obj:
-                        score = len(b_obj.state.attached_energy) * 10
-                        if b_obj.card_def:
-                            score += (b_obj.card_def.hp or 0)
-                        if score > best_score:
-                            best_score = score
-                            best_id = bid
+                # AI-controlled players should use their actual promotion
+                # strategy; fall back to the old energy/HP heuristic otherwise.
+                best_id = self._choose_promotion(owner, list(bench.objects))
                 bench.objects.remove(best_id)
                 active_zone.objects.append(best_id)
                 promoted = self.state.objects.get(best_id)
@@ -394,6 +385,34 @@ class PokemonCombatManager:
                 ))
 
         return events
+
+    def _choose_promotion(self, player_id: str, candidates: list[str]) -> str:
+        """Choose a Pokemon to promote after KO."""
+        game = getattr(self.state, '_game', None)
+        turn_manager = getattr(game, 'turn_manager', None) if game else None
+        ai_handler = getattr(turn_manager, 'pokemon_ai_handler', None)
+        ai_players = getattr(turn_manager, 'ai_players', set())
+
+        if ai_handler and player_id in ai_players:
+            chooser = getattr(ai_handler, 'choose_promote', None)
+            if chooser:
+                chosen = chooser(player_id, self.state)
+                if chosen in candidates:
+                    return chosen
+
+        best_id = candidates[0]
+        best_score = -1
+        for candidate_id in candidates:
+            candidate = self.state.objects.get(candidate_id)
+            if not candidate:
+                continue
+            score = len(candidate.state.attached_energy) * 10
+            if candidate.card_def:
+                score += candidate.card_def.hp or 0
+            if score > best_score:
+                best_score = score
+                best_id = candidate_id
+        return best_id
 
     def _take_prizes(self, player_id: str, count: int) -> list[Event]:
         """Player takes prize cards and puts them in hand."""
