@@ -20,6 +20,11 @@ def main() -> None:
         action="store_true",
         help="Print compact JSON instead of indented JSON.",
     )
+    parser.add_argument(
+        "--fail-on-flags",
+        action="store_true",
+        help="Exit with status 1 if any deck reports quality or role flags.",
+    )
     args = parser.parse_args()
 
     with contextlib.redirect_stdout(sys.stderr):
@@ -34,6 +39,18 @@ def main() -> None:
 
     indent = None if args.compact else 2
     print(json.dumps(report, indent=indent, sort_keys=True))
+
+    if args.fail_on_flags:
+        flagged = {
+            hero_class: {
+                "quality_flags": summary.get("quality_flags", []),
+                "role_quality_flags": summary.get("role_quality_flags", []),
+            }
+            for hero_class, summary in report.items()
+            if summary.get("quality_flags") or summary.get("role_quality_flags")
+        }
+        if flagged:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":
