@@ -560,7 +560,10 @@ class HearthstoneAIAdapter:
             if lethal_info['is_lethal']:
                 # We already have lethal — prioritize finishing moves
                 if CardType.SPELL in card.characteristics.types:
-                    if 'deal' in card_text and 'damage' in card_text:
+                    if (
+                        'deal' in card_text and 'damage' in card_text
+                        and self._damage_spell_can_hit_enemy_hero(card_text)
+                    ):
                         score += 100  # Burn spells
                 if CardType.MINION in card.characteristics.types:
                     if 'charge' in card.characteristics.keywords or 'haste' in card.characteristics.keywords:
