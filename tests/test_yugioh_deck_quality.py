@@ -21,6 +21,7 @@ def test_all_optimized_ygo_decks_have_clean_quality_metrics():
     for deck_name, summary in summaries.items():
         assert summary["size"] == 40, deck_name
         assert summary["monster_count"] >= 10, deck_name
+        assert summary["field_spell_count"] <= 3, deck_name
         assert summary["low_level_monster_count"] >= 8, deck_name
         assert summary["removal_count"] >= 5, deck_name
         assert summary["missing_summon_priority"] == [], deck_name
@@ -56,6 +57,7 @@ def test_ygo_role_metrics_cover_optimized_archetypes():
     dragon = summaries["dragon_beatdown"]
     assert dragon["role"] == "Beatdown / Aggro"
     assert dragon["dragon_count"] >= 14
+    assert dragon["field_spell_count"] == 1
     assert dragon["pressure_monster_count"] >= 10
     assert dragon["stall_lock_count"] <= 1
     assert dragon["summon_priority_count"] >= 5

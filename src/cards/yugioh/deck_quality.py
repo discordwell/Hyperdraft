@@ -89,6 +89,10 @@ def analyze_ygo_deck_quality(deck: list[CardDefinition], strategy: dict | None =
         "monster_count": len(monsters),
         "spell_count": len(spells),
         "trap_count": len(traps),
+        "field_spell_count": sum(
+            1 for card in spells
+            if getattr(card, "ygo_spell_type", "") == "Field"
+        ),
         "low_level_monster_count": len(low_level),
         "tribute_monster_count": len(tribute),
         "pressure_monster_count": len(pressure),
@@ -126,6 +130,8 @@ def ygo_deck_quality_flags(summary: dict) -> list[str]:
         flags.append("invalid_main_deck_size")
     if summary["copy_violations"]:
         flags.append("copy_limit_violation")
+    if summary["field_spell_count"] > 3:
+        flags.append("too_many_field_spells")
     if summary["monster_count"] < 10:
         flags.append("too_few_monsters")
     if summary["low_level_monster_count"] < 8:
