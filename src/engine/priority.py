@@ -1741,8 +1741,28 @@ class PrioritySystem:
             x_value=action.x_value,
         )
 
-        if not self._can_pay_cost_plan(full_plan, ctx):
+        # === Discover cast-for-free (W11) ===
+        # When casting "without paying its mana cost" (action.data['_alt_cost']),
+        # bypass the upfront affordability check (additional non-mana costs
+        # still apply, but the mana base cost should not block the cast).
+        # We swap in a free base_cost just for the precheck; the actual
+        # mana skip happens in _continue_cast_spell_with_additional_costs.
+        if action.data.get('_alt_cost'):
+            free_ctx = CastCostContext(
+                state=self.state,
+                mana_system=self.mana_system,
+                player_id=action.player_id,
+                casting_card_id=card.id,
+                casting_card_name=card.name,
+                casting_zone=card.zone,
+                base_mana_cost=ManaCost(),  # free
+                x_value=0,
+            )
+            if not self._can_pay_cost_plan(full_plan, free_ctx):
+                return []
+        elif not self._can_pay_cost_plan(full_plan, ctx):
             return []
+        # === end Discover cast-for-free ===
 
         return self._continue_cast_spell_with_additional_costs(
             action=action,
@@ -1859,13 +1879,23 @@ class PrioritySystem:
                 ])
 
             total_cost = add_mana_costs(effective_paid_cost, extra_mana)
-            if self.mana_system and not total_cost.is_free():
+            # === Discover cast-for-free (W11) ===
+            # Discover (CR 702.166) lets the player cast the discovered card
+            # "without paying its mana cost". The discover handler routes the
+            # cast through this path with action.data['_alt_cost'] set. We
+            # skip the mana-payment step and still let the rest of the cast
+            # pipeline run (targets, SPELL_CAST, CRIME_COMMITTED, etc.).
+            # X-cost spells: when cast for free, X is 0 (CR 107.3f); we honor
+            # whatever action.x_value the caller supplies (default 0).
+            alt_cost = bool(action.data.get('_alt_cost'))
+            if self.mana_system and not total_cost.is_free() and not alt_cost:
                 # Pass the card being cast so restricted mana ("Spend this
                 # mana only to cast ...") is honoured.
                 self.mana_system.pay_cost(
                     action.player_id, total_cost, action.x_value,
                     for_card=card,
                 )
+            # === end Discover cast-for-free ===
 
             # BLB Expend tracking: record total mana spent on this cast and
             # fire EXPEND_4/EXPEND_8 threshold events if crossed.
