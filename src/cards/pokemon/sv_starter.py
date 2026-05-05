@@ -571,7 +571,6 @@ CHARMANDER = make_pokemon(
     weakness_type=PokemonType.WATER.value,
     retreat_cost=1,
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv3pt5/4.png",
 )
 
 CHARMELEON = make_pokemon(
@@ -587,7 +586,6 @@ CHARMELEON = make_pokemon(
     weakness_type=PokemonType.WATER.value,
     retreat_cost=2,
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv3pt5/5.png",
 )
 
 CHARIZARD_EX = make_pokemon(
@@ -605,7 +603,6 @@ CHARIZARD_EX = make_pokemon(
     retreat_cost=2,
     is_ex=True,
     rarity="rare",
-    image_url="https://images.pokemontcg.io/sv3pt5/6.png",
 )
 
 ARCANINE = make_pokemon(
@@ -621,7 +618,6 @@ ARCANINE = make_pokemon(
     weakness_type=PokemonType.WATER.value,
     retreat_cost=2,
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv3pt5/59.png",
 )
 
 GROWLITHE = make_pokemon(
@@ -636,7 +632,6 @@ GROWLITHE = make_pokemon(
     weakness_type=PokemonType.WATER.value,
     retreat_cost=2,
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv3pt5/58.png",
 )
 
 # =============================================================================
@@ -654,7 +649,6 @@ SQUIRTLE = make_pokemon(
     weakness_type=PokemonType.LIGHTNING.value,
     retreat_cost=1,
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv3pt5/7.png",
 )
 
 WARTORTLE = make_pokemon(
@@ -669,7 +663,6 @@ WARTORTLE = make_pokemon(
     weakness_type=PokemonType.LIGHTNING.value,
     retreat_cost=2,
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv3pt5/8.png",
 )
 
 BLASTOISE_EX = make_pokemon(
@@ -687,7 +680,6 @@ BLASTOISE_EX = make_pokemon(
     retreat_cost=3,
     is_ex=True,
     rarity="rare",
-    image_url="https://images.pokemontcg.io/sv3pt5/9.png",
 )
 
 LAPRAS = make_pokemon(
@@ -704,7 +696,6 @@ LAPRAS = make_pokemon(
     weakness_type=PokemonType.LIGHTNING.value,
     retreat_cost=2,
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv3pt5/131.png",
 )
 
 # =============================================================================
@@ -722,7 +713,6 @@ BULBASAUR = make_pokemon(
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=1,
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv3pt5/1.png",
 )
 
 IVYSAUR = make_pokemon(
@@ -737,7 +727,6 @@ IVYSAUR = make_pokemon(
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=2,
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv3pt5/2.png",
 )
 
 VENUSAUR_EX = make_pokemon(
@@ -755,7 +744,6 @@ VENUSAUR_EX = make_pokemon(
     retreat_cost=3,
     is_ex=True,
     rarity="rare",
-    image_url="https://images.pokemontcg.io/sv3pt5/3.png",
 )
 
 # =============================================================================
@@ -774,7 +762,6 @@ PIKACHU = make_pokemon(
     weakness_type=PokemonType.FIGHTING.value,
     retreat_cost=1,
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv3pt5/25.png",
 )
 
 RAICHU = make_pokemon(
@@ -790,7 +777,6 @@ RAICHU = make_pokemon(
     weakness_type=PokemonType.FIGHTING.value,
     retreat_cost=1,
     rarity="rare",
-    image_url="https://images.pokemontcg.io/sv3pt5/26.png",
 )
 
 # =============================================================================
@@ -809,7 +795,6 @@ RALTS = make_pokemon(
     resistance_type=PokemonType.FIGHTING.value,
     retreat_cost=1,
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv2/67.png",
 )
 
 KIRLIA = make_pokemon(
@@ -826,7 +811,6 @@ KIRLIA = make_pokemon(
     resistance_type=PokemonType.FIGHTING.value,
     retreat_cost=1,
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv2/68.png",
 )
 
 GARDEVOIR_EX = make_pokemon(
@@ -845,7 +829,6 @@ GARDEVOIR_EX = make_pokemon(
     retreat_cost=2,
     is_ex=True,
     rarity="rare",
-    image_url="https://images.pokemontcg.io/sv2/86.png",
 )
 
 # =============================================================================
@@ -863,7 +846,6 @@ RIOLU = make_pokemon(
     weakness_type=PokemonType.PSYCHIC.value,
     retreat_cost=1,
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv2/112.png",
 )
 
 LUCARIO = make_pokemon(
@@ -879,7 +861,6 @@ LUCARIO = make_pokemon(
     weakness_type=PokemonType.PSYCHIC.value,
     retreat_cost=1,
     rarity="rare",
-    image_url="https://images.pokemontcg.io/sv2/113.png",
 )
 
 # =============================================================================
@@ -898,7 +879,6 @@ PIDGEY = make_pokemon(
     resistance_type=PokemonType.FIGHTING.value,
     retreat_cost=1,
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv3pt5/16.png",
 )
 
 PIDGEOT_EX = make_pokemon(
@@ -917,7 +897,6 @@ PIDGEOT_EX = make_pokemon(
     retreat_cost=1,
     is_ex=True,
     rarity="rare",
-    image_url="https://images.pokemontcg.io/sv3/164.png",
 )
 
 # =============================================================================
@@ -928,7 +907,6 @@ NEST_BALL = make_trainer_item(
     name="Nest Ball",
     text="Search your deck for a Basic Pokemon and put it onto your Bench. Then, shuffle your deck.",
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv1/181.png",
     resolve=_nest_ball_effect,
 )
 
@@ -936,7 +914,6 @@ ULTRA_BALL = make_trainer_item(
     name="Ultra Ball",
     text="Discard 2 cards from your hand. Search your deck for a Pokemon and put it into your hand. Then, shuffle your deck.",
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv1/196.png",
     resolve=_ultra_ball_effect,
 )
 
@@ -944,7 +921,6 @@ RARE_CANDY = make_trainer_item(
     name="Rare Candy",
     text="Choose 1 of your Basic Pokemon in play. If you have a Stage 2 card in your hand that evolves from that Pokemon, put that card onto the Basic Pokemon to evolve it, skipping the Stage 1.",
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv1/191.png",
     resolve=_rare_candy_effect,
 )
 
@@ -952,7 +928,6 @@ SWITCH = make_trainer_item(
     name="Switch",
     text="Switch your Active Pokemon with 1 of your Benched Pokemon.",
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv1/194.png",
     resolve=_switch_effect,
 )
 
@@ -960,7 +935,6 @@ POTION = make_trainer_item(
     name="Potion",
     text="Heal 30 damage from 1 of your Pokemon.",
     rarity="common",
-    image_url="https://images.pokemontcg.io/sv1/188.png",
     resolve=_potion_effect,
 )
 
@@ -968,7 +942,6 @@ SUPER_ROD = make_trainer_item(
     name="Super Rod",
     text="Choose up to 3 in any combination of Pokemon and basic Energy cards from your discard pile and shuffle them into your deck.",
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv2/188.png",
     resolve=_super_rod_effect,
 )
 
@@ -976,7 +949,6 @@ BOSS_ORDERS = make_trainer_supporter(
     name="Boss's Orders",
     text="Switch in 1 of your opponent's Benched Pokemon to the Active Spot.",
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv2/172.png",
     resolve=_boss_orders_effect,
 )
 
@@ -984,7 +956,6 @@ PROFESSOR_RESEARCH = make_trainer_supporter(
     name="Professor's Research",
     text="Discard your hand and draw 7 cards.",
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv1/190.png",
     resolve=_professors_research_effect,
 )
 
@@ -992,7 +963,6 @@ IONO = make_trainer_supporter(
     name="Iono",
     text="Each player shuffles their hand into their deck. Then, each player draws a card for each of their remaining Prize cards.",
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv2/185.png",
     resolve=_iono_effect,
 )
 
@@ -1000,35 +970,32 @@ JUDGE = make_trainer_supporter(
     name="Judge",
     text="Each player shuffles their hand into their deck and draws 4 cards.",
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv1/176.png",
 )
 
 ARTAZON = make_trainer_stadium(
     name="Artazon",
     text="Once during each player's turn, that player may search their deck for a Basic Pokemon that doesn't have a Rule Box and put it onto their Bench. Then, that player shuffles their deck.",
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv2/171.png",
 )
 
 CHOICE_BELT = make_pokemon_tool(
     name="Choice Belt",
     text="The attacks of the Pokemon this card is attached to do 30 more damage to your opponent's Active Pokemon ex.",
     rarity="uncommon",
-    image_url="https://images.pokemontcg.io/sv2/176.png",
 )
 
 # =============================================================================
 # ENERGY CARDS
 # =============================================================================
 
-FIRE_ENERGY = make_basic_energy("Fire Energy", PokemonType.FIRE.value, image_url="https://images.pokemontcg.io/sve/2.png")
-WATER_ENERGY = make_basic_energy("Water Energy", PokemonType.WATER.value, image_url="https://images.pokemontcg.io/sve/3.png")
-GRASS_ENERGY = make_basic_energy("Grass Energy", PokemonType.GRASS.value, image_url="https://images.pokemontcg.io/sve/1.png")
-LIGHTNING_ENERGY = make_basic_energy("Lightning Energy", PokemonType.LIGHTNING.value, image_url="https://images.pokemontcg.io/sve/4.png")
-PSYCHIC_ENERGY = make_basic_energy("Psychic Energy", PokemonType.PSYCHIC.value, image_url="https://images.pokemontcg.io/sve/5.png")
-FIGHTING_ENERGY = make_basic_energy("Fighting Energy", PokemonType.FIGHTING.value, image_url="https://images.pokemontcg.io/sve/6.png")
-DARKNESS_ENERGY = make_basic_energy("Darkness Energy", PokemonType.DARKNESS.value, image_url="https://images.pokemontcg.io/sve/7.png")
-METAL_ENERGY = make_basic_energy("Metal Energy", PokemonType.METAL.value, image_url="https://images.pokemontcg.io/sve/8.png")
+FIRE_ENERGY = make_basic_energy("Fire Energy", PokemonType.FIRE.value)
+WATER_ENERGY = make_basic_energy("Water Energy", PokemonType.WATER.value)
+GRASS_ENERGY = make_basic_energy("Grass Energy", PokemonType.GRASS.value)
+LIGHTNING_ENERGY = make_basic_energy("Lightning Energy", PokemonType.LIGHTNING.value)
+PSYCHIC_ENERGY = make_basic_energy("Psychic Energy", PokemonType.PSYCHIC.value)
+FIGHTING_ENERGY = make_basic_energy("Fighting Energy", PokemonType.FIGHTING.value)
+DARKNESS_ENERGY = make_basic_energy("Darkness Energy", PokemonType.DARKNESS.value)
+METAL_ENERGY = make_basic_energy("Metal Energy", PokemonType.METAL.value)
 
 # =============================================================================
 # CARD REGISTRY
