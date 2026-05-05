@@ -660,3 +660,41 @@ class TurnManager:
         """
         self.turn_state.lands_allowed += count
         self.state.lands_allowed_this_turn += count
+
+
+# =============================================================================
+# State-based actions: planeswalker zero-loyalty destruction
+# =============================================================================
+#
+# CR 704.5i: a planeswalker with 0 or less loyalty is destroyed and put into
+# its owner's graveyard. The framework lives in src/engine/planeswalker.py
+# (see make_planeswalker_setup); this hook fires the OBJECT_DESTROYED event
+# for any battlefield planeswalker whose loyalty has dropped to or below 0.
+#
+# Two callers:
+# 1. Priority's SBA loop / Game.check_state_based_actions: invokes
+#    ``check_planeswalker_zero_loyalty_sbas(state, pipeline)`` to fire
+#    pending destructions before granting priority.
+# 2. Tests can call the helper directly with a Game instance to validate
+#    the SBA without running a full turn.
+# -----------------------------------------------------------------------------
+
+def check_planeswalker_zero_loyalty_sbas(state: GameState, pipeline=None) -> list[Event]:
+    """Destroy battlefield planeswalkers with loyalty <= 0.
+
+    Returns the list of OBJECT_DESTROYED events emitted (or just constructed
+    when ``pipeline`` is None). Idempotent: re-running after destruction is
+    a no-op (destroyed PWs are no longer on the battlefield).
+    """
+    from .planeswalker import planeswalkers_with_zero_loyalty
+    events: list[Event] = []
+    for pw in planeswalkers_with_zero_loyalty(state):
+        evt = Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={'object_id': pw.id, 'reason': 'zero_loyalty'},
+            source=pw.state.last_damage_source,
+        )
+        events.append(evt)
+        if pipeline is not None:
+            pipeline.emit(evt)
+    return events

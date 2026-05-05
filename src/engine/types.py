@@ -420,6 +420,24 @@ class EventType(Enum):
     CYCLE = auto()
     CYCLING_TRIGGERED = auto()
 
+    # ------------------------------------------------------------------
+    # Planeswalker loyalty framework. See src/engine/planeswalker.py
+    # and the helpers in src/cards/interceptor_helpers.py
+    # (Planeswalker loyalty section).
+    # ------------------------------------------------------------------
+    # Marker emitted on every successful loyalty ability activation. Payload:
+    #   source        - planeswalker object id
+    #   controller    - activating player id
+    #   ability_id    - logical id of the loyalty ability (e.g. "+1", "-3")
+    #   cost          - signed loyalty cost (positive add, negative remove)
+    LOYALTY_ABILITY_ACTIVATED = auto()
+    # Marker emitted by the planeswalker damage TRANSFORM hook when damage is
+    # redirected to remove loyalty counters from a planeswalker. Payload:
+    #   target        - planeswalker object id
+    #   amount        - amount of damage redirected to loyalty
+    #   source        - id of the damaging permanent (or None)
+    PLANESWALKER_DAMAGED = auto()
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
