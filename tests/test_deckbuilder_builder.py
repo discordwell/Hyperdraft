@@ -273,6 +273,8 @@ def test_analyze_deck_quality_reports_curve_roles_and_flags() -> None:
     assert metrics["mainboard_count"] == 60
     assert metrics["land_count"] == deck.land_count
     assert metrics["nonland_count"] + metrics["land_count"] == 60
+    assert metrics["functional_nonland_count"] <= metrics["nonland_count"]
+    assert 0 <= metrics["functional_nonland_ratio"] <= 1
     assert metrics["unresolved_count"] == 0
     assert metrics["off_color_count"] == 0
     assert 0 <= metrics["role_fill_rate"] <= 1

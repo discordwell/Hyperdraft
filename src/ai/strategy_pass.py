@@ -63,6 +63,22 @@ def _summarize_variants(variants: dict[str, dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _quality_gate(ai_summary: dict[str, Any], deck_summary: dict[str, Any], variant_summary: dict[str, Any]) -> dict[str, Any]:
+    ai_passed = ai_summary.get("scenario_pass_rate") == 1.0 and ai_summary.get("target_accuracy") in (None, 1.0)
+    decks_passed = (
+        deck_summary.get("role_deficit_total") == 0
+        and deck_summary.get("curve_error_total") == 0
+        and deck_summary.get("decks_with_quality_flags") == 0
+    )
+    variants_passed = variant_summary.get("mtg_baseline_count") == 1
+    return {
+        "passed": bool(ai_passed and decks_passed and variants_passed),
+        "ai_passed": bool(ai_passed),
+        "decks_passed": bool(decks_passed),
+        "variants_passed": bool(variants_passed),
+    }
+
+
 def run_strategy_pass_report(
     output_dir: str | Path,
     *,
@@ -93,6 +109,7 @@ def run_strategy_pass_report(
         "persistent_damage": variant_rule_summary(Game(clear_damage_on_cleanup=False)),
     }
     variant_summary = _summarize_variants(variants)
+    quality_gate = _quality_gate(ai_summary, deck_summary, variant_summary)
 
     report = {
         "schema_version": "hyperdraft.strategy_pass.v1",
@@ -103,6 +120,7 @@ def run_strategy_pass_report(
         "deck_summary": deck_summary,
         "variants": variants,
         "variant_summary": variant_summary,
+        "quality_gate": quality_gate,
     }
     (out / "strategy_pass_summary.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n",
