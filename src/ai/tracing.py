@@ -109,6 +109,7 @@ class AITraceRecorder:
             p95 = sorted_durations[idx]
 
         action_mix: dict[str, int] = {}
+        decision_type_mix: dict[str, int] = {}
         fallback_count = 0
         cache_hits = 0
         cache_misses = 0
@@ -116,11 +117,18 @@ class AITraceRecorder:
         bad_trades = 0
         target_checks = 0
         target_hits = 0
+        legal_counts: list[int] = []
+        selected_target_count = 0
 
         for event in self.events:
+            decision_type = str(event.get("decision_type") or "unknown")
+            decision_type_mix[decision_type] = decision_type_mix.get(decision_type, 0) + 1
+
             selected = event.get("selected") or {}
-            action_type = str(selected.get("action_type") or event.get("decision_type") or "unknown")
+            action_type = str(selected.get("action_type") or decision_type)
             action_mix[action_type] = action_mix.get(action_type, 0) + 1
+            legal_counts.append(int(event.get("legal_count", 0) or 0))
+            selected_target_count += len(event.get("selected_targets") or [])
 
             ultra = event.get("ultra") or {}
             if ultra.get("fallback_used"):
@@ -143,6 +151,9 @@ class AITraceRecorder:
             "avg_decision_ms": round(sum(durations) / len(durations), 3) if durations else 0.0,
             "p95_decision_ms": round(p95, 3),
             "action_mix": action_mix,
+            "decision_type_mix": decision_type_mix,
+            "avg_legal_count": round(sum(legal_counts) / len(legal_counts), 3) if legal_counts else 0.0,
+            "selected_target_count": selected_target_count,
             "missed_lethal_count": missed_lethal,
             "bad_trade_count": bad_trades,
             "target_accuracy": round(target_hits / target_checks, 3) if target_checks else None,

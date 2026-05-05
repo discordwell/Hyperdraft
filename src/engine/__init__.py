@@ -111,6 +111,8 @@ from .plot_saddle import (
     set_saddle_threshold, reset_saddled_at_eot,
 )
 
+from .variant_metrics import MTG_BASELINE_RULES, variant_rule_summary
+
 __all__ = [
     # IDs
     'new_id',
@@ -173,4 +175,7 @@ __all__ = [
     'is_saddled', 'pay_saddle_cost',
     'make_saddle_trigger', 'make_becomes_saddled_trigger',
     'set_saddle_threshold', 'reset_saddled_at_eot',
+
+    # Variant metrics
+    'MTG_BASELINE_RULES', 'variant_rule_summary',
 ]

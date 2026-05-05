@@ -14,7 +14,7 @@ import pytest
 
 from src.cards import ALL_CARDS
 from src.decks.deck import Deck, DeckEntry, load_deck, validate_deck
-from src.decks.heuristics import ARCHETYPE_TEMPLATES, build_heuristic_deck, pick_lands
+from src.decks.heuristics import ARCHETYPE_TEMPLATES, analyze_deck_quality, build_heuristic_deck, pick_lands
 from src.decks.heuristics.builder import _build_buckets
 from src.decks.heuristics.pool import resolve_pool
 from src.engine.types import CardDefinition, Characteristics, CardType, Color
@@ -257,6 +257,27 @@ def test_builder_role_buckets_use_scorer_role_detection() -> None:
     )
 
     assert [name for _, name, _ in role_buckets["card_draw"]] == ["Careful Selection"]
+
+
+def test_analyze_deck_quality_reports_curve_roles_and_flags() -> None:
+    deck = build_heuristic_deck(
+        name="Metrics Test",
+        archetype="Control",
+        colors=["W", "U"],
+        set_codes=["FDN"],
+    )
+
+    metrics = analyze_deck_quality(deck, set_codes=["FDN"])
+
+    assert metrics["deck_name"] == "Metrics Test"
+    assert metrics["mainboard_count"] == 60
+    assert metrics["land_count"] == deck.land_count
+    assert metrics["nonland_count"] + metrics["land_count"] == 60
+    assert metrics["unresolved_count"] == 0
+    assert metrics["off_color_count"] == 0
+    assert 0 <= metrics["role_fill_rate"] <= 1
+    assert isinstance(metrics["curve_counts"], dict)
+    assert isinstance(metrics["role_counts"], dict)
 
 
 # =============================================================================

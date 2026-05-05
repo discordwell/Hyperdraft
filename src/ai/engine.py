@@ -547,6 +547,18 @@ class AIEngine:
             selected = list(options[:min_targets])
 
         if self.trace_recorder:
+            selected_ids = {
+                opt.get('id') if isinstance(opt, dict) else opt
+                for opt in selected
+            }
+            best_score = scored[0][1] if scored else None
+            target_correct = None
+            if best_score is not None and selected_ids:
+                target_correct = any(
+                    (opt.get('id') if isinstance(opt, dict) else opt) in selected_ids
+                    and score == best_score
+                    for opt, score in scored
+                )
             self.trace_recorder.record(DecisionTraceEvent(
                 decision_type="pending_target",
                 player_id=player_id,
@@ -570,6 +582,7 @@ class AIEngine:
                 ],
                 board=board_trace_summary(state, player_id),
                 ultra=self._ultra_trace_metadata(),
+                metadata={"target_correct": target_correct} if target_correct is not None else {},
             ))
 
         return selected
