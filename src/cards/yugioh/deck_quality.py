@@ -58,7 +58,7 @@ def analyze_ygo_deck_quality(deck: list[CardDefinition], strategy: dict | None =
     reach_terms = (
         "inflict", "direct damage", "opponent takes", "ookazi",
         "secret barrel", "just desserts", "magic cylinder",
-        "stealth bird", "des koala",
+        "stealth bird", "des koala", "damage to opponent",
     )
     stall_terms = (
         "cannot attack", "gravity bind", "messenger of peace",

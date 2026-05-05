@@ -243,7 +243,7 @@ class YugiohAIAdapter:
         "Monster Reborn", "Premature Burial", "Mystical Space Typhoon",
         "Stamping Destruction", "Nobleman of Crossout", "Book of Moon", "Ookazi",
         "Swords of Revealing Light", "Messenger of Peace", "Level Limit - Area B",
-        "Mountain",
+        "Mountain", "Lightning Bolt",
     })
 
     def _pick_spell_activation(self, hand: list, player_id: str, state: GameState,
@@ -329,6 +329,12 @@ class YugiohAIAdapter:
             if name == "Ookazi":
                 return {'action_type': 'activate_spell', 'card_id': obj.id}
 
+            if name == "Lightning Bolt":
+                opponent = state.players.get(opp_id)
+                if opponent and getattr(opponent, 'lp', 0) <= 1500:
+                    return {'action_type': 'activate_spell', 'card_id': obj.id}
+                continue
+
             # === Stall / continuous ===
             if name == "Swords of Revealing Light":
                 if opp_monsters:
@@ -363,6 +369,8 @@ class YugiohAIAdapter:
             if CardType.YGO_SPELL not in obj.characteristics.types:
                 continue
             if obj.name == "Ookazi" and opp_lp <= 800:
+                return {'action_type': 'activate_spell', 'card_id': obj.id}
+            if obj.name == "Lightning Bolt" and opp_lp <= 1500:
                 return {'action_type': 'activate_spell', 'card_id': obj.id}
         return None
 
