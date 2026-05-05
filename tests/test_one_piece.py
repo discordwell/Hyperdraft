@@ -633,32 +633,45 @@ def test_luffy_straw_hat_pirate_lord():
 
 
 def test_sabo_damage_ping():
-    """Test Sabo deals 1 damage to each opponent when he deals damage."""
+    """Sabo's combat-damage trigger pings each opponent once and does NOT
+    re-fire on its own emitted (noncombat) damage events."""
     print("\n=== Test: Sabo Damage Ping ===")
 
     game = Game()
     p1 = game.add_player("Player 1")
     p2 = game.add_player("Player 2")
 
-    # Create Sabo (without separate ETB to avoid double registration)
     sabo_def = ONE_PIECE_CARDS["Sabo, Revolutionary Chief"]
     sabo = game.create_object(
         name="Sabo, Revolutionary Chief",
         owner_id=p1.id,
         zone=ZoneType.BATTLEFIELD,
         characteristics=sabo_def.characteristics,
-        card_def=sabo_def
+        card_def=sabo_def,
     )
-
-    # Verify Sabo has the damage trigger interceptor
-    print(f"Sabo has {len(sabo.interceptor_ids)} interceptor(s)")
     assert len(sabo.interceptor_ids) >= 1, "Sabo should have damage trigger interceptor"
 
-    # Note: The damage ping trigger causes infinite loop if not handled properly
-    # because the ping itself is damage, which triggers another ping.
-    # This is a known issue with the card implementation.
-    print("PASSED: Sabo damage trigger interceptor registered!")
-    print("WARNING: Actual damage ping causes infinite loop - card needs fix")
+    # Fire a single combat-damage event from Sabo. The trigger should produce
+    # exactly one ping per opponent (1 in this 2-player game), and the
+    # emitted ping is noncombat damage, so it must NOT re-trigger Sabo.
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'target': p2.id, 'amount': 3, 'source': sabo.id, 'is_combat': True},
+        source=sabo.id,
+    ))
+    new_events = game.state.event_log[before:]
+
+    pings = [e for e in new_events
+             if e.type == EventType.DAMAGE
+             and e.payload.get('source') == sabo.id
+             and not e.payload.get('is_combat', False)
+             and e.payload.get('amount') == 1]
+    assert len(pings) == 1, (
+        f"Expected exactly one 1-dmg ping (one opponent, no re-fire); "
+        f"got {len(pings)} pings — infinite-loop regression?"
+    )
+    print(f"PASSED: Sabo combat-damage trigger fires once; no re-fire from emitted ping")
 
 
 def test_kid_artifact_attack_damage():

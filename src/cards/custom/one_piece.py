@@ -1182,7 +1182,7 @@ ACE_FIRE_FIST = make_creature(
 )
 
 def sabo_revolutionary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Haste. Whenever Sabo deals damage, deal 1 damage to each opponent."""
+    """Haste. Whenever Sabo deals combat damage, deal 1 damage to each opponent."""
     def damage_effect(event: Event, state: GameState) -> list[Event]:
         events = []
         for player_id in state.players:
@@ -1193,7 +1193,10 @@ def sabo_revolutionary_setup(obj: GameObject, state: GameState) -> list[Intercep
                     source=obj.id
                 ))
         return events
-    return [make_damage_trigger(obj, damage_effect)]
+    # combat_only=True is critical: the effect emits DAMAGE events whose
+    # source is also Sabo. Without the combat gate, the trigger would
+    # re-fire on its own emitted damage and infinite-loop the pipeline.
+    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
 
 SABO_REVOLUTIONARY = make_creature(
     name="Sabo, Revolutionary Chief",
@@ -1203,7 +1206,7 @@ SABO_REVOLUTIONARY = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Pirate", "Noble"},
     supertypes={"Legendary"},
-    text="Haste. Whenever Sabo deals damage, deal 1 damage to each opponent.",
+    text="Haste. Whenever Sabo deals combat damage, deal 1 damage to each opponent.",
     setup_interceptors=sabo_revolutionary_setup
 )
 
