@@ -46,7 +46,7 @@ IGNIS_HERO = make_hero(
     name="Ignis, the Riftburner",
     hero_class="Pyromancer",
     starting_life=30,
-    text="Hero Power: Rift Spark (Deal 1 damage to the enemy hero)",
+    text="Hero Power: Rift Spark (Deal 2 damage to the enemy hero)",
 )
 
 GLACIEL_HERO = make_hero(
@@ -67,11 +67,11 @@ STORMRIFT_HEROES = {
 # =============================================================================
 
 def rift_spark_effect(obj: GameObject, state: GameState) -> list[Event]:
-    """Deal 1 damage to the enemy hero (buffed to 3 while Ignis Ascendant is in play)."""
+    """Deal 2 damage to the enemy hero (3 while Ignis Ascendant is in play)."""
     hero_id = get_enemy_hero_id(obj, state)
     if not hero_id:
         return []
-    amount = 1
+    amount = 2
     # Ignis Ascendant check -- any battlefield object flagged ascendant_pyromancer
     for o in state.objects.values():
         if o.zone == ZoneType.BATTLEFIELD and o.controller == obj.controller \
@@ -87,7 +87,7 @@ def rift_spark_effect(obj: GameObject, state: GameState) -> list[Event]:
 RIFT_SPARK = make_hero_power(
     name="Rift Spark",
     cost=2,
-    text="Deal 1 damage to the enemy hero.",
+    text="Deal 2 damage to the enemy hero.",
     effect=rift_spark_effect,
 )
 
