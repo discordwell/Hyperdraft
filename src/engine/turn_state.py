@@ -96,6 +96,28 @@ def combat_damage_dealt_to_this_turn(player_id: str, state: GameState) -> int:
     return int(td.get(f"combat_damage_to_{player_id}", 0))
 
 
+def cards_exiled_this_turn(state: GameState, player_id: Optional[str] = None) -> int:
+    """Return the number of cards moved to exile this turn.
+
+    If ``player_id`` is None, returns the global count (any owner). Otherwise
+    returns the count of cards owned by ``player_id`` that were exiled.
+
+    Used by the EOE Void mechanic and by Void-style card-side helpers to test
+    whether the exile-this-turn condition is met. Tracking is performed by the
+    system interceptor registered in :func:`register_turn_state_tracker`
+    (handler: ``_zone_change_to_exile_handler``).
+    """
+    td = getattr(state, "turn_data", None) or {}
+    if player_id is None:
+        return int(td.get("cards_exiled_this_turn", 0))
+    return int(td.get(f"cards_exiled_by_{player_id}", 0))
+
+
+def card_was_exiled_this_turn(state: GameState) -> bool:
+    """Return True iff at least one card has moved to exile this turn (any owner)."""
+    return cards_exiled_this_turn(state) > 0
+
+
 # =============================================================================
 # Coin flip primitive
 # =============================================================================
@@ -391,6 +413,82 @@ def _combat_damage_handler(event: Event, state: GameState) -> InterceptorResult:
     return InterceptorResult(action=InterceptorAction.PASS)
 
 
+def _zone_change_to_exile_filter(event: Event, state: GameState) -> bool:
+    """Catch ZONE_CHANGE events that move a card into the exile zone.
+
+    Drives ``cards_exiled_this_turn`` accounting for the EOE Void mechanic and
+    other "card was exiled this turn" hooks. Filters on the ZONE_CHANGE path
+    only — direct EXILE events flow through the pipeline as ZONE_CHANGEs in
+    the standard exile handler (see ``handlers/zone.py::_handle_exile``).
+    """
+    if event.type != EventType.ZONE_CHANGE:
+        return False
+    return event.payload.get("to_zone_type") == ZoneType.EXILE
+
+
+def _zone_change_to_exile_handler(event: Event, state: GameState) -> InterceptorResult:
+    """Increment ``cards_exiled_this_turn`` (global + per-owner)."""
+    td = getattr(state, "turn_data", None)
+    if td is None:
+        return InterceptorResult(action=InterceptorAction.PASS)
+    obj_id = event.payload.get("object_id")
+    if not obj_id:
+        return InterceptorResult(action=InterceptorAction.PASS)
+    # Dedup against the same object-id within a single turn. Different cards
+    # exiled in the same turn each get counted; the same card double-emitting
+    # ZONE_CHANGE -> EXILE does not.
+    counted = td.setdefault("_exiled_counted_this_turn", set())
+    if not isinstance(counted, set):
+        counted = set()
+        td["_exiled_counted_this_turn"] = counted
+    if obj_id in counted:
+        return InterceptorResult(action=InterceptorAction.PASS)
+    counted.add(obj_id)
+    td["cards_exiled_this_turn"] = int(td.get("cards_exiled_this_turn", 0)) + 1
+    obj = state.objects.get(obj_id)
+    owner = getattr(obj, "owner", None) if obj else None
+    if owner:
+        key = f"cards_exiled_by_{owner}"
+        td[key] = int(td.get(key, 0)) + 1
+    return InterceptorResult(action=InterceptorAction.PASS)
+
+
+def _exile_event_filter(event: Event, state: GameState) -> bool:
+    """Catch direct EXILE events for the same exiled-this-turn tracker.
+
+    EXILE is normally followed by a ZONE_CHANGE in the pipeline, but legacy
+    paths may emit EXILE without ZONE_CHANGE. Subscribing to both with the
+    shared dedup set keeps the count correct in either case.
+    """
+    return event.type == EventType.EXILE
+
+
+def _exile_event_handler(event: Event, state: GameState) -> InterceptorResult:
+    td = getattr(state, "turn_data", None)
+    if td is None:
+        return InterceptorResult(action=InterceptorAction.PASS)
+    object_ids: list[str] = []
+    if "object_id" in event.payload:
+        object_ids.append(event.payload["object_id"])
+    if "object_ids" in event.payload:
+        object_ids.extend(event.payload["object_ids"])
+    counted = td.setdefault("_exiled_counted_this_turn", set())
+    if not isinstance(counted, set):
+        counted = set()
+        td["_exiled_counted_this_turn"] = counted
+    for obj_id in object_ids:
+        if not obj_id or obj_id in counted:
+            continue
+        counted.add(obj_id)
+        td["cards_exiled_this_turn"] = int(td.get("cards_exiled_this_turn", 0)) + 1
+        obj = state.objects.get(obj_id)
+        owner = getattr(obj, "owner", None) if obj else None
+        if owner:
+            key = f"cards_exiled_by_{owner}"
+            td[key] = int(td.get(key, 0)) + 1
+    return InterceptorResult(action=InterceptorAction.PASS)
+
+
 def _coin_flip_filter(event: Event, state: GameState) -> bool:
     return event.type == EventType.COIN_FLIP
 
@@ -490,6 +588,26 @@ def register_turn_state_tracker(game: "Game") -> None:
         source="SYSTEM",
         controller="SYSTEM",
         priority=InterceptorPriority.REACT,
+        filter=_zone_change_to_exile_filter,
+        handler=_zone_change_to_exile_handler,
+        duration="forever",
+    ))
+
+    register(Interceptor(
+        id=new_id(),
+        source="SYSTEM",
+        controller="SYSTEM",
+        priority=InterceptorPriority.REACT,
+        filter=_exile_event_filter,
+        handler=_exile_event_handler,
+        duration="forever",
+    ))
+
+    register(Interceptor(
+        id=new_id(),
+        source="SYSTEM",
+        controller="SYSTEM",
+        priority=InterceptorPriority.REACT,
         filter=_coin_flip_filter,
         handler=_coin_flip_handler,
         duration="forever",
@@ -506,6 +624,8 @@ __all__ = [
     "creatures_died_this_turn",
     "cards_drawn_this_turn",
     "combat_damage_dealt_to_this_turn",
+    "cards_exiled_this_turn",
+    "card_was_exiled_this_turn",
     # Coin flip
     "flip_coin",
     "emit_coin_flip",
