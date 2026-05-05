@@ -14,11 +14,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 
-def build_report() -> dict:
+def build_report(guild_name: str | None = None) -> dict:
     with contextlib.redirect_stdout(io.StringIO()):
         from src.cards.pokemon.beyond.ravnica.balance import ravnica_balance_summary
 
         guilds = ravnica_balance_summary()
+    if guild_name:
+        if guild_name not in guilds:
+            available = ", ".join(sorted(guilds))
+            raise ValueError(f"Unknown Beyond Ravnica guild '{guild_name}'. Available: {available}")
+        guilds = {guild_name: guilds[guild_name]}
     failing = {
         guild: profile["balance_flags"]
         for guild, profile in guilds.items()
@@ -37,6 +42,7 @@ def build_report() -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--guild", help="Optional guild name to report.")
     parser.add_argument("--out", help="Optional JSON output path.")
     parser.add_argument(
         "--fail-on-flags",
@@ -45,7 +51,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    report = build_report()
+    try:
+        report = build_report(args.guild)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     payload = json.dumps(report, indent=2, sort_keys=True)
     if args.out:
         Path(args.out).write_text(payload + "\n")
