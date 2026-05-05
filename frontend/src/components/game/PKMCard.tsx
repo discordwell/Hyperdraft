@@ -137,7 +137,7 @@ export const PKMCard = memo(function PKMCard({
           onMouseEnter={() => onHover?.(card)}
           onMouseLeave={() => onHover?.(null)}
           className={`
-            w-16 h-[5.5rem] rounded-lg border-2 cursor-pointer overflow-hidden
+            w-20 h-28 rounded-lg border-2 cursor-pointer overflow-hidden
             transition-all duration-150 border-gray-500
             ${isSelected ? 'ring-2 ring-yellow-400 scale-105' : ''}
             ${dragDropClasses}
@@ -162,7 +162,7 @@ export const PKMCard = memo(function PKMCard({
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
         className={`
-          w-16 h-[5.5rem] rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer
+          w-20 h-28 rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer
           transition-all duration-150
           ${typeColor} bg-opacity-80 border-gray-500
           ${isSelected ? 'ring-2 ring-yellow-400 scale-105' : ''}
@@ -271,7 +271,7 @@ export const PKMCard = memo(function PKMCard({
           <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1 py-0.5">
             <div className="text-white text-[7px] font-bold truncate">{card.name}</div>
             <div className="flex items-center justify-between">
-              <span className={`text-[7px] font-bold ${hpPercent < 30 ? 'text-red-400' : 'text-green-400'}`}>
+              <span className={`text-[7px] font-bold ${hpPercent > 50 ? 'text-green-400' : hpPercent > 25 ? 'text-yellow-400' : 'text-red-400'}`}>
                 {remainingHp}/{hp}
               </span>
               {/* Attached energy dots */}
@@ -341,7 +341,7 @@ export const PKMCard = memo(function PKMCard({
         <div className="flex-1 min-w-0">
           <div className="text-white text-[8px] font-bold truncate">{card.name}</div>
           <div className="text-[7px]">
-            <span className={hpPercent < 30 ? 'text-red-400' : 'text-green-400'}>
+            <span className={hpPercent > 50 ? 'text-green-400' : hpPercent > 25 ? 'text-yellow-400' : 'text-red-400'}>
               {remainingHp}
             </span>
             <span className="text-gray-500">/{hp}</span>
@@ -371,7 +371,7 @@ export const PKMCard = memo(function PKMCard({
         className={`
           relative rounded-lg border-2 cursor-pointer overflow-hidden
           transition-all duration-150
-          ${isActive ? 'w-40 h-56' : 'w-24 h-36'}
+          ${isActive ? 'w-40 h-56' : 'w-20 h-28'}
           ${isEx ? 'border-indigo-400' : typeBorder}
           ${isSelected ? 'ring-2 ring-yellow-400 scale-105 z-10' : ''}
           ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
@@ -435,7 +435,7 @@ export const PKMCard = memo(function PKMCard({
         {isActive && (
           <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1">
             <div className="flex items-center justify-between">
-              <span className={`text-[10px] font-bold ${hpPercent < 30 ? 'text-red-400' : 'text-green-400'}`}>
+              <span className={`text-[10px] font-bold ${hpPercent > 50 ? 'text-green-400' : hpPercent > 25 ? 'text-yellow-400' : 'text-red-400'}`}>
                 HP {remainingHp}/{hp}
               </span>
               {card.ability_name && (
@@ -481,7 +481,7 @@ export const PKMCard = memo(function PKMCard({
       className={`
         relative rounded-lg border-2 cursor-pointer
         transition-all duration-150
-        ${isActive ? 'w-32 h-44' : 'w-24 h-36'}
+        ${isActive ? 'w-32 h-44' : 'w-20 h-28'}
         ${isEx
           ? 'bg-gradient-to-b from-gray-900 via-indigo-900 to-gray-900 border-indigo-400'
           : 'bg-gradient-to-b from-gray-800 to-gray-900 border-gray-600'
@@ -492,21 +492,17 @@ export const PKMCard = memo(function PKMCard({
         ${dragDropClasses}
       `}
     >
-      {/* Header: Type + Name + HP */}
-      <div className="flex items-center justify-between px-1.5 pt-1">
-        <div className="flex items-center gap-1">
-          <div className={`w-3 h-3 rounded-full ${typeColor}`} />
-          <span className="text-[8px] text-gray-400">{card.evolution_stage || 'Basic'}</span>
-        </div>
+      {/* Header: Type + HP */}
+      <div className="flex items-center justify-between px-1.5 pt-1 whitespace-nowrap">
+        <div className={`w-3 h-3 rounded-full ${typeColor} flex-shrink-0`} />
         <div className="text-[9px] font-bold text-white">
-          {hp} <span className="text-red-400">HP</span>
+          {hp}<span className="text-red-400 ml-0.5">HP</span>
         </div>
       </div>
 
       {/* Name */}
       <div className={`text-center font-bold leading-tight px-1 ${isActive ? 'text-xs' : 'text-[10px]'}`}>
         <span className="text-white">{card.name}</span>
-        {isEx && <span className="text-indigo-300 text-[8px] ml-0.5">ex</span>}
       </div>
 
       {/* HP Bar */}
