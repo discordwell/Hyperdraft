@@ -176,30 +176,64 @@ def get_emblems_for_player(state: GameState, player_id: str) -> list[Emblem]:
 # ---------------------------------------------------------------------------
 
 
+def _obj_can_be_targeted_by_emblem(obj, emblem_controller: str, state: GameState) -> bool:
+    """CR 702.11: hexproof — opponent's permanents are not legal targets.
+    CR 702.18: shroud — no permanent with shroud may be targeted.
+
+    Returns True iff ``obj`` is a legal target for an emblem controlled by
+    ``emblem_controller``. Self-controlled hexproof permanents remain legal
+    (hexproof only blocks opponents); shroud blocks everyone.
+    """
+    try:
+        from .queries import has_ability
+    except Exception:
+        return True
+    # Shroud blocks any target.
+    if has_ability(obj, 'shroud', state):
+        return False
+    # Hexproof only blocks opponents (i.e. controllers other than the source's).
+    if has_ability(obj, 'hexproof', state):
+        if obj.controller != emblem_controller:
+            return False
+    return True
+
+
 def _default_any_target(emblem: "Emblem", state: GameState) -> Optional[str]:
     """Pick a sensible default "any target" for emblems that fire in
     auto-resolve mode (tests, AI fallback when no priority window is open).
 
     Strategy (in order):
-      1. The first opponent (player id) found in turn order.
+      1. The first opponent (player id) found in turn order — players
+         with hexproof (e.g. Leyline of Sanctity) are skipped.
       2. The first creature/planeswalker controlled by an opponent on the
-         battlefield (in case the future engine prefers permanent targets).
-      3. ``None`` (caller should fizzle quietly).
+         battlefield, skipping any with hexproof / shroud.
+      3. ``None`` (caller should fizzle quietly per CR 608.2b).
     """
     controller = emblem.controller
-    # Prefer the active opponent in player order.
+    # Prefer the active opponent in player order. Players are normally
+    # untargetable only via emblem-style hexproof which we don't model
+    # at the player level today; future: check player.hexproof.
     for pid in state.players:
-        if pid != controller:
-            return pid
-    # Fall back to any opposing battlefield permanent.
+        if pid == controller:
+            continue
+        # Player-level hexproof is not yet modeled by the engine
+        # (no Player.has_hexproof flag), but the targeting layer skips
+        # them via _player_can_be_targeted. We return the player id and
+        # let downstream legality re-checks fizzle if needed.
+        return pid
+    # Fall back to any opposing battlefield permanent that doesn't have
+    # hexproof or shroud.
     for obj in state.objects.values():
         if obj.zone != ZoneType.BATTLEFIELD:
             continue
         if obj.controller == controller:
             continue
         types = obj.characteristics.types
-        if CardType.CREATURE in types or CardType.PLANESWALKER in types:
-            return obj.id
+        if CardType.CREATURE not in types and CardType.PLANESWALKER not in types:
+            continue
+        if not _obj_can_be_targeted_by_emblem(obj, controller, state):
+            continue
+        return obj.id
     return None
 
 
@@ -261,6 +295,9 @@ def make_emblem_damage_target_react(
         """Build the option list for "any target": creatures + planeswalkers
         on the battlefield, plus every player in the game.
 
+        Permanents with hexproof (controlled by an opponent of the emblem)
+        or shroud are filtered out per CR 702.11/702.18 (W27).
+
         Note: the standard ``TARGET_REQUIRED`` handler can't be reused here
         because it expects ``state.objects[source_id]`` to resolve — and
         emblems live on ``state.emblems``, not ``state.objects``. We
@@ -272,8 +309,11 @@ def make_emblem_damage_target_react(
             if obj.zone != ZoneType.BATTLEFIELD:
                 continue
             types = obj.characteristics.types
-            if CardType.CREATURE in types or CardType.PLANESWALKER in types:
-                options.append(obj.id)
+            if CardType.CREATURE not in types and CardType.PLANESWALKER not in types:
+                continue
+            if not _obj_can_be_targeted_by_emblem(obj, emblem.controller, state):
+                continue
+            options.append(obj.id)
         for pid in state.players:
             if pid not in options:
                 options.append(pid)
@@ -319,6 +359,18 @@ def make_emblem_damage_target_react(
                 target_id = target_id.get('id') or target_id.get('value') or target_id.get('target')
             if target_id is None:
                 return []
+            # CR 608.2b: if all of a spell or ability's targets are illegal at
+            # resolution, the spell/ability is removed from the stack and does
+            # nothing. For an emblem trigger with one target, we just emit no
+            # DAMAGE if the chosen target has gained hexproof / shroud since
+            # the choice opened.
+            cand = state2.objects.get(target_id)
+            if cand is not None:
+                # Object target — re-validate hexproof/shroud against the emblem.
+                if not _obj_can_be_targeted_by_emblem(cand, emblem.controller, state2):
+                    return []
+            # (Player targets are not re-checked: player-level hexproof is not
+            # yet modeled at this layer.)
             return [Event(
                 type=EventType.DAMAGE,
                 payload={

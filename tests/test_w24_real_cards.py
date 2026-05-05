@@ -220,7 +220,10 @@ def test_elvish_refueler_upkeep_does_not_reset_opponent_exhausts():
 
 
 def test_winter_cursed_rider_registers_x_cost_exhaust():
-    """Winter, Cursed Rider's Exhaust descriptor parses {X}{2}{U}{B}, {T}."""
+    """Winter, Cursed Rider's Exhaust descriptor parses
+    ``{X}{2}{U}{B}, {T}, Exile X artifact cards from your graveyard``
+    end-to-end (W27): mana cost + tap + a typed/X-bound
+    ``exile_from_graveyard`` cost step in the additional plan."""
     from src.cards.aetherdrift import WINTER_CURSED_RIDER
 
     game = Game()
@@ -239,12 +242,25 @@ def test_winter_cursed_rider_registers_x_cost_exhaust():
     assert ex.mana_cost.generic == 2
     assert ex.mana_cost.blue == 1
     assert ex.mana_cost.black == 1
-    print("PASS: Winter, Cursed Rider registers {X}{2}{U}{B}, {T} Exhaust ability")
+    # W27: the GY-exile portion is now a real CostStep, not effect_fn workaround.
+    plan = ex.additional_cost_plan
+    assert plan is not None and len(plan) == 1, \
+        f"expected one cost-plan step (exile-from-GY), got {plan}"
+    step = plan[0]
+    assert step.kind == "exile_from_graveyard", \
+        f"expected exile_from_graveyard, got {step.kind}"
+    assert step.count_is_x is True, \
+        "expected count_is_x=True for 'Exile X artifact cards'"
+    assert step.subtype_filter == CardType.ARTIFACT, \
+        f"expected subtype_filter=ARTIFACT, got {step.subtype_filter}"
+    print("PASS: Winter, Cursed Rider registers full {X}{2}{U}{B}, {T}, "
+          "Exile X artifact cards Exhaust ability")
 
 
-def test_winter_cursed_rider_effect_exiles_artifacts_and_pumps_down():
-    """Calling effect_fn directly with x_value=2 exiles 2 artifacts and emits
-    -2/-2 to nonartifact creatures."""
+def test_winter_cursed_rider_effect_pumps_down_only():
+    """After the W27 refactor, effect_fn returns ONLY the -X/-X PT_MODIFICATION
+    events. The X EXILE events for the artifact-from-GY cost are emitted by
+    ``pay_activation_cost`` from the additional cost plan, not effect_fn."""
     from src.cards.aetherdrift import WINTER_CURSED_RIDER
 
     game = Game()
@@ -253,18 +269,6 @@ def test_winter_cursed_rider_effect_exiles_artifacts_and_pumps_down():
     _setup_game_for_player(p1.id, game)
 
     winter = _spawn_on_battlefield(game, p1, WINTER_CURSED_RIDER)
-
-    # Stash artifact cards in Alice's graveyard.
-    artifact_def = make_artifact(
-        name="Junk Artifact", mana_cost="{1}", text="",
-    )
-    creature_def = make_creature(
-        name="Stray Bear", power=2, toughness=2, mana_cost="{1}{G}",
-        colors={Color.GREEN}, subtypes={"Bear"}, text="",
-    )
-    arts = _stash_in_graveyard(game, p1, artifact_def, 3)
-    # And one creature card in the GY (NOT artifact — should be skipped).
-    _stash_in_graveyard(game, p1, creature_def, 1)
 
     # Spawn an artifact creature and a nonartifact creature on battlefield —
     # the artifact one must NOT receive -X/-X.
@@ -276,8 +280,6 @@ def test_winter_cursed_rider_effect_exiles_artifacts_and_pumps_down():
         name="Walking Artifact", power=4, toughness=4,
         mana_cost="{4}", colors=set(), subtypes={"Construct"}, text="",
     )
-    # Make the Walking Artifact actually have ARTIFACT type (some card factories
-    # place CardType differently — set the types directly to be safe).
     cleric = _spawn_on_battlefield(game, p2, cleric_def)
     artcre = _spawn_on_battlefield(game, p2, artcre_def)
     artcre.characteristics.types.add(CardType.ARTIFACT)
@@ -285,17 +287,6 @@ def test_winter_cursed_rider_effect_exiles_artifacts_and_pumps_down():
     # Find the Exhaust descriptor on Winter and call effect_fn directly with x=2.
     ex = next(a for a in winter.state.activated_abilities if a.is_exhaust)
     events = ex.effect_fn(winter, game.state, [], x_value=2)
-    types = [e.type for e in events]
-
-    # 2 EXILE events for 2 artifact cards from GY.
-    exile_events = [e for e in events if e.type == EventType.EXILE]
-    assert len(exile_events) == 2, \
-        f"expected 2 EXILE events, got {len(exile_events)}"
-    exiled_ids = {e.payload['object_id'] for e in exile_events}
-    artifact_ids = {a.id for a in arts}
-    assert exiled_ids.issubset(artifact_ids), \
-        f"exiled ids {exiled_ids} should be subset of artifact ids in GY"
-
     # PT_MODIFICATION for the nonartifact creature (Plain Cleric) but not the
     # artifact creature (Walking Artifact). Also should not target Winter itself.
     pt_events = [e for e in events if e.type == EventType.PT_MODIFICATION]
@@ -306,12 +297,115 @@ def test_winter_cursed_rider_effect_exiles_artifacts_and_pumps_down():
         "artifact creature should NOT receive -X/-X"
     assert winter.id not in affected_ids, \
         "Winter itself should be excluded ('each OTHER nonartifact creature')"
-    # And every PT_MODIFICATION should have power_mod=-2, toughness_mod=-2.
+    # Every PT_MODIFICATION should have power_mod=-2, toughness_mod=-2.
     for e in pt_events:
         assert e.payload['power_mod'] == -2
         assert e.payload['toughness_mod'] == -2
         assert e.payload['duration'] == 'end_of_turn'
-    print("PASS: Winter, Cursed Rider exiles X artifacts and -X/-X's nonartifacts only")
+    # No EXILE events on the effect_fn side anymore — those come from the
+    # additional cost plan via pay_activation_cost.
+    exile_events = [e for e in events if e.type == EventType.EXILE]
+    assert exile_events == [], \
+        f"effect_fn must NOT emit EXILE events post-W27; got {exile_events}"
+    print("PASS: Winter, Cursed Rider effect_fn emits only -X/-X PT_MODIFICATIONs")
+
+
+def test_winter_cursed_rider_full_activation_exiles_artifacts():
+    """Full pipeline: activate the Exhaust with x_value=2 — pay_activation_cost
+    should emit 2 EXILE events for artifact GY cards, and effect_fn yields the
+    -2/-2 PT_MODIFICATIONs. Non-artifact GY cards are skipped."""
+    from src.cards.aetherdrift import WINTER_CURSED_RIDER
+    from src.engine.activated import (
+        can_pay_activation, pay_activation_cost,
+    )
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _setup_game_for_player(p1.id, game)
+
+    winter = _spawn_on_battlefield(game, p1, WINTER_CURSED_RIDER)
+    winter.state.summoning_sickness = False
+
+    artifact_def = make_artifact(name="Junk Artifact", mana_cost="{1}", text="")
+    nonart_def = make_creature(
+        name="Stray Bear", power=2, toughness=2, mana_cost="{1}{G}",
+        colors={Color.GREEN}, subtypes={"Bear"}, text="",
+    )
+    arts = _stash_in_graveyard(game, p1, artifact_def, 3)
+    _stash_in_graveyard(game, p1, nonart_def, 1)  # nonartifact — must be skipped.
+
+    # Give Alice mana for {X=2}{2}{U}{B}: 4 generic + 1 blue + 1 black.
+    _give_player_mana(p1, game.mana_system, generic=4, blue=1, black=1)
+
+    ex = next(a for a in winter.state.activated_abilities if a.is_exhaust)
+    # Validate legality with x_value=2.
+    assert can_pay_activation(
+        ex, winter, game.state, p1.id,
+        mana_system=game.mana_system,
+        is_active_player=True, is_main_phase=True, stack_empty=True,
+        x_value=2,
+    ), "x=2 should be payable with 3 artifacts in GY"
+
+    # Pay the cost — should produce 2 EXILE events for artifact GY cards.
+    cost_events = pay_activation_cost(
+        ex, winter, game.state, p1.id,
+        mana_system=game.mana_system,
+        x_value=2,
+    )
+    exile_events = [e for e in cost_events if e.type == EventType.EXILE]
+    assert len(exile_events) == 2, \
+        f"expected 2 EXILE events from cost payment, got {len(exile_events)}"
+    exiled_ids = {e.payload['object_id'] for e in exile_events}
+    artifact_ids = {a.id for a in arts}
+    assert exiled_ids.issubset(artifact_ids), \
+        f"only artifact GY cards should be exiled; got {exiled_ids}"
+
+    print("PASS: Winter, Cursed Rider full activation exiles X artifacts via cost plan")
+
+
+def test_winter_cursed_rider_blocks_when_not_enough_artifacts():
+    """can_pay_activation must reject x=3 when the GY has only 2 artifacts
+    (typed filter — non-artifact GY cards don't count)."""
+    from src.cards.aetherdrift import WINTER_CURSED_RIDER
+    from src.engine.activated import can_pay_activation
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _setup_game_for_player(p1.id, game)
+
+    winter = _spawn_on_battlefield(game, p1, WINTER_CURSED_RIDER)
+    winter.state.summoning_sickness = False
+
+    artifact_def = make_artifact(name="Junk Artifact", mana_cost="{1}", text="")
+    nonart_def = make_creature(
+        name="Stray Bear", power=2, toughness=2, mana_cost="{1}{G}",
+        colors={Color.GREEN}, subtypes={"Bear"}, text="",
+    )
+    _stash_in_graveyard(game, p1, artifact_def, 2)  # only 2 artifacts.
+    _stash_in_graveyard(game, p1, nonart_def, 5)    # 5 non-artifacts (red herrings).
+    _give_player_mana(p1, game.mana_system, generic=5, blue=1, black=1)
+
+    ex = next(a for a in winter.state.activated_abilities if a.is_exhaust)
+
+    # x=3 fails (only 2 artifacts available).
+    assert not can_pay_activation(
+        ex, winter, game.state, p1.id,
+        mana_system=game.mana_system,
+        is_active_player=True, is_main_phase=True, stack_empty=True,
+        x_value=3,
+    ), "x=3 should be unpayable with only 2 artifacts in GY"
+
+    # x=2 succeeds.
+    assert can_pay_activation(
+        ex, winter, game.state, p1.id,
+        mana_system=game.mana_system,
+        is_active_player=True, is_main_phase=True, stack_empty=True,
+        x_value=2,
+    ), "x=2 should be payable with 2 artifacts in GY"
+
+    print("PASS: Winter, Cursed Rider gates legality on artifact-typed GY count")
 
 
 def test_winter_cursed_rider_x_zero_is_noop():
@@ -534,7 +628,9 @@ def main():
         test_elvish_refueler_upkeep_does_not_reset_opponent_exhausts,
         # (2) Winter, Cursed Rider
         test_winter_cursed_rider_registers_x_cost_exhaust,
-        test_winter_cursed_rider_effect_exiles_artifacts_and_pumps_down,
+        test_winter_cursed_rider_effect_pumps_down_only,
+        test_winter_cursed_rider_full_activation_exiles_artifacts,
+        test_winter_cursed_rider_blocks_when_not_enough_artifacts,
         test_winter_cursed_rider_x_zero_is_noop,
         # (3) Deconstruction Hammer
         test_deconstruction_hammer_cost_uses_sacrifice_named_step,

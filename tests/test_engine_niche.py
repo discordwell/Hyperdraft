@@ -305,7 +305,223 @@ def test_parse_exile_from_gy_activation_cost():
     step = plan[0]
     assert step.kind == "exile_from_graveyard"
     assert step.amount == 2
+    assert step.count_is_x is False, "literal 'two' should not set count_is_x"
+    assert step.subtype_filter is None, "untyped form should leave subtype_filter None"
     print("PASS: 'Exile two cards from your graveyard' parses into a CostPlan step")
+
+
+def test_parse_exile_from_gy_x_count():
+    """W27: 'Exile X cards from your graveyard' sets count_is_x=True."""
+    plan = parse_cost_expression("Exile X cards from your graveyard")
+    assert plan is not None and len(plan) == 1
+    step = plan[0]
+    assert step.kind == "exile_from_graveyard"
+    assert step.count_is_x is True
+    assert step.subtype_filter is None
+    assert step.amount == 0
+    print("PASS: 'Exile X cards from your graveyard' parses with count_is_x=True")
+
+
+def test_parse_exile_from_gy_typed_filter():
+    """W27: 'Exile two artifact cards from your graveyard' sets subtype_filter."""
+    plan = parse_cost_expression("Exile two artifact cards from your graveyard")
+    assert plan is not None and len(plan) == 1
+    step = plan[0]
+    assert step.kind == "exile_from_graveyard"
+    assert step.amount == 2
+    assert step.count_is_x is False
+    assert step.subtype_filter == CardType.ARTIFACT
+    print("PASS: 'Exile two artifact cards' parses with subtype_filter=ARTIFACT")
+
+
+def test_parse_exile_from_gy_x_with_typed_filter():
+    """W27: 'Exile X artifact cards from your graveyard' sets both."""
+    plan = parse_cost_expression("Exile X artifact cards from your graveyard")
+    assert plan is not None and len(plan) == 1
+    step = plan[0]
+    assert step.kind == "exile_from_graveyard"
+    assert step.count_is_x is True
+    assert step.subtype_filter == CardType.ARTIFACT
+    print("PASS: 'Exile X artifact cards' parses with count_is_x + ARTIFACT filter")
+
+
+def test_parse_exile_from_gy_creature_filter():
+    """W27: typed filter handles other types too (creature, etc.)."""
+    plan = parse_cost_expression("Exile three creature cards from your graveyard")
+    assert plan is not None and len(plan) == 1
+    step = plan[0]
+    assert step.kind == "exile_from_graveyard"
+    assert step.amount == 3
+    assert step.subtype_filter == CardType.CREATURE
+    print("PASS: 'Exile three creature cards' parses with subtype_filter=CREATURE")
+
+
+def test_exile_from_gy_typed_filter_blocks_when_not_enough_typed():
+    """W27: typed filter gates legality on typed-only count."""
+    async def _run():
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        _setup_game_for_player(p1.id, game)
+
+        nonart = make_creature(
+            name="Filler", power=1, toughness=1, mana_cost="{1}",
+            colors=set(), subtypes={"Spirit"}, text="",
+        )
+        artifact = make_artifact(name="Bauble", mana_cost="{1}", text="")
+
+        def setup(obj, state):
+            def _effect(o, st, targets):
+                return [Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': o.controller, 'amount': 3},
+                    source=o.id, controller=o.controller,
+                )]
+            make_activated_ability(
+                obj,
+                cost="Exile two artifact cards from your graveyard, {1}{B}",
+                effect_fn=_effect,
+                description="Gain 3 life.",
+            )
+            return []
+
+        card = make_creature(
+            name="Sap-Sucker", power=2, toughness=2, mana_cost="{B}",
+            colors={Color.BLACK}, subtypes={"Vampire"},
+            text="Exile two artifact cards from your graveyard, {1}{B}: gain 3 life.",
+            setup_interceptors=setup,
+        )
+        obj = _spawn_on_battlefield(game, p1, card)
+        obj.state.summoning_sickness = False
+        _give_player_mana(p1, game.mana_system, generic=1, black=1)
+
+        # Empty graveyard -> blocked.
+        action = PlayerAction(
+            type=ActionType.ACTIVATE_ABILITY,
+            player_id=p1.id, source_id=obj.id,
+            ability_id="activated:0",
+        )
+        events = await game.priority_system._handle_activate_ability(action)
+        assert not any(e.type == EventType.ACTIVATE for e in events), \
+            "empty GY should block activation"
+
+        # Add 2 NON-artifact cards -> still blocked (typed filter requires
+        # 2 artifacts).
+        _stash_in_graveyard(game, p1, nonart, 2)
+        events = await game.priority_system._handle_activate_ability(action)
+        assert not any(e.type == EventType.ACTIVATE for e in events), \
+            "GY with 2 non-artifacts should still block (typed filter)"
+
+        # Add 2 artifacts -> now OK.
+        _stash_in_graveyard(game, p1, artifact, 2)
+        _give_player_mana(p1, game.mana_system, generic=1, black=1)
+        events = await game.priority_system._handle_activate_ability(action)
+        assert any(e.type == EventType.ACTIVATE for e in events), \
+            "GY with 2 artifacts (+ noise) should allow activation"
+        # And the EXILE events target the artifacts only.
+        exile_events = [e for e in events if e.type == EventType.EXILE]
+        assert len(exile_events) == 2
+        for ev in exile_events:
+            cid = ev.payload['object_id']
+            cobj = game.state.objects.get(cid)
+            assert cobj is not None
+            assert CardType.ARTIFACT in cobj.characteristics.types, \
+                f"exiled card {cid} must be artifact-typed"
+        print("PASS: typed exile-from-GY filter gates legality + exiles only typed cards")
+
+    asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_exile_from_gy_x_count_uses_action_x_value():
+    """W27: count_is_x cost reads action.x_value at validation/payment time."""
+    async def _run():
+        from src.engine.activated import can_pay_activation, pay_activation_cost
+
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        _setup_game_for_player(p1.id, game)
+
+        filler = make_creature(
+            name="Filler", power=1, toughness=1, mana_cost="{1}",
+            colors=set(), subtypes={"Spirit"}, text="",
+        )
+
+        def setup(obj, state):
+            def _effect(o, st, targets, x_value=0):
+                return [Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': o.controller, 'amount': int(x_value)},
+                    source=o.id, controller=o.controller,
+                )]
+            make_activated_ability(
+                obj,
+                cost="{X}{B}, Exile X cards from your graveyard",
+                effect_fn=_effect,
+                description="Gain X life.",
+            )
+            return []
+
+        card = make_creature(
+            name="X-User", power=1, toughness=1, mana_cost="{B}",
+            colors={Color.BLACK}, subtypes={"Vampire"},
+            text="{X}{B}, Exile X cards from your graveyard: Gain X life.",
+            setup_interceptors=setup,
+        )
+        obj = _spawn_on_battlefield(game, p1, card)
+        obj.state.summoning_sickness = False
+
+        ex = obj.state.activated_abilities[0]
+        plan = ex.additional_cost_plan
+        assert plan is not None and len(plan) == 1
+        step = plan[0]
+        assert step.kind == "exile_from_graveyard"
+        assert step.count_is_x is True
+        assert step.subtype_filter is None
+
+        # Empty graveyard. x=0 should be legal (need 0 cards).
+        _give_player_mana(p1, game.mana_system, black=1)
+        assert can_pay_activation(
+            ex, obj, game.state, p1.id,
+            mana_system=game.mana_system,
+            is_active_player=True, is_main_phase=True, stack_empty=True,
+            x_value=0,
+        ), "x=0 with empty GY should be legal (count_is_x)"
+
+        # x=2 with empty graveyard fails.
+        assert not can_pay_activation(
+            ex, obj, game.state, p1.id,
+            mana_system=game.mana_system,
+            is_active_player=True, is_main_phase=True, stack_empty=True,
+            x_value=2,
+        ), "x=2 with empty GY must be illegal (count_is_x)"
+
+        # Stash 3 cards. x=2 now legal.
+        gy_stubs = _stash_in_graveyard(game, p1, filler, 3)
+        _give_player_mana(p1, game.mana_system, generic=2)
+        assert can_pay_activation(
+            ex, obj, game.state, p1.id,
+            mana_system=game.mana_system,
+            is_active_player=True, is_main_phase=True, stack_empty=True,
+            x_value=2,
+        ), "x=2 with 3 GY cards should be legal"
+
+        # Pay with x=2: cost should yield 2 EXILE events.
+        cost_events = pay_activation_cost(
+            ex, obj, game.state, p1.id,
+            mana_system=game.mana_system,
+            x_value=2,
+        )
+        exile_events = [e for e in cost_events if e.type == EventType.EXILE]
+        assert len(exile_events) == 2, \
+            f"x=2 should emit 2 EXILE events, got {len(exile_events)}"
+        # The exiled ids should be from the GY stubs.
+        gy_ids = {s.id for s in gy_stubs}
+        for ev in exile_events:
+            assert ev.payload['object_id'] in gy_ids
+        print("PASS: 'Exile X cards from your graveyard' honours action.x_value")
+
+    asyncio.get_event_loop().run_until_complete(_run())
 
 
 def test_exile_from_gy_cost_blocks_when_insufficient():
@@ -608,6 +824,13 @@ def main():
         test_parse_exile_from_gy_activation_cost,
         test_exile_from_gy_cost_blocks_when_insufficient,
         test_exile_from_gy_cost_pays_and_exiles,
+        # (2b) W27 — X count + typed filter
+        test_parse_exile_from_gy_x_count,
+        test_parse_exile_from_gy_typed_filter,
+        test_parse_exile_from_gy_x_with_typed_filter,
+        test_parse_exile_from_gy_creature_filter,
+        test_exile_from_gy_typed_filter_blocks_when_not_enough_typed,
+        test_exile_from_gy_x_count_uses_action_x_value,
         # (3) Sacrifice <named card>
         test_parse_sacrifice_named_in_activation_cost,
         test_parse_cost_expression_supports_sacrifice_named,

@@ -421,7 +421,24 @@ def can_pay_activation(
             if step.kind == "exile_from_graveyard":
                 gy_key = f"graveyard_{player_id}"
                 gy = state.zones.get(gy_key)
-                if gy is None or len(getattr(gy, "objects", []) or []) < int(step.amount or 1):
+                gy_objects = list(getattr(gy, "objects", []) or []) if gy is not None else []
+                # Compute required count: literal amount, or X (read from
+                # caller's chosen x_value at validation time).
+                if getattr(step, "count_is_x", False):
+                    required = max(0, int(x_value or 0))
+                else:
+                    required = int(step.amount or 1)
+                # Filter graveyard pool by subtype_filter if provided.
+                subtype_filter = getattr(step, "subtype_filter", None)
+                if subtype_filter is not None:
+                    eligible = [
+                        cid for cid in gy_objects
+                        if (cand := state.objects.get(cid)) is not None
+                        and subtype_filter in cand.characteristics.types
+                    ]
+                else:
+                    eligible = gy_objects
+                if len(eligible) < required:
                     return False
             elif step.kind == "sacrifice_named":
                 name_lc = (step.name_match or "").lower()
@@ -573,12 +590,26 @@ def pay_activation_cost(
                 ))
             elif step.kind == "exile_from_graveyard":
                 # Greedy: exile the first N cards in the player's
-                # graveyard. AI/UI can intercept earlier to pick specific
-                # cards via PendingChoice if the cost requires selection.
-                n = int(step.amount or 1)
+                # graveyard (filtered by subtype_filter if set, count
+                # bound to X if count_is_x). AI/UI can intercept earlier
+                # to pick specific cards via PendingChoice if the cost
+                # requires selection.
+                if getattr(step, "count_is_x", False):
+                    n = max(0, int(x_value or 0))
+                else:
+                    n = int(step.amount or 1)
                 gy_key = f"graveyard_{player_id}"
                 gy = state.zones.get(gy_key)
-                gy_ids = list(getattr(gy, "objects", []) or [])[:n]
+                gy_ids_all = list(getattr(gy, "objects", []) or [])
+                subtype_filter = getattr(step, "subtype_filter", None)
+                if subtype_filter is not None:
+                    gy_ids = [
+                        cid for cid in gy_ids_all
+                        if (cand := state.objects.get(cid)) is not None
+                        and subtype_filter in cand.characteristics.types
+                    ][:n]
+                else:
+                    gy_ids = gy_ids_all[:n]
                 for cid in gy_ids:
                     events.append(Event(
                         type=EventType.EXILE,
