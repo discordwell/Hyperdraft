@@ -3589,6 +3589,232 @@ def any_card_filter() -> Callable[[GameObject, GameState], bool]:
 
 
 # =============================================================================
+# Token-copy from graveyard / Look-N-land-pick
+# =============================================================================
+#
+# Two narrowly-scoped helpers used by FIN cards (Sin, Spira's Punishment;
+# Ignis Scientia) but generic enough for any set:
+#
+# * ``make_token_copy_from_graveyard`` - emit an OBJECT_CREATED event whose
+#   ``copy_of`` points at a card currently in a graveyard. The pipeline's
+#   ``_handle_object_created`` already deep-copies printed characteristics
+#   from any object regardless of zone, so the only special handling here is
+#   defaulting ``is_token=True`` and routing the resulting permanent onto
+#   the battlefield (optionally tapped). The original graveyard card is
+#   untouched (the engine creates a new GameObject with fresh id).
+#
+# * ``make_top_n_land_pick`` - look at top N cards of a library and offer a
+#   PendingChoice in which the controller may pick exactly one LAND from
+#   among them. The picked land moves LIBRARY -> BATTLEFIELD (tapped iff
+#   ``put_tapped``); every other revealed card goes to the bottom of the
+#   library in a random order. Declining (when ``optional=True`` or no land
+#   is present) puts every revealed card on the bottom in random order.
+# =============================================================================
+
+
+def make_token_copy_from_graveyard(
+    state: GameState,
+    controller: str,
+    source_card_id: str,
+    *,
+    source_id: Optional[str] = None,
+    tapped: bool = False,
+    count: int = 1,
+    add_subtypes: Optional[set] = None,
+) -> list[Event]:
+    """Build OBJECT_CREATED events that token-copy a card currently in a graveyard.
+
+    Args:
+        state: Current GameState (used to validate the source card exists).
+        controller: Player ID who will control the new token.
+        source_card_id: Object id of a card sitting in a graveyard zone.
+        source_id: Object id of the spell/ability creating the copy
+            (used as ``Event.source`` for downstream triggers).
+        tapped: Whether the copy enters tapped.
+        count: Number of token copies to create. Default 1.
+        add_subtypes: Subtypes to add in addition to the copied subtypes.
+
+    Returns:
+        ``count`` OBJECT_CREATED events targeting ``source_card_id`` via the
+        ``copy_of`` payload field. If the source card is missing or no longer
+        in a graveyard, returns ``[]``.
+
+    Notes:
+        The pipeline's ``_handle_object_created`` looks up ``copy_of`` in
+        ``state.objects`` regardless of the source's zone, so it works for
+        graveyard sources just as it does for battlefield sources. The
+        original graveyard card is *not* moved: a new GameObject is created
+        with a fresh id, deep-copied characteristics, and the source's
+        ``card_def`` is inherited so its ``setup_interceptors`` fire on ETB.
+    """
+    src_obj = state.objects.get(source_card_id)
+    if src_obj is None or src_obj.zone != ZoneType.GRAVEYARD:
+        return []
+
+    return make_copy_token_event(
+        target_id=source_card_id,
+        controller=controller,
+        source_id=source_id,
+        count=count,
+        tapped=tapped,
+        add_subtypes=add_subtypes,
+    )
+
+
+def make_top_n_land_pick(
+    state: GameState,
+    controller: str,
+    source_id: str,
+    *,
+    n: int = 5,
+    put_tapped: bool = True,
+    optional: bool = True,
+    prompt: Optional[str] = None,
+) -> list[Event]:
+    """Open a PendingChoice for "look at top N, may put a land onto the battlefield".
+
+    Reveal the top ``n`` cards of ``controller``'s library to themselves. They
+    may pick exactly one LAND card from among the revealed cards; that card
+    moves LIBRARY -> BATTLEFIELD (tapped iff ``put_tapped``). Every other
+    revealed card (including non-picked lands and all non-lands) goes to the
+    bottom of the library in a random order.
+
+    When ``optional=True`` the controller may decline and bottom every
+    revealed card. When no land is among the revealed cards the controller
+    is auto-resolved to "decline" without a choice prompt.
+
+    Args:
+        state: Current GameState.
+        controller: Player ID looking at the top of their library.
+        source_id: Source card id (Sin Spira / Ignis Scientia / etc.).
+        n: Number of cards to look at (default 5).
+        put_tapped: Whether the chosen land enters tapped (default True).
+        optional: Whether the player may decline picking a land (default True).
+        prompt: Optional override for the choice prompt.
+
+    Returns:
+        ``[]`` (the helper installs ``state.pending_choice`` directly, the
+        same pattern as ``open_library_search``). Use as the ``effect_fn``
+        return value for an ETB trigger or activated ability.
+
+    Edge cases:
+        - Library smaller than N: looks at whatever is available.
+        - Empty library: returns [] without installing a choice.
+        - No land in revealed cards: bottoms everything in random order
+          (no choice presented).
+    """
+    library_key = f"library_{controller}"
+    library = state.zones.get(library_key)
+    if library is None or not library.objects:
+        return []
+
+    revealed = list(library.objects[:n])
+    if not revealed:
+        return []
+
+    land_ids: list[str] = []
+    for cid in revealed:
+        obj = state.objects.get(cid)
+        if obj is None:
+            continue
+        if CardType.LAND in obj.characteristics.types:
+            land_ids.append(cid)
+
+    def _bottom_in_random_order(cids: list[str], st: GameState) -> None:
+        """Bottom each card in ``cids`` (random order) onto the library."""
+        import random as _rnd
+        from src.engine.pipeline._shared import _remove_object_from_all_zones
+        ordering = list(cids)
+        _rnd.shuffle(ordering)
+        lib = st.zones.get(library_key)
+        if lib is None:
+            return
+        for cid in ordering:
+            obj = st.objects.get(cid)
+            if obj is None:
+                continue
+            _remove_object_from_all_zones(cid, st)
+            lib.objects.append(cid)
+            obj.zone = ZoneType.LIBRARY
+            obj.entered_zone_at = st.timestamp
+
+    # No land available -> auto-bottom everything; no choice presented.
+    if not land_ids:
+        _bottom_in_random_order(revealed, state)
+        return []
+
+    def _resolve(
+        choice: PendingChoice, selected: list, st: GameState
+    ) -> list[Event]:
+        # Selection format: a single card-id (str) or a {'id': ...} dict, or
+        # an empty list / 'decline' marker for the optional path.
+        picked: Optional[str] = None
+        if selected:
+            first = selected[0]
+            picked_id = first.get('id') if isinstance(first, dict) else first
+            if picked_id == 'decline':
+                picked = None
+            elif picked_id in land_ids:
+                picked = picked_id
+
+        others = [cid for cid in revealed if cid != picked]
+
+        from src.engine.pipeline._shared import _remove_object_from_all_zones
+
+        if picked is not None:
+            obj = st.objects.get(picked)
+            if obj is not None:
+                _remove_object_from_all_zones(picked, st)
+                bf = st.zones.get('battlefield')
+                if bf is not None:
+                    bf.objects.append(picked)
+                    obj.zone = ZoneType.BATTLEFIELD
+                    obj.controller = controller
+                    obj.state.tapped = bool(put_tapped)
+                    obj.state.summoning_sickness = False  # Lands don't have summoning sickness
+                    obj.entered_zone_at = st.timestamp
+                    # Re-run setup_interceptors (the create-from-hand pipeline
+                    # would normally do this; we're shortcutting LIBRARY->BF).
+                    cd = obj.card_def
+                    if cd is not None and getattr(cd, 'setup_interceptors', None):
+                        try:
+                            new_ints = cd.setup_interceptors(obj, st) or []
+                            for it in new_ints:
+                                it.timestamp = st.next_timestamp()
+                                st.interceptors[it.id] = it
+                                obj.interceptor_ids.append(it.id)
+                        except Exception:
+                            pass
+
+        _bottom_in_random_order(others, st)
+        return []
+
+    # Build option list. When optional, append a 'decline' synthetic option.
+    options: list[Any] = list(land_ids)
+    if optional:
+        options.append({'id': 'decline', 'label': 'Decline (bottom all in random order)'})
+
+    choice = PendingChoice(
+        choice_type="top_n_land_pick",
+        player=controller,
+        prompt=prompt or f"Look at top {len(revealed)}: choose a land to put onto the battlefield"
+                        + (" tapped" if put_tapped else "")
+                        + (", or decline." if optional else "."),
+        options=options,
+        source_id=source_id,
+        min_choices=0 if optional else 1,
+        max_choices=1,
+        callback_data={
+            'handler': _resolve,
+            'revealed': list(revealed),
+            'land_ids': list(land_ids),
+        },
+    )
+    state.pending_choice = choice
+    return []
+
+
+# =============================================================================
 # CAST-FROM-ZONE PERMISSIONS (W7)
 # =============================================================================
 #

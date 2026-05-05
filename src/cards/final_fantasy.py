@@ -4930,21 +4930,105 @@ def hope_estheim_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def ignis_scientia_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ignis Scientia: ETB -> look at top 6, may put land into play (stub)."""
+    """Ignis Scientia: "When Ignis Scientia enters, look at the top six cards
+    of your library. You may put a land card from among them onto the
+    battlefield tapped. Put the rest on the bottom of your library in a
+    random order."
+
+    (The activated graveyard-exile -> Food token half is a separate engine
+    gap: TAP cost activation + targeting a graveyard card.)
+    """
+    from src.cards.interceptor_helpers import make_top_n_land_pick
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: library look + selective put-onto-battlefield not modular
-        return []
+        return make_top_n_land_pick(
+            state,
+            controller=obj.controller,
+            source_id=obj.id,
+            n=6,
+            put_tapped=True,
+            optional=True,
+        )
     return [make_etb_trigger(obj, etb_effect)]
 
 
 def sin_spiras_punishment_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sin: ETB/attack -> exile from graveyard at random + create copy token (stub)."""
-    interceptors = []
+    """Sin, Spira's Punishment: "Whenever Sin enters or attacks, exile a
+    permanent card from your graveyard at random, then create a tapped token
+    that's a copy of that card. If the exiled card is a land card, repeat
+    this process."
+
+    Implementation:
+      - On ETB or attack, scan the controller's graveyard for permanent-typed
+        cards (CREATURE / ARTIFACT / ENCHANTMENT / LAND / PLANESWALKER /
+        BATTLE).
+      - Pick one at random, exile it, create a tapped copy-token via
+        ``make_token_copy_from_graveyard``.
+      - Repeat while the most recently exiled card was a LAND.
+    """
+    import random as _rnd
+    from src.cards.interceptor_helpers import make_token_copy_from_graveyard
+
+    PERMANENT_TYPES = {
+        CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT,
+        CardType.LAND, CardType.PLANESWALKER,
+    }
 
     def trigger_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: random graveyard pick + token copy of card not modular
-        return []
+        events: list[Event] = []
+        max_iterations = 20  # belt-and-braces guard against pathological loops
+        gy_key = f"graveyard_{obj.controller}"
+        exile_zone = state.zones.get('exile')
 
+        for _ in range(max_iterations):
+            gy = state.zones.get(gy_key)
+            if gy is None or not gy.objects:
+                break
+
+            permanent_card_ids = []
+            for cid in gy.objects:
+                card = state.objects.get(cid)
+                if card is None:
+                    continue
+                if card.characteristics.types & PERMANENT_TYPES:
+                    permanent_card_ids.append(cid)
+
+            if not permanent_card_ids:
+                break
+
+            picked_id = _rnd.choice(permanent_card_ids)
+            picked = state.objects.get(picked_id)
+            if picked is None:
+                break
+
+            # Build the token-copy event BEFORE exiling so the source object
+            # is still resolvable in state.objects (the copy_of lookup walks
+            # state.objects, but we want a clear semantic of "snapshot a
+            # graveyard card, then exile it").
+            copy_events = make_token_copy_from_graveyard(
+                state,
+                controller=obj.controller,
+                source_card_id=picked_id,
+                source_id=obj.id,
+                tapped=True,
+                count=1,
+            )
+            events.extend(copy_events)
+
+            # Move the picked card to exile.
+            if exile_zone is not None and picked_id in gy.objects:
+                gy.objects.remove(picked_id)
+                exile_zone.objects.append(picked_id)
+                picked.zone = ZoneType.EXILE
+                picked.entered_zone_at = state.timestamp
+
+            # Repeat only if the exiled card was a LAND.
+            if CardType.LAND not in picked.characteristics.types:
+                break
+
+        return events
+
+    interceptors: list[Interceptor] = []
     interceptors.append(make_etb_trigger(obj, trigger_effect))
     interceptors.append(make_attack_trigger(obj, trigger_effect))
     return interceptors
