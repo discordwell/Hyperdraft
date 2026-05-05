@@ -450,8 +450,16 @@ class MidrangeStrategy(AIStrategy):
 
                 # Chump block
                 elif not kills_attacker:
+                    avoid_nonlethal_trample_chump = (
+                        self._has_ability(attacker, 'trample', state)
+                        and dies
+                        and attacker_power - blocker_toughness < player.life
+                        and blocker_toughness <= 1
+                    )
                     if lethal_incoming:
                         value = 50 + attacker_power  # Must block
+                    elif avoid_nonlethal_trample_chump:
+                        value = 0
                     elif behind and attacker_power >= 3:
                         value = 20  # Protect life when behind
 
