@@ -1,6 +1,7 @@
 """Stormrift custom Hearthstone balance checks."""
 
 from src.cards.hearthstone.stormrift import (
+    EMBER_CHANNELER,
     IGNIS_HERO,
     PYROMANCER_DECK,
     RIFT_SPARK,
@@ -26,7 +27,9 @@ def test_pyromancer_has_enough_resilient_early_minions_for_rift_storm():
 
     assert names.count("Pyroclasm Adept") == 1
     assert names.count("Rift Walker") == 1
+    assert EMBER_CHANNELER.characteristics.toughness == 4
     assert summary["early_resilient_minions"] >= 5
+    assert summary["early_durable_minions"] >= 3
     assert summary["fragile_one_health_minions"] <= 3
 
 
