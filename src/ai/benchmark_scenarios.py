@@ -177,6 +177,23 @@ def _attack_scenario(ai: AIEngine) -> ScenarioResult:
     return ScenarioResult("attack_with_unblocked_creature", observed == expected, expected, observed)
 
 
+def _menace_attack_scenario(ai: AIEngine) -> ScenarioResult:
+    game, p1, p2 = _game()
+    attacker = _obj(
+        game, p1.id, "Menace Attacker", ZoneType.BATTLEFIELD,
+        {CardType.CREATURE}, text="Menace", power=2, toughness=2
+    )
+    _obj(
+        game, p2.id, "Solo Blocker", ZoneType.BATTLEFIELD,
+        {CardType.CREATURE}, power=3, toughness=3
+    )
+
+    attacks = ai.get_attack_declarations(p1.id, game.state, [attacker.id])
+    observed = [attack.attacker_id for attack in attacks]
+    expected = [attacker.id]
+    return ScenarioResult("attack_with_underblocked_menace", observed == expected, expected, observed)
+
+
 def _block_scenario(ai: AIEngine) -> ScenarioResult:
     game, p1, p2 = _game()
     attacker = _obj(
@@ -246,6 +263,7 @@ def run_fixed_decision_benchmark(
         _burn_target_scenario(ai),
         _lethal_burn_scenario(ai),
         _attack_scenario(ai),
+        _menace_attack_scenario(ai),
         _block_scenario(ai),
         _avoid_trample_chump_scenario(ai),
     ]

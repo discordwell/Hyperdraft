@@ -22,6 +22,7 @@ DEFAULT_DECK_SPECS: tuple[tuple[str, str, list[str]], ...] = (
 
 def _summarize_deck_metrics(deck_metrics: dict[str, dict[str, Any]]) -> dict[str, Any]:
     role_deficit_total = 0
+    role_deficits_by_role: dict[str, int] = {}
     decks_with_flags = 0
     curve_error_total = 0
     fill_rates: list[float] = []
@@ -29,7 +30,10 @@ def _summarize_deck_metrics(deck_metrics: dict[str, dict[str, Any]]) -> dict[str
     worst_curve_error = -1
 
     for label, metrics in deck_metrics.items():
-        role_deficit_total += sum(int(v) for v in metrics.get("role_deficits", {}).values())
+        for role, deficit in (metrics.get("role_deficits", {}) or {}).items():
+            amount = int(deficit)
+            role_deficit_total += amount
+            role_deficits_by_role[role] = role_deficits_by_role.get(role, 0) + amount
         curve_error = int(metrics.get("curve_error", 0) or 0)
         curve_error_total += curve_error
         if curve_error > worst_curve_error:
@@ -43,6 +47,7 @@ def _summarize_deck_metrics(deck_metrics: dict[str, dict[str, Any]]) -> dict[str
         "deck_count": len(deck_metrics),
         "avg_role_fill_rate": round(sum(fill_rates) / len(fill_rates), 3) if fill_rates else 0.0,
         "role_deficit_total": role_deficit_total,
+        "role_deficits_by_role": dict(sorted(role_deficits_by_role.items())),
         "curve_error_total": curve_error_total,
         "worst_curve_error_deck": worst_curve_deck,
         "worst_curve_error": max(0, worst_curve_error),
