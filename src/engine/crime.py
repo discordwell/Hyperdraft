@@ -74,6 +74,47 @@ def _is_opponent_target(target_id: str, controller_id: str, state: GameState) ->
     return False
 
 
+# Public alias of the opponent-target check (CR 701.55).
+def is_crime_target(target_id, actor_player_id: str, state: GameState) -> bool:
+    """Return True iff ``target_id`` is an opponent, an opponent's permanent,
+    a card in an opponent's graveyard, or an opponent-controlled spell on the
+    stack — i.e. targeting it constitutes a crime per CR 701.55.
+
+    ``target_id`` may be a player id, an object id, or a dict with ``id`` /
+    ``target_id`` keys (mirrors ``detect_crime``).
+    """
+    if isinstance(target_id, dict):
+        target_id = target_id.get('id') or target_id.get('target_id')
+    elif hasattr(target_id, 'id') and not isinstance(target_id, str):
+        # Target dataclass (src.engine.targeting.Target)
+        target_id = target_id.id
+    if not target_id:
+        return False
+    return _is_opponent_target(str(target_id), actor_player_id, state)
+
+
+def targets_constitute_crime(
+    targets,
+    actor_player_id: str,
+    state: GameState,
+) -> bool:
+    """Vectorized check: True iff ``targets`` contains at least one
+    opponent / opponent's permanent / opponent's GY card.
+
+    ``targets`` follows the ``PlayerAction.targets`` shape (list of lists)
+    OR a flat list of ids — both are accepted.
+    """
+    for group in (targets or []):
+        if isinstance(group, (list, tuple, set)):
+            for tid in group:
+                if is_crime_target(tid, actor_player_id, state):
+                    return True
+        else:
+            if is_crime_target(group, actor_player_id, state):
+                return True
+    return False
+
+
 def detect_crime(
     controller_id: str,
     target_ids: Iterable,
@@ -92,10 +133,13 @@ def detect_crime(
 
     crime_targets: list = []
     for tid in target_ids or []:
-        # Skip non-id values (occasionally selected entries are dicts)
+        # Normalize Target dataclass / dicts / raw ids to a string id.
         if isinstance(tid, dict):
             tid = tid.get('id') or tid.get('target_id')
-        if tid and _is_opponent_target(tid, controller_id, state):
+        elif hasattr(tid, 'id') and not isinstance(tid, str):
+            # Target dataclass (src.engine.targeting.Target)
+            tid = tid.id
+        if tid and _is_opponent_target(str(tid), controller_id, state):
             crime_targets.append(tid)
 
     if not crime_targets:
