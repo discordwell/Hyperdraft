@@ -24,7 +24,11 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]
-    }
+    },
+    /* Vitest globals (describe/it/expect) — only loaded when vitest runs.
+       Production builds don't pull this in because vitest types are
+       devDependencies. */
+    "types": ["vitest/globals"]
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]

@@ -7,3 +7,5 @@ export { HandView } from './HandView';
 export { StackView } from './StackView';
 export { DropZone } from './DropZone';
 export { GraveyardModal } from './GraveyardModal';
+export { TriggerQueuePanel } from './TriggerQueuePanel';
+export { PriorityPrompt } from './PriorityPrompt';

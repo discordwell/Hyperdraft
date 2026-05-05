@@ -127,6 +127,22 @@ export interface StackItemData {
   source_id: string;
   source_name: string;
   controller: string;
+  // Triggered-ability description ("Whenever X enters, you gain 3 life.").
+  // Empty string for spells/activated abilities.
+  description?: string;
+}
+
+// Pending Triggered Ability
+// Triggers fire and queue here; the next priority pass drains them onto
+// the stack as TRIGGERED_ABILITY stack items. The active player can
+// optionally re-order their own simultaneous triggers (CR 603.3b) — v1
+// shows the queue read-only, full reordering UI is deferred.
+export interface PendingTriggerData {
+  id: string;
+  controller: string;
+  source_id: string;
+  source_name: string;
+  description?: string;
 }
 
 // Legal Action
@@ -234,6 +250,7 @@ export interface GameState {
   players: Record<string, PlayerData>;
   battlefield: CardData[];
   stack: StackItemData[];
+  pending_triggers?: PendingTriggerData[];
   hand: CardData[];
   graveyard: Record<string, CardData[]>;
   legal_actions: LegalActionData[];

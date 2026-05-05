@@ -227,6 +227,23 @@ class StackItemData(BaseModel):
     source_id: str
     source_name: str
     controller: str
+    # Description (used for triggered abilities; spells leave it blank).
+    description: str = ""
+
+
+class PendingTriggerData(BaseModel):
+    """A queued triggered ability waiting to be put on the stack.
+
+    These accumulate in ``state.pending_triggers`` between the triggering
+    event and the next priority window. The frontend uses this list to show
+    the player which triggers are about to go on the stack so they can
+    optionally re-order their own triggers (CR 603.3b).
+    """
+    id: str
+    controller: str
+    source_id: str
+    source_name: str
+    description: str = ""
 
 
 class LegalActionData(BaseModel):
@@ -318,6 +335,11 @@ class GameStateResponse(BaseModel):
     players: dict[str, PlayerData]
     battlefield: list[CardData] = Field(default_factory=list)
     stack: list[StackItemData] = Field(default_factory=list)
+    # Triggered abilities that have fired but not yet been put on the stack
+    # (drained on the next priority pass). Surfaced to the client so the
+    # active player can preview the queue before their own triggers go on
+    # the stack (CR 603.3b — active player orders their simultaneous triggers).
+    pending_triggers: list[PendingTriggerData] = Field(default_factory=list)
     hand: list[CardData] = Field(default_factory=list)
     graveyard: dict[str, list[CardData]] = Field(default_factory=dict)
     legal_actions: list[LegalActionData] = Field(default_factory=list)

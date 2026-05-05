@@ -435,13 +435,30 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const hasOtherActions = gameState.legal_actions.some((a) => a.type !== 'PASS');
     const stackHasItems = gameState.stack.length > 0;
+    const pendingTriggers = gameState.pending_triggers ?? [];
+    const triggersQueued = pendingTriggers.length > 0;
     const currentTurn = gameState.turn_number;
+
+    // Priority-window guard (CR 603.2): once a trigger has fired the
+    // player should see it before auto-passing through. The same applies
+    // to spells/abilities the opponent has just cast — if I have an
+    // available response, don't auto-pass past the stack-resolution
+    // window. Tests still set 'off' so they aren't affected.
+    const inPriorityWindow = triggersQueued || (stackHasItems && hasOtherActions);
 
     switch (ui.autoPassMode) {
       case 'off':
         return { shouldPass: false };
 
       case 'no_actions':
+        // Don't auto-pass during a priority window — let the player
+        // observe the trigger / stack item.
+        if (inPriorityWindow) {
+          return {
+            shouldPass: false,
+            reason: triggersQueued ? 'Triggers fired' : 'Stack activity',
+          };
+        }
         // Auto-pass when we have no meaningful actions
         if (!hasOtherActions) {
           return { shouldPass: true };

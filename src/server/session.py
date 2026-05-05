@@ -28,7 +28,8 @@ from src.engine.types import CardDefinition
 from .models import (
     GameStateResponse, PlayerData, CardData, StackItemData,
     LegalActionData, CombatData, PlayerActionRequest, ReplayFrame,
-    PendingChoiceData, PendingChoiceWaitingData, GameLogEntry
+    PendingChoiceData, PendingChoiceWaitingData, GameLogEntry,
+    PendingTriggerData,
 )
 from .modes import get_server_mode_adapter
 
@@ -366,6 +367,17 @@ class GameSession:
         for item in self.game.stack.get_items():
             stack.append(self._serialize_stack_item(item))
 
+        # Get pending triggered abilities (CR 603.2). These are queued but
+        # not yet on the stack — they're drained on the next priority pass.
+        pending_triggers_data = []
+        for trig in getattr(game_state, 'pending_triggers', []) or []:
+            try:
+                pending_triggers_data.append(self._serialize_pending_trigger(trig))
+            except Exception:
+                # Defensive: don't block state serialization on a malformed
+                # trigger queue entry.
+                continue
+
         # Get hand (only for requesting player)
         hand = []
         if player_id:
@@ -579,6 +591,7 @@ class GameSession:
             players=players,
             battlefield=battlefield,
             stack=stack,
+            pending_triggers=pending_triggers_data,
             hand=hand,
             graveyard=graveyards,
             legal_actions=legal_actions,
@@ -1798,14 +1811,51 @@ class GameSession:
         )
 
     def _serialize_stack_item(self, item) -> StackItemData:
-        """Serialize a stack item for the client."""
+        """Serialize a stack item for the client.
+
+        Handles both ``StackItem`` (spells/activated abilities — has
+        ``controller_id``) and ``TriggeredStackItem`` (CR 603.2 triggered
+        abilities — has ``controller`` and ``description``).
+        """
         source = self.game.state.objects.get(item.source_id)
+
+        # Triggered abilities prefer ``source_card_name`` for display
+        # because the source object may have been moved zones since the
+        # trigger fired (e.g. a death trigger whose source is now in the
+        # graveyard).
+        if hasattr(item, 'source_card_name'):
+            source_name = item.source_card_name or (source.name if source else "Unknown")
+        else:
+            source_name = source.name if source else "Unknown"
+
+        controller = getattr(item, 'controller_id', None) or getattr(item, 'controller', '')
+        description = getattr(item, 'description', '') or ''
+
         return StackItemData(
             id=item.id,
             type=item.type.name,
             source_id=item.source_id,
-            source_name=source.name if source else "Unknown",
-            controller=item.controller_id
+            source_name=source_name,
+            controller=controller,
+            description=description,
+        )
+
+    def _serialize_pending_trigger(self, trig) -> PendingTriggerData:
+        """Serialize a pending (queued) triggered ability for the client.
+
+        ``trig`` is a ``TriggeredStackItem`` from ``state.pending_triggers``;
+        these are queued but not yet on the stack. The client uses this
+        list to render the trigger queue panel before the next priority
+        pass.
+        """
+        source = self.game.state.objects.get(trig.source_id)
+        source_name = trig.source_card_name or (source.name if source else "Unknown")
+        return PendingTriggerData(
+            id=trig.id or '',
+            controller=trig.controller,
+            source_id=trig.source_id,
+            source_name=source_name,
+            description=trig.description or '',
         )
 
     def _serialize_legal_action(self, action: LegalAction) -> LegalActionData:
@@ -1860,6 +1910,15 @@ class SessionManager:
         async with self._lock:
             session_id = generate_id()
             game = Game(mode=game_mode)
+
+            # Live-game toggle (CR 603.2): MTG matches with at least one human
+            # disable the auto-resolve fast path so triggered abilities go on
+            # the stack and players get a priority window to respond. Tests
+            # leave the default (True) so legacy assertions about inline ETB
+            # firing keep working. Bot-vs-bot MTG also stays on auto-resolve
+            # because there's no human to use the response window.
+            if game_mode == "mtg" and mode in ("human_vs_bot", "human_vs_human"):
+                game.state.options.auto_resolve_triggers = False
 
             session = GameSession(
                 id=session_id,

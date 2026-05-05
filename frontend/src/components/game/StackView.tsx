@@ -34,10 +34,13 @@ export function StackView({ items, playerId }: StackViewProps) {
         {items.map((item, index) => {
           const isYours = item.controller === playerId;
           const isTopOfStack = index === items.length - 1;
+          const isTriggered = item.type === 'TRIGGERED_ABILITY';
 
           return (
             <div
               key={item.id}
+              data-testid="stack-item"
+              data-stack-item-type={item.type}
               className={clsx(
                 'p-2 rounded border transition-all',
                 {
@@ -54,7 +57,7 @@ export function StackView({ items, playerId }: StackViewProps) {
                     {item.source_name}
                   </span>
                   <span className="text-xs text-gray-400 ml-2">
-                    ({item.type.replace('_', ' ')})
+                    ({item.type.replace('_', ' ').toLowerCase()})
                   </span>
                 </div>
                 {isTopOfStack && (
@@ -63,6 +66,13 @@ export function StackView({ items, playerId }: StackViewProps) {
                   </span>
                 )}
               </div>
+              {/* Triggered abilities surface their description so the
+                  player knows exactly what's about to resolve. */}
+              {isTriggered && item.description && (
+                <div className="text-xs text-amber-200/90 mt-1 leading-snug">
+                  {item.description}
+                </div>
+              )}
               <div className="text-xs text-gray-400 mt-1">
                 Controlled by: {isYours ? 'You' : 'Opponent'}
               </div>
