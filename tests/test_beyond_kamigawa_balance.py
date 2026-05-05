@@ -1,5 +1,9 @@
 """Beyond Kamigawa Yu-Gi-Oh! custom-set balance checks."""
 
+import json
+import subprocess
+import sys
+
 from src.cards.yugioh.beyond.kamigawa import (
     kamigawa_balance_flags,
     kamigawa_balance_summary,
@@ -53,3 +57,22 @@ def test_kamigawa_balance_flags_detect_off_role_profiles():
         "pressure_monster_count": 9,
         "equip_identity_count": 10,
     })
+
+
+def test_kamigawa_balance_report_outputs_json_without_flags():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/play/kamigawa_balance_report.py",
+            "--fail-on-flags",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    report = json.loads(result.stdout)
+    assert set(report) == {
+        "samurai", "ninja", "spirit_dragons", "moonfolk", "modified",
+    }
+    assert all(not profile["balance_flags"] for profile in report.values())
