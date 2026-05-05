@@ -164,6 +164,28 @@ def _cast_card_draw_over_pass_scenario(ai: AIEngine) -> ScenarioResult:
     return ScenarioResult("cast_card_draw_over_pass", observed == expected, expected, observed)
 
 
+def _hold_dead_removal_scenario(ai: AIEngine) -> ScenarioResult:
+    game, p1, _ = _game()
+    for idx in range(2):
+        _obj(game, p1.id, f"Swamp {idx}", ZoneType.BATTLEFIELD, {CardType.LAND})
+    removal = _obj(
+        game, p1.id, "Doom Blade", ZoneType.HAND,
+        {CardType.INSTANT}, text="Destroy target creature.", mana_cost="{1}{B}"
+    )
+
+    action = ai.get_action(
+        p1.id,
+        game.state,
+        [
+            LegalAction(type=ActionType.PASS),
+            LegalAction(type=ActionType.CAST_SPELL, card_id=removal.id),
+        ],
+    )
+    observed = action.type.name
+    expected = ActionType.PASS.name
+    return ScenarioResult("hold_removal_without_targets", observed == expected, expected, observed)
+
+
 def _burn_target_scenario(ai: AIEngine) -> ScenarioResult:
     game, p1, p2 = _game()
     bolt = _obj(
@@ -314,6 +336,7 @@ def run_fixed_decision_benchmark(
         _play_land_scenario(ai),
         _answer_large_threat_scenario(ai),
         _cast_card_draw_over_pass_scenario(ai),
+        _hold_dead_removal_scenario(ai),
         _burn_target_scenario(ai),
         _lethal_burn_scenario(ai),
         _attack_scenario(ai),
