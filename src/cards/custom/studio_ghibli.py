@@ -3724,6 +3724,586 @@ BATHHOUSE_PURE_RETREAT = make_enchantment(
 
 
 # =============================================================================
+# SPICE PASS PHASE A — Format-Defining Cards (atmospheric Ghibli flavor)
+# =============================================================================
+# Mirrors the SW + DBZ spice passes (.claude/skills/spice-pass.md). The
+# Ghibli set is the "peaceful" pilot — the spice patterns must work even when
+# the flavor is contemplative rather than aggressive. We deliberately keep
+# 2-3 cards in the "weird-not-min-maxed" zone (The World Tree's Gift,
+# Howl's Moving Castle, Wandering Heart, Catbus, Wind-Carrier of the Forest)
+# so atmosphere is the dominant validation signal, not raw win-rate.
+#
+# Engine usage:
+#   * make_replacement_effect (W1) — under-tested in the engine. Three of the
+#     eight cards exercise it: The Forest Watches (opp creatures enter
+#     tapped), Mei's Forest Friend (your creature would die → spirit token
+#     instead), Granmamare's Hospitality (opp would draw → reveal + offer).
+#   * make_upkeep_trigger / make_etb_trigger / make_attack_trigger / etc.
+#   * make_static_pt_boost + make_keyword_grant for spirit ascension.
+# =============================================================================
+
+
+# --- The Forest Watches --- {2}{G}{W} Mythic Legendary Enchantment
+def the_forest_watches_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Asymmetric prison: opponents' creatures enter tapped.
+    At beginning of your upkeep, scry 1.
+    Soft-lock — opponents still get to play creatures, just slower."""
+    from src.cards.interceptor_helpers import (
+        make_replacement_effect, make_upkeep_trigger,
+    )
+
+    def is_opp_creature_etb(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('tapped'):
+            return False  # already entering tapped
+        entering_id = event.payload.get('object_id')
+        if not entering_id:
+            return False
+        entering = st.objects.get(entering_id)
+        if not entering or entering.controller == obj.controller:
+            return False
+        chars = entering.characteristics
+        return CardType.CREATURE in (chars.types or set())
+
+    def force_tapped(event: Event, st: GameState):
+        new_event = event.copy()
+        new_event.payload['tapped'] = True
+        return new_event
+
+    def upkeep_scry(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+
+    interceptors: list[Interceptor] = []
+    interceptors.extend(make_replacement_effect(
+        obj,
+        event_filter=is_opp_creature_etb,
+        replace_fn=force_tapped,
+    ))
+    interceptors.append(make_upkeep_trigger(obj, upkeep_scry))
+    return interceptors
+
+THE_FOREST_WATCHES = make_enchantment(
+    name="The Forest Watches",
+    mana_cost="{2}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    supertypes={"Legendary"},
+    text=(
+        "Creatures your opponents control enter the battlefield tapped. "
+        "At the beginning of your upkeep, scry 1."
+    ),
+    setup_interceptors=the_forest_watches_setup,
+)
+
+
+# --- Mei's Forest Friend --- {2}{G} 2/3 Mythic Legendary Creature
+# Replacement: when a creature you control would die, instead exile it and
+# create a 1/1 white Spirit creature token with flying. Once per turn.
+def mei_forest_friend_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Replacement: each turn, the first time a creature you control would
+    be put into a graveyard from the battlefield, instead exile it and create
+    a 1/1 white Spirit creature token with flying. Flavor: Mei's friend
+    spirits whisk the fallen to the Forest's Heart.
+    """
+    from src.cards.interceptor_helpers import make_replacement_effect
+
+    def your_creature_dying_filter(event: Event, st: GameState) -> bool:
+        # Once-per-turn gate (using turn_data so it auto-resets on TURN_START).
+        used_key = f'mei_forest_friend_{obj.id}_used'
+        if st.turn_data.get(used_key):
+            return False
+        # We listen on ZONE_CHANGE BF -> GY for one of your creatures.
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        if not dying_id or dying_id == obj.id:
+            return False
+        dying = st.objects.get(dying_id)
+        if not dying:
+            return False
+        if dying.controller != obj.controller:
+            return False
+        return CardType.CREATURE in (dying.characteristics.types or set())
+
+    def replace_with_exile_and_spirit(event: Event, st: GameState):
+        used_key = f'mei_forest_friend_{obj.id}_used'
+        st.turn_data[used_key] = True
+        dying_id = event.payload.get('object_id')
+        # Replace the move-to-graveyard with a move-to-exile, then queue a
+        # CREATE_TOKEN as an extra event the helper appends as REACT-followup.
+        replacement = event.copy()
+        replacement.payload['to_zone'] = 'exile'
+        replacement.payload['to_zone_type'] = ZoneType.EXILE
+        replacement.payload['_mei_replaced'] = True
+        token_event = Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Spirit',
+                    'power': 1, 'toughness': 1,
+                    'colors': {Color.WHITE},
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Spirit'},
+                    'keywords': ['flying'],
+                },
+            },
+            source=obj.id,
+        )
+        # Pin the dying-id reference so the test can trace which creature was
+        # exiled.
+        replacement.payload['_mei_exiled_id'] = dying_id
+        return [replacement, token_event]
+
+    return make_replacement_effect(
+        obj,
+        event_filter=your_creature_dying_filter,
+        replace_fn=replace_with_exile_and_spirit,
+    )
+
+MEI_FOREST_FRIEND = make_creature(
+    name="Mei's Forest Friend",
+    power=2, toughness=3,
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    subtypes={"Spirit", "Friend"},
+    supertypes={"Legendary"},
+    text=(
+        "Once each turn, the first time a creature you control would be put "
+        "into a graveyard from the battlefield, instead exile it and create "
+        "a 1/1 white Spirit creature token with flying."
+    ),
+    setup_interceptors=mei_forest_friend_setup,
+)
+
+
+# --- Howl's Moving Castle, Wandering Heart --- {4} Mythic Legendary Artifact Creature
+# Atmospheric weirdness: 0/4 Castle that makes one of your creatures fly + ward.
+def howls_castle_wandering_heart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self ward {2}; activated: target creature you control gets +3/+3,
+    flying, and ward {2} until end of turn (the Castle 'carries' it).
+    Flavor: Howl's Castle gathers a passenger and walks them across the sky.
+    """
+    from src.cards.interceptor_helpers import (
+        make_keyword_grant, make_activated_ability, make_ward,
+    )
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def carry_creature_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+        target = st.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if target.controller != o.controller:
+            return []
+        if CardType.CREATURE not in (target.characteristics.types or set()):
+            return []
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': target_id,
+                    'power_mod': 3,
+                    'toughness_mod': 3,
+                    'duration': 'end_of_turn',
+                },
+                source=o.id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': target_id,
+                    'keyword': 'flying',
+                    'duration': 'end_of_turn',
+                },
+                source=o.id,
+            ),
+        ]
+
+    make_activated_ability(
+        obj,
+        cost="{2}, {T}",
+        effect_fn=carry_creature_effect,
+        description=(
+            "{2}, {T}: Target creature you control gets +3/+3 and gains "
+            "flying until end of turn."
+        ),
+        targets_required=1,
+        target_kind="creature",
+    )
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_keyword_grant(obj, ['vigilance'], affects_self))
+    interceptors.append(make_ward(obj, mana_cost="{2}"))
+    return interceptors
+
+HOWLS_CASTLE_WANDERING_HEART = make_artifact_creature(
+    name="Howl's Moving Castle, Wandering Heart",
+    power=0, toughness=4,
+    mana_cost="{4}",
+    colors=set(),
+    subtypes={"Castle"},
+    supertypes={"Legendary"},
+    text=(
+        "Vigilance. Ward {2}. "
+        "{2}, {T}: Target creature you control gets +3/+3 and gains flying "
+        "until end of turn."
+    ),
+    setup_interceptors=howls_castle_wandering_heart_setup,
+)
+
+
+# --- Catbus, Wind-Carrier of the Forest --- {2}{G}{G} 4/4 Rare Legendary Creature
+# Atmospheric weirdness: ferries a non-attacking creature into combat.
+def catbus_wind_carrier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self haste; whenever Catbus attacks, untap target creature you control.
+    That creature gains haste and is unblockable until end of turn (it 'rides'
+    Catbus). Flavor: small creatures hitch a ride to where they need to go.
+    """
+    from src.cards.interceptor_helpers import (
+        make_keyword_grant, make_attack_trigger,
+    )
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_carry(event: Event, st: GameState) -> list[Event]:
+        # Heuristic: pick the first untapped-or-tapped creature you control
+        # other than Catbus to "ride along". The actual target is a real
+        # target prompt in long-form play; this auto-pick keeps the trigger
+        # functional in headless tests + AI play.
+        ride_id = None
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller == obj.controller
+                    and o.id != obj.id
+                    and CardType.CREATURE in (o.characteristics.types or set())):
+                ride_id = o.id
+                break
+        if not ride_id:
+            return []
+        return [
+            Event(
+                type=EventType.UNTAP,
+                payload={'object_id': ride_id},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': ride_id,
+                    'keyword': 'haste',
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': ride_id,
+                    'keyword': 'unblockable',
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id,
+            ),
+        ]
+
+    return [
+        make_keyword_grant(obj, ['haste'], affects_self),
+        make_attack_trigger(obj, attack_carry),
+    ]
+
+CATBUS_WIND_CARRIER = make_creature(
+    name="Catbus, Wind-Carrier of the Forest",
+    power=4, toughness=4,
+    mana_cost="{2}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Cat", "Spirit"},
+    supertypes={"Legendary"},
+    text=(
+        "Haste. Whenever Catbus attacks, untap another target creature you "
+        "control. That creature gains haste and can't be blocked until end "
+        "of turn."
+    ),
+    setup_interceptors=catbus_wind_carrier_setup,
+)
+
+
+# --- The World Tree's Gift --- {2}{G} Rare Enchantment
+# Atmospheric weirdness: the gift you get depends on what you need.
+def world_tree_gift_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At your upkeep, choose a mode based on game state — no prompt, no
+    optimisation, just whatever the World Tree senses you need most:
+      - life ≤ 10 → gain 2 life
+      - life ≥ 16 AND have a Forest tapped → untap a Forest
+      - otherwise → scry 2
+
+    The sensing-rather-than-choosing flavor is the point. The card doesn't
+    let you min-max; it gives you what your state-tree judges right.
+    """
+    from src.cards.interceptor_helpers import make_upkeep_trigger
+
+    def sense_and_gift(event: Event, st: GameState) -> list[Event]:
+        owner = st.players.get(obj.controller)
+        if owner is None:
+            return []
+        # Mode A: low life → gain 2 life.
+        if owner.life <= 10:
+            return [Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id,
+            )]
+        # Mode B: high life + tapped Forest → untap a Forest.
+        if owner.life >= 16:
+            tapped_forest_id = None
+            for o in st.objects.values():
+                if (o.zone == ZoneType.BATTLEFIELD
+                        and o.controller == obj.controller
+                        and CardType.LAND in (o.characteristics.types or set())
+                        and 'Forest' in (o.characteristics.subtypes or set())
+                        and o.state.tapped):
+                    tapped_forest_id = o.id
+                    break
+            if tapped_forest_id:
+                return [Event(
+                    type=EventType.UNTAP,
+                    payload={'object_id': tapped_forest_id},
+                    source=obj.id,
+                )]
+        # Mode C (default): scry 2.
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+        )]
+
+    return [make_upkeep_trigger(obj, sense_and_gift)]
+
+THE_WORLD_TREES_GIFT = make_enchantment(
+    name="The World Tree's Gift",
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    supertypes={"Legendary"},
+    text=(
+        "At the beginning of your upkeep, the World Tree senses what you "
+        "need: if your life total is 10 or less, you gain 2 life. Otherwise, "
+        "if your life total is 16 or more and you control a tapped Forest, "
+        "untap a Forest. Otherwise, scry 2."
+    ),
+    setup_interceptors=world_tree_gift_setup,
+)
+
+
+# --- Ascension of the Spirits --- {3}{G}{W} Rare Enchantment
+# Spirit lord with ascension threshold: +1/+1 base, flying at 5+.
+def ascension_of_spirits_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Spirits you control get +1/+1. As long as you control 5+ Spirits,
+    Spirits you control have flying. Slow-burn payoff."""
+    from src.cards.interceptor_helpers import (
+        make_static_pt_boost, make_keyword_grant,
+    )
+
+    def your_spirit(target: GameObject, st: GameState) -> bool:
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in (target.characteristics.types or set()):
+            return False
+        return 'Spirit' in (target.characteristics.subtypes or set())
+
+    def your_spirit_with_threshold(target: GameObject, st: GameState) -> bool:
+        if not your_spirit(target, st):
+            return False
+        spirit_count = sum(
+            1 for o in st.objects.values()
+            if your_spirit(o, st)
+        )
+        return spirit_count >= 5
+
+    interceptors: list[Interceptor] = []
+    interceptors.extend(make_static_pt_boost(obj, 1, 1, your_spirit))
+    interceptors.append(make_keyword_grant(obj, ['flying'], your_spirit_with_threshold))
+    return interceptors
+
+ASCENSION_OF_SPIRITS = make_enchantment(
+    name="Ascension of the Spirits",
+    mana_cost="{3}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    text=(
+        "Spirits you control get +1/+1. "
+        "As long as you control five or more Spirits, Spirits you control "
+        "have flying."
+    ),
+    setup_interceptors=ascension_of_spirits_setup,
+)
+
+
+# --- Calcifer's Hearth-Pact --- {1}{R}{G} Rare Legendary Enchantment
+# Snowball value engine: lifegain on cast + EOT damage.
+def calcifer_hearth_pact_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast a spell, gain 1 life. At the beginning of your end
+    step, Calcifer's Hearth-Pact deals 1 damage to any target.
+    Flavor: the fire keeps you warm AND keeps watch."""
+    from src.cards.interceptor_helpers import (
+        make_spell_cast_trigger, make_end_step_trigger,
+    )
+
+    def gain_life(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+
+    def end_step_damage(event: Event, st: GameState) -> list[Event]:
+        # Heuristic auto-target: pick first opponent. In a real prompt-driven
+        # path this would open a target choice; for AI/headless, we ping the
+        # nearest opponent for 1.
+        target = None
+        for pid in st.players:
+            if pid != obj.controller:
+                target = pid
+                break
+        if not target:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={
+                'source': obj.id,
+                'target': target,
+                'amount': 1,
+                'is_combat': False,
+            },
+            source=obj.id,
+        )]
+
+    return [
+        make_spell_cast_trigger(obj, gain_life, controller_only=True),
+        make_end_step_trigger(obj, end_step_damage),
+    ]
+
+CALCIFER_HEARTH_PACT = make_enchantment(
+    name="Calcifer's Hearth-Pact",
+    mana_cost="{1}{R}{G}",
+    colors={Color.RED, Color.GREEN},
+    supertypes={"Legendary"},
+    text=(
+        "Whenever you cast a spell, you gain 1 life. "
+        "At the beginning of your end step, Calcifer's Hearth-Pact deals 1 "
+        "damage to any target."
+    ),
+    setup_interceptors=calcifer_hearth_pact_setup,
+)
+
+
+# --- Granmamare's Hospitality --- {3}{U}{U} Mythic Legendary Enchantment
+# Replacement effect: when an opponent would draw their first card each turn,
+# instead they reveal it; if it's a creature, it's exiled and you get a Spirit.
+def granmamare_hospitality_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Replacement: the first time each turn an opponent would draw a card,
+    instead they reveal the top card of their library. If it's a creature
+    card, exile it and you create a 1/1 blue Spirit creature token with
+    flying. Otherwise they draw the revealed card normally.
+
+    Flavor: Granmamare offers her hospitality, but the seas keep what they
+    decide to keep. (Soft graveyard hate / asymmetric sea-soaked tempo.)
+    """
+    from src.cards.interceptor_helpers import make_replacement_effect
+
+    def opp_first_draw(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DRAW:
+            return False
+        drawer = event.payload.get('player')
+        if not drawer or drawer == obj.controller:
+            return False
+        # Once per opponent per turn.
+        used_key = f'granmamare_{obj.id}_{drawer}_used'
+        if st.turn_data.get(used_key):
+            return False
+        # Make sure their library has at least one card.
+        lib = st.zones.get(f'library_{drawer}')
+        if not lib or not lib.objects:
+            return False
+        return True
+
+    def reveal_or_exile(event: Event, st: GameState):
+        drawer = event.payload.get('player')
+        used_key = f'granmamare_{obj.id}_{drawer}_used'
+        st.turn_data[used_key] = True
+        lib = st.zones.get(f'library_{drawer}')
+        if not lib or not lib.objects:
+            return None
+        top_id = lib.objects[0]
+        top = st.objects.get(top_id)
+        if not top or not top.characteristics:
+            return None
+        is_creature = CardType.CREATURE in (top.characteristics.types or set())
+        if not is_creature:
+            # Fall through: let the original draw resolve.
+            return None
+        # Replace the draw with: exile the top card + create a Spirit token
+        # for Granmamare's controller.
+        return [
+            Event(
+                type=EventType.EXILE,
+                payload={'object_id': top_id},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': obj.controller,
+                    'token': {
+                        'name': 'Sea Spirit',
+                        'power': 1, 'toughness': 1,
+                        'colors': {Color.BLUE},
+                        'types': {CardType.CREATURE},
+                        'subtypes': {'Spirit'},
+                        'keywords': ['flying'],
+                    },
+                },
+                source=obj.id,
+            ),
+        ]
+
+    return make_replacement_effect(
+        obj,
+        event_filter=opp_first_draw,
+        replace_fn=reveal_or_exile,
+    )
+
+GRANMAMARE_HOSPITALITY = make_enchantment(
+    name="Granmamare's Hospitality",
+    mana_cost="{3}{U}{U}",
+    colors={Color.BLUE},
+    supertypes={"Legendary"},
+    text=(
+        "The first time each turn an opponent would draw a card, instead "
+        "they reveal the top card of their library. If it's a creature card, "
+        "exile it and create a 1/1 blue Spirit creature token with flying. "
+        "Otherwise, they draw normally."
+    ),
+    setup_interceptors=granmamare_hospitality_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -3921,6 +4501,16 @@ STUDIO_GHIBLI_CARDS = {
     "Chihiro, River-Returned": CHIHIRO_RIVER_RETURNED,
     "The Bathhouse, Pure Retreat": BATHHOUSE_PURE_RETREAT,
 
+    # SPICE PASS PHASE A — format-defining peaceful-Ghibli cards
+    "The Forest Watches": THE_FOREST_WATCHES,
+    "Mei's Forest Friend": MEI_FOREST_FRIEND,
+    "Howl's Moving Castle, Wandering Heart": HOWLS_CASTLE_WANDERING_HEART,
+    "Catbus, Wind-Carrier of the Forest": CATBUS_WIND_CARRIER,
+    "The World Tree's Gift": THE_WORLD_TREES_GIFT,
+    "Ascension of the Spirits": ASCENSION_OF_SPIRITS,
+    "Calcifer's Hearth-Pact": CALCIFER_HEARTH_PACT,
+    "Granmamare's Hospitality": GRANMAMARE_HOSPITALITY,
+
     # ARTIFACTS
     "Laputan Amulet": LAPUTAN_AMULET,
     "Crystal Necklace": CRYSTAL_NECKLACE,
@@ -4117,6 +4707,15 @@ CARDS = [
     SHUNA_EMISSARY,
     CHIHIRO_RIVER_RETURNED,
     BATHHOUSE_PURE_RETREAT,
+    # SPICE PASS PHASE A
+    THE_FOREST_WATCHES,
+    MEI_FOREST_FRIEND,
+    HOWLS_CASTLE_WANDERING_HEART,
+    CATBUS_WIND_CARRIER,
+    THE_WORLD_TREES_GIFT,
+    ASCENSION_OF_SPIRITS,
+    CALCIFER_HEARTH_PACT,
+    GRANMAMARE_HOSPITALITY,
     LAPUTAN_AMULET,
     CRYSTAL_NECKLACE,
     CALCIFER_LANTERN,
