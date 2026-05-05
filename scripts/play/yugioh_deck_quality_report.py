@@ -18,12 +18,19 @@ def main() -> int:
         action="store_true",
         help="Exit with status 1 if any optimized deck reports quality flags.",
     )
+    parser.add_argument("--deck", default=None,
+                        help="optional optimized deck name to report")
     args = parser.parse_args()
 
     with contextlib.redirect_stdout(sys.stderr):
         from src.cards.yugioh.deck_quality import analyze_all_ygo_optimized_decks
 
     report = analyze_all_ygo_optimized_decks()
+    if args.deck:
+        if args.deck not in report:
+            print(f"Unknown optimized Yu-Gi-Oh! deck: {args.deck}", file=sys.stderr)
+            return 2
+        report = {args.deck: report[args.deck]}
     print(json.dumps(report, indent=2, sort_keys=True))
 
     if args.fail_on_flags:

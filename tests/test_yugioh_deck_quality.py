@@ -76,6 +76,25 @@ def test_ygo_deck_quality_report_outputs_json_without_flags():
     assert all(not summary["role_quality_flags"] for summary in report.values())
 
 
+def test_ygo_deck_quality_report_can_focus_one_deck():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/play/yugioh_deck_quality_report.py",
+            "--deck",
+            "dragon_beatdown",
+            "--fail-on-flags",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    report = json.loads(result.stdout)
+    assert set(report) == {"dragon_beatdown"}
+    assert report["dragon_beatdown"]["dragon_count"] >= 14
+
+
 def test_validated_ygo_deckbuilder_serves_all_optimized_decks():
     assert list_ygo_optimized_decks() == sorted(YGO_OPTIMIZED_DECKS)
 
