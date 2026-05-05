@@ -4101,6 +4101,66 @@ def make_crime_committed_trigger(
     )
 
 
+# Short alias requested by ``src/engine/crime.py`` consumers. Identical
+# semantics to ``make_crime_committed_trigger``.
+def make_crime_trigger(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+    *,
+    controller_only: bool = True,
+    once_per_turn: bool = False,
+    filter_fn: Optional[Callable[[Event, GameState, GameObject], bool]] = None,
+) -> Interceptor:
+    """Whenever you commit a crime, fire ``effect_fn``.
+
+    ``controller_only`` is True by default and matches MTG semantics
+    ("Whenever you commit a crime") — the trigger only fires for the
+    source's controller. Setting it to False causes the trigger to fire
+    on any player's CRIME_COMMITTED (rare; useful for "whenever a player
+    commits a crime" cards).
+    """
+    if controller_only:
+        return make_crime_committed_trigger(
+            source_obj, effect_fn,
+            once_per_turn=once_per_turn,
+            filter_fn=filter_fn,
+        )
+
+    # controller_only=False: bypass the controller match in the filter.
+    source_id = source_obj.id
+
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.CRIME_COMMITTED:
+            return False
+        live = state.objects.get(source_id, source_obj)
+        if once_per_turn:
+            key = f'crime_trigger_{source_id}_{state.turn_number}'
+            if state.turn_data.get(key):
+                return False
+        if filter_fn is not None and not filter_fn(event, state, live):
+            return False
+        return True
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        if once_per_turn:
+            key = f'crime_trigger_{source_id}_{state.turn_number}'
+            state.turn_data[key] = True
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=effect_fn(event, state),
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield',
+    )
+
+
 # =============================================================================
 # WARP HELPERS
 # =============================================================================
