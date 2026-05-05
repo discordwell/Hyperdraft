@@ -54,6 +54,18 @@ from .warp import (
     schedule_warp_exile_for_object,
     is_warp_castable_from_hand,
 )
+# === Spree cost-per-mode (W12) ===
+# OTJ Spree mechanic — see src/engine/spree.py. The names are aliased with
+# leading underscores so the priority module's local symbol table stays
+# clear of generic helper names imported elsewhere.
+from .spree import (
+    is_spree_card as _spree_is_card,
+    get_spree_modes as _spree_get_modes,
+    get_spree_minmax as _spree_get_minmax,
+    get_chosen_spree_modes as _spree_get_chosen,
+    open_spree_choice as _spree_open_prompt,
+    total_spree_extra_cost as _spree_total_extra_cost,
+)
 
 if TYPE_CHECKING:
     from .turn import TurnManager
@@ -1700,6 +1712,53 @@ class PrioritySystem:
         delve_exile_count = self._delve_discount(card, action.player_id, paid_cost)
         paid_cost = self._reduce_generic_cost(paid_cost, delve_exile_count)
 
+        # === Spree cost-per-mode (W12) ===
+        # OTJ Spree: "Choose one or more additional costs" — each chosen mode
+        # adds its own mana cost AND its effect to the spell. We must prompt
+        # the caster BEFORE the standard cost plan is built, then add the
+        # chosen modes' total surcharge to ``extra_mana`` so it gets paid as
+        # part of the cast. The chosen-mode list is stashed on
+        # ``state.turn_data`` so the spell's resolve callable can dispatch
+        # the right effects when it resolves.
+        spree_extra_mana = ManaCost()
+        if _spree_is_card(card):
+            spree_modes = _spree_get_modes(card)
+            cap_min, cap_max = _spree_get_minmax(card)
+            recorded = _spree_get_chosen(self.state, card.id)
+            if recorded is None:
+                # First pass: open the mode prompt. The choice handler will
+                # record the selection and re-invoke this method for a second
+                # pass; while the prompt is open we return [].
+                if self.state.pending_choice is not None:
+                    return []
+                self_action = action  # captured for closure
+                paid_cost_capt = paid_cost  # capture pre-spree base for prompt affordability
+
+                def _on_spree_chosen(indices: list, _state: GameState) -> list[Event]:
+                    # Re-enter the cast pipeline now that modes are recorded.
+                    return self._handle_cast_spell_sync(self_action)
+
+                events = _spree_open_prompt(
+                    obj=card,
+                    state=self.state,
+                    caster=action.player_id,
+                    base_cost=paid_cost_capt,
+                    modes=spree_modes,
+                    min_modes=cap_min,
+                    max_modes=cap_max,
+                    on_complete=_on_spree_chosen,
+                )
+                if events:
+                    self._emit_cost_events(events)
+                # If no prompt was opened (no affordable mode), the spell is
+                # uncastable; otherwise the prompt is now pending.
+                return []
+            else:
+                # Second pass: chosen modes are recorded; compute the
+                # combined mode cost and roll into extra_mana.
+                spree_extra_mana = _spree_total_extra_cost(spree_modes, recorded)
+        # === end Spree ===
+
         # Build additional cost plan(s).
         std_plan = self._get_standard_additional_cost_plan(card)
         full_plan = self._concat_cost_plans(std_plan, option_plan)
@@ -1715,7 +1774,7 @@ class PrioritySystem:
             x_value=action.x_value,
         )
 
-        if not self._can_pay_cost_plan(full_plan, ctx):
+        if not self._can_pay_cost_plan(full_plan, ctx, extra_mana=spree_extra_mana):
             return []
 
         return self._continue_cast_spell_with_additional_costs(
@@ -1723,7 +1782,7 @@ class PrioritySystem:
             paid_cost=paid_cost,
             printed_cost=printed_cost,
             plan=tuple(full_plan or ()),
-            extra_mana=ManaCost(),
+            extra_mana=spree_extra_mana,
             from_graveyard=from_graveyard,
             used_flashback=used_flashback,
             used_harmonize=used_harmonize,
