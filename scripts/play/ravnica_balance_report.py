@@ -14,6 +14,27 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 
+def _aggregate_summary(guilds: dict[str, dict]) -> dict:
+    return {
+        "guild_count": len(guilds),
+        "min_consistency_score": min(
+            (profile["consistency_score"] for profile in guilds.values()),
+            default=0,
+        ),
+        "min_pressure_score": min(
+            (profile["pressure_score"] for profile in guilds.values()),
+            default=0,
+        ),
+        "min_energy_alignment_score": min(
+            (profile["energy_alignment_score"] for profile in guilds.values()),
+            default=0,
+        ),
+        "flagged_guild_count": sum(
+            1 for profile in guilds.values() if profile["balance_flags"]
+        ),
+    }
+
+
 def build_report(guild_name: str | None = None) -> dict:
     with contextlib.redirect_stdout(io.StringIO()):
         from src.cards.pokemon.beyond.ravnica.balance import ravnica_balance_summary
@@ -32,6 +53,7 @@ def build_report(guild_name: str | None = None) -> dict:
     return {
         "schema_version": 1,
         "format": "pokemon_beyond_ravnica_balance",
+        "summary": _aggregate_summary(guilds),
         "guilds": guilds,
         "quality_gate": {
             "passed": not failing,

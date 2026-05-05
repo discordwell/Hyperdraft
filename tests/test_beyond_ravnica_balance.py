@@ -113,6 +113,9 @@ def test_ravnica_balance_report_writes_json_artifact(tmp_path):
     assert stdout_report == file_report
     assert file_report["format"] == "pokemon_beyond_ravnica_balance"
     assert file_report["quality_gate"]["passed"] is True
+    assert file_report["summary"]["guild_count"] == 10
+    assert file_report["summary"]["flagged_guild_count"] == 0
+    assert file_report["summary"]["min_energy_alignment_score"] >= 7
     assert len(file_report["guilds"]) == 10
 
 
@@ -132,6 +135,7 @@ def test_ravnica_balance_report_can_focus_one_guild():
 
     report = json.loads(result.stdout)
     assert set(report["guilds"]) == {"izzet"}
+    assert report["summary"]["guild_count"] == 1
     assert report["guilds"]["izzet"]["primary_energy_count"] >= 7
 
 
