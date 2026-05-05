@@ -491,8 +491,10 @@ def _score_basic_play(adapter, card: 'GameObject', state: GameState,
                 player = state.players.get(player_id)
                 opponent = state.players.get(opp_id)
                 if player and opponent:
-                    if player.prizes_remaining <= 2 and opponent.prizes_remaining > 2:
-                        score -= 10.0  # Opponent close to winning, avoid giving 2 prizes
+                    if opponent.prizes_remaining <= card.card_def.prize_count:
+                        score -= 70.0  # Do not expose the opponent's last prizes.
+                    elif opponent.prizes_remaining <= 2:
+                        score -= 20.0
 
     # Has attacks that are immediately useful (low cost)
     for attack in (card.card_def.attacks or []):
