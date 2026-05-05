@@ -34,6 +34,7 @@ from src.cards.interceptor_helpers import (
     make_activated_ability, becomes_creature, make_cost_reduction,
     make_cycling_setup,
     make_modal_resolve,
+    make_equipment_setup,
 )
 
 
@@ -3295,12 +3296,59 @@ def dauntless_dismantler_setup(obj: GameObject, state: GameState) -> list[Interc
     return [make_etb_trigger(obj, effect_fn)]
 
 
-def deconstruction_hammer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment grants +1/+1 and a sac-to-destroy ability."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: equipment with granted activated abilities
-        return []
-    return [make_etb_trigger(obj, effect_fn)]
+# NOTE: the printed cost is "{3}, {T}, Sacrifice Deconstruction Hammer".
+# The cost parser only recognises "Sacrifice this" (relative to the
+# *registering* object — here, the equipped creature, not the equipment).
+# Until the parser supports "Sacrifice <named card>" we model the
+# equipment-sac as a side effect of the effect_fn instead of a parsed cost
+# component. The cost text we register is "{3}, {T}" only.
+def _deconstruction_hammer_destroy(o: GameObject, state: GameState, targets) -> list[Event]:
+    """Granted ability effect: destroy target artifact/enchantment AND
+    sacrifice the equipment (source).
+
+    ``o`` is the *equipped creature* (where the granted ability lives), so
+    the destroy event source is the equipped creature. The equipment is
+    located via ``o.state.attachments`` (the creature's attachments list
+    holds equipment ids).
+    """
+    new_events: list[Event] = []
+    if targets:
+        t = targets[0]
+        target_id = getattr(t, "id", None) or getattr(t, "object_id", None) or t
+        new_events.append(Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={"object_id": target_id},
+            source=o.id,
+            controller=o.controller,
+        ))
+    # Find the Deconstruction Hammer attached to o and sacrifice it.
+    for attached_id in list(o.state.attachments):
+        attached = state.objects.get(attached_id)
+        if attached is not None and attached.name == "Deconstruction Hammer":
+            new_events.append(Event(
+                type=EventType.SACRIFICE,
+                payload={"object_id": attached_id, "controller": o.controller},
+                source=attached_id,
+                controller=o.controller,
+            ))
+            break
+    return new_events
+
+
+# Granted-ability setup: +1/+1 + "{3}, {T}, Sacrifice Deconstruction Hammer:
+# Destroy target artifact or enchantment." Equip {1}. The sac-equipment cost
+# is folded into the effect (see note above).
+deconstruction_hammer_setup = make_equipment_setup(
+    power_mod=1, toughness_mod=1,
+    equip_cost="{1}",
+    granted_activated_abilities={
+        "cost": "{3}, {T}",
+        "effect_fn": _deconstruction_hammer_destroy,
+        "description": "Destroy target artifact or enchantment (sacs Deconstruction Hammer)",
+        "targets_required": 1,
+        "target_kind": "artifact_or_enchantment",
+    },
+)
 
 
 def dusk_rose_reliquary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4929,12 +4977,49 @@ def sorcerous_spyglass_setup(obj: GameObject, state: GameState) -> list[Intercep
     return [make_etb_trigger(obj, etb_effect)]
 
 
-def swashbucklers_whip_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment grants reach + tap-target + discover-10."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # engine gap: equipment with multiple granted activated abilities
+def _swashbucklers_whip_tap(o: GameObject, state: GameState, targets) -> list[Event]:
+    """Granted ability: {2}, {T}: Tap target artifact or creature."""
+    if not targets:
         return []
-    return [make_etb_trigger(obj, effect_fn)]
+    t = targets[0]
+    target_id = getattr(t, "id", None) or getattr(t, "object_id", None) or t
+    return [Event(
+        type=EventType.TAP,
+        payload={"object_id": target_id},
+        source=o.id,
+        controller=o.controller,
+    )]
+
+
+def _swashbucklers_whip_discover(o: GameObject, state: GameState, targets) -> list[Event]:
+    """Granted ability: {8}, {T}: Discover 10."""
+    return [Event(
+        type=EventType.DISCOVER,
+        payload={"player": o.controller, "amount": 10},
+        source=o.id,
+        controller=o.controller,
+    )]
+
+
+# Granted-ability setup: reach + two granted activated abilities. Equip {1}.
+swashbucklers_whip_setup = make_equipment_setup(
+    keywords=["reach"],
+    equip_cost="{1}",
+    granted_activated_abilities=[
+        {
+            "cost": "{2}, {T}",
+            "effect_fn": _swashbucklers_whip_tap,
+            "description": "Tap target artifact or creature",
+            "targets_required": 1,
+            "target_kind": "artifact_or_creature",
+        },
+        {
+            "cost": "{8}, {T}",
+            "effect_fn": _swashbucklers_whip_discover,
+            "description": "Discover 10",
+        },
+    ],
+)
 
 
 def tarrians_soulcleaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -6636,11 +6721,50 @@ HOTFOOT_GNOME = make_artifact_creature(
     setup_interceptors=hotfoot_gnome_setup,
 )
 
+def _idol_of_the_deep_king_treasure(o: GameObject, state: GameState, targets) -> list[Event]:
+    """Synthetic granted ability (proof-of-concept demo, not real card text).
+
+    "{1}, {T}: Create a Treasure token." Granted to the equipped creature so
+    activating it taps that creature, not the equipment itself.
+    """
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            "controller": o.controller,
+            "token_data": {
+                "name": "Treasure",
+                "characteristics": {
+                    "types": {CardType.ARTIFACT},
+                    "subtypes": {"Treasure"},
+                },
+                "text": "{T}, Sacrifice this token: Add one mana of any color.",
+            },
+        },
+        source=o.id,
+        controller=o.controller,
+    )]
+
+
+# DEMO: Idol of the Deep King has empty real text, so we wire a synthetic
+# granted ability ("{1}, {T}: Create a Treasure token.") to exercise the
+# granted-activated-ability mechanic on a third real LCI Equipment card.
+# This is NOT the printed Scryfall text — it's a proof-of-concept demo.
+idol_of_the_deep_king_setup = make_equipment_setup(
+    equip_cost="{2}",
+    granted_activated_abilities={
+        "cost": "{1}, {T}",
+        "effect_fn": _idol_of_the_deep_king_treasure,
+        "description": "Create a Treasure token (demo)",
+    },
+)
+
+
 IDOL_OF_THE_DEEP_KING = make_artifact(
     name="Idol of the Deep King",
     mana_cost="",
     text="",
     subtypes={"Equipment"},
+    setup_interceptors=idol_of_the_deep_king_setup,
 )
 
 INTI_SENESCHAL_OF_THE_SUN = make_creature(
