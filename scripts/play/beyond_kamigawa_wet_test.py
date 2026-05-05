@@ -208,6 +208,7 @@ def main():
                 "games_per_pairing": args.games,
                 "min_mirror_games_for_imbalance": args.min_mirror_games_for_imbalance,
                 "max_turns_per_game": MAX_TURNS_PER_GAME,
+                "elapsed_seconds": round(elapsed, 3),
                 "results": serializable_results,
                 "anomalies": anomalies,
             }, fh, indent=2, sort_keys=True)
