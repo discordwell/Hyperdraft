@@ -4467,6 +4467,127 @@ DARTH_VADER_MACHINE_MAN = make_artifact_creature(
 DARTH_VADER_MACHINE_MAN.setup_in_graveyard = vader_machine_man_setup
 
 
+# --- The Force Itself --- {2}{W}{U}{B} Saga, Mythic
+def force_itself_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Each opponent reveals the top card of their library; if it's a
+    creature, exile it. (Simplified from the original "exile a creature from
+    each opponent's hand" — automatic, no choice prompt.)"""
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == saga_obj.controller:
+            continue
+        library = state.zones.get(f'library_{pid}')
+        if not library or not library.objects:
+            continue
+        top_id = library.objects[0]
+        top = state.objects.get(top_id)
+        if not top or not top.characteristics:
+            continue
+        if CardType.CREATURE in (top.characteristics.types or set()):
+            events.append(Event(
+                type=EventType.EXILE,
+                payload={'object_id': top_id},
+                source=saga_obj.id,
+            ))
+    return events
+
+
+def force_itself_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Until end of turn, all opposing creatures get -3/-3.
+
+    (Simplified from the original "all creatures get base 2/2 and lose all
+    abilities until your next turn" — the unconditional 2/2-vanilla rewrite
+    needs full type-overwrite plumbing; the -3/-3 sweep ships the core
+    "balance-the-board" feel today and most weenies still die.)"""
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        if o.controller == saga_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': -3,
+                'toughness_mod': -3,
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def force_itself_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Search your library for a Jedi or Sith creature card and a
+    Lightsaber, put both onto the battlefield. (Auto-attach is left for a
+    future iteration — the searcher must equip manually.)"""
+    return [
+        Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': saga_obj.controller,
+                'subtypes_any': ['Jedi', 'Sith'],
+                'card_type': 'creature',
+                'destination': 'battlefield',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=saga_obj.id,
+        ),
+        Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': saga_obj.controller,
+                'subtype': 'Equipment',
+                'destination': 'battlefield',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=saga_obj.id,
+        ),
+    ]
+
+
+def force_itself_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wire chapter dispatcher for The Force Itself."""
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: force_itself_chapter_i,
+            2: force_itself_chapter_ii,
+            3: force_itself_chapter_iii,
+        },
+    )
+
+THE_FORCE_ITSELF = CardDefinition(
+    name="The Force Itself",
+    mana_cost="{2}{W}{U}{B}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.WHITE, Color.BLUE, Color.BLACK},
+        supertypes={"Legendary"},
+        mana_cost="{2}{W}{U}{B}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Each opponent reveals the top card of their library; exile it "
+        "if it's a creature.\n"
+        "II — All creatures your opponents control get -3/-3 until end of turn.\n"
+        "III — Search your library for a Jedi or Sith creature card and an "
+        "Equipment card, put them onto the battlefield, then shuffle."
+    ),
+    setup_interceptors=force_itself_setup,
+)
+
+
 # =============================================================================
 # CARD REGISTRY
 # =============================================================================
@@ -4801,6 +4922,8 @@ STAR_WARS_CARDS = {
     "Stormtrooper Patrol Squadron": STORMTROOPER_PATROL_SQUADRON,
     "R2-D2, Master Hacker": R2D2_MASTER_HACKER,
     "Darth Vader, More Machine Than Man": DARTH_VADER_MACHINE_MAN,
+    # Phase B-2
+    "The Force Itself": THE_FORCE_ITSELF,
 }
 
 print(f"Loaded {len(STAR_WARS_CARDS)} Star Wars: Galactic Conflict cards")
@@ -5089,4 +5212,5 @@ CARDS = [
     STORMTROOPER_PATROL_SQUADRON,
     R2D2_MASTER_HACKER,
     DARTH_VADER_MACHINE_MAN,
+    THE_FORCE_ITSELF,
 ]
