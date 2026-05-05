@@ -344,6 +344,14 @@ class EventType(Enum):
     FACE_DOWN_TURNED_UP = auto()      # Marker: a permanent was turned face-up (post-flip)
     FACE_DOWN_QUERY_MASK = auto()     # Internal marker (reserved for future overrides)
 
+    # Vehicle / artifact-becomes-creature: install a TRANSFORM interceptor on
+    # QUERY_TYPES that adds CREATURE to the type-set for the target. Used by
+    # Crew, Aetherdrift Exhaust-vehicle animations, and any "X becomes a
+    # creature" effect that needs to grant the CREATURE type WITHOUT going
+    # through the full becomes_creature P/T/abilities sweep.
+    # Payload: {'object_id': str, 'duration': 'end_of_turn'|'until_leaves'|'forever'}
+    GRANT_CREATURE_TYPE = auto()
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to

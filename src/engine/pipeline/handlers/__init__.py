@@ -43,6 +43,7 @@ from .pt import (
     _handle_grant_keyword,
 )
 from .control import _handle_gain_control
+from .types import _handle_grant_creature_type
 from .graveyard import (
     _handle_grant_cast_from_graveyard,
     _handle_grant_play_lands_from_graveyard,
@@ -135,6 +136,7 @@ EVENT_HANDLERS = {
     EventType.COPY_STACK_ITEM: _handle_copy_stack_item,
     EventType.SEARCH_LIBRARY: _handle_search_library_event,
     EventType.LIBRARY_SEARCH: _handle_search_library_event,
+    EventType.GRANT_CREATURE_TYPE: _handle_grant_creature_type,
 }
 
 # Merge in saga handlers (defined in src/engine/saga.py).
