@@ -453,6 +453,7 @@ def analyze_deck_quality(deck: list) -> dict:
             taunt_count += 1
 
     early_count = sum(count for cost, count in curve.items() if cost <= 2)
+    midgame_count = sum(count for cost, count in curve.items() if 3 <= cost <= 5)
     top_heavy_count = sum(count for cost, count in curve.items() if cost >= 7)
     average_cost = (
         sum(cost * count for cost, count in curve.items()) / len(deck)
@@ -473,6 +474,7 @@ def analyze_deck_quality(deck: list) -> dict:
         "curve": dict(sorted(curve.items())),
         "average_cost": round(average_cost, 2),
         "early_count": early_count,
+        "midgame_count": midgame_count,
         "top_heavy_count": top_heavy_count,
         "minion_count": minion_count,
         "spell_count": spell_count,
@@ -533,6 +535,8 @@ def deck_role_quality_flags(role: str, summary: dict) -> list[str]:
             flags.append("midrange_low_early_count")
         if summary["minion_count"] < 12:
             flags.append("midrange_low_minion_count")
+        if summary["midgame_count"] < 12:
+            flags.append("midrange_low_midgame_density")
     return flags
 
 

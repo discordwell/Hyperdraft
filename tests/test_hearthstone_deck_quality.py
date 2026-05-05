@@ -57,6 +57,15 @@ def test_deck_role_metrics_cover_each_strategy_family():
     assert summaries["Druid"]["top_heavy_count"] <= 7
 
 
+def test_midrange_decks_have_dense_turn_three_to_five_curve():
+    summaries = analyze_all_decks()
+
+    assert summaries["Paladin"]["role"] == "midrange"
+    assert summaries["Paladin"]["midgame_count"] >= 12
+    assert summaries["Shaman"]["role"] == "midrange"
+    assert summaries["Shaman"]["midgame_count"] >= 12
+
+
 def test_druid_ramp_deck_has_midgame_stabilizer_before_top_end():
     names = [card.name for card in DRUID_DECK]
     summary = analyze_deck_quality(DRUID_DECK)
