@@ -1,5 +1,9 @@
 """Beyond Ravnica Pokemon custom-set balance checks."""
 
+import json
+import subprocess
+import sys
+
 from src.cards.pokemon.beyond.ravnica import ravnica_balance_flags, ravnica_balance_summary
 
 
@@ -55,3 +59,27 @@ def test_ravnica_balance_flags_detect_bad_profiles():
         "pressure_score": 20,
         "stadium_count": 2,
     })
+
+
+def test_ravnica_balance_report_writes_json_artifact(tmp_path):
+    out_path = tmp_path / "ravnica_balance.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/play/ravnica_balance_report.py",
+            "--out",
+            str(out_path),
+            "--fail-on-flags",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    stdout_report = json.loads(result.stdout)
+    file_report = json.loads(out_path.read_text())
+    assert stdout_report == file_report
+    assert file_report["format"] == "pokemon_beyond_ravnica_balance"
+    assert file_report["quality_gate"]["passed"] is True
+    assert len(file_report["guilds"]) == 10
