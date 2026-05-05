@@ -361,6 +361,29 @@ def _score_attack(adapter, attacker: 'GameObject', attack: dict,
             elif library_count <= 12:
                 score -= 30.0
 
+    if (settings.get('use_prize_strategy') or settings.get('use_resource_conservation')):
+        library = state.zones.get(f"library_{player_id}")
+        library_count = len(library.objects) if library else 0
+        draw_amount = 0
+        if 'draw 7' in attack_text:
+            draw_amount = 7
+        elif 'draw 4' in attack_text:
+            draw_amount = 4
+        elif 'draw 3' in attack_text:
+            draw_amount = 3
+        elif 'draw 2' in attack_text:
+            draw_amount = 2
+        elif 'draw' in attack_text:
+            draw_amount = 1
+        if draw_amount:
+            remaining_after = library_count - draw_amount
+            if remaining_after < 0:
+                score -= 120.0
+            elif remaining_after <= 1:
+                score -= 70.0
+            elif library_count <= 6:
+                score -= 35.0
+
     # Bench damage attacks
     if 'bench' in attack_text and 'damage' in attack_text:
         score += 5.0
