@@ -13,6 +13,7 @@ from .moonfolk import BEYOND_KAMIGAWA_MOONFOLK, make_moonfolk_deck
 from .modified import BEYOND_KAMIGAWA_MODIFIED, make_modified_deck
 from .staples import BEYOND_KAMIGAWA_STAPLES
 from .balance import kamigawa_balance_flags, kamigawa_balance_summary
+from .deck_builder import build_kamigawa_deck, list_kamigawa_archetypes
 
 
 ARCHETYPE_REGISTRIES = {
@@ -105,6 +106,8 @@ __all__ = [
     "BEYOND_KAMIGAWA_STAPLES",
     "kamigawa_balance_flags",
     "kamigawa_balance_summary",
+    "build_kamigawa_deck",
+    "list_kamigawa_archetypes",
     "make_samurai_deck",
     "make_ninja_deck",
     "make_spirit_dragon_deck",

@@ -5,8 +5,11 @@ import subprocess
 import sys
 
 from src.cards.yugioh.beyond.kamigawa import (
+    ARCHETYPE_DECK_BUILDERS,
+    build_kamigawa_deck,
     kamigawa_balance_flags,
     kamigawa_balance_summary,
+    list_kamigawa_archetypes,
 )
 from scripts.play.beyond_kamigawa_wet_test import mirror_imbalance_anomaly
 
@@ -94,3 +97,20 @@ def test_kamigawa_wet_test_requires_enough_mirror_games_for_imbalance():
     assert mirror_imbalance_anomaly("ninja", "ninja", 3, 1.0) is False
     assert mirror_imbalance_anomaly("ninja", "ninja", 5, 1.0) is True
     assert mirror_imbalance_anomaly("ninja", "samurai", 5, 1.0) is False
+
+
+def test_validated_kamigawa_deckbuilder_serves_all_archetypes():
+    assert list_kamigawa_archetypes() == sorted(ARCHETYPE_DECK_BUILDERS)
+
+    for archetype in list_kamigawa_archetypes():
+        main, extra = build_kamigawa_deck(archetype)
+        assert len(main) == 40
+        assert len(extra) == 5
+        assert main is not ARCHETYPE_DECK_BUILDERS[archetype]()[0]
+
+
+def test_validated_kamigawa_deckbuilder_rejects_unknown_archetypes():
+    import pytest
+
+    with pytest.raises(ValueError, match="Unknown Beyond Kamigawa archetype"):
+        build_kamigawa_deck("not_an_archetype")
