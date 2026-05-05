@@ -82,6 +82,9 @@ def analyze_pokemon_deck_quality(deck: list[CardDefinition], role: str = "midran
         "heal_count": sum(1 for card in deck if any(term in _blob(card) for term in heal_terms)),
         "rare_candy_count": names.get("Rare Candy", 0),
         "setup_item_count": setup_item_count,
+        "stage2_setup_ratio": (
+            round(setup_item_count / len(stage2), 2) if stage2 else None
+        ),
         "gust_count": names.get("Boss's Orders", 0),
         "copy_violations": sorted(
             (name, count) for name, count in names.items()
