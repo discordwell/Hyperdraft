@@ -4220,11 +4220,89 @@ def samurais_katana_ff_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def sandworm_red_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sandworm (red): ETB -> destroy target land; controller may search basic (stub)."""
+    """Sandworm (red): "When this creature enters, destroy target land. Its
+    controller may search their library for a basic land card, put it onto
+    the battlefield tapped, then shuffle."
+
+    The TARGET_REQUIRED system has no built-in 'land' filter, so we compute
+    legal targets ourselves (all lands on the battlefield) and pass them via
+    legal_targets_override. After the destroy fires, the destroyed land's
+    controller gets a may-search PendingChoice via a follow-up REACT
+    interceptor.
+    """
+    from src.cards.interceptor_helpers import open_library_search, basic_land_filter
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: targeting + library search effect not modular
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+        legal = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD and CardType.LAND in o.characteristics.types
+        ]
+        if not legal:
+            return []
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effect': 'destroy',
+                'effect_params': {},
+                'target_filter': 'permanent',
+                'min_targets': 1,
+                'max_targets': 1,
+                'optional': False,
+                'prompt': "Choose target land to destroy",
+                'legal_targets_override': legal,
+            },
+            source=obj.id,
+        )]
+
+    interceptors: list[Interceptor] = [make_etb_trigger(obj, etb_effect)]
+
+    # Follow-up: when the targeted land is destroyed, its controller may
+    # search for a basic land. Track via turn_data flag keyed to this
+    # Sandworm's id so we only fire once per ETB.
+    def follow_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        td = getattr(state, 'turn_data', None) or {}
+        flag_key = f"_sandworm_followup_{obj.id}"
+        if td.get(flag_key):
+            return False
+        src = getattr(event, 'source', None) or event.payload.get('source')
+        if src != obj.id:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        if not target or CardType.LAND not in target.characteristics.types:
+            return False
+        return True
+
+    def follow_handler(event: Event, state: GameState) -> InterceptorResult:
+        td = getattr(state, 'turn_data', None)
+        if td is not None:
+            td[f"_sandworm_followup_{obj.id}"] = True
+        target = state.objects.get(event.payload.get('object_id'))
+        if not target:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        searcher = target.controller
+        open_library_search(
+            state, searcher, obj.id,
+            filter_fn=basic_land_filter(),
+            destination='battlefield',
+            tapped=True,
+            shuffle_after=True,
+            optional=True,
+            prompt="Search your library for a basic land card",
+        )
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=follow_filter,
+        handler=follow_handler,
+        duration='while_on_battlefield',
+    ))
+    return interceptors
 
 
 def summon_brynhildr_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4360,10 +4438,32 @@ def zell_dincht_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         duration='while_on_battlefield'
     ))
 
-    # End step: return a land to hand (stub - needs targeting)
+    # End step: return a land you control to its owner's hand.
     def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: targeted land bounce not modular
-        return []
+        legal = [
+            o.id for o in state.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.LAND in o.characteristics.types
+        ]
+        if not legal:
+            return []
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effect': 'bounce',
+                'effect_params': {},
+                'target_filter': 'permanent',
+                'min_targets': 1,
+                'max_targets': 1,
+                'optional': False,
+                'prompt': "Return a land you control to its owner's hand",
+                'legal_targets_override': legal,
+            },
+            source=obj.id,
+        )]
     interceptors.append(make_end_step_trigger(obj, end_step_effect))
 
     return interceptors
@@ -4543,18 +4643,128 @@ def ride_the_shoopuf_ff_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def sazh_katzroy_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Sazh Katzroy: ETB search Bird/land + attack -> +1/+1 then double counters."""
-    interceptors = []
+    """Sazh Katzroy:
+    "When Sazh Katzroy enters, you may search your library for a Bird or
+    basic land card, reveal it, put it into your hand, then shuffle."
+    "Whenever Sazh Katzroy attacks, put a +1/+1 counter on target creature,
+    then double the number of +1/+1 counters on that creature."
+
+    The double-counters clause emits an extra COUNTER_ADDED equal to the
+    target's current counter count (post-add), which approximates "double
+    the number of counters on it" via additive doubling.
+    """
+    from src.cards.interceptor_helpers import open_library_search
+    from src.engine.library_search import is_basic_land
+    interceptors: list[Interceptor] = []
+
+    # ETB: search library for a Bird or basic land card.
+    def bird_or_basic(card: GameObject, state: GameState) -> bool:
+        if 'Bird' in card.characteristics.subtypes:
+            return True
+        return is_basic_land()(card, state)
 
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: library search for Bird/basic land not modular
-        return []
+        return open_library_search(
+            state, obj.controller, obj.id,
+            filter_fn=bird_or_basic,
+            destination='hand',
+            reveal=True,
+            shuffle_after=True,
+            optional=True,
+            prompt="Search your library for a Bird or basic land card",
+        )
     interceptors.append(make_etb_trigger(obj, etb_effect))
 
+    # Attack: +1/+1 counter on target creature, then double counters.
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: target + double counters not modular
-        return []
+        legal = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+        ]
+        if not legal:
+            return []
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effect': 'counter_add',
+                'effect_params': {'counter_type': '+1/+1', 'amount': 1},
+                'target_filter': 'creature',
+                'min_targets': 1,
+                'max_targets': 1,
+                'optional': False,
+                'prompt': "Choose target creature for +1/+1 counter",
+                'legal_targets_override': legal,
+            },
+            source=obj.id,
+        )]
     interceptors.append(make_attack_trigger(obj, attack_effect))
+
+    # Doubling follow-up: when our COUNTER_ADDED resolves, emit a second
+    # COUNTER_ADDED equal to the target's current count to double it.
+    def double_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COUNTER_ADDED:
+            return False
+        if event.payload.get('counter_type') != '+1/+1':
+            return False
+        src = getattr(event, 'source', None) or event.payload.get('source')
+        if src != obj.id:
+            return False
+        td = getattr(state, 'turn_data', None) or {}
+        return not td.get(f"_sazh_double_pending_{obj.id}", False)
+
+    def double_handler(event: Event, state: GameState) -> InterceptorResult:
+        td = getattr(state, 'turn_data', None)
+        target_id = event.payload.get('object_id')
+        target = state.objects.get(target_id)
+        if not target:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        current = int(target.state.counters.get('+1/+1', 0))
+        if current <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        if td is not None:
+            td[f"_sazh_double_pending_{obj.id}"] = True
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_ADDED,
+                payload={
+                    'object_id': target_id,
+                    'counter_type': '+1/+1',
+                    'amount': current,
+                    '_sazh_doubled': True,
+                },
+                source=obj.id,
+            )],
+        )
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=double_filter,
+        handler=double_handler,
+        duration='while_on_battlefield',
+    ))
+
+    # Reset the pending flag at PHASE_START so the next attack fires fresh.
+    def reset_filter(event: Event, state: GameState) -> bool:
+        return event.type == EventType.PHASE_START
+
+    def reset_handler(event: Event, state: GameState) -> InterceptorResult:
+        td = getattr(state, 'turn_data', None)
+        if td is not None:
+            td.pop(f"_sazh_double_pending_{obj.id}", None)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=reset_filter,
+        handler=reset_handler,
+        duration='while_on_battlefield',
+    ))
 
     return interceptors
 
@@ -4697,10 +4907,25 @@ def choco_seeker_of_paradise_ff_setup(obj: GameObject, state: GameState) -> list
 
 
 def hope_estheim_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Hope Estheim: end step -> opponents mill X (life gained this turn)."""
+    """Hope Estheim: at the beginning of your end step, each opponent mills X
+    cards, where X is the amount of life you gained this turn.
+
+    Uses the engine-level per-turn life-gained tracker in turn_state.py.
+    """
+    from src.engine.turn_state import life_gained_this_turn
+
     def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: per-turn life-gained tracking not implemented; stub
-        return []
+        gained = life_gained_this_turn(obj.controller, state)
+        if gained <= 0:
+            return []
+        events: list[Event] = []
+        for opp in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': opp, 'amount': gained},
+                source=obj.id,
+            ))
+        return events
     return [make_end_step_trigger(obj, end_step_effect)]
 
 
@@ -4753,7 +4978,13 @@ def the_wandering_minstrel_ff_setup(obj: GameObject, state: GameState) -> list[I
 
 
 def yuna_hope_of_spira_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Yuna: trample/lifelink/ward2 keyword grant + end step graveyard return."""
+    """Yuna, Hope of Spira:
+    "During your turn, Yuna and enchantment creatures you control have
+    trample, lifelink, and ward {2}."
+    "At the beginning of your end step, return up to one target enchantment
+    card from your graveyard to the battlefield with a finality counter on it."
+    """
+    from src.cards.interceptor_helpers import make_ward
     interceptors = []
 
     # Static keyword grant for Yuna and enchantment creatures during your turn
@@ -4770,12 +5001,42 @@ def yuna_hope_of_spira_ff_setup(obj: GameObject, state: GameState) -> list[Inter
             return True
         return CardType.ENCHANTMENT in target.characteristics.types
 
-    interceptors.append(make_keyword_grant(obj, ['trample', 'lifelink'], is_yuna_or_enchantment_creature))
+    interceptors.append(make_keyword_grant(
+        obj, ['trample', 'lifelink', 'ward'], is_yuna_or_enchantment_creature,
+    ))
 
-    # End step: return enchantment from graveyard (stub)
+    # Ward {2}: triggers when an opponent targets Yuna; the keyword display
+    # is also handled by the keyword grant above for enchantment creatures.
+    interceptors.append(make_ward(obj, mana_cost="{2}"))
+
+    # End step: return up to one target enchantment card from your graveyard
+    # to the battlefield. (Finality counter remains an engine gap.)
     def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: targeted enchantment return-from-graveyard with finality counter not modular
-        return []
+        graveyard = state.zones.get(f'graveyard_{obj.controller}')
+        legal = []
+        if graveyard:
+            for card_id in graveyard.objects:
+                card = state.objects.get(card_id)
+                if card and CardType.ENCHANTMENT in card.characteristics.types:
+                    legal.append(card_id)
+        if not legal:
+            return []
+        return [Event(
+            type=EventType.TARGET_REQUIRED,
+            payload={
+                'source': obj.id,
+                'controller': obj.controller,
+                'effect': 'graveyard_to_battlefield',
+                'effect_params': {},
+                'target_filter': 'creature_in_your_graveyard',  # legal_targets_override governs
+                'min_targets': 0,
+                'max_targets': 1,
+                'optional': True,
+                'prompt': "Choose an enchantment in your graveyard to return",
+                'legal_targets_override': legal,
+            },
+            source=obj.id,
+        )]
     interceptors.append(make_end_step_trigger(obj, end_step_effect))
 
     return interceptors
@@ -4839,11 +5100,27 @@ def excalibur_ii_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def lion_heart_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Lion Heart Equipment: ETB -> 2 damage to any target (stub)."""
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: targeting any-target for damage from an Equipment ETB not modular
-        return []
-    return [make_etb_trigger(obj, etb_effect)]
+    """Lion Heart Equipment:
+    "When this Equipment enters, it deals 2 damage to any target."
+    Equipped creature gets +2/+1.
+    Equip {2}.
+    """
+    from src.cards.interceptor_helpers import make_targeted_etb_trigger
+    interceptors: list[Interceptor] = []
+
+    # Static equipment statics (P/T boost + equip cost) via the standard
+    # equipment-setup helper, then layer the ETB target-damage trigger on top.
+    equip_setup = make_equipment_setup(power_mod=2, toughness_mod=1, equip_cost="{2}")
+    interceptors.extend(equip_setup(obj, state))
+
+    interceptors.append(make_targeted_etb_trigger(
+        obj,
+        effect='damage',
+        effect_params={'amount': 2},
+        target_filter='any',
+        prompt="Choose any target to deal 2 damage to",
+    ))
+    return interceptors
 
 
 def lunatic_pandora_ff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

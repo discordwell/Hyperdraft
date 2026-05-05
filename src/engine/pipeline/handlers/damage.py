@@ -54,7 +54,16 @@ def _handle_damage(event: Event, state: GameState):
 
 
 def _handle_life_change(event: Event, state: GameState):
-    """Handle LIFE_CHANGE event."""
+    """Handle LIFE_CHANGE event.
+
+    NOTE: Per-turn life-gained / life-lost tracking is handled OUT-OF-BAND by
+    a SYSTEM REACT interceptor registered via
+    ``src/engine/turn_state.py::register_turn_state_tracker``
+    (handler: ``_life_change_handler``). Cards read the running totals via
+    ``life_gained_this_turn(player_id, state)`` /
+    ``life_lost_this_turn(player_id, state)``. Counters reset on TURN_END
+    (TurnManager._emit_turn_end clears state.turn_data).
+    """
     from ...mode_adapter import get_mode_adapter
     adapter = get_mode_adapter(state.game_mode)
 
