@@ -56,9 +56,18 @@ from src.cards.interceptor_helpers import (
     make_modal_resolve,
 )
 from src.engine.blb_mechanics import (
+    make_forage_trigger,
+)
+# BLB keyword frameworks (Valiant, Expend) — see src/engine/blb_keywords.py.
+# Valiant filters on EventType.TARGET_CHOSEN (which the priority/stack layer
+# already emits for both cast spells and activated/triggered abilities), with
+# once-per-turn gating in state.turn_data.
+# Expend N filters on EventType.EXPEND_<N>_REACHED, which is fired by
+# record_mana_spent_for_expend in priority.py whenever cumulative paid mana
+# crosses the threshold.
+from src.engine.blb_keywords import (
     make_valiant_trigger,
     make_expend_trigger,
-    make_forage_trigger,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -3183,7 +3192,8 @@ def harnesser_of_storms_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def aheartfire_hero_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """A-Heartfire Hero: death damage = power; Valiant gap."""
+    """A-Heartfire Hero: Valiant — put a +1/+1 counter on it.
+    Death — deals damage equal to its power to each opponent."""
     def death_effect(event: Event, state: GameState) -> list[Event]:
         from src.engine import get_power as _gp
         power = _gp(obj, state)
@@ -3196,8 +3206,18 @@ def aheartfire_hero_setup(obj: GameObject, state: GameState) -> list[Interceptor
                              'is_combat': False},
                     source=obj.id))
         return events
-    # engine gap: Valiant trigger
-    return [make_death_trigger(obj, death_effect)]
+
+    def valiant_effect(event: Event, state: GameState) -> list[Event]:
+        # Valiant: put a +1/+1 counter on it (matches Heartfire Hero / A-Heartfire Hero text).
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id)]
+
+    return [
+        make_death_trigger(obj, death_effect),
+        make_valiant_trigger(obj, valiant_effect),
+    ]
 
 
 def hearthborn_battler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
