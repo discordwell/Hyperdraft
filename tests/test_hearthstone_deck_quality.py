@@ -1,6 +1,7 @@
 """Hearthstone deckbuilding quality checks."""
 
 from src.cards.hearthstone.decks import (
+    DRUID_DECK,
     HEARTHSTONE_DECKS,
     HEARTHSTONE_DECK_ROLES,
     WARLOCK_DECK,
@@ -53,6 +54,17 @@ def test_deck_role_metrics_cover_each_strategy_family():
     assert summaries["Druid"]["role"] == "ramp"
     assert summaries["Druid"]["draw_count"] >= 5
     assert summaries["Druid"]["taunt_count"] >= 4
+    assert summaries["Druid"]["top_heavy_count"] <= 7
+
+
+def test_druid_ramp_deck_has_midgame_stabilizer_before_top_end():
+    names = [card.name for card in DRUID_DECK]
+    summary = analyze_deck_quality(DRUID_DECK)
+
+    assert "Sen'jin Shieldmasta" in names
+    assert "Stormwind Champion" not in names
+    assert summary["average_cost"] < 4.3
+    assert summary["top_heavy_count"] == 7
 
 
 def test_warlock_zoo_uses_real_one_drops_over_dead_zero_minions():

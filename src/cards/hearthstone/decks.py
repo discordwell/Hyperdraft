@@ -367,8 +367,8 @@ DRUID_DECK = [
     # 8-cost (2 cards)
     IRONBARK_PROTECTOR, IRONBARK_PROTECTOR,
 
-    # 9-cost (2 cards) - Legendary
-    CENARIUS, STORMWIND_CHAMPION,
+    # 9-cost legendary + midgame stabilizer
+    CENARIUS, SEN_JIN_SHIELDMASTA,
 ]
 
 
@@ -453,6 +453,7 @@ def analyze_deck_quality(deck: list) -> dict:
             taunt_count += 1
 
     early_count = sum(count for cost, count in curve.items() if cost <= 2)
+    top_heavy_count = sum(count for cost, count in curve.items() if cost >= 7)
     average_cost = (
         sum(cost * count for cost, count in curve.items()) / len(deck)
         if deck else 0.0
@@ -472,6 +473,7 @@ def analyze_deck_quality(deck: list) -> dict:
         "curve": dict(sorted(curve.items())),
         "average_cost": round(average_cost, 2),
         "early_count": early_count,
+        "top_heavy_count": top_heavy_count,
         "minion_count": minion_count,
         "spell_count": spell_count,
         "weapon_count": weapon_count,
@@ -524,6 +526,8 @@ def deck_role_quality_flags(role: str, summary: dict) -> list[str]:
             flags.append("ramp_low_card_draw")
         if summary["taunt_count"] < 4:
             flags.append("ramp_low_stabilizers")
+        if summary["top_heavy_count"] > 7:
+            flags.append("ramp_top_heavy")
     else:
         if summary["early_count"] < 8:
             flags.append("midrange_low_early_count")
