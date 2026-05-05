@@ -53,7 +53,7 @@ GLACIEL_HERO = make_hero(
     name="Glaciel, the Voidfrost",
     hero_class="Cryomancer",
     starting_life=30,
-    text="Hero Power: Frost Rift (Gain 2 Armor)",
+    text="Hero Power: Frost Rift (Gain 3 Armor)",
 )
 
 STORMRIFT_HEROES = {
@@ -92,17 +92,17 @@ RIFT_SPARK = make_hero_power(
 )
 
 def frost_rift_effect(obj: GameObject, state: GameState) -> list[Event]:
-    """Gain 2 Armor."""
+    """Gain 3 Armor."""
     return [Event(
         type=EventType.ARMOR_GAIN,
-        payload={'player': obj.controller, 'amount': 2},
+        payload={'player': obj.controller, 'amount': 3},
         source=obj.id,
     )]
 
 FROST_RIFT = make_hero_power(
     name="Frost Rift",
     cost=2,
-    text="Gain 2 Armor",
+    text="Gain 3 Armor",
     effect=frost_rift_effect,
 )
 
