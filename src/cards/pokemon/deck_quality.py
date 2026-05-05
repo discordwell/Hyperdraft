@@ -35,6 +35,13 @@ def analyze_pokemon_deck_quality(deck: list[CardDefinition], role: str = "midran
     items = [card for card in deck if _has(card, CardType.ITEM)]
     stadiums = [card for card in deck if _has(card, CardType.STADIUM)]
     tools = [card for card in deck if _has(card, CardType.POKEMON_TOOL)]
+    energy_types = Counter(
+        card.pokemon_type
+        for card in energy
+        if getattr(card, "pokemon_type", None)
+    )
+    primary_energy_type = energy_types.most_common(1)[0][0] if energy_types else None
+    primary_energy_count = energy_types.get(primary_energy_type, 0) if primary_energy_type else 0
 
     base_names = {card.name for card in basics}
     stage1_targets = {card.evolves_from for card in stage1 if card.evolves_from}
@@ -59,6 +66,10 @@ def analyze_pokemon_deck_quality(deck: list[CardDefinition], role: str = "midran
         "item_count": len(items),
         "stadium_count": len(stadiums),
         "tool_count": len(tools),
+        "energy_type_counts": dict(sorted(energy_types.items())),
+        "primary_energy_type": primary_energy_type,
+        "primary_energy_count": primary_energy_count,
+        "off_type_energy_count": len(energy) - primary_energy_count,
         "draw_count": sum(1 for card in deck if any(term in _blob(card) for term in draw_terms)),
         "search_count": sum(1 for card in deck if any(term in _blob(card) for term in search_terms)),
         "switch_count": sum(1 for card in deck if any(term in _blob(card) for term in switch_terms)),
@@ -90,6 +101,8 @@ def pokemon_deck_quality_flags(summary: dict) -> list[str]:
         flags.append("too_few_basics")
     if not 12 <= summary["energy_count"] <= 24:
         flags.append("energy_count_out_of_range")
+    if summary["energy_count"] and summary["primary_energy_count"] < summary["energy_count"] * 0.75:
+        flags.append("unstable_energy_mix")
     if summary["trainer_count"] < 16:
         flags.append("too_few_trainers")
     if summary["search_count"] < 4:

@@ -27,6 +27,9 @@ def test_sv_starter_decks_have_clean_quality_metrics():
         assert summary["search_count"] >= 4, deck_name
         assert summary["draw_count"] >= 4, deck_name
         assert summary["rare_candy_count"] >= 1, deck_name
+        assert summary["primary_energy_count"] == summary["energy_count"], deck_name
+        assert summary["off_type_energy_count"] == 0, deck_name
+        assert len(summary["energy_type_counts"]) == 1, deck_name
         assert summary["copy_violations"] == [], deck_name
         assert summary["quality_flags"] == [], deck_name
         assert summary["role_quality_flags"] == [], deck_name
@@ -82,3 +85,17 @@ def test_validated_sv_starter_deckbuilder_serves_all_decks():
 def test_validated_sv_starter_deckbuilder_rejects_unknown_decks():
     with pytest.raises(ValueError, match="Unknown Pokemon starter deck"):
         build_sv_starter_deck("not_a_deck")
+
+
+def test_pokemon_deck_quality_flags_unstable_energy_mix():
+    from src.cards.pokemon.sv_starter import FIRE_ENERGY, WATER_ENERGY, make_fire_deck
+
+    deck = list(make_fire_deck())
+    energy_slots = [i for i, card in enumerate(deck) if card.name == "Fire Energy"]
+    for index in energy_slots[:8]:
+        deck[index] = WATER_ENERGY
+
+    summary = analyze_pokemon_deck_quality(deck, role="starter")
+
+    assert summary["off_type_energy_count"] == 8
+    assert "unstable_energy_mix" in summary["quality_flags"]
