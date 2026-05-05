@@ -46,6 +46,7 @@ def test_ygo_role_metrics_cover_optimized_archetypes():
     burn = summaries["chain_burn"]
     assert burn["role"] == "Burn / Stall"
     assert burn["burn_count"] >= 8
+    assert burn["reliable_reach_count"] >= 10
     assert burn["stall_count"] >= 3
     assert burn["monster_count"] <= 16
     assert burn["set_priority_count"] >= 4
