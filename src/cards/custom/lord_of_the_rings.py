@@ -15,10 +15,11 @@ from src.cards.card_factories import (
 
 from src.engine import (
     Event, EventType,
-    Interceptor,
+    Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
     GameObject, GameState, ZoneType, CardType, Color,
     Characteristics, CardDefinition,
     make_creature, make_instant, make_enchantment,
+    new_id, get_power, get_toughness,
 )
 from typing import Callable
 from src.cards.interceptor_helpers import (
@@ -27,7 +28,10 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, creatures_with_subtype,
     make_spell_cast_trigger, make_upkeep_trigger,
     creatures_you_control,
-    other_creatures_with_subtype, all_opponents
+    other_creatures_with_subtype, all_opponents,
+    # Phase A spice-pass additions:
+    make_activated_ability, make_equipment_setup,
+    make_dynamic_pt_boost, count_permanents_with_subtype,
 )
 from src.cards.ability_bundles import (
     etb_gain_life, etb_create_token, etb_draw,
@@ -2001,29 +2005,14 @@ ARAGORN_AND_ARWEN = _make_creature(
 # ARTIFACTS
 # =============================================================================
 
-# One Ring has upkeep trigger - keep old style
-def one_ring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipped creature has shroud, at upkeep lose 1 life per corruption"""
-    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
-        corruption = obj.state.counters.get('corruption', 0) + 1
-        return [
-            Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': 'corruption', 'amount': 1}, source=obj.id),
-            Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': -corruption}, source=obj.id)
-        ]
-    return [make_upkeep_trigger(obj, upkeep_effect)]
+# NOTE: THE_ONE_RING, ANDURIL, and MITHRIL_COAT below are PLACEHOLDERS for the
+# Spice Pass section near the end of the file. Their full definitions are
+# rewritten there to channel the format-defining feel (compression, ward,
+# granted abilities). The intervening defs (STING, GLAMDRING, etc.) are kept
+# vanilla. Do NOT remove these placeholders without also updating the
+# registry — the Spice Pass section reassigns the module-level variables.
 
-THE_ONE_RING = CardDefinition(
-    name="The One Ring",
-    mana_cost="{4}",
-    characteristics=Characteristics(
-        types={CardType.ARTIFACT},
-        subtypes={"Ring", "Equipment"},
-        supertypes={"Legendary"},
-        mana_cost="{4}",
-    ),
-    text="At the beginning of your upkeep, put a corruption counter on The One Ring, then lose life equal to the number of corruption counters on it.",
-    setup_interceptors=one_ring_setup,
-)
+THE_ONE_RING = None  # populated in SPICE PASS section
 
 
 STING = make_equipment(
@@ -2042,12 +2031,7 @@ GLAMDRING = make_equipment(
 )
 
 
-ANDURIL = make_equipment(
-    name="Anduril, Flame of the West",
-    mana_cost="{3}",
-    equip_cost="{2}",
-    supertypes={"Legendary"}
-)
+ANDURIL = None  # populated in SPICE PASS section
 
 
 NENYA = make_equipment(
@@ -2091,12 +2075,7 @@ PALANTIR_OF_ORTHANC = make_artifact(
 )
 
 
-MITHRIL_COAT = make_equipment(
-    name="Mithril Coat",
-    mana_cost="{3}",
-    equip_cost="{3}",
-    supertypes={"Legendary"}
-)
+MITHRIL_COAT = None  # populated in SPICE PASS section
 
 
 HORN_OF_GONDOR = make_artifact(
@@ -2187,9 +2166,7 @@ ISENGARD = make_land(
 )
 
 
-LOTHLORIEN = make_land(
-    name="Lothlorien"
-)
+LOTHLORIEN = None  # populated in SPICE PASS section
 
 
 FANGORN = make_land(
@@ -2225,6 +2202,444 @@ MORIA = make_land(
 
 EDORAS = make_land(
     name="Edoras"
+)
+
+
+# =============================================================================
+# SPICE PASS — Format-Defining Cards (Phase A)
+# =============================================================================
+# Modeled on the broken-card patterns in .claude/skills/spice-pass.md and the
+# Star Wars / Dragon Ball pilot reference implementations. Phase A — within
+# current engine surface only. Targets a mix of compression, snowball,
+# hard-to-interact, and asymmetric-prison archetypes plus enhanced equipment
+# that channels the Fellowship/Ring flavor.
+# =============================================================================
+
+
+# --- Aragorn, King Returned --- {2}{R}{W} 4/4 Mythic legendary Human (compression)
+# Pattern: compression (lord + attack trigger + Fellowship dynamic boost).
+def aragorn_returned_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self vigilance+haste; attack trigger pumps Humans; Fellowship +X/+X."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller == obj.controller
+                    and o.id != obj.id
+                    and CardType.CREATURE in o.characteristics.types
+                    and 'Human' in (o.characteristics.subtypes or set())):
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': o.id,
+                        'power_mod': 1,
+                        'toughness_mod': 1,
+                        'duration': 'end_of_turn',
+                    },
+                    source=obj.id,
+                ))
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={
+                        'object_id': o.id,
+                        'keyword': 'first_strike',
+                        'duration': 'end_of_turn',
+                    },
+                    source=obj.id,
+                ))
+        return events
+
+    # Fellowship — +X/+X where X = legendary creatures you control (incl. self).
+    def fellowship_mod(source: GameObject, target: GameObject, st: GameState) -> tuple[int, int]:
+        if target.id != obj.id:
+            return (0, 0)
+        x = count_legendary_creatures(obj.controller, st)
+        return (x, x)
+
+    def self_filter(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_keyword_grant(obj, ['vigilance', 'haste'], affects_self))
+    interceptors.append(make_attack_trigger(obj, attack_effect))
+    interceptors.extend(make_dynamic_pt_boost(obj, fellowship_mod, self_filter))
+    return interceptors
+
+
+ARAGORN_KING_RETURNED = make_creature(
+    name="Aragorn, King Returned",
+    power=4, toughness=4,
+    mana_cost="{2}{R}{W}",
+    colors={Color.RED, Color.WHITE},
+    subtypes={"Human", "Noble", "Ranger"},
+    supertypes={"Legendary"},
+    text=(
+        "Vigilance, haste. Whenever Aragorn attacks, other Human creatures "
+        "you control get +1/+1 and gain first strike until end of turn. "
+        "Fellowship — Aragorn gets +1/+1 for each legendary creature you "
+        "control."
+    ),
+    setup_interceptors=aragorn_returned_setup,
+)
+
+
+# --- Gandalf, Mithrandir --- {1}{U}{R} 3/3 Mythic legendary Wizard (compression)
+# Pattern: compression (flash + hexproof + ETB draw + tribal token + spell trigger).
+def gandalf_mithrandir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self flash+hexproof; ETB draw 2 + create Spirit per Wizard; spell trigger pump."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        events.append(Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+        ))
+        # Create one 1/1 white Spirit token per Wizard you control (incl. self).
+        wiz_count = 0
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller == obj.controller
+                    and CardType.CREATURE in o.characteristics.types
+                    and 'Wizard' in (o.characteristics.subtypes or set())):
+                wiz_count += 1
+        for _ in range(max(1, wiz_count)):
+            events.append(Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': obj.controller,
+                    'token': {
+                        'name': 'Spirit',
+                        'power': 1, 'toughness': 1,
+                        'colors': {Color.WHITE},
+                        'types': {CardType.CREATURE},
+                        'subtypes': {'Spirit'},
+                        'keywords': ['flying'],
+                    },
+                },
+                source=obj.id,
+            ))
+        return events
+
+    def spell_pump_effect(event: Event, st: GameState) -> list[Event]:
+        # Whenever you cast an instant or sorcery, Gandalf gets +1/+0 EOT.
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 1,
+                'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['flash', 'hexproof'], affects_self),
+        make_etb_trigger(obj, etb_effect),
+        make_spell_cast_trigger(
+            obj, spell_pump_effect,
+            spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+        ),
+    ]
+
+
+GANDALF_MITHRANDIR = make_creature(
+    name="Gandalf, Mithrandir",
+    power=3, toughness=3,
+    mana_cost="{1}{U}{R}",
+    colors={Color.BLUE, Color.RED},
+    subtypes={"Avatar", "Wizard"},
+    supertypes={"Legendary"},
+    text=(
+        "Flash. Hexproof. When Gandalf, Mithrandir enters, draw two cards "
+        "and create a 1/1 white Spirit creature token with flying for each "
+        "Wizard you control. Whenever you cast an instant or sorcery spell, "
+        "Gandalf gets +1/+0 until end of turn."
+    ),
+    setup_interceptors=gandalf_mithrandir_setup,
+)
+
+
+# --- Galadriel, Lady of Lothlorien --- {1}{G}{W}{U} 3/4 Mythic legendary Elf
+# Pattern: snowball / Fellowship-anchored value engine.
+def galadriel_lothlorien_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Other Elves+Humans get +1/+1 and have hexproof. Upkeep scry 2,
+    draw a card if you control 3+ legendary creatures."""
+
+    def others_elf_or_human(target: GameObject, st: GameState) -> bool:
+        if target.id == obj.id:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        subs = target.characteristics.subtypes or set()
+        return 'Elf' in subs or 'Human' in subs
+
+    def upkeep_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+        )]
+        if count_legendary_creatures(obj.controller, st) >= 3:
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            ))
+        return events
+
+    interceptors: list[Interceptor] = []
+    interceptors.extend(make_static_pt_boost(obj, 1, 1, others_elf_or_human))
+    interceptors.append(make_keyword_grant(obj, ['hexproof'], others_elf_or_human))
+    interceptors.append(make_upkeep_trigger(obj, upkeep_effect))
+    return interceptors
+
+
+GALADRIEL_LADY_OF_LOTHLORIEN = make_creature(
+    name="Galadriel, Lady of Lothlorien",
+    power=3, toughness=4,
+    mana_cost="{1}{G}{W}{U}",
+    colors={Color.GREEN, Color.WHITE, Color.BLUE},
+    subtypes={"Elf", "Noble", "Wizard"},
+    supertypes={"Legendary"},
+    text=(
+        "Other Elf and Human creatures you control get +1/+1 and have "
+        "hexproof. At the beginning of your upkeep, scry 2. Fellowship — "
+        "Then if you control three or more legendary creatures, draw a card."
+    ),
+    setup_interceptors=galadriel_lothlorien_setup,
+)
+
+
+# --- Witch-king, Black Captain --- {2}{B}{B} 4/3 Mythic legendary Wraith
+# Pattern: hard-to-interact (ward) + compression (lord + combat trigger).
+def witch_king_black_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self flying + ward {3}; other Wraiths/Nazgul +1/+1 and menace; combat
+    damage to player → discard + corruption counter on a creature they control."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def others_wraith_or_nazgul(target: GameObject, st: GameState) -> bool:
+        if target.id == obj.id:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        subs = target.characteristics.subtypes or set()
+        return 'Wraith' in subs or 'Nazgul' in subs or target.name == 'Nazgul'
+
+    def damage_effect(event: Event, st: GameState) -> list[Event]:
+        target = event.payload.get('target')
+        if not target or target not in st.players:
+            return []
+        events: list[Event] = [Event(
+            type=EventType.DISCARD,
+            payload={'player': target, 'count': 1, 'amount': 1},
+            source=obj.id,
+        )]
+        # Pick first creature the damaged player controls; corrupt it.
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller == target
+                    and CardType.CREATURE in o.characteristics.types):
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={
+                        'object_id': o.id,
+                        'counter_type': 'corruption',
+                        'amount': 1,
+                    },
+                    source=obj.id,
+                ))
+                break
+        return events
+
+    # Ward {3}
+    from src.cards.interceptor_helpers import make_ward
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_keyword_grant(obj, ['flying'], affects_self))
+    interceptors.append(make_ward(obj, mana_cost="{3}"))
+    interceptors.extend(make_static_pt_boost(obj, 1, 1, others_wraith_or_nazgul))
+    interceptors.append(make_keyword_grant(obj, ['menace'], others_wraith_or_nazgul))
+    interceptors.append(make_damage_trigger(obj, damage_effect, combat_only=True))
+    return interceptors
+
+
+WITCH_KING_BLACK_CAPTAIN = make_creature(
+    name="Witch-king, Black Captain",
+    power=4, toughness=3,
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Wraith", "Noble"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying. Ward {3}. Other Wraith and Nazgul creatures you control "
+        "get +1/+1 and have menace. Whenever Witch-king deals combat damage "
+        "to a player, that player discards a card, then put a corruption "
+        "counter on a creature they control."
+    ),
+    setup_interceptors=witch_king_black_captain_setup,
+)
+
+
+# --- The One Ring (REPLACE existing) --- {4} Legendary Artifact (Ring/Equipment)
+# Pattern: mythic compression — protection (ward) + snowball draw + escalating
+# self-cost. The classic "you can't afford to NOT play it" effect.
+def the_one_ring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: ward {3} on self. Upkeep: corruption counter, draw N+1 cards, lose N+1 life."""
+    from src.cards.interceptor_helpers import make_ward
+
+    def upkeep_effect(event: Event, st: GameState) -> list[Event]:
+        new_count = obj.state.counters.get('corruption', 0) + 1
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': 'corruption', 'amount': 1},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': new_count},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': -new_count},
+                source=obj.id,
+            ),
+        ]
+
+    interceptors: list[Interceptor] = []
+    # Ward {3} — hard to remove. Applies to The One Ring itself.
+    interceptors.append(make_ward(obj, mana_cost="{3}"))
+    interceptors.append(make_upkeep_trigger(obj, upkeep_effect))
+    return interceptors
+
+
+THE_ONE_RING = CardDefinition(
+    name="The One Ring",
+    mana_cost="{4}",
+    characteristics=Characteristics(
+        types={CardType.ARTIFACT},
+        subtypes={"Ring", "Equipment"},
+        supertypes={"Legendary"},
+        mana_cost="{4}",
+    ),
+    text=(
+        "Ward {3}. At the beginning of your upkeep, put a corruption "
+        "counter on The One Ring, then draw cards equal to the number of "
+        "corruption counters on it and lose that much life."
+    ),
+    setup_interceptors=the_one_ring_setup,
+)
+
+
+# --- Anduril, Flame of the West (REPLACE existing) --- {3} Mythic Equipment
+# Pattern: equipment compression — three keywords + ward; Andúril is the
+# weapon of the king reforged.
+ANDURIL = make_equipment(
+    name="Anduril, Flame of the West",
+    mana_cost="{3}",
+    text=(
+        "Equipped creature gets +3/+3 and has first strike, vigilance, and "
+        "ward {2}. Equip {2}."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=make_equipment_setup(
+        power_mod=3, toughness_mod=3,
+        keywords=["first_strike", "vigilance"],
+        ward_cost="{2}",
+        equip_cost="{2}",
+    ),
+)
+
+
+# --- Mithril Coat (REPLACE existing) --- {2} Rare Equipment
+# Pattern: hard-to-interact (indestructible + ward) — the dwarf-mail Bilbo
+# left to Frodo, fitted to a hobbit but proof against any blade.
+MITHRIL_COAT = make_equipment(
+    name="Mithril Coat",
+    mana_cost="{2}",
+    text=(
+        "Equipped creature gets +0/+2 and has indestructible and ward {2}. "
+        "Equip {1}."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=make_equipment_setup(
+        power_mod=0, toughness_mod=2,
+        keywords=["indestructible"],
+        ward_cost="{2}",
+        equip_cost="{1}",
+    ),
+)
+
+
+# --- Lothlorien, Realm of the Galadhrim (REPLACE existing) --- Legendary Land
+# Pattern: utility land with Fellowship-anchored card-flow activated ability.
+def lothlorien_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: Add {G}. {2}, {T}: Scry 1; if you control 3+ legendaries, draw."""
+    def mana_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {'G': 1}},
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=mana_effect,
+        description="{T}: Add {G}.",
+    )
+
+    def scry_or_draw(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        events: list[Event] = [Event(
+            type=EventType.SCRY,
+            payload={'player': o.controller, 'amount': 1},
+            source=o.id,
+        )]
+        if count_legendary_creatures(o.controller, st) >= 3:
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': o.controller, 'amount': 1},
+                source=o.id,
+            ))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{2}, {T}",
+        effect_fn=scry_or_draw,
+        description=(
+            "{2}, {T}: Scry 1. Fellowship — Then if you control three or "
+            "more legendary creatures, draw a card."
+        ),
+    )
+
+    return []
+
+
+LOTHLORIEN = make_land(
+    name="Lothlorien",
+    text=(
+        "{T}: Add {G}. {2}, {T}: Scry 1. Fellowship — Then if you control "
+        "three or more legendary creatures, draw a card."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=lothlorien_setup,
 )
 
 
@@ -2431,6 +2846,12 @@ LORD_OF_THE_RINGS_CARDS = {
     "Grey Havens": GREY_HAVENS,
     "Mines of Moria": MORIA,
     "Edoras": EDORAS,
+
+    # SPICE PASS — Phase A format-defining cards
+    "Aragorn, King Returned": ARAGORN_KING_RETURNED,
+    "Gandalf, Mithrandir": GANDALF_MITHRANDIR,
+    "Galadriel, Lady of Lothlorien": GALADRIEL_LADY_OF_LOTHLORIEN,
+    "Witch-king, Black Captain": WITCH_KING_BLACK_CAPTAIN,
 }
 
 
@@ -2621,5 +3042,11 @@ CARDS = [
     OSGILIATH,
     GREY_HAVENS,
     MORIA,
-    EDORAS
+    EDORAS,
+
+    # SPICE PASS — Phase A
+    ARAGORN_KING_RETURNED,
+    GANDALF_MITHRANDIR,
+    GALADRIEL_LADY_OF_LOTHLORIEN,
+    WITCH_KING_BLACK_CAPTAIN,
 ]
