@@ -2,7 +2,11 @@
 
 from src.ai.yugioh_adapter import YugiohAIAdapter
 from src.cards.yugioh.ygo_classic import BLUE_EYES_WHITE_DRAGON
-from src.cards.yugioh.ygo_optimized import PREMATURE_BURIAL
+from src.cards.yugioh.ygo_optimized import (
+    CHAIN_BURN_STRATEGY,
+    PREMATURE_BURIAL,
+    STEALTH_BIRD,
+)
 from src.engine.game import Game, make_ygo_monster
 from src.engine.types import ZoneType
 
@@ -72,3 +76,20 @@ def test_hard_ai_skips_battle_phase_when_no_safe_attack_exists():
     blocker.card_def.def_val = 1000
 
     assert ai.should_enter_battle(p1.id, game.state) is True
+
+
+def test_hard_ai_sets_strategy_set_priority_monster_before_summoning():
+    game, p1, _p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    ai.strategy = CHAIN_BURN_STRATEGY
+    bird = _card(game, STEALTH_BIRD, p1, ZoneType.HAND)
+    turn_state = game.turn_manager.ygo_turn_state
+    turn_state.active_player_id = p1.id
+    turn_state.normal_summon_used = False
+
+    action = ai.get_main_phase_action(p1.id, game.state, turn_state)
+
+    assert action == {
+        "action_type": "set_monster",
+        "card_id": bird.id,
+    }
