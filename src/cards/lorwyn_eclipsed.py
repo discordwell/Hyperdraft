@@ -43,6 +43,8 @@ from src.cards.interceptor_helpers import (
     make_modal_resolve,
     # Copy-token
     make_copy_token_event,
+    # Type-overwrite auras (Lignify-style)
+    make_type_overwrite_aura,
 )
 
 
@@ -1983,9 +1985,20 @@ def lofty_dreams_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 def noggle_the_mind_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Aura: enchanted creature loses abilities, becomes 1/1 colorless Noggle.
 
-    engine gap: type/color/P-T overwrite plus loses-abilities not modelled.
+    "Enchanted creature loses all abilities and is a colorless Noggle with
+    base power and toughness 1/1. (It loses all colors and all other
+    creature types.)"
     """
-    return []  # engine gap: Aura that overrides creature characteristics
+    inner = make_type_overwrite_aura(
+        obj,
+        base_power=1,
+        base_toughness=1,
+        new_subtypes=["Noggle"],
+        new_types=[CardType.CREATURE],
+        new_colors=set(),  # colorless
+        lose_abilities=True,
+    )
+    return inner(obj, state)
 
 
 def omnichangeling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
