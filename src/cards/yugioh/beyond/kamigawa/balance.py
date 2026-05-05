@@ -45,6 +45,21 @@ def kamigawa_deck_profile(name: str, main: list[CardDefinition], extra: list[Car
         "equip_identity_count": _count_terms(main, ("equip", "equipped", "plating", "embercleave", "boots", "sword")),
         "copy_violations": sorted((card, count) for card, count in copies.items() if count > 3),
     }
+    profile["pressure_score"] = (
+        profile["pressure_monster_count"] * 2
+        + profile["boss_monster_count"] * 3
+        + profile["burn_count"]
+    )
+    profile["control_score"] = (
+        profile["removal_count"]
+        + profile["counter_count"]
+        + profile["draw_count"]
+        + profile["trap_count"]
+    )
+    profile["curve_stability_score"] = (
+        profile["low_level_monster_count"] * 2
+        - profile["tribute_monster_count"]
+    )
     profile["balance_flags"] = kamigawa_balance_flags(name, profile)
     return profile
 
@@ -66,6 +81,10 @@ def kamigawa_balance_flags(archetype: str, profile: dict) -> list[str]:
         flags.append("too_little_interaction")
     if profile["pressure_monster_count"] > 12:
         flags.append("pressure_density_too_high")
+    if profile.get("curve_stability_score", 0) < 15:
+        flags.append("curve_stability_too_low")
+    if profile.get("control_score", 0) < 15:
+        flags.append("low_control_tools")
 
     if archetype == "samurai":
         if profile["monster_count"] < 20:

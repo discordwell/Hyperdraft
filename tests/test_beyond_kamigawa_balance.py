@@ -35,6 +35,13 @@ def test_kamigawa_archetype_identities_stay_distinct():
     assert summary["spirit_dragons"]["boss_monster_count"] >= 5
     assert summary["moonfolk"]["draw_count"] >= summary["samurai"]["draw_count"]
     assert summary["modified"]["equip_identity_count"] >= 8
+    assert summary["spirit_dragons"]["pressure_score"] == max(
+        profile["pressure_score"] for profile in summary.values()
+    )
+    assert summary["moonfolk"]["control_score"] == max(
+        profile["control_score"] for profile in summary.values()
+    )
+    assert min(profile["curve_stability_score"] for profile in summary.values()) >= 15
 
 
 def test_kamigawa_balance_flags_detect_off_role_profiles():
@@ -47,6 +54,8 @@ def test_kamigawa_balance_flags_detect_off_role_profiles():
         "removal_count": 14,
         "pressure_monster_count": 2,
         "draw_count": 2,
+        "curve_stability_score": 20,
+        "control_score": 20,
     })
     assert "modified_too_much_base_pressure" in kamigawa_balance_flags("modified", {
         "size": 40,
@@ -57,6 +66,8 @@ def test_kamigawa_balance_flags_detect_off_role_profiles():
         "removal_count": 8,
         "pressure_monster_count": 9,
         "equip_identity_count": 10,
+        "curve_stability_score": 20,
+        "control_score": 20,
     })
 
 
