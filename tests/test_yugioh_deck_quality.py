@@ -1,5 +1,9 @@
 """Yu-Gi-Oh! deckbuilding quality checks."""
 
+import json
+import subprocess
+import sys
+
 from src.cards.yugioh.deck_quality import analyze_all_ygo_optimized_decks
 from src.cards.yugioh.ygo_optimized import YGO_OPTIMIZED_DECKS
 
@@ -45,3 +49,21 @@ def test_ygo_role_metrics_cover_optimized_archetypes():
     assert dragon["dragon_count"] >= 14
     assert dragon["pressure_monster_count"] >= 10
     assert dragon["summon_priority_count"] >= 5
+
+
+def test_ygo_deck_quality_report_outputs_json_without_flags():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/play/yugioh_deck_quality_report.py",
+            "--fail-on-flags",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    report = json.loads(result.stdout)
+    assert set(report) == set(YGO_OPTIMIZED_DECKS)
+    assert all(not summary["quality_flags"] for summary in report.values())
+    assert all(not summary["role_quality_flags"] for summary in report.values())
