@@ -53,6 +53,9 @@ def analyze_pokemon_deck_quality(deck: list[CardDefinition], role: str = "midran
     heal_terms = ("heal", "remove", "damage counters")
     setup_item_names = {"Nest Ball", "Ultra Ball", "Rare Candy"}
     setup_item_count = sum(names.get(name, 0) for name in setup_item_names)
+    draw_supporter_count = sum(
+        1 for card in supporter if any(term in _blob(card) for term in draw_terms)
+    )
 
     summary = {
         "size": len(deck),
@@ -73,6 +76,7 @@ def analyze_pokemon_deck_quality(deck: list[CardDefinition], role: str = "midran
         "primary_energy_count": primary_energy_count,
         "off_type_energy_count": len(energy) - primary_energy_count,
         "draw_count": sum(1 for card in deck if any(term in _blob(card) for term in draw_terms)),
+        "draw_supporter_count": draw_supporter_count,
         "search_count": sum(1 for card in deck if any(term in _blob(card) for term in search_terms)),
         "switch_count": sum(1 for card in deck if any(term in _blob(card) for term in switch_terms)),
         "heal_count": sum(1 for card in deck if any(term in _blob(card) for term in heal_terms)),
@@ -128,6 +132,8 @@ def pokemon_role_quality_flags(summary: dict) -> list[str]:
             flags.append("midrange_low_basic_density")
         if summary["stage2_count"] and summary["setup_item_count"] < 6:
             flags.append("midrange_low_setup_engine")
+        if summary["draw_supporter_count"] < 4:
+            flags.append("midrange_low_draw_supporters")
         if summary["gust_count"] < 1:
             flags.append("midrange_missing_gust")
         if summary["switch_count"] < 2:
