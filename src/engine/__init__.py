@@ -112,6 +112,7 @@ from .plot_saddle import (
 )
 
 from .variant_metrics import MTG_BASELINE_RULES, variant_rule_summary
+from .mode_metrics import NON_MTG_MODES, mode_health_summary, non_mtg_health_report
 
 __all__ = [
     # IDs
@@ -178,4 +179,7 @@ __all__ = [
 
     # Variant metrics
     'MTG_BASELINE_RULES', 'variant_rule_summary',
+
+    # Mode metrics
+    'NON_MTG_MODES', 'mode_health_summary', 'non_mtg_health_report',
 ]

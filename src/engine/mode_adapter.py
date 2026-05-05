@@ -440,12 +440,11 @@ class HearthstoneModeAdapter(GameModeAdapter):
     def handle_empty_library_draw(self, player, state):
         from .types import Event, EventType
         player.fatigue_damage += 1
-        if not player.hero_id:
-            return []
+        target = player.hero_id if player.hero_id in state.objects else player.id
         return [Event(
             type=EventType.DAMAGE,
             payload={
-                'target': player.hero_id,
+                'target': target,
                 'amount': player.fatigue_damage,
                 'source': 'fatigue',
             }
