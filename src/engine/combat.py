@@ -28,7 +28,20 @@ if TYPE_CHECKING:
 
 @dataclass
 class AttackDeclaration:
-    """Declaration of an attacking creature."""
+    """Declaration of an attacking creature.
+
+    ``defending_player_id`` holds either a player id (default) or, when
+    ``is_attacking_planeswalker`` is True, the id of the planeswalker the
+    attacker is attacking. Combat damage routing in
+    :meth:`CombatManager._deal_combat_damage` uses this id verbatim as the
+    DAMAGE event's target, and :func:`make_planeswalker_setup`'s damage
+    TRANSFORM hook converts the damage to loyalty-counter removal
+    (CR 508.1.h + CR 113.5g).
+
+    Helper :func:`redirect_attack_to_planeswalker` mutates an existing
+    declaration in place to attack a PW (used by AI/UI when declaring
+    attackers).
+    """
     attacker_id: str
     defending_player_id: str  # Or planeswalker ID
     is_attacking_planeswalker: bool = False
@@ -154,6 +167,22 @@ class CombatManager:
             # Validate attacker
             if not self._can_attack(decl.attacker_id, active_player):
                 continue
+
+            # ----------------------------------------------------------
+            # W15 BEGIN: combat redirect to planeswalkers (CR 508.1.h).
+            # If the declared ``defending_player_id`` matches a battlefield
+            # planeswalker (rather than a player), normalise the
+            # declaration so ``is_attacking_planeswalker`` reflects reality
+            # and the damage routing in _deal_combat_damage hits the PW.
+            # ----------------------------------------------------------
+            target = self.state.objects.get(decl.defending_player_id)
+            if target is not None:
+                from .planeswalker import is_planeswalker
+                if is_planeswalker(target):
+                    decl.is_attacking_planeswalker = True
+            # ----------------------------------------------------------
+            # W15 END
+            # ----------------------------------------------------------
 
             self.combat_state.attackers.append(decl)
 

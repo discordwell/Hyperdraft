@@ -425,6 +425,14 @@ class Game:
                         source=obj.state.last_damage_source,
                     )))
 
+        # W15: planeswalker zero-loyalty SBA + legend rule (CR 704.5j) SBA.
+        from .turn import (
+            check_planeswalker_zero_loyalty_sbas,
+            check_legend_rule_sbas,
+        )
+        events.extend(check_planeswalker_zero_loyalty_sbas(self.state, self.pipeline))
+        events.extend(check_legend_rule_sbas(self.state, self.pipeline))
+
         return events
 
     def _setup_system_interceptors(self):
