@@ -5258,6 +5258,46 @@ def make_exhaust_ability(
 
 
 # =============================================================================
+# Tiered cost (FIN)
+# =============================================================================
+#
+# Re-exports from ``src/engine/tiered.py``. Card scripts wire ``make_tiered_setup``
+# on ``setup_interceptors`` and ``make_tiered_resolve`` on the card def's
+# ``resolve=`` so the chosen tier's effect_fn fires on resolution.
+#
+# Typical usage::
+#
+#     def fire_magic_setup(obj, state):
+#         tiers = [
+#             TierDefinition(name="Fire",   extra_cost="{0}", effect_fn=fire_fn,
+#                            description="Deal 1 to each creature"),
+#             TierDefinition(name="Fira",   extra_cost="{2}", effect_fn=fira_fn,
+#                            description="Deal 2 to each creature"),
+#             TierDefinition(name="Firaga", extra_cost="{5}", effect_fn=firaga_fn,
+#                            description="Deal 3 to each creature"),
+#         ]
+#         return make_tiered_setup(obj, tiers=tiers)
+#
+#     FIRE_MAGIC = make_instant(
+#         name="Fire Magic", mana_cost="{R}", colors={Color.RED},
+#         text="Tiered ...",
+#         setup_interceptors=fire_magic_setup,
+#         resolve=make_tiered_resolve(_FIRE_MAGIC_TIERS),
+#     )
+# -----------------------------------------------------------------------------
+
+from src.engine.tiered import (
+    TierDefinition,
+    make_tiered_setup,
+    make_tiered_resolve,
+    compute_affordable_tiers,
+    get_chosen_tier_index,
+    get_chosen_tier_indices,
+    clear_chosen_tier,
+)
+
+
+# =============================================================================
 # EXHAUST-ECOSYSTEM HELPERS
 # =============================================================================
 #
