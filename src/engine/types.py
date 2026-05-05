@@ -104,7 +104,7 @@ class EventType(Enum):
     SURVEIL = auto()           # Look at top N cards, put any in graveyard
     MILL = auto()              # Put top N cards into graveyard
     EXPLORE = auto()           # Reveal top card, +1/+1 or keep on top
-    DISCOVER = auto()          # Exile until CMC <= N (partial: hand-only, no cast-free)
+    DISCOVER = auto()          # Exile until CMC <= N; player chooses cast-free or hand
     SEARCH_LIBRARY = auto()    # Search library for card
     LIBRARY_SEARCH = auto()    # Alias for SEARCH_LIBRARY
     LOOK_AT_TOP = auto()       # Look at top N cards
