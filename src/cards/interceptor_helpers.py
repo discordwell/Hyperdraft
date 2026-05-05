@@ -1183,6 +1183,172 @@ def make_end_step_trigger(
 
 
 # =============================================================================
+# Delayed triggers
+# =============================================================================
+#
+# Pattern: "Whenever X happens, accumulate a marker. At a later phase, fire an
+# effect using the accumulated payloads, then clear the tracker."
+#
+# This is the canonical shape for cards like Jeong Jeong, the Deserter
+# ("at end of next turn, copy each card exiled with this") or any
+# "do X for each Y you did this turn" effect that needs deferred resolution.
+#
+# Storage: ``state.turn_data['_delayed_<source.id>_triggers']`` — a list of
+# event payloads (dicts) accumulated by the watcher. The list is cleared
+# both after the deferred effect fires AND on TURN_END (so a Jeong Jeong
+# whose end step is skipped, or whose controller leaves the battlefield
+# before end step, doesn't carry the markers across turns).
+#
+# Returns a list of interceptors: [watcher, deferred_firer, turn_end_cleanup].
+# The caller concatenates this list into their setup return, e.g.:
+#     return [make_etb_trigger(obj, fn), *make_delayed_trigger(obj, ...)]
+
+
+def make_delayed_trigger(
+    source_obj: GameObject,
+    *,
+    watch_event: EventType,
+    watch_filter: Callable[[Event, GameState, GameObject], bool],
+    deferred_at: str = 'end_of_your_turn',
+    deferred_effect_fn: Callable[[GameObject, GameState, list[dict]], list[Event]],
+    duration: str = 'while_on_battlefield',
+) -> list[Interceptor]:
+    """Build a watcher + deferred-firer pair for delayed-trigger effects.
+
+    Args:
+        source_obj: The permanent that owns the delayed trigger.
+        watch_event: Event type to watch (e.g. ``EventType.SPELL_CAST``).
+        watch_filter: ``(event, state, source) -> bool``. Return True to record
+            the event payload onto the delayed-trigger queue. ``CAST`` and
+            ``SPELL_CAST`` are commonly aliased; if you want both, accept either
+            via your filter.
+        deferred_at: When to fire the deferred effect. Supported values:
+            ``'end_of_your_turn'`` (default — PHASE_START, phase=end_step,
+            active player == source.controller),
+            ``'end_of_turn'`` (any player's end step),
+            ``'next_upkeep'`` (controller's upkeep on a later turn).
+        deferred_effect_fn: ``(source, state, accumulated_payloads) -> list[Event]``.
+            Runs once at the deferred phase. Receives the recorded payloads
+            (a list of dicts — the original ``event.payload`` snapshots). The
+            tracker is cleared before this returns.
+        duration: Lifetime for the interceptors. Defaults to
+            ``'while_on_battlefield'`` so the interceptors retire when the
+            source leaves the battlefield (and cleanup handles them).
+
+    Returns:
+        A list ``[watcher, deferred_firer, turn_end_cleanup]``. Splat into your
+        setup's return.
+
+    Notes:
+        * The tracker key uses ``source_obj.id``, so multiple copies of the
+          same card (e.g. two Jeong Jeongs) get independent queues.
+        * ``TURN_END`` always clears the queue as a safety net, regardless of
+          whether the deferred firer ran. This protects against rules paths
+          that skip the end step (e.g. a player loses mid-turn).
+    """
+    tracker_key = f"_delayed_{source_obj.id}_triggers"
+
+    def watcher_filter(event: Event, state: GameState) -> bool:
+        # Allow callers to listen for either CAST or SPELL_CAST by accepting
+        # the event-type test in the user filter; we still gate on the
+        # primary watch_event to keep the matrix small.
+        if event.type != watch_event:
+            return False
+        return watch_filter(event, state, source_obj)
+
+    def watcher_handler(event: Event, state: GameState) -> InterceptorResult:
+        td = getattr(state, "turn_data", None)
+        if td is None:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        bucket = td.setdefault(tracker_key, [])
+        if not isinstance(bucket, list):
+            bucket = []
+            td[tracker_key] = bucket
+        # Snapshot the payload so later mutation can't bite us.
+        bucket.append(dict(event.payload or {}))
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    watcher = Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=watcher_filter,
+        handler=watcher_handler,
+        duration=duration,
+    )
+
+    def deferred_filter(event: Event, state: GameState) -> bool:
+        if deferred_at in ('end_of_your_turn', 'end_of_turn'):
+            if event.type != EventType.PHASE_START:
+                return False
+            if event.payload.get('phase') != 'end_step':
+                return False
+            if deferred_at == 'end_of_your_turn':
+                if state.active_player != source_obj.controller:
+                    return False
+            return True
+        if deferred_at == 'next_upkeep':
+            if event.type != EventType.PHASE_START:
+                return False
+            if event.payload.get('phase') != 'upkeep':
+                return False
+            if state.active_player != source_obj.controller:
+                return False
+            return True
+        # Unknown deferred_at — fail safe.
+        return False
+
+    def deferred_handler(event: Event, state: GameState) -> InterceptorResult:
+        td = getattr(state, "turn_data", None)
+        if td is None:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        bucket = td.get(tracker_key) or []
+        # Clear before firing so re-entrant emissions don't double-fire.
+        td[tracker_key] = []
+        if not bucket:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        new_events = deferred_effect_fn(source_obj, state, bucket) or []
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events,
+        )
+
+    deferred = Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=deferred_filter,
+        handler=deferred_handler,
+        duration=duration,
+    )
+
+    # Safety-net cleanup at TURN_END so a queue from a turn whose end step
+    # was skipped doesn't leak into the next turn.
+    def cleanup_filter(event: Event, state: GameState) -> bool:
+        return event.type == EventType.TURN_END
+
+    def cleanup_handler(event: Event, state: GameState) -> InterceptorResult:
+        td = getattr(state, "turn_data", None)
+        if td is not None and tracker_key in td:
+            td[tracker_key] = []
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    cleanup = Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=cleanup_filter,
+        handler=cleanup_handler,
+        duration=duration,
+    )
+
+    return [watcher, deferred, cleanup]
+
+
+# =============================================================================
 # SURVIVAL TRIGGER (DSK)
 # =============================================================================
 

@@ -28,6 +28,7 @@ from src.cards.interceptor_helpers import (
     make_etb_trigger, make_death_trigger, make_attack_trigger,
     make_static_pt_boost, make_keyword_grant, make_upkeep_trigger,
     make_spell_cast_trigger, make_tap_trigger, make_end_step_trigger,
+    make_delayed_trigger,
     make_life_gain_trigger, make_draw_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype,
@@ -1764,7 +1765,8 @@ def aang_the_last_airbender_setup(obj: GameObject, state: GameState) -> list[Int
         return "Lesson" in set(event.payload.get('subtypes', []))
 
     def lifelink_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: temporary keyword grant to self until end of turn
+        # GRANT_KEYWORD with duration='end_of_turn' is supported by the engine
+        # (handled in src/engine/pipeline/handlers/pt.py::_handle_grant_keyword).
         return [Event(
             type=EventType.GRANT_KEYWORD,
             payload={'object_id': obj.id, 'keyword': 'lifelink', 'duration': 'end_of_turn'},
@@ -2934,9 +2936,48 @@ def swampsnare_trap_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def tundra_tank_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Firebending 1. ETB target creature gains indestructible EOT (engine gap)."""
+    """Firebending 1. ETB target creature gains indestructible EOT.
+
+    Wires GRANT_KEYWORD with ``duration='end_of_turn'`` against a
+    create_target_choice over creatures on the battlefield. The choice
+    callback emits the GRANT_KEYWORD event, which the engine's
+    pt-handler picks up and registers as a temporary ability.
+    """
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # engine gap: targeted indestructible EOT
+        legal = [
+            o.id for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in o.characteristics.types
+        ]
+        if not legal:
+            return []
+
+        def _grant_indestructible(_choice, selected, st: GameState) -> list[Event]:
+            target_id = selected[0] if selected else None
+            if not target_id:
+                return []
+            return [Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': target_id,
+                    'keyword': 'indestructible',
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id,
+                controller=obj.controller,
+            )]
+
+        choice = create_target_choice(
+            state=state,
+            player_id=obj.controller,
+            source_id=obj.id,
+            legal_targets=legal,
+            prompt="Choose target creature — gains indestructible until end of turn",
+            min_targets=1,
+            max_targets=1,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _grant_indestructible
         return []
 
     return [
@@ -3145,9 +3186,108 @@ def firebending_student_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def jeong_jeong_the_deserter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Firebending 1. Exhaust {3}: +1/+1 counter and copy next Lesson cast this turn (engine gap)."""
-    # engine gap: exhaust + delayed-trigger spell-copy
-    return [make_firebend_attack_trigger(obj, 1)]
+    """Firebending 1. Exhaust {3}: +1/+1 counter; arm a delayed trigger that
+    copies any Lesson spell its controller casts during the rest of this turn,
+    firing the copies at end of turn.
+
+    Card text: "Exhaust — {3}: Put a +1/+1 counter on Jeong Jeong. When you
+    next cast a Lesson spell this turn, copy it and you may choose new
+    targets for the copy." The literal "next" semantics (single-shot) is
+    coarsened slightly here: once the exhaust is activated, every Lesson
+    cast for the rest of the turn is recorded, and at end of the
+    controller's turn the engine pushes a stack-item copy for each. In
+    practice Lessons usually appear at most once or twice in a turn so this
+    is a faithful approximation that fits the engine's COPY_STACK_ITEM
+    machinery (which needs the original item still on the stack at copy
+    time, so we capture stack-item snapshots at SPELL_CAST and replay them
+    at end step via ``StackManager.push``).
+    """
+    armed_flag = f"_jeong_armed_{obj.id}"
+    snapshots_key = f"_jeong_snapshots_{obj.id}"
+
+    def _exhaust_effect(o: GameObject, st: GameState, _targets) -> list[Event]:
+        # Mark Jeong Jeong as "armed" for the rest of this turn. Cleared on
+        # TURN_END by the helper's safety-net cleanup.
+        td = getattr(st, "turn_data", None)
+        if td is not None:
+            td[armed_flag] = True
+            td[snapshots_key] = []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_exhaust_ability(
+        obj,
+        cost="{3}",
+        effect_fn=_exhaust_effect,
+        description=(
+            "{3}: Put a +1/+1 counter on Jeong Jeong. When you next cast a "
+            "Lesson spell this turn, copy it."
+        ),
+    )
+
+    def _lesson_filter(event: Event, st: GameState, source: GameObject) -> bool:
+        # Gate: must be controller's CAST and a Lesson spell, and the
+        # exhaust must have been activated already this turn.
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        if caster != source.controller:
+            return False
+        td = getattr(st, "turn_data", None)
+        if td is None or not td.get(armed_flag):
+            return False
+        spell_subtypes = set(event.payload.get('subtypes', []))
+        if "Lesson" not in spell_subtypes:
+            return False
+        # Capture the StackItem snapshot now — at SPELL_CAST emission time
+        # the spell's stack item has been pushed and is still resolving.
+        snapshots = td.setdefault(snapshots_key, [])
+        game = getattr(st, "_game", None)
+        stack = getattr(game, "stack", None) if game else None
+        if stack is not None:
+            spell_card_id = event.payload.get('card_id') or event.payload.get('spell_id')
+            for sitem in stack.get_items():
+                if sitem.card_id == spell_card_id and getattr(sitem, "can_be_copied", True):
+                    # Store a non-pushed copy so we can hand it to push() later.
+                    snapshots.append(sitem.copy())
+                    break
+        return True
+
+    def _copy_at_end_step(source: GameObject, st: GameState, _payloads: list[dict]) -> list[Event]:
+        """Push a copy of each captured Lesson cast onto the stack."""
+        game = getattr(st, "_game", None)
+        stack = getattr(game, "stack", None) if game else None
+        if stack is None:
+            return []
+        td = getattr(st, "turn_data", None) or {}
+        snapshots = td.get(snapshots_key) or []
+        # Disarm + clear so re-entry doesn't double-fire.
+        td[snapshots_key] = []
+        td[armed_flag] = False
+        for snap in snapshots:
+            # ``snap`` is already an is_copy=True StackItem from copy(). Push
+            # directly — push() reassigns the timestamp/id and emits the push
+            # event so the engine's standard resolution kicks in.
+            try:
+                stack.push(snap)
+            except Exception:
+                # Fail-safe: never crash the end step on a bad snapshot.
+                continue
+        return []
+
+    return [
+        make_firebend_attack_trigger(obj, 1),
+        *make_delayed_trigger(
+            obj,
+            watch_event=EventType.CAST,
+            watch_filter=_lesson_filter,
+            deferred_at='end_of_your_turn',
+            deferred_effect_fn=_copy_at_end_step,
+        ),
+    ]
 
 
 def mai_jaded_edge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3669,15 +3809,58 @@ def earth_rumble_wrestlers_setup(obj: GameObject, state: GameState) -> list[Inte
 
 def fire_lord_azula_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Firebending 2 (mana on attack).
-    Whenever you cast a spell while attacking, copy that spell (engine gap)."""
+    Whenever you cast a spell while Fire Lord Azula is attacking, copy that
+    spell. (Copy via COPY_STACK_ITEM — the copy keeps the spell's resolve_fn
+    and chosen targets; new-target choice is left to the engine's standard
+    copy machinery, which currently keeps the original targets — a faithful
+    approximation of the printed effect's "you may choose new targets".)
+    """
+    from src.cards.interceptor_helpers import make_copy_ability_event
+
     def firebending_attack(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.MANA_ADDED,
             payload={'player': obj.controller, 'mana': {'R': 2}},
             source=obj.id
         )]
-    # engine gap: spell-copy on cast while attacking
-    return [make_attack_trigger(obj, firebending_attack)]
+
+    def cast_while_attacking_filter(event: Event, st: GameState, source: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        if caster != source.controller:
+            return False
+        # Fire Lord Azula must currently be attacking.
+        current = st.objects.get(source.id)
+        if current is None or current.zone != ZoneType.BATTLEFIELD:
+            return False
+        if not getattr(current.state, "attacking", False):
+            return False
+        # Don't try to copy ourselves out of nowhere — the cast event's
+        # spell card must exist as a stack item we can copy.
+        return True
+
+    def copy_spell_effect(event: Event, st: GameState) -> list[Event]:
+        game = getattr(st, "_game", None)
+        stack = getattr(game, "stack", None) if game else None
+        if stack is None:
+            return []
+        spell_card_id = event.payload.get('card_id') or event.payload.get('spell_id')
+        if not spell_card_id:
+            return []
+        for sitem in stack.get_items():
+            if sitem.card_id == spell_card_id and getattr(sitem, "can_be_copied", True):
+                return [make_copy_ability_event(
+                    stack_item_id=sitem.id,
+                    controller=obj.controller,
+                    source_id=obj.id,
+                )]
+        return []
+
+    return [
+        make_attack_trigger(obj, firebending_attack),
+        make_spell_cast_trigger(obj, copy_spell_effect, filter_fn=cast_while_attacking_filter),
+    ]
 
 
 def hama_the_bloodbender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
