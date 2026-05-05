@@ -1580,6 +1580,8 @@ class AIEngine:
             candidate.breakdown.board_delta += max(0.0, min(1.2, threat_removed / 12.0))
             if evaluator.attack_pressure(player_id) > 0:
                 candidate.breakdown.combat_outlook += 0.15
+        elif self._is_removal_like(card) and not target_ids:
+            candidate.breakdown.risk -= 3.0
         elif self._is_card_draw_text(card):
             candidate.breakdown.board_delta += 0.25
 

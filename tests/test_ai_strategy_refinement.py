@@ -141,10 +141,10 @@ def test_fixed_decision_benchmark_writes_trace_artifacts(tmp_path):
     summary = run_fixed_decision_benchmark(tmp_path, seed=11)
 
     assert summary["benchmark_name"] == "fixed_decision_smoke"
-    assert summary["scenario_count"] == 9
+    assert summary["scenario_count"] == 10
     assert summary["scenario_pass_rate"] == 1.0
-    assert summary["decision_count"] == 9
-    assert summary["decision_type_mix"]["action"] == 3
+    assert summary["decision_count"] == 10
+    assert summary["decision_type_mix"]["action"] == 4
     assert summary["decision_type_mix"]["pending_target"] == 2
     assert summary["decision_type_mix"]["attack"] == 2
     assert summary["decision_type_mix"]["block"] == 2

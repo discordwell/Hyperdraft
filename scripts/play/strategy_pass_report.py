@@ -28,10 +28,12 @@ def main(argv: list[str] | None = None) -> int:
         "seed": report["seed"],
         "set_codes": report["set_codes"],
         "ai_scenario_pass_rate": report["ai"]["scenario_pass_rate"],
+        "quality_gate": report["quality_gate"],
+        "deck_summary": report["deck_summary"],
         "deck_labels": sorted(report["decks"]),
         "variant_labels": sorted(report["variants"]),
     }, indent=2, sort_keys=True))
-    return 0
+    return 0 if report["quality_gate"]["passed"] else 1
 
 
 if __name__ == "__main__":
