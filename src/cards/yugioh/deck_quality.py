@@ -55,6 +55,11 @@ def analyze_ygo_deck_quality(deck: list[CardDefinition], strategy: dict | None =
         "damage", "inflict", "burn", "ookazi", "secret barrel",
         "just desserts", "magic cylinder", "ring of destruction",
     )
+    reach_terms = (
+        "inflict", "direct damage", "opponent takes", "ookazi",
+        "secret barrel", "just desserts", "magic cylinder",
+        "stealth bird", "des koala",
+    )
     stall_terms = (
         "cannot attack", "gravity bind", "messenger of peace",
         "swords of revealing light", "marshmallon", "spirit reaper",
@@ -82,6 +87,7 @@ def analyze_ygo_deck_quality(deck: list[CardDefinition], strategy: dict | None =
         "draw_count": sum(1 for card in deck if _has_any(card, draw_terms)),
         "removal_count": sum(1 for card in deck if _has_any(card, removal_terms)),
         "burn_count": sum(1 for card in deck if _has_any(card, burn_terms)),
+        "reliable_reach_count": sum(1 for card in deck if _has_any(card, reach_terms)),
         "stall_count": sum(1 for card in deck if _has_any(card, stall_terms)),
         "tribute_fodder_count": sum(1 for card in deck if _has_any(card, fodder_terms)),
         "dragon_count": sum(
@@ -126,6 +132,8 @@ def ygo_role_quality_flags(summary: dict) -> list[str]:
     if "burn" in role:
         if summary["burn_count"] < 8:
             flags.append("burn_low_reach")
+        if summary["reliable_reach_count"] < 10:
+            flags.append("burn_low_reliable_reach")
         if summary["stall_count"] < 3:
             flags.append("burn_low_stall")
         if summary["monster_count"] > 16:
