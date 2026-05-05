@@ -4589,6 +4589,265 @@ THE_FORCE_ITSELF = CardDefinition(
 
 
 # =============================================================================
+# SPICE PASS PHASE B-3 — Luke Last Jedi + Princess Leia transform
+# =============================================================================
+# Phase B-3 was deferred until W12 Spree (modal multi-choice) and the
+# EventType.TRANSFORM handler covered Luke and Leia respectively. v1 ships
+# both cards with one approximation each:
+#   - Luke's "choose one" modal at upkeep is resolved by an AI heuristic
+#     (best mode given board state) instead of opening a player choice. This
+#     keeps both AI play and human play functional today; a future round can
+#     swap to a real PendingChoice prompt.
+#   - Leia's transform uses EventType.TRANSFORM (which mutates the existing
+#     object's characteristics in-place — there's no separate back-face
+#     CardDefinition). The back-face interceptors are pre-registered at ETB
+#     and gated on a `transformed` flag, so they activate the moment the
+#     transform fires.
+
+
+# --- Luke Skywalker, Last Jedi --- {1}{G}{W}{U} 3/3 Mythic
+def luke_last_jedi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Vigilance + ward {2}; at upkeep pick best of three modes via heuristic."""
+    from src.cards.interceptor_helpers import (
+        make_keyword_grant, make_ward, make_upkeep_trigger,
+    )
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def upkeep_modal(event: Event, st: GameState) -> list[Event]:
+        # make_upkeep_trigger already gates on state.active_player ==
+        # obj.controller, so we just compute the chosen mode here.
+
+        # Mode 3 — graveyard recursion (best when there's a fat target).
+        gy = st.zones.get(f'graveyard_{obj.controller}')
+        gy_target = None
+        if gy:
+            for cid in gy.objects:
+                gy_obj = st.objects.get(cid)
+                if not gy_obj:
+                    continue
+                subs = gy_obj.characteristics.subtypes or set()
+                if 'Jedi' in subs or 'Lightsaber' in subs or 'Equipment' in subs:
+                    gy_target = cid
+                    break
+        if gy_target is not None:
+            return [Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={
+                    'object_id': gy_target,
+                    'destination': 'battlefield',
+                    'controller': obj.controller,
+                },
+                source=obj.id,
+            )]
+
+        # Mode 1 — draw + drain (if life is healthy enough to spend).
+        controller = st.players.get(obj.controller)
+        if controller and controller.life >= 10:
+            events: list[Event] = [Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'count': 1},
+                source=obj.id,
+            )]
+            for pid in st.players:
+                if pid != obj.controller:
+                    events.append(Event(
+                        type=EventType.LIFE_CHANGE,
+                        payload={'player': pid, 'amount': -1},
+                        source=obj.id,
+                    ))
+            return events
+
+        # Mode 2 — fallback: 2/2 Jedi token.
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Jedi',
+                    'power': 2, 'toughness': 2,
+                    'colors': {Color.WHITE},
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Human', 'Jedi'},
+                },
+            },
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['vigilance'], affects_self),
+        make_ward(obj, mana_cost="{2}"),
+        make_upkeep_trigger(obj, upkeep_modal),
+    ]
+
+LUKE_SKYWALKER_LAST_JEDI = make_creature(
+    name="Luke Skywalker, Last Jedi",
+    power=3, toughness=3,
+    mana_cost="{1}{G}{W}{U}",
+    colors={Color.GREEN, Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Jedi", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Vigilance, ward {2}. "
+        "At the beginning of your upkeep, choose one — "
+        "Draw a card, then each opponent loses 1 life; "
+        "or create a 2/2 white Human Jedi creature token; "
+        "or return target Jedi or Equipment card from your graveyard to the "
+        "battlefield. (AI picks the best mode automatically.)"
+    ),
+    setup_interceptors=luke_last_jedi_setup,
+)
+
+
+# --- Princess Leia, Spark of Hope --- {1}{W}{W} 2/2 → 4/4 Rare (transform)
+def princess_leia_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB token + end-step token if a Rebel attacked + transform threshold.
+    Back-face interceptors (anthem + loot-on-attack) gated on transformed flag."""
+    from src.cards.interceptor_helpers import (
+        make_etb_trigger, make_attack_trigger, make_end_step_trigger,
+        make_static_pt_boost, grant_triggered_ability,
+    )
+
+    def make_rebel_token_event() -> Event:
+        return Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Rebel Soldier',
+                    'power': 1, 'toughness': 1,
+                    'colors': {Color.WHITE},
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Human', 'Rebel', 'Soldier'},
+                },
+            },
+            source=obj.id,
+        )
+
+    def count_rebels(st: GameState) -> int:
+        return sum(
+            1 for o in st.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and o.controller == obj.controller
+            and CardType.CREATURE in (o.characteristics.types or set())
+            and 'Rebel' in (o.characteristics.subtypes or set())
+        )
+
+    def maybe_transform_events(st: GameState) -> list[Event]:
+        # Threshold: 4+ Rebels triggers transform exactly once.
+        if getattr(obj.state, '_leia_transformed', False):
+            return []
+        if count_rebels(st) < 4:
+            return []
+        setattr(obj.state, '_leia_transformed', True)
+        return [Event(
+            type=EventType.TRANSFORM,
+            payload={
+                'object_id': obj.id,
+                'new_name': 'Leia, General of the Rebellion',
+                'power': 4,
+                'toughness': 4,
+            },
+            source=obj.id,
+        )]
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        return [make_rebel_token_event()] + maybe_transform_events(st)
+
+    def attack_track(event: Event, st: GameState, src: GameObject) -> bool:
+        # Custom filter: any Rebel-controlled-by-Leia's-controller attacking
+        # sets a turn flag. We co-opt make_attack_trigger by using filter_fn.
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = st.objects.get(attacker_id) if attacker_id else None
+        if not attacker:
+            return False
+        if attacker.controller != src.controller:
+            return False
+        if 'Rebel' not in (attacker.characteristics.subtypes or set()):
+            return False
+        st.turn_data.setdefault('rebel_attacked', set()).add(src.controller)
+        return False  # don't actually fire effect — this is just bookkeeping
+
+    def attack_track_effect(event: Event, st: GameState) -> list[Event]:
+        return []  # no-op; flag is set by the filter
+
+    def end_step_effect(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('active_player') != obj.controller:
+            return []
+        attacked = obj.controller in (st.turn_data.get('rebel_attacked') or set())
+        if not attacked:
+            return []
+        return [make_rebel_token_event()] + maybe_transform_events(st)
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_etb_trigger(obj, etb_effect))
+    interceptors.append(make_attack_trigger(obj, attack_track_effect, filter_fn=attack_track))
+    interceptors.append(make_end_step_trigger(obj, end_step_effect))
+
+    # Back-face static effect: +1/+1 anthem to other Rebels you control.
+    # Gated on `transformed` flag so it only applies after transform fires.
+    def transformed_anthem_filter(target: GameObject, st: GameState) -> bool:
+        if not getattr(obj.state, '_leia_transformed', False):
+            return False
+        if target.id == obj.id:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in (target.characteristics.types or set()):
+            return False
+        return 'Rebel' in (target.characteristics.subtypes or set())
+
+    interceptors.extend(make_static_pt_boost(obj, 1, 1, transformed_anthem_filter))
+
+    # Back-face attack rider: each Rebel that attacks loots (draw+discard).
+    # We register a "whenever a Rebel you control attacks" trigger gated on transformed.
+    def rebel_attack_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if not getattr(obj.state, '_leia_transformed', False):
+            return False
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        attacker = st.objects.get(attacker_id) if attacker_id else None
+        if not attacker:
+            return False
+        if attacker.controller != src.controller:
+            return False
+        return 'Rebel' in (attacker.characteristics.subtypes or set())
+
+    def loot_effect(event: Event, st: GameState) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id),
+            Event(type=EventType.DISCARD, payload={'player': obj.controller, 'count': 1}, source=obj.id),
+        ]
+
+    interceptors.append(make_attack_trigger(obj, loot_effect, filter_fn=rebel_attack_filter))
+
+    return interceptors
+
+PRINCESS_LEIA_SPARK = make_creature(
+    name="Princess Leia, Spark of Hope",
+    power=2, toughness=2,
+    mana_cost="{1}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Rebel", "Noble"},
+    supertypes={"Legendary"},
+    text=(
+        "When Princess Leia enters, create a 1/1 white Human Rebel Soldier "
+        "creature token. At the beginning of your end step, if a Rebel "
+        "attacked this turn, create another such token. "
+        "When you control four or more Rebels, transform Princess Leia. "
+        "(Transformed: Leia, General of the Rebellion. 4/4. Other Rebels you "
+        "control get +1/+1. Whenever a Rebel you control attacks, draw a card, "
+        "then discard a card.)"
+    ),
+    setup_interceptors=princess_leia_setup,
+)
+
+
+# =============================================================================
 # CARD REGISTRY
 # =============================================================================
 
@@ -4924,6 +5183,9 @@ STAR_WARS_CARDS = {
     "Darth Vader, More Machine Than Man": DARTH_VADER_MACHINE_MAN,
     # Phase B-2
     "The Force Itself": THE_FORCE_ITSELF,
+    # Phase B-3
+    "Luke Skywalker, Last Jedi": LUKE_SKYWALKER_LAST_JEDI,
+    "Princess Leia, Spark of Hope": PRINCESS_LEIA_SPARK,
 }
 
 print(f"Loaded {len(STAR_WARS_CARDS)} Star Wars: Galactic Conflict cards")
@@ -5213,4 +5475,6 @@ CARDS = [
     R2D2_MASTER_HACKER,
     DARTH_VADER_MACHINE_MAN,
     THE_FORCE_ITSELF,
+    LUKE_SKYWALKER_LAST_JEDI,
+    PRINCESS_LEIA_SPARK,
 ]

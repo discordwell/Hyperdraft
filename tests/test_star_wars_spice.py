@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, '/Users/discordwell/Projects/HYPERDRAFT')
 
 from src.engine import (
-    Game, Event, EventType, ZoneType, CardType,
+    Game, Event, EventType, ZoneType, CardType, Color, Characteristics,
     get_power, get_toughness,
 )
 from src.cards.custom.star_wars import STAR_WARS_CARDS
@@ -1166,6 +1166,235 @@ def test_force_itself_chapter_iii_emits_two_searches_and_sacrifices():
         f"Saga should be sacrificed after III; got {saga.zone}"
     )
     print(f"  Two tutors emitted, saga sacrificed to graveyard")
+
+
+# ============================================================================
+# Phase B-3: Luke Skywalker Last Jedi + Princess Leia Spark
+# ============================================================================
+
+def test_luke_last_jedi_loads():
+    """Loads with vigilance + ward + upkeep trigger interceptors."""
+    print("\n=== Luke Last Jedi: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    luke = _put_on_battlefield(game, p1, "Luke Skywalker, Last Jedi")
+    # Three interceptors: vigilance grant, ward, upkeep modal.
+    assert len(luke.interceptor_ids) >= 3, (
+        f"Expected ≥3 interceptors, got {len(luke.interceptor_ids)}"
+    )
+    print(f"  Luke registered {len(luke.interceptor_ids)} interceptors")
+
+
+def test_luke_upkeep_picks_graveyard_recursion_when_jedi_in_gy():
+    """Upkeep heuristic picks reanimation when there's a Jedi in graveyard."""
+    print("\n=== Luke: upkeep prefers graveyard recursion ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    luke = _put_on_battlefield(game, p1, "Luke Skywalker, Last Jedi")
+
+    # Plant a Jedi in graveyard.
+    cd = STAR_WARS_CARDS["Jedi Padawan"]
+    jedi = game.create_object(
+        name="Jedi Padawan",
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=cd.characteristics,
+        card_def=cd,
+    )
+
+    game.state.active_player = p1.id
+    before = _emitted_types(game)
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'step': 'upkeep',
+                 'active_player': p1.id, 'turn_number': 1},
+    ))
+    after = _emitted_types(game)
+    new = after[len(before):]
+    assert 'RETURN_FROM_GRAVEYARD' in new, (
+        f"Expected RFG when Jedi in GY: {new}"
+    )
+    # Verify the target is the Jedi we planted.
+    rfgs = [e for e in game.state.event_log
+            if e.type == EventType.RETURN_FROM_GRAVEYARD
+            and e.payload.get('object_id') == jedi.id]
+    assert rfgs, "RFG didn't target the Jedi"
+    print("  Jedi reanimated from GY (correct)")
+
+
+def test_luke_upkeep_picks_draw_drain_when_high_life_and_empty_gy():
+    """High life + empty graveyard → mode 1 (draw + drain)."""
+    print("\n=== Luke: upkeep draw-drain when life ≥ 10 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    luke = _put_on_battlefield(game, p1, "Luke Skywalker, Last Jedi")
+    # Empty graveyard; life starts at 20.
+    game.state.active_player = p1.id
+    before = _emitted_types(game)
+    p2_life_before = p2.life
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'step': 'upkeep',
+                 'active_player': p1.id, 'turn_number': 1},
+    ))
+    after = _emitted_types(game)
+    new = after[len(before):]
+    assert 'DRAW' in new, f"Expected DRAW: {new}"
+    assert p2.life == p2_life_before - 1, (
+        f"Bob should lose 1 life: {p2_life_before} -> {p2.life}"
+    )
+    print(f"  Drew + drained Bob {p2_life_before} → {p2.life}")
+
+
+def test_luke_upkeep_picks_token_when_low_life_and_empty_gy():
+    """Low life + empty graveyard → mode 2 (token)."""
+    print("\n=== Luke: upkeep token at low life ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    luke = _put_on_battlefield(game, p1, "Luke Skywalker, Last Jedi")
+    # Make Alice low.
+    p1.life = 5
+    game.state.active_player = p1.id
+    before = _emitted_types(game)
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'step': 'upkeep',
+                 'active_player': p1.id, 'turn_number': 1},
+    ))
+    after = _emitted_types(game)
+    new = after[len(before):]
+    assert 'CREATE_TOKEN' in new, f"Expected CREATE_TOKEN: {new}"
+    print("  Token created at low life (correct)")
+
+
+def test_luke_upkeep_skips_on_opponent_turn():
+    """Edge: opponent's upkeep does NOT fire Luke's modal."""
+    print("\n=== Luke: opponent upkeep edge ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    luke = _put_on_battlefield(game, p1, "Luke Skywalker, Last Jedi")
+    game.state.active_player = p2.id
+    before = _emitted_types(game)
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'step': 'upkeep',
+                 'active_player': p2.id, 'turn_number': 1},
+    ))
+    after = _emitted_types(game)
+    new = after[len(before):]
+    fire_events = {'DRAW', 'CREATE_TOKEN', 'RETURN_FROM_GRAVEYARD'}
+    assert not (set(new) & fire_events), (
+        f"Should not fire on opp upkeep: {new}"
+    )
+    print("  Skipped opp upkeep (correct)")
+
+
+def test_princess_leia_etb_creates_rebel_token():
+    """Leia's ETB emits a CREATE_TOKEN for a 1/1 Rebel Soldier."""
+    print("\n=== Leia: ETB token ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = _emitted_types(game)
+    _put_on_battlefield(game, p1, "Princess Leia, Spark of Hope")
+    after = _emitted_types(game)
+    new = after[len(before):]
+    assert 'CREATE_TOKEN' in new, f"ETB should emit CREATE_TOKEN: {new}"
+    print("  ETB token emitted")
+
+
+def test_princess_leia_transforms_at_four_rebels():
+    """When Leia's controller has ≥4 Rebels, she transforms to General."""
+    print("\n=== Leia: transform threshold ===")
+    from src.engine import Characteristics
+    game = Game()
+    p1 = game.add_player("Alice")
+
+    # Pre-plant 3 Rebels so Leia's ETB token brings the total to 4.
+    for i in range(3):
+        game.create_object(
+            name=f"Rebel{i}",
+            owner_id=p1.id,
+            zone=ZoneType.BATTLEFIELD,
+            characteristics=Characteristics(
+                types={CardType.CREATURE},
+                subtypes={"Rebel"},
+                colors={Color.WHITE},
+                power=1, toughness=1,
+            ),
+        )
+
+    leia = _put_on_battlefield(game, p1, "Princess Leia, Spark of Hope")
+    # ETB token bumps Rebel count to (3 plus the token itself + Leia) = 4 or more,
+    # tripping the transform.
+    assert getattr(leia.state, '_leia_transformed', False) is True, (
+        f"Leia should be transformed; flags={leia.state.flags}"
+    )
+    assert leia.name == "Leia, General of the Rebellion", (
+        f"Leia name should be back-face: {leia.name}"
+    )
+    assert leia.characteristics.power == 4
+    assert leia.characteristics.toughness == 4
+    print(f"  Leia transformed to {leia.name} ({leia.characteristics.power}/{leia.characteristics.toughness})")
+
+
+def test_princess_leia_back_face_anthem():
+    """After transforming, Leia gives +1/+1 to other Rebels you control."""
+    print("\n=== Leia back face: anthem ===")
+    from src.engine import Characteristics
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Pre-plant a Rebel + 3 more so Leia transforms after ETB.
+    rebel = game.create_object(
+        name="OG Rebel",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Rebel"},
+            colors={Color.WHITE},
+            power=2, toughness=2,
+        ),
+    )
+    for i in range(2):
+        game.create_object(
+            name=f"Filler{i}",
+            owner_id=p1.id,
+            zone=ZoneType.BATTLEFIELD,
+            characteristics=Characteristics(
+                types={CardType.CREATURE},
+                subtypes={"Rebel"},
+                colors={Color.WHITE},
+                power=1, toughness=1,
+            ),
+        )
+
+    leia = _put_on_battlefield(game, p1, "Princess Leia, Spark of Hope")
+    # Anthem only kicks in once transformed.
+    assert getattr(leia.state, '_leia_transformed', False) is True
+    base_p = 2  # Original Rebel base power
+    boosted_p = get_power(rebel, game.state)
+    assert boosted_p == base_p + 1, (
+        f"Rebel should get +1 power: base={base_p} got={boosted_p}"
+    )
+    print(f"  OG Rebel {base_p} → {boosted_p}")
+
+
+def test_princess_leia_no_transform_below_threshold():
+    """Edge: Leia does NOT transform with fewer than 4 Rebels."""
+    print("\n=== Leia: no transform edge ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    leia = _put_on_battlefield(game, p1, "Princess Leia, Spark of Hope")
+    # Only 2 Rebels (Leia herself + the ETB token).
+    assert getattr(leia.state, '_leia_transformed', False) is not True, (
+        "Leia should not transform below threshold"
+    )
+    assert leia.name == "Princess Leia, Spark of Hope", (
+        f"Leia should keep front-face name: {leia.name}"
+    )
+    print("  Front-face preserved")
 
 
 if __name__ == "__main__":
