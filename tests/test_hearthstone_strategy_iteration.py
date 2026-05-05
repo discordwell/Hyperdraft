@@ -100,3 +100,17 @@ def test_hard_ai_damages_best_forced_taunt_target_instead_of_board_order():
     target_id = ai._choose_attack_target(attacker.id, game.state, p1.id)
 
     assert target_id == smaller_taunt.id
+
+
+def test_rogue_ai_does_not_replace_existing_dagger_before_attacking():
+    game, p1, _p2 = _new_hs_game("Rogue", "Warrior")
+    ai = HearthstoneAIAdapter(difficulty="hard")
+    p1.mana_crystals_available = 2
+    p1.weapon_attack = 1
+    p1.weapon_durability = 2
+
+    assert ai._should_use_hero_power(game.state, p1.id) is False
+
+    p1.weapon_durability = 0
+
+    assert ai._should_use_hero_power(game.state, p1.id) is True
