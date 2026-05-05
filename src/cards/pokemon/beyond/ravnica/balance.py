@@ -18,12 +18,25 @@ def ravnica_guild_profile(guild: str, deck: list[CardDefinition]) -> dict:
     item = [card for card in deck if _has(card, CardType.ITEM)]
     supporter = [card for card in deck if _has(card, CardType.SUPPORTER)]
     stadium = [card for card in deck if _has(card, CardType.STADIUM)]
-    type_counts = Counter(
+    pokemon_type_counts = Counter(
         card.pokemon_type
-        for card in pokemon + energy
+        for card in pokemon
         if getattr(card, "pokemon_type", None)
     )
+    energy_type_counts = Counter(
+        card.pokemon_type
+        for card in energy
+        if getattr(card, "pokemon_type", None)
+    )
+    type_counts = pokemon_type_counts + energy_type_counts
     names = Counter(card.name for card in deck)
+    primary_energy_type, primary_energy_count = (
+        energy_type_counts.most_common(1)[0] if energy_type_counts else (None, 0)
+    )
+    energy_alignment_score = sum(
+        min(count, energy_type_counts.get(pokemon_type, 0))
+        for pokemon_type, count in pokemon_type_counts.items()
+    )
     profile = {
         "guild": guild,
         "size": len(deck),
@@ -39,6 +52,11 @@ def ravnica_guild_profile(guild: str, deck: list[CardDefinition]) -> dict:
         "average_pokemon_hp": round(
             sum((card.hp or 0) for card in pokemon) / len(pokemon), 1
         ) if pokemon else 0,
+        "pokemon_type_counts": dict(sorted(pokemon_type_counts.items())),
+        "energy_type_counts": dict(sorted(energy_type_counts.items())),
+        "primary_energy_type": primary_energy_type,
+        "primary_energy_count": primary_energy_count,
+        "energy_alignment_score": energy_alignment_score,
         "primary_type_count": max(type_counts.values(), default=0),
         "secondary_type_count": min(type_counts.values(), default=0) if type_counts else 0,
         "copy_violations": sorted(
@@ -78,6 +96,10 @@ def ravnica_balance_flags(guild: str, profile: dict) -> list[str]:
         flags.append("too_few_supporters")
     if profile["item_count"] < 12:
         flags.append("too_few_items")
+    if profile.get("primary_energy_count", 0) < 7:
+        flags.append("weak_primary_energy_package")
+    if profile.get("energy_alignment_score", 0) < 7:
+        flags.append("low_energy_alignment")
     if profile["consistency_score"] < 45:
         flags.append("low_consistency_score")
     if profile["pressure_score"] < 40:

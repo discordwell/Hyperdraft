@@ -30,6 +30,10 @@ def test_ravnica_balance_summary_tracks_all_guilds():
         assert 10 <= profile["energy_count"] <= 18, guild
         assert profile["supporter_count"] >= 8, guild
         assert profile["item_count"] >= 12, guild
+        assert profile["primary_energy_count"] >= 7, guild
+        assert profile["energy_alignment_score"] >= 7, guild
+        assert profile["energy_type_counts"], guild
+        assert profile["pokemon_type_counts"], guild
         assert profile["copy_violations"] == [], guild
         assert profile["balance_flags"] == [], guild
 
@@ -52,6 +56,8 @@ def test_ravnica_balance_flags_detect_bad_profiles():
         "energy_count": 13,
         "supporter_count": 10,
         "item_count": 16,
+        "primary_energy_count": 8,
+        "energy_alignment_score": 8,
         "consistency_score": 50,
         "pressure_score": 45,
         "stadium_count": 2,
@@ -64,8 +70,24 @@ def test_ravnica_balance_flags_detect_bad_profiles():
         "energy_count": 13,
         "supporter_count": 10,
         "item_count": 16,
+        "primary_energy_count": 8,
+        "energy_alignment_score": 8,
         "consistency_score": 50,
         "pressure_score": 20,
+        "stadium_count": 2,
+    })
+    assert "low_energy_alignment" in ravnica_balance_flags("azorius", {
+        "size": 60,
+        "copy_violations": [],
+        "pokemon_count": 16,
+        "basic_count": 9,
+        "energy_count": 13,
+        "supporter_count": 10,
+        "item_count": 16,
+        "primary_energy_count": 8,
+        "energy_alignment_score": 3,
+        "consistency_score": 50,
+        "pressure_score": 45,
         "stadium_count": 2,
     })
 
