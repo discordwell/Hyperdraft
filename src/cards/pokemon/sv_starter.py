@@ -20,6 +20,22 @@ from src.engine.types import PokemonType, Event, EventType, ZoneType, CardType
 # TRAINER CARD EFFECTS
 # =============================================================================
 
+def _choose_ai_bench_switch_target(state, player_id, candidates):
+    """Use the active Pokemon AI's promotion heuristic for Switch targets."""
+    game = getattr(state, '_game', None)
+    turn_manager = getattr(game, 'turn_manager', None) if game else None
+    ai_handler = getattr(turn_manager, 'pokemon_ai_handler', None)
+    ai_players = getattr(turn_manager, 'ai_players', set())
+    if not ai_handler or player_id not in ai_players:
+        return None
+
+    chooser = getattr(ai_handler, 'choose_promote', None)
+    if not chooser:
+        return None
+    chosen = chooser(player_id, state)
+    return chosen if chosen in candidates else None
+
+
 def _professors_research_effect(event, state):
     """Discard your hand and draw 7 cards."""
     player_id = event.payload.get('player')
@@ -282,22 +298,27 @@ def _switch_effect(event, state):
     bench_zone = state.zones.get(bench_key)
     if not active_zone or not active_zone.objects or not bench_zone or not bench_zone.objects:
         return []
-    # Pick best bench Pokemon to switch in (highest HP + most energy)
-    best_bench_id = None
-    best_score = -999
-    for pkm_id in bench_zone.objects:
-        pkm = state.objects.get(pkm_id)
-        if not pkm:
-            continue
-        score = 0
-        if pkm.card_def:
-            score += (pkm.card_def.hp or 0) / 10.0
-            # Count attached energy
-            energy_count = len(getattr(pkm.state, 'attached_energy', []))
-            score += energy_count * 5
-        if score > best_score:
-            best_score = score
-            best_bench_id = pkm_id
+
+    best_bench_id = _choose_ai_bench_switch_target(
+        state, player_id, list(bench_zone.objects))
+
+    # Non-AI fallback: pick highest HP plus most attached energy.
+    if not best_bench_id:
+        best_score = -999
+        for pkm_id in bench_zone.objects:
+            pkm = state.objects.get(pkm_id)
+            if not pkm:
+                continue
+            score = 0
+            if pkm.card_def:
+                score += (pkm.card_def.hp or 0) / 10.0
+                # Count attached energy
+                energy_count = len(getattr(pkm.state, 'attached_energy', []))
+                score += energy_count * 5
+            if score > best_score:
+                best_score = score
+                best_bench_id = pkm_id
+
     if not best_bench_id:
         return []
     # Swap
