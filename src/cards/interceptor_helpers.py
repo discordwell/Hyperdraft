@@ -3460,6 +3460,120 @@ def any_card_filter() -> Callable[[GameObject, GameState], bool]:
 
 
 # =============================================================================
+# CAST-FROM-ZONE PERMISSIONS (W7)
+# =============================================================================
+#
+# Thin wrapper around src/engine/cast_permission.py. Lets a setup_interceptors
+# function grant permission to cast a specific card from graveyard, exile, or
+# the top of the library — optionally for an alternate cost.
+#
+# Example (Bestial Bloodline-style "graveyard activation":
+#     def my_card_setup(obj, state):
+#         def activate(ev, st):
+#             # Find a target card in graveyard and grant a one-shot cast
+#             # permission until end of turn.
+#             return make_castable_from_graveyard(
+#                 obj, target_card_id=target.id, duration='end_of_turn',
+#             )
+#         ...
+#
+# For a continuous "Future Sight"-style permission ("you may cast the top
+# card of your library"), use ``make_castable_from_zone`` directly and pass
+# ``zone='library_top'`` with ``library_top_only=True``.
+# =============================================================================
+
+
+def make_castable_from_zone(
+    source_obj: GameObject,
+    *,
+    target_card_id: str,
+    zone,
+    duration: str = "permanent",
+    cost_modifier=None,
+    library_top_only: bool = False,
+) -> list[Interceptor]:
+    """Grant permission to cast ``target_card_id`` from ``zone``.
+
+    Returns a list of interceptors. Caller is responsible for registering
+    each via ``state.interceptors[i.id] = i`` (or by returning it from a
+    ``setup_interceptors`` function that the engine wires up automatically).
+    """
+    from src.engine.cast_permission import (
+        make_castable_from_zone as _impl,
+    )
+    return _impl(
+        source_obj,
+        target_card_id=target_card_id,
+        zone=zone,
+        duration=duration,
+        cost_modifier=cost_modifier,
+        library_top_only=library_top_only,
+    )
+
+
+def make_castable_from_graveyard(
+    source_obj: GameObject,
+    *,
+    target_card_id: str,
+    duration: str = "permanent",
+    cost_modifier=None,
+) -> list[Interceptor]:
+    """Convenience: grant permission to cast a specific card from a graveyard.
+
+    Common pattern: a Flashback-style ETB or one-shot effect that lets the
+    controller cast a specific card from a graveyard until end of turn. Pass
+    ``cost_modifier`` to use an alternate cost (e.g. ``ManaCost()`` for
+    "without paying its mana cost").
+    """
+    return make_castable_from_zone(
+        source_obj,
+        target_card_id=target_card_id,
+        zone="graveyard",
+        duration=duration,
+        cost_modifier=cost_modifier,
+    )
+
+
+def make_castable_from_exile(
+    source_obj: GameObject,
+    *,
+    target_card_id: str,
+    duration: str = "permanent",
+    cost_modifier=None,
+) -> list[Interceptor]:
+    """Convenience: grant permission to cast a specific card from exile."""
+    return make_castable_from_zone(
+        source_obj,
+        target_card_id=target_card_id,
+        zone="exile",
+        duration=duration,
+        cost_modifier=cost_modifier,
+    )
+
+
+def make_castable_from_library_top(
+    source_obj: GameObject,
+    *,
+    duration: str = "permanent",
+    cost_modifier=None,
+) -> list[Interceptor]:
+    """Convenience: continuous "may cast the top card of your library" effect.
+
+    Grants permission for any card the source's controller owns when that
+    card is currently the top of their library. Bolas's Citadel / Future
+    Sight-style.
+    """
+    return make_castable_from_zone(
+        source_obj,
+        target_card_id="*",
+        zone="library_top",
+        duration=duration,
+        cost_modifier=cost_modifier,
+        library_top_only=True,
+    )
+
+
+# =============================================================================
 # HAND -> BATTLEFIELD CHOICE (Kona, Rescue Beastie / Ghalta template)
 # =============================================================================
 #
