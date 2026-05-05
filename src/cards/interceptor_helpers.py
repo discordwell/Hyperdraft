@@ -6457,6 +6457,13 @@ def make_animate_via_exhaust(
     source as a rider (Aetherdrift's printed Vehicle-animate template adds
     one +1/+1 counter; Marshals' Pathcruiser adds two; Invasion Submersible
     adds three).
+
+    Implementation: composes ``make_vehicle_animation_ability`` (which goes
+    through ``GRANT_CREATURE_TYPE`` + ``PT_MODIFICATION`` events) plus a
+    ``becomes_creature`` sweep when ``subtypes_to_add`` is non-empty (so
+    those subtypes are dual-written onto ``obj.characteristics`` and
+    cleaned up at EOT) plus a ``COUNTER_ADDED`` rider when
+    ``plus_one_counters > 0``.
     """
     subtypes_set = set(subtypes_to_add or set())
     keyword_list = list(keywords or [])
@@ -6467,16 +6474,57 @@ def make_animate_via_exhaust(
     )
 
     def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
-        becomes_creature(
-            o, st,
-            power=power,
-            toughness=toughness,
-            subtypes=subtypes_set,
-            keywords=keyword_list,
-            duration="end_of_turn",
-        )
+        # 1. GRANT_CREATURE_TYPE — install the QUERY interceptor that adds
+        #    CREATURE to the type-set. Mirrors the pipeline handler so the
+        #    type flip is visible to ``get_types`` immediately.
+        _install_grant_creature_type(o, st, duration='end_of_turn')
+        # 2. PT_MODIFICATION — set the effective P/T to the requested base.
+        #    Mutate state directly (mirroring _handle_pt_modification) so the
+        #    effect lands even when callers consume resolve_fn directly.
+        printed_power = o.characteristics.power
+        if printed_power is None:
+            printed_power = 0
+        printed_toughness = o.characteristics.toughness
+        if printed_toughness is None:
+            printed_toughness = 0
+        if not hasattr(o.state, 'pt_modifiers'):
+            o.state.pt_modifiers = []
+        o.state.pt_modifiers.append({
+            'power': power - printed_power,
+            'toughness': toughness - printed_toughness,
+            'duration': 'end_of_turn',
+            'timestamp': st.timestamp,
+        })
+        # 3. Optional keyword grants — apply directly (mirroring
+        #    _handle_grant_keyword) so dual-readers on direct
+        #    ``obj.characteristics.abilities`` see the keyword.
+        for kw in keyword_list:
+            kw_norm = str(kw).strip().lower()
+            if not kw_norm:
+                continue
+            o.characteristics.abilities.append({
+                'keyword': kw_norm,
+                '_temporary': True,
+                '_duration': 'end_of_turn',
+            })
+        # 4. Subtype dual-write (matches becomes_creature's subtype-only
+        #    path, which stashes original subtypes for EOT cleanup).
+        if subtypes_set:
+            prior_subtypes = set(o.characteristics.subtypes)
+            o.characteristics.subtypes |= subtypes_set
+            cleanups = getattr(st, '_becomes_creature_cleanups', None)
+            if cleanups is None:
+                cleanups = {}
+                st._becomes_creature_cleanups = cleanups
+            cleanups[new_id()] = {
+                'target_id': o.id,
+                'original_subtypes': prior_subtypes,
+            }
+        # 5. Optional +1/+1 counter rider — emit as an event so the
+        #    counter handler runs.
+        events: list[Event] = []
         if counters > 0:
-            return [Event(
+            events.append(Event(
                 type=EventType.COUNTER_ADDED,
                 payload={
                     'object_id': o.id,
@@ -6484,11 +6532,178 @@ def make_animate_via_exhaust(
                     'amount': counters,
                 },
                 source=o.id, controller=o.controller,
-            )]
-        return []
+            ))
+        return events
 
     return make_exhaust_ability(
         obj, cost=cost, effect_fn=_effect, description=desc,
+    )
+
+
+# =============================================================================
+# Vehicle animation: GRANT_CREATURE_TYPE-based activated ability
+# =============================================================================
+#
+# Lower-level vehicle-animation helper. Unlike ``make_animate_via_exhaust``
+# (which delegates to the full ``becomes_creature`` sweep), this helper
+# composes two pipeline events:
+#
+#   1. ``GRANT_CREATURE_TYPE`` — installs a QUERY interceptor on the target
+#      so ``get_types(obj, state)`` returns a set that includes
+#      ``CardType.CREATURE``.
+#   2. ``PT_MODIFICATION`` — sets the source's effective P/T to the given
+#      base values for the duration.
+#
+# Plus an optional set of granted ``keywords`` (e.g. ``["vigilance"]``) via
+# ``GRANT_KEYWORD`` events. The activated ability is registered through
+# ``make_activated_ability`` so callers can plug arbitrary cost text and
+# the ``once_per_game`` flag is opt-in (the default is ``False``; pass
+# ``once_per_game=True`` to wrap the Aetherdrift Exhaust contract on top).
+#
+# This is the API the four wired Aetherdrift vehicle cards consume.
+# =============================================================================
+
+
+def _install_grant_creature_type(
+    obj: GameObject,
+    state: GameState,
+    *,
+    duration: str = "end_of_turn",
+):
+    """Install the QUERY_TYPES interceptor that adds CREATURE to ``obj``.
+
+    Mirrors the side-effect of the ``GRANT_CREATURE_TYPE`` pipeline handler
+    so callers (including the Vehicle animation activated abilities) can
+    take the effect immediately on ability resolution rather than waiting
+    for an event hop. The interceptor is tagged with
+    ``_grant_creature_type_tag`` and carries ``duration='end_of_turn'`` so
+    the standard cleanup sweep removes it.
+    """
+    target_id = obj.id
+    tag_id = new_id()
+
+    def _filter(ev: Event, st: GameState) -> bool:
+        return (
+            ev.type == EventType.QUERY_TYPES
+            and ev.payload.get("object_id") == target_id
+        )
+
+    def _handler(ev: Event, st: GameState) -> InterceptorResult:
+        new_event = ev.copy()
+        existing = new_event.payload.get("value")
+        if existing is None:
+            live = st.objects.get(target_id)
+            existing = set(live.characteristics.types) if live else set()
+        new_types = set(existing)
+        new_types.add(CardType.CREATURE)
+        new_event.payload["value"] = new_types
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    interceptor = Interceptor(
+        id=new_id(),
+        source=target_id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=_filter,
+        handler=_handler,
+        duration=duration,
+    )
+    setattr(interceptor, "_grant_creature_type_tag", tag_id)
+    state.interceptors[interceptor.id] = interceptor
+    interceptor.timestamp = state.next_timestamp()
+    return interceptor
+
+
+def make_vehicle_animation_ability(
+    obj: GameObject,
+    *,
+    cost: str,
+    power: int,
+    toughness: int,
+    duration: str = "end_of_turn",
+    keywords: Optional[list[str]] = None,
+    once_per_game: bool = False,
+    sorcery_speed: bool = False,
+    own_turn_only: bool = False,
+    description: Optional[str] = None,
+):
+    """Register an activated ability that animates a non-creature artifact.
+
+    On activation:
+      1. Adds ``CardType.CREATURE`` to the target's type-set via a QUERY
+         interceptor (matching the ``GRANT_CREATURE_TYPE`` event handler).
+      2. Sets the effective P/T to the requested base via a
+         ``PT_MODIFICATION`` event (the priority system emits this
+         through the pipeline; ``_handle_pt_modification`` records the
+         mod on ``obj.state.pt_modifiers`` for ``get_power`` / ``get_toughness``).
+      3. Optionally grants ``keywords`` via ``GRANT_KEYWORD`` events.
+
+    ``duration`` is one of:
+      - ``"end_of_turn"`` (default): standard EOT cleanup sweep removes
+        the QUERY interceptor and the P/T mod.
+      - ``"until_leaves"``: granted until the source leaves the battlefield.
+      - ``"forever"``: persists permanently (rarely used; reserved for
+        cards that say "this Vehicle is also a creature").
+
+    ``once_per_game=True`` makes the ability follow the Exhaust contract
+    (one activation per permanent, ever). ``sorcery_speed`` and
+    ``own_turn_only`` mirror ``make_activated_ability``.
+
+    Returns the registered ``ActivatedAbility`` descriptor.
+    """
+    keyword_list = list(keywords or [])
+    desc = description or (
+        f"{cost}: Until end of turn, this Vehicle becomes a "
+        f"{power}/{toughness} artifact creature"
+        + (f" with {', '.join(keyword_list)}." if keyword_list else ".")
+    )
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        # 1. Install the GRANT_CREATURE_TYPE QUERY interceptor (mirrors the
+        #    pipeline handler so the type flip is visible to ``get_types``
+        #    immediately).
+        _install_grant_creature_type(o, st, duration=duration)
+        # 2. PT_MODIFICATION — apply directly so ``get_power`` /
+        #    ``get_toughness`` see the override even when the caller
+        #    consumes the resolve_fn return list directly.
+        printed_power = o.characteristics.power
+        if printed_power is None:
+            printed_power = 0
+        printed_toughness = o.characteristics.toughness
+        if printed_toughness is None:
+            printed_toughness = 0
+        if not hasattr(o.state, 'pt_modifiers'):
+            o.state.pt_modifiers = []
+        o.state.pt_modifiers.append({
+            'power': power - printed_power,
+            'toughness': toughness - printed_toughness,
+            'duration': duration,
+            'timestamp': st.timestamp,
+        })
+        # 3. Granted keywords — apply directly so direct readers on
+        #    ``obj.characteristics.abilities`` see them.
+        for kw in keyword_list:
+            kw_norm = str(kw).strip().lower()
+            if not kw_norm:
+                continue
+            o.characteristics.abilities.append({
+                'keyword': kw_norm,
+                '_temporary': True,
+                '_duration': duration,
+            })
+        return []
+
+    return make_activated_ability(
+        obj,
+        cost=cost,
+        effect_fn=_effect,
+        description=desc,
+        sorcery_speed=sorcery_speed,
+        own_turn_only=own_turn_only,
+        once_per_game=once_per_game,
     )
 
 
