@@ -1455,6 +1455,11 @@ class HearthstoneAIAdapter:
                     if hero and hero.state.frozen:
                         return False
 
+                # Weapon hero powers: do not replace an existing weapon before
+                # the attack phase. The AI attacks after hero-power decisions.
+                elif 'equip' in hp_text and player.weapon_durability > 0:
+                    return False
+
                 # Summon with board >= 6: skip (leave room)
                 elif 'summon' in hp_text:
                     from src.engine.types import CardType
