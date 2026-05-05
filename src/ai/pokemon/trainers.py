@@ -38,13 +38,32 @@ def _score_professors_research(ctx: TurnContext, state: GameState, player_id: st
     hand_size = (len(ctx.my_hand_energy) + len(ctx.my_hand_basics) +
                  len(ctx.my_hand_evolutions) + len(ctx.my_hand_items) +
                  len(ctx.my_hand_supporters))
+    score = 0.0
     if hand_size <= 2:
-        return 50.0
-    if hand_size <= 4:
-        return 40.0
-    if hand_size <= 6:
-        return 25.0
-    return 8.0
+        score = 50.0
+    elif hand_size <= 4:
+        score = 40.0
+    elif hand_size <= 6:
+        score = 25.0
+    else:
+        score = 8.0
+
+    # Do not cash hand-reset draw through an assembled Rare Candy + Stage 2 line.
+    has_rare_candy = any(
+        (state.objects.get(card_id) and state.objects[card_id].name == "Rare Candy")
+        for card_id in ctx.my_hand_items
+    )
+    has_stage2 = any(
+        state.objects.get(card_id)
+        and state.objects[card_id].card_def
+        and state.objects[card_id].card_def.evolution_stage == "Stage 2"
+        for card_id in ctx.my_hand_evolutions
+    )
+    if has_rare_candy and has_stage2:
+        score -= 55.0
+    elif ctx.my_hand_evolutions:
+        score -= 15.0
+    return score
 
 
 @trainer_scorer("Iono")
